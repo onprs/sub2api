@@ -490,7 +490,7 @@ const platformOptions = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'gemini', label: 'Gemini' },
   { value: 'antigravity', label: 'Antigravity' },
-  { value: 'opencode_go', label: 'OpenCode Go' }
+  { value: 'grok', label: 'Grok' }
 ]
 
 // Load rules when dialog opens

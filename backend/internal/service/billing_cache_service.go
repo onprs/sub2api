@@ -111,6 +111,11 @@ type apiKeyRateLimitLoader interface {
 	GetRateLimitData(ctx context.Context, keyID int64) (*APIKeyRateLimitData, error)
 }
 
+type subscriptionCacheInvalidationPubSub interface {
+	PublishSubscriptionCacheInvalidation(ctx context.Context, cacheKey string) error
+	SubscribeSubscriptionCacheInvalidation(ctx context.Context, handler func(cacheKey string)) error
+}
+
 // BillingCacheService 计费缓存服务
 // 负责余额和订阅数据的缓存管理，提供高性能的计费资格检查
 type BillingCacheService struct {
@@ -574,6 +579,28 @@ func (s *BillingCacheService) InvalidateSubscription(ctx context.Context, userID
 	return nil
 }
 
+func (s *BillingCacheService) PublishSubscriptionCacheInvalidation(ctx context.Context, cacheKey string) error {
+	if s.cache == nil {
+		return nil
+	}
+	pubsub, ok := s.cache.(subscriptionCacheInvalidationPubSub)
+	if !ok {
+		return nil
+	}
+	return pubsub.PublishSubscriptionCacheInvalidation(ctx, cacheKey)
+}
+
+func (s *BillingCacheService) SubscribeSubscriptionCacheInvalidation(ctx context.Context, handler func(cacheKey string)) error {
+	if s.cache == nil {
+		return nil
+	}
+	pubsub, ok := s.cache.(subscriptionCacheInvalidationPubSub)
+	if !ok {
+		return nil
+	}
+	return pubsub.SubscribeSubscriptionCacheInvalidation(ctx, handler)
+}
+
 // InvalidateAPIKeyRateLimit invalidates the Redis rate-limit usage cache for an API key.
 func (s *BillingCacheService) InvalidateAPIKeyRateLimit(ctx context.Context, keyID int64) error {
 	if s.cache == nil {
@@ -882,6 +909,21 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 	return nil
 }
 
+func (s *BillingCacheService) minimumBalanceReserve() float64 {
+	if s == nil || s.cfg == nil || s.cfg.Billing.MinimumBalanceReserve <= 0 {
+		return 0
+	}
+	return s.cfg.Billing.MinimumBalanceReserve
+}
+
+func (s *BillingCacheService) balanceBelowEligibilityThreshold(balance float64) bool {
+	if balance <= 0 {
+		return true
+	}
+	minimumReserve := s.minimumBalanceReserve()
+	return minimumReserve > 0 && balance < minimumReserve
+}
+
 // checkBalanceEligibility 检查余额模式资格
 func (s *BillingCacheService) checkBalanceEligibility(ctx context.Context, userID int64) error {
 	balance, err := s.GetUserBalance(ctx, userID)
@@ -896,7 +938,7 @@ func (s *BillingCacheService) checkBalanceEligibility(ctx context.Context, userI
 		s.circuitBreaker.OnSuccess()
 	}
 
-	if balance <= 0 {
+	if s.balanceBelowEligibilityThreshold(balance) {
 		return ErrInsufficientBalance
 	}
 

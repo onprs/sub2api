@@ -12,7 +12,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
+	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -40,6 +40,169 @@ func (p paymentFulfillmentTestProvider) VerifyNotification(ctx context.Context, 
 }
 func (p paymentFulfillmentTestProvider) Refund(ctx context.Context, req payment.RefundRequest) (*payment.RefundResponse, error) {
 	panic("unexpected call")
+}
+
+type paymentFulfillmentAffiliateAccrueCall struct {
+	inviterID     int64
+	inviteeUserID int64
+	amount        float64
+	freezeHours   int
+	sourceOrderID *int64
+}
+
+type paymentFulfillmentAffiliateRepoStub struct {
+	inviteeSummary *AffiliateSummary
+	inviterSummary *AffiliateSummary
+	accrueCalls    []paymentFulfillmentAffiliateAccrueCall
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) EnsureUserAffiliate(_ context.Context, userID int64) (*AffiliateSummary, error) {
+	switch {
+	case r.inviteeSummary != nil && r.inviteeSummary.UserID == userID:
+		cp := *r.inviteeSummary
+		return &cp, nil
+	case r.inviterSummary != nil && r.inviterSummary.UserID == userID:
+		cp := *r.inviterSummary
+		return &cp, nil
+	default:
+		return &AffiliateSummary{UserID: userID, AffCode: "AFFTEST", CreatedAt: time.Now().Add(-time.Hour)}, nil
+	}
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) GetAffiliateByCode(context.Context, string) (*AffiliateSummary, error) {
+	panic("unexpected GetAffiliateByCode call")
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) BindInviter(context.Context, int64, int64) (bool, error) {
+	panic("unexpected BindInviter call")
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) AccrueQuota(_ context.Context, inviterID, inviteeUserID int64, amount float64, freezeHours int, sourceOrderID *int64) (bool, error) {
+	var sourceCopy *int64
+	if sourceOrderID != nil {
+		v := *sourceOrderID
+		sourceCopy = &v
+	}
+	r.accrueCalls = append(r.accrueCalls, paymentFulfillmentAffiliateAccrueCall{
+		inviterID:     inviterID,
+		inviteeUserID: inviteeUserID,
+		amount:        amount,
+		freezeHours:   freezeHours,
+		sourceOrderID: sourceCopy,
+	})
+	return true, nil
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) GetAccruedRebateFromInvitee(context.Context, int64, int64) (float64, error) {
+	return 0, nil
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) ThawFrozenQuota(context.Context, int64) (float64, error) {
+	panic("unexpected ThawFrozenQuota call")
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) TransferQuotaToBalance(context.Context, int64) (float64, float64, error) {
+	panic("unexpected TransferQuotaToBalance call")
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) ListInvitees(context.Context, int64, int) ([]AffiliateInvitee, error) {
+	panic("unexpected ListInvitees call")
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) UpdateUserAffCode(context.Context, int64, string) error {
+	panic("unexpected UpdateUserAffCode call")
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) ResetUserAffCode(context.Context, int64) (string, error) {
+	panic("unexpected ResetUserAffCode call")
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) SetUserRebateRate(context.Context, int64, *float64) error {
+	panic("unexpected SetUserRebateRate call")
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) BatchSetUserRebateRate(context.Context, []int64, *float64) error {
+	panic("unexpected BatchSetUserRebateRate call")
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) ListUsersWithCustomSettings(context.Context, AffiliateAdminFilter) ([]AffiliateAdminEntry, int64, error) {
+	panic("unexpected ListUsersWithCustomSettings call")
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) ListAffiliateInviteRecords(context.Context, AffiliateRecordFilter) ([]AffiliateInviteRecord, int64, error) {
+	panic("unexpected ListAffiliateInviteRecords call")
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) ListAffiliateRebateRecords(context.Context, AffiliateRecordFilter) ([]AffiliateRebateRecord, int64, error) {
+	panic("unexpected ListAffiliateRebateRecords call")
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) ListAffiliateTransferRecords(context.Context, AffiliateRecordFilter) ([]AffiliateTransferRecord, int64, error) {
+	panic("unexpected ListAffiliateTransferRecords call")
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) GetAffiliateUserOverview(context.Context, int64) (*AffiliateUserOverview, error) {
+	panic("unexpected GetAffiliateUserOverview call")
+}
+
+type paymentFulfillmentSettingRepoStub struct {
+	values map[string]string
+}
+
+func (s *paymentFulfillmentSettingRepoStub) Get(context.Context, string) (*Setting, error) {
+	return nil, ErrSettingNotFound
+}
+
+func (s *paymentFulfillmentSettingRepoStub) GetValue(_ context.Context, key string) (string, error) {
+	if s.values == nil {
+		return "", ErrSettingNotFound
+	}
+	value, ok := s.values[key]
+	if !ok {
+		return "", ErrSettingNotFound
+	}
+	return value, nil
+}
+
+func (s *paymentFulfillmentSettingRepoStub) Set(_ context.Context, key, value string) error {
+	if s.values == nil {
+		s.values = map[string]string{}
+	}
+	s.values[key] = value
+	return nil
+}
+
+func (s *paymentFulfillmentSettingRepoStub) GetMultiple(_ context.Context, keys []string) (map[string]string, error) {
+	out := make(map[string]string, len(keys))
+	for _, key := range keys {
+		out[key] = s.values[key]
+	}
+	return out, nil
+}
+
+func (s *paymentFulfillmentSettingRepoStub) SetMultiple(_ context.Context, values map[string]string) error {
+	if s.values == nil {
+		s.values = map[string]string{}
+	}
+	for key, value := range values {
+		s.values[key] = value
+	}
+	return nil
+}
+
+func (s *paymentFulfillmentSettingRepoStub) GetAll(context.Context) (map[string]string, error) {
+	return s.values, nil
+}
+
+func (s *paymentFulfillmentSettingRepoStub) Delete(_ context.Context, key string) error {
+	delete(s.values, key)
+	return nil
+}
+
+func ensurePaymentAuditOrderActionUniqueIndex(t *testing.T, ctx context.Context, client *dbent.Client) {
+	t.Helper()
+	_, err := client.ExecContext(ctx, "CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_audit_logs_order_action_uniq ON payment_audit_logs(order_id, action)")
+	require.NoError(t, err)
 }
 
 // ---------------------------------------------------------------------------
@@ -425,449 +588,410 @@ func TestPaymentAmountToleranceForThreeDecimalCurrency(t *testing.T) {
 	assert.InDelta(t, 0.0005, paymentAmountToleranceForCurrency("KWD"), 1e-12)
 }
 
-func TestDoSubSnapshotsRollingQuotaLimitsFromPurchasedOrder(t *testing.T) {
+func TestRetryFulfillmentRejectsFreshRechargingLease(t *testing.T) {
 	ctx := context.Background()
-	client := newOrderNotFoundTestClient(t)
-	user := client.User.Create().
-		SetEmail("quota-buyer@example.com").
-		SetPasswordHash("hash").
-		SetUsername("quota-buyer").
-		SaveX(ctx)
-	five := 1.25
-	seven := 7.5
-	thirty := 30.75
-	plan := client.SubscriptionPlan.Create().
-		SetGroupID(42).
-		SetName("Quota Pro").
-		SetPrice(9.99).
-		SetValidityDays(30).
-		SetValidityUnit("days").
-		SetFiveHourLimitUsd(99).
-		SetSevenDayLimitUsd(99).
-		SetThirtyDayLimitUsd(99).
-		SaveX(ctx)
-	days := 30
-	order := client.PaymentOrder.Create().
-		SetUserID(user.ID).
-		SetUserEmail(user.Email).
-		SetUserName(user.Username).
-		SetAmount(plan.Price).
-		SetPayAmount(plan.Price).
-		SetRechargeCode("PAY-ROLLING-QUOTA").
-		SetOutTradeNo("sub2_rolling_quota").
-		SetPaymentType(payment.TypeAlipay).
-		SetPaymentTradeNo("trade_rolling_quota").
-		SetOrderType(payment.OrderTypeSubscription).
-		SetStatus(OrderStatusRecharging).
-		SetExpiresAt(time.Now().Add(time.Hour)).
-		SetClientIP("127.0.0.1").
-		SetSrcHost("example.com").
-		SetPlanID(plan.ID).
-		SetSubscriptionGroupID(plan.GroupID).
-		SetSubscriptionDays(days).
-		SetSubscriptionQuotaSnapshotVersion(1).
-		SetNillableSubscriptionFiveHourLimitUsd(&five).
-		SetNillableSubscriptionSevenDayLimitUsd(&seven).
-		SetNillableSubscriptionThirtyDayLimitUsd(&thirty).
-		SaveX(ctx)
+	client := newPaymentConfigServiceTestClient(t)
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusRecharging, time.Now())
+
+	svc := &PaymentService{entClient: client}
+	err := svc.RetryFulfillment(ctx, order.ID)
+	require.Error(t, err)
+	require.Equal(t, "CONFLICT", infraerrors.Reason(err))
+
+	reloaded, getErr := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, getErr)
+	require.Equal(t, OrderStatusRecharging, reloaded.Status)
+}
+
+func TestAlreadyProcessedRecoversStaleRechargingLease(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+	order := createPaymentFulfillmentSubscriptionOrder(
+		t,
+		ctx,
+		client,
+		OrderStatusRecharging,
+		time.Now().Add(-paymentFulfillmentLeaseDuration-time.Minute),
+	)
+	_, err := client.PaymentAuditLog.Create().
+		SetOrderID(strconv.FormatInt(order.ID, 10)).
+		SetAction("SUBSCRIPTION_ASSIGNED").
+		SetDetail(`{"groupID":7,"validityDays":30}`).
+		SetOperator("system").
+		Save(ctx)
+	require.NoError(t, err)
 
 	groupRepo := &subscriptionGroupRepoStub{
-		group: &Group{
-			ID:               plan.GroupID,
-			Status:           payment.EntityStatusActive,
-			SubscriptionType: SubscriptionTypeSubscription,
-		},
+		group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription},
 	}
-	subRepo := newSubscriptionUserSubRepoStub()
-	subscriptionSvc := NewSubscriptionService(groupRepo, subRepo, nil, nil, nil)
 	svc := &PaymentService{
 		entClient:       client,
 		groupRepo:       groupRepo,
-		subscriptionSvc: subscriptionSvc,
+		subscriptionSvc: NewSubscriptionService(groupRepo, userSubRepoNoop{}, nil, nil, nil),
 	}
 
-	require.NoError(t, svc.doSub(ctx, order))
-
-	sub, err := subRepo.GetByUserIDGroupIDAndPlanID(ctx, user.ID, plan.GroupID, &plan.ID)
+	require.NoError(t, svc.alreadyProcessed(ctx, order))
+	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
 	require.NoError(t, err)
-	require.Equal(t, plan.ID, *sub.PlanID)
-	require.Equal(t, five, *sub.FiveHourLimitUSD)
-	require.Equal(t, seven, *sub.SevenDayLimitUSD)
-	require.Equal(t, thirty, *sub.ThirtyDayLimitUSD)
-	require.Zero(t, sub.FiveHourUsageUSD)
-	require.Nil(t, sub.FiveHourWindowStart)
-
-	reloadedOrder, err := client.PaymentOrder.Get(ctx, order.ID)
-	require.NoError(t, err)
-	require.NotNil(t, reloadedOrder.SubscriptionID)
-	require.Equal(t, sub.ID, *reloadedOrder.SubscriptionID)
+	require.Equal(t, OrderStatusCompleted, reloaded.Status)
 }
 
-func TestDoSubRollsBackSubscriptionWhenOrderCompletionFails(t *testing.T) {
+func TestFulfillmentLeaseVersionRejectsStaleWorker(t *testing.T) {
 	ctx := context.Background()
-	client := newOrderNotFoundTestClient(t)
-	user := client.User.Create().
-		SetEmail("rollback-buyer@example.com").
-		SetPasswordHash("hash").
-		SetUsername("rollback-buyer").
-		SaveX(ctx)
+	client := newPaymentConfigServiceTestClient(t)
+	staleAt := time.Now().Add(-paymentFulfillmentLeaseDuration - time.Minute)
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusRecharging, staleAt)
+	svc := &PaymentService{entClient: client}
 
-	group := client.Group.Create().
-		SetName("Rollback Plan Group").
-		SetStatus(payment.EntityStatusActive).
-		SetSubscriptionType(SubscriptionTypeSubscription).
-		SaveX(ctx)
-	groupID := group.ID
-	days := 30
-	order := client.PaymentOrder.Create().
+	firstLease, err := svc.acquirePaymentFulfillmentLease(ctx, order)
+	require.NoError(t, err)
+	require.NotNil(t, firstLease)
+
+	_, err = client.PaymentOrder.UpdateOneID(order.ID).SetUpdatedAt(staleAt).Save(ctx)
+	require.NoError(t, err)
+	time.Sleep(time.Millisecond)
+	staleOrder, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	secondLease, err := svc.acquirePaymentFulfillmentLease(ctx, staleOrder)
+	require.NoError(t, err)
+	require.NotNil(t, secondLease)
+	require.False(t, firstLease.version.Equal(secondLease.version))
+
+	err = svc.markCompleted(ctx, order, firstLease, "SUBSCRIPTION_SUCCESS")
+	require.Error(t, err)
+	require.Equal(t, "CONFLICT", infraerrors.Reason(err))
+	svc.markFailed(ctx, order.ID, firstLease, errors.New("stale worker failure"))
+
+	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusRecharging, reloaded.Status)
+	require.NoError(t, svc.markCompleted(ctx, order, secondLease, "SUBSCRIPTION_SUCCESS"))
+}
+
+func TestExecuteBalanceFulfillmentRecoversAfterRedeemWithoutCreditingAgain(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+	staleAt := time.Now().Add(-paymentFulfillmentLeaseDuration - time.Minute)
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusRecharging, staleAt)
+	order, err := client.PaymentOrder.UpdateOneID(order.ID).
+		SetOrderType(payment.OrderTypeBalance).
+		ClearPlanID().
+		ClearSubscriptionGroupID().
+		ClearSubscriptionDays().
+		SetUpdatedAt(staleAt).
+		Save(ctx)
+	require.NoError(t, err)
+
+	redeemRepo := &redeemCodeRepoStub{codesByCode: map[string]*RedeemCode{
+		order.RechargeCode: {
+			ID:     101,
+			Code:   order.RechargeCode,
+			Type:   RedeemTypeBalance,
+			Value:  order.Amount,
+			Status: StatusUsed,
+		},
+	}}
+	svc := &PaymentService{
+		entClient:     client,
+		redeemService: &RedeemService{redeemRepo: redeemRepo},
+	}
+
+	require.NoError(t, svc.ExecuteBalanceFulfillment(ctx, order.ID))
+	require.Empty(t, redeemRepo.useCalls, "an already-used order code must not be redeemed again")
+	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusCompleted, reloaded.Status)
+}
+
+func TestExecuteSubscriptionFulfillmentRecoversCommittedAssignmentWithoutExtendingAgain(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+	staleAt := time.Now().Add(-paymentFulfillmentLeaseDuration - time.Minute)
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusRecharging, staleAt)
+
+	expiresAt := time.Now().Add(30 * 24 * time.Hour).Truncate(time.Second)
+	subRepo := newSubscriptionUserSubRepoStub()
+	subRepo.seed(&UserSubscription{
+		ID:        99,
+		UserID:    order.UserID,
+		GroupID:   *order.SubscriptionGroupID,
+		StartsAt:  time.Now().Add(-time.Hour),
+		ExpiresAt: expiresAt,
+		Status:    SubscriptionStatusActive,
+		Notes:     "manual note\n" + paymentSubscriptionOrderNote(order.ID) + "\nretained note",
+	})
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription},
+	}
+	svc := &PaymentService{
+		entClient:       client,
+		groupRepo:       groupRepo,
+		subscriptionSvc: NewSubscriptionService(groupRepo, subRepo, nil, nil, nil),
+	}
+
+	require.NoError(t, svc.ExecuteSubscriptionFulfillment(ctx, order.ID))
+	assertPaymentSubscriptionExpiry(t, subRepo, order, expiresAt)
+
+	assignmentAuditCount, err := client.PaymentAuditLog.Query().
+		Where(
+			paymentauditlog.OrderIDEQ(strconv.FormatInt(order.ID, 10)),
+			paymentauditlog.ActionEQ("SUBSCRIPTION_ASSIGNED"),
+		).
+		Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, assignmentAuditCount)
+
+	// Simulate another stale recovery attempt after completion. The durable audit
+	// must make replay a no-op for the subscription entitlement.
+	_, err = client.PaymentOrder.UpdateOneID(order.ID).
+		SetStatus(OrderStatusRecharging).
+		SetUpdatedAt(staleAt).
+		ClearCompletedAt().
+		Save(ctx)
+	require.NoError(t, err)
+	require.NoError(t, svc.ExecuteSubscriptionFulfillment(ctx, order.ID))
+	assertPaymentSubscriptionExpiry(t, subRepo, order, expiresAt)
+
+	assignmentAuditCount, err = client.PaymentAuditLog.Query().
+		Where(
+			paymentauditlog.OrderIDEQ(strconv.FormatInt(order.ID, 10)),
+			paymentauditlog.ActionEQ("SUBSCRIPTION_ASSIGNED"),
+		).
+		Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, assignmentAuditCount)
+}
+
+func TestHasPaymentSubscriptionOrderNoteRequiresIndependentExactLine(t *testing.T) {
+	t.Parallel()
+	require.True(t, hasPaymentSubscriptionOrderNote("before\r\npayment order 42\r\nafter", "payment order 42"))
+	require.False(t, hasPaymentSubscriptionOrderNote("payment order 420", "payment order 42"))
+	require.False(t, hasPaymentSubscriptionOrderNote("prefix payment order 42 suffix", "payment order 42"))
+}
+
+func createPaymentFulfillmentSubscriptionOrder(
+	t *testing.T,
+	ctx context.Context,
+	client *dbent.Client,
+	status string,
+	updatedAt time.Time,
+) *dbent.PaymentOrder {
+	t.Helper()
+	user, err := client.User.Create().
+		SetEmail("fulfillment-" + strconv.FormatInt(time.Now().UnixNano(), 10) + "@example.com").
+		SetPasswordHash("hash").
+		SetUsername("payment-fulfillment-user").
+		Save(ctx)
+	require.NoError(t, err)
+
+	order, err := client.PaymentOrder.Create().
+		SetUserID(user.ID).
+		SetUserEmail(user.Email).
+		SetUserName(user.Username).
+		SetAmount(80).
+		SetPayAmount(80).
+		SetFeeRate(0).
+		SetRechargeCode("PAY-SUB-" + strconv.FormatInt(time.Now().UnixNano(), 10)).
+		SetOutTradeNo("sub2_fulfillment_" + strconv.FormatInt(time.Now().UnixNano(), 10)).
+		SetPaymentType(payment.TypeAlipay).
+		SetPaymentTradeNo("trade-fulfillment").
+		SetOrderType(payment.OrderTypeSubscription).
+		SetPlanID(100).
+		SetSubscriptionGroupID(7).
+		SetSubscriptionDays(30).
+		SetStatus(status).
+		SetPaidAt(time.Now().Add(-time.Hour)).
+		SetExpiresAt(time.Now().Add(time.Hour)).
+		SetClientIP("127.0.0.1").
+		SetSrcHost("api.example.com").
+		SetUpdatedAt(updatedAt).
+		Save(ctx)
+	require.NoError(t, err)
+	return order
+}
+
+func assertPaymentSubscriptionExpiry(t *testing.T, repo *subscriptionUserSubRepoStub, order *dbent.PaymentOrder, expected time.Time) {
+	t.Helper()
+	sub, err := repo.GetByUserIDAndGroupID(context.Background(), order.UserID, *order.SubscriptionGroupID)
+	require.NoError(t, err)
+	require.True(t, sub.ExpiresAt.Equal(expected), "subscription expiry changed from %s to %s", expected, sub.ExpiresAt)
+}
+
+func TestExecuteSubscriptionFulfillmentAppliesAffiliateRebate(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+
+	user, err := client.User.Create().
+		SetEmail("subscription-affiliate@example.com").
+		SetPasswordHash("hash").
+		SetUsername("subscription-affiliate-user").
+		Save(ctx)
+	require.NoError(t, err)
+
+	order, err := client.PaymentOrder.Create().
 		SetUserID(user.ID).
 		SetUserEmail(user.Email).
 		SetUserName(user.Username).
 		SetAmount(9.99).
-		SetPayAmount(9.99).
-		SetRechargeCode("PAY-SUB-ROLLBACK").
-		SetOutTradeNo("sub2_subscription_rollback").
+		SetPayAmount(71.36).
+		SetFeeRate(0).
+		SetRechargeCode("PAY-SUB-AFFILIATE").
+		SetOutTradeNo("sub2_subscription_affiliate").
 		SetPaymentType(payment.TypeAlipay).
-		SetPaymentTradeNo("trade_subscription_rollback").
+		SetPaymentTradeNo("trade-sub-affiliate").
 		SetOrderType(payment.OrderTypeSubscription).
-		SetStatus(OrderStatusRecharging).
+		SetPlanID(99).
+		SetSubscriptionGroupID(7).
+		SetSubscriptionDays(30).
+		SetStatus(OrderStatusPaid).
 		SetExpiresAt(time.Now().Add(time.Hour)).
 		SetClientIP("127.0.0.1").
-		SetSrcHost("example.com").
-		SetSubscriptionGroupID(groupID).
-		SetSubscriptionDays(days).
-		SetSubscriptionQuotaSnapshotVersion(1).
-		SaveX(ctx)
+		SetSrcHost("api.example.com").
+		Save(ctx)
+	require.NoError(t, err)
 
-	failCompletion := true
-	client.PaymentOrder.Use(func(next dbent.Mutator) dbent.Mutator {
-		return dbent.MutateFunc(func(ctx context.Context, m dbent.Mutation) (dbent.Value, error) {
-			pm, ok := m.(*dbent.PaymentOrderMutation)
-			if ok && m.Op().Is(dbent.OpUpdate) {
-				if status, exists := pm.Status(); exists && status == OrderStatusCompleted && failCompletion {
-					return nil, errors.New("forced completed update failure")
-				}
-			}
-			return next.Mutate(ctx, m)
-		})
-	})
-
-	groupRepo := &subscriptionGroupRepoStub{
-		group: &Group{
-			ID:               groupID,
-			Status:           payment.EntityStatusActive,
-			SubscriptionType: SubscriptionTypeSubscription,
+	inviterID := int64(9001)
+	affiliateRepo := &paymentFulfillmentAffiliateRepoStub{
+		inviteeSummary: &AffiliateSummary{
+			UserID:    user.ID,
+			AffCode:   "INVITEE",
+			InviterID: &inviterID,
+			CreatedAt: time.Now().Add(-24 * time.Hour),
+		},
+		inviterSummary: &AffiliateSummary{
+			UserID:    inviterID,
+			AffCode:   "INVITER",
+			CreatedAt: time.Now().Add(-48 * time.Hour),
 		},
 	}
-	subRepo := &paymentFulfillmentEntSubRepo{client: client}
-	subscriptionSvc := NewSubscriptionService(groupRepo, subRepo, nil, nil, nil)
+	settingSvc := NewSettingService(&paymentFulfillmentSettingRepoStub{values: map[string]string{
+		SettingKeyAffiliateEnabled:           "true",
+		SettingKeyAffiliateRebateRate:        "15",
+		SettingKeyAffiliateRebateFreezeHours: "0",
+	}}, nil)
+	subRepo := newSubscriptionUserSubRepoStub()
+	subscriptionSvc := NewSubscriptionService(&subscriptionGroupRepoStub{
+		group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription},
+	}, subRepo, nil, nil, nil)
 	svc := &PaymentService{
-		entClient:       client,
-		groupRepo:       groupRepo,
-		subscriptionSvc: subscriptionSvc,
+		entClient:        client,
+		groupRepo:        &subscriptionGroupRepoStub{group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription}},
+		subscriptionSvc:  subscriptionSvc,
+		affiliateService: NewAffiliateService(affiliateRepo, settingSvc, nil, nil),
 	}
 
-	err := svc.doSub(ctx, order)
+	err = svc.ExecuteSubscriptionFulfillment(ctx, order.ID)
+	require.NoError(t, err)
 
-	require.ErrorContains(t, err, "forced completed update failure")
-	count := client.UserSubscription.Query().
-		Where(usersubscription.UserIDEQ(user.ID), usersubscription.GroupIDEQ(groupID)).
-		CountX(ctx)
-	require.Zero(t, count, "subscription entitlement must roll back when order completion fails")
-	auditCount := client.PaymentAuditLog.Query().CountX(ctx)
-	require.Zero(t, auditCount, "success audit must roll back with failed fulfillment")
-
-	failCompletion = false
-	require.NoError(t, svc.doSub(ctx, order))
-
-	count = client.UserSubscription.Query().
-		Where(usersubscription.UserIDEQ(user.ID), usersubscription.GroupIDEQ(groupID)).
-		CountX(ctx)
-	require.Equal(t, 1, count)
 	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
 	require.NoError(t, err)
 	require.Equal(t, OrderStatusCompleted, reloaded.Status)
-	auditCount = client.PaymentAuditLog.Query().CountX(ctx)
-	require.Equal(t, 1, auditCount)
-}
+	require.Len(t, affiliateRepo.accrueCalls, 1)
+	require.Equal(t, inviterID, affiliateRepo.accrueCalls[0].inviterID)
+	require.Equal(t, user.ID, affiliateRepo.accrueCalls[0].inviteeUserID)
+	require.InDelta(t, 1.4985, affiliateRepo.accrueCalls[0].amount, 0.00000001)
+	require.NotNil(t, affiliateRepo.accrueCalls[0].sourceOrderID)
+	require.Equal(t, order.ID, *affiliateRepo.accrueCalls[0].sourceOrderID)
+	require.Equal(t, 1, subRepo.createCalls)
 
-func TestValidateSubOrderRejectsSoldOutPlan(t *testing.T) {
-	ctx := context.Background()
-	client := newOrderNotFoundTestClient(t)
-	stock := 0
-	plan := client.SubscriptionPlan.Create().
-		SetGroupID(42).
-		SetName("Sold Out").
-		SetPrice(9.99).
-		SetValidityDays(30).
-		SetValidityUnit("days").
-		SetForSale(true).
-		SetStock(stock).
-		SaveX(ctx)
-	groupRepo := &subscriptionGroupRepoStub{
-		group: &Group{
-			ID:               plan.GroupID,
-			Status:           payment.EntityStatusActive,
-			SubscriptionType: SubscriptionTypeSubscription,
-		},
-	}
-	svc := &PaymentService{
-		entClient:     client,
-		configService: NewPaymentConfigService(client, nil, nil),
-		groupRepo:     groupRepo,
-	}
-
-	_, err := svc.validateSubOrder(ctx, CreateOrderRequest{
-		UserID:    100,
-		OrderType: payment.OrderTypeSubscription,
-		PlanID:    plan.ID,
-	})
-
-	require.Error(t, err)
-	require.Equal(t, "PLAN_SOLD_OUT", infraerrors.Reason(err))
-}
-
-func TestDoSubConsumesFinitePlanStock(t *testing.T) {
-	ctx := context.Background()
-	client := newOrderNotFoundTestClient(t)
-	plan, order, userID := createSubscriptionFulfillmentOrderWithStock(t, ctx, client, 1)
-	svc := newPaymentFulfillmentStockTestService(client, plan)
-
-	require.NoError(t, svc.doSub(ctx, order))
-
-	reloadedPlan, err := client.SubscriptionPlan.Get(ctx, plan.ID)
-	require.NoError(t, err)
-	require.NotNil(t, reloadedPlan.Stock)
-	require.Equal(t, 0, *reloadedPlan.Stock)
-	count := client.UserSubscription.Query().
-		Where(usersubscription.UserIDEQ(userID), usersubscription.GroupIDEQ(plan.GroupID)).
-		CountX(ctx)
-	require.Equal(t, 1, count)
-}
-
-func TestDoSubRejectsSoldOutPlanAndDoesNotCreateSubscription(t *testing.T) {
-	ctx := context.Background()
-	client := newOrderNotFoundTestClient(t)
-	plan, order, userID := createSubscriptionFulfillmentOrderWithStock(t, ctx, client, 0)
-	svc := newPaymentFulfillmentStockTestService(client, plan)
-
-	err := svc.doSub(ctx, order)
-
-	require.Error(t, err)
-	require.Equal(t, "PLAN_SOLD_OUT", infraerrors.Reason(err))
-	count := client.UserSubscription.Query().
-		Where(usersubscription.UserIDEQ(userID), usersubscription.GroupIDEQ(plan.GroupID)).
-		CountX(ctx)
-	require.Zero(t, count)
-}
-
-func TestDoSubRollsBackStockWhenOrderCompletionFails(t *testing.T) {
-	ctx := context.Background()
-	client := newOrderNotFoundTestClient(t)
-	plan, order, userID := createSubscriptionFulfillmentOrderWithStock(t, ctx, client, 1)
-	failCompletion := true
-	client.PaymentOrder.Use(func(next dbent.Mutator) dbent.Mutator {
-		return dbent.MutateFunc(func(ctx context.Context, m dbent.Mutation) (dbent.Value, error) {
-			pm, ok := m.(*dbent.PaymentOrderMutation)
-			if ok && m.Op().Is(dbent.OpUpdate) {
-				if status, exists := pm.Status(); exists && status == OrderStatusCompleted && failCompletion {
-					return nil, errors.New("forced completed update failure")
-				}
-			}
-			return next.Mutate(ctx, m)
-		})
-	})
-	svc := newPaymentFulfillmentStockTestService(client, plan)
-
-	err := svc.doSub(ctx, order)
-
-	require.ErrorContains(t, err, "forced completed update failure")
-	reloadedPlan, err := client.SubscriptionPlan.Get(ctx, plan.ID)
-	require.NoError(t, err)
-	require.NotNil(t, reloadedPlan.Stock)
-	require.Equal(t, 1, *reloadedPlan.Stock, "stock decrement must roll back with failed order completion")
-	count := client.UserSubscription.Query().
-		Where(usersubscription.UserIDEQ(userID), usersubscription.GroupIDEQ(plan.GroupID)).
-		CountX(ctx)
-	require.Zero(t, count)
-}
-
-func TestDoSubSuccessRetryDoesNotConsumeStockAgain(t *testing.T) {
-	ctx := context.Background()
-	client := newOrderNotFoundTestClient(t)
-	plan, order, _ := createSubscriptionFulfillmentOrderWithStock(t, ctx, client, 1)
-	client.PaymentAuditLog.Create().
-		SetOrderID(strconv.FormatInt(order.ID, 10)).
-		SetAction("SUBSCRIPTION_SUCCESS").
-		SetOperator("system").
-		SaveX(ctx)
-	svc := newPaymentFulfillmentStockTestService(client, plan)
-
-	require.NoError(t, svc.doSub(ctx, order))
-
-	reloadedPlan, err := client.SubscriptionPlan.Get(ctx, plan.ID)
-	require.NoError(t, err)
-	require.NotNil(t, reloadedPlan.Stock)
-	require.Equal(t, 1, *reloadedPlan.Stock)
-}
-
-type paymentFulfillmentEntSubRepo struct {
-	userSubRepoNoop
-	client *dbent.Client
-}
-
-func (r *paymentFulfillmentEntSubRepo) entClient(ctx context.Context) *dbent.Client {
-	if tx := dbent.TxFromContext(ctx); tx != nil {
-		return tx.Client()
-	}
-	return r.client
-}
-
-func (r *paymentFulfillmentEntSubRepo) Create(ctx context.Context, sub *UserSubscription) error {
-	created, err := r.entClient(ctx).UserSubscription.Create().
-		SetUserID(sub.UserID).
-		SetGroupID(sub.GroupID).
-		SetStartsAt(sub.StartsAt).
-		SetExpiresAt(sub.ExpiresAt).
-		SetStatus(sub.Status).
-		SetAssignedAt(sub.AssignedAt).
-		SetNotes(sub.Notes).
-		SetNillablePlanID(sub.PlanID).
-		SetNillableFiveHourLimitUsd(sub.FiveHourLimitUSD).
-		SetNillableSevenDayLimitUsd(sub.SevenDayLimitUSD).
-		SetNillableThirtyDayLimitUsd(sub.ThirtyDayLimitUSD).
-		Save(ctx)
-	if err != nil {
-		return err
-	}
-	sub.ID = created.ID
-	return nil
-}
-
-func (r *paymentFulfillmentEntSubRepo) GetByID(ctx context.Context, id int64) (*UserSubscription, error) {
-	sub, err := r.entClient(ctx).UserSubscription.Get(ctx, id)
-	if err != nil {
-		if dbent.IsNotFound(err) {
-			return nil, ErrSubscriptionNotFound
-		}
-		return nil, err
-	}
-	return paymentFulfillmentEntSubToService(sub), nil
-}
-
-func (r *paymentFulfillmentEntSubRepo) GetByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*UserSubscription, error) {
-	sub, err := r.entClient(ctx).UserSubscription.Query().
-		Where(usersubscription.UserIDEQ(userID), usersubscription.GroupIDEQ(groupID)).
+	applied, err := client.PaymentAuditLog.Query().
+		Where(paymentauditlog.OrderIDEQ(strconv.FormatInt(order.ID, 10)), paymentauditlog.ActionEQ("AFFILIATE_REBATE_APPLIED")).
 		Only(ctx)
-	if err != nil {
-		if dbent.IsNotFound(err) {
-			return nil, ErrSubscriptionNotFound
-		}
-		return nil, err
-	}
-	return paymentFulfillmentEntSubToService(sub), nil
+	require.NoError(t, err)
+	require.Contains(t, applied.Detail, `"baseAmount":9.99`)
+	require.Contains(t, applied.Detail, `"rebateAmount":1.4985`)
 }
 
-func (r *paymentFulfillmentEntSubRepo) GetByUserIDGroupIDAndPlanID(ctx context.Context, userID, groupID int64, planID *int64) (*UserSubscription, error) {
-	query := r.entClient(ctx).UserSubscription.Query().
-		Where(usersubscription.UserIDEQ(userID), usersubscription.GroupIDEQ(groupID))
-	if planID == nil {
-		query = query.Where(usersubscription.PlanIDIsNil())
-	} else {
-		query = query.Where(usersubscription.PlanIDEQ(*planID))
-	}
-	sub, err := query.Only(ctx)
-	if err != nil {
-		if dbent.IsNotFound(err) {
-			return nil, ErrSubscriptionNotFound
-		}
-		return nil, err
-	}
-	return paymentFulfillmentEntSubToService(sub), nil
-}
+func TestExecuteSubscriptionFulfillmentDoesNotDuplicateWorkAfterLegacySuccessAudit(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
 
-func paymentFulfillmentEntSubToService(sub *dbent.UserSubscription) *UserSubscription {
-	if sub == nil {
-		return nil
-	}
-	return &UserSubscription{
-		ID:                   sub.ID,
-		UserID:               sub.UserID,
-		GroupID:              sub.GroupID,
-		PlanID:               sub.PlanID,
-		StartsAt:             sub.StartsAt,
-		ExpiresAt:            sub.ExpiresAt,
-		Status:               sub.Status,
-		FiveHourLimitUSD:     sub.FiveHourLimitUsd,
-		SevenDayLimitUSD:     sub.SevenDayLimitUsd,
-		ThirtyDayLimitUSD:    sub.ThirtyDayLimitUsd,
-		FiveHourUsageUSD:     sub.FiveHourUsageUsd,
-		SevenDayUsageUSD:     sub.SevenDayUsageUsd,
-		ThirtyDayUsageUSD:    sub.ThirtyDayUsageUsd,
-		FiveHourWindowStart:  sub.FiveHourWindowStart,
-		SevenDayWindowStart:  sub.SevenDayWindowStart,
-		ThirtyDayWindowStart: sub.ThirtyDayWindowStart,
-	}
-}
-
-func createSubscriptionFulfillmentOrderWithStock(t *testing.T, ctx context.Context, client *dbent.Client, stock int) (*dbent.SubscriptionPlan, *dbent.PaymentOrder, int64) {
-	t.Helper()
-	user := client.User.Create().
-		SetEmail(fmt.Sprintf("stock-buyer-%d@example.com", time.Now().UnixNano())).
+	user, err := client.User.Create().
+		SetEmail("subscription-affiliate-idempotent@example.com").
 		SetPasswordHash("hash").
-		SetUsername(fmt.Sprintf("stock-buyer-%d", time.Now().UnixNano())).
-		SaveX(ctx)
-	group := client.Group.Create().
-		SetName(fmt.Sprintf("Stock Group %d", time.Now().UnixNano())).
-		SetStatus(payment.EntityStatusActive).
-		SetSubscriptionType(SubscriptionTypeSubscription).
-		SaveX(ctx)
-	plan := client.SubscriptionPlan.Create().
-		SetGroupID(group.ID).
-		SetName("Stocked Plan").
-		SetPrice(9.99).
-		SetValidityDays(30).
-		SetValidityUnit("days").
-		SetForSale(true).
-		SetStock(stock).
-		SaveX(ctx)
-	days := 30
-	order := client.PaymentOrder.Create().
+		SetUsername("subscription-affiliate-idempotent-user").
+		Save(ctx)
+	require.NoError(t, err)
+
+	order, err := client.PaymentOrder.Create().
 		SetUserID(user.ID).
 		SetUserEmail(user.Email).
 		SetUserName(user.Username).
-		SetAmount(plan.Price).
-		SetPayAmount(plan.Price).
-		SetRechargeCode(fmt.Sprintf("PAY-STOCK-%d", time.Now().UnixNano())).
-		SetOutTradeNo(fmt.Sprintf("sub2_stock_%d", time.Now().UnixNano())).
+		SetAmount(80).
+		SetPayAmount(80).
+		SetFeeRate(0).
+		SetRechargeCode("PAY-SUB-AFFILIATE-IDEMPOTENT").
+		SetOutTradeNo("sub2_subscription_affiliate_idempotent").
 		SetPaymentType(payment.TypeAlipay).
-		SetPaymentTradeNo(fmt.Sprintf("trade_stock_%d", time.Now().UnixNano())).
+		SetPaymentTradeNo("trade-sub-affiliate-idempotent").
 		SetOrderType(payment.OrderTypeSubscription).
-		SetStatus(OrderStatusRecharging).
+		SetPlanID(100).
+		SetSubscriptionGroupID(7).
+		SetSubscriptionDays(30).
+		SetStatus(OrderStatusPaid).
 		SetExpiresAt(time.Now().Add(time.Hour)).
 		SetClientIP("127.0.0.1").
-		SetSrcHost("example.com").
-		SetPlanID(plan.ID).
-		SetSubscriptionGroupID(plan.GroupID).
-		SetSubscriptionDays(days).
-		SetSubscriptionQuotaSnapshotVersion(1).
-		SaveX(ctx)
-	return plan, order, user.ID
-}
+		SetSrcHost("api.example.com").
+		Save(ctx)
+	require.NoError(t, err)
+	_, err = client.PaymentAuditLog.Create().
+		SetOrderID(strconv.FormatInt(order.ID, 10)).
+		SetAction("SUBSCRIPTION_SUCCESS").
+		SetDetail(`{"groupID":7,"validityDays":30}`).
+		SetOperator("system").
+		Save(ctx)
+	require.NoError(t, err)
+	_, err = client.PaymentAuditLog.Create().
+		SetOrderID(strconv.FormatInt(order.ID, 10)).
+		SetAction("AFFILIATE_REBATE_APPLIED").
+		SetDetail(`{"baseAmount":80,"rebateAmount":16}`).
+		SetOperator("system").
+		Save(ctx)
+	require.NoError(t, err)
 
-func newPaymentFulfillmentStockTestService(client *dbent.Client, plan *dbent.SubscriptionPlan) *PaymentService {
-	groupRepo := &subscriptionGroupRepoStub{
-		group: &Group{
-			ID:               plan.GroupID,
-			Status:           payment.EntityStatusActive,
-			SubscriptionType: SubscriptionTypeSubscription,
+	inviterID := int64(9001)
+	affiliateRepo := &paymentFulfillmentAffiliateRepoStub{
+		inviteeSummary: &AffiliateSummary{
+			UserID:    user.ID,
+			AffCode:   "INVITEE",
+			InviterID: &inviterID,
+			CreatedAt: time.Now().Add(-24 * time.Hour),
+		},
+		inviterSummary: &AffiliateSummary{
+			UserID:    inviterID,
+			AffCode:   "INVITER",
+			CreatedAt: time.Now().Add(-48 * time.Hour),
 		},
 	}
-	subRepo := &paymentFulfillmentEntSubRepo{client: client}
-	return &PaymentService{
-		entClient:       client,
-		configService:   NewPaymentConfigService(client, nil, nil),
-		groupRepo:       groupRepo,
-		subscriptionSvc: NewSubscriptionService(groupRepo, subRepo, nil, nil, nil),
+	settingSvc := NewSettingService(&paymentFulfillmentSettingRepoStub{values: map[string]string{
+		SettingKeyAffiliateEnabled:    "true",
+		SettingKeyAffiliateRebateRate: "20",
+	}}, nil)
+	subRepo := newSubscriptionUserSubRepoStub()
+	subscriptionSvc := NewSubscriptionService(&subscriptionGroupRepoStub{
+		group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription},
+	}, subRepo, nil, nil, nil)
+	svc := &PaymentService{
+		entClient:        client,
+		groupRepo:        &subscriptionGroupRepoStub{group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription}},
+		subscriptionSvc:  subscriptionSvc,
+		affiliateService: NewAffiliateService(affiliateRepo, settingSvc, nil, nil),
 	}
+
+	err = svc.ExecuteSubscriptionFulfillment(ctx, order.ID)
+	require.NoError(t, err)
+
+	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusCompleted, reloaded.Status)
+	require.Empty(t, affiliateRepo.accrueCalls)
+	require.Zero(t, subRepo.createCalls)
 }
+
+var _ AffiliateRepository = (*paymentFulfillmentAffiliateRepoStub)(nil)
+var _ SettingRepository = (*paymentFulfillmentSettingRepoStub)(nil)

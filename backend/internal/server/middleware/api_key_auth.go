@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -99,8 +100,11 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			}
 			allowed, _ := ip.CheckIPRestrictionWithCompiledRules(clientIP, apiKey.CompiledIPWhitelist, apiKey.CompiledIPBlacklist)
 			if !allowed {
+				if clientIP == "" {
+					clientIP = "unknown"
+				}
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonIPRestriction)
-				AbortWithError(c, 403, "ACCESS_DENIED", "Access denied")
+				AbortWithError(c, 403, "ACCESS_DENIED", fmt.Sprintf("Access denied. Your IP is %s", clientIP))
 				return
 			}
 		}
@@ -119,6 +123,11 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		if abortIfAPIKeyGroupUnavailable(c, apiKey) {
 			return
 		}
+		if abortIfAPIKeyGroupNotAllowed(c, apiKey) {
+			return
+		}
+		ctx := context.WithValue(c.Request.Context(), ctxkey.UserID, apiKey.User.ID)
+		c.Request = c.Request.WithContext(ctx)
 
 		// ── 4. SimpleMode → early return ─────────────────────────────
 
@@ -143,8 +152,6 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		var subscription *service.UserSubscription
 		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 
-		var subscriptionNeedsMaintenance bool
-		var subscriptionValidateErr error
 		if isSubscriptionType && subscriptionService != nil {
 			if skipBilling {
 				sub, subErr := subscriptionService.GetActiveSubscription(
@@ -157,18 +164,25 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 				}
 				// skipBilling: 订阅不存在也放行，handler 会返回可用的数据
 			} else {
-				sub, needsMaintenance, subErr := subscriptionService.GetUsableActiveSubscription(
+				sub, _, subErr := subscriptionService.GetUsableActiveSubscription(
 					c.Request.Context(),
 					apiKey.User.ID,
 					apiKey.Group.ID,
 					apiKey.Group,
 				)
 				if subErr != nil {
-					subscriptionValidateErr = subErr
-				} else {
-					subscription = sub
-					subscriptionNeedsMaintenance = needsMaintenance
+					code := "SUBSCRIPTION_NOT_FOUND"
+					status := 403
+					message := "No active subscription found for this group"
+					if isSubscriptionUsageLimitError(subErr) {
+						code = "USAGE_LIMIT_EXCEEDED"
+						status = 429
+						message = subErr.Error()
+					}
+					AbortWithError(c, status, code, message)
+					return
 				}
+				subscription = sub
 			}
 		}
 
@@ -197,32 +211,29 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 			// 订阅模式：验证订阅限额
 			if subscription != nil {
-				// 窗口维护异步化（不阻塞请求）
-				if subscriptionNeedsMaintenance {
-					maintenanceCopy := *subscription
-					subscriptionService.DoWindowMaintenance(&maintenanceCopy)
+				needsMaintenance, validateErr := subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
+				if needsMaintenance {
+					refreshed, maintenanceErr := subscriptionService.EnsureWindowMaintenance(c.Request.Context(), subscription)
+					if maintenanceErr != nil {
+						AbortWithError(c, 500, "SUBSCRIPTION_MAINTENANCE_FAILED", "Failed to maintain subscription usage windows")
+						return
+					}
+					subscription = refreshed
+					_, validateErr = subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
 				}
-			} else if isSubscriptionType && subscriptionService != nil {
-				if subscriptionValidateErr == nil {
-					subscriptionValidateErr = service.ErrSubscriptionNotFound
+				if validateErr != nil {
+					code := "SUBSCRIPTION_INVALID"
+					status := 403
+					if isSubscriptionUsageLimitError(validateErr) {
+						code = "USAGE_LIMIT_EXCEEDED"
+						status = 429
+					}
+					AbortWithError(c, status, code, validateErr.Error())
+					return
 				}
-				code := "SUBSCRIPTION_INVALID"
-				status := 403
-				message := "No active subscription found for this group"
-				if isSubscriptionUsageLimitError(subscriptionValidateErr) {
-					code = "USAGE_LIMIT_EXCEEDED"
-					status = 429
-					message = subscriptionValidateErr.Error()
-				} else if errors.Is(subscriptionValidateErr, service.ErrSubscriptionNotFound) {
-					code = "SUBSCRIPTION_NOT_FOUND"
-				} else if !errors.Is(subscriptionValidateErr, service.ErrSubscriptionNotFound) {
-					message = subscriptionValidateErr.Error()
-				}
-				AbortWithError(c, status, code, message)
-				return
 			} else {
 				// 非订阅模式 或 订阅模式但 subscriptionService 未注入：回退到余额检查
-				if apiKey.User.Balance <= 0 {
+				if apiKeyBalanceBelowAuthThreshold(apiKey.User.Balance, cfg) {
 					AbortWithError(c, 403, "INSUFFICIENT_BALANCE", "Insufficient account balance")
 					return
 				}
@@ -307,6 +318,13 @@ func setGroupContext(c *gin.Context, group *service.Group) {
 	c.Request = c.Request.WithContext(ctx)
 }
 
+// apiKeyBalanceBelowAuthThreshold 保持鉴权层的历史语义：仅在余额耗尽（<=0）时拒绝。
+// MinimumBalanceReserve 只作为 billing-cache 预检的保守下限，不得复用为鉴权硬门槛，
+// 否则已配置该值的存量部署升级后，0 < balance < reserve 的用户会在所有端点被静默 403。
+func apiKeyBalanceBelowAuthThreshold(balance float64, _ *config.Config) bool {
+	return balance <= 0
+}
+
 func abortIfAPIKeyGroupUnavailable(c *gin.Context, apiKey *service.APIKey) bool {
 	code, message, ok := validateAPIKeyGroupAvailable(apiKey)
 	if ok {
@@ -315,6 +333,26 @@ func abortIfAPIKeyGroupUnavailable(c *gin.Context, apiKey *service.APIKey) bool 
 	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable)
 	AbortWithError(c, 403, code, message)
 	return true
+}
+
+func abortIfAPIKeyGroupNotAllowed(c *gin.Context, apiKey *service.APIKey) bool {
+	if validateAPIKeyGroupAllowed(apiKey) {
+		return false
+	}
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable)
+	AbortWithError(c, 403, "GROUP_NOT_ALLOWED", "API Key 所属专属分组不再允许当前用户使用")
+	return true
+}
+
+func validateAPIKeyGroupAllowed(apiKey *service.APIKey) bool {
+	if apiKey == nil || apiKey.GroupID == nil || apiKey.User == nil || apiKey.Group == nil {
+		return true
+	}
+	group := apiKey.Group
+	if group.IsSubscriptionType() {
+		return true
+	}
+	return apiKey.User.CanBindGroup(group.ID, group.IsExclusive)
 }
 
 func validateAPIKeyGroupAvailable(apiKey *service.APIKey) (string, string, bool) {

@@ -49,6 +49,6 @@ func (s *AccountUsageService) PersistOpenCodeGoConsoleSummary(ctx context.Contex
 	if err := s.accountRepo.UpdateExtra(ctx, accountID, updates); err != nil {
 		return err
 	}
-	s.syncOpenCodeGoOfficialUsageRateLimit(ctx, accountID, nil, updates)
+	s.syncOpenCodeGoOfficialUsageRateLimitAt(ctx, accountID, nil, updates, summary.FetchedAt)
 	return nil
 }

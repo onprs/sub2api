@@ -28,6 +28,7 @@ func ResponsesToChatCompletionsRequest(req *ResponsesRequest) (*ChatCompletionsR
 		TopP:                req.TopP,
 		Stream:              req.Stream,
 		ServiceTier:         req.ServiceTier,
+		ParallelToolCalls:   req.ParallelToolCalls,
 	}
 	if req.Reasoning != nil {
 		out.ReasoningEffort = req.Reasoning.Effort
@@ -37,6 +38,9 @@ func ResponsesToChatCompletionsRequest(req *ResponsesRequest) (*ChatCompletionsR
 	}
 	if len(req.ToolChoice) > 0 {
 		out.ToolChoice = responsesToolChoiceToChatToolChoice(req.ToolChoice)
+	}
+	if req.Text != nil {
+		out.ResponseFormat = responsesTextFormatToChatResponseFormat(req.Text.Format)
 	}
 
 	return out, nil
@@ -525,6 +529,9 @@ func chatMessageToResponsesOutput(message ChatMessage) []ResponsesOutput {
 	}
 
 	text := chatMessageContentText(message.Content)
+	if text == "" && strings.TrimSpace(message.ReasoningContent) != "" && len(message.ToolCalls) == 0 {
+		text = message.ReasoningContent
+	}
 	if text != "" || len(message.ToolCalls) == 0 {
 		outputs = append(outputs, ResponsesOutput{
 			Type: "message",
@@ -602,9 +609,17 @@ func ChatUsageToResponsesUsage(usage *ChatUsage) *ResponsesUsage {
 	if out.TotalTokens == 0 {
 		out.TotalTokens = out.InputTokens + out.OutputTokens
 	}
-	if usage.PromptTokensDetails != nil && usage.PromptTokensDetails.CachedTokens > 0 {
+	if usage.PromptTokensDetails != nil && (usage.PromptTokensDetails.CachedTokens > 0 ||
+		usage.PromptTokensDetails.CacheCreationTokens > 0 || usage.PromptTokensDetails.CacheWriteTokens > 0) {
 		out.InputTokensDetails = &ResponsesInputTokensDetails{
-			CachedTokens: usage.PromptTokensDetails.CachedTokens,
+			CachedTokens:        usage.PromptTokensDetails.CachedTokens,
+			CacheCreationTokens: usage.PromptTokensDetails.CacheCreationTokens,
+			CacheWriteTokens:    usage.PromptTokensDetails.CacheWriteTokens,
+		}
+		if usage.PromptTokensDetails.CacheWriteTokens > 0 {
+			out.CacheCreationInputTokens = usage.PromptTokensDetails.CacheWriteTokens
+		} else {
+			out.CacheCreationInputTokens = usage.PromptTokensDetails.CacheCreationTokens
 		}
 	}
 	return out
@@ -734,6 +749,13 @@ func ChatCompletionsChunkToResponsesEvents(
 					copyCall.ID = generateItemID()
 				}
 				copyCall.Type = "function"
+				// Arguments are accumulated by the shared block below so the
+				// emitted delta and the stored value stay in sync. Some upstreams
+				// (e.g. GLM/Zhipu) pack id+name+arguments into the first tool_call
+				// chunk; without this reset the first chunk's arguments would be
+				// counted twice (once from this copy, once from the += below),
+				// producing a doubled, invalid JSON like {"a":1}{"a":1}.
+				copyCall.Function.Arguments = ""
 				state.ToolCalls[idx] = &copyCall
 				stored = &copyCall
 				itemID := generateItemID()
@@ -787,6 +809,7 @@ func FinalizeChatCompletionsResponsesStream(state *ChatCompletionsToResponsesStr
 	// Close a reasoning item that never transitioned to content (reasoning-only
 	// or empty completion).
 	events = append(events, closeChatReasoningItem(state)...)
+	events = append(events, synthesizeChatReasoningFallbackMessage(state)...)
 
 	if state.MessageItemID != "" {
 		if state.TextPartOpen {
@@ -915,6 +938,33 @@ func closeChatReasoningItem(state *ChatCompletionsToResponsesStreamState) []Resp
 			},
 		}),
 	}
+}
+
+func synthesizeChatReasoningFallbackMessage(state *ChatCompletionsToResponsesStreamState) []ResponsesStreamEvent {
+	if state == nil ||
+		state.MessageItemID != "" ||
+		state.Text.Len() > 0 ||
+		state.Reasoning.Len() == 0 ||
+		len(state.ToolCalls) > 0 {
+		return nil
+	}
+
+	text := state.Reasoning.String()
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+
+	var events []ResponsesStreamEvent
+	events = append(events, ensureChatToResponsesMessageItem(state)...)
+	events = append(events, ensureChatToResponsesTextPart(state)...)
+	_, _ = state.Text.WriteString(text)
+	events = append(events, chatToResponsesEvent(state, "response.output_text.delta", &ResponsesStreamEvent{
+		OutputIndex:  state.MessageIndex,
+		ContentIndex: 0,
+		Delta:        text,
+		ItemID:       state.MessageItemID,
+	}))
+	return events
 }
 
 func ensureChatToResponsesMessageItem(state *ChatCompletionsToResponsesStreamState) []ResponsesStreamEvent {

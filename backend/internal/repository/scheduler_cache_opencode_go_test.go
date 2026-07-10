@@ -13,7 +13,7 @@ func TestSchedulerMetadataKeepsOpenCodeGoHotPathCredentials(t *testing.T) {
 		Platform: service.PlatformOpenCodeGo,
 		Type:     service.AccountTypeAPIKey,
 		Credentials: map[string]any{
-			"api_key": "ocg-secret",
+			"api_key":  "ocg-secret",
 			"base_url": "https://opencode.ai/zen/go/v1",
 			"model_mapping": map[string]any{
 				"opencode-go/kimi-k2.7-code": "kimi-k2.7-code",

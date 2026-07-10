@@ -128,6 +128,7 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 		GroupName:        strings.TrimSpace(p.GroupName),
 		Enabled:          p.Enabled,
 		IntervalSeconds:  p.IntervalSeconds,
+		JitterSeconds:    p.JitterSeconds,
 		CreatedBy:        p.CreatedBy,
 		TemplateID:       p.TemplateID,
 		ExtraHeaders:     emptyHeadersIfNil(p.ExtraHeaders),
@@ -157,7 +158,10 @@ func validateCreateParams(p ChannelMonitorCreateParams) error {
 	if err := validateInterval(p.IntervalSeconds); err != nil {
 		return err
 	}
-	if err := validateEndpointForProvider(p.Provider, p.Endpoint); err != nil {
+	if err := validateJitter(p.JitterSeconds, p.IntervalSeconds); err != nil {
+		return err
+	}
+	if err := validateEndpoint(p.Endpoint); err != nil {
 		return err
 	}
 	if strings.TrimSpace(p.APIKey) == "" {
@@ -513,6 +517,15 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 			return err
 		}
 		existing.IntervalSeconds = *p.IntervalSeconds
+	}
+	if p.JitterSeconds != nil {
+		existing.JitterSeconds = *p.JitterSeconds
+	}
+	if p.IntervalSeconds != nil || p.JitterSeconds != nil {
+		// interval 与 jitter 任一变化都需要重新校验组合约束（interval - jitter >= 下限）。
+		if err := validateJitter(existing.JitterSeconds, existing.IntervalSeconds); err != nil {
+			return err
+		}
 	}
 	return applyMonitorAdvancedUpdate(existing, p, providerChanged)
 }

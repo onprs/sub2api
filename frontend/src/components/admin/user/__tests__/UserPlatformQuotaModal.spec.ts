@@ -86,7 +86,7 @@ describe('UserPlatformQuotaModal', () => {
     expect(html).toContain('openai')
     expect(html).toContain('gemini')
     expect(html).toContain('antigravity')
-    expect(html).toContain('opencode_go')
+    expect(html).toContain('grok')
   })
 
   it('已有数据正确填充 limit input', async () => {

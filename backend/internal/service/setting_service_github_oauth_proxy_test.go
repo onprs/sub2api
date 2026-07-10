@@ -97,6 +97,18 @@ func (r *githubOAuthProxyRepo) CountAccountsByProxyID(context.Context, int64) (i
 func (r *githubOAuthProxyRepo) ListAccountSummariesByProxyID(context.Context, int64) ([]ProxyAccountSummary, error) {
 	panic("unexpected ListAccountSummariesByProxyID call")
 }
+func (r *githubOAuthProxyRepo) SweepExpiredProxies(context.Context, time.Time) (int64, error) {
+	panic("unexpected SweepExpiredProxies call")
+}
+func (r *githubOAuthProxyRepo) ListAllForFallback(context.Context) ([]Proxy, error) {
+	panic("unexpected ListAllForFallback call")
+}
+func (r *githubOAuthProxyRepo) CountExpired(context.Context) (int64, error) {
+	panic("unexpected CountExpired call")
+}
+func (r *githubOAuthProxyRepo) CountExpiringSoon(context.Context, time.Time) (int64, error) {
+	panic("unexpected CountExpiringSoon call")
+}
 
 func TestSettingServiceGitHubOAuthProxyIDRoundTrip(t *testing.T) {
 	ctx := context.Background()
