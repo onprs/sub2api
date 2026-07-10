@@ -88,6 +88,14 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 		}
 		return EndpointResponses
 
+	case service.PlatformOpenCodeGo:
+		switch inbound {
+		case EndpointChatCompletions, EndpointMessages:
+			return inbound
+		default:
+			return inbound
+		}
+
 	case service.PlatformAnthropic:
 		return EndpointMessages
 

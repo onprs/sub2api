@@ -26,6 +26,10 @@ func (r *subscriptionExpiryRepoStub) GetByUserIDAndGroupID(context.Context, int6
 	return nil, ErrSubscriptionNotFound
 }
 
+func (r *subscriptionExpiryRepoStub) GetByUserIDGroupIDAndPlanID(context.Context, int64, int64, *int64) (*UserSubscription, error) {
+	return nil, ErrSubscriptionNotFound
+}
+
 func (r *subscriptionExpiryRepoStub) GetActiveByUserIDAndGroupID(context.Context, int64, int64) (*UserSubscription, error) {
 	return nil, ErrSubscriptionNotFound
 }
@@ -46,6 +50,10 @@ func (r *subscriptionExpiryRepoStub) ListActiveByUserID(context.Context, int64) 
 	return nil, nil
 }
 
+func (r *subscriptionExpiryRepoStub) ListActiveByUserIDAndGroupID(context.Context, int64, int64) ([]UserSubscription, error) {
+	return nil, nil
+}
+
 func (r *subscriptionExpiryRepoStub) ListByGroupID(context.Context, int64, pagination.PaginationParams) ([]UserSubscription, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }
@@ -57,6 +65,14 @@ func (r *subscriptionExpiryRepoStub) List(context.Context, pagination.Pagination
 
 func (r *subscriptionExpiryRepoStub) ExistsByUserIDAndGroupID(context.Context, int64, int64) (bool, error) {
 	return false, nil
+}
+
+func (r *subscriptionExpiryRepoStub) ExistsByUserIDGroupIDAndPlanID(context.Context, int64, int64, *int64) (bool, error) {
+	return false, nil
+}
+
+func (r *subscriptionExpiryRepoStub) RenewTerm(context.Context, *RenewSubscriptionTermInput) error {
+	return nil
 }
 
 func (r *subscriptionExpiryRepoStub) ExtendExpiry(context.Context, int64, time.Time) error {
@@ -71,7 +87,15 @@ func (r *subscriptionExpiryRepoStub) UpdateNotes(context.Context, int64, string)
 	return nil
 }
 
+func (r *subscriptionExpiryRepoStub) UpdateRollingQuotaSnapshot(context.Context, int64, *float64, *float64, *float64) error {
+	return nil
+}
+
 func (r *subscriptionExpiryRepoStub) ActivateWindows(context.Context, int64, time.Time) error {
+	return nil
+}
+
+func (r *subscriptionExpiryRepoStub) ActivateRollingWindows(context.Context, int64, time.Time) error {
 	return nil
 }
 
@@ -84,6 +108,18 @@ func (r *subscriptionExpiryRepoStub) ResetWeeklyUsage(context.Context, int64, ti
 }
 
 func (r *subscriptionExpiryRepoStub) ResetMonthlyUsage(context.Context, int64, time.Time) error {
+	return nil
+}
+
+func (r *subscriptionExpiryRepoStub) ResetFiveHourUsage(context.Context, int64, time.Time) error {
+	return nil
+}
+
+func (r *subscriptionExpiryRepoStub) ResetSevenDayUsage(context.Context, int64, time.Time) error {
+	return nil
+}
+
+func (r *subscriptionExpiryRepoStub) ResetThirtyDayUsage(context.Context, int64, time.Time) error {
 	return nil
 }
 

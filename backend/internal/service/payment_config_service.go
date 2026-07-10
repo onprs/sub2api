@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -150,31 +151,79 @@ type UpdateProviderInstanceRequest struct {
 	AllowUserRefund *bool             `json:"allow_user_refund"`
 }
 type CreatePlanRequest struct {
-	GroupID       int64    `json:"group_id"`
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	Price         float64  `json:"price"`
-	OriginalPrice *float64 `json:"original_price"`
-	ValidityDays  int      `json:"validity_days"`
-	ValidityUnit  string   `json:"validity_unit"`
-	Features      string   `json:"features"`
-	ProductName   string   `json:"product_name"`
-	ForSale       bool     `json:"for_sale"`
-	SortOrder     int      `json:"sort_order"`
+	GroupID                int64    `json:"group_id"`
+	Name                   string   `json:"name"`
+	Description            string   `json:"description"`
+	Price                  float64  `json:"price"`
+	OriginalPrice          *float64 `json:"original_price"`
+	RenewalDiscountPercent *float64 `json:"renewal_discount_percent"`
+	FiveHourLimitUSD       *float64 `json:"five_hour_limit_usd"`
+	SevenDayLimitUSD       *float64 `json:"seven_day_limit_usd"`
+	ThirtyDayLimitUSD      *float64 `json:"thirty_day_limit_usd"`
+	Stock                  *int     `json:"stock"`
+	ValidityDays           int      `json:"validity_days"`
+	ValidityUnit           string   `json:"validity_unit"`
+	Features               string   `json:"features"`
+	ProductName            string   `json:"product_name"`
+	ForSale                bool     `json:"for_sale"`
+	SortOrder              int      `json:"sort_order"`
 }
 
 type UpdatePlanRequest struct {
-	GroupID       *int64   `json:"group_id"`
-	Name          *string  `json:"name"`
-	Description   *string  `json:"description"`
-	Price         *float64 `json:"price"`
-	OriginalPrice *float64 `json:"original_price"`
-	ValidityDays  *int     `json:"validity_days"`
-	ValidityUnit  *string  `json:"validity_unit"`
-	Features      *string  `json:"features"`
-	ProductName   *string  `json:"product_name"`
-	ForSale       *bool    `json:"for_sale"`
-	SortOrder     *int     `json:"sort_order"`
+	GroupID                *int64             `json:"group_id"`
+	Name                   *string            `json:"name"`
+	Description            *string            `json:"description"`
+	Price                  *float64           `json:"price"`
+	OriginalPrice          *float64           `json:"original_price"`
+	RenewalDiscountPercent NullableFloatPatch `json:"renewal_discount_percent"`
+	FiveHourLimitUSD       NullableFloatPatch `json:"five_hour_limit_usd"`
+	SevenDayLimitUSD       NullableFloatPatch `json:"seven_day_limit_usd"`
+	ThirtyDayLimitUSD      NullableFloatPatch `json:"thirty_day_limit_usd"`
+	Stock                  NullableIntPatch   `json:"stock"`
+	ValidityDays           *int               `json:"validity_days"`
+	ValidityUnit           *string            `json:"validity_unit"`
+	Features               *string            `json:"features"`
+	ProductName            *string            `json:"product_name"`
+	ForSale                *bool              `json:"for_sale"`
+	SortOrder              *int               `json:"sort_order"`
+}
+
+type NullableFloatPatch struct {
+	Set   bool
+	Value *float64
+}
+
+func (p *NullableFloatPatch) UnmarshalJSON(data []byte) error {
+	p.Set = true
+	if strings.TrimSpace(string(data)) == "null" {
+		p.Value = nil
+		return nil
+	}
+	var value float64
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	p.Value = &value
+	return nil
+}
+
+type NullableIntPatch struct {
+	Set   bool
+	Value *int
+}
+
+func (p *NullableIntPatch) UnmarshalJSON(data []byte) error {
+	p.Set = true
+	if strings.TrimSpace(string(data)) == "null" {
+		p.Value = nil
+		return nil
+	}
+	var value int
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	p.Value = &value
+	return nil
 }
 
 // PaymentConfigService manages payment configuration and CRUD for

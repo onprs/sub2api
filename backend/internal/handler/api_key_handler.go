@@ -3,6 +3,8 @@ package handler
 
 import (
 	"context"
+	"mime"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -18,13 +20,25 @@ import (
 
 // APIKeyHandler handles API key-related requests
 type APIKeyHandler struct {
-	apiKeyService *service.APIKeyService
+	apiKeyService      *service.APIKeyService
+	settingService     *service.SettingService
+	availableModels    service.CLIImportAvailableModelsProvider
+	capabilityProvider service.CLIImportCapabilityProvider
+	cliImportBuilder   cliImportScriptBuilder
+}
+
+type cliImportScriptBuilder interface {
+	BuildCLIImportScript(ctx context.Context, input service.CLIImportScriptInput, userID int64, modelProvider service.CLIImportAvailableModelsProvider, capabilityProvider service.CLIImportCapabilityProvider) (*service.CLIImportScriptResult, error)
 }
 
 // NewAPIKeyHandler creates a new APIKeyHandler
-func NewAPIKeyHandler(apiKeyService *service.APIKeyService) *APIKeyHandler {
+func NewAPIKeyHandler(apiKeyService *service.APIKeyService, settingService *service.SettingService, gatewayService *service.GatewayService, pricingService *service.PricingService) *APIKeyHandler {
 	return &APIKeyHandler{
-		apiKeyService: apiKeyService,
+		apiKeyService:      apiKeyService,
+		settingService:     settingService,
+		availableModels:    gatewayService,
+		capabilityProvider: pricingService,
+		cliImportBuilder:   apiKeyService,
 	}
 }
 
@@ -136,6 +150,110 @@ func (h *APIKeyHandler) GetByID(c *gin.Context) {
 	}
 
 	response.Success(c, dto.APIKeyFromService(key))
+}
+
+// DownloadCLIImportScript downloads a user-scoped one-click CLI import script.
+// GET /api/v1/keys/:id/cli-import/script?os=windows|linux
+func (h *APIKeyHandler) DownloadCLIImportScript(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid key ID")
+		return
+	}
+
+	osName := strings.ToLower(strings.TrimSpace(c.Query("os")))
+	if osName != service.CLIImportOSWindows && osName != service.CLIImportOSLinux {
+		response.ErrorFrom(c, service.ErrCLIImportInvalidOS)
+		return
+	}
+
+	builder := h.cliImportBuilder
+	if builder == nil {
+		builder = h.apiKeyService
+	}
+	result, err := builder.BuildCLIImportScript(
+		c.Request.Context(),
+		service.CLIImportScriptInput{
+			OS:         osName,
+			APIBaseURL: h.cliImportAPIBaseURL(c),
+			APIKey:     &service.APIKey{ID: keyID},
+		},
+		subject.UserID,
+		h.availableModels,
+		h.capabilityProvider,
+	)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	contentType := result.ContentType
+	if strings.TrimSpace(contentType) == "" {
+		contentType = "application/octet-stream"
+	}
+	c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": result.Filename}))
+	c.Data(http.StatusOK, contentType, result.Body)
+}
+
+func (h *APIKeyHandler) cliImportAPIBaseURL(c *gin.Context) string {
+	if h != nil && h.settingService != nil {
+		if settings, err := h.settingService.GetPublicSettings(c.Request.Context()); err == nil && strings.TrimSpace(settings.APIBaseURL) != "" {
+			return strings.TrimSpace(settings.APIBaseURL)
+		}
+	}
+	return requestOriginForCLIImport(c)
+}
+
+func requestOriginForCLIImport(c *gin.Context) string {
+	if c == nil || c.Request == nil {
+		return ""
+	}
+	scheme := safeCLIImportScheme(firstHeaderValue(c.GetHeader("X-Forwarded-Proto")), c.Request.TLS != nil)
+	host := safeCLIImportHost(firstHeaderValue(c.GetHeader("X-Forwarded-Host")))
+	if host == "" {
+		host = safeCLIImportHost(c.Request.Host)
+	}
+	if host == "" {
+		return ""
+	}
+	return scheme + "://" + host
+}
+
+func firstHeaderValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if idx := strings.Index(value, ","); idx >= 0 {
+		value = value[:idx]
+	}
+	value = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(value, "\r", ""), "\n", ""))
+	return value
+}
+
+func safeCLIImportScheme(value string, tls bool) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "http" || value == "https" {
+		return value
+	}
+	if tls {
+		return "https"
+	}
+	return "http"
+}
+
+func safeCLIImportHost(value string) string {
+	value = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(value, "\r", ""), "\n", ""))
+	if value == "" || strings.ContainsAny(value, `/\`) || strings.Contains(value, "@") {
+		return ""
+	}
+	return value
 }
 
 // Create handles creating a new API key

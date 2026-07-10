@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 )
@@ -26,6 +27,7 @@ const (
 	easypayHTTPTimeout     = 10 * time.Second
 	maxEasypayResponseSize = 1 << 20 // 1MB
 	maxEasypayErrorSummary = 512
+	maxEasypayProductName  = 120
 	tradeStatusSuccess     = "TRADE_SUCCESS"
 	signTypeMD5            = "MD5"
 	paymentModePopup       = "popup"
@@ -127,7 +129,7 @@ func (e *EasyPay) createRedirectPayment(req payment.CreatePaymentRequest) (*paym
 	params := map[string]string{
 		"pid": e.config["pid"], "type": req.PaymentType,
 		"out_trade_no": req.OrderID, "notify_url": notifyURL,
-		"return_url": returnURL, "name": req.Subject,
+		"return_url": returnURL, "name": sanitizeEasyPayProductName(req.Subject),
 		"money": req.Amount,
 	}
 	if cid := e.resolveCID(req.PaymentType); cid != "" {
@@ -153,7 +155,7 @@ func (e *EasyPay) createAPIPayment(ctx context.Context, req payment.CreatePaymen
 	params := map[string]string{
 		"pid": e.config["pid"], "type": req.PaymentType,
 		"out_trade_no": req.OrderID, "notify_url": notifyURL,
-		"return_url": returnURL, "name": req.Subject,
+		"return_url": returnURL, "name": sanitizeEasyPayProductName(req.Subject),
 		"money": req.Amount, "clientip": req.ClientIP,
 	}
 	if cid := e.resolveCID(req.PaymentType); cid != "" {
@@ -205,11 +207,12 @@ func (e *EasyPay) resolveURLs(req payment.CreatePaymentRequest) (string, string)
 }
 
 func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.QueryOrderResponse, error) {
-	params := map[string]string{
-		"act": "order", "pid": e.config["pid"],
-		"key": e.config["pkey"], "out_trade_no": tradeNo,
-	}
-	body, err := e.post(ctx, e.apiBase()+"/api.php", params)
+	q := url.Values{}
+	q.Set("act", "order")
+	q.Set("pid", e.config["pid"])
+	q.Set("key", e.config["pkey"])
+	q.Set("out_trade_no", tradeNo)
+	body, err := e.get(ctx, e.apiBase()+"/api.php?"+q.Encode())
 	if err != nil {
 		return nil, fmt.Errorf("easypay query: %w", err)
 	}
@@ -433,6 +436,31 @@ func summarizeEasyPayResponse(body []byte) string {
 	return summary
 }
 
+func sanitizeEasyPayProductName(name string) string {
+	name = strings.Join(strings.Fields(strings.TrimSpace(name)), " ")
+	if name == "" {
+		return "Sub2API Order"
+	}
+
+	var b strings.Builder
+	for _, r := range name {
+		// Some EasyPay-compatible gateways still persist order names in utf8mb3.
+		if utf8.RuneLen(r) > 3 {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	sanitized := strings.TrimSpace(b.String())
+	if sanitized == "" {
+		sanitized = "Sub2API Order"
+	}
+	runes := []rune(sanitized)
+	if len(runes) <= maxEasypayProductName {
+		return sanitized
+	}
+	return strings.TrimSpace(string(runes[:maxEasypayProductName]))
+}
+
 func (e *EasyPay) resolveCID(paymentType string) string {
 	if strings.HasPrefix(paymentType, "alipay") {
 		if v := e.config["cidAlipay"]; v != "" {
@@ -449,6 +477,23 @@ func (e *EasyPay) resolveCID(paymentType string) string {
 func (e *EasyPay) post(ctx context.Context, endpoint string, params map[string]string) ([]byte, error) {
 	body, _, err := e.postRaw(ctx, endpoint, params)
 	return body, err
+}
+
+func (e *EasyPay) get(ctx context.Context, endpoint string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := e.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: easypayHTTPTimeout}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return io.ReadAll(io.LimitReader(resp.Body, maxEasypayResponseSize))
 }
 
 func (e *EasyPay) postRaw(ctx context.Context, endpoint string, params map[string]string) ([]byte, int, error) {

@@ -25,24 +25,44 @@ const (
 	FieldUserID = "user_id"
 	// FieldGroupID holds the string denoting the group_id field in the database.
 	FieldGroupID = "group_id"
+	// FieldPlanID holds the string denoting the plan_id field in the database.
+	FieldPlanID = "plan_id"
 	// FieldStartsAt holds the string denoting the starts_at field in the database.
 	FieldStartsAt = "starts_at"
 	// FieldExpiresAt holds the string denoting the expires_at field in the database.
 	FieldExpiresAt = "expires_at"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
+	// FieldFiveHourLimitUsd holds the string denoting the five_hour_limit_usd field in the database.
+	FieldFiveHourLimitUsd = "five_hour_limit_usd"
+	// FieldSevenDayLimitUsd holds the string denoting the seven_day_limit_usd field in the database.
+	FieldSevenDayLimitUsd = "seven_day_limit_usd"
+	// FieldThirtyDayLimitUsd holds the string denoting the thirty_day_limit_usd field in the database.
+	FieldThirtyDayLimitUsd = "thirty_day_limit_usd"
 	// FieldDailyWindowStart holds the string denoting the daily_window_start field in the database.
 	FieldDailyWindowStart = "daily_window_start"
 	// FieldWeeklyWindowStart holds the string denoting the weekly_window_start field in the database.
 	FieldWeeklyWindowStart = "weekly_window_start"
 	// FieldMonthlyWindowStart holds the string denoting the monthly_window_start field in the database.
 	FieldMonthlyWindowStart = "monthly_window_start"
+	// FieldFiveHourWindowStart holds the string denoting the five_hour_window_start field in the database.
+	FieldFiveHourWindowStart = "five_hour_window_start"
+	// FieldSevenDayWindowStart holds the string denoting the seven_day_window_start field in the database.
+	FieldSevenDayWindowStart = "seven_day_window_start"
+	// FieldThirtyDayWindowStart holds the string denoting the thirty_day_window_start field in the database.
+	FieldThirtyDayWindowStart = "thirty_day_window_start"
 	// FieldDailyUsageUsd holds the string denoting the daily_usage_usd field in the database.
 	FieldDailyUsageUsd = "daily_usage_usd"
 	// FieldWeeklyUsageUsd holds the string denoting the weekly_usage_usd field in the database.
 	FieldWeeklyUsageUsd = "weekly_usage_usd"
 	// FieldMonthlyUsageUsd holds the string denoting the monthly_usage_usd field in the database.
 	FieldMonthlyUsageUsd = "monthly_usage_usd"
+	// FieldFiveHourUsageUsd holds the string denoting the five_hour_usage_usd field in the database.
+	FieldFiveHourUsageUsd = "five_hour_usage_usd"
+	// FieldSevenDayUsageUsd holds the string denoting the seven_day_usage_usd field in the database.
+	FieldSevenDayUsageUsd = "seven_day_usage_usd"
+	// FieldThirtyDayUsageUsd holds the string denoting the thirty_day_usage_usd field in the database.
+	FieldThirtyDayUsageUsd = "thirty_day_usage_usd"
 	// FieldAssignedBy holds the string denoting the assigned_by field in the database.
 	FieldAssignedBy = "assigned_by"
 	// FieldAssignedAt holds the string denoting the assigned_at field in the database.
@@ -53,6 +73,8 @@ const (
 	EdgeUser = "user"
 	// EdgeGroup holds the string denoting the group edge name in mutations.
 	EdgeGroup = "group"
+	// EdgePlan holds the string denoting the plan edge name in mutations.
+	EdgePlan = "plan"
 	// EdgeAssignedByUser holds the string denoting the assigned_by_user edge name in mutations.
 	EdgeAssignedByUser = "assigned_by_user"
 	// EdgeUsageLogs holds the string denoting the usage_logs edge name in mutations.
@@ -73,6 +95,13 @@ const (
 	GroupInverseTable = "groups"
 	// GroupColumn is the table column denoting the group relation/edge.
 	GroupColumn = "group_id"
+	// PlanTable is the table that holds the plan relation/edge.
+	PlanTable = "user_subscriptions"
+	// PlanInverseTable is the table name for the SubscriptionPlan entity.
+	// It exists in this package in order to avoid circular dependency with the "subscriptionplan" package.
+	PlanInverseTable = "subscription_plans"
+	// PlanColumn is the table column denoting the plan relation/edge.
+	PlanColumn = "plan_id"
 	// AssignedByUserTable is the table that holds the assigned_by_user relation/edge.
 	AssignedByUserTable = "user_subscriptions"
 	// AssignedByUserInverseTable is the table name for the User entity.
@@ -97,15 +126,25 @@ var Columns = []string{
 	FieldDeletedAt,
 	FieldUserID,
 	FieldGroupID,
+	FieldPlanID,
 	FieldStartsAt,
 	FieldExpiresAt,
 	FieldStatus,
+	FieldFiveHourLimitUsd,
+	FieldSevenDayLimitUsd,
+	FieldThirtyDayLimitUsd,
 	FieldDailyWindowStart,
 	FieldWeeklyWindowStart,
 	FieldMonthlyWindowStart,
+	FieldFiveHourWindowStart,
+	FieldSevenDayWindowStart,
+	FieldThirtyDayWindowStart,
 	FieldDailyUsageUsd,
 	FieldWeeklyUsageUsd,
 	FieldMonthlyUsageUsd,
+	FieldFiveHourUsageUsd,
+	FieldSevenDayUsageUsd,
+	FieldThirtyDayUsageUsd,
 	FieldAssignedBy,
 	FieldAssignedAt,
 	FieldNotes,
@@ -139,12 +178,24 @@ var (
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	StatusValidator func(string) error
+	// FiveHourLimitUsdValidator is a validator for the "five_hour_limit_usd" field. It is called by the builders before save.
+	FiveHourLimitUsdValidator func(float64) error
+	// SevenDayLimitUsdValidator is a validator for the "seven_day_limit_usd" field. It is called by the builders before save.
+	SevenDayLimitUsdValidator func(float64) error
+	// ThirtyDayLimitUsdValidator is a validator for the "thirty_day_limit_usd" field. It is called by the builders before save.
+	ThirtyDayLimitUsdValidator func(float64) error
 	// DefaultDailyUsageUsd holds the default value on creation for the "daily_usage_usd" field.
 	DefaultDailyUsageUsd float64
 	// DefaultWeeklyUsageUsd holds the default value on creation for the "weekly_usage_usd" field.
 	DefaultWeeklyUsageUsd float64
 	// DefaultMonthlyUsageUsd holds the default value on creation for the "monthly_usage_usd" field.
 	DefaultMonthlyUsageUsd float64
+	// DefaultFiveHourUsageUsd holds the default value on creation for the "five_hour_usage_usd" field.
+	DefaultFiveHourUsageUsd float64
+	// DefaultSevenDayUsageUsd holds the default value on creation for the "seven_day_usage_usd" field.
+	DefaultSevenDayUsageUsd float64
+	// DefaultThirtyDayUsageUsd holds the default value on creation for the "thirty_day_usage_usd" field.
+	DefaultThirtyDayUsageUsd float64
 	// DefaultAssignedAt holds the default value on creation for the "assigned_at" field.
 	DefaultAssignedAt func() time.Time
 )
@@ -182,6 +233,11 @@ func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldGroupID, opts...).ToFunc()
 }
 
+// ByPlanID orders the results by the plan_id field.
+func ByPlanID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPlanID, opts...).ToFunc()
+}
+
 // ByStartsAt orders the results by the starts_at field.
 func ByStartsAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStartsAt, opts...).ToFunc()
@@ -195,6 +251,21 @@ func ByExpiresAt(opts ...sql.OrderTermOption) OrderOption {
 // ByStatus orders the results by the status field.
 func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStatus, opts...).ToFunc()
+}
+
+// ByFiveHourLimitUsd orders the results by the five_hour_limit_usd field.
+func ByFiveHourLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldFiveHourLimitUsd, opts...).ToFunc()
+}
+
+// BySevenDayLimitUsd orders the results by the seven_day_limit_usd field.
+func BySevenDayLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSevenDayLimitUsd, opts...).ToFunc()
+}
+
+// ByThirtyDayLimitUsd orders the results by the thirty_day_limit_usd field.
+func ByThirtyDayLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldThirtyDayLimitUsd, opts...).ToFunc()
 }
 
 // ByDailyWindowStart orders the results by the daily_window_start field.
@@ -212,6 +283,21 @@ func ByMonthlyWindowStart(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldMonthlyWindowStart, opts...).ToFunc()
 }
 
+// ByFiveHourWindowStart orders the results by the five_hour_window_start field.
+func ByFiveHourWindowStart(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldFiveHourWindowStart, opts...).ToFunc()
+}
+
+// BySevenDayWindowStart orders the results by the seven_day_window_start field.
+func BySevenDayWindowStart(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSevenDayWindowStart, opts...).ToFunc()
+}
+
+// ByThirtyDayWindowStart orders the results by the thirty_day_window_start field.
+func ByThirtyDayWindowStart(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldThirtyDayWindowStart, opts...).ToFunc()
+}
+
 // ByDailyUsageUsd orders the results by the daily_usage_usd field.
 func ByDailyUsageUsd(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDailyUsageUsd, opts...).ToFunc()
@@ -225,6 +311,21 @@ func ByWeeklyUsageUsd(opts ...sql.OrderTermOption) OrderOption {
 // ByMonthlyUsageUsd orders the results by the monthly_usage_usd field.
 func ByMonthlyUsageUsd(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldMonthlyUsageUsd, opts...).ToFunc()
+}
+
+// ByFiveHourUsageUsd orders the results by the five_hour_usage_usd field.
+func ByFiveHourUsageUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldFiveHourUsageUsd, opts...).ToFunc()
+}
+
+// BySevenDayUsageUsd orders the results by the seven_day_usage_usd field.
+func BySevenDayUsageUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSevenDayUsageUsd, opts...).ToFunc()
+}
+
+// ByThirtyDayUsageUsd orders the results by the thirty_day_usage_usd field.
+func ByThirtyDayUsageUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldThirtyDayUsageUsd, opts...).ToFunc()
 }
 
 // ByAssignedBy orders the results by the assigned_by field.
@@ -253,6 +354,13 @@ func ByUserField(field string, opts ...sql.OrderTermOption) OrderOption {
 func ByGroupField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newGroupStep(), sql.OrderByField(field, opts...))
+	}
+}
+
+// ByPlanField orders the results by plan field.
+func ByPlanField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newPlanStep(), sql.OrderByField(field, opts...))
 	}
 }
 
@@ -288,6 +396,13 @@ func newGroupStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(GroupInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, true, GroupTable, GroupColumn),
+	)
+}
+func newPlanStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(PlanInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, PlanTable, PlanColumn),
 	)
 }
 func newAssignedByUserStep() *sqlgraph.Step {

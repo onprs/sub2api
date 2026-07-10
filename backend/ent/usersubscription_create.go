@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
@@ -79,6 +80,20 @@ func (_c *UserSubscriptionCreate) SetGroupID(v int64) *UserSubscriptionCreate {
 	return _c
 }
 
+// SetPlanID sets the "plan_id" field.
+func (_c *UserSubscriptionCreate) SetPlanID(v int64) *UserSubscriptionCreate {
+	_c.mutation.SetPlanID(v)
+	return _c
+}
+
+// SetNillablePlanID sets the "plan_id" field if the given value is not nil.
+func (_c *UserSubscriptionCreate) SetNillablePlanID(v *int64) *UserSubscriptionCreate {
+	if v != nil {
+		_c.SetPlanID(*v)
+	}
+	return _c
+}
+
 // SetStartsAt sets the "starts_at" field.
 func (_c *UserSubscriptionCreate) SetStartsAt(v time.Time) *UserSubscriptionCreate {
 	_c.mutation.SetStartsAt(v)
@@ -101,6 +116,48 @@ func (_c *UserSubscriptionCreate) SetStatus(v string) *UserSubscriptionCreate {
 func (_c *UserSubscriptionCreate) SetNillableStatus(v *string) *UserSubscriptionCreate {
 	if v != nil {
 		_c.SetStatus(*v)
+	}
+	return _c
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (_c *UserSubscriptionCreate) SetFiveHourLimitUsd(v float64) *UserSubscriptionCreate {
+	_c.mutation.SetFiveHourLimitUsd(v)
+	return _c
+}
+
+// SetNillableFiveHourLimitUsd sets the "five_hour_limit_usd" field if the given value is not nil.
+func (_c *UserSubscriptionCreate) SetNillableFiveHourLimitUsd(v *float64) *UserSubscriptionCreate {
+	if v != nil {
+		_c.SetFiveHourLimitUsd(*v)
+	}
+	return _c
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (_c *UserSubscriptionCreate) SetSevenDayLimitUsd(v float64) *UserSubscriptionCreate {
+	_c.mutation.SetSevenDayLimitUsd(v)
+	return _c
+}
+
+// SetNillableSevenDayLimitUsd sets the "seven_day_limit_usd" field if the given value is not nil.
+func (_c *UserSubscriptionCreate) SetNillableSevenDayLimitUsd(v *float64) *UserSubscriptionCreate {
+	if v != nil {
+		_c.SetSevenDayLimitUsd(*v)
+	}
+	return _c
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (_c *UserSubscriptionCreate) SetThirtyDayLimitUsd(v float64) *UserSubscriptionCreate {
+	_c.mutation.SetThirtyDayLimitUsd(v)
+	return _c
+}
+
+// SetNillableThirtyDayLimitUsd sets the "thirty_day_limit_usd" field if the given value is not nil.
+func (_c *UserSubscriptionCreate) SetNillableThirtyDayLimitUsd(v *float64) *UserSubscriptionCreate {
+	if v != nil {
+		_c.SetThirtyDayLimitUsd(*v)
 	}
 	return _c
 }
@@ -147,6 +204,48 @@ func (_c *UserSubscriptionCreate) SetNillableMonthlyWindowStart(v *time.Time) *U
 	return _c
 }
 
+// SetFiveHourWindowStart sets the "five_hour_window_start" field.
+func (_c *UserSubscriptionCreate) SetFiveHourWindowStart(v time.Time) *UserSubscriptionCreate {
+	_c.mutation.SetFiveHourWindowStart(v)
+	return _c
+}
+
+// SetNillableFiveHourWindowStart sets the "five_hour_window_start" field if the given value is not nil.
+func (_c *UserSubscriptionCreate) SetNillableFiveHourWindowStart(v *time.Time) *UserSubscriptionCreate {
+	if v != nil {
+		_c.SetFiveHourWindowStart(*v)
+	}
+	return _c
+}
+
+// SetSevenDayWindowStart sets the "seven_day_window_start" field.
+func (_c *UserSubscriptionCreate) SetSevenDayWindowStart(v time.Time) *UserSubscriptionCreate {
+	_c.mutation.SetSevenDayWindowStart(v)
+	return _c
+}
+
+// SetNillableSevenDayWindowStart sets the "seven_day_window_start" field if the given value is not nil.
+func (_c *UserSubscriptionCreate) SetNillableSevenDayWindowStart(v *time.Time) *UserSubscriptionCreate {
+	if v != nil {
+		_c.SetSevenDayWindowStart(*v)
+	}
+	return _c
+}
+
+// SetThirtyDayWindowStart sets the "thirty_day_window_start" field.
+func (_c *UserSubscriptionCreate) SetThirtyDayWindowStart(v time.Time) *UserSubscriptionCreate {
+	_c.mutation.SetThirtyDayWindowStart(v)
+	return _c
+}
+
+// SetNillableThirtyDayWindowStart sets the "thirty_day_window_start" field if the given value is not nil.
+func (_c *UserSubscriptionCreate) SetNillableThirtyDayWindowStart(v *time.Time) *UserSubscriptionCreate {
+	if v != nil {
+		_c.SetThirtyDayWindowStart(*v)
+	}
+	return _c
+}
+
 // SetDailyUsageUsd sets the "daily_usage_usd" field.
 func (_c *UserSubscriptionCreate) SetDailyUsageUsd(v float64) *UserSubscriptionCreate {
 	_c.mutation.SetDailyUsageUsd(v)
@@ -185,6 +284,48 @@ func (_c *UserSubscriptionCreate) SetMonthlyUsageUsd(v float64) *UserSubscriptio
 func (_c *UserSubscriptionCreate) SetNillableMonthlyUsageUsd(v *float64) *UserSubscriptionCreate {
 	if v != nil {
 		_c.SetMonthlyUsageUsd(*v)
+	}
+	return _c
+}
+
+// SetFiveHourUsageUsd sets the "five_hour_usage_usd" field.
+func (_c *UserSubscriptionCreate) SetFiveHourUsageUsd(v float64) *UserSubscriptionCreate {
+	_c.mutation.SetFiveHourUsageUsd(v)
+	return _c
+}
+
+// SetNillableFiveHourUsageUsd sets the "five_hour_usage_usd" field if the given value is not nil.
+func (_c *UserSubscriptionCreate) SetNillableFiveHourUsageUsd(v *float64) *UserSubscriptionCreate {
+	if v != nil {
+		_c.SetFiveHourUsageUsd(*v)
+	}
+	return _c
+}
+
+// SetSevenDayUsageUsd sets the "seven_day_usage_usd" field.
+func (_c *UserSubscriptionCreate) SetSevenDayUsageUsd(v float64) *UserSubscriptionCreate {
+	_c.mutation.SetSevenDayUsageUsd(v)
+	return _c
+}
+
+// SetNillableSevenDayUsageUsd sets the "seven_day_usage_usd" field if the given value is not nil.
+func (_c *UserSubscriptionCreate) SetNillableSevenDayUsageUsd(v *float64) *UserSubscriptionCreate {
+	if v != nil {
+		_c.SetSevenDayUsageUsd(*v)
+	}
+	return _c
+}
+
+// SetThirtyDayUsageUsd sets the "thirty_day_usage_usd" field.
+func (_c *UserSubscriptionCreate) SetThirtyDayUsageUsd(v float64) *UserSubscriptionCreate {
+	_c.mutation.SetThirtyDayUsageUsd(v)
+	return _c
+}
+
+// SetNillableThirtyDayUsageUsd sets the "thirty_day_usage_usd" field if the given value is not nil.
+func (_c *UserSubscriptionCreate) SetNillableThirtyDayUsageUsd(v *float64) *UserSubscriptionCreate {
+	if v != nil {
+		_c.SetThirtyDayUsageUsd(*v)
 	}
 	return _c
 }
@@ -239,6 +380,11 @@ func (_c *UserSubscriptionCreate) SetUser(v *User) *UserSubscriptionCreate {
 // SetGroup sets the "group" edge to the Group entity.
 func (_c *UserSubscriptionCreate) SetGroup(v *Group) *UserSubscriptionCreate {
 	return _c.SetGroupID(v.ID)
+}
+
+// SetPlan sets the "plan" edge to the SubscriptionPlan entity.
+func (_c *UserSubscriptionCreate) SetPlan(v *SubscriptionPlan) *UserSubscriptionCreate {
+	return _c.SetPlanID(v.ID)
 }
 
 // SetAssignedByUserID sets the "assigned_by_user" edge to the User entity by ID.
@@ -342,6 +488,18 @@ func (_c *UserSubscriptionCreate) defaults() error {
 		v := usersubscription.DefaultMonthlyUsageUsd
 		_c.mutation.SetMonthlyUsageUsd(v)
 	}
+	if _, ok := _c.mutation.FiveHourUsageUsd(); !ok {
+		v := usersubscription.DefaultFiveHourUsageUsd
+		_c.mutation.SetFiveHourUsageUsd(v)
+	}
+	if _, ok := _c.mutation.SevenDayUsageUsd(); !ok {
+		v := usersubscription.DefaultSevenDayUsageUsd
+		_c.mutation.SetSevenDayUsageUsd(v)
+	}
+	if _, ok := _c.mutation.ThirtyDayUsageUsd(); !ok {
+		v := usersubscription.DefaultThirtyDayUsageUsd
+		_c.mutation.SetThirtyDayUsageUsd(v)
+	}
 	if _, ok := _c.mutation.AssignedAt(); !ok {
 		if usersubscription.DefaultAssignedAt == nil {
 			return fmt.Errorf("ent: uninitialized usersubscription.DefaultAssignedAt (forgotten import ent/runtime?)")
@@ -380,6 +538,21 @@ func (_c *UserSubscriptionCreate) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "UserSubscription.status": %w`, err)}
 		}
 	}
+	if v, ok := _c.mutation.FiveHourLimitUsd(); ok {
+		if err := usersubscription.FiveHourLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "five_hour_limit_usd", err: fmt.Errorf(`ent: validator failed for field "UserSubscription.five_hour_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.SevenDayLimitUsd(); ok {
+		if err := usersubscription.SevenDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "seven_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "UserSubscription.seven_day_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.ThirtyDayLimitUsd(); ok {
+		if err := usersubscription.ThirtyDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "thirty_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "UserSubscription.thirty_day_limit_usd": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.DailyUsageUsd(); !ok {
 		return &ValidationError{Name: "daily_usage_usd", err: errors.New(`ent: missing required field "UserSubscription.daily_usage_usd"`)}
 	}
@@ -388,6 +561,15 @@ func (_c *UserSubscriptionCreate) check() error {
 	}
 	if _, ok := _c.mutation.MonthlyUsageUsd(); !ok {
 		return &ValidationError{Name: "monthly_usage_usd", err: errors.New(`ent: missing required field "UserSubscription.monthly_usage_usd"`)}
+	}
+	if _, ok := _c.mutation.FiveHourUsageUsd(); !ok {
+		return &ValidationError{Name: "five_hour_usage_usd", err: errors.New(`ent: missing required field "UserSubscription.five_hour_usage_usd"`)}
+	}
+	if _, ok := _c.mutation.SevenDayUsageUsd(); !ok {
+		return &ValidationError{Name: "seven_day_usage_usd", err: errors.New(`ent: missing required field "UserSubscription.seven_day_usage_usd"`)}
+	}
+	if _, ok := _c.mutation.ThirtyDayUsageUsd(); !ok {
+		return &ValidationError{Name: "thirty_day_usage_usd", err: errors.New(`ent: missing required field "UserSubscription.thirty_day_usage_usd"`)}
 	}
 	if _, ok := _c.mutation.AssignedAt(); !ok {
 		return &ValidationError{Name: "assigned_at", err: errors.New(`ent: missing required field "UserSubscription.assigned_at"`)}
@@ -449,6 +631,18 @@ func (_c *UserSubscriptionCreate) createSpec() (*UserSubscription, *sqlgraph.Cre
 		_spec.SetField(usersubscription.FieldStatus, field.TypeString, value)
 		_node.Status = value
 	}
+	if value, ok := _c.mutation.FiveHourLimitUsd(); ok {
+		_spec.SetField(usersubscription.FieldFiveHourLimitUsd, field.TypeFloat64, value)
+		_node.FiveHourLimitUsd = &value
+	}
+	if value, ok := _c.mutation.SevenDayLimitUsd(); ok {
+		_spec.SetField(usersubscription.FieldSevenDayLimitUsd, field.TypeFloat64, value)
+		_node.SevenDayLimitUsd = &value
+	}
+	if value, ok := _c.mutation.ThirtyDayLimitUsd(); ok {
+		_spec.SetField(usersubscription.FieldThirtyDayLimitUsd, field.TypeFloat64, value)
+		_node.ThirtyDayLimitUsd = &value
+	}
 	if value, ok := _c.mutation.DailyWindowStart(); ok {
 		_spec.SetField(usersubscription.FieldDailyWindowStart, field.TypeTime, value)
 		_node.DailyWindowStart = &value
@@ -461,6 +655,18 @@ func (_c *UserSubscriptionCreate) createSpec() (*UserSubscription, *sqlgraph.Cre
 		_spec.SetField(usersubscription.FieldMonthlyWindowStart, field.TypeTime, value)
 		_node.MonthlyWindowStart = &value
 	}
+	if value, ok := _c.mutation.FiveHourWindowStart(); ok {
+		_spec.SetField(usersubscription.FieldFiveHourWindowStart, field.TypeTime, value)
+		_node.FiveHourWindowStart = &value
+	}
+	if value, ok := _c.mutation.SevenDayWindowStart(); ok {
+		_spec.SetField(usersubscription.FieldSevenDayWindowStart, field.TypeTime, value)
+		_node.SevenDayWindowStart = &value
+	}
+	if value, ok := _c.mutation.ThirtyDayWindowStart(); ok {
+		_spec.SetField(usersubscription.FieldThirtyDayWindowStart, field.TypeTime, value)
+		_node.ThirtyDayWindowStart = &value
+	}
 	if value, ok := _c.mutation.DailyUsageUsd(); ok {
 		_spec.SetField(usersubscription.FieldDailyUsageUsd, field.TypeFloat64, value)
 		_node.DailyUsageUsd = value
@@ -472,6 +678,18 @@ func (_c *UserSubscriptionCreate) createSpec() (*UserSubscription, *sqlgraph.Cre
 	if value, ok := _c.mutation.MonthlyUsageUsd(); ok {
 		_spec.SetField(usersubscription.FieldMonthlyUsageUsd, field.TypeFloat64, value)
 		_node.MonthlyUsageUsd = value
+	}
+	if value, ok := _c.mutation.FiveHourUsageUsd(); ok {
+		_spec.SetField(usersubscription.FieldFiveHourUsageUsd, field.TypeFloat64, value)
+		_node.FiveHourUsageUsd = value
+	}
+	if value, ok := _c.mutation.SevenDayUsageUsd(); ok {
+		_spec.SetField(usersubscription.FieldSevenDayUsageUsd, field.TypeFloat64, value)
+		_node.SevenDayUsageUsd = value
+	}
+	if value, ok := _c.mutation.ThirtyDayUsageUsd(); ok {
+		_spec.SetField(usersubscription.FieldThirtyDayUsageUsd, field.TypeFloat64, value)
+		_node.ThirtyDayUsageUsd = value
 	}
 	if value, ok := _c.mutation.AssignedAt(); ok {
 		_spec.SetField(usersubscription.FieldAssignedAt, field.TypeTime, value)
@@ -513,6 +731,23 @@ func (_c *UserSubscriptionCreate) createSpec() (*UserSubscription, *sqlgraph.Cre
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.GroupID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.PlanIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usersubscription.PlanTable,
+			Columns: []string{usersubscription.PlanColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subscriptionplan.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.PlanID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.AssignedByUserIDs(); len(nodes) > 0 {
@@ -654,6 +889,24 @@ func (u *UserSubscriptionUpsert) UpdateGroupID() *UserSubscriptionUpsert {
 	return u
 }
 
+// SetPlanID sets the "plan_id" field.
+func (u *UserSubscriptionUpsert) SetPlanID(v int64) *UserSubscriptionUpsert {
+	u.Set(usersubscription.FieldPlanID, v)
+	return u
+}
+
+// UpdatePlanID sets the "plan_id" field to the value that was provided on create.
+func (u *UserSubscriptionUpsert) UpdatePlanID() *UserSubscriptionUpsert {
+	u.SetExcluded(usersubscription.FieldPlanID)
+	return u
+}
+
+// ClearPlanID clears the value of the "plan_id" field.
+func (u *UserSubscriptionUpsert) ClearPlanID() *UserSubscriptionUpsert {
+	u.SetNull(usersubscription.FieldPlanID)
+	return u
+}
+
 // SetStartsAt sets the "starts_at" field.
 func (u *UserSubscriptionUpsert) SetStartsAt(v time.Time) *UserSubscriptionUpsert {
 	u.Set(usersubscription.FieldStartsAt, v)
@@ -687,6 +940,78 @@ func (u *UserSubscriptionUpsert) SetStatus(v string) *UserSubscriptionUpsert {
 // UpdateStatus sets the "status" field to the value that was provided on create.
 func (u *UserSubscriptionUpsert) UpdateStatus() *UserSubscriptionUpsert {
 	u.SetExcluded(usersubscription.FieldStatus)
+	return u
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (u *UserSubscriptionUpsert) SetFiveHourLimitUsd(v float64) *UserSubscriptionUpsert {
+	u.Set(usersubscription.FieldFiveHourLimitUsd, v)
+	return u
+}
+
+// UpdateFiveHourLimitUsd sets the "five_hour_limit_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsert) UpdateFiveHourLimitUsd() *UserSubscriptionUpsert {
+	u.SetExcluded(usersubscription.FieldFiveHourLimitUsd)
+	return u
+}
+
+// AddFiveHourLimitUsd adds v to the "five_hour_limit_usd" field.
+func (u *UserSubscriptionUpsert) AddFiveHourLimitUsd(v float64) *UserSubscriptionUpsert {
+	u.Add(usersubscription.FieldFiveHourLimitUsd, v)
+	return u
+}
+
+// ClearFiveHourLimitUsd clears the value of the "five_hour_limit_usd" field.
+func (u *UserSubscriptionUpsert) ClearFiveHourLimitUsd() *UserSubscriptionUpsert {
+	u.SetNull(usersubscription.FieldFiveHourLimitUsd)
+	return u
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (u *UserSubscriptionUpsert) SetSevenDayLimitUsd(v float64) *UserSubscriptionUpsert {
+	u.Set(usersubscription.FieldSevenDayLimitUsd, v)
+	return u
+}
+
+// UpdateSevenDayLimitUsd sets the "seven_day_limit_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsert) UpdateSevenDayLimitUsd() *UserSubscriptionUpsert {
+	u.SetExcluded(usersubscription.FieldSevenDayLimitUsd)
+	return u
+}
+
+// AddSevenDayLimitUsd adds v to the "seven_day_limit_usd" field.
+func (u *UserSubscriptionUpsert) AddSevenDayLimitUsd(v float64) *UserSubscriptionUpsert {
+	u.Add(usersubscription.FieldSevenDayLimitUsd, v)
+	return u
+}
+
+// ClearSevenDayLimitUsd clears the value of the "seven_day_limit_usd" field.
+func (u *UserSubscriptionUpsert) ClearSevenDayLimitUsd() *UserSubscriptionUpsert {
+	u.SetNull(usersubscription.FieldSevenDayLimitUsd)
+	return u
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (u *UserSubscriptionUpsert) SetThirtyDayLimitUsd(v float64) *UserSubscriptionUpsert {
+	u.Set(usersubscription.FieldThirtyDayLimitUsd, v)
+	return u
+}
+
+// UpdateThirtyDayLimitUsd sets the "thirty_day_limit_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsert) UpdateThirtyDayLimitUsd() *UserSubscriptionUpsert {
+	u.SetExcluded(usersubscription.FieldThirtyDayLimitUsd)
+	return u
+}
+
+// AddThirtyDayLimitUsd adds v to the "thirty_day_limit_usd" field.
+func (u *UserSubscriptionUpsert) AddThirtyDayLimitUsd(v float64) *UserSubscriptionUpsert {
+	u.Add(usersubscription.FieldThirtyDayLimitUsd, v)
+	return u
+}
+
+// ClearThirtyDayLimitUsd clears the value of the "thirty_day_limit_usd" field.
+func (u *UserSubscriptionUpsert) ClearThirtyDayLimitUsd() *UserSubscriptionUpsert {
+	u.SetNull(usersubscription.FieldThirtyDayLimitUsd)
 	return u
 }
 
@@ -744,6 +1069,60 @@ func (u *UserSubscriptionUpsert) ClearMonthlyWindowStart() *UserSubscriptionUpse
 	return u
 }
 
+// SetFiveHourWindowStart sets the "five_hour_window_start" field.
+func (u *UserSubscriptionUpsert) SetFiveHourWindowStart(v time.Time) *UserSubscriptionUpsert {
+	u.Set(usersubscription.FieldFiveHourWindowStart, v)
+	return u
+}
+
+// UpdateFiveHourWindowStart sets the "five_hour_window_start" field to the value that was provided on create.
+func (u *UserSubscriptionUpsert) UpdateFiveHourWindowStart() *UserSubscriptionUpsert {
+	u.SetExcluded(usersubscription.FieldFiveHourWindowStart)
+	return u
+}
+
+// ClearFiveHourWindowStart clears the value of the "five_hour_window_start" field.
+func (u *UserSubscriptionUpsert) ClearFiveHourWindowStart() *UserSubscriptionUpsert {
+	u.SetNull(usersubscription.FieldFiveHourWindowStart)
+	return u
+}
+
+// SetSevenDayWindowStart sets the "seven_day_window_start" field.
+func (u *UserSubscriptionUpsert) SetSevenDayWindowStart(v time.Time) *UserSubscriptionUpsert {
+	u.Set(usersubscription.FieldSevenDayWindowStart, v)
+	return u
+}
+
+// UpdateSevenDayWindowStart sets the "seven_day_window_start" field to the value that was provided on create.
+func (u *UserSubscriptionUpsert) UpdateSevenDayWindowStart() *UserSubscriptionUpsert {
+	u.SetExcluded(usersubscription.FieldSevenDayWindowStart)
+	return u
+}
+
+// ClearSevenDayWindowStart clears the value of the "seven_day_window_start" field.
+func (u *UserSubscriptionUpsert) ClearSevenDayWindowStart() *UserSubscriptionUpsert {
+	u.SetNull(usersubscription.FieldSevenDayWindowStart)
+	return u
+}
+
+// SetThirtyDayWindowStart sets the "thirty_day_window_start" field.
+func (u *UserSubscriptionUpsert) SetThirtyDayWindowStart(v time.Time) *UserSubscriptionUpsert {
+	u.Set(usersubscription.FieldThirtyDayWindowStart, v)
+	return u
+}
+
+// UpdateThirtyDayWindowStart sets the "thirty_day_window_start" field to the value that was provided on create.
+func (u *UserSubscriptionUpsert) UpdateThirtyDayWindowStart() *UserSubscriptionUpsert {
+	u.SetExcluded(usersubscription.FieldThirtyDayWindowStart)
+	return u
+}
+
+// ClearThirtyDayWindowStart clears the value of the "thirty_day_window_start" field.
+func (u *UserSubscriptionUpsert) ClearThirtyDayWindowStart() *UserSubscriptionUpsert {
+	u.SetNull(usersubscription.FieldThirtyDayWindowStart)
+	return u
+}
+
 // SetDailyUsageUsd sets the "daily_usage_usd" field.
 func (u *UserSubscriptionUpsert) SetDailyUsageUsd(v float64) *UserSubscriptionUpsert {
 	u.Set(usersubscription.FieldDailyUsageUsd, v)
@@ -795,6 +1174,60 @@ func (u *UserSubscriptionUpsert) UpdateMonthlyUsageUsd() *UserSubscriptionUpsert
 // AddMonthlyUsageUsd adds v to the "monthly_usage_usd" field.
 func (u *UserSubscriptionUpsert) AddMonthlyUsageUsd(v float64) *UserSubscriptionUpsert {
 	u.Add(usersubscription.FieldMonthlyUsageUsd, v)
+	return u
+}
+
+// SetFiveHourUsageUsd sets the "five_hour_usage_usd" field.
+func (u *UserSubscriptionUpsert) SetFiveHourUsageUsd(v float64) *UserSubscriptionUpsert {
+	u.Set(usersubscription.FieldFiveHourUsageUsd, v)
+	return u
+}
+
+// UpdateFiveHourUsageUsd sets the "five_hour_usage_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsert) UpdateFiveHourUsageUsd() *UserSubscriptionUpsert {
+	u.SetExcluded(usersubscription.FieldFiveHourUsageUsd)
+	return u
+}
+
+// AddFiveHourUsageUsd adds v to the "five_hour_usage_usd" field.
+func (u *UserSubscriptionUpsert) AddFiveHourUsageUsd(v float64) *UserSubscriptionUpsert {
+	u.Add(usersubscription.FieldFiveHourUsageUsd, v)
+	return u
+}
+
+// SetSevenDayUsageUsd sets the "seven_day_usage_usd" field.
+func (u *UserSubscriptionUpsert) SetSevenDayUsageUsd(v float64) *UserSubscriptionUpsert {
+	u.Set(usersubscription.FieldSevenDayUsageUsd, v)
+	return u
+}
+
+// UpdateSevenDayUsageUsd sets the "seven_day_usage_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsert) UpdateSevenDayUsageUsd() *UserSubscriptionUpsert {
+	u.SetExcluded(usersubscription.FieldSevenDayUsageUsd)
+	return u
+}
+
+// AddSevenDayUsageUsd adds v to the "seven_day_usage_usd" field.
+func (u *UserSubscriptionUpsert) AddSevenDayUsageUsd(v float64) *UserSubscriptionUpsert {
+	u.Add(usersubscription.FieldSevenDayUsageUsd, v)
+	return u
+}
+
+// SetThirtyDayUsageUsd sets the "thirty_day_usage_usd" field.
+func (u *UserSubscriptionUpsert) SetThirtyDayUsageUsd(v float64) *UserSubscriptionUpsert {
+	u.Set(usersubscription.FieldThirtyDayUsageUsd, v)
+	return u
+}
+
+// UpdateThirtyDayUsageUsd sets the "thirty_day_usage_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsert) UpdateThirtyDayUsageUsd() *UserSubscriptionUpsert {
+	u.SetExcluded(usersubscription.FieldThirtyDayUsageUsd)
+	return u
+}
+
+// AddThirtyDayUsageUsd adds v to the "thirty_day_usage_usd" field.
+func (u *UserSubscriptionUpsert) AddThirtyDayUsageUsd(v float64) *UserSubscriptionUpsert {
+	u.Add(usersubscription.FieldThirtyDayUsageUsd, v)
 	return u
 }
 
@@ -954,6 +1387,27 @@ func (u *UserSubscriptionUpsertOne) UpdateGroupID() *UserSubscriptionUpsertOne {
 	})
 }
 
+// SetPlanID sets the "plan_id" field.
+func (u *UserSubscriptionUpsertOne) SetPlanID(v int64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetPlanID(v)
+	})
+}
+
+// UpdatePlanID sets the "plan_id" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertOne) UpdatePlanID() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdatePlanID()
+	})
+}
+
+// ClearPlanID clears the value of the "plan_id" field.
+func (u *UserSubscriptionUpsertOne) ClearPlanID() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearPlanID()
+	})
+}
+
 // SetStartsAt sets the "starts_at" field.
 func (u *UserSubscriptionUpsertOne) SetStartsAt(v time.Time) *UserSubscriptionUpsertOne {
 	return u.Update(func(s *UserSubscriptionUpsert) {
@@ -993,6 +1447,90 @@ func (u *UserSubscriptionUpsertOne) SetStatus(v string) *UserSubscriptionUpsertO
 func (u *UserSubscriptionUpsertOne) UpdateStatus() *UserSubscriptionUpsertOne {
 	return u.Update(func(s *UserSubscriptionUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (u *UserSubscriptionUpsertOne) SetFiveHourLimitUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetFiveHourLimitUsd(v)
+	})
+}
+
+// AddFiveHourLimitUsd adds v to the "five_hour_limit_usd" field.
+func (u *UserSubscriptionUpsertOne) AddFiveHourLimitUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddFiveHourLimitUsd(v)
+	})
+}
+
+// UpdateFiveHourLimitUsd sets the "five_hour_limit_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertOne) UpdateFiveHourLimitUsd() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateFiveHourLimitUsd()
+	})
+}
+
+// ClearFiveHourLimitUsd clears the value of the "five_hour_limit_usd" field.
+func (u *UserSubscriptionUpsertOne) ClearFiveHourLimitUsd() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearFiveHourLimitUsd()
+	})
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (u *UserSubscriptionUpsertOne) SetSevenDayLimitUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetSevenDayLimitUsd(v)
+	})
+}
+
+// AddSevenDayLimitUsd adds v to the "seven_day_limit_usd" field.
+func (u *UserSubscriptionUpsertOne) AddSevenDayLimitUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddSevenDayLimitUsd(v)
+	})
+}
+
+// UpdateSevenDayLimitUsd sets the "seven_day_limit_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertOne) UpdateSevenDayLimitUsd() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateSevenDayLimitUsd()
+	})
+}
+
+// ClearSevenDayLimitUsd clears the value of the "seven_day_limit_usd" field.
+func (u *UserSubscriptionUpsertOne) ClearSevenDayLimitUsd() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearSevenDayLimitUsd()
+	})
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (u *UserSubscriptionUpsertOne) SetThirtyDayLimitUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetThirtyDayLimitUsd(v)
+	})
+}
+
+// AddThirtyDayLimitUsd adds v to the "thirty_day_limit_usd" field.
+func (u *UserSubscriptionUpsertOne) AddThirtyDayLimitUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddThirtyDayLimitUsd(v)
+	})
+}
+
+// UpdateThirtyDayLimitUsd sets the "thirty_day_limit_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertOne) UpdateThirtyDayLimitUsd() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateThirtyDayLimitUsd()
+	})
+}
+
+// ClearThirtyDayLimitUsd clears the value of the "thirty_day_limit_usd" field.
+func (u *UserSubscriptionUpsertOne) ClearThirtyDayLimitUsd() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearThirtyDayLimitUsd()
 	})
 }
 
@@ -1059,6 +1597,69 @@ func (u *UserSubscriptionUpsertOne) ClearMonthlyWindowStart() *UserSubscriptionU
 	})
 }
 
+// SetFiveHourWindowStart sets the "five_hour_window_start" field.
+func (u *UserSubscriptionUpsertOne) SetFiveHourWindowStart(v time.Time) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetFiveHourWindowStart(v)
+	})
+}
+
+// UpdateFiveHourWindowStart sets the "five_hour_window_start" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertOne) UpdateFiveHourWindowStart() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateFiveHourWindowStart()
+	})
+}
+
+// ClearFiveHourWindowStart clears the value of the "five_hour_window_start" field.
+func (u *UserSubscriptionUpsertOne) ClearFiveHourWindowStart() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearFiveHourWindowStart()
+	})
+}
+
+// SetSevenDayWindowStart sets the "seven_day_window_start" field.
+func (u *UserSubscriptionUpsertOne) SetSevenDayWindowStart(v time.Time) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetSevenDayWindowStart(v)
+	})
+}
+
+// UpdateSevenDayWindowStart sets the "seven_day_window_start" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertOne) UpdateSevenDayWindowStart() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateSevenDayWindowStart()
+	})
+}
+
+// ClearSevenDayWindowStart clears the value of the "seven_day_window_start" field.
+func (u *UserSubscriptionUpsertOne) ClearSevenDayWindowStart() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearSevenDayWindowStart()
+	})
+}
+
+// SetThirtyDayWindowStart sets the "thirty_day_window_start" field.
+func (u *UserSubscriptionUpsertOne) SetThirtyDayWindowStart(v time.Time) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetThirtyDayWindowStart(v)
+	})
+}
+
+// UpdateThirtyDayWindowStart sets the "thirty_day_window_start" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertOne) UpdateThirtyDayWindowStart() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateThirtyDayWindowStart()
+	})
+}
+
+// ClearThirtyDayWindowStart clears the value of the "thirty_day_window_start" field.
+func (u *UserSubscriptionUpsertOne) ClearThirtyDayWindowStart() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearThirtyDayWindowStart()
+	})
+}
+
 // SetDailyUsageUsd sets the "daily_usage_usd" field.
 func (u *UserSubscriptionUpsertOne) SetDailyUsageUsd(v float64) *UserSubscriptionUpsertOne {
 	return u.Update(func(s *UserSubscriptionUpsert) {
@@ -1119,6 +1720,69 @@ func (u *UserSubscriptionUpsertOne) AddMonthlyUsageUsd(v float64) *UserSubscript
 func (u *UserSubscriptionUpsertOne) UpdateMonthlyUsageUsd() *UserSubscriptionUpsertOne {
 	return u.Update(func(s *UserSubscriptionUpsert) {
 		s.UpdateMonthlyUsageUsd()
+	})
+}
+
+// SetFiveHourUsageUsd sets the "five_hour_usage_usd" field.
+func (u *UserSubscriptionUpsertOne) SetFiveHourUsageUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetFiveHourUsageUsd(v)
+	})
+}
+
+// AddFiveHourUsageUsd adds v to the "five_hour_usage_usd" field.
+func (u *UserSubscriptionUpsertOne) AddFiveHourUsageUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddFiveHourUsageUsd(v)
+	})
+}
+
+// UpdateFiveHourUsageUsd sets the "five_hour_usage_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertOne) UpdateFiveHourUsageUsd() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateFiveHourUsageUsd()
+	})
+}
+
+// SetSevenDayUsageUsd sets the "seven_day_usage_usd" field.
+func (u *UserSubscriptionUpsertOne) SetSevenDayUsageUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetSevenDayUsageUsd(v)
+	})
+}
+
+// AddSevenDayUsageUsd adds v to the "seven_day_usage_usd" field.
+func (u *UserSubscriptionUpsertOne) AddSevenDayUsageUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddSevenDayUsageUsd(v)
+	})
+}
+
+// UpdateSevenDayUsageUsd sets the "seven_day_usage_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertOne) UpdateSevenDayUsageUsd() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateSevenDayUsageUsd()
+	})
+}
+
+// SetThirtyDayUsageUsd sets the "thirty_day_usage_usd" field.
+func (u *UserSubscriptionUpsertOne) SetThirtyDayUsageUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetThirtyDayUsageUsd(v)
+	})
+}
+
+// AddThirtyDayUsageUsd adds v to the "thirty_day_usage_usd" field.
+func (u *UserSubscriptionUpsertOne) AddThirtyDayUsageUsd(v float64) *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddThirtyDayUsageUsd(v)
+	})
+}
+
+// UpdateThirtyDayUsageUsd sets the "thirty_day_usage_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertOne) UpdateThirtyDayUsageUsd() *UserSubscriptionUpsertOne {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateThirtyDayUsageUsd()
 	})
 }
 
@@ -1452,6 +2116,27 @@ func (u *UserSubscriptionUpsertBulk) UpdateGroupID() *UserSubscriptionUpsertBulk
 	})
 }
 
+// SetPlanID sets the "plan_id" field.
+func (u *UserSubscriptionUpsertBulk) SetPlanID(v int64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetPlanID(v)
+	})
+}
+
+// UpdatePlanID sets the "plan_id" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertBulk) UpdatePlanID() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdatePlanID()
+	})
+}
+
+// ClearPlanID clears the value of the "plan_id" field.
+func (u *UserSubscriptionUpsertBulk) ClearPlanID() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearPlanID()
+	})
+}
+
 // SetStartsAt sets the "starts_at" field.
 func (u *UserSubscriptionUpsertBulk) SetStartsAt(v time.Time) *UserSubscriptionUpsertBulk {
 	return u.Update(func(s *UserSubscriptionUpsert) {
@@ -1491,6 +2176,90 @@ func (u *UserSubscriptionUpsertBulk) SetStatus(v string) *UserSubscriptionUpsert
 func (u *UserSubscriptionUpsertBulk) UpdateStatus() *UserSubscriptionUpsertBulk {
 	return u.Update(func(s *UserSubscriptionUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (u *UserSubscriptionUpsertBulk) SetFiveHourLimitUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetFiveHourLimitUsd(v)
+	})
+}
+
+// AddFiveHourLimitUsd adds v to the "five_hour_limit_usd" field.
+func (u *UserSubscriptionUpsertBulk) AddFiveHourLimitUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddFiveHourLimitUsd(v)
+	})
+}
+
+// UpdateFiveHourLimitUsd sets the "five_hour_limit_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertBulk) UpdateFiveHourLimitUsd() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateFiveHourLimitUsd()
+	})
+}
+
+// ClearFiveHourLimitUsd clears the value of the "five_hour_limit_usd" field.
+func (u *UserSubscriptionUpsertBulk) ClearFiveHourLimitUsd() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearFiveHourLimitUsd()
+	})
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (u *UserSubscriptionUpsertBulk) SetSevenDayLimitUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetSevenDayLimitUsd(v)
+	})
+}
+
+// AddSevenDayLimitUsd adds v to the "seven_day_limit_usd" field.
+func (u *UserSubscriptionUpsertBulk) AddSevenDayLimitUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddSevenDayLimitUsd(v)
+	})
+}
+
+// UpdateSevenDayLimitUsd sets the "seven_day_limit_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertBulk) UpdateSevenDayLimitUsd() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateSevenDayLimitUsd()
+	})
+}
+
+// ClearSevenDayLimitUsd clears the value of the "seven_day_limit_usd" field.
+func (u *UserSubscriptionUpsertBulk) ClearSevenDayLimitUsd() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearSevenDayLimitUsd()
+	})
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (u *UserSubscriptionUpsertBulk) SetThirtyDayLimitUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetThirtyDayLimitUsd(v)
+	})
+}
+
+// AddThirtyDayLimitUsd adds v to the "thirty_day_limit_usd" field.
+func (u *UserSubscriptionUpsertBulk) AddThirtyDayLimitUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddThirtyDayLimitUsd(v)
+	})
+}
+
+// UpdateThirtyDayLimitUsd sets the "thirty_day_limit_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertBulk) UpdateThirtyDayLimitUsd() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateThirtyDayLimitUsd()
+	})
+}
+
+// ClearThirtyDayLimitUsd clears the value of the "thirty_day_limit_usd" field.
+func (u *UserSubscriptionUpsertBulk) ClearThirtyDayLimitUsd() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearThirtyDayLimitUsd()
 	})
 }
 
@@ -1557,6 +2326,69 @@ func (u *UserSubscriptionUpsertBulk) ClearMonthlyWindowStart() *UserSubscription
 	})
 }
 
+// SetFiveHourWindowStart sets the "five_hour_window_start" field.
+func (u *UserSubscriptionUpsertBulk) SetFiveHourWindowStart(v time.Time) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetFiveHourWindowStart(v)
+	})
+}
+
+// UpdateFiveHourWindowStart sets the "five_hour_window_start" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertBulk) UpdateFiveHourWindowStart() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateFiveHourWindowStart()
+	})
+}
+
+// ClearFiveHourWindowStart clears the value of the "five_hour_window_start" field.
+func (u *UserSubscriptionUpsertBulk) ClearFiveHourWindowStart() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearFiveHourWindowStart()
+	})
+}
+
+// SetSevenDayWindowStart sets the "seven_day_window_start" field.
+func (u *UserSubscriptionUpsertBulk) SetSevenDayWindowStart(v time.Time) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetSevenDayWindowStart(v)
+	})
+}
+
+// UpdateSevenDayWindowStart sets the "seven_day_window_start" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertBulk) UpdateSevenDayWindowStart() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateSevenDayWindowStart()
+	})
+}
+
+// ClearSevenDayWindowStart clears the value of the "seven_day_window_start" field.
+func (u *UserSubscriptionUpsertBulk) ClearSevenDayWindowStart() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearSevenDayWindowStart()
+	})
+}
+
+// SetThirtyDayWindowStart sets the "thirty_day_window_start" field.
+func (u *UserSubscriptionUpsertBulk) SetThirtyDayWindowStart(v time.Time) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetThirtyDayWindowStart(v)
+	})
+}
+
+// UpdateThirtyDayWindowStart sets the "thirty_day_window_start" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertBulk) UpdateThirtyDayWindowStart() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateThirtyDayWindowStart()
+	})
+}
+
+// ClearThirtyDayWindowStart clears the value of the "thirty_day_window_start" field.
+func (u *UserSubscriptionUpsertBulk) ClearThirtyDayWindowStart() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.ClearThirtyDayWindowStart()
+	})
+}
+
 // SetDailyUsageUsd sets the "daily_usage_usd" field.
 func (u *UserSubscriptionUpsertBulk) SetDailyUsageUsd(v float64) *UserSubscriptionUpsertBulk {
 	return u.Update(func(s *UserSubscriptionUpsert) {
@@ -1617,6 +2449,69 @@ func (u *UserSubscriptionUpsertBulk) AddMonthlyUsageUsd(v float64) *UserSubscrip
 func (u *UserSubscriptionUpsertBulk) UpdateMonthlyUsageUsd() *UserSubscriptionUpsertBulk {
 	return u.Update(func(s *UserSubscriptionUpsert) {
 		s.UpdateMonthlyUsageUsd()
+	})
+}
+
+// SetFiveHourUsageUsd sets the "five_hour_usage_usd" field.
+func (u *UserSubscriptionUpsertBulk) SetFiveHourUsageUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetFiveHourUsageUsd(v)
+	})
+}
+
+// AddFiveHourUsageUsd adds v to the "five_hour_usage_usd" field.
+func (u *UserSubscriptionUpsertBulk) AddFiveHourUsageUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddFiveHourUsageUsd(v)
+	})
+}
+
+// UpdateFiveHourUsageUsd sets the "five_hour_usage_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertBulk) UpdateFiveHourUsageUsd() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateFiveHourUsageUsd()
+	})
+}
+
+// SetSevenDayUsageUsd sets the "seven_day_usage_usd" field.
+func (u *UserSubscriptionUpsertBulk) SetSevenDayUsageUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetSevenDayUsageUsd(v)
+	})
+}
+
+// AddSevenDayUsageUsd adds v to the "seven_day_usage_usd" field.
+func (u *UserSubscriptionUpsertBulk) AddSevenDayUsageUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddSevenDayUsageUsd(v)
+	})
+}
+
+// UpdateSevenDayUsageUsd sets the "seven_day_usage_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertBulk) UpdateSevenDayUsageUsd() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateSevenDayUsageUsd()
+	})
+}
+
+// SetThirtyDayUsageUsd sets the "thirty_day_usage_usd" field.
+func (u *UserSubscriptionUpsertBulk) SetThirtyDayUsageUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.SetThirtyDayUsageUsd(v)
+	})
+}
+
+// AddThirtyDayUsageUsd adds v to the "thirty_day_usage_usd" field.
+func (u *UserSubscriptionUpsertBulk) AddThirtyDayUsageUsd(v float64) *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.AddThirtyDayUsageUsd(v)
+	})
+}
+
+// UpdateThirtyDayUsageUsd sets the "thirty_day_usage_usd" field to the value that was provided on create.
+func (u *UserSubscriptionUpsertBulk) UpdateThirtyDayUsageUsd() *UserSubscriptionUpsertBulk {
+	return u.Update(func(s *UserSubscriptionUpsert) {
+		s.UpdateThirtyDayUsageUsd()
 	})
 }
 

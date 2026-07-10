@@ -56,7 +56,7 @@
           />
           <span class="font-medium text-gray-900 dark:text-white">{{ m.name }}</span>
           <span class="text-xs text-gray-400">{{ m.provider }}</span>
-          <span v-if="m.provider === 'openai'" class="text-xs text-gray-400">{{ m.api_mode }}</span>
+          <span v-if="monitorSelectableAPIModes(m.provider).length > 1" class="text-xs text-gray-400">{{ m.api_mode }}</span>
           <span
             v-if="!m.enabled"
             class="ml-auto rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500 dark:bg-dark-700 dark:text-gray-400"
@@ -94,6 +94,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
 import type { AssociatedMonitorBrief } from '@/api/admin/channelMonitorTemplate'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import { monitorSelectableAPIModes } from '@/constants/channelMonitor'
 
 const props = defineProps<{
   show: boolean

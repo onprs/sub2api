@@ -1,21 +1,21 @@
 <template>
-  <div class="relative">
+  <div class="version-badge relative min-w-0 max-w-full">
     <!-- Admin: Full version badge with dropdown -->
     <template v-if="isAdmin">
       <button
         @click="toggleDropdown"
-        class="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-colors"
+        class="version-badge-button flex max-w-full min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-colors"
         :class="[
           hasUpdate
             ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50'
             : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-800 dark:text-dark-400 dark:hover:bg-dark-700'
         ]"
-        :title="hasUpdate ? t('version.updateAvailable') : t('version.upToDate')"
+        :title="versionBadgeTitle"
       >
-        <span v-if="currentVersion" class="font-medium">v{{ currentVersion }}</span>
+        <span v-if="currentVersion" class="version-badge-text font-medium">v{{ currentVersion }}</span>
         <span
           v-else
-          class="h-3 w-12 animate-pulse rounded bg-gray-200 font-medium dark:bg-dark-600"
+          class="h-3 w-12 min-w-0 animate-pulse rounded bg-gray-200 font-medium dark:bg-dark-600"
         ></span>
         <!-- Update indicator -->
         <span v-if="hasUpdate" class="relative flex h-2 w-2">
@@ -408,6 +408,11 @@ const latestVersion = computed(() => appStore.latestVersion)
 const hasUpdate = computed(() => appStore.hasUpdate)
 const releaseInfo = computed(() => appStore.releaseInfo)
 const buildType = computed(() => appStore.buildType)
+const versionBadgeTitle = computed(() => {
+  const versionText = currentVersion.value ? `v${currentVersion.value}` : ''
+  const statusText = hasUpdate.value ? t('version.updateAvailable') : t('version.upToDate')
+  return versionText ? `${versionText} · ${statusText}` : statusText
+})
 
 // Update process states (local to this component)
 const updating = ref(false)
@@ -551,5 +556,21 @@ onBeforeUnmount(() => {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.version-badge {
+  width: fit-content;
+}
+
+.version-badge-button {
+  max-width: min(100%, 10.5rem);
+}
+
+.version-badge-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

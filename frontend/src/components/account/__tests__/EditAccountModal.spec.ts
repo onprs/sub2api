@@ -1,10 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
-import { defineComponent } from 'vue'
-import { mount } from '@vue/test-utils'
+import { defineComponent, nextTick } from 'vue'
+import { flushPromises, mount } from '@vue/test-utils'
 
-const { updateAccountMock, checkMixedChannelRiskMock } = vi.hoisted(() => ({
+const {
+  updateAccountMock,
+  checkMixedChannelRiskMock,
+  getByIdMock,
+  getOpenCodeGoConsoleSummaryMock,
+  createOpenCodeGoConsoleAuthTicketMock
+} = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
-  checkMixedChannelRiskMock: vi.fn()
+  checkMixedChannelRiskMock: vi.fn(),
+  getByIdMock: vi.fn(),
+  getOpenCodeGoConsoleSummaryMock: vi.fn(),
+  createOpenCodeGoConsoleAuthTicketMock: vi.fn()
 }))
 
 vi.mock('@/stores/app', () => ({
@@ -24,8 +33,11 @@ vi.mock('@/stores/auth', () => ({
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
+      getById: getByIdMock,
       update: updateAccountMock,
-      checkMixedChannelRisk: checkMixedChannelRiskMock
+      checkMixedChannelRisk: checkMixedChannelRiskMock,
+      getOpenCodeGoConsoleSummary: getOpenCodeGoConsoleSummaryMock,
+      createOpenCodeGoConsoleAuthTicket: createOpenCodeGoConsoleAuthTicketMock
     },
     settings: {
       getWebSearchEmulationConfig: vi.fn().mockResolvedValue({ enabled: false, providers: [] }),
@@ -165,6 +177,68 @@ function buildVertexAccount() {
     expires_at: null,
     auto_pause_on_expired: false
   } as any
+}
+
+function buildOpenCodeGoAccount() {
+  return {
+    id: 3,
+    name: 'OpenCode Go Key',
+    notes: '',
+    platform: 'opencode_go',
+    type: 'apikey',
+    credentials: {
+      api_key: 'sk-opencode-go',
+      model_mapping: {
+        'zen-default': 'zen-default'
+      }
+    },
+    extra: {},
+    proxy_id: null,
+    concurrency: 1,
+    priority: 1,
+    rate_multiplier: 1,
+    status: 'active',
+    group_ids: [],
+    expires_at: null,
+    auto_pause_on_expired: false
+  } as any
+}
+
+function buildOpenCodeGoConsoleSummary() {
+  return {
+    authorized: true,
+    auth_status: 'ready',
+    auth_checked_at: '2026-06-22T12:29:09Z',
+    workspace_id: 'wrk_01KVMQWHB1B2V3BPSEXN3QA7Z1',
+    usage_source: 'official_console',
+    usage_updated_at: '2026-06-22T12:29:09Z',
+    usage: {
+      five_hour: {
+        usage_percent: 0,
+        reset_in_sec: 17990,
+        resets_at: '2026-06-22T17:29:41Z'
+      },
+      seven_day: {
+        usage_percent: 0,
+        reset_in_sec: 559200,
+        resets_at: '2026-06-29T00:00:01Z'
+      },
+      thirty_day: {
+        usage_percent: 0,
+        reset_in_sec: 2560000,
+        resets_at: '2026-07-22T06:04:05Z'
+      }
+    },
+    referral: {
+      referral_code: 'M5N4TCC0GA',
+      invite_link: 'https://opencode.ai/go?ref=M5N4TCC0GA',
+      available_count: 1,
+      available_amount_cents: 500,
+      applied_count: 0
+    },
+    rewards: [],
+    error: ''
+  }
 }
 
 function mountModal(account = buildAccount()) {
@@ -501,6 +575,129 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     // 旧后端响应未脱敏，原 api_key 会随 currentCredentials 一起传回去（旧行为，等价于无操作）
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.api_key).toBe('sk-test')
+  })
+
+  it('edits OpenCode Go API key accounts without OpenAI-only fields', async () => {
+    const account = buildOpenCodeGoAccount()
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    getByIdMock.mockReset()
+    getOpenCodeGoConsoleSummaryMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    getByIdMock.mockResolvedValue(account)
+    getOpenCodeGoConsoleSummaryMock.mockResolvedValue({
+      authorized: false,
+      auth_status: '',
+      workspace_id: '',
+      usage_source: '',
+      usage: {},
+      referral: {},
+      rewards: [],
+      error: ''
+    })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    expect(wrapper.find('[data-testid="openai-responses-mode-select"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('admin.accounts.openai.codexCLIOnly')
+    expect(wrapper.text()).not.toContain('admin.accounts.modelWhitelist')
+    expect(wrapper.text()).not.toContain('admin.accounts.poolMode')
+    expect(wrapper.text()).not.toContain('admin.accounts.customErrorCodes')
+    expect(wrapper.text()).not.toContain('admin.accounts.tempUnschedulable.title')
+    expect(wrapper.text()).not.toContain('admin.accounts.quotaControl.title')
+    expect(wrapper.text()).toContain('admin.accounts.modelMapping')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials?.base_url).toBe('https://opencode.ai/zen/go/v1')
+    expect(credentials?.model_mapping).toEqual({
+      'zen-default': 'zen-default'
+    })
+    expect(credentials).not.toHaveProperty('openai_capabilities')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('openai_responses_mode')
+  })
+
+  it('does not display or submit nil OpenCode Go Console workspace metadata', async () => {
+    const account = buildOpenCodeGoAccount()
+    getByIdMock.mockReset()
+    getOpenCodeGoConsoleSummaryMock.mockReset()
+    createOpenCodeGoConsoleAuthTicketMock.mockReset()
+    getByIdMock.mockResolvedValue(account)
+    getOpenCodeGoConsoleSummaryMock.mockResolvedValue({
+      authorized: false,
+      auth_status: '<nil>',
+      workspace_id: '<nil>',
+      usage_source: '',
+      usage: {},
+      referral: {},
+      rewards: [],
+      error: 'opencode go console auth expired'
+    })
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    const workspaceInput = wrapper.findAll('input').find((input) =>
+      (input.attributes('placeholder') || '').includes('wrk_')
+    )
+    expect(workspaceInput).toBeDefined()
+    expect((workspaceInput!.element as HTMLInputElement).value).toBe('')
+    expect(wrapper.text()).toContain('状态：未授权')
+    expect(wrapper.text()).not.toContain('<nil>')
+
+    const generateButton = wrapper.findAll('button').find((button) =>
+      button.text().includes('生成授权命令')
+    )
+    expect(generateButton).toBeDefined()
+    await generateButton!.trigger('click')
+    await flushPromises()
+
+    expect(createOpenCodeGoConsoleAuthTicketMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps OpenCode Go Console summary visible when the same account row is refreshed', async () => {
+    const account = buildOpenCodeGoAccount()
+    const updatedAccount = {
+      ...account,
+      credentials: {
+        ...account.credentials,
+        console_workspace_id: 'wrk_01KVMQWHB1B2V3BPSEXN3QA7Z1'
+      },
+      extra: {
+        opencode_go_console_auth_status: 'ready',
+        opencode_go_usage_source: 'official_console',
+        opencode_go_usage_updated_at: '2026-06-22T12:29:09Z',
+        opencode_go_usage_5h_used_percent: 0,
+        opencode_go_usage_5h_resets_at: '2026-06-22T17:29:41Z',
+        opencode_go_usage_7d_used_percent: 0,
+        opencode_go_usage_7d_resets_at: '2026-06-29T00:00:01Z',
+        opencode_go_usage_30d_used_percent: 0,
+        opencode_go_usage_30d_resets_at: '2026-07-22T06:04:05Z'
+      },
+      updated_at: '2026-06-22T12:29:09Z'
+    }
+    getByIdMock.mockReset()
+    getOpenCodeGoConsoleSummaryMock.mockReset()
+    getByIdMock.mockResolvedValue(updatedAccount)
+    getOpenCodeGoConsoleSummaryMock.mockResolvedValue(buildOpenCodeGoConsoleSummary())
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('状态：已授权')
+    expect(wrapper.text()).not.toContain('状态：未授权')
+
+    getOpenCodeGoConsoleSummaryMock.mockClear()
+
+    await wrapper.setProps({ account: updatedAccount })
+    await nextTick()
+
+    expect(wrapper.text()).toContain('状态：已授权')
+    expect(wrapper.text()).not.toContain('状态：未授权')
+    expect(getOpenCodeGoConsoleSummaryMock).not.toHaveBeenCalled()
   })
 
   it('blocks apikey save when neither credentials_status nor legacy api_key indicates existence', async () => {

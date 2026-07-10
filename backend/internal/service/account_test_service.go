@@ -188,11 +188,32 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.testGeminiAccountConnection(c, account, modelID, prompt)
 	}
 
+	if account.IsOpenCodeGo() {
+		return s.testOpenCodeGoAccountConnection(c, account)
+	}
+
 	if account.Platform == PlatformAntigravity {
 		return s.routeAntigravityTest(c, account, modelID, prompt)
 	}
 
 	return s.testClaudeAccountConnection(c, account, modelID)
+}
+
+func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, account *Account) error {
+	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过 /v1/models 测试 OpenCode Go 连接"})
+
+	models, err := s.FetchUpstreamSupportedModels(c.Request.Context(), account)
+	if err != nil {
+		var syncErr *UpstreamModelSyncError
+		if errors.As(err, &syncErr) {
+			return s.sendErrorAndEnd(c, syncErr.SafeMessage())
+		}
+		return s.sendErrorAndEnd(c, err.Error())
+	}
+
+	s.sendEvent(c, TestEvent{Type: "status", Text: fmt.Sprintf("已通过 /v1/models 验证，返回 %d 个模型", len(models))})
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection

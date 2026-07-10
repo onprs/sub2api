@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
 	"github.com/imroc/req/v3"
 	"golang.org/x/sync/singleflight"
 )
@@ -759,6 +760,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyChannelMonitorEnabled,
 		SettingKeyChannelMonitorDefaultIntervalSeconds,
 		SettingKeyAvailableChannelsEnabled,
+		SettingKeyModelPricingEnabled,
 		SettingKeyAffiliateEnabled,
 		SettingKeyRiskControlEnabled,
 		SettingKeyAllowUserViewErrorRequests,
@@ -871,6 +873,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 
 		AvailableChannelsEnabled: settings[SettingKeyAvailableChannelsEnabled] == "true",
 
+		ModelPricingEnabled: settings[SettingKeyModelPricingEnabled] == "true",
+
 		AffiliateEnabled: settings[SettingKeyAffiliateEnabled] == "true",
 
 		RiskControlEnabled: settings[SettingKeyRiskControlEnabled] == "true",
@@ -950,6 +954,23 @@ func (s *SettingService) GetAvailableChannelsRuntime(ctx context.Context) Availa
 	}
 	return AvailableChannelsRuntime{
 		Enabled: vals[SettingKeyAvailableChannelsEnabled] == "true",
+	}
+}
+
+// ModelPricingRuntime is the lightweight view of the model-pricing feature switch.
+type ModelPricingRuntime struct {
+	Enabled bool
+}
+
+// GetModelPricingRuntime reads the model-pricing feature switch directly from
+// the settings store. Fail-closed: on error returns Enabled=false.
+func (s *SettingService) GetModelPricingRuntime(ctx context.Context) ModelPricingRuntime {
+	vals, err := s.settingRepo.GetMultiple(ctx, []string{SettingKeyModelPricingEnabled})
+	if err != nil {
+		return ModelPricingRuntime{Enabled: false}
+	}
+	return ModelPricingRuntime{
+		Enabled: vals[SettingKeyModelPricingEnabled] == "true",
 	}
 }
 
@@ -1187,6 +1208,7 @@ type PublicSettingsInjectionPayload struct {
 	ChannelMonitorEnabled                bool `json:"channel_monitor_enabled"`
 	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
 	AvailableChannelsEnabled             bool `json:"available_channels_enabled"`
+	ModelPricingEnabled                  bool `json:"model_pricing_enabled"`
 	AffiliateEnabled                     bool `json:"affiliate_enabled"`
 	RiskControlEnabled                   bool `json:"risk_control_enabled"`
 	AllowUserViewErrorRequests           bool `json:"allow_user_view_error_requests"`
@@ -1250,6 +1272,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
 		ChannelMonitorDefaultIntervalSeconds: settings.ChannelMonitorDefaultIntervalSeconds,
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
+		ModelPricingEnabled:                  settings.ModelPricingEnabled,
 		AffiliateEnabled:                     settings.AffiliateEnabled,
 		RiskControlEnabled:                   settings.RiskControlEnabled,
 		AllowUserViewErrorRequests:           settings.AllowUserViewErrorRequests,
@@ -1375,7 +1398,33 @@ func mergeEmailOAuthBaseConfig(base, override config.EmailOAuthProviderConfig) c
 	if strings.TrimSpace(override.FrontendRedirectURL) != "" {
 		base.FrontendRedirectURL = strings.TrimSpace(override.FrontendRedirectURL)
 	}
+	if override.ProxyID != nil {
+		proxyID := *override.ProxyID
+		base.ProxyID = &proxyID
+	}
+	if strings.TrimSpace(override.ProxyURL) != "" {
+		base.ProxyURL = strings.TrimSpace(override.ProxyURL)
+	}
 	return base
+}
+
+func parsePositiveInt64Ptr(raw string) *int64 {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed <= 0 {
+		return nil
+	}
+	return &parsed
+}
+
+func formatPositiveInt64Ptr(value *int64) string {
+	if value == nil || *value <= 0 {
+		return ""
+	}
+	return strconv.FormatInt(*value, 10)
 }
 
 func (s *SettingService) emailOAuthPublicEnabled(settings map[string]string, provider string) bool {
@@ -1394,6 +1443,9 @@ func (s *SettingService) effectiveEmailOAuthConfig(settings map[string]string, p
 		cfg.ClientSecret = firstNonEmpty(settings[SettingKeyGitHubOAuthClientSecret], cfg.ClientSecret)
 		cfg.RedirectURL = firstNonEmpty(settings[SettingKeyGitHubOAuthRedirectURL], cfg.RedirectURL)
 		cfg.FrontendRedirectURL = firstNonEmpty(settings[SettingKeyGitHubOAuthFrontendRedirectURL], cfg.FrontendRedirectURL, defaultGitHubOAuthFrontend)
+		if raw, ok := settings[SettingKeyGitHubOAuthProxyID]; ok {
+			cfg.ProxyID = parsePositiveInt64Ptr(raw)
+		}
 	case "google":
 		if raw, ok := settings[SettingKeyGoogleOAuthEnabled]; ok {
 			cfg.Enabled = raw == "true"
@@ -1770,6 +1822,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyGitHubOAuthClientID] = strings.TrimSpace(settings.GitHubOAuthClientID)
 	updates[SettingKeyGitHubOAuthRedirectURL] = settings.GitHubOAuthRedirectURL
 	updates[SettingKeyGitHubOAuthFrontendRedirectURL] = settings.GitHubOAuthFrontendRedirectURL
+	updates[SettingKeyGitHubOAuthProxyID] = formatPositiveInt64Ptr(settings.GitHubOAuthProxyID)
 	if settings.GitHubOAuthClientSecret != "" {
 		updates[SettingKeyGitHubOAuthClientSecret] = strings.TrimSpace(settings.GitHubOAuthClientSecret)
 	}
@@ -1888,6 +1941,9 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	// Available channels feature switch
 	updates[SettingKeyAvailableChannelsEnabled] = strconv.FormatBool(settings.AvailableChannelsEnabled)
+
+	// Model pricing feature switch
+	updates[SettingKeyModelPricingEnabled] = strconv.FormatBool(settings.ModelPricingEnabled)
 
 	// Affiliate (邀请返利) feature switch
 	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)
@@ -2143,6 +2199,7 @@ func (s *SettingService) GetEmailOAuthProviderConfig(ctx context.Context, provid
 		SettingKeyGitHubOAuthClientSecret,
 		SettingKeyGitHubOAuthRedirectURL,
 		SettingKeyGitHubOAuthFrontendRedirectURL,
+		SettingKeyGitHubOAuthProxyID,
 		SettingKeyGoogleOAuthEnabled,
 		SettingKeyGoogleOAuthClientID,
 		SettingKeyGoogleOAuthClientSecret,
@@ -2184,7 +2241,42 @@ func (s *SettingService) GetEmailOAuthProviderConfig(ctx context.Context, provid
 	if err := config.ValidateFrontendRedirectURL(cfg.FrontendRedirectURL); err != nil {
 		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth frontend redirect url invalid")
 	}
+	if strings.TrimSpace(cfg.ProxyURL) != "" {
+		trimmed, _, err := proxyurl.Parse(cfg.ProxyURL)
+		if err != nil {
+			return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth proxy invalid")
+		}
+		cfg.ProxyURL = trimmed
+	}
+	if cfg.ProxyID != nil {
+		proxyURL, err := s.resolveEmailOAuthProxyURL(ctx, *cfg.ProxyID)
+		if err != nil {
+			return config.EmailOAuthProviderConfig{}, err
+		}
+		cfg.ProxyURL = proxyURL
+	}
 	return cfg, nil
+}
+
+func (s *SettingService) resolveEmailOAuthProxyURL(ctx context.Context, proxyID int64) (string, error) {
+	if proxyID <= 0 {
+		return "", nil
+	}
+	if s == nil || s.proxyRepo == nil {
+		return "", infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth proxy not configured")
+	}
+	proxy, err := s.proxyRepo.GetByID(ctx, proxyID)
+	if err != nil || proxy == nil {
+		return "", infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth proxy not found")
+	}
+	if !proxy.IsActive() {
+		return "", infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth proxy is not active")
+	}
+	trimmed, _, err := proxyurl.Parse(proxy.URL())
+	if err != nil {
+		return "", infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth proxy invalid")
+	}
+	return trimmed, nil
 }
 
 // IsRegistrationEnabled 检查是否开放注册
@@ -2717,6 +2809,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyGitHubOAuthClientSecret:                   "",
 		SettingKeyGitHubOAuthRedirectURL:                    "",
 		SettingKeyGitHubOAuthFrontendRedirectURL:            defaultGitHubOAuthFrontend,
+		SettingKeyGitHubOAuthProxyID:                        "",
 		SettingKeyGoogleOAuthEnabled:                        "false",
 		SettingKeyGoogleOAuthClientID:                       "",
 		SettingKeyGoogleOAuthClientSecret:                   "",
@@ -2812,6 +2905,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 		// Available channels feature (default disabled; opt-in)
 		SettingKeyAvailableChannelsEnabled: "false",
+
+		// Model pricing feature (default disabled; opt-in)
+		SettingKeyModelPricingEnabled: "false",
 
 		// Affiliate (邀请返利) feature (default disabled; opt-in)
 		SettingKeyAffiliateEnabled: "false",
@@ -3247,6 +3343,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.GitHubOAuthClientSecretConfigured = result.GitHubOAuthClientSecret != ""
 	result.GitHubOAuthRedirectURL = strings.TrimSpace(gitHubEffective.RedirectURL)
 	result.GitHubOAuthFrontendRedirectURL = strings.TrimSpace(gitHubEffective.FrontendRedirectURL)
+	result.GitHubOAuthProxyID = gitHubEffective.ProxyID
 
 	googleEffective := s.effectiveEmailOAuthConfig(settings, "google")
 	result.GoogleOAuthEnabled = googleEffective.Enabled
@@ -3321,6 +3418,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// Available channels feature (default: disabled; strict true)
 	result.AvailableChannelsEnabled = settings[SettingKeyAvailableChannelsEnabled] == "true"
+
+	// Model pricing feature (default: disabled; strict true)
+	result.ModelPricingEnabled = settings[SettingKeyModelPricingEnabled] == "true"
 
 	// Affiliate (邀请返利) feature (default: disabled; strict true)
 	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"
@@ -4830,17 +4930,18 @@ func (s *SettingService) SetStreamTimeoutSettings(ctx context.Context, settings 
 	return s.settingRepo.Set(ctx, SettingKeyStreamTimeoutSettings, string(data))
 }
 
-// GetDefaultPlatformQuotas 读取系统全局 platform quota JSON key，返回 4 platform x 3 window 的设置。
-// 永远返回包含全部 4 platform key 的 map（值可能为零值/nil 字段，表示"上层未配置 = 不限制"）。
+// GetDefaultPlatformQuotas 读取系统全局 platform quota JSON key，返回允许平台 x 3 window 的设置。
+// 永远返回包含全部允许 platform key 的 map（值可能为零值/nil 字段，表示"上层未配置 = 不限制"）。
 //
 // 使用单个 JSON key（default_platform_quotas），一次 DB roundtrip，消除旧 12-KV 格式的 N+1 问题。
-// 容错语义：取值失败或 unmarshal 失败 → 返回补齐 4 key 的空 map（fail-open，注册不被阻断）。
+// 容错语义：取值失败或 unmarshal 失败 → 返回补齐允许平台 key 的空 map（fail-open，注册不被阻断）。
 func (s *SettingService) GetDefaultPlatformQuotas(ctx context.Context) (map[string]*DefaultPlatformQuotaSetting, error) {
 	out := map[string]*DefaultPlatformQuotaSetting{
-		"anthropic":   {},
-		"openai":      {},
-		"gemini":      {},
-		"antigravity": {},
+		PlatformAnthropic:   {},
+		PlatformOpenAI:      {},
+		PlatformOpenCodeGo:  {},
+		PlatformGemini:      {},
+		PlatformAntigravity: {},
 	}
 	raw, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultPlatformQuotas)
 	if err != nil || raw == "" {
@@ -4856,7 +4957,7 @@ func (s *SettingService) GetDefaultPlatformQuotas(ctx context.Context) (map[stri
 			out[platform] = v
 		}
 	}
-	return out, nil // 补齐 4 platform key，保持与旧实现一致的下游契约
+	return out, nil // 补齐全部允许 platform key，保持与旧实现一致的下游契约
 }
 
 // GetAuthSourcePlatformQuotas 读取指定 auth source 的 platform quota 覆盖（仅返回有配置的平台，override 语义）。

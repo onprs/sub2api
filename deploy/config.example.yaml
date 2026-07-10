@@ -95,6 +95,7 @@ security:
       - "api.kimi.com"
       - "open.bigmodel.cn"
       - "api.minimaxi.com"
+      - "opencode.ai"
       - "generativelanguage.googleapis.com"
       - "cloudcode-pa.googleapis.com"
       - "*.openai.azure.com"
@@ -102,6 +103,8 @@ security:
     # 允许下载定价数据的主机列表
     pricing_hosts:
       - "raw.githubusercontent.com"
+      - "opencode.ai"
+      - "models.dev"
     # Allowed hosts for CRS sync (required when using CRS sync)
     # 允许 CRS 同步的主机列表（使用 CRS 同步功能时必须配置）
     crs_hosts: []
@@ -989,6 +992,9 @@ pricing:
   # Hash verification URL (optional)
   # 哈希校验 URL（可选）
   hash_url: "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/refs/heads/main//model_prices_and_context_window.sha256"
+  # OpenCode Go official pricing page; set empty to disable
+  # OpenCode Go 官方价格页；置空则禁用
+  opencode_go_docs_url: "https://opencode.ai/docs/go/"
   # Local data directory for caching
   # 本地数据缓存目录
   data_dir: "./data"

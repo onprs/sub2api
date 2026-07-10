@@ -315,6 +315,48 @@ func TestParseGitHubOAuthProfileRejectsPublicEmailWhenEmailsEndpointFails(t *tes
 	require.Contains(t, err.Error(), "github emails endpoint status 403")
 }
 
+func TestGitHubEmailOAuthOutboundRequestsUseConfiguredProxy(t *testing.T) {
+	var seen []string
+	proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Method+" "+r.URL.String())
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/login/oauth/access_token":
+			_, _ = w.Write([]byte(`{"access_token":"github-access-token","token_type":"bearer"}`))
+		case "/user":
+			_, _ = w.Write([]byte(`{"id":123,"login":"octo","name":"Octo Cat"}`))
+		case "/user/emails":
+			_, _ = w.Write([]byte(`[{"email":"octo@example.com","primary":true,"verified":true}]`))
+		default:
+			http.Error(w, "unexpected proxy target", http.StatusBadGateway)
+		}
+	}))
+	t.Cleanup(proxyServer.Close)
+
+	cfg := config.EmailOAuthProviderConfig{
+		ClientID:     "github-client",
+		ClientSecret: "github-secret",
+		RedirectURL:  "https://cdn.api.onprs.top/api/v1/auth/oauth/github/callback",
+		TokenURL:     "http://github.invalid/login/oauth/access_token",
+		UserInfoURL:  "http://api.github.invalid/user",
+		EmailsURL:    "http://api.github.invalid/user/emails",
+		ProxyURL:     proxyServer.URL,
+	}
+	token, err := exchangeEmailOAuthCode(context.Background(), cfg, "oauth-code")
+	require.NoError(t, err)
+	require.Equal(t, "github-access-token", token.AccessToken)
+
+	profile, err := fetchEmailOAuthProfile(context.Background(), "github", cfg, token)
+	require.NoError(t, err)
+	require.Equal(t, "octo@example.com", profile.Email)
+
+	require.Equal(t, []string{
+		"POST http://github.invalid/login/oauth/access_token",
+		"GET http://api.github.invalid/user",
+		"GET http://api.github.invalid/user/emails",
+	}, seen)
+}
+
 type oauthEmailAffiliateBindCall struct {
 	userID    int64
 	inviterID int64

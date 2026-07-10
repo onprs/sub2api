@@ -39,6 +39,12 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	// redeem_codes: subscription fields
 	requireColumn(t, tx, "redeem_codes", "group_id", "bigint", 0, true)
 	requireColumn(t, tx, "redeem_codes", "validity_days", "integer", 0, false)
+	requireColumn(t, tx, "redeem_codes", "subscription_plan_id", "bigint", 0, true)
+	requireColumn(t, tx, "redeem_codes", "subscription_quota_snapshot_version", "integer", 0, false)
+	requireColumn(t, tx, "redeem_codes", "five_hour_limit_usd", "numeric", 0, true)
+	requireColumn(t, tx, "redeem_codes", "seven_day_limit_usd", "numeric", 0, true)
+	requireColumn(t, tx, "redeem_codes", "thirty_day_limit_usd", "numeric", 0, true)
+	requireIndex(t, tx, "redeem_codes", "idx_redeem_codes_subscription_plan_id")
 
 	// usage_logs: billing_type used by filters/stats
 	requireColumn(t, tx, "usage_logs", "billing_type", "smallint", 0, false)
@@ -103,6 +109,72 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 
 	// user_subscriptions: deleted_at for soft delete support (migration 012)
 	requireColumn(t, tx, "user_subscriptions", "deleted_at", "timestamp with time zone", 0, true)
+
+	// subscription rolling quota limits
+	requireColumn(t, tx, "subscription_plans", "five_hour_limit_usd", "numeric", 0, true)
+	requireColumn(t, tx, "subscription_plans", "seven_day_limit_usd", "numeric", 0, true)
+	requireColumn(t, tx, "subscription_plans", "thirty_day_limit_usd", "numeric", 0, true)
+	requireColumn(t, tx, "subscription_plans", "renewal_discount_percent", "numeric", 0, true)
+	requireColumn(t, tx, "subscription_plans", "stock", "integer", 0, true)
+	requireConstraintDefinitionContains(
+		t,
+		tx,
+		"subscription_plans",
+		"subscription_plans_renewal_discount_percent_range",
+		"renewal_discount_percent",
+		">=",
+		"<",
+		"100",
+	)
+	requireConstraintDefinitionContains(
+		t,
+		tx,
+		"subscription_plans",
+		"subscription_plan_stock_non_negative",
+		"stock",
+		">=",
+		"0",
+	)
+	requireColumn(t, tx, "user_subscriptions", "five_hour_limit_usd", "numeric", 0, true)
+	requireColumn(t, tx, "user_subscriptions", "seven_day_limit_usd", "numeric", 0, true)
+	requireColumn(t, tx, "user_subscriptions", "thirty_day_limit_usd", "numeric", 0, true)
+	requireColumn(t, tx, "user_subscriptions", "five_hour_usage_usd", "numeric", 0, false)
+	requireColumn(t, tx, "user_subscriptions", "seven_day_usage_usd", "numeric", 0, false)
+	requireColumn(t, tx, "user_subscriptions", "thirty_day_usage_usd", "numeric", 0, false)
+	requireColumn(t, tx, "user_subscriptions", "five_hour_window_start", "timestamp with time zone", 0, true)
+	requireColumn(t, tx, "user_subscriptions", "seven_day_window_start", "timestamp with time zone", 0, true)
+	requireColumn(t, tx, "user_subscriptions", "thirty_day_window_start", "timestamp with time zone", 0, true)
+	requireColumn(t, tx, "user_subscriptions", "plan_id", "bigint", 0, true)
+	requireIndex(t, tx, "user_subscriptions", "idx_user_subscriptions_plan_id")
+	requirePartialUniqueIndexDefinition(t, tx, "user_subscriptions", "user_subscriptions_user_group_plan_unique_active", "plan_id", "WHERE")
+	requirePartialUniqueIndexDefinition(t, tx, "user_subscriptions", "user_subscriptions_user_group_legacy_unique_active", "group_id", "WHERE")
+	requireColumn(t, tx, "payment_orders", "subscription_quota_snapshot_version", "integer", 0, false)
+	requireColumn(t, tx, "payment_orders", "subscription_five_hour_limit_usd", "numeric", 0, true)
+	requireColumn(t, tx, "payment_orders", "subscription_seven_day_limit_usd", "numeric", 0, true)
+	requireColumn(t, tx, "payment_orders", "subscription_thirty_day_limit_usd", "numeric", 0, true)
+	requireColumn(t, tx, "payment_orders", "subscription_id", "bigint", 0, true)
+	requireColumn(t, tx, "payment_orders", "subscription_plan_price", "numeric", 0, true)
+	requireColumn(t, tx, "payment_orders", "subscription_renewal_discount_percent", "numeric", 0, true)
+	requireIndex(t, tx, "payment_orders", "paymentorder_subscription_id")
+	requireConstraintDefinitionContains(
+		t,
+		tx,
+		"payment_orders",
+		"payment_orders_subscription_plan_price_positive",
+		"subscription_plan_price",
+		">",
+		"0",
+	)
+	requireConstraintDefinitionContains(
+		t,
+		tx,
+		"payment_orders",
+		"payment_orders_subscription_renewal_discount_percent_range",
+		"subscription_renewal_discount_percent",
+		">=",
+		"<",
+		"100",
+	)
 
 	// orphan_allowed_groups_audit table should exist (migration 013)
 	var orphanAuditRegclass sql.NullString

@@ -36,6 +36,68 @@ func TestNormalizeEasyPayAPIBase(t *testing.T) {
 	}
 }
 
+func TestEasyPayQueryOrderUsesURLQueryParameters(t *testing.T) {
+	t.Parallel()
+
+	var gotMethod string
+	var gotPath string
+	var gotQuery url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotQuery = r.URL.Query()
+		if gotMethod != http.MethodGet || gotPath != "/api.php" ||
+			gotQuery.Get("act") != "order" ||
+			gotQuery.Get("pid") != "pid-1" ||
+			gotQuery.Get("key") != "pkey-1" ||
+			gotQuery.Get("out_trade_no") != "out-456" {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":1,"status":1,"money":"8.70"}`))
+	}))
+	defer server.Close()
+
+	provider := newTestEasyPay(t, server.URL)
+	resp, err := provider.QueryOrder(context.Background(), "out-456")
+	if err != nil {
+		t.Fatalf("QueryOrder returned error: %v", err)
+	}
+	if resp == nil || resp.Status != payment.ProviderStatusPaid || resp.Amount != 8.70 {
+		t.Fatalf("QueryOrder response = %+v, want paid amount 8.70", resp)
+	}
+	if gotMethod != http.MethodGet {
+		t.Fatalf("query method = %q, want GET", gotMethod)
+	}
+}
+
+func TestEasyPayRedirectPaymentSanitizesProductNameForUtf8mb3Gateways(t *testing.T) {
+	t.Parallel()
+
+	provider := newTestEasyPay(t, "https://zpayz.cn")
+	provider.config["paymentMode"] = paymentModePopup
+	resp, err := provider.CreatePayment(context.Background(), payment.CreatePaymentRequest{
+		OrderID:     "out-456",
+		Amount:      "8.70",
+		PaymentType: payment.TypeAlipay,
+		Subject:     "官方配额 Sub2API Subscription Codex-Plus-1个额度-7d-activate 🔪",
+	})
+	if err != nil {
+		t.Fatalf("CreatePayment returned error: %v", err)
+	}
+	u, err := url.Parse(resp.PayURL)
+	if err != nil {
+		t.Fatalf("parse pay url: %v", err)
+	}
+	name := u.Query().Get("name")
+	if strings.Contains(name, "🔪") {
+		t.Fatalf("EasyPay product name should remove 4-byte characters, got %q", name)
+	}
+	if name == "" || !strings.Contains(name, "Codex-Plus") {
+		t.Fatalf("EasyPay product name = %q, want sanitized non-empty name preserving readable text", name)
+	}
+}
+
 func TestEasyPayRefundNormalizesAPIBaseAndSendsOutTradeNoOnly(t *testing.T) {
 	t.Parallel()
 

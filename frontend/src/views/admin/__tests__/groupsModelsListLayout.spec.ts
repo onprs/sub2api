@@ -16,4 +16,16 @@ describe("groups models list layout", () => {
     expect(groupsViewSource).toContain("max-h-64 space-y-2 overflow-y-auto p-2");
     expect(groupsViewSource).not.toContain("sticky top-0");
   });
+
+  it("allows zero as the group rate multiplier in create and edit forms", () => {
+    const createRateInput = groupsViewSource.match(
+      /<input(?=[^>]*v-model\.number="createForm\.rate_multiplier")[^>]*>/,
+    )?.[0];
+    const editRateInput = groupsViewSource.match(
+      /<input(?=[^>]*v-model\.number="editForm\.rate_multiplier")[^>]*>/,
+    )?.[0];
+
+    expect(createRateInput).toContain('min="0"');
+    expect(editRateInput).toContain('min="0"');
+  });
 });

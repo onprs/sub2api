@@ -86,11 +86,20 @@ func tryCustomRules(
 		if !matchAccountStatsRule(&rule, accountID, groupID) {
 			continue
 		}
-		pricing := findPricingForModel(rule.Pricing, platform, modelLower)
+		pricing := findPricingForModelCandidates(rule.Pricing, platform, modelLower)
 		if pricing == nil {
 			continue // 规则匹配但模型不在规则定价中，继续下一条
 		}
 		return calculateStatsCost(pricing, tokens, requestCount)
+	}
+	return nil
+}
+
+func findPricingForModelCandidates(pricingList []ChannelModelPricing, platform, modelLower string) *ChannelModelPricing {
+	for _, candidate := range billingModelPricingCandidates(modelLower) {
+		if pricing := findPricingForModel(pricingList, platform, candidate); pricing != nil {
+			return pricing
+		}
 	}
 	return nil
 }

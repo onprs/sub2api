@@ -54,6 +54,16 @@ function makeAccount(overrides: Partial<Account>): Account {
   }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
 describe('AccountUsageCell', () => {
   beforeEach(() => {
     getUsage.mockReset()
@@ -206,7 +216,7 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledWith(2000)
+    expect(getUsage).toHaveBeenCalledWith(2000, undefined)
     expect(wrapper.text()).toContain('5h|15|300')
     expect(wrapper.text()).toContain('7d|77|300')
   })
@@ -267,10 +277,386 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledWith(2001)
+    expect(getUsage).toHaveBeenCalledWith(2001, undefined)
     // 单一数据源：始终使用 /usage API 返回值，忽略 codex 快照
     expect(wrapper.text()).toContain('5h|18|900')
     expect(wrapper.text()).toContain('7d|36|900')
+  })
+
+  it('OpenCode Go API key 会展示估算的 5h/7d/30d 用量并支持刷新', async () => {
+    const usagePayload = {
+      five_hour: {
+        utilization: 25,
+        resets_at: null,
+        remaining_seconds: 0,
+        estimated: true,
+        source: 'estimated',
+        source_label: 'Based on Sub2API logs',
+        window_stats: {
+          requests: 4,
+          tokens: 600,
+          cost: 3,
+          standard_cost: 3,
+          user_cost: 3
+        }
+      },
+      seven_day: {
+        utilization: 50,
+        resets_at: null,
+        remaining_seconds: 0,
+        estimated: true,
+        source: 'estimated',
+        source_label: 'Based on Sub2API logs',
+        window_stats: {
+          requests: 8,
+          tokens: 1200,
+          cost: 15,
+          standard_cost: 15,
+          user_cost: 15
+        }
+      },
+      thirty_day: {
+        utilization: 75,
+        resets_at: null,
+        remaining_seconds: 0,
+        estimated: true,
+        source: 'estimated',
+        source_label: 'Based on Sub2API logs',
+        window_stats: {
+          requests: 12,
+          tokens: 2400,
+          cost: 45,
+          standard_cost: 45,
+          user_cost: 45
+        }
+      }
+    }
+    getUsage.mockResolvedValue(usagePayload)
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 5001,
+          platform: 'opencode_go',
+          type: 'apikey',
+          extra: {}
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'windowStats'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ windowStats?.tokens }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledWith(5001, undefined)
+    expect(wrapper.text()).toContain('5h|25|600')
+    expect(wrapper.text()).toContain('7d|50|1200')
+    expect(wrapper.text()).toContain('30d|75|2400')
+    expect(wrapper.text()).toContain('admin.accounts.usageWindow.estimatedData')
+    expect(wrapper.find('span[title="Based on Sub2API logs"]').exists()).toBe(true)
+
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenLastCalledWith(5001, 'active', true)
+  })
+
+  it('OpenCode Go API key 会展示官方 Console 用量来源和 reset 时间', async () => {
+    getUsage.mockResolvedValue({
+      five_hour: {
+        utilization: 19,
+        resets_at: '2026-06-22T05:43:10Z',
+        remaining_seconds: 5590,
+        source: 'official_console',
+        source_label: 'OpenCode official Console',
+        window_stats: null
+      },
+      seven_day: {
+        utilization: 7,
+        resets_at: '2026-06-29T05:43:10Z',
+        remaining_seconds: 588490,
+        source: 'official_console',
+        source_label: 'OpenCode official Console',
+        window_stats: null
+      },
+      thirty_day: {
+        utilization: 10,
+        resets_at: '2026-07-22T05:43:10Z',
+        remaining_seconds: 2265176,
+        source: 'official_console',
+        source_label: 'OpenCode official Console',
+        window_stats: null
+      }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 5002,
+          platform: 'opencode_go',
+          type: 'apikey',
+          extra: {}
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'resetsAt'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ resetsAt }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledWith(5002, undefined)
+    expect(wrapper.text()).toContain('5h|19|2026-06-22T05:43:10Z')
+    expect(wrapper.text()).toContain('7d|7|2026-06-29T05:43:10Z')
+    expect(wrapper.text()).toContain('30d|10|2026-07-22T05:43:10Z')
+    expect(wrapper.text()).toContain('official')
+    expect(wrapper.find('span[title="OpenCode official Console"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('admin.accounts.usageWindow.estimatedData')
+  })
+
+  it('OpenCode Go 官方快照变化时会丢弃旧 estimated 缓存并重新拉取 usage', async () => {
+    getUsage
+      .mockResolvedValueOnce({
+        five_hour: {
+          utilization: 25,
+          resets_at: null,
+          remaining_seconds: 0,
+          estimated: true,
+          source: 'estimated',
+          source_label: 'Based on Sub2API logs',
+          window_stats: { requests: 4, tokens: 600, cost: 3, standard_cost: 3, user_cost: 3 }
+        },
+        seven_day: {
+          utilization: 50,
+          resets_at: null,
+          remaining_seconds: 0,
+          estimated: true,
+          source: 'estimated',
+          source_label: 'Based on Sub2API logs',
+          window_stats: { requests: 8, tokens: 1200, cost: 15, standard_cost: 15, user_cost: 15 }
+        },
+        thirty_day: {
+          utilization: 75,
+          resets_at: null,
+          remaining_seconds: 0,
+          estimated: true,
+          source: 'estimated',
+          source_label: 'Based on Sub2API logs',
+          window_stats: { requests: 12, tokens: 2400, cost: 45, standard_cost: 45, user_cost: 45 }
+        }
+      })
+      .mockResolvedValueOnce({
+        five_hour: {
+          utilization: 19,
+          resets_at: '2026-06-22T05:43:10Z',
+          remaining_seconds: 5590,
+          source: 'official_console',
+          source_label: 'OpenCode official Console',
+          window_stats: null
+        },
+        seven_day: {
+          utilization: 7,
+          resets_at: '2026-06-29T05:43:10Z',
+          remaining_seconds: 588490,
+          source: 'official_console',
+          source_label: 'OpenCode official Console',
+          window_stats: null
+        },
+        thirty_day: {
+          utilization: 10,
+          resets_at: '2026-07-22T05:43:10Z',
+          remaining_seconds: 2265176,
+          source: 'official_console',
+          source_label: 'OpenCode official Console',
+          window_stats: null
+        }
+      })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 5010,
+          platform: 'opencode_go',
+          type: 'apikey',
+          extra: {}
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'resetsAt', 'windowStats'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ resetsAt }}|{{ windowStats?.tokens }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('admin.accounts.usageWindow.estimatedData')
+    expect(wrapper.text()).toContain('5h|25||600')
+
+    await wrapper.setProps({
+      account: makeAccount({
+        id: 5010,
+        platform: 'opencode_go',
+        type: 'apikey',
+        extra: {
+          opencode_go_console_auth_status: 'ready',
+          opencode_go_usage_source: 'official_console',
+          opencode_go_usage_updated_at: '2026-06-22T04:10:00Z',
+          opencode_go_usage_5h_used_percent: 19,
+          opencode_go_usage_5h_resets_at: '2026-06-22T05:43:10Z',
+          opencode_go_usage_7d_used_percent: 7,
+          opencode_go_usage_7d_resets_at: '2026-06-29T05:43:10Z',
+          opencode_go_usage_30d_used_percent: 10,
+          opencode_go_usage_30d_resets_at: '2026-07-22T05:43:10Z'
+        }
+      })
+    })
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledTimes(2)
+    expect(getUsage).toHaveBeenLastCalledWith(5010, undefined)
+    expect(wrapper.text()).toContain('official')
+    expect(wrapper.text()).toContain('5h|19|2026-06-22T05:43:10Z|')
+    expect(wrapper.text()).not.toContain('admin.accounts.usageWindow.estimatedData')
+  })
+
+  it('OpenCode Go 旧 estimated 请求晚返回时不会覆盖新的 official usage', async () => {
+    const firstRequest = deferred<any>()
+    const secondRequest = deferred<any>()
+    getUsage
+      .mockImplementationOnce(() => firstRequest.promise)
+      .mockImplementationOnce(() => secondRequest.promise)
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 5011,
+          platform: 'opencode_go',
+          type: 'apikey',
+          extra: {}
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'resetsAt', 'windowStats'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ resetsAt }}|{{ windowStats?.tokens }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await vi.waitFor(() => {
+      expect(getUsage).toHaveBeenCalledTimes(1)
+    })
+
+    await wrapper.setProps({
+      account: makeAccount({
+        id: 5011,
+        platform: 'opencode_go',
+        type: 'apikey',
+        extra: {
+          opencode_go_console_auth_status: 'ready',
+          opencode_go_usage_source: 'official_console',
+          opencode_go_usage_updated_at: '2026-06-22T12:29:09Z',
+          opencode_go_usage_5h_used_percent: 0,
+          opencode_go_usage_5h_resets_at: '2026-06-22T17:29:41Z',
+          opencode_go_usage_7d_used_percent: 0,
+          opencode_go_usage_7d_resets_at: '2026-06-29T00:00:01Z',
+          opencode_go_usage_30d_used_percent: 0,
+          opencode_go_usage_30d_resets_at: '2026-07-22T06:04:05Z'
+        }
+      })
+    })
+
+    await vi.waitFor(() => {
+      expect(getUsage).toHaveBeenCalledTimes(2)
+    })
+
+    secondRequest.resolve({
+      five_hour: {
+        utilization: 0,
+        resets_at: '2026-06-22T17:29:41Z',
+        remaining_seconds: 17990,
+        source: 'official_console',
+        source_label: 'OpenCode official Console',
+        window_stats: null
+      },
+      seven_day: {
+        utilization: 0,
+        resets_at: '2026-06-29T00:00:01Z',
+        remaining_seconds: 559200,
+        source: 'official_console',
+        source_label: 'OpenCode official Console',
+        window_stats: null
+      },
+      thirty_day: {
+        utilization: 0,
+        resets_at: '2026-07-22T06:04:05Z',
+        remaining_seconds: 2560000,
+        source: 'official_console',
+        source_label: 'OpenCode official Console',
+        window_stats: null
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('official')
+    expect(wrapper.text()).toContain('5h|0|2026-06-22T17:29:41Z|')
+
+    firstRequest.resolve({
+      five_hour: {
+        utilization: 25,
+        resets_at: null,
+        remaining_seconds: 0,
+        estimated: true,
+        source: 'estimated',
+        source_label: 'Based on Sub2API logs',
+        window_stats: { requests: 4, tokens: 600, cost: 3, standard_cost: 3, user_cost: 3 }
+      },
+      seven_day: {
+        utilization: 50,
+        resets_at: null,
+        remaining_seconds: 0,
+        estimated: true,
+        source: 'estimated',
+        source_label: 'Based on Sub2API logs',
+        window_stats: { requests: 8, tokens: 1200, cost: 15, standard_cost: 15, user_cost: 15 }
+      },
+      thirty_day: {
+        utilization: 75,
+        resets_at: null,
+        remaining_seconds: 0,
+        estimated: true,
+        source: 'estimated',
+        source_label: 'Based on Sub2API logs',
+        window_stats: { requests: 12, tokens: 2400, cost: 45, standard_cost: 45, user_cost: 45 }
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('official')
+    expect(wrapper.text()).toContain('5h|0|2026-06-22T17:29:41Z|')
+    expect(wrapper.text()).not.toContain('admin.accounts.usageWindow.estimatedData')
+    expect(wrapper.text()).not.toContain('5h|25||600')
   })
 
   it('OpenAI OAuth 有现成快照时，手动刷新信号会触发 usage 重拉', async () => {
@@ -338,7 +724,7 @@ describe('AccountUsageCell', () => {
 
     // 手动刷新再拉一次
     expect(getUsage).toHaveBeenCalledTimes(2)
-    expect(getUsage).toHaveBeenCalledWith(2010)
+    expect(getUsage).toHaveBeenCalledWith(2010, undefined)
     // 单一数据源：始终使用 /usage API 值
     expect(wrapper.text()).toContain('5h|18|900')
   })
@@ -393,7 +779,7 @@ describe('AccountUsageCell', () => {
 
 	await flushPromises()
 
-	expect(getUsage).toHaveBeenCalledWith(2002)
+	expect(getUsage).toHaveBeenCalledWith(2002, undefined)
 	expect(wrapper.text()).toContain('5h|0|27700')
 	expect(wrapper.text()).toContain('7d|0|27700')
   })
@@ -525,7 +911,7 @@ describe('AccountUsageCell', () => {
 
 	await flushPromises()
 
-  expect(getUsage).toHaveBeenCalledWith(2004)
+  expect(getUsage).toHaveBeenCalledWith(2004, undefined)
   expect(wrapper.text()).toContain('5h|100|106540000')
   expect(wrapper.text()).toContain('7d|100|106540000')
   })

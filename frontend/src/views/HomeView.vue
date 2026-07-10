@@ -398,6 +398,20 @@
           >
             GitHub
           </a>
+          <a
+            :href="lmSpeedProviderUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center transition-opacity hover:opacity-80"
+            aria-label="Verified on LM Speed"
+          >
+            <img
+              :src="lmSpeedBadgeUrl"
+              alt="Verified on LM Speed"
+              class="h-7 w-auto"
+              loading="lazy"
+            />
+          </a>
         </div>
       </div>
     </footer>
@@ -434,6 +448,8 @@ const isDark = ref(document.documentElement.classList.contains('dark'))
 
 // GitHub URL
 const githubUrl = 'https://github.com/Wei-Shaw/sub2api'
+const lmSpeedProviderUrl = 'https://lmspeed.net/provider/api-onprs-top'
+const lmSpeedBadgeUrl = 'https://lmspeed.net/api/provider/claim-badge/1420?claim=1420-pI3oIdhdh2Iekbg2DuIZuPDUska9-U9f'
 
 // Auth state
 const isAuthenticated = computed(() => authStore.isAuthenticated)

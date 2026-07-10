@@ -162,6 +162,74 @@ func (r *paymentOrderLifecycleRedeemRepo) SumPositiveBalanceByUser(context.Conte
 	panic("unexpected call")
 }
 
+func TestConfirmPaymentKeepsCreatedPayAmountSnapshot(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentOrderLifecycleTestClient(t)
+
+	user, err := client.User.Create().
+		SetEmail("pay-snapshot@example.com").
+		SetPasswordHash("hash").
+		SetUsername("pay-snapshot-user").
+		Save(ctx)
+	require.NoError(t, err)
+
+	order, err := client.PaymentOrder.Create().
+		SetUserID(user.ID).
+		SetUserEmail(user.Email).
+		SetUserName(user.Username).
+		SetAmount(7.40).
+		SetPayAmount(7.40).
+		SetFeeRate(0).
+		SetRechargeCode("PAY-SNAPSHOT").
+		SetOutTradeNo("sub2_pay_snapshot").
+		SetPaymentType(payment.TypeAlipay).
+		SetPaymentTradeNo("").
+		SetOrderType(payment.OrderTypeBalance).
+		SetStatus(OrderStatusPending).
+		SetExpiresAt(time.Now().Add(time.Hour)).
+		SetClientIP("127.0.0.1").
+		SetSrcHost("api.example.com").
+		Save(ctx)
+	require.NoError(t, err)
+
+	userRepo := &mockUserRepo{getByIDUser: &User{
+		ID:       user.ID,
+		Email:    user.Email,
+		Username: user.Username,
+		Balance:  0,
+	}}
+	userRepo.updateBalanceFn = func(ctx context.Context, id int64, amount float64) error {
+		require.Equal(t, user.ID, id)
+		userRepo.getByIDUser.Balance += amount
+		return nil
+	}
+	redeemRepo := &paymentOrderLifecycleRedeemRepo{
+		codesByCode: map[string]*RedeemCode{
+			order.RechargeCode: {
+				ID:     1,
+				Code:   order.RechargeCode,
+				Type:   RedeemTypeBalance,
+				Value:  order.Amount,
+				Status: StatusUnused,
+			},
+		},
+	}
+	redeemService := NewRedeemService(redeemRepo, userRepo, nil, nil, nil, client, nil, nil)
+	svc := &PaymentService{
+		entClient:     client,
+		redeemService: redeemService,
+		userRepo:      userRepo,
+	}
+
+	err = svc.confirmPayment(ctx, order.ID, "provider-trade-1", 7.404, payment.TypeAlipay, nil)
+	require.NoError(t, err)
+
+	updated, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, 7.40, updated.PayAmount)
+	require.Equal(t, OrderStatusCompleted, updated.Status)
+}
+
 func TestVerifyOrderByOutTradeNoBackfillsTradeNoFromPaidQuery(t *testing.T) {
 	ctx := context.Background()
 	client := newPaymentOrderLifecycleTestClient(t)

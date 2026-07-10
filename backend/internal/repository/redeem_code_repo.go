@@ -34,6 +34,11 @@ func (r *redeemCodeRepository) Create(ctx context.Context, code *service.RedeemC
 		SetNillableUsedBy(code.UsedBy).
 		SetNillableUsedAt(code.UsedAt).
 		SetNillableGroupID(code.GroupID).
+		SetNillableSubscriptionPlanID(code.SubscriptionPlanID).
+		SetSubscriptionQuotaSnapshotVersion(code.SubscriptionQuotaSnapshotVersion).
+		SetNillableFiveHourLimitUsd(code.FiveHourLimitUSD).
+		SetNillableSevenDayLimitUsd(code.SevenDayLimitUSD).
+		SetNillableThirtyDayLimitUsd(code.ThirtyDayLimitUSD).
 		Save(ctx)
 	if err == nil {
 		code.ID = created.ID
@@ -60,7 +65,12 @@ func (r *redeemCodeRepository) CreateBatch(ctx context.Context, codes []service.
 			SetNillableExpiresAt(c.ExpiresAt).
 			SetNillableUsedBy(c.UsedBy).
 			SetNillableUsedAt(c.UsedAt).
-			SetNillableGroupID(c.GroupID)
+			SetNillableGroupID(c.GroupID).
+			SetNillableSubscriptionPlanID(c.SubscriptionPlanID).
+			SetSubscriptionQuotaSnapshotVersion(c.SubscriptionQuotaSnapshotVersion).
+			SetNillableFiveHourLimitUsd(c.FiveHourLimitUSD).
+			SetNillableSevenDayLimitUsd(c.SevenDayLimitUSD).
+			SetNillableThirtyDayLimitUsd(c.ThirtyDayLimitUSD)
 		builders = append(builders, b)
 	}
 
@@ -202,7 +212,8 @@ func (r *redeemCodeRepository) Update(ctx context.Context, code *service.RedeemC
 		SetValue(code.Value).
 		SetStatus(code.Status).
 		SetNotes(code.Notes).
-		SetValidityDays(code.ValidityDays)
+		SetValidityDays(code.ValidityDays).
+		SetSubscriptionQuotaSnapshotVersion(code.SubscriptionQuotaSnapshotVersion)
 
 	if code.UsedBy != nil {
 		up.SetUsedBy(*code.UsedBy)
@@ -223,6 +234,26 @@ func (r *redeemCodeRepository) Update(ctx context.Context, code *service.RedeemC
 		up.SetExpiresAt(*code.ExpiresAt)
 	} else {
 		up.ClearExpiresAt()
+	}
+	if code.SubscriptionPlanID != nil {
+		up.SetSubscriptionPlanID(*code.SubscriptionPlanID)
+	} else {
+		up.ClearSubscriptionPlanID()
+	}
+	if code.FiveHourLimitUSD != nil {
+		up.SetFiveHourLimitUsd(*code.FiveHourLimitUSD)
+	} else {
+		up.ClearFiveHourLimitUsd()
+	}
+	if code.SevenDayLimitUSD != nil {
+		up.SetSevenDayLimitUsd(*code.SevenDayLimitUSD)
+	} else {
+		up.ClearSevenDayLimitUsd()
+	}
+	if code.ThirtyDayLimitUSD != nil {
+		up.SetThirtyDayLimitUsd(*code.ThirtyDayLimitUSD)
+	} else {
+		up.ClearThirtyDayLimitUsd()
 	}
 
 	updated, err := up.Save(ctx)
@@ -413,18 +444,23 @@ func redeemCodeEntityToService(m *dbent.RedeemCode) *service.RedeemCode {
 		return nil
 	}
 	out := &service.RedeemCode{
-		ID:           m.ID,
-		Code:         m.Code,
-		Type:         m.Type,
-		Value:        m.Value,
-		Status:       m.Status,
-		UsedBy:       m.UsedBy,
-		UsedAt:       m.UsedAt,
-		Notes:        derefString(m.Notes),
-		CreatedAt:    m.CreatedAt,
-		ExpiresAt:    m.ExpiresAt,
-		GroupID:      m.GroupID,
-		ValidityDays: m.ValidityDays,
+		ID:                               m.ID,
+		Code:                             m.Code,
+		Type:                             m.Type,
+		Value:                            m.Value,
+		Status:                           m.Status,
+		UsedBy:                           m.UsedBy,
+		UsedAt:                           m.UsedAt,
+		Notes:                            derefString(m.Notes),
+		CreatedAt:                        m.CreatedAt,
+		ExpiresAt:                        m.ExpiresAt,
+		GroupID:                          m.GroupID,
+		ValidityDays:                     m.ValidityDays,
+		SubscriptionPlanID:               m.SubscriptionPlanID,
+		SubscriptionQuotaSnapshotVersion: m.SubscriptionQuotaSnapshotVersion,
+		FiveHourLimitUSD:                 m.FiveHourLimitUsd,
+		SevenDayLimitUSD:                 m.SevenDayLimitUsd,
+		ThirtyDayLimitUSD:                m.ThirtyDayLimitUsd,
 	}
 	if m.Edges.User != nil {
 		out.User = userEntityToService(m.Edges.User)

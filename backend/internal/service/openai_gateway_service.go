@@ -5779,8 +5779,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		cost = &CostBreakdown{BillingMode: string(BillingModeToken)}
 	}
 
-	// Determine billing type
-	isSubscriptionBilling := subscription != nil && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
+	// Determine billing type. The concrete subscription entitlement is selected
+	// transactionally by usage billing after the final cost is known.
+	isSubscriptionBilling := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 	billingType := BillingTypeBalance
 	if isSubscriptionBilling {
 		billingType = BillingTypeSubscription
@@ -5873,9 +5874,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	if apiKey.GroupID != nil {
 		usageLog.GroupID = apiKey.GroupID
-	}
-	if subscription != nil {
-		usageLog.SubscriptionID = &subscription.ID
 	}
 
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）

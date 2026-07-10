@@ -14,9 +14,12 @@ import (
 	"strings"
 	"time"
 
+	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
+	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
+	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -78,6 +81,7 @@ type AdminService interface {
 	GetAccountsByIDs(ctx context.Context, ids []int64) ([]*Account, error)
 	CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error)
 	UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error)
+	CopyAccountModelMapping(ctx context.Context, input *CopyAccountModelMappingInput) (*CopyAccountModelMappingResult, error)
 	// UpdateAccountExtra 仅对 Extra 做 JSONB 增量合并（key 级覆盖），不会影响其它字段或运行态键。
 	// 用于刷新流程持久化 account_uuid / org_uuid 等少量键，避免被全量快照覆盖。
 	UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error
@@ -329,6 +333,13 @@ type BulkUpdateAccountsInput struct {
 	SkipMixedChannelCheck bool
 }
 
+// CopyAccountModelMappingInput describes an admin request to copy one account's
+// explicit credentials.model_mapping to selected same-platform accounts.
+type CopyAccountModelMappingInput struct {
+	SourceAccountID  int64
+	TargetAccountIDs []int64
+}
+
 type BulkUpdateAccountFilters struct {
 	Platform    string
 	Type        string
@@ -343,6 +354,24 @@ type BulkUpdateAccountResult struct {
 	AccountID int64  `json:"account_id"`
 	Success   bool   `json:"success"`
 	Error     string `json:"error,omitempty"`
+}
+
+type CopyAccountModelMappingAccountResult struct {
+	AccountID int64  `json:"account_id"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+}
+
+type CopyAccountModelMappingResult struct {
+	SourceAccountID  int64                                  `json:"source_account_id"`
+	TargetAccountIDs []int64                                `json:"target_account_ids"`
+	Platform         string                                 `json:"platform"`
+	MappingCount     int                                    `json:"mapping_count"`
+	Success          int                                    `json:"success"`
+	Failed           int                                    `json:"failed"`
+	SuccessIDs       []int64                                `json:"success_ids"`
+	FailedIDs        []int64                                `json:"failed_ids"`
+	Results          []CopyAccountModelMappingAccountResult `json:"results"`
 }
 
 // AdminUpdateAPIKeyGroupIDResult is the result of AdminUpdateAPIKeyGroupID.
@@ -403,12 +432,23 @@ type UpdateProxyInput struct {
 }
 
 type GenerateRedeemCodesInput struct {
-	Count        int
-	Type         string
-	Value        float64
-	GroupID      *int64 // 订阅类型专用：关联的分组ID
-	ValidityDays int    // 订阅类型专用：有效天数
-	ExpiresAt    *time.Time
+	Count              int
+	Type               string
+	Value              float64
+	GroupID            *int64 // 订阅类型专用：关联的分组ID
+	ValidityDays       int    // 订阅类型专用：有效天数
+	SubscriptionPlanID *int64
+	ExpiresAt          *time.Time
+}
+
+type redeemSubscriptionSnapshot struct {
+	PlanID               *int64
+	GroupID              *int64
+	ValidityDays         int
+	QuotaSnapshotVersion int
+	FiveHourLimitUSD     *float64
+	SevenDayLimitUSD     *float64
+	ThirtyDayLimitUSD    *float64
 }
 
 type ProxyBatchDeleteResult struct {
@@ -1055,11 +1095,15 @@ func (s *adminServiceImpl) GetUserBalanceHistory(ctx context.Context, userID int
 	if codeType == "" {
 		return s.getAllUserBalanceHistory(ctx, userID, params)
 	}
+	if codeType == RedeemTypeSubscription {
+		return s.getSubscriptionUserBalanceHistory(ctx, userID, params)
+	}
 
 	codes, result, err := s.redeemCodeRepo.ListByUserPaginated(ctx, userID, params, codeType)
 	if err != nil {
 		return nil, 0, 0, err
 	}
+	normalizeBalanceHistorySources(codes)
 	total := result.Total
 	// Aggregate total recharged amount (only once, regardless of type filter)
 	totalRecharged, err := s.redeemCodeRepo.SumPositiveBalanceByUser(ctx, userID)
@@ -1075,7 +1119,7 @@ func (s *adminServiceImpl) getAllUserBalanceHistory(ctx context.Context, userID 
 		needed = params.Limit()
 	}
 
-	redeemCodes, redeemTotal, err := s.listRedeemBalanceHistoryForMerge(ctx, userID, needed)
+	redeemCodes, redeemTotal, err := s.listRedeemBalanceHistoryForMerge(ctx, userID, needed, "")
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -1083,16 +1127,42 @@ func (s *adminServiceImpl) getAllUserBalanceHistory(ctx context.Context, userID 
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	codes := mergeBalanceHistoryCodes(redeemCodes, affiliateCodes, params)
+	orderCodes, orderTotal, err := s.listSubscriptionPaymentOrderHistoryForMerge(ctx, userID, needed)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	codes := mergeBalanceHistoryCodes(params, redeemCodes, affiliateCodes, orderCodes)
 
 	totalRecharged, err := s.redeemCodeRepo.SumPositiveBalanceByUser(ctx, userID)
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	return codes, redeemTotal + affiliateTotal, totalRecharged, nil
+	return codes, redeemTotal + affiliateTotal + orderTotal, totalRecharged, nil
 }
 
-func (s *adminServiceImpl) listRedeemBalanceHistoryForMerge(ctx context.Context, userID int64, needed int) ([]RedeemCode, int64, error) {
+func (s *adminServiceImpl) getSubscriptionUserBalanceHistory(ctx context.Context, userID int64, params pagination.PaginationParams) ([]RedeemCode, int64, float64, error) {
+	needed := params.Offset() + params.Limit()
+	if needed < params.Limit() {
+		needed = params.Limit()
+	}
+
+	redeemCodes, redeemTotal, err := s.listRedeemBalanceHistoryForMerge(ctx, userID, needed, RedeemTypeSubscription)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	orderCodes, orderTotal, err := s.listSubscriptionPaymentOrderHistoryForMerge(ctx, userID, needed)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	codes := mergeBalanceHistoryCodes(params, redeemCodes, orderCodes)
+	totalRecharged, err := s.redeemCodeRepo.SumPositiveBalanceByUser(ctx, userID)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return codes, redeemTotal + orderTotal, totalRecharged, nil
+}
+
+func (s *adminServiceImpl) listRedeemBalanceHistoryForMerge(ctx context.Context, userID int64, needed int, codeType string) ([]RedeemCode, int64, error) {
 	if needed <= 0 {
 		return nil, 0, nil
 	}
@@ -1103,10 +1173,11 @@ func (s *adminServiceImpl) listRedeemBalanceHistoryForMerge(ctx context.Context,
 	)
 	for page := 1; len(out) < needed; page++ {
 		params := pagination.PaginationParams{Page: page, PageSize: 1000}
-		codes, result, err := s.redeemCodeRepo.ListByUserPaginated(ctx, userID, params, "")
+		codes, result, err := s.redeemCodeRepo.ListByUserPaginated(ctx, userID, params, codeType)
 		if err != nil {
 			return nil, 0, err
 		}
+		normalizeBalanceHistorySources(codes)
 		if result != nil {
 			total = result.Total
 		}
@@ -1200,6 +1271,42 @@ LIMIT $3`, userID, params.Offset(), params.Limit())
 	return codes, total, nil
 }
 
+func (s *adminServiceImpl) listSubscriptionPaymentOrderHistoryForMerge(ctx context.Context, userID int64, needed int) ([]RedeemCode, int64, error) {
+	if needed <= 0 {
+		return nil, 0, nil
+	}
+	return s.listSubscriptionPaymentOrderHistory(ctx, userID, pagination.PaginationParams{Page: 1, PageSize: needed})
+}
+
+func (s *adminServiceImpl) listSubscriptionPaymentOrderHistory(ctx context.Context, userID int64, params pagination.PaginationParams) ([]RedeemCode, int64, error) {
+	if s == nil || s.entClient == nil || userID <= 0 {
+		return nil, 0, nil
+	}
+	query := s.entClient.PaymentOrder.Query().
+		Where(
+			paymentorder.UserIDEQ(userID),
+			paymentorder.OrderTypeEQ(payment.OrderTypeSubscription),
+			paymentorder.StatusEQ(OrderStatusCompleted),
+		)
+	total, err := query.Clone().Count(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	orders, err := query.
+		Order(paymentorder.ByCompletedAt(entsql.OrderDesc()), paymentorder.ByID(entsql.OrderDesc())).
+		Offset(params.Offset()).
+		Limit(params.Limit()).
+		All(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	codes := make([]RedeemCode, 0, len(orders))
+	for _, order := range orders {
+		codes = append(codes, paymentOrderBalanceHistoryCode(order))
+	}
+	return codes, int64(total), nil
+}
+
 func countAffiliateBalanceHistory(ctx context.Context, client *dbent.Client, userID int64) (int64, error) {
 	rows, err := client.QueryContext(ctx, `
 SELECT COUNT(*)
@@ -1226,8 +1333,12 @@ WHERE user_id = $1
 	return total.Int64, nil
 }
 
-func mergeBalanceHistoryCodes(redeemCodes, affiliateCodes []RedeemCode, params pagination.PaginationParams) []RedeemCode {
-	combined := append(append([]RedeemCode{}, redeemCodes...), affiliateCodes...)
+func mergeBalanceHistoryCodes(params pagination.PaginationParams, sources ...[]RedeemCode) []RedeemCode {
+	var combined []RedeemCode
+	for _, source := range sources {
+		combined = append(combined, source...)
+	}
+	normalizeBalanceHistorySources(combined)
 	sort.SliceStable(combined, func(i, j int) bool {
 		return redeemCodeHistoryTime(combined[i]).After(redeemCodeHistoryTime(combined[j]))
 	})
@@ -1240,6 +1351,54 @@ func mergeBalanceHistoryCodes(redeemCodes, affiliateCodes []RedeemCode, params p
 		end = len(combined)
 	}
 	return combined[offset:end]
+}
+
+func normalizeBalanceHistorySources(codes []RedeemCode) {
+	for i := range codes {
+		if codes[i].Source == "" && codes[i].ID > 0 {
+			codes[i].Source = "redeem_code"
+		}
+		if codes[i].Source == "redeem_code" && codes[i].SourceID == 0 {
+			codes[i].SourceID = codes[i].ID
+		}
+	}
+}
+
+func paymentOrderBalanceHistoryCode(order *dbent.PaymentOrder) RedeemCode {
+	if order == nil {
+		return RedeemCode{}
+	}
+	usedBy := order.UserID
+	usedAt := order.CompletedAt
+	if usedAt == nil {
+		usedAt = order.PaidAt
+	}
+	if usedAt == nil {
+		createdAt := order.CreatedAt
+		usedAt = &createdAt
+	}
+	code := firstNonEmpty(order.OutTradeNo, order.RechargeCode, fmt.Sprintf("PAYMENT-%d", order.ID))
+	value := 0.0
+	if order.SubscriptionDays != nil {
+		value = float64(*order.SubscriptionDays)
+	}
+	paymentOrderID := order.ID
+	return RedeemCode{
+		ID:                 -order.ID,
+		Source:             "payment_order",
+		SourceID:           order.ID,
+		PaymentOrderID:     &paymentOrderID,
+		Code:               code,
+		Type:               RedeemTypeSubscription,
+		Value:              value,
+		Status:             StatusUsed,
+		UsedBy:             &usedBy,
+		UsedAt:             usedAt,
+		CreatedAt:          order.CreatedAt,
+		GroupID:            order.SubscriptionGroupID,
+		ValidityDays:       int(value),
+		SubscriptionPlanID: order.PlanID,
+	}
 }
 
 func redeemCodeHistoryTime(code RedeemCode) time.Time {
@@ -1666,6 +1825,8 @@ func defaultModelsListCandidateIDs(platform string) []string {
 			ids = append(ids, model.ID)
 		}
 		return ids
+	case PlatformOpenCodeGo:
+		return OpenCodeGoDefaultModelIDs()
 	default:
 		ids := make([]string, 0, len(claude.DefaultModels))
 		for _, model := range claude.DefaultModels {
@@ -1676,8 +1837,8 @@ func defaultModelsListCandidateIDs(platform string) []string {
 }
 
 func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error) {
-	if input.RateMultiplier <= 0 {
-		return nil, errors.New("rate_multiplier must be > 0")
+	if input.RateMultiplier < 0 {
+		return nil, errors.New("rate_multiplier must be >= 0")
 	}
 
 	platform := input.Platform
@@ -1931,8 +2092,8 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		group.Platform = input.Platform
 	}
 	if input.RateMultiplier != nil {
-		if *input.RateMultiplier <= 0 {
-			return nil, errors.New("rate_multiplier must be > 0")
+		if *input.RateMultiplier < 0 {
+			return nil, errors.New("rate_multiplier must be >= 0")
 		}
 		group.RateMultiplier = *input.RateMultiplier
 	}
@@ -2696,6 +2857,125 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	return s.accountRepo.UpdateExtra(ctx, id, updates)
 }
 
+func (s *adminServiceImpl) CopyAccountModelMapping(ctx context.Context, input *CopyAccountModelMappingInput) (*CopyAccountModelMappingResult, error) {
+	if input == nil {
+		return nil, infraerrors.BadRequest("MODEL_MAPPING_COPY_NIL_INPUT", "copy model_mapping input cannot be nil")
+	}
+	if input.SourceAccountID <= 0 {
+		return nil, infraerrors.BadRequest("MODEL_MAPPING_COPY_INVALID_SOURCE", "source_account_id must be positive")
+	}
+
+	targetIDs, err := normalizeCopyModelMappingTargetIDs(input.SourceAccountID, input.TargetAccountIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	source, err := s.accountRepo.GetByID(ctx, input.SourceAccountID)
+	if err != nil {
+		return nil, err
+	}
+	if source == nil {
+		return nil, infraerrors.NotFound("ACCOUNT_NOT_FOUND", "source account not found")
+	}
+
+	sourceMapping := source.GetExplicitModelMapping()
+	if len(sourceMapping) == 0 {
+		return nil, infraerrors.BadRequest("EMPTY_MODEL_MAPPING", "source account model_mapping is empty")
+	}
+
+	targets, err := s.accountRepo.GetByIDs(ctx, targetIDs)
+	if err != nil {
+		return nil, err
+	}
+	targetByID := make(map[int64]*Account, len(targets))
+	for _, target := range targets {
+		if target != nil {
+			targetByID[target.ID] = target
+		}
+	}
+	for _, targetID := range targetIDs {
+		if targetByID[targetID] == nil {
+			return nil, infraerrors.NotFound("ACCOUNT_NOT_FOUND", fmt.Sprintf("target account not found: %d", targetID))
+		}
+	}
+	for _, targetID := range targetIDs {
+		target := targetByID[targetID]
+		if target.Platform != source.Platform {
+			return nil, infraerrors.BadRequest("MODEL_MAPPING_COPY_PLATFORM_MISMATCH", "target account platform does not match source account")
+		}
+	}
+
+	result := &CopyAccountModelMappingResult{
+		SourceAccountID:  source.ID,
+		TargetAccountIDs: append([]int64(nil), targetIDs...),
+		Platform:         source.Platform,
+		MappingCount:     len(sourceMapping),
+		SuccessIDs:       make([]int64, 0, len(targetIDs)),
+		FailedIDs:        make([]int64, 0),
+		Results:          make([]CopyAccountModelMappingAccountResult, 0, len(targetIDs)),
+	}
+
+	for _, targetID := range targetIDs {
+		target := targetByID[targetID]
+		updated := *target
+		updated.Credentials = cloneCredentials(target.Credentials)
+		updated.Credentials["model_mapping"] = cloneStringMappingAsAny(sourceMapping)
+
+		if err := s.accountRepo.Update(ctx, &updated); err != nil {
+			result.Failed++
+			result.FailedIDs = append(result.FailedIDs, targetID)
+			result.Results = append(result.Results, CopyAccountModelMappingAccountResult{
+				AccountID: targetID,
+				Success:   false,
+				Error:     err.Error(),
+			})
+			continue
+		}
+
+		result.Success++
+		result.SuccessIDs = append(result.SuccessIDs, targetID)
+		result.Results = append(result.Results, CopyAccountModelMappingAccountResult{
+			AccountID: targetID,
+			Success:   true,
+		})
+	}
+
+	return result, nil
+}
+
+func normalizeCopyModelMappingTargetIDs(sourceID int64, ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, infraerrors.BadRequest("TARGET_ACCOUNTS_REQUIRED", "target_account_ids is required")
+	}
+	seen := make(map[int64]struct{}, len(ids))
+	targetIDs := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if id == sourceID {
+			return nil, infraerrors.BadRequest("SOURCE_ACCOUNT_IN_TARGETS", "source account cannot be a copy target")
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		targetIDs = append(targetIDs, id)
+	}
+	if len(targetIDs) == 0 {
+		return nil, infraerrors.BadRequest("TARGET_ACCOUNTS_REQUIRED", "target_account_ids is required")
+	}
+	return targetIDs, nil
+}
+
+func cloneStringMappingAsAny(mapping map[string]string) map[string]any {
+	out := make(map[string]any, len(mapping))
+	for key, value := range mapping {
+		out[key] = value
+	}
+	return out
+}
+
 // BulkUpdateAccounts updates multiple accounts in one request.
 // It merges credentials/extra keys instead of overwriting the whole object.
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
@@ -3085,24 +3365,80 @@ func (s *adminServiceImpl) GetRedeemCode(ctx context.Context, id int64) (*Redeem
 	return s.redeemCodeRepo.GetByID(ctx, id)
 }
 
-func (s *adminServiceImpl) GenerateRedeemCodes(ctx context.Context, input *GenerateRedeemCodesInput) ([]RedeemCode, error) {
-	if input.ExpiresAt != nil && !input.ExpiresAt.After(time.Now()) {
-		return nil, ErrRedeemCodeExpired
+// BuildRedeemCode normalizes and snapshots redeem-code benefits before the code is persisted.
+func (s *adminServiceImpl) BuildRedeemCode(ctx context.Context, code RedeemCode) (*RedeemCode, error) {
+	if code.Type != RedeemTypeSubscription {
+		return &code, nil
 	}
 
-	// 如果是订阅类型，验证必须有 GroupID
-	if input.Type == RedeemTypeSubscription {
-		if input.GroupID == nil {
-			return nil, errors.New("group_id is required for subscription type")
+	snapshot, err := s.buildRedeemSubscriptionSnapshot(ctx, code.SubscriptionPlanID, code.GroupID, code.ValidityDays)
+	if err != nil {
+		return nil, err
+	}
+	code.SubscriptionPlanID = snapshot.PlanID
+	code.GroupID = snapshot.GroupID
+	code.ValidityDays = snapshot.ValidityDays
+	code.SubscriptionQuotaSnapshotVersion = snapshot.QuotaSnapshotVersion
+	code.FiveHourLimitUSD = snapshot.FiveHourLimitUSD
+	code.SevenDayLimitUSD = snapshot.SevenDayLimitUSD
+	code.ThirtyDayLimitUSD = snapshot.ThirtyDayLimitUSD
+	return &code, nil
+}
+
+func (s *adminServiceImpl) buildRedeemSubscriptionSnapshot(ctx context.Context, planID, groupID *int64, validityDays int) (*redeemSubscriptionSnapshot, error) {
+	if planID != nil {
+		if s.entClient == nil {
+			return nil, errors.New("ent client is required for subscription plan redeem codes")
 		}
-		// 验证分组存在且为订阅类型
-		group, err := s.groupRepo.GetByID(ctx, *input.GroupID)
+		plan, err := s.entClient.SubscriptionPlan.Get(ctx, *planID)
+		if err != nil {
+			return nil, fmt.Errorf("subscription plan not found: %w", err)
+		}
+		group, err := s.groupRepo.GetByID(ctx, plan.GroupID)
 		if err != nil {
 			return nil, fmt.Errorf("group not found: %w", err)
 		}
 		if !group.IsSubscriptionType() {
-			return nil, errors.New("group must be subscription type")
+			return nil, errors.New("plan group must be subscription type")
 		}
+
+		snapshotPlanID := plan.ID
+		snapshotGroupID := plan.GroupID
+		return &redeemSubscriptionSnapshot{
+			PlanID:               &snapshotPlanID,
+			GroupID:              &snapshotGroupID,
+			ValidityDays:         psComputeValidityDays(plan.ValidityDays, plan.ValidityUnit),
+			QuotaSnapshotVersion: 1,
+			FiveHourLimitUSD:     plan.FiveHourLimitUsd,
+			SevenDayLimitUSD:     plan.SevenDayLimitUsd,
+			ThirtyDayLimitUSD:    plan.ThirtyDayLimitUsd,
+		}, nil
+	}
+
+	if groupID == nil {
+		return nil, errors.New("group_id is required for subscription type")
+	}
+	group, err := s.groupRepo.GetByID(ctx, *groupID)
+	if err != nil {
+		return nil, fmt.Errorf("group not found: %w", err)
+	}
+	if !group.IsSubscriptionType() {
+		return nil, errors.New("group must be subscription type")
+	}
+	snapshotValidityDays := validityDays
+	if snapshotValidityDays == 0 {
+		snapshotValidityDays = 30
+	}
+	return &redeemSubscriptionSnapshot{
+		GroupID:              groupID,
+		ValidityDays:         snapshotValidityDays,
+		QuotaSnapshotVersion: 0,
+	}, nil
+}
+
+func (s *adminServiceImpl) GenerateRedeemCodes(ctx context.Context, input *GenerateRedeemCodesInput) ([]RedeemCode, error) {
+	if input.ExpiresAt != nil && !input.ExpiresAt.After(time.Now()) {
+		return nil, ErrRedeemCodeExpired
 	}
 
 	codes := make([]RedeemCode, 0, input.Count)
@@ -3118,18 +3454,19 @@ func (s *adminServiceImpl) GenerateRedeemCodes(ctx context.Context, input *Gener
 			Status:    StatusUnused,
 			ExpiresAt: input.ExpiresAt,
 		}
-		// 订阅类型专用字段
 		if input.Type == RedeemTypeSubscription {
 			code.GroupID = input.GroupID
 			code.ValidityDays = input.ValidityDays
-			if code.ValidityDays <= 0 {
-				code.ValidityDays = 30 // 默认30天
-			}
+			code.SubscriptionPlanID = input.SubscriptionPlanID
 		}
-		if err := s.redeemCodeRepo.Create(ctx, &code); err != nil {
+		preparedCode, err := s.BuildRedeemCode(ctx, code)
+		if err != nil {
 			return nil, err
 		}
-		codes = append(codes, code)
+		if err := s.redeemCodeRepo.Create(ctx, preparedCode); err != nil {
+			return nil, err
+		}
+		codes = append(codes, *preparedCode)
 	}
 	return codes, nil
 }

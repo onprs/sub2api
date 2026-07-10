@@ -55,9 +55,24 @@ func (s *UserSubscriptionRepoSuite) mustCreateGroup(name string) *service.Group 
 	g, err := s.client.Group.Create().
 		SetName(name).
 		SetStatus(service.StatusActive).
+		SetSubscriptionType(service.SubscriptionTypeSubscription).
 		Save(s.ctx)
 	s.Require().NoError(err, "create group")
 	return groupEntityToService(g)
+}
+
+func (s *UserSubscriptionRepoSuite) mustCreateSubscriptionPlan(groupID int64, name string) *dbent.SubscriptionPlan {
+	s.T().Helper()
+
+	plan, err := s.client.SubscriptionPlan.Create().
+		SetGroupID(groupID).
+		SetName(name).
+		SetPrice(9.99).
+		SetValidityDays(30).
+		SetValidityUnit("day").
+		Save(s.ctx)
+	s.Require().NoError(err, "create subscription plan")
+	return plan
 }
 
 func (s *UserSubscriptionRepoSuite) mustCreateSubscription(userID, groupID int64, mutate func(*dbent.UserSubscriptionCreate)) *dbent.UserSubscription {
@@ -162,6 +177,52 @@ func (s *UserSubscriptionRepoSuite) TestDelete_Idempotent() {
 }
 
 // --- GetByUserIDAndGroupID / GetActiveByUserIDAndGroupID ---
+
+func (s *UserSubscriptionRepoSuite) TestPlanScopedSubscriptionsForSameUserGroup() {
+	user := s.mustCreateUser("plan-scoped@test.com", service.RoleUser)
+	group := s.mustCreateGroup("g-plan-scoped")
+	planA := s.mustCreateSubscriptionPlan(group.ID, "Plan A")
+	planB := s.mustCreateSubscriptionPlan(group.ID, "Plan B")
+	now := time.Now()
+
+	err := s.repo.Create(s.ctx, &service.UserSubscription{
+		UserID:    user.ID,
+		GroupID:   group.ID,
+		PlanID:    &planA.ID,
+		StartsAt:  now,
+		ExpiresAt: now.Add(24 * time.Hour),
+		Status:    service.SubscriptionStatusActive,
+	})
+	s.Require().NoError(err, "create plan A subscription")
+
+	err = s.repo.Create(s.ctx, &service.UserSubscription{
+		UserID:    user.ID,
+		GroupID:   group.ID,
+		PlanID:    &planB.ID,
+		StartsAt:  now,
+		ExpiresAt: now.Add(48 * time.Hour),
+		Status:    service.SubscriptionStatusActive,
+	})
+	s.Require().NoError(err, "create plan B subscription")
+
+	gotA, err := s.repo.GetByUserIDGroupIDAndPlanID(s.ctx, user.ID, group.ID, &planA.ID)
+	s.Require().NoError(err, "GetByUserIDGroupIDAndPlanID plan A")
+	s.Require().NotNil(gotA.PlanID)
+	s.Require().Equal(planA.ID, *gotA.PlanID)
+	s.Require().Equal("Plan A", gotA.PlanName)
+
+	gotB, err := s.repo.GetByUserIDGroupIDAndPlanID(s.ctx, user.ID, group.ID, &planB.ID)
+	s.Require().NoError(err, "GetByUserIDGroupIDAndPlanID plan B")
+	s.Require().NotNil(gotB.PlanID)
+	s.Require().Equal(planB.ID, *gotB.PlanID)
+	s.Require().Equal("Plan B", gotB.PlanName)
+
+	candidates, err := s.repo.ListActiveByUserIDAndGroupID(s.ctx, user.ID, group.ID)
+	s.Require().NoError(err, "ListActiveByUserIDAndGroupID")
+	s.Require().Len(candidates, 2)
+	s.Require().Equal(gotA.ID, candidates[0].ID)
+	s.Require().Equal(gotB.ID, candidates[1].ID)
+}
 
 func (s *UserSubscriptionRepoSuite) TestGetByUserIDAndGroupID() {
 	user := s.mustCreateUser("byuser@test.com", service.RoleUser)

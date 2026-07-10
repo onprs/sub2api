@@ -580,6 +580,82 @@ func TestGetAvailableModels_ErrorAndGlobalListBranches(t *testing.T) {
 	require.Equal(t, int64(1), okRepo.listAllCalls.Load())
 }
 
+func TestGetAntigravityMappedModels_FiltersExplicitMappingsByProtocol(t *testing.T) {
+	groupID := int64(90)
+	repo := &modelsListAccountRepoStub{
+		byGroup: map[int64][]Account{
+			groupID: {
+				{
+					ID:       1,
+					Platform: PlatformAntigravity,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"claude-sonnet-4-6":      "claude-sonnet-4-6",
+							"claude-opus-4-6":        "claude-opus-4-6-thinking",
+							"claude-*":               "claude-sonnet-4-6",
+							"gemini-3-flash":         "gemini-3-flash",
+							"gemini-3-pro-high":      "gemini-3-pro-high",
+							"gpt-oss-120b-medium":    "gpt-oss-120b-medium",
+							"tab_flash_lite_preview": "tab_flash_lite_preview",
+						},
+					},
+				},
+				{
+					ID:       2,
+					Platform: PlatformAnthropic,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"claude-ignored": "claude-ignored",
+						},
+					},
+				},
+			},
+		},
+	}
+	svc := &GatewayService{
+		accountRepo:        repo,
+		modelsListCache:    gocache.New(time.Minute, time.Minute),
+		modelsListCacheTTL: time.Minute,
+	}
+
+	claudeModels := svc.GetAntigravityMappedModels(context.Background(), &groupID, AntigravityModelsProtocolClaude)
+	require.Equal(t, []string{"claude-opus-4-6", "claude-sonnet-4-6"}, claudeModels)
+
+	geminiModels := svc.GetAntigravityMappedModels(context.Background(), &groupID, AntigravityModelsProtocolGemini)
+	require.Equal(t, []string{"gemini-3-flash", "gemini-3-pro-high"}, geminiModels)
+	require.Equal(t, int64(2), repo.listByGroupCalls.Load())
+}
+
+func TestGetAntigravityMappedModels_IgnoresDefaultAntigravityMapping(t *testing.T) {
+	groupID := int64(91)
+	account := Account{ID: 1, Platform: PlatformAntigravity}
+	require.NotEmpty(t, account.GetModelMapping(), "Antigravity default mapping must not drive the models list")
+
+	repo := &modelsListAccountRepoStub{
+		byGroup: map[int64][]Account{
+			groupID: {
+				account,
+				{
+					ID:       2,
+					Platform: PlatformAntigravity,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"claude-*":       "claude-sonnet-4-6",
+							"gemini-*":       "gemini-3-flash",
+							"   ":            "claude-sonnet-4-6",
+							"gemini-ignored": 123,
+						},
+					},
+				},
+			},
+		},
+	}
+	svc := &GatewayService{accountRepo: repo}
+
+	require.Empty(t, svc.GetAntigravityMappedModels(context.Background(), &groupID, AntigravityModelsProtocolClaude))
+	require.Empty(t, svc.GetAntigravityMappedModels(context.Background(), &groupID, AntigravityModelsProtocolGemini))
+}
+
 func TestGatewayHotpathHelpers_CacheTTLAndStickyContext(t *testing.T) {
 	t.Run("resolve_user_group_rate_cache_ttl", func(t *testing.T) {
 		require.Equal(t, defaultUserGroupRateCacheTTL, resolveUserGroupRateCacheTTL(nil))

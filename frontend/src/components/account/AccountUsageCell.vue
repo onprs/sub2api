@@ -166,6 +166,91 @@
       <div v-else class="text-xs text-gray-400">-</div>
     </template>
 
+    <!-- OpenCode Go API key accounts: local estimated 5h/7d/30d windows -->
+    <template v-else-if="account.platform === 'opencode_go' && account.type === 'apikey'">
+      <div v-if="loading" class="space-y-1.5">
+        <div v-for="label in ['5h', '7d', '30d']" :key="label" class="flex items-center gap-1">
+          <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+          <div class="h-1.5 w-8 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
+          <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+        </div>
+      </div>
+      <div v-else-if="error" class="text-xs text-red-500">
+        {{ error }}
+      </div>
+      <div v-else-if="usageInfo" class="space-y-1">
+        <div v-if="usageInfo.error" class="text-xs text-amber-600 dark:text-amber-400 truncate max-w-[200px]" :title="usageInfo.error">
+          {{ usageInfo.error }}
+        </div>
+        <UsageProgressBar
+          v-if="usageInfo.five_hour"
+          label="5h"
+          :utilization="usageInfo.five_hour.utilization"
+          :resets-at="usageInfo.five_hour.resets_at"
+          :window-stats="usageInfo.five_hour.window_stats"
+          :show-now-when-idle="true"
+          color="indigo"
+        />
+        <UsageProgressBar
+          v-if="usageInfo.seven_day"
+          label="7d"
+          :utilization="usageInfo.seven_day.utilization"
+          :resets-at="usageInfo.seven_day.resets_at"
+          :window-stats="usageInfo.seven_day.window_stats"
+          :show-now-when-idle="true"
+          color="emerald"
+        />
+        <UsageProgressBar
+          v-if="usageInfo.thirty_day"
+          label="30d"
+          :utilization="usageInfo.thirty_day.utilization"
+          :resets-at="usageInfo.thirty_day.resets_at"
+          :window-stats="usageInfo.thirty_day.window_stats"
+          :show-now-when-idle="true"
+          color="purple"
+        />
+        <div class="flex items-center gap-1.5 mt-0.5">
+          <span
+            v-if="openCodeGoUsageEstimated"
+            class="text-[9px] text-amber-600 dark:text-amber-400 italic"
+            :title="openCodeGoUsageSourceLabel"
+          >
+            {{ t('admin.accounts.usageWindow.estimatedData') }}
+          </span>
+          <span
+            v-else-if="openCodeGoUsageOfficial"
+            class="text-[9px] text-emerald-600 dark:text-emerald-400"
+            :title="openCodeGoUsageSourceLabel"
+          >
+            official
+          </span>
+          <button
+            type="button"
+            class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors"
+            :disabled="activeQueryLoading"
+            @click="loadActiveUsage"
+          >
+            <svg
+              class="h-2.5 w-2.5"
+              :class="{ 'animate-spin': activeQueryLoading }"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            {{ t('admin.accounts.usageWindow.activeQuery') }}
+          </button>
+        </div>
+      </div>
+      <div v-else class="text-xs text-gray-400">-</div>
+    </template>
+
     <!-- Antigravity OAuth accounts: fetch usage from API -->
     <template v-else-if="account.platform === 'antigravity' && account.type === 'oauth'">
       <!-- 账户类型徽章 -->
@@ -498,7 +583,7 @@ import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'v
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '@/types'
-import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
+import { buildAccountUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
 import { formatCompactNumber } from '@/utils/format'
 import UsageProgressBar from './UsageProgressBar.vue'
@@ -539,6 +624,8 @@ const isDesktopViewport = ref(
 const hasEnteredViewport = ref(false)
 const pendingAutoLoad = ref(false)
 const pendingAutoLoadSource = ref<'passive' | 'active' | undefined>(undefined)
+const pendingAutoLoadBypassCache = ref(false)
+let usageRequestSeq = 0
 
 let desktopViewportMediaQuery: MediaQueryList | null = null
 let desktopViewportListener: ((event: MediaQueryListEvent) => void) | null = null
@@ -548,6 +635,7 @@ let visibilityObserver: IntersectionObserver | null = null
 const showUsageWindows = computed(() => {
   // Gemini: we can always compute local usage windows from DB logs (simulated quotas).
   if (props.account.platform === 'gemini') return true
+  if (props.account.platform === 'opencode_go') return props.account.type === 'apikey'
   return props.account.type === 'oauth' || props.account.type === 'setup-token'
 })
 
@@ -563,6 +651,9 @@ const shouldFetchUsage = computed(() => {
   }
   if (props.account.platform === 'openai') {
     return props.account.type === 'oauth'
+  }
+  if (props.account.platform === 'opencode_go') {
+    return props.account.type === 'apikey'
   }
   return false
 })
@@ -587,7 +678,28 @@ const hasOpenAIUsageFallback = computed(() => {
   return !!usageInfo.value?.five_hour || !!usageInfo.value?.seven_day
 })
 
-const openAIUsageRefreshKey = computed(() => buildOpenAIUsageRefreshKey(props.account))
+const openCodeGoUsageWindows = computed(() => [
+  usageInfo.value?.five_hour,
+  usageInfo.value?.seven_day,
+  usageInfo.value?.thirty_day
+].filter(Boolean))
+
+const openCodeGoUsageEstimated = computed(() => {
+  if (props.account.platform !== 'opencode_go') return false
+  return openCodeGoUsageWindows.value.some((window) => window?.estimated || window?.source === 'estimated')
+})
+
+const openCodeGoUsageOfficial = computed(() => {
+  if (props.account.platform !== 'opencode_go') return false
+  return openCodeGoUsageWindows.value.some((window) => window?.source === 'official_console')
+})
+
+const openCodeGoUsageSourceLabel = computed(() => {
+  const window = openCodeGoUsageWindows.value.find((item) => item?.source_label)
+  return window?.source_label || (openCodeGoUsageOfficial.value ? 'OpenCode official Console' : 'Based on Sub2API logs')
+})
+
+const accountUsageRefreshKey = computed(() => buildAccountUsageRefreshKey(props.account))
 
 const shouldAutoLoadUsageOnMount = computed(() => {
   return shouldFetchUsage.value
@@ -1012,6 +1124,8 @@ const isAnthropicOAuthOrSetupToken = computed(() => {
 const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?: boolean }) => {
   if (!shouldFetchUsage.value) return
 
+  const requestSeq = ++usageRequestSeq
+
   // Check cache
   if (!options?.bypassCache) {
     const cached = _usageCache.get(props.account.id)
@@ -1028,38 +1142,41 @@ const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?
   try {
     const fetchFn = () => adminAPI.accounts.getUsage(props.account.id, options?.source)
     const result = await enqueueUsageRequest(props.account, fetchFn)
-    if (!unmounted.value) {
+    if (!unmounted.value && requestSeq === usageRequestSeq) {
       usageInfo.value = result
       _usageCache.set(props.account.id, { data: result, ts: Date.now() })
     }
   } catch (e: any) {
-    if (!unmounted.value) {
+    if (!unmounted.value && requestSeq === usageRequestSeq) {
       error.value = t('common.error')
       console.error('Failed to load usage:', e)
     }
   } finally {
-    if (!unmounted.value) loading.value = false
+    if (!unmounted.value && requestSeq === usageRequestSeq) loading.value = false
   }
 }
 
 const flushPendingAutoLoad = () => {
   if (!pendingAutoLoad.value) return
   const source = pendingAutoLoadSource.value
+  const bypassCache = pendingAutoLoadBypassCache.value
   pendingAutoLoad.value = false
   pendingAutoLoadSource.value = undefined
-  loadUsage({ source }).catch((e) => {
+  pendingAutoLoadBypassCache.value = false
+  loadUsage({ source, bypassCache }).catch((e) => {
     console.error('Failed to load deferred usage:', e)
   })
 }
 
-const requestAutoLoad = (source?: 'passive' | 'active') => {
+const requestAutoLoad = (source?: 'passive' | 'active', options?: { bypassCache?: boolean }) => {
   if (!shouldFetchUsage.value) return
   if (shouldLazyLoadOnMobile.value && !hasEnteredViewport.value) {
     pendingAutoLoad.value = true
     pendingAutoLoadSource.value = source
+    pendingAutoLoadBypassCache.value = pendingAutoLoadBypassCache.value || options?.bypassCache === true
     return
   }
-  loadUsage({ source }).catch((e) => {
+  loadUsage({ source, bypassCache: options?.bypassCache }).catch((e) => {
     console.error('Failed to auto load usage:', e)
   })
 }
@@ -1093,13 +1210,22 @@ const attachVisibilityObserver = () => {
 }
 
 const loadActiveUsage = async () => {
+  const requestSeq = ++usageRequestSeq
   activeQueryLoading.value = true
   try {
-    usageInfo.value = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
+    const result = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
+    if (!unmounted.value && requestSeq === usageRequestSeq) {
+      usageInfo.value = result
+      _usageCache.set(props.account.id, { data: result, ts: Date.now() })
+    }
   } catch (e: any) {
-    console.error('Failed to load active usage:', e)
+    if (requestSeq === usageRequestSeq) {
+      console.error('Failed to load active usage:', e)
+    }
   } finally {
-    activeQueryLoading.value = false
+    if (requestSeq === usageRequestSeq) {
+      activeQueryLoading.value = false
+    }
   }
 }
 
@@ -1209,11 +1335,13 @@ onMounted(() => {
   requestAutoLoad(source)
 })
 
-watch(openAIUsageRefreshKey, (nextKey, prevKey) => {
+watch(accountUsageRefreshKey, (nextKey, prevKey) => {
   if (!prevKey || nextKey === prevKey) return
-  if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return
+  if (!shouldFetchUsage.value) return
 
-  requestAutoLoad()
+  _usageCache.delete(props.account.id)
+  const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
+  requestAutoLoad(source, { bypassCache: true })
 })
 
 watch(

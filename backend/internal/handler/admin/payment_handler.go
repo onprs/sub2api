@@ -2,6 +2,7 @@ package admin
 
 import (
 	"strconv"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -14,6 +15,29 @@ import (
 type PaymentHandler struct {
 	paymentService *service.PaymentService
 	configService  *service.PaymentConfigService
+}
+
+type subscriptionPlanResponse struct {
+	ID                     int64     `json:"id"`
+	GroupID                int64     `json:"group_id"`
+	Name                   string    `json:"name"`
+	Description            string    `json:"description"`
+	Price                  float64   `json:"price"`
+	OriginalPrice          *float64  `json:"original_price,omitempty"`
+	RenewalDiscountPercent *float64  `json:"renewal_discount_percent"`
+	FiveHourLimitUSD       *float64  `json:"five_hour_limit_usd"`
+	SevenDayLimitUSD       *float64  `json:"seven_day_limit_usd"`
+	ThirtyDayLimitUSD      *float64  `json:"thirty_day_limit_usd"`
+	Stock                  *int      `json:"stock"`
+	SoldOut                bool      `json:"sold_out"`
+	ValidityDays           int       `json:"validity_days"`
+	ValidityUnit           string    `json:"validity_unit"`
+	Features               string    `json:"features"`
+	ProductName            string    `json:"product_name"`
+	ForSale                bool      `json:"for_sale"`
+	SortOrder              int       `json:"sort_order"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 // NewPaymentHandler creates a new admin PaymentHandler.
@@ -185,7 +209,7 @@ func (h *PaymentHandler) ListPlans(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, plans)
+	response.Success(c, subscriptionPlanResponses(plans))
 }
 
 // CreatePlan creates a new subscription plan.
@@ -201,7 +225,7 @@ func (h *PaymentHandler) CreatePlan(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Created(c, plan)
+	response.Created(c, subscriptionPlanResponseFromEnt(plan))
 }
 
 // UpdatePlan updates an existing subscription plan.
@@ -221,7 +245,7 @@ func (h *PaymentHandler) UpdatePlan(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, plan)
+	response.Success(c, subscriptionPlanResponseFromEnt(plan))
 }
 
 // DeletePlan deletes a subscription plan.
@@ -236,6 +260,45 @@ func (h *PaymentHandler) DeletePlan(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"message": "deleted"})
+}
+
+func subscriptionPlanResponses(plans []*dbent.SubscriptionPlan) []subscriptionPlanResponse {
+	out := make([]subscriptionPlanResponse, 0, len(plans))
+	for _, plan := range plans {
+		if plan == nil {
+			continue
+		}
+		out = append(out, *subscriptionPlanResponseFromEnt(plan))
+	}
+	return out
+}
+
+func subscriptionPlanResponseFromEnt(plan *dbent.SubscriptionPlan) *subscriptionPlanResponse {
+	if plan == nil {
+		return nil
+	}
+	return &subscriptionPlanResponse{
+		ID:                     plan.ID,
+		GroupID:                plan.GroupID,
+		Name:                   plan.Name,
+		Description:            plan.Description,
+		Price:                  plan.Price,
+		OriginalPrice:          plan.OriginalPrice,
+		RenewalDiscountPercent: plan.RenewalDiscountPercent,
+		FiveHourLimitUSD:       plan.FiveHourLimitUsd,
+		SevenDayLimitUSD:       plan.SevenDayLimitUsd,
+		ThirtyDayLimitUSD:      plan.ThirtyDayLimitUsd,
+		Stock:                  plan.Stock,
+		SoldOut:                service.SubscriptionPlanSoldOut(plan),
+		ValidityDays:           plan.ValidityDays,
+		ValidityUnit:           plan.ValidityUnit,
+		Features:               plan.Features,
+		ProductName:            plan.ProductName,
+		ForSale:                plan.ForSale,
+		SortOrder:              plan.SortOrder,
+		CreatedAt:              plan.CreatedAt,
+		UpdatedAt:              plan.UpdatedAt,
+	}
 }
 
 // --- Provider Instances ---

@@ -335,6 +335,8 @@ type ProxyAccountSummary struct {
 
 type RedeemCode struct {
 	ID        int64      `json:"id"`
+	Source    string     `json:"source,omitempty"`
+	SourceID  int64      `json:"source_id,omitempty"`
 	Code      string     `json:"code"`
 	Type      string     `json:"type"`
 	Value     float64    `json:"value"`
@@ -346,6 +348,13 @@ type RedeemCode struct {
 
 	GroupID      *int64 `json:"group_id"`
 	ValidityDays int    `json:"validity_days"`
+
+	SubscriptionPlanID               *int64   `json:"subscription_plan_id,omitempty"`
+	PaymentOrderID                   *int64   `json:"payment_order_id,omitempty"`
+	SubscriptionQuotaSnapshotVersion int      `json:"subscription_quota_snapshot_version,omitempty"`
+	FiveHourLimitUSD                 *float64 `json:"five_hour_limit_usd,omitempty"`
+	SevenDayLimitUSD                 *float64 `json:"seven_day_limit_usd,omitempty"`
+	ThirtyDayLimitUSD                *float64 `json:"thirty_day_limit_usd,omitempty"`
 
 	// Notes is only populated for admin_balance/admin_concurrency types
 	// so users can see why they were charged or credited
@@ -556,21 +565,34 @@ type Setting struct {
 }
 
 type UserSubscription struct {
-	ID      int64 `json:"id"`
-	UserID  int64 `json:"user_id"`
-	GroupID int64 `json:"group_id"`
+	ID      int64  `json:"id"`
+	UserID  int64  `json:"user_id"`
+	GroupID int64  `json:"group_id"`
+	PlanID  *int64 `json:"plan_id,omitempty"`
+
+	PlanName string `json:"plan_name,omitempty"`
 
 	StartsAt  time.Time `json:"starts_at"`
 	ExpiresAt time.Time `json:"expires_at"`
 	Status    string    `json:"status"`
 
-	DailyWindowStart   *time.Time `json:"daily_window_start"`
-	WeeklyWindowStart  *time.Time `json:"weekly_window_start"`
-	MonthlyWindowStart *time.Time `json:"monthly_window_start"`
+	FiveHourLimitUSD  *float64 `json:"five_hour_limit_usd"`
+	SevenDayLimitUSD  *float64 `json:"seven_day_limit_usd"`
+	ThirtyDayLimitUSD *float64 `json:"thirty_day_limit_usd"`
 
-	DailyUsageUSD   float64 `json:"daily_usage_usd"`
-	WeeklyUsageUSD  float64 `json:"weekly_usage_usd"`
-	MonthlyUsageUSD float64 `json:"monthly_usage_usd"`
+	DailyWindowStart     *time.Time `json:"daily_window_start"`
+	WeeklyWindowStart    *time.Time `json:"weekly_window_start"`
+	MonthlyWindowStart   *time.Time `json:"monthly_window_start"`
+	FiveHourWindowStart  *time.Time `json:"five_hour_window_start"`
+	SevenDayWindowStart  *time.Time `json:"seven_day_window_start"`
+	ThirtyDayWindowStart *time.Time `json:"thirty_day_window_start"`
+
+	DailyUsageUSD     float64 `json:"daily_usage_usd"`
+	WeeklyUsageUSD    float64 `json:"weekly_usage_usd"`
+	MonthlyUsageUSD   float64 `json:"monthly_usage_usd"`
+	FiveHourUsageUSD  float64 `json:"five_hour_usage_usd"`
+	SevenDayUsageUSD  float64 `json:"seven_day_usage_usd"`
+	ThirtyDayUsageUSD float64 `json:"thirty_day_usage_usd"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

@@ -394,6 +394,20 @@ func (s *stubAdminService) BulkUpdateAccounts(ctx context.Context, input *servic
 	return &service.BulkUpdateAccountsResult{Success: len(input.AccountIDs), Failed: 0, SuccessIDs: input.AccountIDs}, nil
 }
 
+func (s *stubAdminService) CopyAccountModelMapping(ctx context.Context, input *service.CopyAccountModelMappingInput) (*service.CopyAccountModelMappingResult, error) {
+	return &service.CopyAccountModelMappingResult{
+		SourceAccountID:  input.SourceAccountID,
+		TargetAccountIDs: append([]int64(nil), input.TargetAccountIDs...),
+		Platform:         service.PlatformAnthropic,
+		MappingCount:     1,
+		Success:          len(input.TargetAccountIDs),
+		Failed:           0,
+		SuccessIDs:       append([]int64(nil), input.TargetAccountIDs...),
+		FailedIDs:        []int64{},
+		Results:          make([]service.CopyAccountModelMappingAccountResult, 0, len(input.TargetAccountIDs)),
+	}, nil
+}
+
 func (s *stubAdminService) CheckMixedChannelRisk(ctx context.Context, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error {
 	s.lastMixedCheck.accountID = currentAccountID
 	s.lastMixedCheck.platform = currentAccountPlatform

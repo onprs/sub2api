@@ -122,6 +122,26 @@ func usePriorityServiceTierPricing(serviceTier string, pricing *ModelPricing) bo
 	return pricing.InputPricePerTokenPriority > 0 || pricing.OutputPricePerTokenPriority > 0 || pricing.CacheReadPricePerTokenPriority > 0
 }
 
+func hasBillableTokenPricing(pricing *ModelPricing) bool {
+	if pricing == nil {
+		return false
+	}
+	return pricing.InputPricePerToken > 0 ||
+		pricing.InputPricePerTokenPriority > 0 ||
+		pricing.OutputPricePerToken > 0 ||
+		pricing.OutputPricePerTokenPriority > 0 ||
+		pricing.CacheCreationPricePerToken > 0 ||
+		pricing.CacheReadPricePerToken > 0 ||
+		pricing.CacheReadPricePerTokenPriority > 0 ||
+		pricing.CacheCreation5mPrice > 0 ||
+		pricing.CacheCreation1hPrice > 0 ||
+		pricing.ImageOutputPricePerToken > 0
+}
+
+func tokenPricingUnavailableError(model string) error {
+	return fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, strings.ToLower(strings.TrimSpace(model)))
+}
+
 func serviceTierCostMultiplier(serviceTier string) float64 {
 	switch normalizeBillingServiceTier(serviceTier) {
 	case "priority":
@@ -366,9 +386,17 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 
 // GetModelPricing 获取模型价格配置
 func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
-	// 标准化模型名称（转小写）
-	model = strings.ToLower(model)
+	model = strings.ToLower(strings.TrimSpace(model))
+	for _, candidate := range billingModelPricingCandidates(model) {
+		if pricing, ok := s.getModelPricingExact(candidate); ok {
+			return pricing, nil
+		}
+	}
 
+	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
+}
+
+func (s *BillingService) getModelPricingExact(model string) (*ModelPricing, bool) {
 	// 1. 优先从动态价格服务获取
 	if s.pricingService != nil {
 		litellmPricing := s.pricingService.GetModelPricing(model)
@@ -394,7 +422,7 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 				LongContextInputMultiplier:     litellmPricing.LongContextInputCostMultiplier,
 				LongContextOutputMultiplier:    litellmPricing.LongContextOutputCostMultiplier,
 				ImageOutputPricePerToken:       litellmPricing.OutputCostPerImageToken,
-			}), nil
+			}), true
 		}
 	}
 
@@ -402,10 +430,10 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	fallback := s.getFallbackPricing(model)
 	if fallback != nil {
 		log.Printf("[Billing] Using fallback pricing for model: %s", model)
-		return s.applyModelSpecificPricingPolicy(model, fallback), nil
+		return s.applyModelSpecificPricingPolicy(model, fallback), true
 	}
 
-	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
+	return nil, false
 }
 
 // GetModelPricingWithChannel 获取模型定价，渠道配置的价格覆盖默认值
@@ -503,6 +531,9 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	pricing := input.Resolver.GetIntervalPricing(resolved, totalContext)
 	if pricing == nil {
 		return nil, fmt.Errorf("no pricing available for model: %s: %w", input.Model, ErrModelPricingUnavailable)
+	}
+	if !hasBillableTokenPricing(pricing) {
+		return nil, tokenPricingUnavailableError(input.Model)
 	}
 
 	pricing = s.applyModelSpecificPricingPolicy(input.Model, pricing)
@@ -661,6 +692,9 @@ func (s *BillingService) calculateCostInternal(model string, tokens UsageTokens,
 	}
 	if err != nil {
 		return nil, err
+	}
+	if !hasBillableTokenPricing(pricing) {
+		return nil, tokenPricingUnavailableError(model)
 	}
 
 	// 旧路径始终检查长上下文定价（无区间定价概念）

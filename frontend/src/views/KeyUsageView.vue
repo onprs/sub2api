@@ -422,6 +422,12 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
+import {
+  effectiveWindowEnd,
+  formatUsdLimit,
+  rollingQuotaWindows,
+  windowEndsBySubscriptionExpiry,
+} from '@/utils/rollingQuota'
 
 const { t, locale } = useI18n()
 const appStore = useAppStore()
@@ -632,17 +638,15 @@ const ringItems = computed<RingItem[]>(() => {
     }
   } else {
     if (data.subscription) {
-      const sub = data.subscription
-      const limits = [
-        { label: t('keyUsage.limitDaily'), usage: sub.daily_usage_usd, limit: sub.daily_limit_usd },
-        { label: t('keyUsage.limitWeekly'), usage: sub.weekly_usage_usd, limit: sub.weekly_limit_usd },
-        { label: t('keyUsage.limitMonthly'), usage: sub.monthly_usage_usd, limit: sub.monthly_limit_usd },
-      ]
-      for (const l of limits) {
-        if (l.limit != null && l.limit > 0) {
-          const pct = Math.min(Math.round((l.usage / l.limit) * 100), 100)
-          items.push({ title: l.label, pct, amount: `${usd(l.usage)} / ${usd(l.limit)}`, iconType: 'calendar' })
-        }
+      for (const q of subscriptionRollingQuotaItems(data.subscription)) {
+        const pct = q.limit > 0 ? Math.min(Math.round((q.usage / q.limit) * 100), 100) : 100
+        items.push({
+          title: q.label,
+          pct,
+          amount: `${usd(q.usage)} / ${formatUsdLimit(q.limit)}`,
+          iconType: q.key === 'five_hour' ? 'clock' : 'calendar',
+          resetAt: q.windowEnd || undefined,
+        })
       }
     }
     if (!data.subscription && data.balance != null) {
@@ -731,25 +735,21 @@ const detailRows = computed<DetailRow[]>(() => {
 
     if (data.subscription) {
       const sub = data.subscription
-      if (sub.daily_limit_usd > 0) {
-        const pct = (sub.daily_usage_usd / sub.daily_limit_usd) * 100
+      for (const q of subscriptionRollingQuotaItems(sub)) {
+        const pct = q.limit > 0 ? (q.usage / q.limit) * 100 : 100
+        let valueStr = `${usd(q.usage)} / ${formatUsdLimit(q.limit)}`
+        const resetStr = formatResetTime(q.windowEnd)
+        if (resetStr) {
+          const resetLabel = q.expiresFirst ? t('payment.quotaWindows.expiresFirst') : '⟳'
+          valueStr += ` (${resetLabel} ${resetStr})`
+        }
         rows.push({
-          iconBg: 'bg-primary-500/10', iconColor: 'text-primary-500', iconSvg: ICON_DOLLAR,
-          label: `${t('keyUsage.usedQuota')} (${locale.value === 'zh' ? '日' : 'D'})`, value: `${usd(sub.daily_usage_usd)} / ${usd(sub.daily_limit_usd)}`, valueClass: getUsageColor(pct),
-        })
-      }
-      if (sub.weekly_limit_usd > 0) {
-        const pct = (sub.weekly_usage_usd / sub.weekly_limit_usd) * 100
-        rows.push({
-          iconBg: 'bg-indigo-500/10', iconColor: 'text-indigo-500', iconSvg: ICON_DOLLAR,
-          label: `${t('keyUsage.usedQuota')} (${locale.value === 'zh' ? '周' : 'W'})`, value: `${usd(sub.weekly_usage_usd)} / ${usd(sub.weekly_limit_usd)}`, valueClass: getUsageColor(pct),
-        })
-      }
-      if (sub.monthly_limit_usd > 0) {
-        const pct = (sub.monthly_usage_usd / sub.monthly_limit_usd) * 100
-        rows.push({
-          iconBg: 'bg-emerald-500/10', iconColor: 'text-emerald-500', iconSvg: ICON_DOLLAR,
-          label: `${t('keyUsage.usedQuota')} (${locale.value === 'zh' ? '月' : 'M'})`, value: `${usd(sub.monthly_usage_usd)} / ${usd(sub.monthly_limit_usd)}`, valueClass: getUsageColor(pct),
+          iconBg: q.key === 'five_hour' ? 'bg-primary-500/10' : q.key === 'seven_day' ? 'bg-indigo-500/10' : 'bg-emerald-500/10',
+          iconColor: q.key === 'five_hour' ? 'text-primary-500' : q.key === 'seven_day' ? 'text-indigo-500' : 'text-emerald-500',
+          iconSvg: ICON_DOLLAR,
+          label: `${t('keyUsage.usedQuota')} (${q.shortLabel})`,
+          value: valueStr,
+          valueClass: getUsageColor(pct),
         })
       }
       if (sub.expires_at) {
@@ -771,6 +771,36 @@ const detailRows = computed<DetailRow[]>(() => {
 
   return rows
 })
+
+interface SubscriptionRollingQuotaItem {
+  key: string
+  label: string
+  shortLabel: string
+  usage: number
+  limit: number
+  windowEnd: string | null
+  expiresFirst: boolean
+}
+
+function subscriptionRollingQuotaItems(sub: any): SubscriptionRollingQuotaItem[] {
+  if (!sub) return []
+  return rollingQuotaWindows
+    .filter(window => sub[window.limitField] != null)
+    .map(window => {
+      const windowStart = sub[window.windowStartField]
+      const backendWindowEnd = sub[`${window.key}_window_resets_at`] || sub[`${window.key}_window_end`]
+      const computedWindowEnd = effectiveWindowEnd(windowStart, window.hours, sub.expires_at)?.toISOString() || null
+      return {
+        key: window.key,
+        label: t(window.labelKey),
+        shortLabel: t(window.shortLabelKey),
+        usage: Number(sub[window.usageField] || 0),
+        limit: Number(sub[window.limitField]),
+        windowEnd: backendWindowEnd || computedWindowEnd,
+        expiresFirst: windowEndsBySubscriptionExpiry(windowStart, window.hours, sub.expires_at),
+      }
+    })
+}
 
 interface StatCell {
   label: string

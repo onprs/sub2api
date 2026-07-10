@@ -29,6 +29,30 @@ func TestMergePreservingSensitiveCreds_PreservesSensitiveWhenIncomingMissing(t *
 	require.Equal(t, map[string]any{"foo": "bar"}, out["model_mapping"])
 }
 
+func TestMergePreservingSensitiveCreds_PreservesOpenCodeGoConsoleAuthMetadata(t *testing.T) {
+	existing := map[string]any{
+		"api_key":                  "sk-old",
+		"base_url":                 "https://opencode.ai/zen/go/v1",
+		"console_cookie":           "auth=secret",
+		"console_workspace_id":     "wrk_01KVD1MSEZ20TGGWZTPS4M9TCZ",
+		"console_auth_source":      "windows_cdp_helper",
+		"console_auth_imported_at": "2026-06-22T10:00:00Z",
+		"console_auth_expires_at":  "2026-06-29T10:00:00Z",
+	}
+	incoming := map[string]any{
+		"base_url": "https://opencode.ai/zen/go/v1",
+	}
+
+	out := MergePreservingSensitiveCreds(existing, incoming)
+
+	require.Equal(t, "sk-old", out["api_key"])
+	require.Equal(t, "auth=secret", out["console_cookie"])
+	require.Equal(t, "wrk_01KVD1MSEZ20TGGWZTPS4M9TCZ", out["console_workspace_id"])
+	require.Equal(t, "windows_cdp_helper", out["console_auth_source"])
+	require.Equal(t, "2026-06-22T10:00:00Z", out["console_auth_imported_at"])
+	require.Equal(t, "2026-06-29T10:00:00Z", out["console_auth_expires_at"])
+}
+
 func TestMergePreservingSensitiveCreds_OverwritesWhenIncomingProvidesSensitive(t *testing.T) {
 	existing := map[string]any{
 		"refresh_token": "rt-old",
@@ -83,6 +107,11 @@ func TestMergePreservingSensitiveCreds_NonSensitiveDeletionAllowed(t *testing.T)
 func TestIsSensitiveCredentialKey(t *testing.T) {
 	require.True(t, IsSensitiveCredentialKey("refresh_token"))
 	require.True(t, IsSensitiveCredentialKey("api_key"))
+	require.True(t, IsSensitiveCredentialKey("console_cookie"))
+	require.True(t, IsSensitiveCredentialKey("console_workspace_id"))
+	require.True(t, IsSensitiveCredentialKey("console_auth_source"))
+	require.True(t, IsSensitiveCredentialKey("console_auth_imported_at"))
+	require.True(t, IsSensitiveCredentialKey("console_auth_expires_at"))
 	require.True(t, IsSensitiveCredentialKey("private_key"))
 	require.False(t, IsSensitiveCredentialKey("base_url"))
 	require.False(t, IsSensitiveCredentialKey(""))

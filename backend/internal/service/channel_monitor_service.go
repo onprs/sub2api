@@ -157,7 +157,7 @@ func validateCreateParams(p ChannelMonitorCreateParams) error {
 	if err := validateInterval(p.IntervalSeconds); err != nil {
 		return err
 	}
-	if err := validateEndpoint(p.Endpoint); err != nil {
+	if err := validateEndpointForProvider(p.Provider, p.Endpoint); err != nil {
 		return err
 	}
 	if strings.TrimSpace(p.APIKey) == "" {
@@ -486,10 +486,15 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 		providerChanged = true
 	}
 	if p.Endpoint != nil {
-		if err := validateEndpoint(*p.Endpoint); err != nil {
+		if err := validateEndpointForProvider(existing.Provider, *p.Endpoint); err != nil {
 			return err
 		}
 		existing.Endpoint = normalizeEndpoint(*p.Endpoint)
+	}
+	if providerChanged && p.Endpoint == nil {
+		if err := validateEndpointForProvider(existing.Provider, existing.Endpoint); err != nil {
+			return err
+		}
 	}
 	if p.PrimaryModel != nil {
 		existing.PrimaryModel = strings.TrimSpace(*p.PrimaryModel)
@@ -526,11 +531,9 @@ func applyMonitorAdvancedUpdate(existing *ChannelMonitor, p ChannelMonitorUpdate
 		}
 		existing.ExtraHeaders = emptyHeadersIfNil(*p.ExtraHeaders)
 	}
-	newAPIMode := defaultAPIMode(existing.APIMode)
+	newAPIMode := defaultAPIModeForProvider(existing.Provider, existing.APIMode)
 	if p.APIMode != nil {
 		newAPIMode = defaultAPIMode(*p.APIMode)
-	} else if existing.Provider != MonitorProviderOpenAI {
-		newAPIMode = MonitorAPIModeChatCompletions
 	}
 	if err := validateAPIMode(existing.Provider, newAPIMode); err != nil {
 		return err

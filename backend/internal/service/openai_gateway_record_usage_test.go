@@ -1272,9 +1272,13 @@ func TestOpenAIGatewayServiceRecordUsage_UnpricedTokenModelFallsBackToZeroCostUs
 
 func TestOpenAIGatewayServiceRecordUsage_SubscriptionBillingSetsSubscriptionFields(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	selectedSubscriptionID := int64(123)
+	billingRepo := &openAIRecordUsageBillingRepoStub{
+		result: &UsageBillingApplyResult{Applied: true, SubscriptionID: &selectedSubscriptionID},
+	}
 	userRepo := &openAIRecordUsageUserRepoStub{}
 	subRepo := &openAIRecordUsageSubRepoStub{}
-	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, subRepo, nil)
+	svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, userRepo, subRepo, nil)
 	subscription := &UserSubscription{ID: 99}
 
 	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
@@ -1294,8 +1298,13 @@ func TestOpenAIGatewayServiceRecordUsage_SubscriptionBillingSetsSubscriptionFiel
 	require.NotNil(t, usageRepo.lastLog)
 	require.Equal(t, BillingTypeSubscription, usageRepo.lastLog.BillingType)
 	require.NotNil(t, usageRepo.lastLog.SubscriptionID)
-	require.Equal(t, subscription.ID, *usageRepo.lastLog.SubscriptionID)
-	require.Equal(t, 1, subRepo.incrementCalls)
+	require.Equal(t, selectedSubscriptionID, *usageRepo.lastLog.SubscriptionID)
+	require.NotNil(t, billingRepo.lastCmd)
+	require.NotNil(t, billingRepo.lastCmd.GroupID)
+	require.Equal(t, int64(88), *billingRepo.lastCmd.GroupID)
+	require.Nil(t, billingRepo.lastCmd.SubscriptionID)
+	require.Greater(t, billingRepo.lastCmd.SubscriptionCost, 0.0)
+	require.Equal(t, 0, subRepo.incrementCalls)
 	require.Equal(t, 0, userRepo.deductCalls)
 }
 
@@ -1706,16 +1715,17 @@ func TestGatewayServiceCalculateRecordUsageCost_ChannelImageBillingUsesImageCoun
 		resolver:       newOpenAIImageChannelPricingResolverForTest(t, groupID, "gemini-image", 0.25),
 	}
 
-	cost := svc.calculateRecordUsageCost(
+	cost, err := svc.calculateRecordUsageCost(
 		context.Background(),
 		&ForwardResult{Model: "gemini-image", ImageCount: 2, ImageSize: "1K"},
 		&APIKey{GroupID: i64p(groupID), Group: &Group{ID: groupID}},
-		"gemini-image",
+		[]string{"gemini-image"},
 		0.15,
 		1.0,
 		nil,
 	)
 
+	require.NoError(t, err)
 	require.NotNil(t, cost)
 	require.Equal(t, string(BillingModeImage), cost.BillingMode)
 	require.InDelta(t, 0.5, cost.TotalCost, 1e-12)
@@ -1745,16 +1755,17 @@ func TestGatewayServiceCalculateRecordUsageCost_ChannelImageBillingUsesSizeTier(
 		resolver:       NewModelPricingResolver(channelService, NewBillingService(&config.Config{}, nil)),
 	}
 
-	cost := svc.calculateRecordUsageCost(
+	cost, err := svc.calculateRecordUsageCost(
 		context.Background(),
 		&ForwardResult{Model: "gemini-image", ImageCount: 2, ImageSize: "4K"},
 		&APIKey{GroupID: i64p(groupID), Group: &Group{ID: groupID}},
-		"gemini-image",
+		[]string{"gemini-image"},
 		1.0,
 		1.0,
 		nil,
 	)
 
+	require.NoError(t, err)
 	require.NotNil(t, cost)
 	require.Equal(t, string(BillingModeImage), cost.BillingMode)
 	require.InDelta(t, 0.80, cost.TotalCost, 1e-12)
@@ -1784,16 +1795,17 @@ func TestGatewayServiceCalculateRecordUsageCost_ChannelImageBillingNormalizesMis
 		resolver:       NewModelPricingResolver(channelService, NewBillingService(&config.Config{}, nil)),
 	}
 
-	cost := svc.calculateRecordUsageCost(
+	cost, err := svc.calculateRecordUsageCost(
 		context.Background(),
 		&ForwardResult{Model: "gemini-image", ImageCount: 2, ImageSize: ""},
 		&APIKey{GroupID: i64p(groupID), Group: &Group{ID: groupID}},
-		"gemini-image",
+		[]string{"gemini-image"},
 		1.0,
 		1.0,
 		nil,
 	)
 
+	require.NoError(t, err)
 	require.NotNil(t, cost)
 	require.Equal(t, string(BillingModeImage), cost.BillingMode)
 	require.InDelta(t, 0.44, cost.TotalCost, 1e-12)

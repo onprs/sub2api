@@ -27,9 +27,12 @@
           <GroupBadge :name="selectedGroupInfo.name" :platform="selectedGroupInfo.platform" :rate-multiplier="selectedGroupInfo.rate_multiplier" />
         </div>
         <div class="grid grid-cols-2 gap-2 text-xs">
-          <div><span class="text-gray-500">{{ t('payment.admin.dailyLimit') }}:</span> <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">{{ selectedGroupInfo.daily_limit_usd != null ? '$' + selectedGroupInfo.daily_limit_usd : t('payment.admin.unlimited') }}</span></div>
-          <div><span class="text-gray-500">{{ t('payment.admin.weeklyLimit') }}:</span> <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">{{ selectedGroupInfo.weekly_limit_usd != null ? '$' + selectedGroupInfo.weekly_limit_usd : t('payment.admin.unlimited') }}</span></div>
-          <div><span class="text-gray-500">{{ t('payment.admin.monthlyLimit') }}:</span> <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">{{ selectedGroupInfo.monthly_limit_usd != null ? '$' + selectedGroupInfo.monthly_limit_usd : t('payment.admin.unlimited') }}</span></div>
+          <div v-for="window in rollingQuotaWindows" :key="window.key">
+            <span class="text-gray-500">{{ t(window.labelKey) }}:</span>
+            <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">
+              {{ formatPlanLimit(planForm[window.limitField]) }}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -39,8 +42,47 @@
         <div><label class="input-label">{{ t('payment.admin.originalPrice') }}</label><input v-model.number="planForm.original_price" type="number" step="0.01" min="0" class="input" /></div>
       </div>
       <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="input-label">{{ t('payment.admin.renewalDiscountPercent') }}</label>
+          <input v-model.number="planForm.renewal_discount_percent" type="number" step="0.01" min="0" max="99.99" class="input" />
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('payment.admin.renewalDiscountHint') }}</p>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
         <div><label class="input-label">{{ t('payment.admin.validityDays') }} <span class="text-red-500">*</span></label><input v-model.number="planForm.validity_days" type="number" min="1" class="input" required /></div>
         <div><label class="input-label">{{ t('payment.admin.validityUnit') }} <span class="text-red-500">*</span></label><Select v-model="planForm.validity_unit" :options="validityUnitOptions" /></div>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="input-label">{{ t('payment.admin.stock') }}</label>
+          <input
+            v-model.number="planForm.stock"
+            data-testid="plan-stock-input"
+            type="number"
+            step="1"
+            min="0"
+            class="input"
+          />
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('payment.admin.stockHint') }}</p>
+        </div>
+      </div>
+      <div>
+        <label class="input-label">{{ t('payment.admin.rollingQuotaLimits') }}</label>
+        <div class="grid grid-cols-3 gap-4">
+          <div>
+            <label class="input-label text-xs">{{ t('payment.admin.fiveHourLimit') }}</label>
+            <input v-model.number="planForm.five_hour_limit_usd" type="number" step="0.01" min="0" class="input" />
+          </div>
+          <div>
+            <label class="input-label text-xs">{{ t('payment.admin.sevenDayLimit') }}</label>
+            <input v-model.number="planForm.seven_day_limit_usd" type="number" step="0.01" min="0" class="input" />
+          </div>
+          <div>
+            <label class="input-label text-xs">{{ t('payment.admin.thirtyDayLimit') }}</label>
+            <input v-model.number="planForm.thirty_day_limit_usd" type="number" step="0.01" min="0" class="input" />
+          </div>
+        </div>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('payment.admin.rollingQuotaHint') }}</p>
       </div>
       <div class="grid grid-cols-2 gap-4">
         <div><label class="input-label">{{ t('payment.admin.sortOrder') }}</label><input v-model.number="planForm.sort_order" type="number" min="0" class="input" /></div>
@@ -89,6 +131,7 @@ import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import { platformTextClass } from '@/utils/platformColors'
+import { formatUsdLimit, rollingQuotaWindows } from '@/utils/rollingQuota'
 
 const props = defineProps<{
   show: boolean
@@ -105,7 +148,23 @@ const { t } = useI18n()
 const appStore = useAppStore()
 
 const saving = ref(false)
-const planForm = reactive({ name: '', group_id: null as number | null, description: '', price: 0, original_price: 0, validity_days: 30, validity_unit: 'days', sort_order: 0, for_sale: true })
+type QuotaLimitInput = number | null | ''
+const planForm = reactive({
+  name: '',
+  group_id: null as number | null,
+  description: '',
+  price: 0,
+  original_price: 0,
+  renewal_discount_percent: null as QuotaLimitInput,
+  stock: null as QuotaLimitInput,
+  validity_days: 30,
+  validity_unit: 'days',
+  five_hour_limit_usd: null as QuotaLimitInput,
+  seven_day_limit_usd: null as QuotaLimitInput,
+  thirty_day_limit_usd: null as QuotaLimitInput,
+  sort_order: 0,
+  for_sale: true,
+})
 const planFeaturesText = ref('')
 
 const validityUnitOptions = computed(() => [
@@ -133,13 +192,70 @@ const selectedGroupInfo = computed(() => {
 watch(() => props.show, (visible) => {
   if (!visible) return
   if (props.plan) {
-    Object.assign(planForm, { name: props.plan.name, group_id: props.plan.group_id, description: props.plan.description, price: props.plan.price, original_price: props.plan.original_price || 0, validity_days: props.plan.validity_days, validity_unit: props.plan.validity_unit || 'days', sort_order: props.plan.sort_order || 0, for_sale: props.plan.for_sale })
+    Object.assign(planForm, {
+      name: props.plan.name,
+      group_id: props.plan.group_id,
+      description: props.plan.description,
+      price: props.plan.price,
+      original_price: props.plan.original_price || 0,
+      renewal_discount_percent: props.plan.renewal_discount_percent ?? null,
+      stock: props.plan.stock ?? null,
+      validity_days: props.plan.validity_days,
+      validity_unit: props.plan.validity_unit || 'days',
+      five_hour_limit_usd: props.plan.five_hour_limit_usd ?? null,
+      seven_day_limit_usd: props.plan.seven_day_limit_usd ?? null,
+      thirty_day_limit_usd: props.plan.thirty_day_limit_usd ?? null,
+      sort_order: props.plan.sort_order || 0,
+      for_sale: props.plan.for_sale,
+    })
     planFeaturesText.value = (props.plan.features || []).join('\n')
   } else {
-    Object.assign(planForm, { name: '', group_id: null, description: '', price: 0, original_price: 0, validity_days: 30, validity_unit: 'days', sort_order: 0, for_sale: true })
+    Object.assign(planForm, {
+      name: '',
+      group_id: null,
+      description: '',
+      price: 0,
+      original_price: 0,
+      renewal_discount_percent: null,
+      stock: null,
+      validity_days: 30,
+      validity_unit: 'days',
+      five_hour_limit_usd: null,
+      seven_day_limit_usd: null,
+      thirty_day_limit_usd: null,
+      sort_order: 0,
+      for_sale: true,
+    })
     planFeaturesText.value = ''
   }
 })
+
+function normalizeLimitInput(value: QuotaLimitInput): number | null {
+  if (value === '' || value == null) return null
+  return value
+}
+
+function formatPlanLimit(value: QuotaLimitInput): string {
+  if (value === '' || value == null) return t('payment.admin.unlimited')
+  return formatUsdLimit(value)
+}
+
+function hasNegativeRollingQuotaLimit(): boolean {
+  return [
+    planForm.five_hour_limit_usd,
+    planForm.seven_day_limit_usd,
+    planForm.thirty_day_limit_usd,
+  ].some(value => typeof value === 'number' && value < 0)
+}
+
+function hasInvalidRenewalDiscount(): boolean {
+  const value = planForm.renewal_discount_percent
+  return typeof value === 'number' && (value < 0 || value >= 100)
+}
+
+function hasInvalidStock(): boolean {
+  return typeof planForm.stock === 'number' && planForm.stock < 0
+}
 
 /** Build request payload with snake_case keys matching backend JSON tags */
 function buildPlanPayload() {
@@ -150,8 +266,13 @@ function buildPlanPayload() {
     description: planForm.description,
     price: planForm.price,
     original_price: planForm.original_price || 0,
+    renewal_discount_percent: normalizeLimitInput(planForm.renewal_discount_percent),
+    stock: normalizeLimitInput(planForm.stock),
     validity_days: planForm.validity_days,
     validity_unit: planForm.validity_unit,
+    five_hour_limit_usd: normalizeLimitInput(planForm.five_hour_limit_usd),
+    seven_day_limit_usd: normalizeLimitInput(planForm.seven_day_limit_usd),
+    thirty_day_limit_usd: normalizeLimitInput(planForm.thirty_day_limit_usd),
     sort_order: planForm.sort_order,
     for_sale: planForm.for_sale,
     features,
@@ -169,6 +290,18 @@ async function handleSavePlan() {
   }
   if (!planForm.validity_days || planForm.validity_days < 1) {
     appStore.showError(t('payment.admin.validityDaysRequired'))
+    return
+  }
+  if (hasNegativeRollingQuotaLimit()) {
+    appStore.showError(t('payment.admin.rollingQuotaInvalid'))
+    return
+  }
+  if (hasInvalidRenewalDiscount()) {
+    appStore.showError(t('payment.admin.renewalDiscountInvalid'))
+    return
+  }
+  if (hasInvalidStock()) {
+    appStore.showError(t('payment.admin.stockInvalid'))
     return
   }
   saving.value = true

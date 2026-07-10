@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -153,7 +152,7 @@ func TestCheckAndResetWindows_MultiDaySubscriptionStillResetsDailyUsage(t *testi
 	require.Equal(t, 0.0, sub.DailyUsageUSD)
 }
 
-func TestValidateAndCheckLimits_DailyCardDoesNotAllowSecondQuotaAfterMidnight(t *testing.T) {
+func TestValidateAndCheckLimits_LegacyDailyGroupLimitNoLongerBlocksSubscriptions(t *testing.T) {
 	start := time.Now().Add(-23 * time.Hour)
 	dailyWindowStart := time.Now().Add(-25 * time.Hour)
 	dailyLimit := 10.0
@@ -173,6 +172,6 @@ func TestValidateAndCheckLimits_DailyCardDoesNotAllowSecondQuotaAfterMidnight(t 
 	needsMaintenance, err := svc.ValidateAndCheckLimits(sub, group)
 
 	require.False(t, needsMaintenance, "日卡跨过日窗口后不应触发 daily reset 维护")
-	require.True(t, errors.Is(err, ErrDailyLimitExceeded))
-	require.Equal(t, dailyLimit+0.01, sub.DailyUsageUSD, "热路径不应清零日卡已用额度")
+	require.NoError(t, err)
+	require.Equal(t, dailyLimit+0.01, sub.DailyUsageUSD, "旧 daily 用量不再作为订阅套餐硬限制")
 }

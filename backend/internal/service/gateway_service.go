@@ -26,6 +26,7 @@ import (
 	"unsafe"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -68,6 +69,11 @@ const (
 const (
 	cacheTTLTarget5m = "5m"
 	cacheTTLTarget1h = "1h"
+)
+
+const (
+	AntigravityModelsProtocolClaude = "claude"
+	AntigravityModelsProtocolGemini = "gemini"
 )
 
 // ForceCacheBillingContextKey 强制缓存计费上下文键
@@ -768,6 +774,56 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 	return ""
 }
 
+// GenerateOpenCodeGoCacheAffinityHash computes a sticky-routing key for
+// OpenCode Go chat/completions models whose upstream prompt cache is account
+// local. Ordinary chat history grows each turn, so the generic full-message
+// hash changes and can route later turns to a different OpenCode Go account.
+func (s *GatewayService) GenerateOpenCodeGoCacheAffinityHash(parsed *ParsedRequest) string {
+	if parsed == nil {
+		return ""
+	}
+
+	if parsed.MetadataUserID != "" {
+		uid := ParseMetadataUserID(parsed.MetadataUserID)
+		if uid != nil && uid.SessionID != "" {
+			return uid.SessionID
+		}
+	}
+
+	if cacheableContent := s.extractCacheableContent(parsed); cacheableContent != "" {
+		return s.hashContent("opencode_go_cache|" + cacheableContent)
+	}
+
+	var combined strings.Builder
+	if parsed.SessionContext != nil {
+		_, _ = combined.WriteString(parsed.SessionContext.ClientIP)
+		_, _ = combined.WriteString(":")
+		_, _ = combined.WriteString(NormalizeSessionUserAgent(parsed.SessionContext.UserAgent))
+		_, _ = combined.WriteString(":")
+		_, _ = combined.WriteString(strconv.FormatInt(parsed.SessionContext.APIKeyID, 10))
+		_, _ = combined.WriteString("|")
+	}
+	if parsed.Model != "" {
+		_, _ = combined.WriteString("model:")
+		_, _ = combined.WriteString(parsed.Model)
+		_, _ = combined.WriteString("|")
+	}
+	if systemText := extractTextFromSystemRaw(parsed.SystemRaw()); systemText != "" {
+		_, _ = combined.WriteString("system:")
+		_, _ = combined.WriteString(systemText)
+		_, _ = combined.WriteString("|")
+	}
+	if messagePrefix := extractOpenCodeGoCacheAffinityMessagesTextFromRaw(parsed.MessagesRaw()); messagePrefix != "" {
+		_, _ = combined.WriteString("messages:")
+		_, _ = combined.WriteString(messagePrefix)
+	}
+	if combined.Len() > 0 {
+		return s.hashContent(combined.String())
+	}
+
+	return s.GenerateSessionHash(parsed)
+}
+
 // BindStickySession sets session -> account binding with standard TTL.
 func (s *GatewayService) BindStickySession(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
 	if sessionHash == "" || accountID <= 0 || s.cache == nil {
@@ -911,6 +967,49 @@ func appendMessageTextsFromRaw(builder *strings.Builder, raw []byte) {
 		}
 		return true
 	})
+}
+
+func extractOpenCodeGoCacheAffinityMessagesTextFromRaw(raw []byte) string {
+	messages := parseRawJSONView(raw)
+	if !messages.IsArray() {
+		return ""
+	}
+	var builder strings.Builder
+	appendPart := func(role string, text string) {
+		if text == "" {
+			return
+		}
+		if builder.Len() > 0 {
+			_, _ = builder.WriteString("|")
+		}
+		_, _ = builder.WriteString(role)
+		_, _ = builder.WriteString(":")
+		_, _ = builder.WriteString(text)
+	}
+	included := false
+	messages.ForEach(func(_, msg gjson.Result) bool {
+		role := strings.ToLower(strings.TrimSpace(msg.Get("role").String()))
+		text := extractTextFromContentRaw(msg.Get("content"))
+		if text == "" {
+			return true
+		}
+		switch role {
+		case "system", "developer":
+			appendPart(role, text)
+			included = true
+			return true
+		case "user":
+			appendPart(role, text)
+			return false
+		default:
+			if !included {
+				appendPart(role, text)
+				return false
+			}
+		}
+		return true
+	})
+	return builder.String()
 }
 
 func extractCacheableTextFromSystemRaw(raw []byte) string {
@@ -8450,6 +8549,9 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		AccountType:        p.Account.Type,
 		RequestPayloadHash: strings.TrimSpace(p.RequestPayloadHash),
 	}
+	if p.APIKey.GroupID != nil {
+		cmd.GroupID = p.APIKey.GroupID
+	}
 	if usageLog != nil {
 		cmd.Model = usageLog.Model
 		cmd.BillingType = usageLog.BillingType
@@ -8473,8 +8575,7 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	// user-specific) rate multiplier consumes subscription quota at the expected
 	// speed. TotalCost remains the raw (pre-multiplier) value; downstream guards
 	// on "> 0" still correctly skip free subscriptions (RateMultiplier == 0).
-	if p.IsSubscriptionBill && p.Subscription != nil && p.Cost.TotalCost > 0 {
-		cmd.SubscriptionID = &p.Subscription.ID
+	if p.IsSubscriptionBill && p.Cost.TotalCost > 0 {
 		cmd.SubscriptionCost = p.Cost.ActualCost
 	} else if p.Cost.ActualCost > 0 {
 		cmd.BalanceCost = p.Cost.ActualCost
@@ -8512,6 +8613,9 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	if err != nil {
 		return false, err
 	}
+	if result != nil && result.SubscriptionID != nil && usageLog != nil {
+		usageLog.SubscriptionID = result.SubscriptionID
+	}
 
 	if result == nil || !result.Applied {
 		deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)
@@ -8535,7 +8639,7 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 
 	if p.IsSubscriptionBill {
 		if p.Cost.ActualCost > 0 && p.User != nil && p.APIKey != nil && p.APIKey.GroupID != nil {
-			deps.billingCacheService.QueueUpdateSubscriptionUsage(p.User.ID, *p.APIKey.GroupID, p.Cost.ActualCost)
+			invalidateSubscriptionUsageCacheAfterBilling(ctx, deps, p.User.ID, *p.APIKey.GroupID)
 		}
 	} else if p.Cost.ActualCost > 0 && p.User != nil {
 		deps.billingCacheService.QueueDeductBalance(p.User.ID, p.Cost.ActualCost)
@@ -8585,6 +8689,15 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 	// no dependency on the request context or upstream connection.
 	go notifyBalanceLow(p, deps, result)
 	go notifyAccountQuota(p, deps, result)
+}
+
+func invalidateSubscriptionUsageCacheAfterBilling(ctx context.Context, deps *billingDeps, userID, groupID int64) {
+	if deps == nil || deps.billingCacheService == nil {
+		return
+	}
+	if err := deps.billingCacheService.InvalidateSubscription(ctx, userID, groupID); err != nil {
+		logger.LegacyPrintf("service.gateway", "Warning: invalidate subscription cache after billing user=%d group=%d: %v", userID, groupID, err)
+	}
 }
 
 // notifyBalanceLow sends balance low notification after deduction.
@@ -8823,6 +8936,70 @@ type recordUsageCoreInput struct {
 	ChannelUsageFields
 }
 
+func resolveGatewayBillingModelCandidates(input *recordUsageCoreInput, result *ForwardResult) []string {
+	var primary string
+	if result != nil {
+		primary = strings.TrimSpace(result.UpstreamModel)
+		if primary == "" {
+			primary = strings.TrimSpace(result.Model)
+		}
+	}
+	if input != nil {
+		original := strings.TrimSpace(input.OriginalModel)
+		channelMapped := strings.TrimSpace(input.ChannelMappedModel)
+		if input.BillingModelSource == BillingModelSourceChannelMapped && channelMapped != "" && channelMapped != original {
+			primary = channelMapped
+		}
+		if input.BillingModelSource == BillingModelSourceRequested && original != "" {
+			primary = original
+		}
+	}
+
+	var upstreamModel, resultModel string
+	if result != nil {
+		upstreamModel = result.UpstreamModel
+		resultModel = result.Model
+	}
+	var channelMappedModel, originalModel string
+	if input != nil {
+		channelMappedModel = input.ChannelMappedModel
+		originalModel = input.OriginalModel
+	}
+
+	return gatewayBillingModelCandidates(primary, upstreamModel, channelMappedModel, originalModel, resultModel)
+}
+
+func gatewayBillingModelCandidates(primary string, alternates ...string) []string {
+	seen := make(map[string]struct{}, 1+len(alternates))
+	candidates := appendGatewayBillingModelCandidate(nil, seen, primary)
+	for _, alternate := range alternates {
+		candidates = appendGatewayBillingModelCandidate(candidates, seen, alternate)
+	}
+	return candidates
+}
+
+func appendGatewayBillingModelCandidate(candidates []string, seen map[string]struct{}, model string) []string {
+	trimmed := strings.TrimSpace(model)
+	if trimmed == "" {
+		return candidates
+	}
+	key := strings.ToLower(trimmed)
+	if _, ok := seen[key]; ok {
+		return candidates
+	}
+	seen[key] = struct{}{}
+	return append(candidates, trimmed)
+}
+
+func firstGatewayBillingModel(candidates []string) string {
+	for _, candidate := range candidates {
+		if trimmed := strings.TrimSpace(candidate); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
 // recordUsageCore 是 RecordUsage 和 RecordUsageWithLongContext 的统一实现。
 // LongContextThreshold > 0 时 Token 计费回退走 CalculateCostWithLongContext。
 func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsageCoreInput, opts *recordUsageOpts) error {
@@ -8861,14 +9038,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 	imageMultiplier := resolveImageRateMultiplier(apiKey, multiplier)
 
-	// 确定计费模型
-	billingModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
-	if input.BillingModelSource == BillingModelSourceChannelMapped && input.ChannelMappedModel != "" {
-		billingModel = input.ChannelMappedModel
-	}
-	if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
-		billingModel = input.OriginalModel
-	}
+	// 确定计费模型候选：Gateway/Antigravity 默认按实际上游模型计价，
+	// 但仍保留渠道配置的 requested/channel_mapped 商业定价能力。
+	billingModels := resolveGatewayBillingModelCandidates(input, result)
 
 	// 确定 RequestedModel（渠道映射前的原始模型）
 	requestedModel := result.Model
@@ -8877,10 +9049,31 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 
 	// 计算费用
-	cost := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, opts)
+	cost, costErr := s.calculateRecordUsageCost(ctx, result, apiKey, billingModels, multiplier, imageMultiplier, opts)
+	if costErr != nil {
+		if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+			slog.Warn("gateway_usage.pricing_missing_record_simple_zero_cost",
+				"billing_models", strings.Join(billingModels, ","),
+				"requested_model", requestedModel,
+				"upstream_model", result.UpstreamModel,
+				"api_key_id", apiKey.ID,
+				"error", costErr,
+			)
+			cost = &CostBreakdown{BillingMode: string(BillingModeToken)}
+		} else {
+			slog.Warn("gateway_usage.pricing_missing_rejected",
+				"billing_models", strings.Join(billingModels, ","),
+				"requested_model", requestedModel,
+				"upstream_model", result.UpstreamModel,
+				"api_key_id", apiKey.ID,
+				"error", costErr,
+			)
+			return costErr
+		}
+	}
 
-	// 判断计费方式：订阅模式 vs 余额模式
-	isSubscriptionBilling := subscription != nil && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
+	// 判断计费方式：订阅模式 vs 余额模式。最终扣哪条订阅权益由 usage billing 事务按 user+group+cost 选择。
+	isSubscriptionBilling := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 	billingType := BillingTypeBalance
 	if isSubscriptionBilling {
 		billingType = BillingTypeSubscription
@@ -8949,18 +9142,18 @@ func (s *GatewayService) calculateRecordUsageCost(
 	ctx context.Context,
 	result *ForwardResult,
 	apiKey *APIKey,
-	billingModel string,
+	billingModels []string,
 	multiplier float64,
 	imageMultiplier float64,
 	opts *recordUsageOpts,
-) *CostBreakdown {
+) (*CostBreakdown, error) {
 	// 图片生成计费
 	if result.ImageCount > 0 {
-		return s.calculateImageCost(ctx, result, apiKey, billingModel, imageMultiplier)
+		return s.calculateImageCost(ctx, result, apiKey, firstGatewayBillingModel(billingModels), imageMultiplier), nil
 	}
 
 	// Token 计费
-	return s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, opts)
+	return s.calculateTokenCost(ctx, result, apiKey, billingModels, multiplier, opts)
 }
 
 // resolveChannelPricing 检查指定模型是否存在渠道级别定价。
@@ -9027,10 +9220,10 @@ func (s *GatewayService) calculateTokenCost(
 	ctx context.Context,
 	result *ForwardResult,
 	apiKey *APIKey,
-	billingModel string,
+	billingModels []string,
 	multiplier float64,
 	opts *recordUsageOpts,
-) *CostBreakdown {
+) (*CostBreakdown, error) {
 	tokens := UsageTokens{
 		InputTokens:           result.Usage.InputTokens,
 		OutputTokens:          result.Usage.OutputTokens,
@@ -9041,13 +9234,40 @@ func (s *GatewayService) calculateTokenCost(
 		ImageOutputTokens:     result.Usage.ImageOutputTokens,
 	}
 
-	var cost *CostBreakdown
-	var err error
+	var lastErr error
+	for _, billingModel := range billingModels {
+		billingModel = strings.TrimSpace(billingModel)
+		if billingModel == "" {
+			continue
+		}
+		cost, err := s.calculateTokenCostForBillingModel(ctx, result, apiKey, billingModel, multiplier, tokens, opts)
+		if err == nil {
+			return cost, nil
+		}
+		lastErr = err
+		if !isUsagePricingUnavailableError(err) {
+			logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
+			return nil, err
+		}
+	}
+	if lastErr == nil {
+		lastErr = errors.New("no non-empty billing model candidates")
+	}
+	return nil, fmt.Errorf("gateway usage pricing unavailable for billing models %s: %w", strings.Join(billingModels, ","), lastErr)
+}
 
-	// 优先尝试渠道定价 → CalculateCostUnified
+func (s *GatewayService) calculateTokenCostForBillingModel(
+	ctx context.Context,
+	result *ForwardResult,
+	apiKey *APIKey,
+	billingModel string,
+	multiplier float64,
+	tokens UsageTokens,
+	opts *recordUsageOpts,
+) (*CostBreakdown, error) {
 	if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey); resolved != nil {
 		gid := apiKey.Group.ID
-		cost, err = s.billingService.CalculateCostUnified(CostInput{
+		return s.billingService.CalculateCostUnified(CostInput{
 			Ctx:            ctx,
 			Model:          billingModel,
 			GroupID:        &gid,
@@ -9057,20 +9277,14 @@ func (s *GatewayService) calculateTokenCost(
 			Resolver:       s.resolver,
 			Resolved:       resolved,
 		})
-	} else if opts.LongContextThreshold > 0 {
-		// 长上下文双倍计费（如 Gemini 200K 阈值）
-		cost, err = s.billingService.CalculateCostWithLongContext(
+	}
+	if opts.LongContextThreshold > 0 {
+		return s.billingService.CalculateCostWithLongContext(
 			billingModel, tokens, multiplier,
 			opts.LongContextThreshold, opts.LongContextMultiplier,
 		)
-	} else {
-		cost, err = s.billingService.CalculateCost(billingModel, tokens, multiplier)
 	}
-	if err != nil {
-		logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
-		return &CostBreakdown{ActualCost: 0}
-	}
-	return cost
+	return s.billingService.CalculateCost(billingModel, tokens, multiplier)
 }
 
 // buildRecordUsageLog 构建使用日志并设置计费模式。
@@ -9130,7 +9344,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		UserAgent:             optionalTrimmedStringPtr(input.UserAgent),
 		IPAddress:             optionalTrimmedStringPtr(input.IPAddress),
 		GroupID:               apiKey.GroupID,
-		SubscriptionID:        optionalSubscriptionID(subscription),
+		SubscriptionID:        nil,
 		CreatedAt:             time.Now(),
 	}
 	if result.ImageCount > 0 {
@@ -9198,6 +9412,70 @@ func (s *GatewayService) ResolveChannelMappingAndRestrict(ctx context.Context, g
 		return ChannelMappingResult{MappedModel: model}, false
 	}
 	return s.channelService.ResolveChannelMappingAndRestrict(ctx, groupID, model)
+}
+
+// ValidateGatewayTokenPricingAvailable verifies that a gateway request has at
+// least one billable token-pricing candidate before it is forwarded upstream.
+func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Context, apiKey *APIKey, account *Account, requestedModel string, channelMapping ChannelMappingResult) error {
+	if s == nil || s.billingService == nil {
+		return nil
+	}
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+		return nil
+	}
+
+	channelMappedModel := strings.TrimSpace(requestedModel)
+	if channelMapping.Mapped && strings.TrimSpace(channelMapping.MappedModel) != "" {
+		channelMappedModel = strings.TrimSpace(channelMapping.MappedModel)
+	} else if strings.TrimSpace(channelMapping.MappedModel) != "" {
+		channelMappedModel = strings.TrimSpace(channelMapping.MappedModel)
+	}
+
+	upstreamModel := ""
+	if account != nil {
+		upstreamModel = strings.TrimSpace(resolveAccountUpstreamModel(account, channelMappedModel))
+		if upstreamModel == channelMappedModel {
+			upstreamModel = ""
+		}
+	}
+
+	candidates := resolveGatewayBillingModelCandidates(&recordUsageCoreInput{
+		ChannelUsageFields: ChannelUsageFields{
+			OriginalModel:      requestedModel,
+			ChannelMappedModel: channelMappedModel,
+			BillingModelSource: channelMapping.BillingModelSource,
+		},
+	}, &ForwardResult{
+		Model:         channelMappedModel,
+		UpstreamModel: upstreamModel,
+	})
+	return s.validateGatewayTokenPricingCandidates(ctx, apiKey, candidates)
+}
+
+func (s *GatewayService) validateGatewayTokenPricingCandidates(ctx context.Context, apiKey *APIKey, billingModels []string) error {
+	tokens := UsageTokens{InputTokens: 1, OutputTokens: 1}
+	result := &ForwardResult{Usage: ClaudeUsage{InputTokens: tokens.InputTokens, OutputTokens: tokens.OutputTokens}}
+	cost, err := s.calculateTokenCost(ctx, result, apiKey, billingModels, 1, &recordUsageOpts{})
+	if err != nil {
+		return err
+	}
+	if cost == nil || !hasPositiveCostComponent(cost) {
+		return fmt.Errorf("gateway usage pricing unavailable for billing models %s: %w", strings.Join(billingModels, ","), ErrModelPricingUnavailable)
+	}
+	return nil
+}
+
+func hasPositiveCostComponent(cost *CostBreakdown) bool {
+	if cost == nil {
+		return false
+	}
+	return cost.InputCost > 0 ||
+		cost.OutputCost > 0 ||
+		cost.ImageOutputCost > 0 ||
+		cost.CacheCreationCost > 0 ||
+		cost.CacheReadCost > 0 ||
+		cost.TotalCost > 0 ||
+		cost.ActualCost > 0
 }
 
 // checkChannelPricingRestriction 根据渠道计费基准检查模型是否受定价列表限制。
@@ -9944,6 +10222,14 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 
 	// If no account has model_mapping, return nil (use default)
 	if !hasAnyMapping {
+		if platform == PlatformOpenCodeGo {
+			models := OpenCodeGoDefaultModelIDs()
+			if s.modelsListCache != nil {
+				s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
+				modelsListCacheStoreTotal.Add(1)
+			}
+			return cloneStringSlice(models)
+		}
 		if s.modelsListCache != nil {
 			s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
 			modelsListCacheStoreTotal.Add(1)
@@ -9963,6 +10249,131 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		modelsListCacheStoreTotal.Add(1)
 	}
 	return cloneStringSlice(models)
+}
+
+// GetAvailableModelPricingCandidates returns pricing lookup candidates for
+// display models returned by GetAvailableModels. The display model itself is
+// always included last; account mapping targets are included first so aliases
+// such as Antigravity custom model IDs can resolve to the official price row.
+func (s *GatewayService) GetAvailableModelPricingCandidates(ctx context.Context, groupID *int64, platform string, models []string) map[string][]string {
+	result := make(map[string][]string, len(models))
+	for _, model := range models {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		result[model] = appendPricingCandidate(result[model], model)
+	}
+	if len(result) == 0 || s == nil || s.accountRepo == nil {
+		return result
+	}
+
+	var accounts []Account
+	var err error
+	if groupID != nil {
+		accounts, err = s.accountRepo.ListSchedulableByGroupID(ctx, *groupID)
+	} else {
+		accounts, err = s.accountRepo.ListSchedulable(ctx)
+	}
+	if err != nil || len(accounts) == 0 {
+		return result
+	}
+
+	for model := range result {
+		candidates := make([]string, 0, len(result[model])+len(accounts))
+		for _, acc := range accounts {
+			if platform != "" && acc.Platform != platform {
+				continue
+			}
+			if !acc.IsModelSupported(model) {
+				continue
+			}
+			mapped, _ := acc.ResolveMappedModel(model)
+			candidates = appendPricingCandidate(candidates, mapped)
+		}
+		if platform == PlatformAntigravity {
+			candidates = appendPricingCandidate(candidates, domain.DefaultAntigravityModelMapping[model])
+		}
+		candidates = appendPricingCandidate(candidates, model)
+		result[model] = candidates
+	}
+
+	return result
+}
+
+func appendPricingCandidate(candidates []string, candidate string) []string {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" || strings.Contains(candidate, "*") {
+		return candidates
+	}
+	for _, existing := range candidates {
+		if strings.EqualFold(existing, candidate) {
+			return candidates
+		}
+	}
+	return append(candidates, candidate)
+}
+
+// GetAntigravityMappedModels returns explicit Antigravity model_mapping keys for one protocol.
+// It intentionally ignores Antigravity default mappings so unconfigured accounts produce an empty list.
+func (s *GatewayService) GetAntigravityMappedModels(ctx context.Context, groupID *int64, protocol string) []string {
+	if s == nil || s.accountRepo == nil {
+		return nil
+	}
+
+	protocol = strings.ToLower(strings.TrimSpace(protocol))
+	if protocol != AntigravityModelsProtocolClaude && protocol != AntigravityModelsProtocolGemini {
+		return nil
+	}
+
+	var accounts []Account
+	var err error
+	if groupID != nil {
+		accounts, err = s.accountRepo.ListSchedulableByGroupID(ctx, *groupID)
+	} else {
+		accounts, err = s.accountRepo.ListSchedulable(ctx)
+	}
+	if err != nil || len(accounts) == 0 {
+		return nil
+	}
+
+	modelSet := make(map[string]struct{})
+	for _, acc := range accounts {
+		if acc.Platform != PlatformAntigravity {
+			continue
+		}
+		for model := range acc.GetExplicitModelMapping() {
+			model = strings.TrimSpace(model)
+			if model == "" || strings.Contains(model, "*") {
+				continue
+			}
+			if !antigravityModelMatchesProtocol(model, protocol) {
+				continue
+			}
+			modelSet[model] = struct{}{}
+		}
+	}
+	if len(modelSet) == 0 {
+		return nil
+	}
+
+	models := make([]string, 0, len(modelSet))
+	for model := range modelSet {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+	return models
+}
+
+func antigravityModelMatchesProtocol(model, protocol string) bool {
+	switch protocol {
+	case AntigravityModelsProtocolClaude:
+		return strings.HasPrefix(model, "claude-")
+	case AntigravityModelsProtocolGemini:
+		return strings.HasPrefix(model, "gemini-")
+	default:
+		return false
+	}
 }
 
 func (s *GatewayService) InvalidateAvailableModelsCache(groupID *int64, platform string) {

@@ -47,6 +47,10 @@ func (h *PaymentHandler) GetPaymentConfig(c *gin.Context) {
 // GetPlans returns subscription plans available for sale.
 // GET /api/v1/payment/plans
 func (h *PaymentHandler) GetPlans(c *gin.Context) {
+	subject, ok := requireAuth(c)
+	if !ok {
+		return
+	}
 	plans, err := h.configService.ListPlansForSale(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -54,26 +58,44 @@ func (h *PaymentHandler) GetPlans(c *gin.Context) {
 	}
 	// Enrich plans with group platform for frontend color coding
 	type planWithPlatform struct {
-		ID            int64    `json:"id"`
-		GroupID       int64    `json:"group_id"`
-		GroupPlatform string   `json:"group_platform"`
-		Name          string   `json:"name"`
-		Description   string   `json:"description"`
-		Price         float64  `json:"price"`
-		OriginalPrice *float64 `json:"original_price,omitempty"`
-		ValidityDays  int      `json:"validity_days"`
-		ValidityUnit  string   `json:"validity_unit"`
-		Features      string   `json:"features"`
-		ProductName   string   `json:"product_name"`
-		ForSale       bool     `json:"for_sale"`
-		SortOrder     int      `json:"sort_order"`
+		ID                     int64    `json:"id"`
+		GroupID                int64    `json:"group_id"`
+		GroupPlatform          string   `json:"group_platform"`
+		Name                   string   `json:"name"`
+		Description            string   `json:"description"`
+		Price                  float64  `json:"price"`
+		OriginalPrice          *float64 `json:"original_price,omitempty"`
+		RenewalDiscountPercent *float64 `json:"renewal_discount_percent"`
+		RenewalEligible        bool     `json:"renewal_eligible"`
+		RenewalPrice           *float64 `json:"renewal_price"`
+		EffectivePrice         float64  `json:"effective_price"`
+		FiveHourLimitUSD       *float64 `json:"five_hour_limit_usd"`
+		SevenDayLimitUSD       *float64 `json:"seven_day_limit_usd"`
+		ThirtyDayLimitUSD      *float64 `json:"thirty_day_limit_usd"`
+		Stock                  *int     `json:"stock"`
+		SoldOut                bool     `json:"sold_out"`
+		ValidityDays           int      `json:"validity_days"`
+		ValidityUnit           string   `json:"validity_unit"`
+		Features               string   `json:"features"`
+		ProductName            string   `json:"product_name"`
+		ForSale                bool     `json:"for_sale"`
+		SortOrder              int      `json:"sort_order"`
 	}
 	platformMap := h.configService.GetGroupPlatformMap(c.Request.Context(), plans)
 	result := make([]planWithPlatform, 0, len(plans))
 	for _, p := range plans {
+		pricing, err := h.paymentService.BuildSubscriptionPlanPricing(c.Request.Context(), subject.UserID, p)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
 		result = append(result, planWithPlatform{
 			ID: int64(p.ID), GroupID: p.GroupID, GroupPlatform: platformMap[p.GroupID],
 			Name: p.Name, Description: p.Description, Price: p.Price, OriginalPrice: p.OriginalPrice,
+			RenewalDiscountPercent: pricing.RenewalDiscountPercent, RenewalEligible: pricing.RenewalEligible,
+			RenewalPrice: pricing.RenewalPrice, EffectivePrice: pricing.EffectivePrice,
+			FiveHourLimitUSD: p.FiveHourLimitUsd, SevenDayLimitUSD: p.SevenDayLimitUsd, ThirtyDayLimitUSD: p.ThirtyDayLimitUsd,
+			Stock: p.Stock, SoldOut: service.SubscriptionPlanSoldOut(p),
 			ValidityDays: p.ValidityDays, ValidityUnit: p.ValidityUnit, Features: p.Features,
 			ProductName: p.ProductName, ForSale: p.ForSale, SortOrder: p.SortOrder,
 		})
@@ -96,6 +118,10 @@ func (h *PaymentHandler) GetChannels(c *gin.Context) {
 // payment methods with limits, subscription plans, and configuration.
 // GET /api/v1/payment/checkout-info
 func (h *PaymentHandler) GetCheckoutInfo(c *gin.Context) {
+	subject, ok := requireAuth(c)
+	if !ok {
+		return
+	}
 	ctx := c.Request.Context()
 
 	// Fetch limits (methods + global range)
@@ -118,13 +144,22 @@ func (h *PaymentHandler) GetCheckoutInfo(c *gin.Context) {
 	planList := make([]checkoutPlan, 0, len(plans))
 	for _, p := range plans {
 		gi := groupInfo[p.GroupID]
+		pricing, err := h.paymentService.BuildSubscriptionPlanPricing(ctx, subject.UserID, p)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
 		planList = append(planList, checkoutPlan{
 			ID: int64(p.ID), GroupID: p.GroupID,
 			GroupPlatform: gi.Platform, GroupName: gi.Name,
 			RateMultiplier: gi.RateMultiplier, DailyLimitUSD: gi.DailyLimitUSD,
 			WeeklyLimitUSD: gi.WeeklyLimitUSD, MonthlyLimitUSD: gi.MonthlyLimitUSD,
+			FiveHourLimitUSD: p.FiveHourLimitUsd, SevenDayLimitUSD: p.SevenDayLimitUsd, ThirtyDayLimitUSD: p.ThirtyDayLimitUsd,
+			Stock: p.Stock, SoldOut: service.SubscriptionPlanSoldOut(p),
 			ModelScopes: gi.ModelScopes,
 			Name:        p.Name, Description: p.Description, Price: p.Price, OriginalPrice: p.OriginalPrice,
+			RenewalDiscountPercent: pricing.RenewalDiscountPercent, RenewalEligible: pricing.RenewalEligible,
+			RenewalPrice: pricing.RenewalPrice, EffectivePrice: pricing.EffectivePrice,
 			ValidityDays: p.ValidityDays, ValidityUnit: p.ValidityUnit, Features: parseFeatures(p.Features),
 			ProductName: p.ProductName,
 		})
@@ -160,23 +195,32 @@ type checkoutInfoResponse struct {
 }
 
 type checkoutPlan struct {
-	ID              int64    `json:"id"`
-	GroupID         int64    `json:"group_id"`
-	GroupPlatform   string   `json:"group_platform"`
-	GroupName       string   `json:"group_name"`
-	RateMultiplier  float64  `json:"rate_multiplier"`
-	DailyLimitUSD   *float64 `json:"daily_limit_usd"`
-	WeeklyLimitUSD  *float64 `json:"weekly_limit_usd"`
-	MonthlyLimitUSD *float64 `json:"monthly_limit_usd"`
-	ModelScopes     []string `json:"supported_model_scopes"`
-	Name            string   `json:"name"`
-	Description     string   `json:"description"`
-	Price           float64  `json:"price"`
-	OriginalPrice   *float64 `json:"original_price,omitempty"`
-	ValidityDays    int      `json:"validity_days"`
-	ValidityUnit    string   `json:"validity_unit"`
-	Features        []string `json:"features"`
-	ProductName     string   `json:"product_name"`
+	ID                     int64    `json:"id"`
+	GroupID                int64    `json:"group_id"`
+	GroupPlatform          string   `json:"group_platform"`
+	GroupName              string   `json:"group_name"`
+	RateMultiplier         float64  `json:"rate_multiplier"`
+	DailyLimitUSD          *float64 `json:"daily_limit_usd"`
+	WeeklyLimitUSD         *float64 `json:"weekly_limit_usd"`
+	MonthlyLimitUSD        *float64 `json:"monthly_limit_usd"`
+	FiveHourLimitUSD       *float64 `json:"five_hour_limit_usd"`
+	SevenDayLimitUSD       *float64 `json:"seven_day_limit_usd"`
+	ThirtyDayLimitUSD      *float64 `json:"thirty_day_limit_usd"`
+	Stock                  *int     `json:"stock"`
+	SoldOut                bool     `json:"sold_out"`
+	ModelScopes            []string `json:"supported_model_scopes"`
+	Name                   string   `json:"name"`
+	Description            string   `json:"description"`
+	Price                  float64  `json:"price"`
+	OriginalPrice          *float64 `json:"original_price,omitempty"`
+	RenewalDiscountPercent *float64 `json:"renewal_discount_percent"`
+	RenewalEligible        bool     `json:"renewal_eligible"`
+	RenewalPrice           *float64 `json:"renewal_price"`
+	EffectivePrice         float64  `json:"effective_price"`
+	ValidityDays           int      `json:"validity_days"`
+	ValidityUnit           string   `json:"validity_unit"`
+	Features               []string `json:"features"`
+	ProductName            string   `json:"product_name"`
 }
 
 // parseFeatures splits a newline-separated features string into a string slice.

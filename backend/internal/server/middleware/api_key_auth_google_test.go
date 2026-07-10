@@ -25,6 +25,7 @@ type fakeAPIKeyRepo struct {
 
 type fakeGoogleSubscriptionRepo struct {
 	getActive      func(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error)
+	listActive     func(ctx context.Context, userID, groupID int64) ([]service.UserSubscription, error)
 	updateStatus   func(ctx context.Context, subscriptionID int64, status string) error
 	activateWindow func(ctx context.Context, id int64, start time.Time) error
 	resetDaily     func(ctx context.Context, id int64, start time.Time) error
@@ -120,6 +121,9 @@ func (f fakeGoogleSubscriptionRepo) GetByID(ctx context.Context, id int64) (*ser
 func (f fakeGoogleSubscriptionRepo) GetByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
 	return nil, errors.New("not implemented")
 }
+func (f fakeGoogleSubscriptionRepo) GetByUserIDGroupIDAndPlanID(ctx context.Context, userID, groupID int64, planID *int64) (*service.UserSubscription, error) {
+	return nil, errors.New("not implemented")
+}
 func (f fakeGoogleSubscriptionRepo) GetActiveByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
 	if f.getActive != nil {
 		return f.getActive(ctx, userID, groupID)
@@ -138,6 +142,19 @@ func (f fakeGoogleSubscriptionRepo) ListByUserID(ctx context.Context, userID int
 func (f fakeGoogleSubscriptionRepo) ListActiveByUserID(ctx context.Context, userID int64) ([]service.UserSubscription, error) {
 	return nil, errors.New("not implemented")
 }
+func (f fakeGoogleSubscriptionRepo) ListActiveByUserIDAndGroupID(ctx context.Context, userID, groupID int64) ([]service.UserSubscription, error) {
+	if f.listActive != nil {
+		return f.listActive(ctx, userID, groupID)
+	}
+	if f.getActive != nil {
+		sub, err := f.getActive(ctx, userID, groupID)
+		if err != nil {
+			return nil, err
+		}
+		return []service.UserSubscription{*sub}, nil
+	}
+	return nil, errors.New("not implemented")
+}
 func (f fakeGoogleSubscriptionRepo) ListByGroupID(ctx context.Context, groupID int64, params pagination.PaginationParams) ([]service.UserSubscription, *pagination.PaginationResult, error) {
 	return nil, nil, errors.New("not implemented")
 }
@@ -146,6 +163,12 @@ func (f fakeGoogleSubscriptionRepo) List(ctx context.Context, params pagination.
 }
 func (f fakeGoogleSubscriptionRepo) ExistsByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (bool, error) {
 	return false, errors.New("not implemented")
+}
+func (f fakeGoogleSubscriptionRepo) ExistsByUserIDGroupIDAndPlanID(ctx context.Context, userID, groupID int64, planID *int64) (bool, error) {
+	return false, errors.New("not implemented")
+}
+func (f fakeGoogleSubscriptionRepo) RenewTerm(ctx context.Context, input *service.RenewSubscriptionTermInput) error {
+	return errors.New("not implemented")
 }
 func (f fakeGoogleSubscriptionRepo) ExtendExpiry(ctx context.Context, subscriptionID int64, newExpiresAt time.Time) error {
 	return errors.New("not implemented")
@@ -159,10 +182,16 @@ func (f fakeGoogleSubscriptionRepo) UpdateStatus(ctx context.Context, subscripti
 func (f fakeGoogleSubscriptionRepo) UpdateNotes(ctx context.Context, subscriptionID int64, notes string) error {
 	return errors.New("not implemented")
 }
+func (f fakeGoogleSubscriptionRepo) UpdateRollingQuotaSnapshot(ctx context.Context, subscriptionID int64, fiveHourLimitUSD, sevenDayLimitUSD, thirtyDayLimitUSD *float64) error {
+	return errors.New("not implemented")
+}
 func (f fakeGoogleSubscriptionRepo) ActivateWindows(ctx context.Context, id int64, start time.Time) error {
 	if f.activateWindow != nil {
 		return f.activateWindow(ctx, id, start)
 	}
+	return errors.New("not implemented")
+}
+func (f fakeGoogleSubscriptionRepo) ActivateRollingWindows(ctx context.Context, id int64, start time.Time) error {
 	return errors.New("not implemented")
 }
 func (f fakeGoogleSubscriptionRepo) ResetDailyUsage(ctx context.Context, id int64, start time.Time) error {
@@ -181,6 +210,15 @@ func (f fakeGoogleSubscriptionRepo) ResetMonthlyUsage(ctx context.Context, id in
 	if f.resetMonthly != nil {
 		return f.resetMonthly(ctx, id, start)
 	}
+	return errors.New("not implemented")
+}
+func (f fakeGoogleSubscriptionRepo) ResetFiveHourUsage(ctx context.Context, id int64, start time.Time) error {
+	return errors.New("not implemented")
+}
+func (f fakeGoogleSubscriptionRepo) ResetSevenDayUsage(ctx context.Context, id int64, start time.Time) error {
+	return errors.New("not implemented")
+}
+func (f fakeGoogleSubscriptionRepo) ResetThirtyDayUsage(ctx context.Context, id int64, start time.Time) error {
 	return errors.New("not implemented")
 }
 func (f fakeGoogleSubscriptionRepo) IncrementUsage(ctx context.Context, id int64, costUSD float64) error {
@@ -682,7 +720,6 @@ func TestApiKeyAuthWithSubscriptionGoogle_SubscriptionLimitExceededReturns429(t 
 		Platform:         service.PlatformGemini,
 		Hydrated:         true,
 		SubscriptionType: service.SubscriptionTypeSubscription,
-		DailyLimitUSD:    &limit,
 	}
 	user := &service.User{
 		ID:          999,
@@ -713,13 +750,14 @@ func TestApiKeyAuthWithSubscriptionGoogle_SubscriptionLimitExceededReturns429(t 
 
 	now := time.Now()
 	sub := &service.UserSubscription{
-		ID:               601,
-		UserID:           user.ID,
-		GroupID:          group.ID,
-		Status:           service.SubscriptionStatusActive,
-		ExpiresAt:        now.Add(24 * time.Hour),
-		DailyWindowStart: &now,
-		DailyUsageUSD:    10,
+		ID:                  601,
+		UserID:              user.ID,
+		GroupID:             group.ID,
+		Status:              service.SubscriptionStatusActive,
+		ExpiresAt:           now.Add(24 * time.Hour),
+		FiveHourLimitUSD:    &limit,
+		FiveHourWindowStart: &now,
+		FiveHourUsageUSD:    10,
 	}
 	subscriptionService := service.NewSubscriptionService(nil, fakeGoogleSubscriptionRepo{
 		getActive: func(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
@@ -750,5 +788,5 @@ func TestApiKeyAuthWithSubscriptionGoogle_SubscriptionLimitExceededReturns429(t 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusTooManyRequests, resp.Error.Code)
 	require.Equal(t, "RESOURCE_EXHAUSTED", resp.Error.Status)
-	require.Contains(t, resp.Error.Message, "daily usage limit exceeded")
+	require.Contains(t, resp.Error.Message, "5h usage limit exceeded")
 }

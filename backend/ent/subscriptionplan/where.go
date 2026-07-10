@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 )
 
@@ -77,6 +78,31 @@ func Price(v float64) predicate.SubscriptionPlan {
 // OriginalPrice applies equality check predicate on the "original_price" field. It's identical to OriginalPriceEQ.
 func OriginalPrice(v float64) predicate.SubscriptionPlan {
 	return predicate.SubscriptionPlan(sql.FieldEQ(FieldOriginalPrice, v))
+}
+
+// RenewalDiscountPercent applies equality check predicate on the "renewal_discount_percent" field. It's identical to RenewalDiscountPercentEQ.
+func RenewalDiscountPercent(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldEQ(FieldRenewalDiscountPercent, v))
+}
+
+// FiveHourLimitUsd applies equality check predicate on the "five_hour_limit_usd" field. It's identical to FiveHourLimitUsdEQ.
+func FiveHourLimitUsd(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldEQ(FieldFiveHourLimitUsd, v))
+}
+
+// SevenDayLimitUsd applies equality check predicate on the "seven_day_limit_usd" field. It's identical to SevenDayLimitUsdEQ.
+func SevenDayLimitUsd(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldEQ(FieldSevenDayLimitUsd, v))
+}
+
+// ThirtyDayLimitUsd applies equality check predicate on the "thirty_day_limit_usd" field. It's identical to ThirtyDayLimitUsdEQ.
+func ThirtyDayLimitUsd(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldEQ(FieldThirtyDayLimitUsd, v))
+}
+
+// Stock applies equality check predicate on the "stock" field. It's identical to StockEQ.
+func Stock(v int) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldEQ(FieldStock, v))
 }
 
 // ValidityDays applies equality check predicate on the "validity_days" field. It's identical to ValidityDaysEQ.
@@ -377,6 +403,256 @@ func OriginalPriceIsNil() predicate.SubscriptionPlan {
 // OriginalPriceNotNil applies the NotNil predicate on the "original_price" field.
 func OriginalPriceNotNil() predicate.SubscriptionPlan {
 	return predicate.SubscriptionPlan(sql.FieldNotNull(FieldOriginalPrice))
+}
+
+// RenewalDiscountPercentEQ applies the EQ predicate on the "renewal_discount_percent" field.
+func RenewalDiscountPercentEQ(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldEQ(FieldRenewalDiscountPercent, v))
+}
+
+// RenewalDiscountPercentNEQ applies the NEQ predicate on the "renewal_discount_percent" field.
+func RenewalDiscountPercentNEQ(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldNEQ(FieldRenewalDiscountPercent, v))
+}
+
+// RenewalDiscountPercentIn applies the In predicate on the "renewal_discount_percent" field.
+func RenewalDiscountPercentIn(vs ...float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldIn(FieldRenewalDiscountPercent, vs...))
+}
+
+// RenewalDiscountPercentNotIn applies the NotIn predicate on the "renewal_discount_percent" field.
+func RenewalDiscountPercentNotIn(vs ...float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldNotIn(FieldRenewalDiscountPercent, vs...))
+}
+
+// RenewalDiscountPercentGT applies the GT predicate on the "renewal_discount_percent" field.
+func RenewalDiscountPercentGT(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldGT(FieldRenewalDiscountPercent, v))
+}
+
+// RenewalDiscountPercentGTE applies the GTE predicate on the "renewal_discount_percent" field.
+func RenewalDiscountPercentGTE(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldGTE(FieldRenewalDiscountPercent, v))
+}
+
+// RenewalDiscountPercentLT applies the LT predicate on the "renewal_discount_percent" field.
+func RenewalDiscountPercentLT(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldLT(FieldRenewalDiscountPercent, v))
+}
+
+// RenewalDiscountPercentLTE applies the LTE predicate on the "renewal_discount_percent" field.
+func RenewalDiscountPercentLTE(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldLTE(FieldRenewalDiscountPercent, v))
+}
+
+// RenewalDiscountPercentIsNil applies the IsNil predicate on the "renewal_discount_percent" field.
+func RenewalDiscountPercentIsNil() predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldIsNull(FieldRenewalDiscountPercent))
+}
+
+// RenewalDiscountPercentNotNil applies the NotNil predicate on the "renewal_discount_percent" field.
+func RenewalDiscountPercentNotNil() predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldNotNull(FieldRenewalDiscountPercent))
+}
+
+// FiveHourLimitUsdEQ applies the EQ predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdEQ(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldEQ(FieldFiveHourLimitUsd, v))
+}
+
+// FiveHourLimitUsdNEQ applies the NEQ predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdNEQ(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldNEQ(FieldFiveHourLimitUsd, v))
+}
+
+// FiveHourLimitUsdIn applies the In predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdIn(vs ...float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldIn(FieldFiveHourLimitUsd, vs...))
+}
+
+// FiveHourLimitUsdNotIn applies the NotIn predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdNotIn(vs ...float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldNotIn(FieldFiveHourLimitUsd, vs...))
+}
+
+// FiveHourLimitUsdGT applies the GT predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdGT(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldGT(FieldFiveHourLimitUsd, v))
+}
+
+// FiveHourLimitUsdGTE applies the GTE predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdGTE(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldGTE(FieldFiveHourLimitUsd, v))
+}
+
+// FiveHourLimitUsdLT applies the LT predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdLT(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldLT(FieldFiveHourLimitUsd, v))
+}
+
+// FiveHourLimitUsdLTE applies the LTE predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdLTE(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldLTE(FieldFiveHourLimitUsd, v))
+}
+
+// FiveHourLimitUsdIsNil applies the IsNil predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdIsNil() predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldIsNull(FieldFiveHourLimitUsd))
+}
+
+// FiveHourLimitUsdNotNil applies the NotNil predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdNotNil() predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldNotNull(FieldFiveHourLimitUsd))
+}
+
+// SevenDayLimitUsdEQ applies the EQ predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdEQ(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldEQ(FieldSevenDayLimitUsd, v))
+}
+
+// SevenDayLimitUsdNEQ applies the NEQ predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdNEQ(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldNEQ(FieldSevenDayLimitUsd, v))
+}
+
+// SevenDayLimitUsdIn applies the In predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdIn(vs ...float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldIn(FieldSevenDayLimitUsd, vs...))
+}
+
+// SevenDayLimitUsdNotIn applies the NotIn predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdNotIn(vs ...float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldNotIn(FieldSevenDayLimitUsd, vs...))
+}
+
+// SevenDayLimitUsdGT applies the GT predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdGT(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldGT(FieldSevenDayLimitUsd, v))
+}
+
+// SevenDayLimitUsdGTE applies the GTE predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdGTE(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldGTE(FieldSevenDayLimitUsd, v))
+}
+
+// SevenDayLimitUsdLT applies the LT predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdLT(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldLT(FieldSevenDayLimitUsd, v))
+}
+
+// SevenDayLimitUsdLTE applies the LTE predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdLTE(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldLTE(FieldSevenDayLimitUsd, v))
+}
+
+// SevenDayLimitUsdIsNil applies the IsNil predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdIsNil() predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldIsNull(FieldSevenDayLimitUsd))
+}
+
+// SevenDayLimitUsdNotNil applies the NotNil predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdNotNil() predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldNotNull(FieldSevenDayLimitUsd))
+}
+
+// ThirtyDayLimitUsdEQ applies the EQ predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdEQ(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldEQ(FieldThirtyDayLimitUsd, v))
+}
+
+// ThirtyDayLimitUsdNEQ applies the NEQ predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdNEQ(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldNEQ(FieldThirtyDayLimitUsd, v))
+}
+
+// ThirtyDayLimitUsdIn applies the In predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdIn(vs ...float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldIn(FieldThirtyDayLimitUsd, vs...))
+}
+
+// ThirtyDayLimitUsdNotIn applies the NotIn predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdNotIn(vs ...float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldNotIn(FieldThirtyDayLimitUsd, vs...))
+}
+
+// ThirtyDayLimitUsdGT applies the GT predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdGT(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldGT(FieldThirtyDayLimitUsd, v))
+}
+
+// ThirtyDayLimitUsdGTE applies the GTE predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdGTE(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldGTE(FieldThirtyDayLimitUsd, v))
+}
+
+// ThirtyDayLimitUsdLT applies the LT predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdLT(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldLT(FieldThirtyDayLimitUsd, v))
+}
+
+// ThirtyDayLimitUsdLTE applies the LTE predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdLTE(v float64) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldLTE(FieldThirtyDayLimitUsd, v))
+}
+
+// ThirtyDayLimitUsdIsNil applies the IsNil predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdIsNil() predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldIsNull(FieldThirtyDayLimitUsd))
+}
+
+// ThirtyDayLimitUsdNotNil applies the NotNil predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdNotNil() predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldNotNull(FieldThirtyDayLimitUsd))
+}
+
+// StockEQ applies the EQ predicate on the "stock" field.
+func StockEQ(v int) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldEQ(FieldStock, v))
+}
+
+// StockNEQ applies the NEQ predicate on the "stock" field.
+func StockNEQ(v int) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldNEQ(FieldStock, v))
+}
+
+// StockIn applies the In predicate on the "stock" field.
+func StockIn(vs ...int) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldIn(FieldStock, vs...))
+}
+
+// StockNotIn applies the NotIn predicate on the "stock" field.
+func StockNotIn(vs ...int) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldNotIn(FieldStock, vs...))
+}
+
+// StockGT applies the GT predicate on the "stock" field.
+func StockGT(v int) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldGT(FieldStock, v))
+}
+
+// StockGTE applies the GTE predicate on the "stock" field.
+func StockGTE(v int) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldGTE(FieldStock, v))
+}
+
+// StockLT applies the LT predicate on the "stock" field.
+func StockLT(v int) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldLT(FieldStock, v))
+}
+
+// StockLTE applies the LTE predicate on the "stock" field.
+func StockLTE(v int) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldLTE(FieldStock, v))
+}
+
+// StockIsNil applies the IsNil predicate on the "stock" field.
+func StockIsNil() predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldIsNull(FieldStock))
+}
+
+// StockNotNil applies the NotNil predicate on the "stock" field.
+func StockNotNil() predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(sql.FieldNotNull(FieldStock))
 }
 
 // ValidityDaysEQ applies the EQ predicate on the "validity_days" field.
@@ -742,6 +1018,52 @@ func UpdatedAtLT(v time.Time) predicate.SubscriptionPlan {
 // UpdatedAtLTE applies the LTE predicate on the "updated_at" field.
 func UpdatedAtLTE(v time.Time) predicate.SubscriptionPlan {
 	return predicate.SubscriptionPlan(sql.FieldLTE(FieldUpdatedAt, v))
+}
+
+// HasRedeemCodes applies the HasEdge predicate on the "redeem_codes" edge.
+func HasRedeemCodes() predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, RedeemCodesTable, RedeemCodesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasRedeemCodesWith applies the HasEdge predicate on the "redeem_codes" edge with a given conditions (other predicates).
+func HasRedeemCodesWith(preds ...predicate.RedeemCode) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(func(s *sql.Selector) {
+		step := newRedeemCodesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasUserSubscriptions applies the HasEdge predicate on the "user_subscriptions" edge.
+func HasUserSubscriptions() predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, UserSubscriptionsTable, UserSubscriptionsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasUserSubscriptionsWith applies the HasEdge predicate on the "user_subscriptions" edge with a given conditions (other predicates).
+func HasUserSubscriptionsWith(preds ...predicate.UserSubscription) predicate.SubscriptionPlan {
+	return predicate.SubscriptionPlan(func(s *sql.Selector) {
+		step := newUserSubscriptionsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
 }
 
 // And groups predicates with the AND operator between them.

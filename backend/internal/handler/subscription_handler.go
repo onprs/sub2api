@@ -11,17 +11,23 @@ import (
 
 // SubscriptionSummaryItem represents a subscription item in summary
 type SubscriptionSummaryItem struct {
-	ID              int64   `json:"id"`
-	GroupID         int64   `json:"group_id"`
-	GroupName       string  `json:"group_name"`
-	Status          string  `json:"status"`
-	DailyUsedUSD    float64 `json:"daily_used_usd,omitempty"`
-	DailyLimitUSD   float64 `json:"daily_limit_usd,omitempty"`
-	WeeklyUsedUSD   float64 `json:"weekly_used_usd,omitempty"`
-	WeeklyLimitUSD  float64 `json:"weekly_limit_usd,omitempty"`
-	MonthlyUsedUSD  float64 `json:"monthly_used_usd,omitempty"`
-	MonthlyLimitUSD float64 `json:"monthly_limit_usd,omitempty"`
-	ExpiresAt       *string `json:"expires_at,omitempty"`
+	ID                int64    `json:"id"`
+	GroupID           int64    `json:"group_id"`
+	GroupName         string   `json:"group_name"`
+	Status            string   `json:"status"`
+	DailyUsedUSD      float64  `json:"daily_used_usd,omitempty"`
+	DailyLimitUSD     float64  `json:"daily_limit_usd,omitempty"`
+	WeeklyUsedUSD     float64  `json:"weekly_used_usd,omitempty"`
+	WeeklyLimitUSD    float64  `json:"weekly_limit_usd,omitempty"`
+	MonthlyUsedUSD    float64  `json:"monthly_used_usd,omitempty"`
+	MonthlyLimitUSD   float64  `json:"monthly_limit_usd,omitempty"`
+	FiveHourUsedUSD   float64  `json:"five_hour_used_usd,omitempty"`
+	FiveHourLimitUSD  *float64 `json:"five_hour_limit_usd"`
+	SevenDayUsedUSD   float64  `json:"seven_day_used_usd,omitempty"`
+	SevenDayLimitUSD  *float64 `json:"seven_day_limit_usd"`
+	ThirtyDayUsedUSD  float64  `json:"thirty_day_used_usd,omitempty"`
+	ThirtyDayLimitUSD *float64 `json:"thirty_day_limit_usd"`
+	ExpiresAt         *string  `json:"expires_at,omitempty"`
 }
 
 // SubscriptionProgressInfo represents subscription with progress info
@@ -140,12 +146,18 @@ func (h *SubscriptionHandler) GetSummary(c *gin.Context) {
 
 	for _, sub := range subscriptions {
 		item := SubscriptionSummaryItem{
-			ID:             sub.ID,
-			GroupID:        sub.GroupID,
-			Status:         sub.Status,
-			DailyUsedUSD:   sub.DailyUsageUSD,
-			WeeklyUsedUSD:  sub.WeeklyUsageUSD,
-			MonthlyUsedUSD: sub.MonthlyUsageUSD,
+			ID:                sub.ID,
+			GroupID:           sub.GroupID,
+			Status:            sub.Status,
+			DailyUsedUSD:      sub.DailyUsageUSD,
+			WeeklyUsedUSD:     sub.WeeklyUsageUSD,
+			MonthlyUsedUSD:    sub.MonthlyUsageUSD,
+			FiveHourUsedUSD:   sub.FiveHourUsageUSD,
+			FiveHourLimitUSD:  sub.FiveHourLimitUSD,
+			SevenDayUsedUSD:   sub.SevenDayUsageUSD,
+			SevenDayLimitUSD:  sub.SevenDayLimitUSD,
+			ThirtyDayUsedUSD:  sub.ThirtyDayUsageUSD,
+			ThirtyDayLimitUSD: sub.ThirtyDayLimitUSD,
 		}
 
 		// Add group info if preloaded
@@ -168,8 +180,13 @@ func (h *SubscriptionHandler) GetSummary(c *gin.Context) {
 			item.ExpiresAt = &formatted
 		}
 
-		// Track total usage (use monthly as the most comprehensive)
-		totalUsed += sub.MonthlyUsageUSD
+		// Track total usage using the new 30d window when present, keeping
+		// monthly as a compatibility fallback for old subscriptions.
+		if sub.ThirtyDayLimitUSD != nil || sub.ThirtyDayWindowStart != nil {
+			totalUsed += sub.ThirtyDayUsageUSD
+		} else {
+			totalUsed += sub.MonthlyUsageUSD
+		}
 
 		items = append(items, item)
 	}

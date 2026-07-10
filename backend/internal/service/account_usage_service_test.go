@@ -5,12 +5,29 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 )
 
 type accountUsageCodexProbeRepo struct {
 	stubOpenAIAccountRepo
 	updateExtraCh chan map[string]any
 	rateLimitCh   chan time.Time
+}
+
+type stubOpenCodeGoConsoleSummaryFetcher struct {
+	calls       int
+	workspaceID string
+	cookie      string
+	summary     *OpenCodeGoConsoleSummary
+	err         error
+}
+
+func (f *stubOpenCodeGoConsoleSummaryFetcher) FetchSummary(_ context.Context, workspaceID, consoleCookie string) (*OpenCodeGoConsoleSummary, error) {
+	f.calls++
+	f.workspaceID = workspaceID
+	f.cookie = consoleCookie
+	return f.summary, f.err
 }
 
 func (r *accountUsageCodexProbeRepo) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
@@ -206,4 +223,430 @@ func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 			t.Fatalf("expected Utilization=0 for expired 7d window, got %v", progress.Utilization)
 		}
 	})
+}
+
+type openCodeGoUsageLogRepo struct {
+	UsageLogRepository
+	stats map[string]*usagestats.AccountStats
+}
+
+func (r *openCodeGoUsageLogRepo) GetAccountWindowStats(_ context.Context, _ int64, startTime time.Time) (*usagestats.AccountStats, error) {
+	age := time.Since(startTime)
+	switch {
+	case age < 6*time.Hour:
+		return r.stats["5h"], nil
+	case age < 8*24*time.Hour:
+		return r.stats["7d"], nil
+	default:
+		return r.stats["30d"], nil
+	}
+}
+
+func TestAccountUsageService_GetUsage_OpenCodeGoAPIKeyReturnsEstimatedRollingWindows(t *testing.T) {
+	t.Parallel()
+
+	repo := &accountUsageCodexProbeRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{
+			accounts: []Account{{
+				ID:       77,
+				Platform: PlatformOpenCodeGo,
+				Type:     AccountTypeAPIKey,
+			}},
+		},
+		updateExtraCh: make(chan map[string]any, 1),
+	}
+	usageRepo := &openCodeGoUsageLogRepo{
+		stats: map[string]*usagestats.AccountStats{
+			"5h":  {Requests: 12, Tokens: 1200, Cost: 6, StandardCost: 5, UserCost: 7},
+			"7d":  {Requests: 30, Tokens: 3000, Cost: 15, StandardCost: 14, UserCost: 16},
+			"30d": {Requests: 60, Tokens: 6000, Cost: 30, StandardCost: 29, UserCost: 31},
+		},
+	}
+	svc := &AccountUsageService{
+		accountRepo:  repo,
+		usageLogRepo: usageRepo,
+		cache:        NewUsageCache(),
+	}
+
+	usage, err := svc.GetUsage(context.Background(), 77, true)
+
+	if err != nil {
+		t.Fatalf("GetUsage() error = %v", err)
+	}
+	if usage == nil || usage.FiveHour == nil || usage.SevenDay == nil || usage.ThirtyDay == nil {
+		t.Fatalf("expected 5h/7d/30d usage, got %#v", usage)
+	}
+	if usage.FiveHour.Source != "estimated" || !usage.FiveHour.Estimated {
+		t.Fatalf("expected 5h estimated source, got %#v", usage.FiveHour)
+	}
+	if usage.FiveHour.SourceLabel == "" {
+		t.Fatalf("expected source label")
+	}
+	if usage.FiveHour.WindowStats == nil || usage.FiveHour.WindowStats.Cost != 6 {
+		t.Fatalf("expected 5h account-cost window stats, got %#v", usage.FiveHour.WindowStats)
+	}
+	if got := usage.FiveHour.Utilization; got != 50 {
+		t.Fatalf("5h utilization = %v, want 50", got)
+	}
+	if got := usage.SevenDay.Utilization; got != 50 {
+		t.Fatalf("7d utilization = %v, want 50", got)
+	}
+	if got := usage.ThirtyDay.Utilization; got != 50 {
+		t.Fatalf("30d utilization = %v, want 50", got)
+	}
+
+	select {
+	case updates := <-repo.updateExtraCh:
+		if updates["opencode_go_usage_source"] != "estimated" {
+			t.Fatalf("expected estimated usage snapshot, got %#v", updates)
+		}
+		if updates["opencode_go_usage_30d_used_percent"] != 50.0 {
+			t.Fatalf("expected 30d snapshot percent, got %#v", updates)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected OpenCode Go usage snapshot to be stored in account extra")
+	}
+}
+
+func TestAccountUsageService_GetUsage_OpenCodeGoAPIKeyPrefersOfficialConsoleSnapshot(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	repo := &accountUsageCodexProbeRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{
+			accounts: []Account{{
+				ID:       78,
+				Platform: PlatformOpenCodeGo,
+				Type:     AccountTypeAPIKey,
+				Extra: map[string]any{
+					"opencode_go_usage_source":                    "official_console",
+					"opencode_go_usage_updated_at":                now.Format(time.RFC3339),
+					"opencode_go_usage_5h_used_percent":           19.0,
+					"opencode_go_usage_5h_reset_in_sec":           5590,
+					"opencode_go_usage_5h_resets_at":              now.Add(5590 * time.Second).Format(time.RFC3339),
+					"opencode_go_usage_7d_used_percent":           7.0,
+					"opencode_go_usage_7d_reset_in_sec":           588490,
+					"opencode_go_usage_7d_resets_at":              now.Add(588490 * time.Second).Format(time.RFC3339),
+					"opencode_go_usage_30d_used_percent":          10.0,
+					"opencode_go_usage_30d_reset_in_sec":          2265176,
+					"opencode_go_usage_30d_resets_at":             now.Add(2265176 * time.Second).Format(time.RFC3339),
+					"opencode_go_console_auth_status":             "ready",
+					"opencode_go_console_auth_checked_at":         now.Format(time.RFC3339),
+					"opencode_go_console_auth_imported_at":        now.Format(time.RFC3339),
+					"opencode_go_console_auth_expires_at":         now.Add(24 * time.Hour).Format(time.RFC3339),
+					"opencode_go_referral_available_count":        1,
+					"opencode_go_referral_applied_count":          0,
+					"opencode_go_referral_available_amount_cents": 500,
+				},
+			}},
+		},
+		updateExtraCh: make(chan map[string]any, 1),
+	}
+	svc := &AccountUsageService{
+		accountRepo:  repo,
+		usageLogRepo: &openCodeGoUsageLogRepo{},
+		cache:        NewUsageCache(),
+	}
+
+	usage, err := svc.GetUsage(context.Background(), 78, true)
+
+	if err != nil {
+		t.Fatalf("GetUsage() error = %v", err)
+	}
+	if usage == nil || usage.FiveHour == nil || usage.SevenDay == nil || usage.ThirtyDay == nil {
+		t.Fatalf("expected official 5h/7d/30d usage, got %#v", usage)
+	}
+	if usage.Source != "official_console" {
+		t.Fatalf("usage.Source = %q, want official_console", usage.Source)
+	}
+	if usage.FiveHour.Source != "official_console" || usage.FiveHour.Estimated {
+		t.Fatalf("expected 5h official source, got %#v", usage.FiveHour)
+	}
+	if usage.FiveHour.Utilization != 19 || usage.SevenDay.Utilization != 7 || usage.ThirtyDay.Utilization != 10 {
+		t.Fatalf("unexpected official usage: %#v", usage)
+	}
+	if usage.FiveHour.ResetsAt == nil || usage.FiveHour.RemainingSeconds <= 0 {
+		t.Fatalf("expected official reset metadata, got %#v", usage.FiveHour)
+	}
+
+	select {
+	case updates := <-repo.updateExtraCh:
+		t.Fatalf("official snapshot should not be overwritten by estimated data: %#v", updates)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestAccountUsageService_GetUsage_OpenCodeGoAPIKeyForceRefreshesOfficialConsole(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	reset5h := now.Add(5 * time.Hour)
+	reset7d := now.Add(7 * 24 * time.Hour)
+	reset30d := now.Add(30 * 24 * time.Hour)
+	repo := &accountUsageCodexProbeRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{
+			accounts: []Account{{
+				ID:       80,
+				Platform: PlatformOpenCodeGo,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"console_cookie":       "auth=console-cookie",
+					"console_workspace_id": "wrk_force",
+				},
+				Extra: map[string]any{
+					"opencode_go_usage_source":           "official_console",
+					"opencode_go_usage_updated_at":       now.Format(time.RFC3339),
+					"opencode_go_usage_5h_used_percent":  1.0,
+					"opencode_go_usage_5h_resets_at":     reset5h.Format(time.RFC3339),
+					"opencode_go_usage_7d_used_percent":  2.0,
+					"opencode_go_usage_7d_resets_at":     reset7d.Format(time.RFC3339),
+					"opencode_go_usage_30d_used_percent": 3.0,
+					"opencode_go_usage_30d_resets_at":    reset30d.Format(time.RFC3339),
+					"opencode_go_console_auth_status":    "ready",
+				},
+			}},
+		},
+		updateExtraCh: make(chan map[string]any, 1),
+	}
+	fetcher := &stubOpenCodeGoConsoleSummaryFetcher{
+		summary: buildTestOpenCodeGoConsoleSummary("wrk_force", now, 33, 44, 55),
+	}
+	svc := &AccountUsageService{
+		accountRepo:                   repo,
+		usageLogRepo:                  &openCodeGoUsageLogRepo{},
+		cache:                         NewUsageCache(),
+		openCodeGoConsoleSummaryFetch: fetcher,
+	}
+
+	usage, err := svc.GetUsage(context.Background(), 80, true)
+
+	if err != nil {
+		t.Fatalf("GetUsage() error = %v", err)
+	}
+	if fetcher.calls != 1 {
+		t.Fatalf("FetchSummary calls = %d, want 1", fetcher.calls)
+	}
+	if fetcher.workspaceID != "wrk_force" || fetcher.cookie != "auth=console-cookie" {
+		t.Fatalf("FetchSummary credentials = (%q, %q)", fetcher.workspaceID, fetcher.cookie)
+	}
+	if usage.FiveHour.Utilization != 33 || usage.SevenDay.Utilization != 44 || usage.ThirtyDay.Utilization != 55 {
+		t.Fatalf("expected forced official refresh usage, got %#v", usage)
+	}
+
+	select {
+	case updates := <-repo.updateExtraCh:
+		if updates["opencode_go_usage_source"] != "official_console" {
+			t.Fatalf("expected official snapshot update, got %#v", updates)
+		}
+		if updates["opencode_go_usage_5h_used_percent"] != 33.0 {
+			t.Fatalf("expected refreshed 5h percent, got %#v", updates)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected refreshed official snapshot to be stored")
+	}
+}
+
+func TestAccountUsageService_GetUsage_OpenCodeGoAPIKeyRefreshesStaleOfficialConsoleSnapshot(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	repo := &accountUsageCodexProbeRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{
+			accounts: []Account{{
+				ID:       81,
+				Platform: PlatformOpenCodeGo,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"console_cookie":       "auth=stale-cookie",
+					"console_workspace_id": "wrk_stale",
+				},
+				Extra: buildTestOpenCodeGoOfficialExtra(now.Add(-10*time.Minute), 4, 5, 6),
+			}},
+		},
+		updateExtraCh: make(chan map[string]any, 1),
+	}
+	fetcher := &stubOpenCodeGoConsoleSummaryFetcher{
+		summary: buildTestOpenCodeGoConsoleSummary("wrk_stale", now, 14, 15, 16),
+	}
+	svc := &AccountUsageService{
+		accountRepo:                   repo,
+		usageLogRepo:                  &openCodeGoUsageLogRepo{},
+		cache:                         NewUsageCache(),
+		openCodeGoConsoleSummaryFetch: fetcher,
+	}
+
+	usage, err := svc.GetUsage(context.Background(), 81, false)
+
+	if err != nil {
+		t.Fatalf("GetUsage() error = %v", err)
+	}
+	if fetcher.calls != 1 {
+		t.Fatalf("FetchSummary calls = %d, want 1", fetcher.calls)
+	}
+	if usage.FiveHour.Utilization != 14 || usage.SevenDay.Utilization != 15 || usage.ThirtyDay.Utilization != 16 {
+		t.Fatalf("expected stale snapshot refresh, got %#v", usage)
+	}
+}
+
+func TestAccountUsageService_GetUsage_OpenCodeGoAPIKeyRefreshesAuthorizedAccountWithoutSnapshot(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	repo := &accountUsageCodexProbeRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{
+			accounts: []Account{{
+				ID:       83,
+				Platform: PlatformOpenCodeGo,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"console_cookie":       "auth=no-snapshot-cookie",
+					"console_workspace_id": "wrk_no_snapshot",
+				},
+				Extra: map[string]any{},
+			}},
+		},
+		updateExtraCh: make(chan map[string]any, 1),
+	}
+	fetcher := &stubOpenCodeGoConsoleSummaryFetcher{
+		summary: buildTestOpenCodeGoConsoleSummary("wrk_no_snapshot", now, 64, 65, 66),
+	}
+	svc := &AccountUsageService{
+		accountRepo:                   repo,
+		usageLogRepo:                  &openCodeGoUsageLogRepo{},
+		cache:                         NewUsageCache(),
+		openCodeGoConsoleSummaryFetch: fetcher,
+	}
+
+	usage, err := svc.GetUsage(context.Background(), 83, false)
+
+	if err != nil {
+		t.Fatalf("GetUsage() error = %v", err)
+	}
+	if fetcher.calls != 1 {
+		t.Fatalf("FetchSummary calls = %d, want 1", fetcher.calls)
+	}
+	if usage.FiveHour.Utilization != 64 || usage.SevenDay.Utilization != 65 || usage.ThirtyDay.Utilization != 66 {
+		t.Fatalf("expected missing snapshot refresh, got %#v", usage)
+	}
+}
+
+func TestAccountUsageService_GetUsage_OpenCodeGoAPIKeyKeepsFreshOfficialConsoleSnapshot(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	repo := &accountUsageCodexProbeRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{
+			accounts: []Account{{
+				ID:       82,
+				Platform: PlatformOpenCodeGo,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"console_cookie":       "auth=fresh-cookie",
+					"console_workspace_id": "wrk_fresh",
+				},
+				Extra: buildTestOpenCodeGoOfficialExtra(now, 24, 25, 26),
+			}},
+		},
+		updateExtraCh: make(chan map[string]any, 1),
+	}
+	fetcher := &stubOpenCodeGoConsoleSummaryFetcher{
+		summary: buildTestOpenCodeGoConsoleSummary("wrk_fresh", now, 34, 35, 36),
+	}
+	svc := &AccountUsageService{
+		accountRepo:                   repo,
+		usageLogRepo:                  &openCodeGoUsageLogRepo{},
+		cache:                         NewUsageCache(),
+		openCodeGoConsoleSummaryFetch: fetcher,
+	}
+
+	usage, err := svc.GetUsage(context.Background(), 82, false)
+
+	if err != nil {
+		t.Fatalf("GetUsage() error = %v", err)
+	}
+	if fetcher.calls != 0 {
+		t.Fatalf("FetchSummary calls = %d, want 0", fetcher.calls)
+	}
+	if usage.FiveHour.Utilization != 24 || usage.SevenDay.Utilization != 25 || usage.ThirtyDay.Utilization != 26 {
+		t.Fatalf("expected fresh snapshot usage, got %#v", usage)
+	}
+}
+
+func buildTestOpenCodeGoOfficialExtra(updatedAt time.Time, p5h, p7d, p30d float64) map[string]any {
+	return map[string]any{
+		"opencode_go_usage_source":           "official_console",
+		"opencode_go_usage_updated_at":       updatedAt.Format(time.RFC3339),
+		"opencode_go_usage_5h_used_percent":  p5h,
+		"opencode_go_usage_5h_resets_at":     updatedAt.Add(5 * time.Hour).Format(time.RFC3339),
+		"opencode_go_usage_7d_used_percent":  p7d,
+		"opencode_go_usage_7d_resets_at":     updatedAt.Add(7 * 24 * time.Hour).Format(time.RFC3339),
+		"opencode_go_usage_30d_used_percent": p30d,
+		"opencode_go_usage_30d_resets_at":    updatedAt.Add(30 * 24 * time.Hour).Format(time.RFC3339),
+		"opencode_go_console_auth_status":    "ready",
+	}
+}
+
+func buildTestOpenCodeGoConsoleSummary(workspaceID string, fetchedAt time.Time, p5h, p7d, p30d float64) *OpenCodeGoConsoleSummary {
+	reset5h := fetchedAt.Add(5 * time.Hour)
+	reset7d := fetchedAt.Add(7 * 24 * time.Hour)
+	reset30d := fetchedAt.Add(30 * 24 * time.Hour)
+	return &OpenCodeGoConsoleSummary{
+		WorkspaceID: workspaceID,
+		FetchedAt:   fetchedAt,
+		Usage: OpenCodeGoConsoleUsage{
+			FiveHour:  OpenCodeGoUsageWindow{Status: "ok", UsagePercent: p5h, ResetInSec: int(reset5h.Sub(fetchedAt).Seconds()), ResetsAt: &reset5h},
+			SevenDay:  OpenCodeGoUsageWindow{Status: "ok", UsagePercent: p7d, ResetInSec: int(reset7d.Sub(fetchedAt).Seconds()), ResetsAt: &reset7d},
+			ThirtyDay: OpenCodeGoUsageWindow{Status: "ok", UsagePercent: p30d, ResetInSec: int(reset30d.Sub(fetchedAt).Seconds()), ResetsAt: &reset30d},
+		},
+		Referral: OpenCodeGoReferralSummary{},
+	}
+}
+
+func TestAccountUsageService_GetUsage_OpenCodeGoAPIKeyFallsBackWhenOfficialSnapshotExpired(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	repo := &accountUsageCodexProbeRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{
+			accounts: []Account{{
+				ID:       79,
+				Platform: PlatformOpenCodeGo,
+				Type:     AccountTypeAPIKey,
+				Extra: map[string]any{
+					"opencode_go_usage_source":           "official_console",
+					"opencode_go_usage_updated_at":       now.Add(-2 * time.Hour).Format(time.RFC3339),
+					"opencode_go_usage_5h_used_percent":  99.0,
+					"opencode_go_usage_5h_resets_at":     now.Add(-1 * time.Minute).Format(time.RFC3339),
+					"opencode_go_usage_7d_used_percent":  99.0,
+					"opencode_go_usage_7d_resets_at":     now.Add(-1 * time.Minute).Format(time.RFC3339),
+					"opencode_go_usage_30d_used_percent": 99.0,
+					"opencode_go_usage_30d_resets_at":    now.Add(-1 * time.Minute).Format(time.RFC3339),
+				},
+			}},
+		},
+		updateExtraCh: make(chan map[string]any, 1),
+	}
+	svc := &AccountUsageService{
+		accountRepo: repo,
+		usageLogRepo: &openCodeGoUsageLogRepo{
+			stats: map[string]*usagestats.AccountStats{
+				"5h":  {Cost: 6},
+				"7d":  {Cost: 15},
+				"30d": {Cost: 30},
+			},
+		},
+		cache: NewUsageCache(),
+	}
+
+	usage, err := svc.GetUsage(context.Background(), 79, true)
+
+	if err != nil {
+		t.Fatalf("GetUsage() error = %v", err)
+	}
+	if usage.FiveHour.Source != "estimated" || !usage.FiveHour.Estimated {
+		t.Fatalf("expected estimated fallback, got %#v", usage.FiveHour)
+	}
+	if got := usage.FiveHour.Utilization; got != 50 {
+		t.Fatalf("fallback 5h utilization = %v, want 50", got)
+	}
 }

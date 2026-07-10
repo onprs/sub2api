@@ -94,132 +94,35 @@
               }}</span>
             </div>
 
-            <!-- Daily Usage -->
-            <div v-if="subscription.group?.daily_limit_usd" class="space-y-2">
+            <div v-for="quota in rollingSubscriptionQuotas(subscription)" :key="quota.key" class="space-y-2">
               <div class="flex items-center justify-between">
                 <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('userSubscriptions.daily') }}
+                  {{ quota.label }}
                 </span>
                 <span class="text-sm text-gray-500 dark:text-dark-400">
-                  ${{ (subscription.daily_usage_usd || 0).toFixed(2) }} / ${{
-                    subscription.group.daily_limit_usd.toFixed(2)
-                  }}
+                  ${{ quota.used.toFixed(2) }} / {{ quota.limit }}
                 </span>
               </div>
               <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
                 <div
                   class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
-                  :class="
-                    getProgressBarClass(
-                      subscription.daily_usage_usd,
-                      subscription.group.daily_limit_usd
-                    )
-                  "
+                  :class="getProgressBarClass(quota.used, quota.rawLimit)"
                   :style="{
-                    width: getProgressWidth(
-                      subscription.daily_usage_usd,
-                      subscription.group.daily_limit_usd
-                    )
+                    width: getProgressWidth(quota.used, quota.rawLimit)
                   }"
                 ></div>
               </div>
-              <p
-                v-if="subscription.daily_window_start"
-                class="text-xs text-gray-500 dark:text-dark-400"
-              >
-                {{ formatDailyUsageWindow(subscription) }}
-              </p>
-            </div>
-
-            <!-- Weekly Usage -->
-            <div v-if="subscription.group?.weekly_limit_usd" class="space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('userSubscriptions.weekly') }}
+              <p v-if="quota.windowStart" class="text-xs text-gray-500 dark:text-dark-400">
+                {{ formatRollingUsageWindow(quota.windowStart, quota.hours, subscription.expires_at) }}
+                <span v-if="quota.expiresFirst" class="ml-1 text-amber-600 dark:text-amber-300">
+                  {{ t('payment.quotaWindows.expiresFirst') }}
                 </span>
-                <span class="text-sm text-gray-500 dark:text-dark-400">
-                  ${{ (subscription.weekly_usage_usd || 0).toFixed(2) }} / ${{
-                    subscription.group.weekly_limit_usd.toFixed(2)
-                  }}
-                </span>
-              </div>
-              <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                <div
-                  class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
-                  :class="
-                    getProgressBarClass(
-                      subscription.weekly_usage_usd,
-                      subscription.group.weekly_limit_usd
-                    )
-                  "
-                  :style="{
-                    width: getProgressWidth(
-                      subscription.weekly_usage_usd,
-                      subscription.group.weekly_limit_usd
-                    )
-                  }"
-                ></div>
-              </div>
-              <p
-                v-if="subscription.weekly_window_start"
-                class="text-xs text-gray-500 dark:text-dark-400"
-              >
-                {{
-                  t('userSubscriptions.resetIn', {
-                    time: formatResetTime(subscription.weekly_window_start, 168)
-                  })
-                }}
-              </p>
-            </div>
-
-            <!-- Monthly Usage -->
-            <div v-if="subscription.group?.monthly_limit_usd" class="space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('userSubscriptions.monthly') }}
-                </span>
-                <span class="text-sm text-gray-500 dark:text-dark-400">
-                  ${{ (subscription.monthly_usage_usd || 0).toFixed(2) }} / ${{
-                    subscription.group.monthly_limit_usd.toFixed(2)
-                  }}
-                </span>
-              </div>
-              <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                <div
-                  class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
-                  :class="
-                    getProgressBarClass(
-                      subscription.monthly_usage_usd,
-                      subscription.group.monthly_limit_usd
-                    )
-                  "
-                  :style="{
-                    width: getProgressWidth(
-                      subscription.monthly_usage_usd,
-                      subscription.group.monthly_limit_usd
-                    )
-                  }"
-                ></div>
-              </div>
-              <p
-                v-if="subscription.monthly_window_start"
-                class="text-xs text-gray-500 dark:text-dark-400"
-              >
-                {{
-                  t('userSubscriptions.resetIn', {
-                    time: formatResetTime(subscription.monthly_window_start, 720)
-                  })
-                }}
               </p>
             </div>
 
             <!-- No limits configured - Unlimited badge -->
             <div
-              v-if="
-                !subscription.group?.daily_limit_usd &&
-                !subscription.group?.weekly_limit_usd &&
-                !subscription.group?.monthly_limit_usd
-              "
+              v-if="!hasRollingQuotaLimits(subscription)"
               class="flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 py-6 dark:from-emerald-900/20 dark:to-teal-900/20"
             >
               <div class="flex items-center gap-3">
@@ -252,7 +155,14 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { formatDateOnly } from '@/utils/format'
 import { platformBorderClass, platformBadgeClass, platformButtonClass, platformLabel } from '@/utils/platformColors'
-import { getRemainingDurationParts, isOneTimeDailyQuota, type RemainingDurationParts } from '@/utils/subscriptionQuota'
+import { getRemainingDurationParts, type RemainingDurationParts } from '@/utils/subscriptionQuota'
+import {
+  effectiveWindowEnd,
+  formatUsdLimit,
+  hasRollingQuotaLimits,
+  rollingQuotaWindows,
+  windowEndsBySubscriptionExpiry,
+} from '@/utils/rollingQuota'
 
 function platformAccentDotClass(p: string): string {
   switch (p) {
@@ -343,26 +253,40 @@ function formatDurationParts(parts: RemainingDurationParts): string {
   return `${parts.minutes}m`
 }
 
-function formatDailyUsageWindow(subscription: UserSubscription): string {
-  if (isOneTimeDailyQuota(subscription) && subscription.expires_at) {
-    const parts = getRemainingDurationParts(subscription.expires_at)
-    if (!parts) return t('userSubscriptions.windowNotActive')
-    return t('userSubscriptions.quotaEndsIn', { time: formatDurationParts(parts) })
-  }
-
-  return t('userSubscriptions.resetIn', {
-    time: formatResetTime(subscription.daily_window_start, 24)
-  })
+function rollingSubscriptionQuotas(subscription: UserSubscription) {
+  return rollingQuotaWindows
+    .filter(window => subscription[window.limitField] != null)
+    .map(window => ({
+      key: window.key,
+      label: translatedQuotaLabel(window.labelKey, window.label),
+      rawLimit: subscription[window.limitField],
+      limit: formatUsdLimit(subscription[window.limitField]),
+      used: subscription[window.usageField] || 0,
+      windowStart: subscription[window.windowStartField] || null,
+      hours: window.hours,
+      expiresFirst: windowEndsBySubscriptionExpiry(
+        subscription[window.windowStartField],
+        window.hours,
+        subscription.expires_at,
+      ),
+    }))
 }
 
-function formatResetTime(windowStart: string | null, windowHours: number): string {
+function translatedQuotaLabel(key: string, fallback: string): string {
+  const label = t(key)
+  return label === key ? fallback : label
+}
+
+function formatRollingUsageWindow(windowStart: string | null, windowHours: number, expiresAt: string | null): string {
   if (!windowStart) return t('userSubscriptions.windowNotActive')
 
-  const start = new Date(windowStart)
-  const end = new Date(start.getTime() + windowHours * 60 * 60 * 1000)
+  const end = effectiveWindowEnd(windowStart, windowHours, expiresAt)
+  if (!end) return t('userSubscriptions.windowNotActive')
   const parts = getRemainingDurationParts(end)
 
-  return parts ? formatDurationParts(parts) : t('userSubscriptions.windowNotActive')
+  return parts
+    ? t('userSubscriptions.resetIn', { time: formatDurationParts(parts) })
+    : t('userSubscriptions.windowNotActive')
 }
 
 onMounted(() => {

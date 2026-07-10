@@ -208,3 +208,236 @@ func TestValidateRefundProviderResponseAcceptsPending(t *testing.T) {
 	require.Error(t, validateRefundProviderResponse(&payment.RefundResponse{Status: payment.ProviderStatusFailed}))
 	require.Error(t, validateRefundProviderResponse(nil))
 }
+
+func TestPrepareRefundDeductsSubscriptionMatchedByOrderPlan(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+
+	user, err := client.User.Create().
+		SetEmail("refund-plan@example.com").
+		SetPasswordHash("hash").
+		SetUsername("refund-plan-user").
+		Save(ctx)
+	require.NoError(t, err)
+
+	inst, err := client.PaymentProviderInstance.Create().
+		SetProviderKey(payment.TypeAlipay).
+		SetName("alipay-refund-plan-instance").
+		SetConfig("{}").
+		SetSupportedTypes("alipay").
+		SetEnabled(true).
+		SetRefundEnabled(true).
+		Save(ctx)
+	require.NoError(t, err)
+
+	planA := int64(101)
+	planB := int64(102)
+	groupID := int64(42)
+	days := 30
+	order, err := client.PaymentOrder.Create().
+		SetUserID(user.ID).
+		SetUserEmail(user.Email).
+		SetUserName(user.Username).
+		SetAmount(88).
+		SetPayAmount(88).
+		SetFeeRate(0).
+		SetRechargeCode("REFUND-PLAN-ORDER").
+		SetOutTradeNo("sub2_refund_plan_order").
+		SetPaymentType(payment.TypeAlipay).
+		SetPaymentTradeNo("trade-refund-plan").
+		SetOrderType(payment.OrderTypeSubscription).
+		SetStatus(OrderStatusCompleted).
+		SetExpiresAt(time.Now().Add(time.Hour)).
+		SetPaidAt(time.Now()).
+		SetClientIP("127.0.0.1").
+		SetSrcHost("api.example.com").
+		SetProviderInstanceID(strconv.FormatInt(inst.ID, 10)).
+		SetProviderKey(payment.TypeAlipay).
+		SetPlanID(planB).
+		SetSubscriptionGroupID(groupID).
+		SetSubscriptionDays(days).
+		Save(ctx)
+	require.NoError(t, err)
+
+	subRepo := newSubscriptionUserSubRepoStub()
+	subRepo.seed(&UserSubscription{
+		ID:        5,
+		UserID:    user.ID,
+		GroupID:   groupID,
+		PlanID:    &planA,
+		StartsAt:  time.Now().Add(-24 * time.Hour),
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+		Status:    SubscriptionStatusActive,
+	})
+	subRepo.seed(&UserSubscription{
+		ID:        6,
+		UserID:    user.ID,
+		GroupID:   groupID,
+		PlanID:    &planB,
+		StartsAt:  time.Now().Add(-24 * time.Hour),
+		ExpiresAt: time.Now().Add(48 * time.Hour),
+		Status:    SubscriptionStatusActive,
+	})
+	svc := &PaymentService{
+		entClient:       client,
+		subscriptionSvc: NewSubscriptionService(&subscriptionGroupRepoStub{}, subRepo, nil, nil, nil),
+	}
+
+	plan, result, err := svc.PrepareRefund(ctx, order.ID, 0, "", false, true)
+
+	require.NoError(t, err)
+	require.Nil(t, result)
+	require.NotNil(t, plan)
+	require.Equal(t, payment.DeductionTypeSubscription, plan.DeductionType)
+	require.Equal(t, days, plan.SubDaysToDeduct)
+	require.Equal(t, int64(6), plan.SubscriptionID)
+}
+
+func TestPrepareRefundRejectsSubscriptionIDWithMismatchedOrderPlan(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+
+	user, err := client.User.Create().
+		SetEmail("refund-mismatch-plan@example.com").
+		SetPasswordHash("hash").
+		SetUsername("refund-mismatch-plan-user").
+		Save(ctx)
+	require.NoError(t, err)
+
+	inst, err := client.PaymentProviderInstance.Create().
+		SetProviderKey(payment.TypeAlipay).
+		SetName("alipay-refund-mismatch-plan-instance").
+		SetConfig("{}").
+		SetSupportedTypes("alipay").
+		SetEnabled(true).
+		SetRefundEnabled(true).
+		Save(ctx)
+	require.NoError(t, err)
+
+	planA := int64(101)
+	planB := int64(102)
+	groupID := int64(42)
+	days := 30
+	wrongSubscriptionID := int64(5)
+	order, err := client.PaymentOrder.Create().
+		SetUserID(user.ID).
+		SetUserEmail(user.Email).
+		SetUserName(user.Username).
+		SetAmount(88).
+		SetPayAmount(88).
+		SetFeeRate(0).
+		SetRechargeCode("REFUND-MISMATCH-PLAN-ORDER").
+		SetOutTradeNo("sub2_refund_mismatch_plan_order").
+		SetPaymentType(payment.TypeAlipay).
+		SetPaymentTradeNo("trade-refund-mismatch-plan").
+		SetOrderType(payment.OrderTypeSubscription).
+		SetStatus(OrderStatusCompleted).
+		SetExpiresAt(time.Now().Add(time.Hour)).
+		SetPaidAt(time.Now()).
+		SetClientIP("127.0.0.1").
+		SetSrcHost("api.example.com").
+		SetProviderInstanceID(strconv.FormatInt(inst.ID, 10)).
+		SetProviderKey(payment.TypeAlipay).
+		SetPlanID(planB).
+		SetSubscriptionGroupID(groupID).
+		SetSubscriptionDays(days).
+		SetSubscriptionID(wrongSubscriptionID).
+		Save(ctx)
+	require.NoError(t, err)
+
+	subRepo := newSubscriptionUserSubRepoStub()
+	subRepo.seed(&UserSubscription{
+		ID:        wrongSubscriptionID,
+		UserID:    user.ID,
+		GroupID:   groupID,
+		PlanID:    &planA,
+		StartsAt:  time.Now().Add(-24 * time.Hour),
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+		Status:    SubscriptionStatusActive,
+	})
+	subRepo.seed(&UserSubscription{
+		ID:        6,
+		UserID:    user.ID,
+		GroupID:   groupID,
+		PlanID:    &planB,
+		StartsAt:  time.Now().Add(-24 * time.Hour),
+		ExpiresAt: time.Now().Add(48 * time.Hour),
+		Status:    SubscriptionStatusActive,
+	})
+	svc := &PaymentService{
+		entClient:       client,
+		subscriptionSvc: NewSubscriptionService(&subscriptionGroupRepoStub{}, subRepo, nil, nil, nil),
+	}
+
+	plan, result, err := svc.PrepareRefund(ctx, order.ID, 0, "", false, true)
+
+	require.NoError(t, err)
+	require.Nil(t, plan)
+	require.NotNil(t, result)
+	require.True(t, result.RequireForce)
+}
+
+func TestPrepareRefundRequiresForceWhenSubscriptionOrderCannotBeMatchedExactly(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+
+	user, err := client.User.Create().
+		SetEmail("refund-unmatched@example.com").
+		SetPasswordHash("hash").
+		SetUsername("refund-unmatched-user").
+		Save(ctx)
+	require.NoError(t, err)
+
+	inst, err := client.PaymentProviderInstance.Create().
+		SetProviderKey(payment.TypeAlipay).
+		SetName("alipay-refund-unmatched-instance").
+		SetConfig("{}").
+		SetSupportedTypes("alipay").
+		SetEnabled(true).
+		SetRefundEnabled(true).
+		Save(ctx)
+	require.NoError(t, err)
+
+	days := 30
+	order, err := client.PaymentOrder.Create().
+		SetUserID(user.ID).
+		SetUserEmail(user.Email).
+		SetUserName(user.Username).
+		SetAmount(88).
+		SetPayAmount(88).
+		SetFeeRate(0).
+		SetRechargeCode("REFUND-UNMATCHED-ORDER").
+		SetOutTradeNo("sub2_refund_unmatched_order").
+		SetPaymentType(payment.TypeAlipay).
+		SetPaymentTradeNo("trade-refund-unmatched").
+		SetOrderType(payment.OrderTypeSubscription).
+		SetStatus(OrderStatusCompleted).
+		SetExpiresAt(time.Now().Add(time.Hour)).
+		SetPaidAt(time.Now()).
+		SetClientIP("127.0.0.1").
+		SetSrcHost("api.example.com").
+		SetProviderInstanceID(strconv.FormatInt(inst.ID, 10)).
+		SetProviderKey(payment.TypeAlipay).
+		SetSubscriptionDays(days).
+		Save(ctx)
+	require.NoError(t, err)
+
+	svc := &PaymentService{
+		entClient:       client,
+		subscriptionSvc: NewSubscriptionService(&subscriptionGroupRepoStub{}, newSubscriptionUserSubRepoStub(), nil, nil, nil),
+	}
+
+	plan, result, err := svc.PrepareRefund(ctx, order.ID, 0, "", false, true)
+	require.NoError(t, err)
+	require.Nil(t, plan)
+	require.NotNil(t, result)
+	require.True(t, result.RequireForce)
+
+	plan, result, err = svc.PrepareRefund(ctx, order.ID, 0, "", true, true)
+	require.NoError(t, err)
+	require.Nil(t, result)
+	require.NotNil(t, plan)
+	require.Equal(t, payment.DeductionTypeSubscription, plan.DeductionType)
+	require.Zero(t, plan.SubDaysToDeduct)
+	require.Zero(t, plan.SubscriptionID)
+}

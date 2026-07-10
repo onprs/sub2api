@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
+	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 )
 
@@ -214,6 +215,128 @@ func (_u *RedeemCodeUpdate) AddValidityDays(v int) *RedeemCodeUpdate {
 	return _u
 }
 
+// SetSubscriptionPlanID sets the "subscription_plan_id" field.
+func (_u *RedeemCodeUpdate) SetSubscriptionPlanID(v int64) *RedeemCodeUpdate {
+	_u.mutation.SetSubscriptionPlanID(v)
+	return _u
+}
+
+// SetNillableSubscriptionPlanID sets the "subscription_plan_id" field if the given value is not nil.
+func (_u *RedeemCodeUpdate) SetNillableSubscriptionPlanID(v *int64) *RedeemCodeUpdate {
+	if v != nil {
+		_u.SetSubscriptionPlanID(*v)
+	}
+	return _u
+}
+
+// ClearSubscriptionPlanID clears the value of the "subscription_plan_id" field.
+func (_u *RedeemCodeUpdate) ClearSubscriptionPlanID() *RedeemCodeUpdate {
+	_u.mutation.ClearSubscriptionPlanID()
+	return _u
+}
+
+// SetSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field.
+func (_u *RedeemCodeUpdate) SetSubscriptionQuotaSnapshotVersion(v int) *RedeemCodeUpdate {
+	_u.mutation.ResetSubscriptionQuotaSnapshotVersion()
+	_u.mutation.SetSubscriptionQuotaSnapshotVersion(v)
+	return _u
+}
+
+// SetNillableSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field if the given value is not nil.
+func (_u *RedeemCodeUpdate) SetNillableSubscriptionQuotaSnapshotVersion(v *int) *RedeemCodeUpdate {
+	if v != nil {
+		_u.SetSubscriptionQuotaSnapshotVersion(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionQuotaSnapshotVersion adds value to the "subscription_quota_snapshot_version" field.
+func (_u *RedeemCodeUpdate) AddSubscriptionQuotaSnapshotVersion(v int) *RedeemCodeUpdate {
+	_u.mutation.AddSubscriptionQuotaSnapshotVersion(v)
+	return _u
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (_u *RedeemCodeUpdate) SetFiveHourLimitUsd(v float64) *RedeemCodeUpdate {
+	_u.mutation.ResetFiveHourLimitUsd()
+	_u.mutation.SetFiveHourLimitUsd(v)
+	return _u
+}
+
+// SetNillableFiveHourLimitUsd sets the "five_hour_limit_usd" field if the given value is not nil.
+func (_u *RedeemCodeUpdate) SetNillableFiveHourLimitUsd(v *float64) *RedeemCodeUpdate {
+	if v != nil {
+		_u.SetFiveHourLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddFiveHourLimitUsd adds value to the "five_hour_limit_usd" field.
+func (_u *RedeemCodeUpdate) AddFiveHourLimitUsd(v float64) *RedeemCodeUpdate {
+	_u.mutation.AddFiveHourLimitUsd(v)
+	return _u
+}
+
+// ClearFiveHourLimitUsd clears the value of the "five_hour_limit_usd" field.
+func (_u *RedeemCodeUpdate) ClearFiveHourLimitUsd() *RedeemCodeUpdate {
+	_u.mutation.ClearFiveHourLimitUsd()
+	return _u
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (_u *RedeemCodeUpdate) SetSevenDayLimitUsd(v float64) *RedeemCodeUpdate {
+	_u.mutation.ResetSevenDayLimitUsd()
+	_u.mutation.SetSevenDayLimitUsd(v)
+	return _u
+}
+
+// SetNillableSevenDayLimitUsd sets the "seven_day_limit_usd" field if the given value is not nil.
+func (_u *RedeemCodeUpdate) SetNillableSevenDayLimitUsd(v *float64) *RedeemCodeUpdate {
+	if v != nil {
+		_u.SetSevenDayLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddSevenDayLimitUsd adds value to the "seven_day_limit_usd" field.
+func (_u *RedeemCodeUpdate) AddSevenDayLimitUsd(v float64) *RedeemCodeUpdate {
+	_u.mutation.AddSevenDayLimitUsd(v)
+	return _u
+}
+
+// ClearSevenDayLimitUsd clears the value of the "seven_day_limit_usd" field.
+func (_u *RedeemCodeUpdate) ClearSevenDayLimitUsd() *RedeemCodeUpdate {
+	_u.mutation.ClearSevenDayLimitUsd()
+	return _u
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (_u *RedeemCodeUpdate) SetThirtyDayLimitUsd(v float64) *RedeemCodeUpdate {
+	_u.mutation.ResetThirtyDayLimitUsd()
+	_u.mutation.SetThirtyDayLimitUsd(v)
+	return _u
+}
+
+// SetNillableThirtyDayLimitUsd sets the "thirty_day_limit_usd" field if the given value is not nil.
+func (_u *RedeemCodeUpdate) SetNillableThirtyDayLimitUsd(v *float64) *RedeemCodeUpdate {
+	if v != nil {
+		_u.SetThirtyDayLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddThirtyDayLimitUsd adds value to the "thirty_day_limit_usd" field.
+func (_u *RedeemCodeUpdate) AddThirtyDayLimitUsd(v float64) *RedeemCodeUpdate {
+	_u.mutation.AddThirtyDayLimitUsd(v)
+	return _u
+}
+
+// ClearThirtyDayLimitUsd clears the value of the "thirty_day_limit_usd" field.
+func (_u *RedeemCodeUpdate) ClearThirtyDayLimitUsd() *RedeemCodeUpdate {
+	_u.mutation.ClearThirtyDayLimitUsd()
+	return _u
+}
+
 // SetUserID sets the "user" edge to the User entity by ID.
 func (_u *RedeemCodeUpdate) SetUserID(id int64) *RedeemCodeUpdate {
 	_u.mutation.SetUserID(id)
@@ -238,6 +361,11 @@ func (_u *RedeemCodeUpdate) SetGroup(v *Group) *RedeemCodeUpdate {
 	return _u.SetGroupID(v.ID)
 }
 
+// SetSubscriptionPlan sets the "subscription_plan" edge to the SubscriptionPlan entity.
+func (_u *RedeemCodeUpdate) SetSubscriptionPlan(v *SubscriptionPlan) *RedeemCodeUpdate {
+	return _u.SetSubscriptionPlanID(v.ID)
+}
+
 // Mutation returns the RedeemCodeMutation object of the builder.
 func (_u *RedeemCodeUpdate) Mutation() *RedeemCodeMutation {
 	return _u.mutation
@@ -252,6 +380,12 @@ func (_u *RedeemCodeUpdate) ClearUser() *RedeemCodeUpdate {
 // ClearGroup clears the "group" edge to the Group entity.
 func (_u *RedeemCodeUpdate) ClearGroup() *RedeemCodeUpdate {
 	_u.mutation.ClearGroup()
+	return _u
+}
+
+// ClearSubscriptionPlan clears the "subscription_plan" edge to the SubscriptionPlan entity.
+func (_u *RedeemCodeUpdate) ClearSubscriptionPlan() *RedeemCodeUpdate {
+	_u.mutation.ClearSubscriptionPlan()
 	return _u
 }
 
@@ -297,6 +431,21 @@ func (_u *RedeemCodeUpdate) check() error {
 	if v, ok := _u.mutation.Status(); ok {
 		if err := redeemcode.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.status": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.FiveHourLimitUsd(); ok {
+		if err := redeemcode.FiveHourLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "five_hour_limit_usd", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.five_hour_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SevenDayLimitUsd(); ok {
+		if err := redeemcode.SevenDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "seven_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.seven_day_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ThirtyDayLimitUsd(); ok {
+		if err := redeemcode.ThirtyDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "thirty_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.thirty_day_limit_usd": %w`, err)}
 		}
 	}
 	return nil
@@ -353,6 +502,39 @@ func (_u *RedeemCodeUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 	if value, ok := _u.mutation.AddedValidityDays(); ok {
 		_spec.AddField(redeemcode.FieldValidityDays, field.TypeInt, value)
 	}
+	if value, ok := _u.mutation.SubscriptionQuotaSnapshotVersion(); ok {
+		_spec.SetField(redeemcode.FieldSubscriptionQuotaSnapshotVersion, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionQuotaSnapshotVersion(); ok {
+		_spec.AddField(redeemcode.FieldSubscriptionQuotaSnapshotVersion, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.FiveHourLimitUsd(); ok {
+		_spec.SetField(redeemcode.FieldFiveHourLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedFiveHourLimitUsd(); ok {
+		_spec.AddField(redeemcode.FieldFiveHourLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.FiveHourLimitUsdCleared() {
+		_spec.ClearField(redeemcode.FieldFiveHourLimitUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SevenDayLimitUsd(); ok {
+		_spec.SetField(redeemcode.FieldSevenDayLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSevenDayLimitUsd(); ok {
+		_spec.AddField(redeemcode.FieldSevenDayLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.SevenDayLimitUsdCleared() {
+		_spec.ClearField(redeemcode.FieldSevenDayLimitUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.ThirtyDayLimitUsd(); ok {
+		_spec.SetField(redeemcode.FieldThirtyDayLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedThirtyDayLimitUsd(); ok {
+		_spec.AddField(redeemcode.FieldThirtyDayLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.ThirtyDayLimitUsdCleared() {
+		_spec.ClearField(redeemcode.FieldThirtyDayLimitUsd, field.TypeFloat64)
+	}
 	if _u.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -404,6 +586,35 @@ func (_u *RedeemCodeUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.SubscriptionPlanCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   redeemcode.SubscriptionPlanTable,
+			Columns: []string{redeemcode.SubscriptionPlanColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subscriptionplan.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SubscriptionPlanIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   redeemcode.SubscriptionPlanTable,
+			Columns: []string{redeemcode.SubscriptionPlanColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subscriptionplan.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -615,6 +826,128 @@ func (_u *RedeemCodeUpdateOne) AddValidityDays(v int) *RedeemCodeUpdateOne {
 	return _u
 }
 
+// SetSubscriptionPlanID sets the "subscription_plan_id" field.
+func (_u *RedeemCodeUpdateOne) SetSubscriptionPlanID(v int64) *RedeemCodeUpdateOne {
+	_u.mutation.SetSubscriptionPlanID(v)
+	return _u
+}
+
+// SetNillableSubscriptionPlanID sets the "subscription_plan_id" field if the given value is not nil.
+func (_u *RedeemCodeUpdateOne) SetNillableSubscriptionPlanID(v *int64) *RedeemCodeUpdateOne {
+	if v != nil {
+		_u.SetSubscriptionPlanID(*v)
+	}
+	return _u
+}
+
+// ClearSubscriptionPlanID clears the value of the "subscription_plan_id" field.
+func (_u *RedeemCodeUpdateOne) ClearSubscriptionPlanID() *RedeemCodeUpdateOne {
+	_u.mutation.ClearSubscriptionPlanID()
+	return _u
+}
+
+// SetSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field.
+func (_u *RedeemCodeUpdateOne) SetSubscriptionQuotaSnapshotVersion(v int) *RedeemCodeUpdateOne {
+	_u.mutation.ResetSubscriptionQuotaSnapshotVersion()
+	_u.mutation.SetSubscriptionQuotaSnapshotVersion(v)
+	return _u
+}
+
+// SetNillableSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field if the given value is not nil.
+func (_u *RedeemCodeUpdateOne) SetNillableSubscriptionQuotaSnapshotVersion(v *int) *RedeemCodeUpdateOne {
+	if v != nil {
+		_u.SetSubscriptionQuotaSnapshotVersion(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionQuotaSnapshotVersion adds value to the "subscription_quota_snapshot_version" field.
+func (_u *RedeemCodeUpdateOne) AddSubscriptionQuotaSnapshotVersion(v int) *RedeemCodeUpdateOne {
+	_u.mutation.AddSubscriptionQuotaSnapshotVersion(v)
+	return _u
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (_u *RedeemCodeUpdateOne) SetFiveHourLimitUsd(v float64) *RedeemCodeUpdateOne {
+	_u.mutation.ResetFiveHourLimitUsd()
+	_u.mutation.SetFiveHourLimitUsd(v)
+	return _u
+}
+
+// SetNillableFiveHourLimitUsd sets the "five_hour_limit_usd" field if the given value is not nil.
+func (_u *RedeemCodeUpdateOne) SetNillableFiveHourLimitUsd(v *float64) *RedeemCodeUpdateOne {
+	if v != nil {
+		_u.SetFiveHourLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddFiveHourLimitUsd adds value to the "five_hour_limit_usd" field.
+func (_u *RedeemCodeUpdateOne) AddFiveHourLimitUsd(v float64) *RedeemCodeUpdateOne {
+	_u.mutation.AddFiveHourLimitUsd(v)
+	return _u
+}
+
+// ClearFiveHourLimitUsd clears the value of the "five_hour_limit_usd" field.
+func (_u *RedeemCodeUpdateOne) ClearFiveHourLimitUsd() *RedeemCodeUpdateOne {
+	_u.mutation.ClearFiveHourLimitUsd()
+	return _u
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (_u *RedeemCodeUpdateOne) SetSevenDayLimitUsd(v float64) *RedeemCodeUpdateOne {
+	_u.mutation.ResetSevenDayLimitUsd()
+	_u.mutation.SetSevenDayLimitUsd(v)
+	return _u
+}
+
+// SetNillableSevenDayLimitUsd sets the "seven_day_limit_usd" field if the given value is not nil.
+func (_u *RedeemCodeUpdateOne) SetNillableSevenDayLimitUsd(v *float64) *RedeemCodeUpdateOne {
+	if v != nil {
+		_u.SetSevenDayLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddSevenDayLimitUsd adds value to the "seven_day_limit_usd" field.
+func (_u *RedeemCodeUpdateOne) AddSevenDayLimitUsd(v float64) *RedeemCodeUpdateOne {
+	_u.mutation.AddSevenDayLimitUsd(v)
+	return _u
+}
+
+// ClearSevenDayLimitUsd clears the value of the "seven_day_limit_usd" field.
+func (_u *RedeemCodeUpdateOne) ClearSevenDayLimitUsd() *RedeemCodeUpdateOne {
+	_u.mutation.ClearSevenDayLimitUsd()
+	return _u
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (_u *RedeemCodeUpdateOne) SetThirtyDayLimitUsd(v float64) *RedeemCodeUpdateOne {
+	_u.mutation.ResetThirtyDayLimitUsd()
+	_u.mutation.SetThirtyDayLimitUsd(v)
+	return _u
+}
+
+// SetNillableThirtyDayLimitUsd sets the "thirty_day_limit_usd" field if the given value is not nil.
+func (_u *RedeemCodeUpdateOne) SetNillableThirtyDayLimitUsd(v *float64) *RedeemCodeUpdateOne {
+	if v != nil {
+		_u.SetThirtyDayLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddThirtyDayLimitUsd adds value to the "thirty_day_limit_usd" field.
+func (_u *RedeemCodeUpdateOne) AddThirtyDayLimitUsd(v float64) *RedeemCodeUpdateOne {
+	_u.mutation.AddThirtyDayLimitUsd(v)
+	return _u
+}
+
+// ClearThirtyDayLimitUsd clears the value of the "thirty_day_limit_usd" field.
+func (_u *RedeemCodeUpdateOne) ClearThirtyDayLimitUsd() *RedeemCodeUpdateOne {
+	_u.mutation.ClearThirtyDayLimitUsd()
+	return _u
+}
+
 // SetUserID sets the "user" edge to the User entity by ID.
 func (_u *RedeemCodeUpdateOne) SetUserID(id int64) *RedeemCodeUpdateOne {
 	_u.mutation.SetUserID(id)
@@ -639,6 +972,11 @@ func (_u *RedeemCodeUpdateOne) SetGroup(v *Group) *RedeemCodeUpdateOne {
 	return _u.SetGroupID(v.ID)
 }
 
+// SetSubscriptionPlan sets the "subscription_plan" edge to the SubscriptionPlan entity.
+func (_u *RedeemCodeUpdateOne) SetSubscriptionPlan(v *SubscriptionPlan) *RedeemCodeUpdateOne {
+	return _u.SetSubscriptionPlanID(v.ID)
+}
+
 // Mutation returns the RedeemCodeMutation object of the builder.
 func (_u *RedeemCodeUpdateOne) Mutation() *RedeemCodeMutation {
 	return _u.mutation
@@ -653,6 +991,12 @@ func (_u *RedeemCodeUpdateOne) ClearUser() *RedeemCodeUpdateOne {
 // ClearGroup clears the "group" edge to the Group entity.
 func (_u *RedeemCodeUpdateOne) ClearGroup() *RedeemCodeUpdateOne {
 	_u.mutation.ClearGroup()
+	return _u
+}
+
+// ClearSubscriptionPlan clears the "subscription_plan" edge to the SubscriptionPlan entity.
+func (_u *RedeemCodeUpdateOne) ClearSubscriptionPlan() *RedeemCodeUpdateOne {
+	_u.mutation.ClearSubscriptionPlan()
 	return _u
 }
 
@@ -711,6 +1055,21 @@ func (_u *RedeemCodeUpdateOne) check() error {
 	if v, ok := _u.mutation.Status(); ok {
 		if err := redeemcode.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.status": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.FiveHourLimitUsd(); ok {
+		if err := redeemcode.FiveHourLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "five_hour_limit_usd", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.five_hour_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SevenDayLimitUsd(); ok {
+		if err := redeemcode.SevenDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "seven_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.seven_day_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ThirtyDayLimitUsd(); ok {
+		if err := redeemcode.ThirtyDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "thirty_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.thirty_day_limit_usd": %w`, err)}
 		}
 	}
 	return nil
@@ -784,6 +1143,39 @@ func (_u *RedeemCodeUpdateOne) sqlSave(ctx context.Context) (_node *RedeemCode, 
 	if value, ok := _u.mutation.AddedValidityDays(); ok {
 		_spec.AddField(redeemcode.FieldValidityDays, field.TypeInt, value)
 	}
+	if value, ok := _u.mutation.SubscriptionQuotaSnapshotVersion(); ok {
+		_spec.SetField(redeemcode.FieldSubscriptionQuotaSnapshotVersion, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionQuotaSnapshotVersion(); ok {
+		_spec.AddField(redeemcode.FieldSubscriptionQuotaSnapshotVersion, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.FiveHourLimitUsd(); ok {
+		_spec.SetField(redeemcode.FieldFiveHourLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedFiveHourLimitUsd(); ok {
+		_spec.AddField(redeemcode.FieldFiveHourLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.FiveHourLimitUsdCleared() {
+		_spec.ClearField(redeemcode.FieldFiveHourLimitUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SevenDayLimitUsd(); ok {
+		_spec.SetField(redeemcode.FieldSevenDayLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSevenDayLimitUsd(); ok {
+		_spec.AddField(redeemcode.FieldSevenDayLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.SevenDayLimitUsdCleared() {
+		_spec.ClearField(redeemcode.FieldSevenDayLimitUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.ThirtyDayLimitUsd(); ok {
+		_spec.SetField(redeemcode.FieldThirtyDayLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedThirtyDayLimitUsd(); ok {
+		_spec.AddField(redeemcode.FieldThirtyDayLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.ThirtyDayLimitUsdCleared() {
+		_spec.ClearField(redeemcode.FieldThirtyDayLimitUsd, field.TypeFloat64)
+	}
 	if _u.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -835,6 +1227,35 @@ func (_u *RedeemCodeUpdateOne) sqlSave(ctx context.Context) (_node *RedeemCode, 
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.SubscriptionPlanCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   redeemcode.SubscriptionPlanTable,
+			Columns: []string{redeemcode.SubscriptionPlanColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subscriptionplan.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SubscriptionPlanIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   redeemcode.SubscriptionPlanTable,
+			Columns: []string{redeemcode.SubscriptionPlanColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subscriptionplan.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

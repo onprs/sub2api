@@ -103,11 +103,17 @@
                 </div>
                 <!-- Price -->
                 <div class="flex items-baseline gap-2">
-                  <span v-if="selectedPlan.original_price" class="text-sm text-gray-400 line-through dark:text-gray-500">
+                  <span v-if="selectedPlanHasRenewalDiscount" class="text-sm text-gray-400 line-through dark:text-gray-500">
+                    {{ formatSelectedPaymentAmount(selectedPlan.price) }}
+                  </span>
+                  <span v-else-if="selectedPlan.original_price" class="text-sm text-gray-400 line-through dark:text-gray-500">
                     {{ formatSelectedPaymentAmount(selectedPlan.original_price) }}
                   </span>
-                  <span :class="['text-3xl font-bold', planTextClass]">{{ formatSelectedPaymentAmount(selectedPlan.price) }}</span>
+                  <span :class="['text-3xl font-bold', planTextClass]">{{ formatSelectedPaymentAmount(selectedPlanEffectivePrice) }}</span>
                   <span class="text-sm text-gray-500 dark:text-gray-400">/ {{ planValiditySuffix }}</span>
+                  <span v-if="selectedPlanHasRenewalDiscount" class="rounded bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700 dark:bg-green-900/30 dark:text-green-300">
+                    {{ t('payment.renewalDiscount', { percent: selectedPlanRenewalDiscountPercentText }) }}
+                  </span>
                 </div>
                 <!-- Description -->
                 <p v-if="selectedPlan.description" class="mt-2 text-sm leading-relaxed text-gray-500 dark:text-gray-400">
@@ -121,19 +127,11 @@
                       <span :class="['text-lg font-bold', planTextClass]">×{{ selectedPlan.rate_multiplier ?? 1 }}</span>
                     </div>
                   </div>
-                  <div v-if="selectedPlan.daily_limit_usd != null">
-                    <span class="text-xs text-gray-400 dark:text-gray-500">{{ t('payment.planCard.dailyLimit') }}</span>
-                    <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">${{ selectedPlan.daily_limit_usd }}</div>
+                  <div v-for="quota in selectedPlanQuotas" :key="quota.key">
+                    <span class="text-xs text-gray-400 dark:text-gray-500">{{ quota.label }}</span>
+                    <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">{{ quota.limit }}</div>
                   </div>
-                  <div v-if="selectedPlan.weekly_limit_usd != null">
-                    <span class="text-xs text-gray-400 dark:text-gray-500">{{ t('payment.planCard.weeklyLimit') }}</span>
-                    <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">${{ selectedPlan.weekly_limit_usd }}</div>
-                  </div>
-                  <div v-if="selectedPlan.monthly_limit_usd != null">
-                    <span class="text-xs text-gray-400 dark:text-gray-500">{{ t('payment.planCard.monthlyLimit') }}</span>
-                    <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">${{ selectedPlan.monthly_limit_usd }}</div>
-                  </div>
-                  <div v-if="selectedPlan.daily_limit_usd == null && selectedPlan.weekly_limit_usd == null && selectedPlan.monthly_limit_usd == null">
+                  <div v-if="selectedPlan && !hasRollingQuotaLimits(selectedPlan)">
                     <span class="text-xs text-gray-400 dark:text-gray-500">{{ t('payment.planCard.quota') }}</span>
                     <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">{{ t('payment.planCard.unlimited') }}</div>
                   </div>
@@ -146,11 +144,11 @@
                   @select="selectedMethod = $event"
                 />
               </div>
-              <div v-if="feeRate > 0 && selectedPlan.price > 0" class="card p-6">
+              <div v-if="feeRate > 0 && selectedPlanEffectivePrice > 0" class="card p-6">
                 <div class="space-y-2 text-sm">
                   <div class="flex justify-between">
                     <span class="text-gray-500 dark:text-gray-400">{{ t('payment.amountLabel') }}</span>
-                    <span class="text-gray-900 dark:text-white">{{ formatSelectedPaymentAmount(selectedPlan.price) }}</span>
+                    <span class="text-gray-900 dark:text-white">{{ formatSelectedPaymentAmount(selectedPlanEffectivePrice) }}</span>
                   </div>
                   <div class="flex justify-between">
                     <span class="text-gray-500 dark:text-gray-400">{{ t('payment.fee') }} ({{ feeRate }}%)</span>
@@ -167,7 +165,7 @@
                   <span class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
                   {{ t('common.processing') }}
                 </span>
-                <span v-else>{{ t('payment.createOrder') }} {{ formatSelectedPaymentAmount(feeRate > 0 ? subTotalAmount : selectedPlan.price) }}</span>
+                <span v-else>{{ t('payment.createOrder') }} {{ formatSelectedPaymentAmount(feeRate > 0 ? subTotalAmount : selectedPlanEffectivePrice) }}</span>
               </button>
               <button class="btn btn-secondary w-full" @click="selectedPlan = null">{{ t('common.cancel') }}</button>
             </template>
@@ -193,8 +191,12 @@
                         <span :class="['shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium', platformBadgeLightClass(sub.group?.platform || '')]">{{ platformLabel(sub.group?.platform || '') }}</span>
                       </div>
                       <div class="flex flex-wrap gap-x-3 text-[11px] text-gray-400 dark:text-gray-500">
+                        <span v-if="sub.plan_name">{{ sub.plan_name }}</span>
                         <span>{{ t('payment.planCard.rate') }}: ×{{ sub.group?.rate_multiplier ?? 1 }}</span>
-                        <span v-if="sub.group?.daily_limit_usd == null && sub.group?.weekly_limit_usd == null && sub.group?.monthly_limit_usd == null">{{ t('payment.planCard.quota') }}: {{ t('payment.planCard.unlimited') }}</span>
+                        <span v-for="quota in activeSubscriptionSummaryQuotas(sub)" :key="quota.key">
+                          {{ quota.label }}: {{ quota.limit }}
+                        </span>
+                        <span v-if="!hasRollingQuotaLimits(sub)">{{ t('payment.planCard.quota') }}: {{ t('payment.planCard.unlimited') }}</span>
                         <span v-if="sub.expires_at">{{ t('userSubscriptions.daysRemaining', { days: getDaysRemaining(sub.expires_at) }) }}</span>
                         <span v-else>{{ t('userSubscriptions.noExpiration') }}</span>
                       </div>
@@ -256,6 +258,7 @@ import { paymentAPI } from '@/api/payment'
 import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
 import { isMobileDevice } from '@/utils/device'
 import type { SubscriptionPlan, CheckoutInfoResponse, CreateOrderResult, OrderType } from '@/types/payment'
+import type { UserSubscription } from '@/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
@@ -272,6 +275,7 @@ import {
   writePaymentRecoverySnapshot,
 } from '@/components/payment/paymentFlow'
 import { platformAccentBarClass, platformBadgeLightClass, platformBadgeClass, platformTextClass, platformLabel } from '@/utils/platformColors'
+import { formatUsdLimit, hasRollingQuotaLimits, rollingQuotaWindows } from '@/utils/rollingQuota'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import PaymentStatusPanel from '@/components/payment/PaymentStatusPanel.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -400,6 +404,35 @@ function resetPayment() {
   removeRecoverySnapshot()
 }
 
+function syncSelectedPaymentMethod() {
+  if (!enabledMethods.value.length) {
+    selectedMethod.value = ''
+    return
+  }
+  if (selectedMethod.value && enabledMethods.value.includes(selectedMethod.value)) {
+    return
+  }
+  const order: readonly string[] = METHOD_ORDER
+  const sorted = [...enabledMethods.value].sort((a, b) => {
+    const ai = order.indexOf(a)
+    const bi = order.indexOf(b)
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+  })
+  selectedMethod.value = sorted[0]
+}
+
+async function refreshCheckoutInfo() {
+  const res = await paymentAPI.getCheckoutInfo()
+  checkout.value = res.data
+  syncSelectedPaymentMethod()
+  syncSelectedPlanAvailability()
+}
+
+function refreshSubscriptionPurchaseState() {
+  subscriptionStore.fetchActiveSubscriptions(true).catch(() => {})
+  refreshCheckoutInfo().catch(() => {})
+}
+
 async function redirectToPaymentResult(state: PaymentRecoverySnapshot): Promise<void> {
   const query: Record<string, string | undefined> = {}
   if (state.orderId > 0) {
@@ -459,7 +492,7 @@ function onPaymentDone() {
   resetPayment()
   selectedPlan.value = null
   if (wasSubscription) {
-    subscriptionStore.fetchActiveSubscriptions(true).catch(() => {})
+    refreshSubscriptionPurchaseState()
   }
 }
 
@@ -467,7 +500,7 @@ function onPaymentSuccess() {
   removeRecoverySnapshot()
   authStore.refreshUser()
   if (paymentState.value.orderType === 'subscription') {
-    subscriptionStore.fetchActiveSubscriptions(true).catch(() => {})
+    refreshSubscriptionPurchaseState()
   }
 }
 
@@ -588,9 +621,30 @@ const canSubmit = computed(() =>
     && selectedLimit.value?.available !== false
 )
 
-// Subscription-specific: method options based on plan price
+function planEffectivePrice(plan: SubscriptionPlan | null): number {
+  if (!plan) return 0
+  if (plan.renewal_eligible === true) {
+    return plan.renewal_price ?? plan.effective_price ?? plan.price
+  }
+  return plan.effective_price ?? plan.price
+}
+
+function formatPercent(value: number): string {
+  return Number(value.toFixed(2)).toString()
+}
+
+const selectedPlanEffectivePrice = computed(() => planEffectivePrice(selectedPlan.value))
+const selectedPlanHasRenewalDiscount = computed(() => {
+  const plan = selectedPlan.value
+  return plan?.renewal_eligible === true
+    && (plan.renewal_discount_percent ?? 0) > 0
+    && selectedPlanEffectivePrice.value < plan.price
+})
+const selectedPlanRenewalDiscountPercentText = computed(() => formatPercent(selectedPlan.value?.renewal_discount_percent ?? 0))
+
+// Subscription-specific: method options based on the effective plan price.
 const subMethodOptions = computed<PaymentMethodOption[]>(() => {
-  const planPrice = selectedPlan.value?.price ?? 0
+  const planPrice = selectedPlanEffectivePrice.value
   return enabledMethods.value.map((type) => {
     const ml = visibleMethods.value[type]
     return {
@@ -602,20 +656,42 @@ const subMethodOptions = computed<PaymentMethodOption[]>(() => {
 })
 
 const subFeeAmount = computed(() => {
-  const price = selectedPlan.value?.price ?? 0
+  const price = selectedPlanEffectivePrice.value
   if (feeRate.value <= 0 || price <= 0) return 0
   return Math.ceil(((price * feeRate.value) / 100) * 100) / 100
 })
 
 const subTotalAmount = computed(() => {
-  const price = selectedPlan.value?.price ?? 0
+  const price = selectedPlanEffectivePrice.value
   if (feeRate.value <= 0 || price <= 0) return price
   return Math.round((price + subFeeAmount.value) * 100) / 100
 })
 
+function isPlanSoldOut(plan: SubscriptionPlan | null | undefined): boolean {
+  return plan?.sold_out === true || plan?.stock === 0
+}
+
+function notifyPlanSoldOut() {
+  appStore.showError('套餐已售罄')
+}
+
+function syncSelectedPlanAvailability() {
+  if (!selectedPlan.value) return
+  const freshPlan = checkout.value.plans.find(plan => plan.id === selectedPlan.value?.id)
+  if (isPlanSoldOut(freshPlan)) {
+    selectedPlan.value = null
+    notifyPlanSoldOut()
+    return
+  }
+  if (freshPlan) {
+    selectedPlan.value = freshPlan
+  }
+}
+
 const canSubmitSubscription = computed(() =>
   selectedPlan.value !== null
-    && amountFitsMethod(selectedPlan.value.price, selectedMethod.value)
+    && !isPlanSoldOut(selectedPlan.value)
+    && amountFitsMethod(selectedPlanEffectivePrice.value, selectedMethod.value)
     && selectedLimit.value?.available !== false
 )
 
@@ -640,6 +716,36 @@ const paymentButtonClass = computed(() => {
 // Subscription confirm: platform accent colors (clean card, no gradient)
 const planBadgeClass = computed(() => platformBadgeClass(selectedPlan.value?.group_platform || ''))
 const planTextClass = computed(() => platformTextClass(selectedPlan.value?.group_platform || ''))
+const selectedPlanQuotas = computed(() => {
+  if (!selectedPlan.value) return []
+  return rollingQuotaWindows
+    .filter(window => selectedPlan.value?.[window.limitField] != null)
+    .map(window => ({
+      key: window.key,
+      label: translatedQuotaLabel(window.shortLabelKey, window.shortLabel),
+      limit: formatUsdLimit(selectedPlan.value?.[window.limitField]),
+    }))
+})
+
+function activeSubscriptionSummaryQuotas(sub: UserSubscription) {
+  return rollingQuotaWindows
+    .filter(window => sub[window.limitField] != null)
+    .map(window => ({
+      key: window.key,
+      label: translatedQuotaLabel(window.shortLabelKey, window.shortLabel),
+      limit: formatUsdLimit(sub[window.limitField]),
+    }))
+}
+
+function translatedQuotaLabel(key: string, fallback: string): string {
+  const label = t(key)
+  return label === key ? fallback : label
+}
+
+function translatedValidityUnit(key: string, fallback: string): string {
+  const label = t(key)
+  return label === key ? fallback : label
+}
 
 // Renewal modal state
 const showRenewalModal = ref(false)
@@ -651,18 +757,29 @@ const renewalPlans = computed(() => {
 
 const planValiditySuffix = computed(() => {
   if (!selectedPlan.value) return ''
-  const u = selectedPlan.value.validity_unit || 'day'
+  const u = (selectedPlan.value.validity_unit || 'days').toLowerCase()
   if (u === 'month') return t('payment.perMonth')
+  if (u === 'months') return `${selectedPlan.value.validity_days}${translatedValidityUnit('payment.months', 'months')}`
+  if (u === 'week' || u === 'weeks') return `${selectedPlan.value.validity_days}${translatedValidityUnit('payment.weeks', 'weeks')}`
   if (u === 'year') return t('payment.perYear')
-  return `${selectedPlan.value.validity_days}${t('payment.days')}`
+  if (u === 'years') return `${selectedPlan.value.validity_days}${translatedValidityUnit('payment.years', 'years')}`
+  return `${selectedPlan.value.validity_days}${translatedValidityUnit('payment.days', 'days')}`
 })
 
 function selectPlan(plan: SubscriptionPlan) {
+  if (isPlanSoldOut(plan)) {
+    notifyPlanSoldOut()
+    return
+  }
   selectedPlan.value = plan
   errorMessage.value = ''
 }
 
 function selectPlanFromModal(plan: SubscriptionPlan) {
+  if (isPlanSoldOut(plan)) {
+    notifyPlanSoldOut()
+    return
+  }
   showRenewalModal.value = false
   renewGroupId.value = null
   selectedPlan.value = plan
@@ -680,8 +797,13 @@ async function handleSubmitRecharge() {
 }
 
 async function confirmSubscribe() {
+  if (selectedPlan.value && isPlanSoldOut(selectedPlan.value)) {
+    selectedPlan.value = null
+    notifyPlanSoldOut()
+    return
+  }
   if (!selectedPlan.value || submitting.value) return
-  await createOrder(selectedPlan.value.price, 'subscription', selectedPlan.value.id)
+  await createOrder(selectedPlanEffectivePrice.value, 'subscription', selectedPlan.value.id)
 }
 
 async function createOrder(orderAmount: number, orderType: OrderType, planId?: number, options: CreateOrderOptions = {}) {
@@ -991,7 +1113,14 @@ async function resumeWechatPaymentFromQuery() {
     amount.value = resume.orderAmount
   }
   if (resume.orderType === 'subscription' && resume.planId) {
-    selectedPlan.value = checkout.value.plans.find(plan => plan.id === resume.planId) ?? null
+    const resumePlan = checkout.value.plans.find(plan => plan.id === resume.planId) ?? null
+    if (isPlanSoldOut(resumePlan)) {
+      selectedPlan.value = null
+      notifyPlanSoldOut()
+      await router.replace({ path: route.path, query: stripWechatResumeQuery(route.query) })
+      return
+    }
+    selectedPlan.value = resumePlan
   }
 
   await router.replace({ path: route.path, query: stripWechatResumeQuery(route.query) })
@@ -1016,17 +1145,7 @@ async function resumeWechatPaymentFromQuery() {
 
 onMounted(async () => {
   try {
-    const res = await paymentAPI.getCheckoutInfo()
-    checkout.value = res.data
-    if (enabledMethods.value.length) {
-      const order: readonly string[] = METHOD_ORDER
-      const sorted = [...enabledMethods.value].sort((a, b) => {
-        const ai = order.indexOf(a)
-        const bi = order.indexOf(b)
-        return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
-      })
-      selectedMethod.value = sorted[0]
-    }
+    await refreshCheckoutInfo()
     if (typeof window !== 'undefined') {
       if (hasWechatResumeQuery(route.query)) {
         removeRecoverySnapshot()
@@ -1062,7 +1181,12 @@ onMounted(async () => {
         const groupId = Number(route.query.group)
         const groupPlans = checkout.value.plans.filter(p => p.group_id === groupId)
         if (groupPlans.length === 1) {
-          selectedPlan.value = groupPlans[0]
+          if (isPlanSoldOut(groupPlans[0])) {
+            selectedPlan.value = null
+            notifyPlanSoldOut()
+          } else {
+            selectedPlan.value = groupPlans[0]
+          }
         } else if (groupPlans.length > 1) {
           renewGroupId.value = groupId
           showRenewalModal.value = true

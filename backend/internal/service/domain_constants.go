@@ -39,6 +39,7 @@ const (
 const (
 	PlatformAnthropic   = domain.PlatformAnthropic
 	PlatformOpenAI      = domain.PlatformOpenAI
+	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
 	PlatformGemini      = domain.PlatformGemini
 	PlatformAntigravity = domain.PlatformAntigravity
 )
@@ -49,6 +50,7 @@ const (
 var AllowedQuotaPlatforms = []string{
 	PlatformAnthropic,
 	PlatformOpenAI,
+	PlatformOpenCodeGo,
 	PlatformGemini,
 	PlatformAntigravity,
 }
@@ -233,6 +235,7 @@ const (
 	SettingKeyGitHubOAuthClientSecret        = "github_oauth_client_secret"
 	SettingKeyGitHubOAuthRedirectURL         = "github_oauth_redirect_url"
 	SettingKeyGitHubOAuthFrontendRedirectURL = "github_oauth_frontend_redirect_url"
+	SettingKeyGitHubOAuthProxyID             = "github_oauth_proxy_id"
 	SettingKeyGoogleOAuthEnabled             = "google_oauth_enabled"
 	SettingKeyGoogleOAuthClientID            = "google_oauth_client_id"
 	SettingKeyGoogleOAuthClientSecret        = "google_oauth_client_secret"
@@ -360,6 +363,10 @@ const (
 	// user-facing aggregate view. When false: user endpoint returns an empty list and the
 	// sidebar entry is hidden. Defaults to false (opt-in feature).
 	SettingKeyAvailableChannelsEnabled = "available_channels_enabled"
+
+	// SettingKeyModelPricingEnabled is a DB-backed soft switch for the user-facing
+	// "Model Pricing" view. It is intentionally independent from available channels.
+	SettingKeyModelPricingEnabled = "model_pricing_enabled"
 
 	// =========================
 	// Overload Cooldown (529)

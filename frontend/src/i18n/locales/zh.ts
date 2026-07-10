@@ -97,6 +97,7 @@ export default {
       claude: 'Claude',
       gemini: 'Gemini',
       antigravity: 'Antigravity',
+      opencodeGo: 'OpenCode Go',
       more: '更多'
     },
     // CTA 区块
@@ -361,6 +362,7 @@ export default {
     groups: '分组管理',
     channels: '渠道管理',
     availableChannels: '可用渠道',
+    modelPricing: '模型计费',
     subscriptions: '订阅管理',
     accounts: '账号管理',
     proxies: 'IP管理',
@@ -769,6 +771,28 @@ export default {
         modelComment: '如果你有 Gemini 3 权限可以填：gemini-3-pro-preview',
         note: '这些环境变量将在当前终端会话中生效。如需永久配置，请将其添加到 ~/.bashrc、~/.zshrc 或相应的配置文件中。'
       },
+      opencodeGo: {
+        description: '为 OpenCode Go 分组生成 OpenCode 客户端配置。'
+      },
+      cliImport: {
+        keyName: '密钥',
+        group: '分组',
+        endpoint: '端点',
+        defaultModel: '默认模型',
+        unknownKey: '当前密钥',
+        noGroup: '未绑定分组',
+        notConfigured: '未配置',
+        downloadWindows: '下载 Windows 脚本',
+        downloadLinux: '下载 Linux/macOS 脚本',
+        downloadFailed: '脚本下载失败',
+        disabled: {
+          noKey: '需要从具体 API 密钥打开后才能下载脚本。',
+          noGroup: '该密钥未绑定分组，无法生成准确的 CLI 配置。',
+          inactive: '该密钥未启用，无法下载导入脚本。',
+          expired: '该密钥已过期，无法下载导入脚本。',
+          quotaExhausted: '该密钥额度已耗尽，无法下载导入脚本。'
+        }
+      },
       opencode: {
         title: 'OpenCode 配置示例',
         subtitle: 'opencode.json',
@@ -971,7 +995,10 @@ export default {
     providers: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
-      gemini: 'Gemini'
+      gemini: 'Gemini',
+      antigravity_claude: 'Antigravity Claude',
+      antigravity_gemini: 'Antigravity Gemini',
+      opencode_go: 'OpenCode Go'
     },
     extraModelsHeader: '附加模型',
     extraModelsEmpty: '无附加模型',
@@ -1069,6 +1096,45 @@ export default {
       intervals: '阶梯定价',
       unitPerMillion: '/ 1M token',
       unitPerRequest: '/ 次'
+    }
+  },
+
+  modelPricing: {
+    title: '模型计费',
+    description: '查看可用渠道中各模型在不同分组下的计费价格',
+    searchPlaceholder: '搜索渠道、平台、模型、分组或来源...',
+    empty: '暂无模型计费数据',
+    modes: {
+      raw: '原始计费',
+      actual: '实际计费'
+    },
+    columns: {
+      channel: '渠道',
+      platform: '平台',
+      model: '模型',
+      group: '分组',
+      multiplier: '倍率',
+      source: '来源',
+      billingMode: '计费模式',
+      inputPerMillion: '输入/M',
+      outputPerMillion: '输出/M',
+      cacheWritePerMillion: '缓存写入/M',
+      cacheReadPerMillion: '缓存读取/M',
+      unitPrice: '按次/图片价'
+    },
+    sources: {
+      missing: '未配置',
+      channel: '渠道定价',
+      catalog: '定价目录'
+    },
+    billingModes: {
+      token: '按 Token',
+      perRequest: '按次',
+      image: '按图片'
+    },
+    units: {
+      request: '次',
+      image: '图'
     }
   },
 
@@ -1848,6 +1914,7 @@ export default {
         usageOpenAI: '用量 (OpenAI)',
         usageGemini: '用量 (Gemini)',
         usageAntigravity: '用量 (Antigravity)',
+        usageOpenCodeGo: '用量 (OpenCode Go)',
         concurrency: '并发数',
         status: '状态',
         lastActive: '最后活跃时间',
@@ -2161,7 +2228,7 @@ export default {
         descriptionLabel: '描述',
         descriptionPlaceholder: '请输入描述（可选）',
         rateMultiplierLabel: '费率倍数',
-        rateMultiplierHint: '1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
+        rateMultiplierHint: '0 = 免费/不计费，1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
         rpmLimit: '每分钟请求数 (RPM)',
         rpmLimitPlaceholder: '0 表示不限制',
         rpmLimitHint: '每用户在本分组每分钟最大请求数，0 = 不限制；一旦设置即接管该用户的限流（覆盖用户级 rpm_limit）',
@@ -2189,13 +2256,14 @@ export default {
         exampleContent:
           '公开分组费率 0.8，您可以创建一个费率 0.7 的专属分组，手动分配给 VIP 用户，让他们享受更优惠的价格。'
       },
-      rateMultiplierHint: '1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
+      rateMultiplierHint: '0 = 免费/不计费，1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
       platforms: {
         all: '全部平台',
         anthropic: 'Anthropic',
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        opencode_go: 'OpenCode Go',
       },
       saving: '保存中...',
       noGroups: '暂无分组',
@@ -2848,6 +2916,8 @@ export default {
         apiModeChatCompletionsHint: '使用 /v1/chat/completions，发送 messages；适合大多数兼容站。',
         apiModeResponses: 'Responses API',
         apiModeResponsesHint: '使用 /v1/responses，默认带 instructions + input；适合本站自检/Codex。',
+        apiModeMessages: 'Messages API',
+        apiModeMessagesHint: '使用 /v1/messages，适合 OpenCode Go 的 Anthropic-style 模型。',
         endpoint: '上游地址',
         endpointPlaceholder: 'https://api.example.com',
         useCurrentDomain: '使用当前服务',
@@ -2977,12 +3047,15 @@ export default {
       form: {
         user: '用户',
         group: '订阅分组',
+        plan: '订阅套餐',
         validityDays: '有效期（天）',
         adjustDays: '调整天数'
       },
       selectUser: '选择用户',
       selectGroup: '选择订阅分组',
+      selectPlan: '选择订阅套餐',
       groupHint: '仅显示订阅计费类型的分组',
+      planHint: '手动分配会使用套餐的有效期和 5 小时、7 天、30 天滚动额度',
       validityHint: '订阅的有效天数',
       adjustingFor: '为以下用户调整订阅',
       currentExpiration: '当前到期时间',
@@ -2995,7 +3068,7 @@ export default {
       revoke: '撤销',
       resetQuota: '重置配额',
       resetQuotaTitle: '重置用量配额',
-      resetQuotaConfirm: "确定要重置 '{user}' 的每日、每周和每月用量配额吗？用量将归零并从今天开始重新计算。",
+      resetQuotaConfirm: "确定要重置 '{user}' 的 5 小时、7 天和 30 天滚动用量配额吗？用量将归零，滚动窗口会从现在重新开始计算。",
       quotaResetSuccess: '配额重置成功',
       failedToResetQuota: '重置配额失败',
       noSubscriptionsYet: '暂无订阅',
@@ -3004,6 +3077,7 @@ export default {
       subscriptionAdjusted: '订阅调整成功',
       subscriptionRevoked: '订阅撤销成功',
       failedToLoad: '加载订阅列表失败',
+      failedToLoadPlans: '加载订阅套餐失败',
       failedToAssign: '分配订阅失败',
       failedToAdjust: '调整订阅失败',
       failedToRevoke: '撤销订阅失败',
@@ -3011,16 +3085,17 @@ export default {
       adjustOutOfRange: '调整天数必须在 -36500 到 36500 之间',
       pleaseSelectUser: '请选择用户',
       pleaseSelectGroup: '请选择分组',
+      pleaseSelectPlan: '请选择订阅套餐',
       validityDaysRequired: '请输入有效的天数（至少1天）',
       revokeConfirm: "确定要撤销 '{user}' 的订阅吗？此操作无法撤销。",
       guide: {
         title: '订阅管理教程',
-        subtitle: '订阅模式允许你按时间周期为用户分配使用额度，支持日/周/月配额限制。按照以下步骤即可完成配置。',
+        subtitle: '订阅模式允许你按 5 小时、7 天和 30 天滚动窗口为用户分配使用额度。按照以下步骤即可完成配置。',
         showGuide: '使用指南',
         step1: {
           title: '创建订阅分组',
           line1: '前往「分组管理」页面，点击「创建分组」',
-          line2: '将计费类型设为「订阅」，配置日/周/月额度限制',
+          line2: '将计费类型设为「订阅」，配置 5 小时、7 天和 30 天滚动额度限制',
           line3: '保存分组，确保状态为「正常」',
           link: '前往分组管理'
         },
@@ -3028,7 +3103,7 @@ export default {
           title: '分配订阅给用户',
           line1: '点击本页右上角「分配订阅」按钮',
           line2: '在弹窗中搜索用户邮箱并选择目标用户',
-          line3: '选择订阅分组、设置有效期天数，点击「分配」'
+          line3: '选择订阅套餐，系统会自动套用套餐有效期和 5 小时、7 天、30 天额度'
         },
         step3: {
           title: '管理已有订阅'
@@ -3037,7 +3112,7 @@ export default {
           adjust: '调整',
           adjustDesc: '延长或缩短订阅有效期',
           resetQuota: '重置配额',
-          resetQuotaDesc: '将日/周/月用量归零，重新开始计算',
+          resetQuotaDesc: '将 5 小时、7 天和 30 天滚动用量归零，重新开始计算',
           revoke: '撤销',
           revokeDesc: '立即终止该用户的订阅，不可恢复'
         },
@@ -3257,6 +3332,7 @@ export default {
         anthropic: 'Anthropic',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        opencode_go: 'OpenCode Go',
       },
       types: {
         oauth: 'OAuth',
@@ -3345,7 +3421,8 @@ export default {
         gemini3Image: 'G31FI',
         claude: 'Claude',
         passiveSampled: '被动采样',
-        activeQuery: '查询'
+        activeQuery: '查询',
+        estimatedData: '估算数据 / Based on Sub2API logs'
       },
       tier: {
         free: 'Free',
@@ -3413,6 +3490,7 @@ export default {
         disableScheduling: '批量停止调度',
         resetStatus: '批量重置状态',
         refreshToken: '批量刷新令牌',
+        copyModelMapping: '复制映射',
         resetStatusSuccess: '已成功重置 {count} 个账号状态',
         refreshTokenSuccess: '已成功刷新 {count} 个账号令牌',
         partialSuccess: '操作部分完成：{success} 成功，{failed} 失败'
@@ -3430,6 +3508,24 @@ export default {
         noSelection: '请选择要编辑的账号',
         noFieldsSelected: '请至少选择一个要更新的字段',
         mixedPlatformWarning: '所选账号跨越多个平台（{platforms}）。显示的模型映射预设为合并结果——请确保映射对每个平台都适用。'
+      },
+      copyModelMapping: {
+        title: '复制模型映射',
+        sourceAccount: '源账号',
+        sourcePlaceholder: '选择一个包含模型映射的源账号',
+        warning: '确认后会覆盖目标账号的 model_mapping；访问令牌、项目、代理和其他凭证字段保持不变。',
+        targetCount: '目标账号',
+        mappingCount: '{count} 个映射',
+        noSourceAccounts: '没有可用的同平台源账号。源账号必须配置非空 model_mapping，且不能是目标账号。',
+        noSelection: '请选择要复制映射的目标账号',
+        mixedPlatformError: '只能在同一平台的账号之间复制模型映射',
+        emptySourceError: '请选择一个源账号',
+        loadFailed: '加载源账号失败',
+        submit: '复制映射',
+        copying: '复制中...',
+        success: '已成功复制到 {count} 个账号',
+        partialSuccess: '部分复制成功：成功 {success} 个，失败 {failed} 个',
+        failed: '复制模型映射失败'
       },
       bulkDeleteTitle: '批量删除账号',
       bulkDeleteConfirm: '确定要删除选中的 {count} 个账号吗？此操作无法撤销。',
@@ -3786,6 +3882,10 @@ export default {
         apiKeyHint: '上游服务的 API Key',
         pleaseEnterBaseUrl: '请输入上游 Base URL',
         pleaseEnterApiKey: '请输入上游 API Key'
+      },
+      opencodeGo: {
+        baseUrlHint: '默认上游地址：https://opencode.ai/zen/go/v1',
+        apiKeyHint: 'OpenCode Go API Key'
       },
       // OAuth flow
       oauth: {
@@ -4466,6 +4566,13 @@ export default {
       failedToExport: '导出兑换码失败',
       failedToDeleteUnused: '删除未使用的兑换码失败',
       failedToCopy: '复制失败',
+      subscriptionGrantMode: '发放方式',
+      byPlan: '按套餐',
+      byGroup: '按分组',
+      selectPlan: '选择套餐',
+      selectPlanPlaceholder: '选择订阅套餐',
+      planRequired: '请选择订阅套餐',
+      failedToLoadPlans: '加载订阅套餐失败',
       selectGroup: '选择分组',
       selectGroupPlaceholder: '选择订阅分组',
       validityDays: '有效天数',
@@ -5522,6 +5629,13 @@ export default {
           configureLink: '前往 渠道管理 > 渠道定价 配置模型价格',
           enabled: '启用可用渠道',
           enabledHint: '关闭后用户端侧边栏入口隐藏，接口返回空数组。',
+        },
+        modelPricing: {
+          title: '模型计费',
+          description: '向已登录用户展示各渠道、平台、模型和分组下的原始/实际计费矩阵。默认关闭。',
+          configureLink: '查看用户侧模型计费页',
+          enabled: '启用模型计费',
+          enabledHint: '关闭后用户端模型计费入口隐藏；此开关独立于可用渠道。',
         },
         riskControl: {
           title: '风控中心',
@@ -7109,6 +7223,7 @@ export default {
     },
     subscribeNow: '立即开通',
     renewNow: '续费',
+    renewalDiscount: '续费 -{percent}%',
     selectPlan: '选择套餐',
     planFeatures: '功能特性',
     planCard: {
@@ -7120,7 +7235,17 @@ export default {
       unlimited: '无限制',
       models: '模型',
     },
+    quotaWindows: {
+      fiveHour: '5 小时限额',
+      sevenDay: '7 天限额',
+      thirtyDay: '30 天限额',
+      fiveHourShort: '5h',
+      sevenDayShort: '7d',
+      thirtyDayShort: '30d',
+      expiresFirst: '有效期先结束',
+    },
     days: '天',
+    weeks: '周',
     months: '个月',
     years: '年',
     oneMonth: '1 个月',
@@ -7203,6 +7328,10 @@ export default {
       deletePlan: '删除套餐',
       deletePlanConfirm: '确定要删除此套餐吗？',
       originalPrice: '原价',
+      renewalDiscountPercent: '续费优惠百分比',
+      renewalDiscountHint: '仅用户续费同一个套餐且订阅仍生效时使用；15 表示续费少付 15%。留空或 0 表示无续费优惠。',
+      renewalDiscountInvalid: '续费优惠必须大于等于 0 且小于 100',
+      noRenewalDiscount: '无续费优惠',
       price: '价格',
       validityDays: '有效期（天）',
       validityUnit: '有效期单位',
@@ -7250,6 +7379,12 @@ export default {
       dailyLimit: '日限额',
       weeklyLimit: '周限额',
       monthlyLimit: '月限额',
+      fiveHourLimit: '5 小时限额',
+      sevenDayLimit: '7 天限额',
+      thirtyDayLimit: '30 天限额',
+      rollingQuotaLimits: '滚动限额',
+      rollingQuotaHint: '留空 = 不限额，0 = 禁止，正数 = USD 上限。',
+      rollingQuotaInvalid: '限额不能为负数',
       unlimited: '无限制',
       searchUserSubs: '搜索用户订阅...',
       daily: '日',

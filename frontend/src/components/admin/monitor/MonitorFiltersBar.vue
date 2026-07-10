@@ -70,6 +70,9 @@ import {
   PROVIDER_OPENAI,
   PROVIDER_ANTHROPIC,
   PROVIDER_GEMINI,
+  PROVIDER_ANTIGRAVITY_CLAUDE,
+  PROVIDER_ANTIGRAVITY_GEMINI,
+  PROVIDER_OPENCODE_GO,
 } from '@/constants/channelMonitor'
 
 defineProps<{
@@ -94,6 +97,9 @@ const providerFilterOptions = computed(() => [
   { value: PROVIDER_OPENAI, label: t('monitorCommon.providers.openai') },
   { value: PROVIDER_ANTHROPIC, label: t('monitorCommon.providers.anthropic') },
   { value: PROVIDER_GEMINI, label: t('monitorCommon.providers.gemini') },
+  { value: PROVIDER_ANTIGRAVITY_CLAUDE, label: t('monitorCommon.providers.antigravity_claude') },
+  { value: PROVIDER_ANTIGRAVITY_GEMINI, label: t('monitorCommon.providers.antigravity_gemini') },
+  { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
 ])
 
 const enabledFilterOptions = computed(() => [

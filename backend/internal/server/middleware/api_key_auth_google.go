@@ -80,25 +80,22 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 
 		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 		if isSubscriptionType && subscriptionService != nil {
-			subscription, err := subscriptionService.GetActiveSubscription(
+			subscription, needsMaintenance, err := subscriptionService.GetUsableActiveSubscription(
 				c.Request.Context(),
 				apiKey.User.ID,
 				apiKey.Group.ID,
+				apiKey.Group,
 			)
 			if err != nil {
-				abortWithGoogleError(c, 403, "No active subscription found for this group")
-				return
-			}
-
-			needsMaintenance, err := subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
-			if err != nil {
 				status := 403
-				if errors.Is(err, service.ErrDailyLimitExceeded) ||
-					errors.Is(err, service.ErrWeeklyLimitExceeded) ||
-					errors.Is(err, service.ErrMonthlyLimitExceeded) {
+				if isSubscriptionUsageLimitError(err) {
 					status = 429
 				}
-				abortWithGoogleError(c, status, err.Error())
+				message := "No active subscription found for this group"
+				if !errors.Is(err, service.ErrSubscriptionNotFound) {
+					message = err.Error()
+				}
+				abortWithGoogleError(c, status, message)
 				return
 			}
 

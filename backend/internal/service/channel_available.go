@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // AvailableGroupRef 渠道视图中关联分组的简要信息。
@@ -108,22 +110,93 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 // 触发条件：
 //  1. Pricing == nil（渠道完全没声明该模型的定价条目）
 //  2. Pricing 非 nil 但所有价格字段为空（admin UI 建了条目但没填价格）
-//
-// 当 s.pricingService 为 nil（测试场景），跳过回落。
 func (s *ChannelService) fillGlobalPricingFallback(models []SupportedModel) {
-	if s.pricingService == nil {
-		return
-	}
 	for i := range models {
 		if !pricingNeedsFallback(models[i].Pricing) {
+			if models[i].PricingSource == "" {
+				models[i].PricingSource = PricingSourceChannel
+			}
 			continue
 		}
-		lp := s.pricingService.GetModelPricing(models[i].Name)
-		if lp == nil {
+		pricing, ok := s.displayPricingForModel(models[i].Name, models[i].Pricing)
+		if !ok {
+			models[i].PricingSource = PricingSourceMissing
 			continue
 		}
-		models[i].Pricing = synthesizePricingFromLiteLLM(lp, models[i].Pricing)
+		models[i].Pricing = pricing
+		models[i].PricingSource = PricingSourceCatalog
 	}
+}
+
+// BuildCatalogSupportedModel builds a display-only SupportedModel from the global
+// pricing catalog. It never reads channel_model_pricing, so it is safe for the
+// user-facing model-pricing page where the model list comes from group accounts.
+func (s *ChannelService) BuildCatalogSupportedModel(displayName, platform string, pricingCandidates []string) SupportedModel {
+	model := SupportedModel{
+		Name:          strings.TrimSpace(displayName),
+		Platform:      platform,
+		PricingSource: PricingSourceMissing,
+	}
+	if model.Name == "" || s == nil {
+		return model
+	}
+
+	for _, candidate := range catalogPricingLookupCandidates(platform, model.Name, pricingCandidates) {
+		pricing, ok := s.displayPricingForModel(candidate, nil)
+		if !ok {
+			continue
+		}
+		model.Pricing = pricing
+		model.PricingSource = PricingSourceCatalog
+		return model
+	}
+	return model
+}
+
+func (s *ChannelService) displayPricingForModel(model string, existing *ChannelModelPricing) (*ChannelModelPricing, bool) {
+	if s == nil {
+		return nil, false
+	}
+	if s.billingService != nil {
+		if pricing, err := s.billingService.GetModelPricing(model); err == nil && pricing != nil {
+			return synthesizePricingFromModelPricing(pricing, existing), true
+		}
+	}
+	if s.pricingService != nil {
+		if lp := s.pricingService.GetModelPricing(model); lp != nil {
+			return synthesizePricingFromLiteLLM(lp, existing), true
+		}
+	}
+	return nil, false
+}
+
+func catalogPricingLookupCandidates(platform, displayName string, pricingCandidates []string) []string {
+	seen := make(map[string]struct{}, len(pricingCandidates)+4)
+	out := make([]string, 0, len(pricingCandidates)+4)
+	add := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || strings.Contains(candidate, "*") {
+			return
+		}
+		key := strings.ToLower(candidate)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, candidate)
+	}
+
+	for _, candidate := range pricingCandidates {
+		add(candidate)
+	}
+	if platform == PlatformAntigravity {
+		add(domain.DefaultAntigravityModelMapping[displayName])
+	}
+	if platform == PlatformOpenCodeGo && strings.HasSuffix(displayName, "-code") {
+		add(strings.TrimSuffix(displayName, "-code"))
+	}
+	add(displayName)
+	return out
 }
 
 // pricingNeedsFallback 判定一个 ChannelModelPricing 是否需要走全局回落。
@@ -186,6 +259,34 @@ func synthesizePricingFromLiteLLM(lp *LiteLLMModelPricing, existing *ChannelMode
 		CacheWritePrice:  nonZeroPtr(lp.CacheCreationInputTokenCost),
 		CacheReadPrice:   nonZeroPtr(lp.CacheReadInputTokenCost),
 		ImageOutputPrice: nonZeroPtr(lp.OutputCostPerImageToken),
+	}
+}
+
+func synthesizePricingFromModelPricing(mp *ModelPricing, existing *ChannelModelPricing) *ChannelModelPricing {
+	if mp == nil {
+		return existing
+	}
+	mode := BillingModeToken
+	if existing != nil && existing.BillingMode != "" {
+		mode = existing.BillingMode
+	}
+	if mode == BillingModeImage || mode == BillingModePerRequest {
+		return &ChannelModelPricing{
+			BillingMode:      mode,
+			InputPrice:       nonZeroPtr(mp.InputPricePerToken),
+			OutputPrice:      nonZeroPtr(mp.OutputPricePerToken),
+			CacheWritePrice:  nonZeroPtr(mp.CacheCreationPricePerToken),
+			CacheReadPrice:   nonZeroPtr(mp.CacheReadPricePerToken),
+			ImageOutputPrice: nonZeroPtr(mp.ImageOutputPricePerToken),
+		}
+	}
+	return &ChannelModelPricing{
+		BillingMode:      mode,
+		InputPrice:       nonZeroPtr(mp.InputPricePerToken),
+		OutputPrice:      nonZeroPtr(mp.OutputPricePerToken),
+		CacheWritePrice:  nonZeroPtr(mp.CacheCreationPricePerToken),
+		CacheReadPrice:   nonZeroPtr(mp.CacheReadPricePerToken),
+		ImageOutputPrice: nonZeroPtr(mp.ImageOutputPricePerToken),
 	}
 }
 

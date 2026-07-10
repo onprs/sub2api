@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
+	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 )
 
@@ -170,6 +171,76 @@ func (_c *RedeemCodeCreate) SetNillableValidityDays(v *int) *RedeemCodeCreate {
 	return _c
 }
 
+// SetSubscriptionPlanID sets the "subscription_plan_id" field.
+func (_c *RedeemCodeCreate) SetSubscriptionPlanID(v int64) *RedeemCodeCreate {
+	_c.mutation.SetSubscriptionPlanID(v)
+	return _c
+}
+
+// SetNillableSubscriptionPlanID sets the "subscription_plan_id" field if the given value is not nil.
+func (_c *RedeemCodeCreate) SetNillableSubscriptionPlanID(v *int64) *RedeemCodeCreate {
+	if v != nil {
+		_c.SetSubscriptionPlanID(*v)
+	}
+	return _c
+}
+
+// SetSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field.
+func (_c *RedeemCodeCreate) SetSubscriptionQuotaSnapshotVersion(v int) *RedeemCodeCreate {
+	_c.mutation.SetSubscriptionQuotaSnapshotVersion(v)
+	return _c
+}
+
+// SetNillableSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field if the given value is not nil.
+func (_c *RedeemCodeCreate) SetNillableSubscriptionQuotaSnapshotVersion(v *int) *RedeemCodeCreate {
+	if v != nil {
+		_c.SetSubscriptionQuotaSnapshotVersion(*v)
+	}
+	return _c
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (_c *RedeemCodeCreate) SetFiveHourLimitUsd(v float64) *RedeemCodeCreate {
+	_c.mutation.SetFiveHourLimitUsd(v)
+	return _c
+}
+
+// SetNillableFiveHourLimitUsd sets the "five_hour_limit_usd" field if the given value is not nil.
+func (_c *RedeemCodeCreate) SetNillableFiveHourLimitUsd(v *float64) *RedeemCodeCreate {
+	if v != nil {
+		_c.SetFiveHourLimitUsd(*v)
+	}
+	return _c
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (_c *RedeemCodeCreate) SetSevenDayLimitUsd(v float64) *RedeemCodeCreate {
+	_c.mutation.SetSevenDayLimitUsd(v)
+	return _c
+}
+
+// SetNillableSevenDayLimitUsd sets the "seven_day_limit_usd" field if the given value is not nil.
+func (_c *RedeemCodeCreate) SetNillableSevenDayLimitUsd(v *float64) *RedeemCodeCreate {
+	if v != nil {
+		_c.SetSevenDayLimitUsd(*v)
+	}
+	return _c
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (_c *RedeemCodeCreate) SetThirtyDayLimitUsd(v float64) *RedeemCodeCreate {
+	_c.mutation.SetThirtyDayLimitUsd(v)
+	return _c
+}
+
+// SetNillableThirtyDayLimitUsd sets the "thirty_day_limit_usd" field if the given value is not nil.
+func (_c *RedeemCodeCreate) SetNillableThirtyDayLimitUsd(v *float64) *RedeemCodeCreate {
+	if v != nil {
+		_c.SetThirtyDayLimitUsd(*v)
+	}
+	return _c
+}
+
 // SetUserID sets the "user" edge to the User entity by ID.
 func (_c *RedeemCodeCreate) SetUserID(id int64) *RedeemCodeCreate {
 	_c.mutation.SetUserID(id)
@@ -192,6 +263,11 @@ func (_c *RedeemCodeCreate) SetUser(v *User) *RedeemCodeCreate {
 // SetGroup sets the "group" edge to the Group entity.
 func (_c *RedeemCodeCreate) SetGroup(v *Group) *RedeemCodeCreate {
 	return _c.SetGroupID(v.ID)
+}
+
+// SetSubscriptionPlan sets the "subscription_plan" edge to the SubscriptionPlan entity.
+func (_c *RedeemCodeCreate) SetSubscriptionPlan(v *SubscriptionPlan) *RedeemCodeCreate {
+	return _c.SetSubscriptionPlanID(v.ID)
 }
 
 // Mutation returns the RedeemCodeMutation object of the builder.
@@ -249,6 +325,10 @@ func (_c *RedeemCodeCreate) defaults() {
 		v := redeemcode.DefaultValidityDays
 		_c.mutation.SetValidityDays(v)
 	}
+	if _, ok := _c.mutation.SubscriptionQuotaSnapshotVersion(); !ok {
+		v := redeemcode.DefaultSubscriptionQuotaSnapshotVersion
+		_c.mutation.SetSubscriptionQuotaSnapshotVersion(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -285,6 +365,24 @@ func (_c *RedeemCodeCreate) check() error {
 	}
 	if _, ok := _c.mutation.ValidityDays(); !ok {
 		return &ValidationError{Name: "validity_days", err: errors.New(`ent: missing required field "RedeemCode.validity_days"`)}
+	}
+	if _, ok := _c.mutation.SubscriptionQuotaSnapshotVersion(); !ok {
+		return &ValidationError{Name: "subscription_quota_snapshot_version", err: errors.New(`ent: missing required field "RedeemCode.subscription_quota_snapshot_version"`)}
+	}
+	if v, ok := _c.mutation.FiveHourLimitUsd(); ok {
+		if err := redeemcode.FiveHourLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "five_hour_limit_usd", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.five_hour_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.SevenDayLimitUsd(); ok {
+		if err := redeemcode.SevenDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "seven_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.seven_day_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.ThirtyDayLimitUsd(); ok {
+		if err := redeemcode.ThirtyDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "thirty_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.thirty_day_limit_usd": %w`, err)}
+		}
 	}
 	return nil
 }
@@ -349,6 +447,22 @@ func (_c *RedeemCodeCreate) createSpec() (*RedeemCode, *sqlgraph.CreateSpec) {
 		_spec.SetField(redeemcode.FieldValidityDays, field.TypeInt, value)
 		_node.ValidityDays = value
 	}
+	if value, ok := _c.mutation.SubscriptionQuotaSnapshotVersion(); ok {
+		_spec.SetField(redeemcode.FieldSubscriptionQuotaSnapshotVersion, field.TypeInt, value)
+		_node.SubscriptionQuotaSnapshotVersion = value
+	}
+	if value, ok := _c.mutation.FiveHourLimitUsd(); ok {
+		_spec.SetField(redeemcode.FieldFiveHourLimitUsd, field.TypeFloat64, value)
+		_node.FiveHourLimitUsd = &value
+	}
+	if value, ok := _c.mutation.SevenDayLimitUsd(); ok {
+		_spec.SetField(redeemcode.FieldSevenDayLimitUsd, field.TypeFloat64, value)
+		_node.SevenDayLimitUsd = &value
+	}
+	if value, ok := _c.mutation.ThirtyDayLimitUsd(); ok {
+		_spec.SetField(redeemcode.FieldThirtyDayLimitUsd, field.TypeFloat64, value)
+		_node.ThirtyDayLimitUsd = &value
+	}
 	if nodes := _c.mutation.UserIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -381,6 +495,23 @@ func (_c *RedeemCodeCreate) createSpec() (*RedeemCode, *sqlgraph.CreateSpec) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.GroupID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.SubscriptionPlanIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   redeemcode.SubscriptionPlanTable,
+			Columns: []string{redeemcode.SubscriptionPlanColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subscriptionplan.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.SubscriptionPlanID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec
@@ -594,6 +725,114 @@ func (u *RedeemCodeUpsert) UpdateValidityDays() *RedeemCodeUpsert {
 // AddValidityDays adds v to the "validity_days" field.
 func (u *RedeemCodeUpsert) AddValidityDays(v int) *RedeemCodeUpsert {
 	u.Add(redeemcode.FieldValidityDays, v)
+	return u
+}
+
+// SetSubscriptionPlanID sets the "subscription_plan_id" field.
+func (u *RedeemCodeUpsert) SetSubscriptionPlanID(v int64) *RedeemCodeUpsert {
+	u.Set(redeemcode.FieldSubscriptionPlanID, v)
+	return u
+}
+
+// UpdateSubscriptionPlanID sets the "subscription_plan_id" field to the value that was provided on create.
+func (u *RedeemCodeUpsert) UpdateSubscriptionPlanID() *RedeemCodeUpsert {
+	u.SetExcluded(redeemcode.FieldSubscriptionPlanID)
+	return u
+}
+
+// ClearSubscriptionPlanID clears the value of the "subscription_plan_id" field.
+func (u *RedeemCodeUpsert) ClearSubscriptionPlanID() *RedeemCodeUpsert {
+	u.SetNull(redeemcode.FieldSubscriptionPlanID)
+	return u
+}
+
+// SetSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field.
+func (u *RedeemCodeUpsert) SetSubscriptionQuotaSnapshotVersion(v int) *RedeemCodeUpsert {
+	u.Set(redeemcode.FieldSubscriptionQuotaSnapshotVersion, v)
+	return u
+}
+
+// UpdateSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field to the value that was provided on create.
+func (u *RedeemCodeUpsert) UpdateSubscriptionQuotaSnapshotVersion() *RedeemCodeUpsert {
+	u.SetExcluded(redeemcode.FieldSubscriptionQuotaSnapshotVersion)
+	return u
+}
+
+// AddSubscriptionQuotaSnapshotVersion adds v to the "subscription_quota_snapshot_version" field.
+func (u *RedeemCodeUpsert) AddSubscriptionQuotaSnapshotVersion(v int) *RedeemCodeUpsert {
+	u.Add(redeemcode.FieldSubscriptionQuotaSnapshotVersion, v)
+	return u
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (u *RedeemCodeUpsert) SetFiveHourLimitUsd(v float64) *RedeemCodeUpsert {
+	u.Set(redeemcode.FieldFiveHourLimitUsd, v)
+	return u
+}
+
+// UpdateFiveHourLimitUsd sets the "five_hour_limit_usd" field to the value that was provided on create.
+func (u *RedeemCodeUpsert) UpdateFiveHourLimitUsd() *RedeemCodeUpsert {
+	u.SetExcluded(redeemcode.FieldFiveHourLimitUsd)
+	return u
+}
+
+// AddFiveHourLimitUsd adds v to the "five_hour_limit_usd" field.
+func (u *RedeemCodeUpsert) AddFiveHourLimitUsd(v float64) *RedeemCodeUpsert {
+	u.Add(redeemcode.FieldFiveHourLimitUsd, v)
+	return u
+}
+
+// ClearFiveHourLimitUsd clears the value of the "five_hour_limit_usd" field.
+func (u *RedeemCodeUpsert) ClearFiveHourLimitUsd() *RedeemCodeUpsert {
+	u.SetNull(redeemcode.FieldFiveHourLimitUsd)
+	return u
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (u *RedeemCodeUpsert) SetSevenDayLimitUsd(v float64) *RedeemCodeUpsert {
+	u.Set(redeemcode.FieldSevenDayLimitUsd, v)
+	return u
+}
+
+// UpdateSevenDayLimitUsd sets the "seven_day_limit_usd" field to the value that was provided on create.
+func (u *RedeemCodeUpsert) UpdateSevenDayLimitUsd() *RedeemCodeUpsert {
+	u.SetExcluded(redeemcode.FieldSevenDayLimitUsd)
+	return u
+}
+
+// AddSevenDayLimitUsd adds v to the "seven_day_limit_usd" field.
+func (u *RedeemCodeUpsert) AddSevenDayLimitUsd(v float64) *RedeemCodeUpsert {
+	u.Add(redeemcode.FieldSevenDayLimitUsd, v)
+	return u
+}
+
+// ClearSevenDayLimitUsd clears the value of the "seven_day_limit_usd" field.
+func (u *RedeemCodeUpsert) ClearSevenDayLimitUsd() *RedeemCodeUpsert {
+	u.SetNull(redeemcode.FieldSevenDayLimitUsd)
+	return u
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (u *RedeemCodeUpsert) SetThirtyDayLimitUsd(v float64) *RedeemCodeUpsert {
+	u.Set(redeemcode.FieldThirtyDayLimitUsd, v)
+	return u
+}
+
+// UpdateThirtyDayLimitUsd sets the "thirty_day_limit_usd" field to the value that was provided on create.
+func (u *RedeemCodeUpsert) UpdateThirtyDayLimitUsd() *RedeemCodeUpsert {
+	u.SetExcluded(redeemcode.FieldThirtyDayLimitUsd)
+	return u
+}
+
+// AddThirtyDayLimitUsd adds v to the "thirty_day_limit_usd" field.
+func (u *RedeemCodeUpsert) AddThirtyDayLimitUsd(v float64) *RedeemCodeUpsert {
+	u.Add(redeemcode.FieldThirtyDayLimitUsd, v)
+	return u
+}
+
+// ClearThirtyDayLimitUsd clears the value of the "thirty_day_limit_usd" field.
+func (u *RedeemCodeUpsert) ClearThirtyDayLimitUsd() *RedeemCodeUpsert {
+	u.SetNull(redeemcode.FieldThirtyDayLimitUsd)
 	return u
 }
 
@@ -828,6 +1067,132 @@ func (u *RedeemCodeUpsertOne) AddValidityDays(v int) *RedeemCodeUpsertOne {
 func (u *RedeemCodeUpsertOne) UpdateValidityDays() *RedeemCodeUpsertOne {
 	return u.Update(func(s *RedeemCodeUpsert) {
 		s.UpdateValidityDays()
+	})
+}
+
+// SetSubscriptionPlanID sets the "subscription_plan_id" field.
+func (u *RedeemCodeUpsertOne) SetSubscriptionPlanID(v int64) *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.SetSubscriptionPlanID(v)
+	})
+}
+
+// UpdateSubscriptionPlanID sets the "subscription_plan_id" field to the value that was provided on create.
+func (u *RedeemCodeUpsertOne) UpdateSubscriptionPlanID() *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.UpdateSubscriptionPlanID()
+	})
+}
+
+// ClearSubscriptionPlanID clears the value of the "subscription_plan_id" field.
+func (u *RedeemCodeUpsertOne) ClearSubscriptionPlanID() *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.ClearSubscriptionPlanID()
+	})
+}
+
+// SetSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field.
+func (u *RedeemCodeUpsertOne) SetSubscriptionQuotaSnapshotVersion(v int) *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.SetSubscriptionQuotaSnapshotVersion(v)
+	})
+}
+
+// AddSubscriptionQuotaSnapshotVersion adds v to the "subscription_quota_snapshot_version" field.
+func (u *RedeemCodeUpsertOne) AddSubscriptionQuotaSnapshotVersion(v int) *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.AddSubscriptionQuotaSnapshotVersion(v)
+	})
+}
+
+// UpdateSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field to the value that was provided on create.
+func (u *RedeemCodeUpsertOne) UpdateSubscriptionQuotaSnapshotVersion() *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.UpdateSubscriptionQuotaSnapshotVersion()
+	})
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (u *RedeemCodeUpsertOne) SetFiveHourLimitUsd(v float64) *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.SetFiveHourLimitUsd(v)
+	})
+}
+
+// AddFiveHourLimitUsd adds v to the "five_hour_limit_usd" field.
+func (u *RedeemCodeUpsertOne) AddFiveHourLimitUsd(v float64) *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.AddFiveHourLimitUsd(v)
+	})
+}
+
+// UpdateFiveHourLimitUsd sets the "five_hour_limit_usd" field to the value that was provided on create.
+func (u *RedeemCodeUpsertOne) UpdateFiveHourLimitUsd() *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.UpdateFiveHourLimitUsd()
+	})
+}
+
+// ClearFiveHourLimitUsd clears the value of the "five_hour_limit_usd" field.
+func (u *RedeemCodeUpsertOne) ClearFiveHourLimitUsd() *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.ClearFiveHourLimitUsd()
+	})
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (u *RedeemCodeUpsertOne) SetSevenDayLimitUsd(v float64) *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.SetSevenDayLimitUsd(v)
+	})
+}
+
+// AddSevenDayLimitUsd adds v to the "seven_day_limit_usd" field.
+func (u *RedeemCodeUpsertOne) AddSevenDayLimitUsd(v float64) *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.AddSevenDayLimitUsd(v)
+	})
+}
+
+// UpdateSevenDayLimitUsd sets the "seven_day_limit_usd" field to the value that was provided on create.
+func (u *RedeemCodeUpsertOne) UpdateSevenDayLimitUsd() *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.UpdateSevenDayLimitUsd()
+	})
+}
+
+// ClearSevenDayLimitUsd clears the value of the "seven_day_limit_usd" field.
+func (u *RedeemCodeUpsertOne) ClearSevenDayLimitUsd() *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.ClearSevenDayLimitUsd()
+	})
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (u *RedeemCodeUpsertOne) SetThirtyDayLimitUsd(v float64) *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.SetThirtyDayLimitUsd(v)
+	})
+}
+
+// AddThirtyDayLimitUsd adds v to the "thirty_day_limit_usd" field.
+func (u *RedeemCodeUpsertOne) AddThirtyDayLimitUsd(v float64) *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.AddThirtyDayLimitUsd(v)
+	})
+}
+
+// UpdateThirtyDayLimitUsd sets the "thirty_day_limit_usd" field to the value that was provided on create.
+func (u *RedeemCodeUpsertOne) UpdateThirtyDayLimitUsd() *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.UpdateThirtyDayLimitUsd()
+	})
+}
+
+// ClearThirtyDayLimitUsd clears the value of the "thirty_day_limit_usd" field.
+func (u *RedeemCodeUpsertOne) ClearThirtyDayLimitUsd() *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.ClearThirtyDayLimitUsd()
 	})
 }
 
@@ -1228,6 +1593,132 @@ func (u *RedeemCodeUpsertBulk) AddValidityDays(v int) *RedeemCodeUpsertBulk {
 func (u *RedeemCodeUpsertBulk) UpdateValidityDays() *RedeemCodeUpsertBulk {
 	return u.Update(func(s *RedeemCodeUpsert) {
 		s.UpdateValidityDays()
+	})
+}
+
+// SetSubscriptionPlanID sets the "subscription_plan_id" field.
+func (u *RedeemCodeUpsertBulk) SetSubscriptionPlanID(v int64) *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.SetSubscriptionPlanID(v)
+	})
+}
+
+// UpdateSubscriptionPlanID sets the "subscription_plan_id" field to the value that was provided on create.
+func (u *RedeemCodeUpsertBulk) UpdateSubscriptionPlanID() *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.UpdateSubscriptionPlanID()
+	})
+}
+
+// ClearSubscriptionPlanID clears the value of the "subscription_plan_id" field.
+func (u *RedeemCodeUpsertBulk) ClearSubscriptionPlanID() *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.ClearSubscriptionPlanID()
+	})
+}
+
+// SetSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field.
+func (u *RedeemCodeUpsertBulk) SetSubscriptionQuotaSnapshotVersion(v int) *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.SetSubscriptionQuotaSnapshotVersion(v)
+	})
+}
+
+// AddSubscriptionQuotaSnapshotVersion adds v to the "subscription_quota_snapshot_version" field.
+func (u *RedeemCodeUpsertBulk) AddSubscriptionQuotaSnapshotVersion(v int) *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.AddSubscriptionQuotaSnapshotVersion(v)
+	})
+}
+
+// UpdateSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field to the value that was provided on create.
+func (u *RedeemCodeUpsertBulk) UpdateSubscriptionQuotaSnapshotVersion() *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.UpdateSubscriptionQuotaSnapshotVersion()
+	})
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (u *RedeemCodeUpsertBulk) SetFiveHourLimitUsd(v float64) *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.SetFiveHourLimitUsd(v)
+	})
+}
+
+// AddFiveHourLimitUsd adds v to the "five_hour_limit_usd" field.
+func (u *RedeemCodeUpsertBulk) AddFiveHourLimitUsd(v float64) *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.AddFiveHourLimitUsd(v)
+	})
+}
+
+// UpdateFiveHourLimitUsd sets the "five_hour_limit_usd" field to the value that was provided on create.
+func (u *RedeemCodeUpsertBulk) UpdateFiveHourLimitUsd() *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.UpdateFiveHourLimitUsd()
+	})
+}
+
+// ClearFiveHourLimitUsd clears the value of the "five_hour_limit_usd" field.
+func (u *RedeemCodeUpsertBulk) ClearFiveHourLimitUsd() *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.ClearFiveHourLimitUsd()
+	})
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (u *RedeemCodeUpsertBulk) SetSevenDayLimitUsd(v float64) *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.SetSevenDayLimitUsd(v)
+	})
+}
+
+// AddSevenDayLimitUsd adds v to the "seven_day_limit_usd" field.
+func (u *RedeemCodeUpsertBulk) AddSevenDayLimitUsd(v float64) *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.AddSevenDayLimitUsd(v)
+	})
+}
+
+// UpdateSevenDayLimitUsd sets the "seven_day_limit_usd" field to the value that was provided on create.
+func (u *RedeemCodeUpsertBulk) UpdateSevenDayLimitUsd() *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.UpdateSevenDayLimitUsd()
+	})
+}
+
+// ClearSevenDayLimitUsd clears the value of the "seven_day_limit_usd" field.
+func (u *RedeemCodeUpsertBulk) ClearSevenDayLimitUsd() *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.ClearSevenDayLimitUsd()
+	})
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (u *RedeemCodeUpsertBulk) SetThirtyDayLimitUsd(v float64) *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.SetThirtyDayLimitUsd(v)
+	})
+}
+
+// AddThirtyDayLimitUsd adds v to the "thirty_day_limit_usd" field.
+func (u *RedeemCodeUpsertBulk) AddThirtyDayLimitUsd(v float64) *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.AddThirtyDayLimitUsd(v)
+	})
+}
+
+// UpdateThirtyDayLimitUsd sets the "thirty_day_limit_usd" field to the value that was provided on create.
+func (u *RedeemCodeUpsertBulk) UpdateThirtyDayLimitUsd() *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.UpdateThirtyDayLimitUsd()
+	})
+}
+
+// ClearThirtyDayLimitUsd clears the value of the "thirty_day_limit_usd" field.
+func (u *RedeemCodeUpsertBulk) ClearThirtyDayLimitUsd() *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.ClearThirtyDayLimitUsd()
 	})
 }
 

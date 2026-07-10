@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
+	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 )
 
@@ -41,6 +42,16 @@ type RedeemCode struct {
 	GroupID *int64 `json:"group_id,omitempty"`
 	// ValidityDays holds the value of the "validity_days" field.
 	ValidityDays int `json:"validity_days,omitempty"`
+	// SubscriptionPlanID holds the value of the "subscription_plan_id" field.
+	SubscriptionPlanID *int64 `json:"subscription_plan_id,omitempty"`
+	// SubscriptionQuotaSnapshotVersion holds the value of the "subscription_quota_snapshot_version" field.
+	SubscriptionQuotaSnapshotVersion int `json:"subscription_quota_snapshot_version,omitempty"`
+	// FiveHourLimitUsd holds the value of the "five_hour_limit_usd" field.
+	FiveHourLimitUsd *float64 `json:"five_hour_limit_usd,omitempty"`
+	// SevenDayLimitUsd holds the value of the "seven_day_limit_usd" field.
+	SevenDayLimitUsd *float64 `json:"seven_day_limit_usd,omitempty"`
+	// ThirtyDayLimitUsd holds the value of the "thirty_day_limit_usd" field.
+	ThirtyDayLimitUsd *float64 `json:"thirty_day_limit_usd,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the RedeemCodeQuery when eager-loading is set.
 	Edges        RedeemCodeEdges `json:"edges"`
@@ -53,9 +64,11 @@ type RedeemCodeEdges struct {
 	User *User `json:"user,omitempty"`
 	// Group holds the value of the group edge.
 	Group *Group `json:"group,omitempty"`
+	// SubscriptionPlan holds the value of the subscription_plan edge.
+	SubscriptionPlan *SubscriptionPlan `json:"subscription_plan,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
 }
 
 // UserOrErr returns the User value or an error if the edge
@@ -80,14 +93,25 @@ func (e RedeemCodeEdges) GroupOrErr() (*Group, error) {
 	return nil, &NotLoadedError{edge: "group"}
 }
 
+// SubscriptionPlanOrErr returns the SubscriptionPlan value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e RedeemCodeEdges) SubscriptionPlanOrErr() (*SubscriptionPlan, error) {
+	if e.SubscriptionPlan != nil {
+		return e.SubscriptionPlan, nil
+	} else if e.loadedTypes[2] {
+		return nil, &NotFoundError{label: subscriptionplan.Label}
+	}
+	return nil, &NotLoadedError{edge: "subscription_plan"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*RedeemCode) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case redeemcode.FieldValue:
+		case redeemcode.FieldValue, redeemcode.FieldFiveHourLimitUsd, redeemcode.FieldSevenDayLimitUsd, redeemcode.FieldThirtyDayLimitUsd:
 			values[i] = new(sql.NullFloat64)
-		case redeemcode.FieldID, redeemcode.FieldUsedBy, redeemcode.FieldGroupID, redeemcode.FieldValidityDays:
+		case redeemcode.FieldID, redeemcode.FieldUsedBy, redeemcode.FieldGroupID, redeemcode.FieldValidityDays, redeemcode.FieldSubscriptionPlanID, redeemcode.FieldSubscriptionQuotaSnapshotVersion:
 			values[i] = new(sql.NullInt64)
 		case redeemcode.FieldCode, redeemcode.FieldType, redeemcode.FieldStatus, redeemcode.FieldNotes:
 			values[i] = new(sql.NullString)
@@ -185,6 +209,40 @@ func (_m *RedeemCode) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.ValidityDays = int(value.Int64)
 			}
+		case redeemcode.FieldSubscriptionPlanID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field subscription_plan_id", values[i])
+			} else if value.Valid {
+				_m.SubscriptionPlanID = new(int64)
+				*_m.SubscriptionPlanID = value.Int64
+			}
+		case redeemcode.FieldSubscriptionQuotaSnapshotVersion:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field subscription_quota_snapshot_version", values[i])
+			} else if value.Valid {
+				_m.SubscriptionQuotaSnapshotVersion = int(value.Int64)
+			}
+		case redeemcode.FieldFiveHourLimitUsd:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field five_hour_limit_usd", values[i])
+			} else if value.Valid {
+				_m.FiveHourLimitUsd = new(float64)
+				*_m.FiveHourLimitUsd = value.Float64
+			}
+		case redeemcode.FieldSevenDayLimitUsd:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field seven_day_limit_usd", values[i])
+			} else if value.Valid {
+				_m.SevenDayLimitUsd = new(float64)
+				*_m.SevenDayLimitUsd = value.Float64
+			}
+		case redeemcode.FieldThirtyDayLimitUsd:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field thirty_day_limit_usd", values[i])
+			} else if value.Valid {
+				_m.ThirtyDayLimitUsd = new(float64)
+				*_m.ThirtyDayLimitUsd = value.Float64
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -206,6 +264,11 @@ func (_m *RedeemCode) QueryUser() *UserQuery {
 // QueryGroup queries the "group" edge of the RedeemCode entity.
 func (_m *RedeemCode) QueryGroup() *GroupQuery {
 	return NewRedeemCodeClient(_m.config).QueryGroup(_m)
+}
+
+// QuerySubscriptionPlan queries the "subscription_plan" edge of the RedeemCode entity.
+func (_m *RedeemCode) QuerySubscriptionPlan() *SubscriptionPlanQuery {
+	return NewRedeemCodeClient(_m.config).QuerySubscriptionPlan(_m)
 }
 
 // Update returns a builder for updating this RedeemCode.
@@ -273,6 +336,29 @@ func (_m *RedeemCode) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("validity_days=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ValidityDays))
+	builder.WriteString(", ")
+	if v := _m.SubscriptionPlanID; v != nil {
+		builder.WriteString("subscription_plan_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("subscription_quota_snapshot_version=")
+	builder.WriteString(fmt.Sprintf("%v", _m.SubscriptionQuotaSnapshotVersion))
+	builder.WriteString(", ")
+	if v := _m.FiveHourLimitUsd; v != nil {
+		builder.WriteString("five_hour_limit_usd=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.SevenDayLimitUsd; v != nil {
+		builder.WriteString("seven_day_limit_usd=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.ThirtyDayLimitUsd; v != nil {
+		builder.WriteString("thirty_day_limit_usd=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteByte(')')
 	return builder.String()
 }

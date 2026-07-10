@@ -986,7 +986,10 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 
 	// Get available models from account configurations for the selected group platform.
-	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+	var availableModels []string
+	if h != nil && h.gatewayService != nil {
+		availableModels = h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+	}
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 		availableModels = filterModelsByCustomList(availableModels, defaultModelIDsForPlatform(platform), apiKey.Group.ModelsListConfig.Models)
 		writeCustomModelsList(c, platform, availableModels)
@@ -1012,6 +1015,11 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 			"object": "list",
 			"data":   geminicli.DefaultModels,
 		})
+		return
+	}
+
+	if platform == service.PlatformOpenCodeGo {
+		writeModelsList(c, service.OpenCodeGoDefaultModelIDs())
 		return
 	}
 
@@ -1133,6 +1141,8 @@ func defaultModelIDsForPlatform(platform string) []string {
 			ids = append(ids, model.ID)
 		}
 		return ids
+	case service.PlatformOpenCodeGo:
+		return service.OpenCodeGoDefaultModelIDs()
 	case service.PlatformAntigravity:
 		models := antigravity.DefaultModels()
 		ids := make([]string, 0, len(models))
@@ -1149,13 +1159,39 @@ func defaultModelIDsForPlatform(platform string) []string {
 	}
 }
 
-// AntigravityModels 返回 Antigravity 支持的全部模型
+const antigravityClaudeModelsMappingMessage = "No Claude-compatible Antigravity model_mapping configured. Please ask the administrator to configure model mappings."
+
+// AntigravityModels returns Claude-compatible Antigravity models from explicit model_mapping.
 // GET /antigravity/models
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
+	var modelIDs []string
+	if h != nil && h.gatewayService != nil {
+		modelIDs = h.gatewayService.GetAntigravityMappedModels(c.Request.Context(), apiKeyGroupIDFromContext(c), service.AntigravityModelsProtocolClaude)
+	}
+	if len(modelIDs) > 0 {
+		writeModelsList(c, modelIDs)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   antigravity.DefaultModels(),
+		"object":  "list",
+		"data":    []claude.Model{},
+		"message": antigravityClaudeModelsMappingMessage,
 	})
+}
+
+func apiKeyGroupIDFromContext(c *gin.Context) *int64 {
+	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil {
+		return nil
+	}
+	if apiKey.GroupID != nil {
+		return apiKey.GroupID
+	}
+	if apiKey.Group != nil {
+		groupID := apiKey.Group.ID
+		return &groupID
+	}
+	return nil
 }
 
 func cloneAPIKeyWithGroup(apiKey *service.APIKey, group *service.Group) *service.APIKey {
@@ -1395,17 +1431,9 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 		// 订阅信息可能不在 context 中（/v1/usage 路径跳过了中间件的计费检查）
 		subscription, ok := middleware2.GetSubscriptionFromContext(c)
 		if ok {
-			remaining := h.calculateSubscriptionRemaining(apiKey.Group, subscription)
+			remaining := h.calculateSubscriptionRollingRemaining(subscription)
 			resp["remaining"] = remaining
-			resp["subscription"] = gin.H{
-				"daily_usage_usd":   subscription.DailyUsageUSD,
-				"weekly_usage_usd":  subscription.WeeklyUsageUSD,
-				"monthly_usage_usd": subscription.MonthlyUsageUSD,
-				"daily_limit_usd":   apiKey.Group.DailyLimitUSD,
-				"weekly_limit_usd":  apiKey.Group.WeeklyLimitUSD,
-				"monthly_limit_usd": apiKey.Group.MonthlyLimitUSD,
-				"expires_at":        subscription.ExpiresAt,
-			}
+			resp["subscription"] = h.buildSubscriptionUsagePayload(apiKey.Group, subscription)
 		}
 
 		if usageData != nil {
@@ -1448,46 +1476,88 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 	c.JSON(http.StatusOK, resp)
 }
 
-// calculateSubscriptionRemaining 计算订阅剩余可用额度
-// 逻辑：
-// 1. 如果日/周/月任一限额达到100%，返回0
-// 2. 否则返回所有已配置周期中剩余额度的最小值
-func (h *GatewayHandler) calculateSubscriptionRemaining(group *service.Group, sub *service.UserSubscription) float64 {
+func (h *GatewayHandler) buildSubscriptionUsagePayload(group *service.Group, sub *service.UserSubscription) gin.H {
+	displaySub := *sub
+	service.NormalizeSubscriptionWindowsForDisplay(&displaySub)
+	sub = &displaySub
+
+	payload := gin.H{
+		"daily_usage_usd":      sub.DailyUsageUSD,
+		"weekly_usage_usd":     sub.WeeklyUsageUSD,
+		"monthly_usage_usd":    sub.MonthlyUsageUSD,
+		"five_hour_limit_usd":  sub.FiveHourLimitUSD,
+		"seven_day_limit_usd":  sub.SevenDayLimitUSD,
+		"thirty_day_limit_usd": sub.ThirtyDayLimitUSD,
+		"five_hour_usage_usd":  sub.FiveHourUsageUSD,
+		"seven_day_usage_usd":  sub.SevenDayUsageUSD,
+		"thirty_day_usage_usd": sub.ThirtyDayUsageUSD,
+		"expires_at":           sub.ExpiresAt,
+	}
+
+	if group != nil {
+		payload["daily_limit_usd"] = group.DailyLimitUSD
+		payload["weekly_limit_usd"] = group.WeeklyLimitUSD
+		payload["monthly_limit_usd"] = group.MonthlyLimitUSD
+	}
+
+	addSubscriptionWindowPayload(payload, "five_hour", sub.FiveHourWindowStart, service.SubscriptionWindowFiveHour, sub.ExpiresAt)
+	addSubscriptionWindowPayload(payload, "seven_day", sub.SevenDayWindowStart, service.SubscriptionWindowSevenDay, sub.ExpiresAt)
+	addSubscriptionWindowPayload(payload, "thirty_day", sub.ThirtyDayWindowStart, service.SubscriptionWindowThirtyDay, sub.ExpiresAt)
+
+	return payload
+}
+
+func addSubscriptionWindowPayload(payload gin.H, prefix string, start *time.Time, duration time.Duration, expiresAt time.Time) {
+	payload[prefix+"_window_start"] = start
+	if start == nil {
+		payload[prefix+"_window_end"] = nil
+		payload[prefix+"_window_resets_at"] = nil
+		return
+	}
+
+	end := start.Add(duration)
+	if !expiresAt.IsZero() && expiresAt.Before(end) {
+		end = expiresAt
+	}
+	payload[prefix+"_window_end"] = end
+	payload[prefix+"_window_resets_at"] = end
+}
+
+func (h *GatewayHandler) calculateSubscriptionRollingRemaining(sub *service.UserSubscription) float64 {
+	if sub == nil {
+		return -1
+	}
+	displaySub := *sub
+	service.NormalizeSubscriptionWindowsForDisplay(&displaySub)
+	sub = &displaySub
+
 	var remainingValues []float64
 
-	// 检查日限额
-	if group.HasDailyLimit() {
-		remaining := *group.DailyLimitUSD - sub.DailyUsageUSD
+	for _, window := range []struct {
+		limit *float64
+		used  float64
+	}{
+		{sub.FiveHourLimitUSD, sub.FiveHourUsageUSD},
+		{sub.SevenDayLimitUSD, sub.SevenDayUsageUSD},
+		{sub.ThirtyDayLimitUSD, sub.ThirtyDayUsageUSD},
+	} {
+		if window.limit == nil {
+			continue
+		}
+		if *window.limit <= 0 {
+			return 0
+		}
+		remaining := *window.limit - window.used
 		if remaining <= 0 {
 			return 0
 		}
 		remainingValues = append(remainingValues, remaining)
 	}
 
-	// 检查周限额
-	if group.HasWeeklyLimit() {
-		remaining := *group.WeeklyLimitUSD - sub.WeeklyUsageUSD
-		if remaining <= 0 {
-			return 0
-		}
-		remainingValues = append(remainingValues, remaining)
-	}
-
-	// 检查月限额
-	if group.HasMonthlyLimit() {
-		remaining := *group.MonthlyLimitUSD - sub.MonthlyUsageUSD
-		if remaining <= 0 {
-			return 0
-		}
-		remainingValues = append(remainingValues, remaining)
-	}
-
-	// 如果没有配置任何限额，返回-1表示无限制
 	if len(remainingValues) == 0 {
 		return -1
 	}
 
-	// 返回最小值
 	min := remainingValues[0]
 	for _, v := range remainingValues[1:] {
 		if v < min {
@@ -2030,6 +2100,12 @@ func billingErrorDetails(err error) (status int, code, message string, retryAfte
 		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, 0
 	}
 	if errors.Is(err, service.ErrAPIKeyRateLimit7dExceeded) {
+		msg := pkgerrors.Message(err)
+		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, 0
+	}
+	if errors.Is(err, service.ErrFiveHourLimitExceeded) ||
+		errors.Is(err, service.ErrSevenDayLimitExceeded) ||
+		errors.Is(err, service.ErrThirtyDayLimitExceeded) {
 		msg := pkgerrors.Message(err)
 		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, 0
 	}

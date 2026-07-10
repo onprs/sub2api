@@ -489,6 +489,32 @@ func TestSupportedModels_ExactKeysAndPricing(t *testing.T) {
 	require.Equal(t, int64(10), got[1].Pricing.ID)
 }
 
+func TestSupportedModels_ChannelPricingSource(t *testing.T) {
+	ch := &Channel{
+		ModelPricing: []ChannelModelPricing{
+			{ID: 10, Platform: "anthropic", Models: []string{"claude-sonnet-4-6"}, InputPrice: testPtrFloat64(3e-6)},
+		},
+	}
+
+	got := ch.SupportedModels()
+	require.Len(t, got, 1)
+	require.Equal(t, PricingSourceChannel, got[0].PricingSource)
+	require.NotNil(t, got[0].Pricing)
+}
+
+func TestSupportedModels_MissingPricingSource(t *testing.T) {
+	ch := &Channel{
+		ModelMapping: map[string]map[string]string{
+			"anthropic": {"claude-sonnet-4-6": "claude-sonnet-4-6"},
+		},
+	}
+
+	got := ch.SupportedModels()
+	require.Len(t, got, 1)
+	require.Equal(t, PricingSourceMissing, got[0].PricingSource)
+	require.Nil(t, got[0].Pricing)
+}
+
 func TestSupportedModels_WildcardExpandedFromPricing(t *testing.T) {
 	ch := &Channel{
 		ModelPricing: []ChannelModelPricing{
@@ -512,7 +538,6 @@ func TestSupportedModels_WildcardExpandedFromPricing(t *testing.T) {
 		require.NotContains(t, m.Name, "*")
 	}
 }
-
 
 func TestSupportedModels_MissingPricingKeepsNilPricing(t *testing.T) {
 	ch := &Channel{

@@ -84,8 +84,7 @@ func TestCreateOrderInTx_WritesProviderSnapshot(t *testing.T) {
 			MaxPendingOrders: 3,
 			OrderTimeoutMin:  30,
 		},
-		88,
-		88,
+		subscriptionOrderPricing{EffectivePrice: 88},
 		0,
 		88,
 		&payment.InstanceSelection{
@@ -109,6 +108,70 @@ func TestCreateOrderInTx_WritesProviderSnapshot(t *testing.T) {
 	require.NotContains(t, order.ProviderSnapshot, "secretKey")
 	require.NotContains(t, order.ProviderSnapshot, "supported_types")
 	require.NotContains(t, order.ProviderSnapshot, "instance_name")
+}
+
+func TestCreateOrderInTx_WritesSubscriptionQuotaSnapshot(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+
+	user, err := client.User.Create().
+		SetEmail("sub-snapshot@example.com").
+		SetPasswordHash("hash").
+		SetUsername("sub-snapshot-user").
+		Save(ctx)
+	require.NoError(t, err)
+
+	group, err := client.Group.Create().
+		SetName("sub-snapshot-group").
+		SetPlatform(PlatformAnthropic).
+		SetSubscriptionType(SubscriptionTypeSubscription).
+		Save(ctx)
+	require.NoError(t, err)
+
+	fiveHour := 1.25
+	thirtyDay := 30.0
+	plan, err := client.SubscriptionPlan.Create().
+		SetGroupID(group.ID).
+		SetName("Snapshot Plan").
+		SetPrice(9.9).
+		SetValidityDays(2).
+		SetValidityUnit("week").
+		SetFiveHourLimitUsd(fiveHour).
+		SetThirtyDayLimitUsd(thirtyDay).
+		Save(ctx)
+	require.NoError(t, err)
+
+	svc := &PaymentService{entClient: client}
+	order, err := svc.createOrderInTx(
+		ctx,
+		CreateOrderRequest{
+			UserID:      user.ID,
+			PaymentType: payment.TypeAlipay,
+			OrderType:   payment.OrderTypeSubscription,
+			ClientIP:    "127.0.0.1",
+			SrcHost:     "app.example.com",
+		},
+		&User{
+			ID:       user.ID,
+			Email:    user.Email,
+			Username: user.Username,
+		},
+		plan,
+		&PaymentConfig{MaxPendingOrders: 3, OrderTimeoutMin: 30},
+		subscriptionOrderPricing{PlanPrice: plan.Price, EffectivePrice: plan.Price},
+		0,
+		plan.Price,
+		nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t, 1, order.SubscriptionQuotaSnapshotVersion)
+	require.NotNil(t, order.SubscriptionDays)
+	require.Equal(t, 14, *order.SubscriptionDays)
+	require.NotNil(t, order.SubscriptionFiveHourLimitUsd)
+	require.Equal(t, fiveHour, *order.SubscriptionFiveHourLimitUsd)
+	require.Nil(t, order.SubscriptionSevenDayLimitUsd)
+	require.NotNil(t, order.SubscriptionThirtyDayLimitUsd)
+	require.Equal(t, thirtyDay, *order.SubscriptionThirtyDayLimitUsd)
 }
 
 func TestBuildPaymentOrderProviderSnapshot_UsesWxpayJSAPIAppIDForOpenIDOrders(t *testing.T) {

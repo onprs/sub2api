@@ -37,6 +37,9 @@ func (UserSubscription) Fields() []ent.Field {
 	return []ent.Field{
 		field.Int64("user_id"),
 		field.Int64("group_id"),
+		field.Int64("plan_id").
+			Optional().
+			Nillable(),
 
 		field.Time("starts_at").
 			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
@@ -45,6 +48,22 @@ func (UserSubscription) Fields() []ent.Field {
 		field.String("status").
 			MaxLen(20).
 			Default(domain.SubscriptionStatusActive),
+
+		field.Float("five_hour_limit_usd").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Validate(validateNonNegativeFloat("five_hour_limit_usd")).
+			Optional().
+			Nillable(),
+		field.Float("seven_day_limit_usd").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Validate(validateNonNegativeFloat("seven_day_limit_usd")).
+			Optional().
+			Nillable(),
+		field.Float("thirty_day_limit_usd").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Validate(validateNonNegativeFloat("thirty_day_limit_usd")).
+			Optional().
+			Nillable(),
 
 		field.Time("daily_window_start").
 			Optional().
@@ -58,6 +77,18 @@ func (UserSubscription) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
+		field.Time("five_hour_window_start").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
+		field.Time("seven_day_window_start").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
+		field.Time("thirty_day_window_start").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
 
 		field.Float("daily_usage_usd").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
@@ -66,6 +97,15 @@ func (UserSubscription) Fields() []ent.Field {
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
 			Default(0),
 		field.Float("monthly_usage_usd").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
+			Default(0),
+		field.Float("five_hour_usage_usd").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
+			Default(0),
+		field.Float("seven_day_usage_usd").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
+			Default(0),
+		field.Float("thirty_day_usage_usd").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
 			Default(0),
 
@@ -94,6 +134,10 @@ func (UserSubscription) Edges() []ent.Edge {
 			Field("group_id").
 			Unique().
 			Required(),
+		edge.From("plan", SubscriptionPlan.Type).
+			Ref("user_subscriptions").
+			Field("plan_id").
+			Unique(),
 		edge.From("assigned_by_user", User.Type).
 			Ref("assigned_subscriptions").
 			Field("assigned_by").
@@ -106,14 +150,16 @@ func (UserSubscription) Indexes() []ent.Index {
 	return []ent.Index{
 		index.Fields("user_id"),
 		index.Fields("group_id"),
+		index.Fields("plan_id"),
 		index.Fields("status"),
 		index.Fields("expires_at"),
 		// 活跃订阅查询复合索引（线上由 SQL 迁移创建部分索引，schema 仅用于模型可读性对齐）
 		index.Fields("user_id", "status", "expires_at"),
 		index.Fields("assigned_by"),
 		// 唯一约束通过部分索引实现（WHERE deleted_at IS NULL），支持软删除后重新订阅
-		// 见迁移文件 016_soft_delete_partial_unique_indexes.sql
+		// 见迁移文件 016_soft_delete_partial_unique_indexes.sql 和 146_plan_scoped_user_subscriptions.sql
 		index.Fields("user_id", "group_id"),
+		index.Fields("user_id", "group_id", "plan_id"),
 		index.Fields("deleted_at"),
 	}
 }

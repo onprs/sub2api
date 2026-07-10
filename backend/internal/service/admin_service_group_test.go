@@ -141,6 +141,22 @@ func TestAdminService_ListGroups_PassesSortParams(t *testing.T) {
 	}, repo.listWithFiltersParams)
 }
 
+func TestAdminService_CreateGroup_AllowsZeroRateMultiplier(t *testing.T) {
+	repo := &groupRepoStubForAdmin{}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:           "free-group",
+		Description:    "Free usage group",
+		Platform:       PlatformOpenAI,
+		RateMultiplier: 0,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	require.NotNil(t, repo.created)
+	require.InDelta(t, 0, repo.created.RateMultiplier, 1e-12)
+}
+
 // TestAdminService_CreateGroup_WithImagePricing 测试创建分组时 ImagePrice 字段正确传递
 func TestAdminService_CreateGroup_WithImagePricing(t *testing.T) {
 	repo := &groupRepoStubForAdmin{}
@@ -264,6 +280,27 @@ func TestAdminService_UpdateGroup_PartialImagePricing(t *testing.T) {
 	require.NotNil(t, repo.updated.ImagePrice2K)
 	require.InDelta(t, 0.15, *repo.updated.ImagePrice2K, 0.0001) // 原值保持
 	require.Nil(t, repo.updated.ImagePrice4K)
+}
+
+func TestAdminService_UpdateGroup_AllowsZeroRateMultiplier(t *testing.T) {
+	existingGroup := &Group{
+		ID:             1,
+		Name:           "existing-group",
+		Platform:       PlatformOpenAI,
+		Status:         StatusActive,
+		RateMultiplier: 1,
+	}
+	repo := &groupRepoStubForAdmin{getByID: existingGroup}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	zero := 0.0
+	group, err := svc.UpdateGroup(context.Background(), 1, &UpdateGroupInput{
+		RateMultiplier: &zero,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	require.NotNil(t, repo.updated)
+	require.InDelta(t, 0, repo.updated.RateMultiplier, 1e-12)
 }
 
 func TestAdminService_UpdateGroup_PreservesImageGenerationControlsWhenOmitted(t *testing.T) {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -40,12 +42,25 @@ var (
 
 // subscriptionCacheData 订阅缓存数据结构（内部使用）
 type subscriptionCacheData struct {
-	Status       string
-	ExpiresAt    time.Time
+	Status    string
+	ExpiresAt time.Time
+	Version   int64
+
 	DailyUsage   float64
 	WeeklyUsage  float64
 	MonthlyUsage float64
-	Version      int64
+
+	FiveHourLimitUSD  *float64
+	SevenDayLimitUSD  *float64
+	ThirtyDayLimitUSD *float64
+
+	FiveHourUsage  float64
+	SevenDayUsage  float64
+	ThirtyDayUsage float64
+
+	FiveHourWindowStart  *time.Time
+	SevenDayWindowStart  *time.Time
+	ThirtyDayWindowStart *time.Time
 }
 
 // 缓存写入任务类型
@@ -218,10 +233,8 @@ func (s *BillingCacheService) cacheWriteWorker(ch <-chan cacheWriteTask) {
 		case cacheWriteSetSubscription:
 			s.setSubscriptionCache(ctx, task.userID, task.groupID, task.subscriptionData)
 		case cacheWriteUpdateSubscriptionUsage:
-			if s.cache != nil {
-				if err := s.cache.UpdateSubscriptionUsage(ctx, task.userID, task.groupID, task.amount); err != nil {
-					logger.LegacyPrintf("service.billing_cache", "Warning: update subscription cache failed for user %d group %d: %v", task.userID, task.groupID, err)
-				}
+			if err := s.UpdateSubscriptionUsage(ctx, task.userID, task.groupID, task.amount); err != nil {
+				logger.LegacyPrintf("service.billing_cache", "Warning: update subscription cache failed for user %d group %d: %v", task.userID, task.groupID, err)
 			}
 		case cacheWriteDeductBalance:
 			if s.cache != nil {
@@ -424,36 +437,48 @@ func (s *BillingCacheService) GetSubscriptionStatus(ctx context.Context, userID,
 		return nil, err
 	}
 
-	// 异步建立缓存
-	_ = s.enqueueCacheWrite(cacheWriteTask{
-		kind:             cacheWriteSetSubscription,
-		userID:           userID,
-		groupID:          groupID,
-		subscriptionData: data,
-	})
+	s.setSubscriptionCache(ctx, userID, groupID, data)
 
 	return data, nil
 }
 
 func (s *BillingCacheService) convertFromPortsData(data *SubscriptionCacheData) *subscriptionCacheData {
 	return &subscriptionCacheData{
-		Status:       data.Status,
-		ExpiresAt:    data.ExpiresAt,
-		DailyUsage:   data.DailyUsage,
-		WeeklyUsage:  data.WeeklyUsage,
-		MonthlyUsage: data.MonthlyUsage,
-		Version:      data.Version,
+		Status:               data.Status,
+		ExpiresAt:            data.ExpiresAt,
+		Version:              data.Version,
+		DailyUsage:           data.DailyUsage,
+		WeeklyUsage:          data.WeeklyUsage,
+		MonthlyUsage:         data.MonthlyUsage,
+		FiveHourLimitUSD:     data.FiveHourLimitUSD,
+		SevenDayLimitUSD:     data.SevenDayLimitUSD,
+		ThirtyDayLimitUSD:    data.ThirtyDayLimitUSD,
+		FiveHourUsage:        data.FiveHourUsage,
+		SevenDayUsage:        data.SevenDayUsage,
+		ThirtyDayUsage:       data.ThirtyDayUsage,
+		FiveHourWindowStart:  data.FiveHourWindowStart,
+		SevenDayWindowStart:  data.SevenDayWindowStart,
+		ThirtyDayWindowStart: data.ThirtyDayWindowStart,
 	}
 }
 
 func (s *BillingCacheService) convertToPortsData(data *subscriptionCacheData) *SubscriptionCacheData {
 	return &SubscriptionCacheData{
-		Status:       data.Status,
-		ExpiresAt:    data.ExpiresAt,
-		DailyUsage:   data.DailyUsage,
-		WeeklyUsage:  data.WeeklyUsage,
-		MonthlyUsage: data.MonthlyUsage,
-		Version:      data.Version,
+		Status:               data.Status,
+		ExpiresAt:            data.ExpiresAt,
+		Version:              data.Version,
+		DailyUsage:           data.DailyUsage,
+		WeeklyUsage:          data.WeeklyUsage,
+		MonthlyUsage:         data.MonthlyUsage,
+		FiveHourLimitUSD:     data.FiveHourLimitUSD,
+		SevenDayLimitUSD:     data.SevenDayLimitUSD,
+		ThirtyDayLimitUSD:    data.ThirtyDayLimitUSD,
+		FiveHourUsage:        data.FiveHourUsage,
+		SevenDayUsage:        data.SevenDayUsage,
+		ThirtyDayUsage:       data.ThirtyDayUsage,
+		FiveHourWindowStart:  data.FiveHourWindowStart,
+		SevenDayWindowStart:  data.SevenDayWindowStart,
+		ThirtyDayWindowStart: data.ThirtyDayWindowStart,
 	}
 }
 
@@ -465,12 +490,21 @@ func (s *BillingCacheService) getSubscriptionFromDB(ctx context.Context, userID,
 	}
 
 	return &subscriptionCacheData{
-		Status:       sub.Status,
-		ExpiresAt:    sub.ExpiresAt,
-		DailyUsage:   sub.DailyUsageUSD,
-		WeeklyUsage:  sub.WeeklyUsageUSD,
-		MonthlyUsage: sub.MonthlyUsageUSD,
-		Version:      sub.UpdatedAt.Unix(),
+		Status:               sub.Status,
+		ExpiresAt:            sub.ExpiresAt,
+		Version:              sub.UpdatedAt.Unix(),
+		DailyUsage:           sub.DailyUsageUSD,
+		WeeklyUsage:          sub.WeeklyUsageUSD,
+		MonthlyUsage:         sub.MonthlyUsageUSD,
+		FiveHourLimitUSD:     sub.FiveHourLimitUSD,
+		SevenDayLimitUSD:     sub.SevenDayLimitUSD,
+		ThirtyDayLimitUSD:    sub.ThirtyDayLimitUSD,
+		FiveHourUsage:        sub.FiveHourUsageUSD,
+		SevenDayUsage:        sub.SevenDayUsageUSD,
+		ThirtyDayUsage:       sub.ThirtyDayUsageUSD,
+		FiveHourWindowStart:  sub.FiveHourWindowStart,
+		SevenDayWindowStart:  sub.SevenDayWindowStart,
+		ThirtyDayWindowStart: sub.ThirtyDayWindowStart,
 	}, nil
 }
 
@@ -489,7 +523,22 @@ func (s *BillingCacheService) UpdateSubscriptionUsage(ctx context.Context, userI
 	if s.cache == nil {
 		return nil
 	}
-	return s.cache.UpdateSubscriptionUsage(ctx, userID, groupID, costUSD)
+	if err := s.cache.UpdateSubscriptionUsage(ctx, userID, groupID, costUSD); err != nil {
+		if !errors.Is(err, redis.Nil) {
+			return err
+		}
+		if s.subRepo == nil {
+			return err
+		}
+		data, dbErr := s.getSubscriptionFromDB(ctx, userID, groupID)
+		if dbErr != nil {
+			return fmt.Errorf("reload subscription cache after miss: %w", dbErr)
+		}
+		if setErr := s.cache.SetSubscriptionCache(ctx, userID, groupID, s.convertToPortsData(data)); setErr != nil {
+			return setErr
+		}
+	}
+	return nil
 }
 
 // QueueUpdateSubscriptionUsage 异步更新订阅用量缓存
@@ -856,43 +905,34 @@ func (s *BillingCacheService) checkBalanceEligibility(ctx context.Context, userI
 
 // checkSubscriptionEligibility 检查订阅模式资格
 func (s *BillingCacheService) checkSubscriptionEligibility(ctx context.Context, userID int64, group *Group, subscription *UserSubscription) error {
-	// 获取订阅缓存数据
-	subData, err := s.GetSubscriptionStatus(ctx, userID, group.ID)
-	if err != nil {
-		if s.circuitBreaker != nil {
-			s.circuitBreaker.OnFailure(err)
-		}
-		logger.LegacyPrintf("service.billing_cache", "ALERT: billing subscription check failed for user %d group %d: %v", userID, group.ID, err)
-		return ErrBillingServiceUnavailable.WithCause(err)
+	if subscription == nil {
+		return ErrSubscriptionInvalid
 	}
 	if s.circuitBreaker != nil {
 		s.circuitBreaker.OnSuccess()
 	}
 
 	// 检查订阅状态
-	if subData.Status != SubscriptionStatusActive {
+	if subscription.Status != SubscriptionStatusActive {
 		return ErrSubscriptionInvalid
 	}
 
 	// 检查是否过期
-	if time.Now().After(subData.ExpiresAt) {
+	if subscription.IsExpired() {
 		return ErrSubscriptionInvalid
 	}
 
-	// 检查限额（使用传入的Group限额配置）
-	if group.HasDailyLimit() && subData.DailyUsage >= *group.DailyLimitUSD {
-		return ErrDailyLimitExceeded
-	}
-
-	if group.HasWeeklyLimit() && subData.WeeklyUsage >= *group.WeeklyLimitUSD {
-		return ErrWeeklyLimitExceeded
-	}
-
-	if group.HasMonthlyLimit() && subData.MonthlyUsage >= *group.MonthlyLimitUSD {
-		return ErrMonthlyLimitExceeded
-	}
-
 	return nil
+}
+
+func subscriptionCacheWindowExceeded(limit *float64, usage float64, windowStart *time.Time, windowDuration time.Duration, now time.Time) bool {
+	if limit == nil {
+		return false
+	}
+	if windowStart == nil || !now.Before(windowStart.Add(windowDuration)) {
+		usage = 0
+	}
+	return usage >= *limit
 }
 
 type billingCircuitBreakerState int

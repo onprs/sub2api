@@ -19,7 +19,8 @@ func validateProvider(p string) error {
 }
 
 // validateAPIMode 校验 provider 与 api_mode 的组合。
-// responses 只对 OpenAI 有意义；其它 provider 使用 chat_completions 作为默认占位。
+// responses 只对 OpenAI 有意义；messages 只对 OpenCode Go 有意义；
+// 其它 provider 使用 chat_completions 作为默认占位。
 func validateAPIMode(provider, apiMode string) error {
 	apiMode = defaultAPIMode(apiMode)
 	switch apiMode {
@@ -27,6 +28,11 @@ func validateAPIMode(provider, apiMode string) error {
 		return nil
 	case MonitorAPIModeResponses:
 		if provider == "" || provider == MonitorProviderOpenAI {
+			return nil
+		}
+		return ErrChannelMonitorInvalidAPIMode
+	case MonitorAPIModeMessages:
+		if provider == "" || provider == MonitorProviderOpenCodeGo {
 			return nil
 		}
 		return ErrChannelMonitorInvalidAPIMode
@@ -43,15 +49,17 @@ func validateInterval(sec int) error {
 	return nil
 }
 
-// validateEndpoint 校验 endpoint：
+// validateEndpointForProvider 校验 endpoint：
 //   - scheme 强制 https（拒绝 http，避免明文凭证 + 部分 SSRF 利用面）
-//   - 必须为 origin（无 path/query/fragment），防止用户填 https://api.openai.com/v1
+//   - 默认必须为 origin（无 path/query/fragment），防止用户填 https://api.openai.com/v1
 //     导致 joinURL 拼出 /v1/v1/chat/completions
+//   - OpenCode Go 的官方 API root 自带 base path（/zen/go/v1），本站转发也需要 /v1，
+//     所以只对 opencode_go 允许非空 path，但仍拒绝 query/fragment。
 //   - hostname 不能是 localhost/metadata 等已知元数据 hostname
 //   - 解析所有 IP，任一落在 loopback/RFC1918/link-local/ULA 段即拒绝（防 SSRF）
 //
 // 错误信息不暴露具体 IP / hostname，避免泄露内网拓扑。
-func validateEndpoint(ep string) error {
+func validateEndpointForProvider(provider, ep string) error {
 	ep = strings.TrimSpace(ep)
 	if ep == "" {
 		return ErrChannelMonitorInvalidEndpoint
@@ -66,7 +74,7 @@ func validateEndpoint(ep string) error {
 	if u.Host == "" {
 		return ErrChannelMonitorInvalidEndpoint
 	}
-	if u.Path != "" && u.Path != "/" {
+	if provider != MonitorProviderOpenCodeGo && u.Path != "" && u.Path != "/" {
 		return ErrChannelMonitorEndpointPath
 	}
 	if u.RawQuery != "" || u.Fragment != "" {
@@ -86,8 +94,13 @@ func validateEndpoint(ep string) error {
 	return nil
 }
 
-// normalizeEndpoint 去除前后空白与末尾 `/`，保证存储统一为 origin。
-// validateEndpoint 已确保格式合法（仅 origin），这里只做最终归一化。
+// validateEndpoint 保留旧调用点语义：非 OpenCode Go provider 只接受 origin。
+func validateEndpoint(ep string) error {
+	return validateEndpointForProvider("", ep)
+}
+
+// normalizeEndpoint 去除前后空白与末尾 `/`，保证存储统一。
+// validateEndpointForProvider 已确保格式合法；这里只做最终归一化。
 func normalizeEndpoint(ep string) string {
 	ep = strings.TrimSpace(ep)
 	ep = strings.TrimRight(ep, "/")
@@ -121,4 +134,12 @@ func defaultAPIMode(apiMode string) string {
 		return MonitorAPIModeChatCompletions
 	}
 	return strings.TrimSpace(apiMode)
+}
+
+func defaultAPIModeForProvider(provider, apiMode string) string {
+	mode := defaultAPIMode(apiMode)
+	if validateAPIMode(provider, mode) == nil {
+		return mode
+	}
+	return MonitorAPIModeChatCompletions
 }

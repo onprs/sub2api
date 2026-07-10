@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"sort"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -21,9 +23,10 @@ import (
 //  4. 字段白名单：仅返回用户需要的字段（省略 BillingModelSource / RestrictModels
 //     / 内部 ID / Status 等管理字段）。
 type AvailableChannelHandler struct {
-	channelService *service.ChannelService
-	apiKeyService  *service.APIKeyService
-	settingService *service.SettingService
+	channelService     *service.ChannelService
+	apiKeyService      *service.APIKeyService
+	settingService     *service.SettingService
+	modelPricingModels modelPricingModelProvider
 }
 
 // NewAvailableChannelHandler 创建用户侧可用渠道 handler。
@@ -31,18 +34,30 @@ func NewAvailableChannelHandler(
 	channelService *service.ChannelService,
 	apiKeyService *service.APIKeyService,
 	settingService *service.SettingService,
+	gatewayService *service.GatewayService,
 ) *AvailableChannelHandler {
 	return &AvailableChannelHandler{
-		channelService: channelService,
-		apiKeyService:  apiKeyService,
-		settingService: settingService,
+		channelService:     channelService,
+		apiKeyService:      apiKeyService,
+		settingService:     settingService,
+		modelPricingModels: gatewayService,
 	}
 }
 
-// featureEnabled 返回 available-channels 开关是否启用。默认关闭（opt-in）。
+type modelPricingModelProvider interface {
+	GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string
+	GetAvailableModelPricingCandidates(ctx context.Context, groupID *int64, platform string, models []string) map[string][]string
+}
+
+// featureEnabled 返回当前查询目的对应的用户侧渠道聚合开关是否启用。
+// 默认请求仍受 available-channels 控制；模型计费页通过 purpose=model_pricing
+// 使用独立 model-pricing 开关，避免两个侧边栏入口互相绑定。
 func (h *AvailableChannelHandler) featureEnabled(c *gin.Context) bool {
 	if h.settingService == nil {
 		return false
+	}
+	if c.Query("purpose") == "model_pricing" {
+		return h.settingService.GetModelPricingRuntime(c.Request.Context()).Enabled
 	}
 	return h.settingService.GetAvailableChannelsRuntime(c.Request.Context()).Enabled
 }
@@ -63,14 +78,17 @@ type userAvailableGroup struct {
 
 // userSupportedModelPricing 用户可见的定价字段白名单。
 type userSupportedModelPricing struct {
-	BillingMode      string                   `json:"billing_mode"`
-	InputPrice       *float64                 `json:"input_price"`
-	OutputPrice      *float64                 `json:"output_price"`
-	CacheWritePrice  *float64                 `json:"cache_write_price"`
-	CacheReadPrice   *float64                 `json:"cache_read_price"`
-	ImageOutputPrice *float64                 `json:"image_output_price"`
-	PerRequestPrice  *float64                 `json:"per_request_price"`
-	Intervals        []userPricingIntervalDTO `json:"intervals"`
+	BillingMode         string                   `json:"billing_mode"`
+	PricingSource       string                   `json:"pricing_source"`
+	PricingSourceLabel  string                   `json:"pricing_source_label"`
+	PricingSourceDetail string                   `json:"pricing_source_detail,omitempty"`
+	InputPrice          *float64                 `json:"input_price"`
+	OutputPrice         *float64                 `json:"output_price"`
+	CacheWritePrice     *float64                 `json:"cache_write_price"`
+	CacheReadPrice      *float64                 `json:"cache_read_price"`
+	ImageOutputPrice    *float64                 `json:"image_output_price"`
+	PerRequestPrice     *float64                 `json:"per_request_price"`
+	Intervals           []userPricingIntervalDTO `json:"intervals"`
 }
 
 // userPricingIntervalDTO 定价区间白名单（去掉内部 ID、SortOrder 等前端不渲染的字段）。
@@ -137,6 +155,15 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 		allowedGroupIDs[userGroups[i].ID] = struct{}{}
 	}
 
+	if c.Query("purpose") == "model_pricing" {
+		response.Success(c, h.buildModelPricingChannels(
+			c.Request.Context(),
+			userGroups,
+			h.modelPricingChannelMeta(c.Request.Context()),
+		))
+		return
+	}
+
 	channels, err := h.channelService.ListAvailable(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -164,6 +191,182 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 	}
 
 	response.Success(c, out)
+}
+
+type modelPricingChannelMeta struct {
+	name        string
+	description string
+}
+
+func (h *AvailableChannelHandler) modelPricingChannelMeta(ctx context.Context) map[int64]modelPricingChannelMeta {
+	if h == nil || h.channelService == nil {
+		return nil
+	}
+	channels, err := h.channelService.ListAvailable(ctx)
+	if err != nil {
+		return nil
+	}
+	meta := make(map[int64]modelPricingChannelMeta)
+	for _, ch := range channels {
+		if ch.Status != service.StatusActive {
+			continue
+		}
+		for _, group := range ch.Groups {
+			meta[group.ID] = modelPricingChannelMeta{
+				name:        ch.Name,
+				description: ch.Description,
+			}
+		}
+	}
+	return meta
+}
+
+func (h *AvailableChannelHandler) buildModelPricingChannels(
+	ctx context.Context,
+	groups []service.Group,
+	channelMeta map[int64]modelPricingChannelMeta,
+) []userAvailableChannel {
+	type bucket struct {
+		name        string
+		description string
+		sections    []userChannelPlatformSection
+	}
+
+	buckets := make(map[string]*bucket, len(groups))
+	for i := range groups {
+		group := groups[i]
+		if strings.TrimSpace(group.Platform) == "" {
+			continue
+		}
+
+		modelIDs := h.modelIDsForPricingGroup(ctx, &group)
+		if len(modelIDs) == 0 {
+			continue
+		}
+		supported := h.supportedModelsForPricingGroup(ctx, &group, modelIDs)
+		if len(supported) == 0 {
+			continue
+		}
+
+		key := "group:" + strings.ToLower(group.Name)
+		name := group.Name
+		description := group.Description
+		if meta, ok := channelMeta[group.ID]; ok && strings.TrimSpace(meta.name) != "" {
+			key = "channel:" + strings.ToLower(meta.name)
+			name = meta.name
+			description = meta.description
+		}
+		if strings.TrimSpace(name) == "" {
+			name = group.Platform
+		}
+
+		b, ok := buckets[key]
+		if !ok {
+			b = &bucket{name: name, description: description}
+			buckets[key] = b
+		}
+		b.sections = append(b.sections, userChannelPlatformSection{
+			Platform:        group.Platform,
+			Groups:          []userAvailableGroup{userAvailableGroupFromService(group)},
+			SupportedModels: toUserSupportedModels(supported, map[string]struct{}{group.Platform: {}}),
+		})
+	}
+
+	keys := make([]string, 0, len(buckets))
+	for key := range buckets {
+		keys = append(keys, key)
+	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		left := buckets[keys[i]]
+		right := buckets[keys[j]]
+		if strings.EqualFold(left.name, right.name) {
+			return keys[i] < keys[j]
+		}
+		return strings.ToLower(left.name) < strings.ToLower(right.name)
+	})
+
+	out := make([]userAvailableChannel, 0, len(keys))
+	for _, key := range keys {
+		b := buckets[key]
+		sort.SliceStable(b.sections, func(i, j int) bool {
+			if b.sections[i].Platform != b.sections[j].Platform {
+				return b.sections[i].Platform < b.sections[j].Platform
+			}
+			return strings.ToLower(b.sections[i].Groups[0].Name) < strings.ToLower(b.sections[j].Groups[0].Name)
+		})
+		out = append(out, userAvailableChannel{
+			Name:        b.name,
+			Description: b.description,
+			Platforms:   b.sections,
+		})
+	}
+	return out
+}
+
+func (h *AvailableChannelHandler) modelIDsForPricingGroup(ctx context.Context, group *service.Group) []string {
+	if group == nil {
+		return nil
+	}
+	var groupID *int64
+	if group.ID > 0 {
+		gid := group.ID
+		groupID = &gid
+	}
+
+	var available []string
+	if h != nil && h.modelPricingModels != nil {
+		available = h.modelPricingModels.GetAvailableModels(ctx, groupID, group.Platform)
+	}
+	fallback := defaultModelIDsForPlatform(group.Platform)
+	if group.CustomModelsListEnabled() {
+		return filterModelsByCustomList(available, fallback, group.ModelsListConfig.Models)
+	}
+	if len(available) > 0 {
+		return available
+	}
+	return fallback
+}
+
+func (h *AvailableChannelHandler) supportedModelsForPricingGroup(ctx context.Context, group *service.Group, modelIDs []string) []service.SupportedModel {
+	if group == nil {
+		return nil
+	}
+	var groupID *int64
+	if group.ID > 0 {
+		gid := group.ID
+		groupID = &gid
+	}
+
+	candidates := map[string][]string{}
+	if h != nil && h.modelPricingModels != nil {
+		candidates = h.modelPricingModels.GetAvailableModelPricingCandidates(ctx, groupID, group.Platform, modelIDs)
+	}
+
+	out := make([]service.SupportedModel, 0, len(modelIDs))
+	seen := make(map[string]struct{}, len(modelIDs))
+	for _, modelID := range modelIDs {
+		modelID = strings.TrimSpace(modelID)
+		if modelID == "" || strings.Contains(modelID, "*") {
+			continue
+		}
+		key := strings.ToLower(modelID)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		if h != nil && h.channelService != nil {
+			out = append(out, h.channelService.BuildCatalogSupportedModel(modelID, group.Platform, candidates[modelID]))
+			continue
+		}
+		out = append(out, service.SupportedModel{
+			Name:          modelID,
+			Platform:      group.Platform,
+			PricingSource: service.PricingSourceMissing,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // buildPlatformSections 把一个渠道按 visibleGroups 的平台集合拆成有序的 section 列表：
@@ -224,6 +427,17 @@ func filterUserVisibleGroups(
 	return visible
 }
 
+func userAvailableGroupFromService(g service.Group) userAvailableGroup {
+	return userAvailableGroup{
+		ID:               g.ID,
+		Name:             g.Name,
+		Platform:         g.Platform,
+		SubscriptionType: g.SubscriptionType,
+		RateMultiplier:   g.RateMultiplier,
+		IsExclusive:      g.IsExclusive,
+	}
+}
+
 // toUserSupportedModels 将 service 层支持模型转换为用户 DTO（字段白名单）。
 // 仅保留平台在 allowedPlatforms 中的条目，防止跨平台模型信息泄漏。
 // allowedPlatforms 为 nil 时不做平台过滤（保留全部，供测试或明确无过滤场景使用）。
@@ -242,16 +456,23 @@ func toUserSupportedModels(
 		out = append(out, userSupportedModel{
 			Name:     m.Name,
 			Platform: m.Platform,
-			Pricing:  toUserPricing(m.Pricing),
+			Pricing:  toUserPricing(m.Pricing, m.PricingSource),
 		})
 	}
 	return out
 }
 
-// toUserPricing 将 service 层定价转换为用户 DTO；入参为 nil 时返回 nil。
-func toUserPricing(p *service.ChannelModelPricing) *userSupportedModelPricing {
+// toUserPricing 将 service 层定价转换为用户 DTO；入参为 nil 时返回可检查的未配置对象。
+func toUserPricing(p *service.ChannelModelPricing, pricingSource string) *userSupportedModelPricing {
+	source, label, detail := userPricingSourceMeta(pricingSource)
 	if p == nil {
-		return nil
+		return &userSupportedModelPricing{
+			BillingMode:         string(service.BillingModeToken),
+			PricingSource:       source,
+			PricingSourceLabel:  label,
+			PricingSourceDetail: detail,
+			Intervals:           []userPricingIntervalDTO{},
+		}
 	}
 	intervals := make([]userPricingIntervalDTO, 0, len(p.Intervals))
 	for _, iv := range p.Intervals {
@@ -271,13 +492,29 @@ func toUserPricing(p *service.ChannelModelPricing) *userSupportedModelPricing {
 		billingMode = string(service.BillingModeToken)
 	}
 	return &userSupportedModelPricing{
-		BillingMode:      billingMode,
-		InputPrice:       p.InputPrice,
-		OutputPrice:      p.OutputPrice,
-		CacheWritePrice:  p.CacheWritePrice,
-		CacheReadPrice:   p.CacheReadPrice,
-		ImageOutputPrice: p.ImageOutputPrice,
-		PerRequestPrice:  p.PerRequestPrice,
-		Intervals:        intervals,
+		BillingMode:         billingMode,
+		PricingSource:       source,
+		PricingSourceLabel:  label,
+		PricingSourceDetail: detail,
+		InputPrice:          p.InputPrice,
+		OutputPrice:         p.OutputPrice,
+		CacheWritePrice:     p.CacheWritePrice,
+		CacheReadPrice:      p.CacheReadPrice,
+		ImageOutputPrice:    p.ImageOutputPrice,
+		PerRequestPrice:     p.PerRequestPrice,
+		Intervals:           intervals,
+	}
+}
+
+func userPricingSourceMeta(source string) (string, string, string) {
+	switch source {
+	case service.PricingSourceChannel:
+		return service.PricingSourceChannel, "modelPricing.sources.channel", "channel_model_pricing"
+	case service.PricingSourceCatalog:
+		return service.PricingSourceCatalog, "modelPricing.sources.catalog", "pricing_catalog"
+	case service.PricingSourceMissing:
+		return service.PricingSourceMissing, "modelPricing.sources.missing", "pricing_missing"
+	default:
+		return service.PricingSourceMissing, "modelPricing.sources.missing", "pricing_missing"
 	}
 }

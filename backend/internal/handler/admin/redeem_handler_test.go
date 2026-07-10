@@ -2,12 +2,14 @@ package admin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -139,6 +141,62 @@ func TestCreateAndRedeem_BalanceIgnoresSubscriptionFields(t *testing.T) {
 
 	assert.NotEqual(t, http.StatusBadRequest, code,
 		"balance type should not require group_id or validity_days")
+}
+
+func TestEnsureCreateAndRedeemExistingMatchesPlanSnapshot(t *testing.T) {
+	planID := int64(9)
+	otherPlanID := int64(10)
+
+	req := CreateAndRedeemCodeRequest{
+		Type:               service.RedeemTypeSubscription,
+		SubscriptionPlanID: &planID,
+	}
+
+	t.Run("matches", func(t *testing.T) {
+		err := ensureCreateAndRedeemExistingMatchesRequest(&service.RedeemCode{
+			Type:                             service.RedeemTypeSubscription,
+			SubscriptionPlanID:               &planID,
+			SubscriptionQuotaSnapshotVersion: 1,
+		}, req)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("rejects legacy subscription code without plan snapshot", func(t *testing.T) {
+		err := ensureCreateAndRedeemExistingMatchesRequest(&service.RedeemCode{
+			Type: service.RedeemTypeSubscription,
+		}, req)
+
+		require.Error(t, err)
+		require.True(t, infraerrors.IsConflict(err))
+	})
+
+	t.Run("rejects different plan", func(t *testing.T) {
+		err := ensureCreateAndRedeemExistingMatchesRequest(&service.RedeemCode{
+			Type:                             service.RedeemTypeSubscription,
+			SubscriptionPlanID:               &otherPlanID,
+			SubscriptionQuotaSnapshotVersion: 1,
+		}, req)
+
+		require.Error(t, err)
+		require.True(t, infraerrors.IsConflict(err))
+	})
+}
+
+func TestResolveCreateAndRedeemExistingForRequestRejectsMismatchedPlanSnapshot(t *testing.T) {
+	planID := int64(9)
+	h := &RedeemHandler{}
+
+	_, err := h.resolveCreateAndRedeemExistingForRequest(context.Background(), &service.RedeemCode{
+		Type: service.RedeemTypeSubscription,
+	}, CreateAndRedeemCodeRequest{
+		Type:               service.RedeemTypeSubscription,
+		SubscriptionPlanID: &planID,
+		UserID:             1,
+	})
+
+	require.Error(t, err)
+	require.True(t, infraerrors.IsConflict(err))
 }
 
 func TestResolveRedeemCodeExpiresAt_FromDays(t *testing.T) {

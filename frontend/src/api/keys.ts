@@ -6,6 +6,8 @@
 import { apiClient } from './client'
 import type { ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest, PaginatedResponse } from '@/types'
 
+export type CliImportScriptOS = 'windows' | 'linux'
+
 /**
  * List all API keys for current user
  * @param page - Page number (default: 1)
@@ -131,13 +133,123 @@ export async function toggleStatus(id: number, status: 'active' | 'inactive'): P
   return update(id, { status })
 }
 
+/**
+ * Download a generated one-click CLI import script for a user API key.
+ */
+export async function downloadCliImportScript(id: number, os: CliImportScriptOS): Promise<void> {
+  let response
+  try {
+    response = await apiClient.get<Blob>(`/keys/${id}/cli-import/script`, {
+      params: { os },
+      responseType: 'blob',
+      validateStatus: () => true
+    })
+  } catch (error) {
+    throw await normalizeCliImportDownloadError(error)
+  }
+  if (response.status >= 400) {
+    throw await normalizeCliImportDownloadError({ response })
+  }
+  const blob = response.data
+  const disposition = String(response.headers?.['content-disposition'] || '')
+  const fallback = os === 'windows' ? 'sub2api-cli-import.bat' : 'sub2api-cli-import.sh'
+  const filename = parseContentDispositionFilename(disposition) || fallback
+  const url = URL.createObjectURL(blob)
+  try {
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+async function normalizeCliImportDownloadError(error: unknown): Promise<Error> {
+  const responseData = (error as any)?.response?.data
+  if (responseData instanceof Blob || typeof responseData?.text === 'function') {
+    try {
+      const text = await blobLikeToText(responseData)
+      return cliImportDownloadErrorFromPayload(JSON.parse(text))
+    } catch {
+      return new Error((error as any)?.message || 'Download failed')
+    }
+  }
+  if (typeof responseData === 'string' && responseData.trim()) {
+    try {
+      return cliImportDownloadErrorFromPayload(JSON.parse(responseData))
+    } catch {
+      return new Error(responseData)
+    }
+  }
+  if (responseData && typeof responseData === 'object') {
+    return cliImportDownloadErrorFromPayload(responseData)
+  }
+  const message = (error as any)?.metadata?.models
+    ? `${(error as any).message || 'Download failed'}: ${(error as any).metadata.models}`
+    : (error as any)?.message || 'Download failed'
+  return Object.assign(new Error(message), {
+    reason: (error as any)?.reason,
+    metadata: (error as any)?.metadata
+  })
+}
+
+async function blobLikeToText(value: Blob | { text?: () => Promise<string>; arrayBuffer?: () => Promise<ArrayBuffer> }): Promise<string> {
+  if (typeof value.text === 'function') {
+    return value.text()
+  }
+  if (typeof value.arrayBuffer === 'function') {
+    return new TextDecoder().decode(await value.arrayBuffer())
+  }
+  if (value instanceof Blob && typeof FileReader !== 'undefined') {
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = () => reject(reader.error || new Error('failed to read blob'))
+      reader.readAsText(value)
+    })
+  }
+  throw new Error('unsupported blob payload')
+}
+
+function cliImportDownloadErrorFromPayload(payload: any): Error {
+  const models = payload?.metadata?.models
+  const message = models
+    ? `${payload?.message || 'Download failed'}: ${models}`
+    : payload?.message || payload?.reason || 'Download failed'
+  return Object.assign(new Error(message), {
+    reason: payload?.reason,
+    metadata: payload?.metadata
+  })
+}
+
+function parseContentDispositionFilename(disposition: string): string | null {
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (encoded?.[1]) {
+    try {
+      return decodeURIComponent(encoded[1].trim())
+    } catch {
+      return encoded[1].trim()
+    }
+  }
+  const quoted = disposition.match(/filename="([^"]+)"/i)
+  if (quoted?.[1]) {
+    return quoted[1].trim()
+  }
+  const plain = disposition.match(/filename=([^;]+)/i)
+  return plain?.[1]?.trim() || null
+}
+
 export const keysAPI = {
   list,
   getById,
   create,
   update,
   delete: deleteKey,
-  toggleStatus
+  toggleStatus,
+  downloadCliImportScript
 }
 
 export default keysAPI

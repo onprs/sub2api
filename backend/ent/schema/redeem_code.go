@@ -72,6 +72,26 @@ func (RedeemCode) Fields() []ent.Field {
 			Nillable(),
 		field.Int("validity_days").
 			Default(30),
+		field.Int64("subscription_plan_id").
+			Optional().
+			Nillable(),
+		field.Int("subscription_quota_snapshot_version").
+			Default(0),
+		field.Float("five_hour_limit_usd").
+			Optional().
+			Nillable().
+			Validate(validateNonNegativeFloat("five_hour_limit_usd")).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}),
+		field.Float("seven_day_limit_usd").
+			Optional().
+			Nillable().
+			Validate(validateNonNegativeFloat("seven_day_limit_usd")).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}),
+		field.Float("thirty_day_limit_usd").
+			Optional().
+			Nillable().
+			Validate(validateNonNegativeFloat("thirty_day_limit_usd")).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}),
 	}
 }
 
@@ -85,6 +105,10 @@ func (RedeemCode) Edges() []ent.Edge {
 			Ref("redeem_codes").
 			Field("group_id").
 			Unique(),
+		edge.From("subscription_plan", SubscriptionPlan.Type).
+			Ref("redeem_codes").
+			Field("subscription_plan_id").
+			Unique(),
 	}
 }
 
@@ -94,6 +118,7 @@ func (RedeemCode) Indexes() []ent.Index {
 		index.Fields("status"),
 		index.Fields("used_by"),
 		index.Fields("group_id"),
+		index.Fields("subscription_plan_id"),
 		index.Fields("expires_at"),
 	}
 }

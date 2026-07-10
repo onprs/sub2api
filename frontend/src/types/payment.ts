@@ -80,6 +80,8 @@ export interface PaymentOrder {
   user_id: number
   amount: number
   pay_amount: number
+  subscription_plan_price?: number | null
+  subscription_renewal_discount_percent?: number | null
   currency?: string
   fee_rate: number
   payment_type: string
@@ -110,11 +112,20 @@ export interface SubscriptionPlan {
   daily_limit_usd?: number | null
   weekly_limit_usd?: number | null
   monthly_limit_usd?: number | null
+  five_hour_limit_usd?: number | null
+  seven_day_limit_usd?: number | null
+  thirty_day_limit_usd?: number | null
   supported_model_scopes?: string[]
   name: string
   description: string
   price: number
-  original_price?: number
+  original_price?: number | null
+  renewal_discount_percent?: number | null
+  renewal_eligible?: boolean
+  renewal_price?: number | null
+  effective_price?: number
+  stock?: number | null
+  sold_out?: boolean
   validity_days: number
   validity_unit: string
   /** Stored as JSON string in backend; API layer should parse before use */

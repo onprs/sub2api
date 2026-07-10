@@ -1,0 +1,61 @@
+package service
+
+import "strings"
+
+func canonicalBillingModelForPricing(model string) string {
+	raw := strings.ToLower(strings.TrimSpace(model))
+	if raw == "" {
+		return ""
+	}
+
+	switch billingModelAliasLookupKey(raw) {
+	case "kimi-k2.7-code":
+		return "kimi-k2.7"
+	case "gemini-pro-agent":
+		return "gemini-3.1-pro-high"
+	case "gemini-3-flash-agent":
+		return "gemini-3-flash"
+	case "gemini-3.5-flash-high", "gemini-3.5-flash-medium", "gemini-3.5-flash-low", "gemini-3.5-flash-extra-low":
+		return "gemini-3.5-flash"
+	case "gemini-2.5-flash-thinking":
+		return "gemini-2.5-flash"
+	default:
+		return raw
+	}
+}
+
+func billingModelPricingCandidates(model string) []string {
+	raw := strings.ToLower(strings.TrimSpace(model))
+	if raw == "" {
+		return nil
+	}
+
+	candidates := []string{raw}
+	canonical := canonicalBillingModelForPricing(raw)
+	if canonical != "" && canonical != raw {
+		candidates = append(candidates, canonical)
+	}
+	return candidates
+}
+
+func billingModelAliasLookupKey(model string) string {
+	key := strings.ToLower(strings.TrimSpace(model))
+	key = strings.TrimLeft(key, "/")
+	key = trimOpenCodeGoModelProviderPrefix(key)
+	key = strings.TrimPrefix(key, "models/")
+	key = trimOpenCodeGoModelProviderPrefix(key)
+	key = strings.TrimPrefix(key, "publishers/google/models/")
+	if idx := strings.LastIndex(key, "/publishers/google/models/"); idx != -1 {
+		key = key[idx+len("/publishers/google/models/"):]
+	}
+	if idx := strings.LastIndex(key, "/models/"); idx != -1 {
+		key = key[idx+len("/models/"):]
+	}
+	return strings.TrimSpace(strings.TrimLeft(trimOpenCodeGoModelProviderPrefix(key), "/"))
+}
+
+func trimOpenCodeGoModelProviderPrefix(key string) string {
+	key = strings.TrimPrefix(key, "opencode-go/")
+	key = strings.TrimPrefix(key, "opencode_go/")
+	return key
+}

@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +26,12 @@ import (
 var (
 	openAIModelDatePattern     = regexp.MustCompile(`-\d{8}$`)
 	openAIModelBasePattern     = regexp.MustCompile(`^(gpt-\d+(?:\.\d+)?)(?:-|$)`)
+	htmlTableRowPattern        = regexp.MustCompile(`(?is)<tr[^>]*>(.*?)</tr>`)
+	htmlTableCellPattern       = regexp.MustCompile(`(?is)<t[dh][^>]*>(.*?)</t[dh]>`)
+	htmlTagPattern             = regexp.MustCompile(`(?is)<[^>]+>`)
+	openCodeGoPricePattern     = regexp.MustCompile(`^\$([0-9]+(?:\.[0-9]+)?)$`)
+	openCodeGoThresholdPattern = regexp.MustCompile(`(?i)(?:<=|≤|>|>=|≥)\s*([0-9]+)\s*([km])\b`)
+	openCodeGoModelIDPattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*$`)
 	openAIGPT54FallbackPricing = &LiteLLMModelPricing{
 		InputCostPerToken:               2.5e-06, // $2.5 per MTok
 		OutputCostPerToken:              1.5e-05, // $15 per MTok
@@ -56,23 +64,42 @@ var (
 // LiteLLMModelPricing LiteLLM价格数据结构
 // 只保留我们需要的字段，使用指针来处理可能缺失的值
 type LiteLLMModelPricing struct {
-	InputCostPerToken                   float64 `json:"input_cost_per_token"`
-	InputCostPerTokenPriority           float64 `json:"input_cost_per_token_priority"`
-	OutputCostPerToken                  float64 `json:"output_cost_per_token"`
-	OutputCostPerTokenPriority          float64 `json:"output_cost_per_token_priority"`
-	CacheCreationInputTokenCost         float64 `json:"cache_creation_input_token_cost"`
-	CacheCreationInputTokenCostAbove1hr float64 `json:"cache_creation_input_token_cost_above_1hr"`
-	CacheReadInputTokenCost             float64 `json:"cache_read_input_token_cost"`
-	CacheReadInputTokenCostPriority     float64 `json:"cache_read_input_token_cost_priority"`
-	LongContextInputTokenThreshold      int     `json:"long_context_input_token_threshold,omitempty"`
-	LongContextInputCostMultiplier      float64 `json:"long_context_input_cost_multiplier,omitempty"`
-	LongContextOutputCostMultiplier     float64 `json:"long_context_output_cost_multiplier,omitempty"`
-	SupportsServiceTier                 bool    `json:"supports_service_tier"`
-	LiteLLMProvider                     string  `json:"litellm_provider"`
-	Mode                                string  `json:"mode"`
-	SupportsPromptCaching               bool    `json:"supports_prompt_caching"`
-	OutputCostPerImage                  float64 `json:"output_cost_per_image"`       // 图片生成模型每张图片价格
-	OutputCostPerImageToken             float64 `json:"output_cost_per_image_token"` // 图片输出 token 价格
+	InputCostPerToken                        float64 `json:"input_cost_per_token"`
+	InputCostPerTokenPriority                float64 `json:"input_cost_per_token_priority"`
+	OutputCostPerToken                       float64 `json:"output_cost_per_token"`
+	OutputCostPerTokenPriority               float64 `json:"output_cost_per_token_priority"`
+	CacheCreationInputTokenCost              float64 `json:"cache_creation_input_token_cost"`
+	CacheCreationInputTokenCostAbove1hr      float64 `json:"cache_creation_input_token_cost_above_1hr"`
+	CacheReadInputTokenCost                  float64 `json:"cache_read_input_token_cost"`
+	CacheReadInputTokenCostPriority          float64 `json:"cache_read_input_token_cost_priority"`
+	LongContextInputTokenThreshold           int     `json:"long_context_input_token_threshold,omitempty"`
+	LongContextInputCostMultiplier           float64 `json:"long_context_input_cost_multiplier,omitempty"`
+	LongContextOutputCostMultiplier          float64 `json:"long_context_output_cost_multiplier,omitempty"`
+	SupportsServiceTier                      bool    `json:"supports_service_tier"`
+	LiteLLMProvider                          string  `json:"litellm_provider"`
+	Mode                                     string  `json:"mode"`
+	SupportsPromptCaching                    bool    `json:"supports_prompt_caching"`
+	OutputCostPerImage                       float64 `json:"output_cost_per_image"`       // 图片生成模型每张图片价格
+	OutputCostPerImageToken                  float64 `json:"output_cost_per_image_token"` // 图片输出 token 价格
+	SupportsReasoning                        bool    `json:"supports_reasoning"`
+	SupportsVision                           bool    `json:"supports_vision"`
+	SupportsPDFInput                         bool    `json:"supports_pdf_input"`
+	SupportsFunctionCalling                  bool    `json:"supports_function_calling"`
+	SupportsToolChoice                       bool    `json:"supports_tool_choice"`
+	MaxInputTokens                           int     `json:"max_input_tokens"`
+	MaxOutputTokens                          int     `json:"max_output_tokens"`
+	InputCostPerTokenKnown                   bool    `json:"-"`
+	OutputCostPerTokenKnown                  bool    `json:"-"`
+	CacheCreationInputTokenCostKnown         bool    `json:"-"`
+	CacheCreationInputTokenCostAbove1hrKnown bool    `json:"-"`
+	CacheReadInputTokenCostKnown             bool    `json:"-"`
+	SupportsReasoningKnown                   bool    `json:"-"`
+	SupportsVisionKnown                      bool    `json:"-"`
+	SupportsPDFInputKnown                    bool    `json:"-"`
+	SupportsFunctionCallingKnown             bool    `json:"-"`
+	SupportsToolChoiceKnown                  bool    `json:"-"`
+	MaxInputTokensKnown                      bool    `json:"-"`
+	MaxOutputTokensKnown                     bool    `json:"-"`
 }
 
 // PricingRemoteClient 远程价格数据获取接口
@@ -97,16 +124,26 @@ type LiteLLMRawEntry struct {
 	SupportsPromptCaching               bool     `json:"supports_prompt_caching"`
 	OutputCostPerImage                  *float64 `json:"output_cost_per_image"`
 	OutputCostPerImageToken             *float64 `json:"output_cost_per_image_token"`
+	SupportsReasoning                   *bool    `json:"supports_reasoning"`
+	SupportsVision                      *bool    `json:"supports_vision"`
+	SupportsPDFInput                    *bool    `json:"supports_pdf_input"`
+	SupportsFunctionCalling             *bool    `json:"supports_function_calling"`
+	SupportsToolChoice                  *bool    `json:"supports_tool_choice"`
+	MaxInputTokens                      *int     `json:"max_input_tokens"`
+	MaxOutputTokens                     *int     `json:"max_output_tokens"`
 }
 
 // PricingService 动态价格服务
 type PricingService struct {
-	cfg          *config.Config
-	remoteClient PricingRemoteClient
-	mu           sync.RWMutex
-	pricingData  map[string]*LiteLLMModelPricing
-	lastUpdated  time.Time
-	localHash    string
+	cfg                    *config.Config
+	remoteClient           PricingRemoteClient
+	mu                     sync.RWMutex
+	pricingData            map[string]*LiteLLMModelPricing
+	lastUpdated            time.Time
+	localHash              string
+	cliImportCatalogMu     sync.RWMutex
+	cliImportCatalogLoaded bool
+	cliImportCatalog       map[string]map[string]CLIImportModelCapability
 
 	// 停止信号
 	stopCh chan struct{}
@@ -246,6 +283,7 @@ func (s *PricingService) syncWithRemote() error {
 		remoteHash, err := s.fetchRemoteHash()
 		if err != nil {
 			logger.LegacyPrintf("service.pricing", "[Pricing] Failed to fetch remote hash: %v", err)
+			s.refreshOpenCodeGoPricingBestEffortWithTimeout()
 			return nil // 哈希获取失败不影响正常使用
 		}
 
@@ -259,6 +297,7 @@ func (s *PricingService) syncWithRemote() error {
 			return s.downloadPricingData()
 		}
 		logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Hash check passed, no update needed")
+		s.refreshOpenCodeGoPricingBestEffortWithTimeout()
 		return nil
 	}
 
@@ -276,6 +315,7 @@ func (s *PricingService) syncWithRemote() error {
 		logger.LegacyPrintf("service.pricing", "[Pricing] File is %v old, downloading...", fileAge.Round(time.Hour))
 		return s.downloadPricingData()
 	}
+	s.refreshOpenCodeGoPricingBestEffortWithTimeout()
 
 	return nil
 }
@@ -319,6 +359,7 @@ func (s *PricingService) downloadPricingData() error {
 	if err != nil {
 		return fmt.Errorf("parse pricing data: %w", err)
 	}
+	s.mergeOpenCodeGoPricingBestEffort(ctx, data)
 
 	// 保存到本地文件
 	pricingFile := s.getPricingFilePath()
@@ -386,24 +427,29 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 
 		if entry.InputCostPerToken != nil {
 			pricing.InputCostPerToken = *entry.InputCostPerToken
+			pricing.InputCostPerTokenKnown = true
 		}
 		if entry.InputCostPerTokenPriority != nil {
 			pricing.InputCostPerTokenPriority = *entry.InputCostPerTokenPriority
 		}
 		if entry.OutputCostPerToken != nil {
 			pricing.OutputCostPerToken = *entry.OutputCostPerToken
+			pricing.OutputCostPerTokenKnown = true
 		}
 		if entry.OutputCostPerTokenPriority != nil {
 			pricing.OutputCostPerTokenPriority = *entry.OutputCostPerTokenPriority
 		}
 		if entry.CacheCreationInputTokenCost != nil {
 			pricing.CacheCreationInputTokenCost = *entry.CacheCreationInputTokenCost
+			pricing.CacheCreationInputTokenCostKnown = true
 		}
 		if entry.CacheCreationInputTokenCostAbove1hr != nil {
 			pricing.CacheCreationInputTokenCostAbove1hr = *entry.CacheCreationInputTokenCostAbove1hr
+			pricing.CacheCreationInputTokenCostAbove1hrKnown = true
 		}
 		if entry.CacheReadInputTokenCost != nil {
 			pricing.CacheReadInputTokenCost = *entry.CacheReadInputTokenCost
+			pricing.CacheReadInputTokenCostKnown = true
 		}
 		if entry.CacheReadInputTokenCostPriority != nil {
 			pricing.CacheReadInputTokenCostPriority = *entry.CacheReadInputTokenCostPriority
@@ -413,6 +459,34 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 		if entry.OutputCostPerImageToken != nil {
 			pricing.OutputCostPerImageToken = *entry.OutputCostPerImageToken
+		}
+		if entry.SupportsReasoning != nil {
+			pricing.SupportsReasoning = *entry.SupportsReasoning
+			pricing.SupportsReasoningKnown = true
+		}
+		if entry.SupportsVision != nil {
+			pricing.SupportsVision = *entry.SupportsVision
+			pricing.SupportsVisionKnown = true
+		}
+		if entry.SupportsPDFInput != nil {
+			pricing.SupportsPDFInput = *entry.SupportsPDFInput
+			pricing.SupportsPDFInputKnown = true
+		}
+		if entry.SupportsFunctionCalling != nil {
+			pricing.SupportsFunctionCalling = *entry.SupportsFunctionCalling
+			pricing.SupportsFunctionCallingKnown = true
+		}
+		if entry.SupportsToolChoice != nil {
+			pricing.SupportsToolChoice = *entry.SupportsToolChoice
+			pricing.SupportsToolChoiceKnown = true
+		}
+		if entry.MaxInputTokens != nil {
+			pricing.MaxInputTokens = *entry.MaxInputTokens
+			pricing.MaxInputTokensKnown = true
+		}
+		if entry.MaxOutputTokens != nil {
+			pricing.MaxOutputTokens = *entry.MaxOutputTokens
+			pricing.MaxOutputTokensKnown = true
 		}
 
 		result[modelName] = pricing
@@ -429,6 +503,362 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 	return result, nil
 }
 
+type openCodeGoDocPriceRow struct {
+	Name       string
+	Key        string
+	Input      float64
+	Output     float64
+	CacheRead  float64
+	CacheWrite float64
+	Threshold  int
+	Above      bool
+}
+
+func parseOpenCodeGoPricingDocument(body []byte) (map[string]*LiteLLMModelPricing, error) {
+	rows := extractHTMLTableRows(body)
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("opencode go pricing document contains no tables")
+	}
+
+	modelIDs := make(map[string]string)
+	baseRows := make(map[string]openCodeGoDocPriceRow)
+	aboveRows := make(map[string]openCodeGoDocPriceRow)
+	priceRows := 0
+
+	for _, cells := range rows {
+		if len(cells) < 2 {
+			continue
+		}
+		if len(cells) >= 3 && isOpenCodeGoModelID(cells[1]) && strings.Contains(cells[2], "opencode.ai/zen/go/v1") {
+			modelIDs[normalizeOpenCodeGoDocModelKey(cells[0])] = strings.ToLower(strings.TrimSpace(cells[1]))
+			continue
+		}
+		if len(cells) < 5 {
+			continue
+		}
+		input, okInput := parseOpenCodeGoMillionTokenPrice(cells[1])
+		output, okOutput := parseOpenCodeGoMillionTokenPrice(cells[2])
+		if !okInput || !okOutput {
+			continue
+		}
+		cacheRead, _ := parseOpenCodeGoMillionTokenPrice(cells[3])
+		cacheWrite, _ := parseOpenCodeGoMillionTokenPrice(cells[4])
+		threshold, above := parseOpenCodeGoContextThreshold(cells[0])
+		row := openCodeGoDocPriceRow{
+			Name:       cells[0],
+			Key:        normalizeOpenCodeGoDocModelKey(cells[0]),
+			Input:      input,
+			Output:     output,
+			CacheRead:  cacheRead,
+			CacheWrite: cacheWrite,
+			Threshold:  threshold,
+			Above:      above,
+		}
+		if row.Key == "" {
+			continue
+		}
+		priceRows++
+		if row.Above {
+			aboveRows[row.Key] = row
+		} else {
+			baseRows[row.Key] = row
+		}
+	}
+	if priceRows == 0 {
+		return nil, fmt.Errorf("opencode go pricing document contains no model price rows")
+	}
+
+	result := make(map[string]*LiteLLMModelPricing, len(baseRows))
+	for key, row := range baseRows {
+		modelID := modelIDs[key]
+		if modelID == "" {
+			modelID = openCodeGoFallbackModelID(row.Name)
+		}
+		if modelID == "" {
+			continue
+		}
+		pricing := &LiteLLMModelPricing{
+			InputCostPerToken:                row.Input,
+			OutputCostPerToken:               row.Output,
+			CacheReadInputTokenCost:          row.CacheRead,
+			CacheCreationInputTokenCost:      row.CacheWrite,
+			LiteLLMProvider:                  PlatformOpenCodeGo,
+			Mode:                             "chat",
+			SupportsPromptCaching:            row.CacheRead > 0 || row.CacheWrite > 0,
+			InputCostPerTokenKnown:           true,
+			OutputCostPerTokenKnown:          true,
+			CacheReadInputTokenCostKnown:     row.CacheRead > 0,
+			CacheCreationInputTokenCostKnown: row.CacheWrite > 0,
+		}
+		if above, ok := aboveRows[key]; ok && row.Threshold > 0 {
+			pricing.LongContextInputTokenThreshold = row.Threshold
+			if row.Input > 0 && above.Input > row.Input {
+				pricing.LongContextInputCostMultiplier = above.Input / row.Input
+			}
+			if row.Output > 0 && above.Output > row.Output {
+				pricing.LongContextOutputCostMultiplier = above.Output / row.Output
+			}
+		}
+		result[modelID] = pricing
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("opencode go pricing document contains no usable model prices")
+	}
+	return result, nil
+}
+
+func parseOpenCodeGoModelsDevPricingDocument(body []byte) (map[string]*LiteLLMModelPricing, error) {
+	var raw map[string]cliImportModelsDevProvider
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, err
+	}
+	provider, ok := raw["opencode-go"]
+	if !ok || len(provider.Models) == 0 {
+		return nil, fmt.Errorf("models.dev catalog does not contain opencode-go provider")
+	}
+
+	result := make(map[string]*LiteLLMModelPricing, len(provider.Models))
+	for modelKey, model := range provider.Models {
+		modelID := strings.ToLower(strings.TrimSpace(model.ID))
+		if modelID == "" {
+			modelID = strings.ToLower(strings.TrimSpace(modelKey))
+		}
+		if modelID == "" || strings.Contains(modelID, "*") || !isOpenCodeGoModelID(modelID) {
+			continue
+		}
+		if model.Cost == nil || model.Cost.Input == nil || model.Cost.Output == nil {
+			continue
+		}
+		input := *model.Cost.Input / 1_000_000
+		output := *model.Cost.Output / 1_000_000
+		if input <= 0 && output <= 0 {
+			continue
+		}
+		pricing := &LiteLLMModelPricing{
+			InputCostPerToken:       input,
+			OutputCostPerToken:      output,
+			LiteLLMProvider:         PlatformOpenCodeGo,
+			Mode:                    "chat",
+			InputCostPerTokenKnown:  true,
+			OutputCostPerTokenKnown: true,
+		}
+		if model.Cost.CacheRead != nil {
+			pricing.CacheReadInputTokenCost = *model.Cost.CacheRead / 1_000_000
+			pricing.CacheReadInputTokenCostKnown = true
+		}
+		if model.Cost.CacheWrite != nil {
+			pricing.CacheCreationInputTokenCost = *model.Cost.CacheWrite / 1_000_000
+			pricing.CacheCreationInputTokenCostKnown = true
+		}
+		pricing.SupportsPromptCaching = pricing.CacheReadInputTokenCost > 0 || pricing.CacheCreationInputTokenCost > 0
+		if model.Reasoning != nil {
+			pricing.SupportsReasoning = *model.Reasoning
+			pricing.SupportsReasoningKnown = true
+		}
+		if model.ToolCall != nil {
+			pricing.SupportsFunctionCalling = *model.ToolCall
+			pricing.SupportsToolChoice = *model.ToolCall
+			pricing.SupportsFunctionCallingKnown = true
+			pricing.SupportsToolChoiceKnown = true
+		}
+		if model.Modalities != nil {
+			inputModalities := cleanCLIImportModalities(model.Modalities.Input)
+			pricing.SupportsVision = containsString(inputModalities, "image")
+			pricing.SupportsPDFInput = containsString(inputModalities, "pdf")
+			pricing.SupportsVisionKnown = true
+			pricing.SupportsPDFInputKnown = true
+		}
+		if model.Limit != nil {
+			if model.Limit.Context != nil {
+				pricing.MaxInputTokens = *model.Limit.Context
+				pricing.MaxInputTokensKnown = true
+			}
+			if model.Limit.Output != nil {
+				pricing.MaxOutputTokens = *model.Limit.Output
+				pricing.MaxOutputTokensKnown = true
+			}
+		}
+		result[modelID] = pricing
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("models.dev opencode-go provider contains no usable model prices")
+	}
+	return result, nil
+}
+
+func extractHTMLTableRows(body []byte) [][]string {
+	rowMatches := htmlTableRowPattern.FindAllSubmatch(body, -1)
+	rows := make([][]string, 0, len(rowMatches))
+	for _, rowMatch := range rowMatches {
+		if len(rowMatch) < 2 {
+			continue
+		}
+		cellMatches := htmlTableCellPattern.FindAllSubmatch(rowMatch[1], -1)
+		if len(cellMatches) == 0 {
+			continue
+		}
+		cells := make([]string, 0, len(cellMatches))
+		for _, cellMatch := range cellMatches {
+			if len(cellMatch) < 2 {
+				continue
+			}
+			cells = append(cells, cleanHTMLCellText(cellMatch[1]))
+		}
+		rows = append(rows, cells)
+	}
+	return rows
+}
+
+func cleanHTMLCellText(raw []byte) string {
+	text := htmlTagPattern.ReplaceAllString(string(raw), "")
+	text = html.UnescapeString(text)
+	text = strings.ReplaceAll(text, "\u00a0", " ")
+	return strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
+}
+
+func parseOpenCodeGoMillionTokenPrice(value string) (float64, bool) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || trimmed == "-" {
+		return 0, true
+	}
+	match := openCodeGoPricePattern.FindStringSubmatch(trimmed)
+	if len(match) != 2 {
+		return 0, false
+	}
+	price, err := strconv.ParseFloat(match[1], 64)
+	if err != nil {
+		return 0, false
+	}
+	return price / 1_000_000, true
+}
+
+func parseOpenCodeGoContextThreshold(name string) (int, bool) {
+	normalized := html.UnescapeString(strings.ToLower(name))
+	match := openCodeGoThresholdPattern.FindStringSubmatch(normalized)
+	if len(match) != 3 {
+		return 0, false
+	}
+	value, err := strconv.Atoi(match[1])
+	if err != nil {
+		return 0, false
+	}
+	switch strings.ToLower(match[2]) {
+	case "m":
+		value *= 1_000_000
+	default:
+		value *= 1_000
+	}
+	return value, strings.Contains(normalized, ">") || strings.Contains(normalized, "≥")
+}
+
+func normalizeOpenCodeGoDocModelKey(name string) string {
+	normalized := strings.ToLower(html.UnescapeString(name))
+	if idx := strings.Index(normalized, "("); idx >= 0 {
+		normalized = strings.TrimSpace(normalized[:idx])
+	}
+	normalized = strings.ReplaceAll(normalized, "-", " ")
+	normalized = strings.Join(strings.Fields(normalized), " ")
+	if strings.HasPrefix(normalized, "kimi ") && strings.HasSuffix(normalized, " code") {
+		normalized = strings.TrimSpace(strings.TrimSuffix(normalized, " code"))
+	}
+	return normalized
+}
+
+func isOpenCodeGoModelID(value string) bool {
+	return openCodeGoModelIDPattern.MatchString(strings.ToLower(strings.TrimSpace(value)))
+}
+
+func openCodeGoFallbackModelID(name string) string {
+	key := normalizeOpenCodeGoDocModelKey(name)
+	if key == "" {
+		return ""
+	}
+	return strings.ReplaceAll(key, " ", "-")
+}
+
+func (s *PricingService) mergeOpenCodeGoPricingBestEffort(ctx context.Context, pricingData map[string]*LiteLLMModelPricing) int {
+	if s == nil || s.cfg == nil || s.remoteClient == nil || pricingData == nil {
+		return 0
+	}
+	docsURL := strings.TrimSpace(s.cfg.Pricing.OpenCodeGoDocsURL)
+	if docsURL == "" {
+		return 0
+	}
+	merged := 0
+	validatedURL, err := s.validatePricingURL(docsURL)
+	if err != nil {
+		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go pricing URL invalid: %v", err)
+		return 0
+	}
+	body, err := s.remoteClient.FetchPricingJSON(ctx, validatedURL)
+	if err != nil {
+		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go pricing fetch failed: %v", err)
+	} else if openCodeGoPricing, err := parseOpenCodeGoPricingDocument(body); err != nil {
+		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go pricing parse failed: %v", err)
+	} else {
+		for model, pricing := range openCodeGoPricing {
+			pricingData[model] = pricing
+			merged++
+		}
+		logger.LegacyPrintf("service.pricing", "[Pricing] Merged %d OpenCode Go official prices", len(openCodeGoPricing))
+	}
+
+	modelsDevURL, err := s.validateSupplementalPricingURL(cliImportModelsDevAPIURL, []string{"models.dev"})
+	if err != nil {
+		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go models.dev pricing URL invalid: %v", err)
+		return merged
+	}
+	body, err = s.remoteClient.FetchPricingJSON(ctx, modelsDevURL)
+	if err != nil {
+		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go models.dev pricing fetch failed: %v", err)
+		return merged
+	}
+	modelsDevPricing, err := parseOpenCodeGoModelsDevPricingDocument(body)
+	if err != nil {
+		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go models.dev pricing parse failed: %v", err)
+		return merged
+	}
+	modelsDevMerged := 0
+	for model, pricing := range modelsDevPricing {
+		if _, exists := pricingData[model]; exists {
+			continue
+		}
+		pricingData[model] = pricing
+		modelsDevMerged++
+	}
+	merged += modelsDevMerged
+	logger.LegacyPrintf("service.pricing", "[Pricing] Merged %d OpenCode Go models.dev supplemental prices", modelsDevMerged)
+	return merged
+}
+
+func (s *PricingService) refreshOpenCodeGoPricingBestEffortWithTimeout() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	s.refreshOpenCodeGoPricingBestEffort(ctx)
+}
+
+func (s *PricingService) refreshOpenCodeGoPricingBestEffort(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	s.mu.RLock()
+	current := make(map[string]*LiteLLMModelPricing, len(s.pricingData))
+	for model, pricing := range s.pricingData {
+		current[model] = pricing
+	}
+	s.mu.RUnlock()
+	if len(current) == 0 {
+		return
+	}
+	if s.mergeOpenCodeGoPricingBestEffort(ctx, current) == 0 {
+		return
+	}
+	s.mu.Lock()
+	s.pricingData = current
+	s.lastUpdated = time.Now()
+	s.mu.Unlock()
+}
+
 // loadPricingData 从本地文件加载价格数据
 func (s *PricingService) loadPricingData(filePath string) error {
 	data, err := os.ReadFile(filePath)
@@ -441,6 +871,9 @@ func (s *PricingService) loadPricingData(filePath string) error {
 	if err != nil {
 		return fmt.Errorf("parse pricing data: %w", err)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	s.mergeOpenCodeGoPricingBestEffort(ctx, pricingData)
 
 	// 计算哈希
 	hash := sha256.Sum256(data)
@@ -504,6 +937,10 @@ func (s *PricingService) fetchRemoteHash() (string, error) {
 }
 
 func (s *PricingService) validatePricingURL(raw string) (string, error) {
+	return s.validateSupplementalPricingURL(raw, nil)
+}
+
+func (s *PricingService) validateSupplementalPricingURL(raw string, extraHosts []string) (string, error) {
 	if s.cfg != nil && !s.cfg.Security.URLAllowlist.Enabled {
 		normalized, err := urlvalidator.ValidateURLFormat(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP)
 		if err != nil {
@@ -511,8 +948,10 @@ func (s *PricingService) validatePricingURL(raw string) (string, error) {
 		}
 		return normalized, nil
 	}
+	allowedHosts := append([]string{}, s.cfg.Security.URLAllowlist.PricingHosts...)
+	allowedHosts = append(allowedHosts, extraHosts...)
 	normalized, err := urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
-		AllowedHosts:     s.cfg.Security.URLAllowlist.PricingHosts,
+		AllowedHosts:     allowedHosts,
 		RequireAllowlist: true,
 		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
 	})

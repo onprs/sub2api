@@ -11,6 +11,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -148,6 +149,11 @@ type BulkUpdateAccountsRequest struct {
 	Credentials             map[string]any            `json:"credentials"`
 	Extra                   map[string]any            `json:"extra"`
 	ConfirmMixedChannelRisk *bool                     `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+}
+
+type CopyModelMappingRequest struct {
+	SourceAccountID  int64   `json:"source_account_id" binding:"required,min=1"`
+	TargetAccountIDs []int64 `json:"target_account_ids" binding:"required,min=1"`
 }
 
 type BulkUpdateAccountFilters struct {
@@ -1501,6 +1507,27 @@ func (h *AccountHandler) BatchUpdateCredentials(c *gin.Context) {
 	})
 }
 
+// CopyModelMapping copies one account's credentials.model_mapping to selected same-platform accounts.
+// POST /api/v1/admin/accounts/model-mapping/copy
+func (h *AccountHandler) CopyModelMapping(c *gin.Context) {
+	var req CopyModelMappingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	result, err := h.adminService.CopyAccountModelMapping(c.Request.Context(), &service.CopyAccountModelMappingInput{
+		SourceAccountID:  req.SourceAccountID,
+		TargetAccountIDs: req.TargetAccountIDs,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, result)
+}
+
 // BulkUpdate handles bulk updating accounts with selected fields/credentials.
 // POST /api/v1/admin/accounts/bulk-update
 func (h *AccountHandler) BulkUpdate(c *gin.Context) {
@@ -2048,6 +2075,11 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	if account.IsOpenCodeGo() {
+		response.Success(c, openCodeGoAvailableModels(account))
+		return
+	}
+
 	// Handle Claude/Anthropic accounts
 	// For OAuth and Setup-Token accounts: return default models
 	if account.IsOAuth() {
@@ -2087,6 +2119,31 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	}
 
 	response.Success(c, models)
+}
+
+func openCodeGoAvailableModels(account *service.Account) []openai.Model {
+	ids := []string{}
+	if account != nil {
+		mapping := account.GetExplicitModelMapping()
+		for requestedModel := range mapping {
+			ids = append(ids, requestedModel)
+		}
+	}
+	if len(ids) == 0 {
+		ids = service.OpenCodeGoDefaultModelIDs()
+	}
+	sort.Strings(ids)
+
+	models := make([]openai.Model, 0, len(ids))
+	for _, id := range ids {
+		models = append(models, openai.Model{
+			ID:          id,
+			Object:      "model",
+			Type:        "model",
+			DisplayName: id,
+		})
+	}
+	return models
 }
 
 // SyncUpstreamModels handles syncing live supported models from an account's upstream.

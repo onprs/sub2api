@@ -20,8 +20,9 @@ type gatewayModelsAccountRepoStub struct {
 }
 
 type gatewayModelsResponseForTest struct {
-	Object string                    `json:"object"`
-	Data   []gatewayModelItemForTest `json:"data"`
+	Object  string                    `json:"object"`
+	Data    []gatewayModelItemForTest `json:"data"`
+	Message string                    `json:"message"`
 }
 
 type gatewayModelItemForTest struct {
@@ -30,6 +31,17 @@ type gatewayModelItemForTest struct {
 	Created   int64  `json:"created"`
 	OwnedBy   string `json:"owned_by"`
 	CreatedAt string `json:"created_at"`
+}
+
+type gatewayGeminiModelsResponseForTest struct {
+	Models  []gatewayGeminiModelItemForTest `json:"models"`
+	Message string                          `json:"message"`
+}
+
+type gatewayGeminiModelItemForTest struct {
+	Name                       string   `json:"name"`
+	DisplayName                string   `json:"displayName"`
+	SupportedGenerationMethods []string `json:"supportedGenerationMethods"`
 }
 
 func (s *gatewayModelsAccountRepoStub) ListSchedulableByGroupID(ctx context.Context, groupID int64) ([]service.Account, error) {
@@ -84,6 +96,42 @@ func TestGatewayModels_GeminiGroupFallsBackToGeminiModels(t *testing.T) {
 	require.NotContains(t, modelIDsForTest(got.Data), "claude-sonnet-4-6")
 }
 
+func TestGatewayModels_OpenCodeGoGroupFallsBackToOpenCodeGoModels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(34)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{
+			byGroup: map[int64][]service.Account{
+				groupID: {
+					{ID: 1, Platform: service.PlatformOpenCodeGo},
+				},
+			},
+		},
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformOpenCodeGo},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	modelIDs := modelIDsForTest(got.Data)
+	require.Contains(t, modelIDs, "glm-5.2")
+	require.Contains(t, modelIDs, "qwen3.5-plus")
+	require.Contains(t, modelIDs, "kimi-k2.7-code")
+	require.Contains(t, modelIDs, "qwen3.7-plus")
+	require.NotContains(t, modelIDs, "kimi-k2.7")
+	require.NotContains(t, modelIDs, "claude-sonnet-4-6")
+}
+
 func TestGatewayModels_GeminiGroupFiltersMappedModelsByPlatform(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -129,6 +177,167 @@ func TestGatewayModels_GeminiGroupFiltersMappedModelsByPlatform(t *testing.T) {
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.Equal(t, []string{"gemini-2.5-flash"}, modelIDsForTest(got.Data))
+}
+
+func TestGatewayModels_AntigravityClaudeModelsUseExplicitMappingOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(30)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{
+			byGroup: map[int64][]service.Account{
+				groupID: {
+					{
+						ID:       1,
+						Platform: service.PlatformAntigravity,
+						Credentials: map[string]any{
+							"model_mapping": map[string]any{
+								"claude-sonnet-4-6": "claude-sonnet-4-6",
+								"claude-opus-4-6":   "claude-opus-4-6-thinking",
+								"claude-*":          "claude-sonnet-4-6",
+								"gemini-3-flash":    "gemini-3-flash",
+							},
+						},
+					},
+					{
+						ID:       2,
+						Platform: service.PlatformAnthropic,
+						Credentials: map[string]any{
+							"model_mapping": map[string]any{
+								"claude-ignored": "claude-ignored",
+							},
+						},
+					},
+				},
+			},
+		},
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/antigravity/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), apiKeyWithGroupForModelsTest(groupID, service.PlatformAnthropic))
+
+	h.AntigravityModels(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, "list", got.Object)
+	require.Empty(t, got.Message)
+	require.Equal(t, []string{"claude-opus-4-6", "claude-sonnet-4-6"}, modelIDsForTest(got.Data))
+}
+
+func TestGatewayModels_AntigravityClaudeModelsEmptyMappingReturnsMessage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(31)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{
+			byGroup: map[int64][]service.Account{
+				groupID: {
+					{ID: 1, Platform: service.PlatformAntigravity},
+				},
+			},
+		},
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/antigravity/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), apiKeyWithGroupForModelsTest(groupID, service.PlatformAnthropic))
+
+	h.AntigravityModels(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, "list", got.Object)
+	require.Empty(t, got.Data)
+	require.Equal(t, "No Claude-compatible Antigravity model_mapping configured. Please ask the administrator to configure model mappings.", got.Message)
+}
+
+func TestGatewayModels_AntigravityGeminiModelsUseExplicitMappingOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(32)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{
+			byGroup: map[int64][]service.Account{
+				groupID: {
+					{
+						ID:       1,
+						Platform: service.PlatformAntigravity,
+						Credentials: map[string]any{
+							"model_mapping": map[string]any{
+								"claude-sonnet-4-6": "claude-sonnet-4-6",
+								"gemini-3-flash":    "gemini-3-flash",
+								"gemini-3-pro-high": "gemini-3-pro-high",
+								"gemini-*":          "gemini-3-flash",
+							},
+						},
+					},
+				},
+			},
+		},
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/antigravity/v1beta/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), apiKeyWithGroupForModelsTest(groupID, service.PlatformGemini))
+	c.Set(string(middleware2.ContextKeyForcePlatform), service.PlatformAntigravity)
+
+	h.GeminiV1BetaListModels(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got gatewayGeminiModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Empty(t, got.Message)
+	require.Equal(t, []string{"models/gemini-3-flash", "models/gemini-3-pro-high"}, geminiModelNamesForTest(got.Models))
+	require.Equal(t, "gemini-3-flash", got.Models[0].DisplayName)
+	require.Equal(t, []string{"generateContent", "streamGenerateContent"}, got.Models[0].SupportedGenerationMethods)
+}
+
+func TestGatewayModels_AntigravityGeminiModelsEmptyMappingReturnsMessage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(33)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{
+			byGroup: map[int64][]service.Account{
+				groupID: {
+					{
+						ID:       1,
+						Platform: service.PlatformAntigravity,
+						Credentials: map[string]any{
+							"model_mapping": map[string]any{
+								"gemini-*": "gemini-3-flash",
+							},
+						},
+					},
+				},
+			},
+		},
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/antigravity/v1beta/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), apiKeyWithGroupForModelsTest(groupID, service.PlatformGemini))
+	c.Set(string(middleware2.ContextKeyForcePlatform), service.PlatformAntigravity)
+
+	h.GeminiV1BetaListModels(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got gatewayGeminiModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Empty(t, got.Models)
+	require.Equal(t, "No Gemini-compatible Antigravity model_mapping configured. Please ask the administrator to configure model mappings.", got.Message)
 }
 
 func TestGatewayModels_CustomModelsListDisabledKeepsOriginalModels(t *testing.T) {
@@ -398,4 +607,19 @@ func modelIDsForTest(models []gatewayModelItemForTest) []string {
 		ids = append(ids, model.ID)
 	}
 	return ids
+}
+
+func geminiModelNamesForTest(models []gatewayGeminiModelItemForTest) []string {
+	names := make([]string, 0, len(models))
+	for _, model := range models {
+		names = append(names, model.Name)
+	}
+	return names
+}
+
+func apiKeyWithGroupForModelsTest(groupID int64, platform string) *service.APIKey {
+	return &service.APIKey{
+		GroupID: &groupID,
+		Group:   &service.Group{ID: groupID, Platform: platform},
+	}
 }

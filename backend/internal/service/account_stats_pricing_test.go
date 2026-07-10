@@ -181,6 +181,54 @@ func TestFindPricingForModel(t *testing.T) {
 	}
 }
 
+func TestTryCustomRules_GeminiAliasRawRuleWins(t *testing.T) {
+	channel := &Channel{
+		AccountStatsPricingRules: []AccountStatsPricingRule{{
+			GroupIDs: []int64{10},
+			Pricing: []ChannelModelPricing{
+				{ID: 1, Models: []string{"gemini-3.1-pro-high"}, InputPrice: testPtrFloat64(0.09)},
+				{ID: 2, Models: []string{"gemini-pro-agent"}, InputPrice: testPtrFloat64(0.41)},
+			},
+		}},
+	}
+
+	result := tryCustomRules(channel, 1, 10, "", "gemini-pro-agent", UsageTokens{InputTokens: 10}, 1)
+
+	require.NotNil(t, result)
+	require.InDelta(t, 4.1, *result, 1e-12)
+}
+
+func TestTryCustomRules_GeminiAliasCanonicalFallback(t *testing.T) {
+	channel := &Channel{
+		AccountStatsPricingRules: []AccountStatsPricingRule{{
+			GroupIDs: []int64{10},
+			Pricing: []ChannelModelPricing{
+				{ID: 1, Models: []string{"gemini-3-flash"}, InputPrice: testPtrFloat64(0.03)},
+			},
+		}},
+	}
+
+	result := tryCustomRules(channel, 1, 10, "", "gemini-3-flash-agent", UsageTokens{InputTokens: 10}, 1)
+
+	require.NotNil(t, result)
+	require.InDelta(t, 0.3, *result, 1e-12)
+}
+
+func TestTryCustomRules_UnknownGeminiAliasDoesNotMatchFlashRule(t *testing.T) {
+	channel := &Channel{
+		AccountStatsPricingRules: []AccountStatsPricingRule{{
+			GroupIDs: []int64{10},
+			Pricing: []ChannelModelPricing{
+				{ID: 1, Models: []string{"gemini-3-flash"}, InputPrice: testPtrFloat64(0.03)},
+			},
+		}},
+	}
+
+	result := tryCustomRules(channel, 1, 10, "", "gemini-3.1-pro-low", UsageTokens{InputTokens: 10}, 1)
+
+	require.Nil(t, result)
+}
+
 // ---------------------------------------------------------------------------
 // calculateStatsCost
 // ---------------------------------------------------------------------------

@@ -230,6 +230,9 @@ export async function getUserUsageStats(
  */
 export interface BalanceHistoryItem {
   id: number
+  source?: 'redeem_code' | 'payment_order'
+  source_id?: number
+  payment_order_id?: number
   code: string
   type: string
   value: number
@@ -305,7 +308,7 @@ export async function bindUserAuthIdentity(
 /**
  * Platform quota types
  */
-export type PlatformQuotaPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
+export type PlatformQuotaPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'opencode_go'
 export type PlatformQuotaWindow = 'daily' | 'weekly' | 'monthly'
 
 export interface PlatformQuotaItem {

@@ -12,7 +12,9 @@ import (
 )
 
 // validatePlanRequired checks that all required fields for a plan are provided.
-func validatePlanRequired(name string, groupID int64, price float64, validityDays int, validityUnit string, originalPrice *float64) error {
+// The optional numeric tail is kept for historical tests: first three values are
+// rolling quota limits, the fourth value is renewal_discount_percent.
+func validatePlanRequired(name string, groupID int64, price float64, validityDays int, validityUnit string, originalPrice *float64, numericOptions ...*float64) error {
 	if strings.TrimSpace(name) == "" {
 		return infraerrors.BadRequest("PLAN_NAME_REQUIRED", "plan name is required")
 	}
@@ -25,13 +27,92 @@ func validatePlanRequired(name string, groupID int64, price float64, validityDay
 	if validityDays <= 0 {
 		return infraerrors.BadRequest("PLAN_VALIDITY_REQUIRED", "validity days must be > 0")
 	}
-	if strings.TrimSpace(validityUnit) == "" {
+	if normalizePlanValidityUnit(validityUnit) == "" {
 		return infraerrors.BadRequest("PLAN_VALIDITY_UNIT_REQUIRED", "validity unit is required")
 	}
 	if originalPrice != nil && *originalPrice < 0 {
 		return infraerrors.BadRequest("PLAN_ORIGINAL_PRICE_INVALID", "original price must be >= 0")
 	}
+	for i, limit := range numericOptions {
+		if i >= 3 {
+			break
+		}
+		name := "plan_limit_usd"
+		switch i {
+		case 0:
+			name = "five_hour_limit_usd"
+		case 1:
+			name = "seven_day_limit_usd"
+		case 2:
+			name = "thirty_day_limit_usd"
+		}
+		if err := validatePlanRollingLimit(name, limit); err != nil {
+			return err
+		}
+	}
+	if len(numericOptions) >= 4 {
+		if err := validatePlanRenewalDiscountPercent(numericOptions[3], price); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func validatePlanRollingLimit(name string, value *float64) error {
+	if value != nil && *value < 0 {
+		return infraerrors.BadRequest("PLAN_LIMIT_INVALID", name+" must be >= 0")
+	}
+	return nil
+}
+
+func validatePlanStock(value *int) error {
+	if value != nil && *value < 0 {
+		return infraerrors.BadRequest("PLAN_STOCK_INVALID", "stock must be >= 0")
+	}
+	return nil
+}
+
+func SubscriptionPlanSoldOut(plan *dbent.SubscriptionPlan) bool {
+	return plan != nil && plan.Stock != nil && *plan.Stock == 0
+}
+
+func validatePlanRenewalDiscountPercentRange(value *float64) error {
+	if value == nil {
+		return nil
+	}
+	if *value < 0 || *value >= 100 {
+		return infraerrors.BadRequest("PLAN_RENEWAL_DISCOUNT_INVALID", "renewal_discount_percent must be >= 0 and < 100")
+	}
+	return nil
+}
+
+func validatePlanRenewalDiscountPercent(value *float64, price float64) error {
+	if err := validatePlanRenewalDiscountPercentRange(value); err != nil {
+		return err
+	}
+	if value == nil {
+		return nil
+	}
+	if *value == 0 {
+		return nil
+	}
+	if calculateRenewalDiscountedPrice(price, *value) <= 0 {
+		return infraerrors.BadRequest("PLAN_RENEWAL_DISCOUNT_INVALID", "renewal discount makes the renewal price too low")
+	}
+	return nil
+}
+
+func normalizePlanValidityUnit(unit string) string {
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case validityUnitDay, validityUnitDays:
+		return validityUnitDays
+	case validityUnitWeek, validityUnitWeeks:
+		return validityUnitWeeks
+	case validityUnitMonth, validityUnitMonths:
+		return validityUnitMonths
+	default:
+		return ""
+	}
 }
 
 // validatePlanPatch validates only the non-nil fields in a patch update.
@@ -48,11 +129,36 @@ func validatePlanPatch(req UpdatePlanRequest) error {
 	if req.ValidityDays != nil && *req.ValidityDays <= 0 {
 		return infraerrors.BadRequest("PLAN_VALIDITY_REQUIRED", "validity days must be > 0")
 	}
-	if req.ValidityUnit != nil && strings.TrimSpace(*req.ValidityUnit) == "" {
+	if req.ValidityUnit != nil && normalizePlanValidityUnit(*req.ValidityUnit) == "" {
 		return infraerrors.BadRequest("PLAN_VALIDITY_UNIT_REQUIRED", "validity unit is required")
 	}
 	if req.OriginalPrice != nil && *req.OriginalPrice < 0 {
 		return infraerrors.BadRequest("PLAN_ORIGINAL_PRICE_INVALID", "original price must be >= 0")
+	}
+	if req.Stock.Set {
+		if err := validatePlanStock(req.Stock.Value); err != nil {
+			return err
+		}
+	}
+	if req.RenewalDiscountPercent.Set {
+		if err := validatePlanRenewalDiscountPercentRange(req.RenewalDiscountPercent.Value); err != nil {
+			return err
+		}
+	}
+	if req.FiveHourLimitUSD.Set {
+		if err := validatePlanRollingLimit("five_hour_limit_usd", req.FiveHourLimitUSD.Value); err != nil {
+			return err
+		}
+	}
+	if req.SevenDayLimitUSD.Set {
+		if err := validatePlanRollingLimit("seven_day_limit_usd", req.SevenDayLimitUSD.Value); err != nil {
+			return err
+		}
+	}
+	if req.ThirtyDayLimitUSD.Set {
+		if err := validatePlanRollingLimit("thirty_day_limit_usd", req.ThirtyDayLimitUSD.Value); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -121,17 +227,28 @@ func (s *PaymentConfigService) ListPlansForSale(ctx context.Context) ([]*dbent.S
 }
 
 func (s *PaymentConfigService) CreatePlan(ctx context.Context, req CreatePlanRequest) (*dbent.SubscriptionPlan, error) {
-	if err := validatePlanRequired(req.Name, req.GroupID, req.Price, req.ValidityDays, req.ValidityUnit, req.OriginalPrice); err != nil {
+	if err := validatePlanRequired(req.Name, req.GroupID, req.Price, req.ValidityDays, req.ValidityUnit, req.OriginalPrice, req.FiveHourLimitUSD, req.SevenDayLimitUSD, req.ThirtyDayLimitUSD, req.RenewalDiscountPercent); err != nil {
 		return nil, err
 	}
+	if err := validatePlanStock(req.Stock); err != nil {
+		return nil, err
+	}
+	validityUnit := normalizePlanValidityUnit(req.ValidityUnit)
 	b := s.entClient.SubscriptionPlan.Create().
 		SetGroupID(req.GroupID).SetName(req.Name).SetDescription(req.Description).
-		SetPrice(req.Price).SetValidityDays(req.ValidityDays).SetValidityUnit(req.ValidityUnit).
+		SetPrice(req.Price).SetValidityDays(req.ValidityDays).SetValidityUnit(validityUnit).
 		SetFeatures(req.Features).SetProductName(req.ProductName).
 		SetForSale(req.ForSale).SetSortOrder(req.SortOrder)
 	if req.OriginalPrice != nil {
 		b.SetOriginalPrice(*req.OriginalPrice)
 	}
+	if req.RenewalDiscountPercent != nil {
+		b.SetRenewalDiscountPercent(*req.RenewalDiscountPercent)
+	}
+	b.SetNillableFiveHourLimitUsd(req.FiveHourLimitUSD)
+	b.SetNillableSevenDayLimitUsd(req.SevenDayLimitUSD)
+	b.SetNillableThirtyDayLimitUsd(req.ThirtyDayLimitUSD)
+	b.SetNillableStock(req.Stock)
 	return b.Save(ctx)
 }
 
@@ -140,6 +257,21 @@ func (s *PaymentConfigService) CreatePlan(ctx context.Context, req CreatePlanReq
 // plus a validation guard for non-nil fields.
 func (s *PaymentConfigService) UpdatePlan(ctx context.Context, id int64, req UpdatePlanRequest) (*dbent.SubscriptionPlan, error) {
 	if err := validatePlanPatch(req); err != nil {
+		return nil, err
+	}
+	current, err := s.GetPlan(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	effectivePrice := current.Price
+	if req.Price != nil {
+		effectivePrice = *req.Price
+	}
+	effectiveRenewalDiscount := current.RenewalDiscountPercent
+	if req.RenewalDiscountPercent.Set {
+		effectiveRenewalDiscount = req.RenewalDiscountPercent.Value
+	}
+	if err := validatePlanRenewalDiscountPercent(effectiveRenewalDiscount, effectivePrice); err != nil {
 		return nil, err
 	}
 	u := s.entClient.SubscriptionPlan.UpdateOneID(id)
@@ -158,11 +290,46 @@ func (s *PaymentConfigService) UpdatePlan(ctx context.Context, id int64, req Upd
 	if req.OriginalPrice != nil {
 		u.SetOriginalPrice(*req.OriginalPrice)
 	}
+	if req.RenewalDiscountPercent.Set {
+		if req.RenewalDiscountPercent.Value == nil {
+			u.ClearRenewalDiscountPercent()
+		} else {
+			u.SetRenewalDiscountPercent(*req.RenewalDiscountPercent.Value)
+		}
+	}
+	if req.FiveHourLimitUSD.Set {
+		if req.FiveHourLimitUSD.Value == nil {
+			u.ClearFiveHourLimitUsd()
+		} else {
+			u.SetFiveHourLimitUsd(*req.FiveHourLimitUSD.Value)
+		}
+	}
+	if req.SevenDayLimitUSD.Set {
+		if req.SevenDayLimitUSD.Value == nil {
+			u.ClearSevenDayLimitUsd()
+		} else {
+			u.SetSevenDayLimitUsd(*req.SevenDayLimitUSD.Value)
+		}
+	}
+	if req.ThirtyDayLimitUSD.Set {
+		if req.ThirtyDayLimitUSD.Value == nil {
+			u.ClearThirtyDayLimitUsd()
+		} else {
+			u.SetThirtyDayLimitUsd(*req.ThirtyDayLimitUSD.Value)
+		}
+	}
+	if req.Stock.Set {
+		if req.Stock.Value == nil {
+			u.ClearStock()
+		} else {
+			u.SetStock(*req.Stock.Value)
+		}
+	}
 	if req.ValidityDays != nil {
 		u.SetValidityDays(*req.ValidityDays)
 	}
 	if req.ValidityUnit != nil {
-		u.SetValidityUnit(*req.ValidityUnit)
+		u.SetValidityUnit(normalizePlanValidityUnit(*req.ValidityUnit))
 	}
 	if req.Features != nil {
 		u.SetFeatures(*req.Features)

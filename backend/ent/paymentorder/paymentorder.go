@@ -50,6 +50,20 @@ const (
 	FieldSubscriptionGroupID = "subscription_group_id"
 	// FieldSubscriptionDays holds the string denoting the subscription_days field in the database.
 	FieldSubscriptionDays = "subscription_days"
+	// FieldSubscriptionID holds the string denoting the subscription_id field in the database.
+	FieldSubscriptionID = "subscription_id"
+	// FieldSubscriptionPlanPrice holds the string denoting the subscription_plan_price field in the database.
+	FieldSubscriptionPlanPrice = "subscription_plan_price"
+	// FieldSubscriptionRenewalDiscountPercent holds the string denoting the subscription_renewal_discount_percent field in the database.
+	FieldSubscriptionRenewalDiscountPercent = "subscription_renewal_discount_percent"
+	// FieldSubscriptionQuotaSnapshotVersion holds the string denoting the subscription_quota_snapshot_version field in the database.
+	FieldSubscriptionQuotaSnapshotVersion = "subscription_quota_snapshot_version"
+	// FieldSubscriptionFiveHourLimitUsd holds the string denoting the subscription_five_hour_limit_usd field in the database.
+	FieldSubscriptionFiveHourLimitUsd = "subscription_five_hour_limit_usd"
+	// FieldSubscriptionSevenDayLimitUsd holds the string denoting the subscription_seven_day_limit_usd field in the database.
+	FieldSubscriptionSevenDayLimitUsd = "subscription_seven_day_limit_usd"
+	// FieldSubscriptionThirtyDayLimitUsd holds the string denoting the subscription_thirty_day_limit_usd field in the database.
+	FieldSubscriptionThirtyDayLimitUsd = "subscription_thirty_day_limit_usd"
 	// FieldProviderInstanceID holds the string denoting the provider_instance_id field in the database.
 	FieldProviderInstanceID = "provider_instance_id"
 	// FieldProviderKey holds the string denoting the provider_key field in the database.
@@ -126,6 +140,13 @@ var Columns = []string{
 	FieldPlanID,
 	FieldSubscriptionGroupID,
 	FieldSubscriptionDays,
+	FieldSubscriptionID,
+	FieldSubscriptionPlanPrice,
+	FieldSubscriptionRenewalDiscountPercent,
+	FieldSubscriptionQuotaSnapshotVersion,
+	FieldSubscriptionFiveHourLimitUsd,
+	FieldSubscriptionSevenDayLimitUsd,
+	FieldSubscriptionThirtyDayLimitUsd,
 	FieldProviderInstanceID,
 	FieldProviderKey,
 	FieldProviderSnapshot,
@@ -180,6 +201,18 @@ var (
 	DefaultOrderType string
 	// OrderTypeValidator is a validator for the "order_type" field. It is called by the builders before save.
 	OrderTypeValidator func(string) error
+	// SubscriptionPlanPriceValidator is a validator for the "subscription_plan_price" field. It is called by the builders before save.
+	SubscriptionPlanPriceValidator func(float64) error
+	// SubscriptionRenewalDiscountPercentValidator is a validator for the "subscription_renewal_discount_percent" field. It is called by the builders before save.
+	SubscriptionRenewalDiscountPercentValidator func(float64) error
+	// DefaultSubscriptionQuotaSnapshotVersion holds the default value on creation for the "subscription_quota_snapshot_version" field.
+	DefaultSubscriptionQuotaSnapshotVersion int
+	// SubscriptionFiveHourLimitUsdValidator is a validator for the "subscription_five_hour_limit_usd" field. It is called by the builders before save.
+	SubscriptionFiveHourLimitUsdValidator func(float64) error
+	// SubscriptionSevenDayLimitUsdValidator is a validator for the "subscription_seven_day_limit_usd" field. It is called by the builders before save.
+	SubscriptionSevenDayLimitUsdValidator func(float64) error
+	// SubscriptionThirtyDayLimitUsdValidator is a validator for the "subscription_thirty_day_limit_usd" field. It is called by the builders before save.
+	SubscriptionThirtyDayLimitUsdValidator func(float64) error
 	// ProviderInstanceIDValidator is a validator for the "provider_instance_id" field. It is called by the builders before save.
 	ProviderInstanceIDValidator func(string) error
 	// ProviderKeyValidator is a validator for the "provider_key" field. It is called by the builders before save.
@@ -302,6 +335,41 @@ func BySubscriptionGroupID(opts ...sql.OrderTermOption) OrderOption {
 // BySubscriptionDays orders the results by the subscription_days field.
 func BySubscriptionDays(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSubscriptionDays, opts...).ToFunc()
+}
+
+// BySubscriptionID orders the results by the subscription_id field.
+func BySubscriptionID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSubscriptionID, opts...).ToFunc()
+}
+
+// BySubscriptionPlanPrice orders the results by the subscription_plan_price field.
+func BySubscriptionPlanPrice(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSubscriptionPlanPrice, opts...).ToFunc()
+}
+
+// BySubscriptionRenewalDiscountPercent orders the results by the subscription_renewal_discount_percent field.
+func BySubscriptionRenewalDiscountPercent(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSubscriptionRenewalDiscountPercent, opts...).ToFunc()
+}
+
+// BySubscriptionQuotaSnapshotVersion orders the results by the subscription_quota_snapshot_version field.
+func BySubscriptionQuotaSnapshotVersion(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSubscriptionQuotaSnapshotVersion, opts...).ToFunc()
+}
+
+// BySubscriptionFiveHourLimitUsd orders the results by the subscription_five_hour_limit_usd field.
+func BySubscriptionFiveHourLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSubscriptionFiveHourLimitUsd, opts...).ToFunc()
+}
+
+// BySubscriptionSevenDayLimitUsd orders the results by the subscription_seven_day_limit_usd field.
+func BySubscriptionSevenDayLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSubscriptionSevenDayLimitUsd, opts...).ToFunc()
+}
+
+// BySubscriptionThirtyDayLimitUsd orders the results by the subscription_thirty_day_limit_usd field.
+func BySubscriptionThirtyDayLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSubscriptionThirtyDayLimitUsd, opts...).ToFunc()
 }
 
 // ByProviderInstanceID orders the results by the provider_instance_id field.

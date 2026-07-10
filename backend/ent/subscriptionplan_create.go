@@ -11,7 +11,9 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
+	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 )
 
 // SubscriptionPlanCreate is the builder for creating a SubscriptionPlan entity.
@@ -64,6 +66,76 @@ func (_c *SubscriptionPlanCreate) SetOriginalPrice(v float64) *SubscriptionPlanC
 func (_c *SubscriptionPlanCreate) SetNillableOriginalPrice(v *float64) *SubscriptionPlanCreate {
 	if v != nil {
 		_c.SetOriginalPrice(*v)
+	}
+	return _c
+}
+
+// SetRenewalDiscountPercent sets the "renewal_discount_percent" field.
+func (_c *SubscriptionPlanCreate) SetRenewalDiscountPercent(v float64) *SubscriptionPlanCreate {
+	_c.mutation.SetRenewalDiscountPercent(v)
+	return _c
+}
+
+// SetNillableRenewalDiscountPercent sets the "renewal_discount_percent" field if the given value is not nil.
+func (_c *SubscriptionPlanCreate) SetNillableRenewalDiscountPercent(v *float64) *SubscriptionPlanCreate {
+	if v != nil {
+		_c.SetRenewalDiscountPercent(*v)
+	}
+	return _c
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (_c *SubscriptionPlanCreate) SetFiveHourLimitUsd(v float64) *SubscriptionPlanCreate {
+	_c.mutation.SetFiveHourLimitUsd(v)
+	return _c
+}
+
+// SetNillableFiveHourLimitUsd sets the "five_hour_limit_usd" field if the given value is not nil.
+func (_c *SubscriptionPlanCreate) SetNillableFiveHourLimitUsd(v *float64) *SubscriptionPlanCreate {
+	if v != nil {
+		_c.SetFiveHourLimitUsd(*v)
+	}
+	return _c
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (_c *SubscriptionPlanCreate) SetSevenDayLimitUsd(v float64) *SubscriptionPlanCreate {
+	_c.mutation.SetSevenDayLimitUsd(v)
+	return _c
+}
+
+// SetNillableSevenDayLimitUsd sets the "seven_day_limit_usd" field if the given value is not nil.
+func (_c *SubscriptionPlanCreate) SetNillableSevenDayLimitUsd(v *float64) *SubscriptionPlanCreate {
+	if v != nil {
+		_c.SetSevenDayLimitUsd(*v)
+	}
+	return _c
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (_c *SubscriptionPlanCreate) SetThirtyDayLimitUsd(v float64) *SubscriptionPlanCreate {
+	_c.mutation.SetThirtyDayLimitUsd(v)
+	return _c
+}
+
+// SetNillableThirtyDayLimitUsd sets the "thirty_day_limit_usd" field if the given value is not nil.
+func (_c *SubscriptionPlanCreate) SetNillableThirtyDayLimitUsd(v *float64) *SubscriptionPlanCreate {
+	if v != nil {
+		_c.SetThirtyDayLimitUsd(*v)
+	}
+	return _c
+}
+
+// SetStock sets the "stock" field.
+func (_c *SubscriptionPlanCreate) SetStock(v int) *SubscriptionPlanCreate {
+	_c.mutation.SetStock(v)
+	return _c
+}
+
+// SetNillableStock sets the "stock" field if the given value is not nil.
+func (_c *SubscriptionPlanCreate) SetNillableStock(v *int) *SubscriptionPlanCreate {
+	if v != nil {
+		_c.SetStock(*v)
 	}
 	return _c
 }
@@ -180,6 +252,36 @@ func (_c *SubscriptionPlanCreate) SetNillableUpdatedAt(v *time.Time) *Subscripti
 	return _c
 }
 
+// AddRedeemCodeIDs adds the "redeem_codes" edge to the RedeemCode entity by IDs.
+func (_c *SubscriptionPlanCreate) AddRedeemCodeIDs(ids ...int64) *SubscriptionPlanCreate {
+	_c.mutation.AddRedeemCodeIDs(ids...)
+	return _c
+}
+
+// AddRedeemCodes adds the "redeem_codes" edges to the RedeemCode entity.
+func (_c *SubscriptionPlanCreate) AddRedeemCodes(v ...*RedeemCode) *SubscriptionPlanCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddRedeemCodeIDs(ids...)
+}
+
+// AddUserSubscriptionIDs adds the "user_subscriptions" edge to the UserSubscription entity by IDs.
+func (_c *SubscriptionPlanCreate) AddUserSubscriptionIDs(ids ...int64) *SubscriptionPlanCreate {
+	_c.mutation.AddUserSubscriptionIDs(ids...)
+	return _c
+}
+
+// AddUserSubscriptions adds the "user_subscriptions" edges to the UserSubscription entity.
+func (_c *SubscriptionPlanCreate) AddUserSubscriptions(v ...*UserSubscription) *SubscriptionPlanCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddUserSubscriptionIDs(ids...)
+}
+
 // Mutation returns the SubscriptionPlanMutation object of the builder.
 func (_c *SubscriptionPlanCreate) Mutation() *SubscriptionPlanMutation {
 	return _c.mutation
@@ -272,6 +374,31 @@ func (_c *SubscriptionPlanCreate) check() error {
 	if _, ok := _c.mutation.Price(); !ok {
 		return &ValidationError{Name: "price", err: errors.New(`ent: missing required field "SubscriptionPlan.price"`)}
 	}
+	if v, ok := _c.mutation.RenewalDiscountPercent(); ok {
+		if err := subscriptionplan.RenewalDiscountPercentValidator(v); err != nil {
+			return &ValidationError{Name: "renewal_discount_percent", err: fmt.Errorf(`ent: validator failed for field "SubscriptionPlan.renewal_discount_percent": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.FiveHourLimitUsd(); ok {
+		if err := subscriptionplan.FiveHourLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "five_hour_limit_usd", err: fmt.Errorf(`ent: validator failed for field "SubscriptionPlan.five_hour_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.SevenDayLimitUsd(); ok {
+		if err := subscriptionplan.SevenDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "seven_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "SubscriptionPlan.seven_day_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.ThirtyDayLimitUsd(); ok {
+		if err := subscriptionplan.ThirtyDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "thirty_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "SubscriptionPlan.thirty_day_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.Stock(); ok {
+		if err := subscriptionplan.StockValidator(v); err != nil {
+			return &ValidationError{Name: "stock", err: fmt.Errorf(`ent: validator failed for field "SubscriptionPlan.stock": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.ValidityDays(); !ok {
 		return &ValidationError{Name: "validity_days", err: errors.New(`ent: missing required field "SubscriptionPlan.validity_days"`)}
 	}
@@ -353,6 +480,26 @@ func (_c *SubscriptionPlanCreate) createSpec() (*SubscriptionPlan, *sqlgraph.Cre
 		_spec.SetField(subscriptionplan.FieldOriginalPrice, field.TypeFloat64, value)
 		_node.OriginalPrice = &value
 	}
+	if value, ok := _c.mutation.RenewalDiscountPercent(); ok {
+		_spec.SetField(subscriptionplan.FieldRenewalDiscountPercent, field.TypeFloat64, value)
+		_node.RenewalDiscountPercent = &value
+	}
+	if value, ok := _c.mutation.FiveHourLimitUsd(); ok {
+		_spec.SetField(subscriptionplan.FieldFiveHourLimitUsd, field.TypeFloat64, value)
+		_node.FiveHourLimitUsd = &value
+	}
+	if value, ok := _c.mutation.SevenDayLimitUsd(); ok {
+		_spec.SetField(subscriptionplan.FieldSevenDayLimitUsd, field.TypeFloat64, value)
+		_node.SevenDayLimitUsd = &value
+	}
+	if value, ok := _c.mutation.ThirtyDayLimitUsd(); ok {
+		_spec.SetField(subscriptionplan.FieldThirtyDayLimitUsd, field.TypeFloat64, value)
+		_node.ThirtyDayLimitUsd = &value
+	}
+	if value, ok := _c.mutation.Stock(); ok {
+		_spec.SetField(subscriptionplan.FieldStock, field.TypeInt, value)
+		_node.Stock = &value
+	}
 	if value, ok := _c.mutation.ValidityDays(); ok {
 		_spec.SetField(subscriptionplan.FieldValidityDays, field.TypeInt, value)
 		_node.ValidityDays = value
@@ -384,6 +531,38 @@ func (_c *SubscriptionPlanCreate) createSpec() (*SubscriptionPlan, *sqlgraph.Cre
 	if value, ok := _c.mutation.UpdatedAt(); ok {
 		_spec.SetField(subscriptionplan.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
+	}
+	if nodes := _c.mutation.RedeemCodesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   subscriptionplan.RedeemCodesTable,
+			Columns: []string{subscriptionplan.RedeemCodesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(redeemcode.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.UserSubscriptionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   subscriptionplan.UserSubscriptionsTable,
+			Columns: []string{subscriptionplan.UserSubscriptionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(usersubscription.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec
 }
@@ -518,6 +697,126 @@ func (u *SubscriptionPlanUpsert) AddOriginalPrice(v float64) *SubscriptionPlanUp
 // ClearOriginalPrice clears the value of the "original_price" field.
 func (u *SubscriptionPlanUpsert) ClearOriginalPrice() *SubscriptionPlanUpsert {
 	u.SetNull(subscriptionplan.FieldOriginalPrice)
+	return u
+}
+
+// SetRenewalDiscountPercent sets the "renewal_discount_percent" field.
+func (u *SubscriptionPlanUpsert) SetRenewalDiscountPercent(v float64) *SubscriptionPlanUpsert {
+	u.Set(subscriptionplan.FieldRenewalDiscountPercent, v)
+	return u
+}
+
+// UpdateRenewalDiscountPercent sets the "renewal_discount_percent" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsert) UpdateRenewalDiscountPercent() *SubscriptionPlanUpsert {
+	u.SetExcluded(subscriptionplan.FieldRenewalDiscountPercent)
+	return u
+}
+
+// AddRenewalDiscountPercent adds v to the "renewal_discount_percent" field.
+func (u *SubscriptionPlanUpsert) AddRenewalDiscountPercent(v float64) *SubscriptionPlanUpsert {
+	u.Add(subscriptionplan.FieldRenewalDiscountPercent, v)
+	return u
+}
+
+// ClearRenewalDiscountPercent clears the value of the "renewal_discount_percent" field.
+func (u *SubscriptionPlanUpsert) ClearRenewalDiscountPercent() *SubscriptionPlanUpsert {
+	u.SetNull(subscriptionplan.FieldRenewalDiscountPercent)
+	return u
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (u *SubscriptionPlanUpsert) SetFiveHourLimitUsd(v float64) *SubscriptionPlanUpsert {
+	u.Set(subscriptionplan.FieldFiveHourLimitUsd, v)
+	return u
+}
+
+// UpdateFiveHourLimitUsd sets the "five_hour_limit_usd" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsert) UpdateFiveHourLimitUsd() *SubscriptionPlanUpsert {
+	u.SetExcluded(subscriptionplan.FieldFiveHourLimitUsd)
+	return u
+}
+
+// AddFiveHourLimitUsd adds v to the "five_hour_limit_usd" field.
+func (u *SubscriptionPlanUpsert) AddFiveHourLimitUsd(v float64) *SubscriptionPlanUpsert {
+	u.Add(subscriptionplan.FieldFiveHourLimitUsd, v)
+	return u
+}
+
+// ClearFiveHourLimitUsd clears the value of the "five_hour_limit_usd" field.
+func (u *SubscriptionPlanUpsert) ClearFiveHourLimitUsd() *SubscriptionPlanUpsert {
+	u.SetNull(subscriptionplan.FieldFiveHourLimitUsd)
+	return u
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (u *SubscriptionPlanUpsert) SetSevenDayLimitUsd(v float64) *SubscriptionPlanUpsert {
+	u.Set(subscriptionplan.FieldSevenDayLimitUsd, v)
+	return u
+}
+
+// UpdateSevenDayLimitUsd sets the "seven_day_limit_usd" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsert) UpdateSevenDayLimitUsd() *SubscriptionPlanUpsert {
+	u.SetExcluded(subscriptionplan.FieldSevenDayLimitUsd)
+	return u
+}
+
+// AddSevenDayLimitUsd adds v to the "seven_day_limit_usd" field.
+func (u *SubscriptionPlanUpsert) AddSevenDayLimitUsd(v float64) *SubscriptionPlanUpsert {
+	u.Add(subscriptionplan.FieldSevenDayLimitUsd, v)
+	return u
+}
+
+// ClearSevenDayLimitUsd clears the value of the "seven_day_limit_usd" field.
+func (u *SubscriptionPlanUpsert) ClearSevenDayLimitUsd() *SubscriptionPlanUpsert {
+	u.SetNull(subscriptionplan.FieldSevenDayLimitUsd)
+	return u
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (u *SubscriptionPlanUpsert) SetThirtyDayLimitUsd(v float64) *SubscriptionPlanUpsert {
+	u.Set(subscriptionplan.FieldThirtyDayLimitUsd, v)
+	return u
+}
+
+// UpdateThirtyDayLimitUsd sets the "thirty_day_limit_usd" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsert) UpdateThirtyDayLimitUsd() *SubscriptionPlanUpsert {
+	u.SetExcluded(subscriptionplan.FieldThirtyDayLimitUsd)
+	return u
+}
+
+// AddThirtyDayLimitUsd adds v to the "thirty_day_limit_usd" field.
+func (u *SubscriptionPlanUpsert) AddThirtyDayLimitUsd(v float64) *SubscriptionPlanUpsert {
+	u.Add(subscriptionplan.FieldThirtyDayLimitUsd, v)
+	return u
+}
+
+// ClearThirtyDayLimitUsd clears the value of the "thirty_day_limit_usd" field.
+func (u *SubscriptionPlanUpsert) ClearThirtyDayLimitUsd() *SubscriptionPlanUpsert {
+	u.SetNull(subscriptionplan.FieldThirtyDayLimitUsd)
+	return u
+}
+
+// SetStock sets the "stock" field.
+func (u *SubscriptionPlanUpsert) SetStock(v int) *SubscriptionPlanUpsert {
+	u.Set(subscriptionplan.FieldStock, v)
+	return u
+}
+
+// UpdateStock sets the "stock" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsert) UpdateStock() *SubscriptionPlanUpsert {
+	u.SetExcluded(subscriptionplan.FieldStock)
+	return u
+}
+
+// AddStock adds v to the "stock" field.
+func (u *SubscriptionPlanUpsert) AddStock(v int) *SubscriptionPlanUpsert {
+	u.Add(subscriptionplan.FieldStock, v)
+	return u
+}
+
+// ClearStock clears the value of the "stock" field.
+func (u *SubscriptionPlanUpsert) ClearStock() *SubscriptionPlanUpsert {
+	u.SetNull(subscriptionplan.FieldStock)
 	return u
 }
 
@@ -757,6 +1056,146 @@ func (u *SubscriptionPlanUpsertOne) UpdateOriginalPrice() *SubscriptionPlanUpser
 func (u *SubscriptionPlanUpsertOne) ClearOriginalPrice() *SubscriptionPlanUpsertOne {
 	return u.Update(func(s *SubscriptionPlanUpsert) {
 		s.ClearOriginalPrice()
+	})
+}
+
+// SetRenewalDiscountPercent sets the "renewal_discount_percent" field.
+func (u *SubscriptionPlanUpsertOne) SetRenewalDiscountPercent(v float64) *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.SetRenewalDiscountPercent(v)
+	})
+}
+
+// AddRenewalDiscountPercent adds v to the "renewal_discount_percent" field.
+func (u *SubscriptionPlanUpsertOne) AddRenewalDiscountPercent(v float64) *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.AddRenewalDiscountPercent(v)
+	})
+}
+
+// UpdateRenewalDiscountPercent sets the "renewal_discount_percent" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsertOne) UpdateRenewalDiscountPercent() *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.UpdateRenewalDiscountPercent()
+	})
+}
+
+// ClearRenewalDiscountPercent clears the value of the "renewal_discount_percent" field.
+func (u *SubscriptionPlanUpsertOne) ClearRenewalDiscountPercent() *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.ClearRenewalDiscountPercent()
+	})
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (u *SubscriptionPlanUpsertOne) SetFiveHourLimitUsd(v float64) *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.SetFiveHourLimitUsd(v)
+	})
+}
+
+// AddFiveHourLimitUsd adds v to the "five_hour_limit_usd" field.
+func (u *SubscriptionPlanUpsertOne) AddFiveHourLimitUsd(v float64) *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.AddFiveHourLimitUsd(v)
+	})
+}
+
+// UpdateFiveHourLimitUsd sets the "five_hour_limit_usd" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsertOne) UpdateFiveHourLimitUsd() *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.UpdateFiveHourLimitUsd()
+	})
+}
+
+// ClearFiveHourLimitUsd clears the value of the "five_hour_limit_usd" field.
+func (u *SubscriptionPlanUpsertOne) ClearFiveHourLimitUsd() *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.ClearFiveHourLimitUsd()
+	})
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (u *SubscriptionPlanUpsertOne) SetSevenDayLimitUsd(v float64) *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.SetSevenDayLimitUsd(v)
+	})
+}
+
+// AddSevenDayLimitUsd adds v to the "seven_day_limit_usd" field.
+func (u *SubscriptionPlanUpsertOne) AddSevenDayLimitUsd(v float64) *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.AddSevenDayLimitUsd(v)
+	})
+}
+
+// UpdateSevenDayLimitUsd sets the "seven_day_limit_usd" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsertOne) UpdateSevenDayLimitUsd() *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.UpdateSevenDayLimitUsd()
+	})
+}
+
+// ClearSevenDayLimitUsd clears the value of the "seven_day_limit_usd" field.
+func (u *SubscriptionPlanUpsertOne) ClearSevenDayLimitUsd() *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.ClearSevenDayLimitUsd()
+	})
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (u *SubscriptionPlanUpsertOne) SetThirtyDayLimitUsd(v float64) *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.SetThirtyDayLimitUsd(v)
+	})
+}
+
+// AddThirtyDayLimitUsd adds v to the "thirty_day_limit_usd" field.
+func (u *SubscriptionPlanUpsertOne) AddThirtyDayLimitUsd(v float64) *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.AddThirtyDayLimitUsd(v)
+	})
+}
+
+// UpdateThirtyDayLimitUsd sets the "thirty_day_limit_usd" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsertOne) UpdateThirtyDayLimitUsd() *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.UpdateThirtyDayLimitUsd()
+	})
+}
+
+// ClearThirtyDayLimitUsd clears the value of the "thirty_day_limit_usd" field.
+func (u *SubscriptionPlanUpsertOne) ClearThirtyDayLimitUsd() *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.ClearThirtyDayLimitUsd()
+	})
+}
+
+// SetStock sets the "stock" field.
+func (u *SubscriptionPlanUpsertOne) SetStock(v int) *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.SetStock(v)
+	})
+}
+
+// AddStock adds v to the "stock" field.
+func (u *SubscriptionPlanUpsertOne) AddStock(v int) *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.AddStock(v)
+	})
+}
+
+// UpdateStock sets the "stock" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsertOne) UpdateStock() *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.UpdateStock()
+	})
+}
+
+// ClearStock clears the value of the "stock" field.
+func (u *SubscriptionPlanUpsertOne) ClearStock() *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.ClearStock()
 	})
 }
 
@@ -1178,6 +1617,146 @@ func (u *SubscriptionPlanUpsertBulk) UpdateOriginalPrice() *SubscriptionPlanUpse
 func (u *SubscriptionPlanUpsertBulk) ClearOriginalPrice() *SubscriptionPlanUpsertBulk {
 	return u.Update(func(s *SubscriptionPlanUpsert) {
 		s.ClearOriginalPrice()
+	})
+}
+
+// SetRenewalDiscountPercent sets the "renewal_discount_percent" field.
+func (u *SubscriptionPlanUpsertBulk) SetRenewalDiscountPercent(v float64) *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.SetRenewalDiscountPercent(v)
+	})
+}
+
+// AddRenewalDiscountPercent adds v to the "renewal_discount_percent" field.
+func (u *SubscriptionPlanUpsertBulk) AddRenewalDiscountPercent(v float64) *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.AddRenewalDiscountPercent(v)
+	})
+}
+
+// UpdateRenewalDiscountPercent sets the "renewal_discount_percent" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsertBulk) UpdateRenewalDiscountPercent() *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.UpdateRenewalDiscountPercent()
+	})
+}
+
+// ClearRenewalDiscountPercent clears the value of the "renewal_discount_percent" field.
+func (u *SubscriptionPlanUpsertBulk) ClearRenewalDiscountPercent() *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.ClearRenewalDiscountPercent()
+	})
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (u *SubscriptionPlanUpsertBulk) SetFiveHourLimitUsd(v float64) *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.SetFiveHourLimitUsd(v)
+	})
+}
+
+// AddFiveHourLimitUsd adds v to the "five_hour_limit_usd" field.
+func (u *SubscriptionPlanUpsertBulk) AddFiveHourLimitUsd(v float64) *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.AddFiveHourLimitUsd(v)
+	})
+}
+
+// UpdateFiveHourLimitUsd sets the "five_hour_limit_usd" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsertBulk) UpdateFiveHourLimitUsd() *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.UpdateFiveHourLimitUsd()
+	})
+}
+
+// ClearFiveHourLimitUsd clears the value of the "five_hour_limit_usd" field.
+func (u *SubscriptionPlanUpsertBulk) ClearFiveHourLimitUsd() *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.ClearFiveHourLimitUsd()
+	})
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (u *SubscriptionPlanUpsertBulk) SetSevenDayLimitUsd(v float64) *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.SetSevenDayLimitUsd(v)
+	})
+}
+
+// AddSevenDayLimitUsd adds v to the "seven_day_limit_usd" field.
+func (u *SubscriptionPlanUpsertBulk) AddSevenDayLimitUsd(v float64) *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.AddSevenDayLimitUsd(v)
+	})
+}
+
+// UpdateSevenDayLimitUsd sets the "seven_day_limit_usd" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsertBulk) UpdateSevenDayLimitUsd() *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.UpdateSevenDayLimitUsd()
+	})
+}
+
+// ClearSevenDayLimitUsd clears the value of the "seven_day_limit_usd" field.
+func (u *SubscriptionPlanUpsertBulk) ClearSevenDayLimitUsd() *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.ClearSevenDayLimitUsd()
+	})
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (u *SubscriptionPlanUpsertBulk) SetThirtyDayLimitUsd(v float64) *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.SetThirtyDayLimitUsd(v)
+	})
+}
+
+// AddThirtyDayLimitUsd adds v to the "thirty_day_limit_usd" field.
+func (u *SubscriptionPlanUpsertBulk) AddThirtyDayLimitUsd(v float64) *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.AddThirtyDayLimitUsd(v)
+	})
+}
+
+// UpdateThirtyDayLimitUsd sets the "thirty_day_limit_usd" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsertBulk) UpdateThirtyDayLimitUsd() *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.UpdateThirtyDayLimitUsd()
+	})
+}
+
+// ClearThirtyDayLimitUsd clears the value of the "thirty_day_limit_usd" field.
+func (u *SubscriptionPlanUpsertBulk) ClearThirtyDayLimitUsd() *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.ClearThirtyDayLimitUsd()
+	})
+}
+
+// SetStock sets the "stock" field.
+func (u *SubscriptionPlanUpsertBulk) SetStock(v int) *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.SetStock(v)
+	})
+}
+
+// AddStock adds v to the "stock" field.
+func (u *SubscriptionPlanUpsertBulk) AddStock(v int) *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.AddStock(v)
+	})
+}
+
+// UpdateStock sets the "stock" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsertBulk) UpdateStock() *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.UpdateStock()
+	})
+}
+
+// ClearStock clears the value of the "stock" field.
+func (u *SubscriptionPlanUpsertBulk) ClearStock() *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.ClearStock()
 	})
 }
 

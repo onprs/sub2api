@@ -151,11 +151,22 @@ func buildTopUsers(orders []*dbent.PaymentOrder) []TopUserStat {
 // --- Audit Logs ---
 
 func (s *PaymentService) writeAuditLog(ctx context.Context, oid int64, action, op string, detail map[string]any) {
-	dj, _ := json.Marshal(detail)
-	_, err := s.entClient.PaymentAuditLog.Create().SetOrderID(strconv.FormatInt(oid, 10)).SetAction(action).SetDetail(string(dj)).SetOperator(op).Save(ctx)
-	if err != nil {
+	if err := s.writeAuditLogStrict(ctx, s.entClientForContext(ctx), oid, action, op, detail); err != nil {
 		slog.Error("audit log failed", "orderID", oid, "action", action, "error", err)
 	}
+}
+
+func (s *PaymentService) writeAuditLogStrict(ctx context.Context, client *dbent.Client, oid int64, action, op string, detail map[string]any) error {
+	dj, _ := json.Marshal(detail)
+	_, err := client.PaymentAuditLog.Create().SetOrderID(strconv.FormatInt(oid, 10)).SetAction(action).SetDetail(string(dj)).SetOperator(op).Save(ctx)
+	return err
+}
+
+func (s *PaymentService) entClientForContext(ctx context.Context) *dbent.Client {
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		return tx.Client()
+	}
+	return s.entClient
 }
 
 func (s *PaymentService) GetOrderAuditLogs(ctx context.Context, oid int64) ([]*dbent.PaymentAuditLog, error) {

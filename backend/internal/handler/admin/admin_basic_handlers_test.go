@@ -214,6 +214,52 @@ func TestGroupHandlerEndpoints(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
+func TestGroupHandlerCreateAcceptsOpenCodeGoPlatform(t *testing.T) {
+	router, _ := setupAdminRouter()
+
+	body, _ := json.Marshal(map[string]any{
+		"name":              "opencode-go",
+		"platform":          "opencode_go",
+		"subscription_type": "standard",
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/groups", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestGroupHandlerRejectsRequireOAuthOnlyForOpenCodeGo(t *testing.T) {
+	router, _ := setupAdminRouter()
+
+	body, _ := json.Marshal(map[string]any{
+		"name":               "opencode-go",
+		"platform":           "opencode_go",
+		"subscription_type":  "standard",
+		"require_oauth_only": true,
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/groups", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "require_oauth_only")
+
+	body, _ = json.Marshal(map[string]any{
+		"platform":           "opencode_go",
+		"require_oauth_only": true,
+	})
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/admin/groups/2", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "require_oauth_only")
+}
+
 func TestProxyHandlerEndpoints(t *testing.T) {
 	router, _ := setupAdminRouter()
 

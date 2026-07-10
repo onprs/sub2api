@@ -106,10 +106,15 @@ func (r *usageBillingRepository) claimUsageBillingKey(ctx context.Context, tx *s
 }
 
 func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand, result *service.UsageBillingApplyResult) error {
-	if cmd.SubscriptionCost > 0 && cmd.SubscriptionID != nil {
-		if err := incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost); err != nil {
+	if cmd.SubscriptionCost > 0 {
+		subscriptionID, err := resolveUsageBillingSubscriptionID(ctx, tx, cmd)
+		if err != nil {
 			return err
 		}
+		if err := incrementUsageBillingSubscription(ctx, tx, subscriptionID, cmd.SubscriptionCost); err != nil {
+			return err
+		}
+		result.SubscriptionID = &subscriptionID
 	}
 
 	if cmd.BalanceCost > 0 {
@@ -145,6 +150,136 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 	return nil
 }
 
+func resolveUsageBillingSubscriptionID(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) (int64, error) {
+	if cmd.SubscriptionID != nil {
+		return *cmd.SubscriptionID, nil
+	}
+	if cmd.GroupID == nil {
+		return 0, service.ErrSubscriptionNotFound
+	}
+	subscriptionID, err := selectUsageBillingSubscription(ctx, tx, cmd.UserID, *cmd.GroupID, cmd.SubscriptionCost)
+	if err == nil || !errors.Is(err, service.ErrSubscriptionNotFound) {
+		return subscriptionID, err
+	}
+	return selectUsageBillingExhaustionSubscription(ctx, tx, cmd.UserID, *cmd.GroupID, cmd.SubscriptionCost)
+}
+
+func selectUsageBillingSubscription(ctx context.Context, tx *sql.Tx, userID, groupID int64, costUSD float64) (int64, error) {
+	const query = `
+		SELECT us.id
+		FROM user_subscriptions us
+		WHERE us.user_id = $1
+			AND us.group_id = $2
+			AND us.status = $4
+			AND us.expires_at > NOW()
+			AND us.deleted_at IS NULL
+			AND (
+				us.five_hour_limit_usd IS NULL
+				OR (
+					us.five_hour_limit_usd > 0
+					AND CASE
+						WHEN us.five_hour_window_start IS NULL
+							OR us.five_hour_window_start + INTERVAL '5 hours' <= NOW()
+						THEN 0
+						ELSE us.five_hour_usage_usd
+					END + $3 <= us.five_hour_limit_usd
+				)
+			)
+			AND (
+				us.seven_day_limit_usd IS NULL
+				OR (
+					us.seven_day_limit_usd > 0
+					AND CASE
+						WHEN us.seven_day_window_start IS NULL
+							OR us.seven_day_window_start + INTERVAL '7 days' <= NOW()
+						THEN 0
+						ELSE us.seven_day_usage_usd
+					END + $3 <= us.seven_day_limit_usd
+				)
+			)
+			AND (
+				us.thirty_day_limit_usd IS NULL
+				OR (
+					us.thirty_day_limit_usd > 0
+					AND CASE
+						WHEN us.thirty_day_window_start IS NULL
+							OR us.thirty_day_window_start + INTERVAL '30 days' <= NOW()
+						THEN 0
+						ELSE us.thirty_day_usage_usd
+					END + $3 <= us.thirty_day_limit_usd
+				)
+			)
+		ORDER BY us.expires_at ASC, us.id ASC
+		FOR UPDATE
+		LIMIT 1
+	`
+	var subscriptionID int64
+	err := tx.QueryRowContext(ctx, query, userID, groupID, costUSD, service.SubscriptionStatusActive).Scan(&subscriptionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, service.ErrSubscriptionNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+	return subscriptionID, nil
+}
+
+func selectUsageBillingExhaustionSubscription(ctx context.Context, tx *sql.Tx, userID, groupID int64, costUSD float64) (int64, error) {
+	const query = `
+		SELECT us.id
+		FROM user_subscriptions us
+		WHERE us.user_id = $1
+			AND us.group_id = $2
+			AND us.status = $4
+			AND us.expires_at > NOW()
+			AND us.deleted_at IS NULL
+			AND (
+				(
+					us.five_hour_limit_usd IS NOT NULL
+					AND us.five_hour_limit_usd > 0
+					AND CASE
+						WHEN us.five_hour_window_start IS NULL
+							OR us.five_hour_window_start + INTERVAL '5 hours' <= NOW()
+						THEN 0
+						ELSE us.five_hour_usage_usd
+					END + $3 > us.five_hour_limit_usd
+				)
+				OR (
+					us.seven_day_limit_usd IS NOT NULL
+					AND us.seven_day_limit_usd > 0
+					AND CASE
+						WHEN us.seven_day_window_start IS NULL
+							OR us.seven_day_window_start + INTERVAL '7 days' <= NOW()
+						THEN 0
+						ELSE us.seven_day_usage_usd
+					END + $3 > us.seven_day_limit_usd
+				)
+				OR (
+					us.thirty_day_limit_usd IS NOT NULL
+					AND us.thirty_day_limit_usd > 0
+					AND CASE
+						WHEN us.thirty_day_window_start IS NULL
+							OR us.thirty_day_window_start + INTERVAL '30 days' <= NOW()
+						THEN 0
+						ELSE us.thirty_day_usage_usd
+					END + $3 > us.thirty_day_limit_usd
+				)
+			)
+		ORDER BY us.expires_at ASC, us.id ASC
+		FOR UPDATE
+		LIMIT 1
+	`
+	var subscriptionID int64
+	err := tx.QueryRowContext(ctx, query, userID, groupID, costUSD, service.SubscriptionStatusActive).Scan(&subscriptionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, service.ErrSubscriptionNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+	return subscriptionID, nil
+}
+
 func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscriptionID int64, costUSD float64) error {
 	const updateSQL = `
 		UPDATE user_subscriptions us
@@ -152,6 +287,42 @@ func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscrip
 			daily_usage_usd = us.daily_usage_usd + $1,
 			weekly_usage_usd = us.weekly_usage_usd + $1,
 			monthly_usage_usd = us.monthly_usage_usd + $1,
+			five_hour_usage_usd = CASE
+				WHEN us.five_hour_window_start IS NULL
+					OR us.five_hour_window_start + INTERVAL '5 hours' <= NOW()
+				THEN $1
+				ELSE us.five_hour_usage_usd + $1
+			END,
+			seven_day_usage_usd = CASE
+				WHEN us.seven_day_window_start IS NULL
+					OR us.seven_day_window_start + INTERVAL '7 days' <= NOW()
+				THEN $1
+				ELSE us.seven_day_usage_usd + $1
+			END,
+			thirty_day_usage_usd = CASE
+				WHEN us.thirty_day_window_start IS NULL
+					OR us.thirty_day_window_start + INTERVAL '30 days' <= NOW()
+				THEN $1
+				ELSE us.thirty_day_usage_usd + $1
+			END,
+			five_hour_window_start = CASE
+				WHEN us.five_hour_window_start IS NULL
+					OR us.five_hour_window_start + INTERVAL '5 hours' <= NOW()
+				THEN NOW()
+				ELSE us.five_hour_window_start
+			END,
+			seven_day_window_start = CASE
+				WHEN us.seven_day_window_start IS NULL
+					OR us.seven_day_window_start + INTERVAL '7 days' <= NOW()
+				THEN NOW()
+				ELSE us.seven_day_window_start
+			END,
+			thirty_day_window_start = CASE
+				WHEN us.thirty_day_window_start IS NULL
+					OR us.thirty_day_window_start + INTERVAL '30 days' <= NOW()
+				THEN NOW()
+				ELSE us.thirty_day_window_start
+			END,
 			updated_at = NOW()
 		FROM groups g
 		WHERE us.id = $2

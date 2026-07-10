@@ -50,6 +50,33 @@ func TestBuildCreateOrderResponseDefaultsToOrderCreated(t *testing.T) {
 	}
 }
 
+func TestComputeValidityDaysAcceptsSingularAndPluralUnits(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		days int
+		unit string
+		want int
+	}{
+		{"day", 3, "day", 3},
+		{"days", 3, "days", 3},
+		{"week", 2, "week", 14},
+		{"weeks", 2, "weeks", 14},
+		{"month", 1, "month", 30},
+		{"months", 1, "months", 30},
+		{"trimmed uppercase", 1, " Months ", 30},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := psComputeValidityDays(tc.days, tc.unit); got != tc.want {
+				t.Fatalf("psComputeValidityDays(%d, %q) = %d, want %d", tc.days, tc.unit, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBuildCreateOrderResponseCopiesJSAPIPayload(t *testing.T) {
 	t.Parallel()
 
@@ -215,6 +242,45 @@ func TestMaybeBuildWeChatOAuthRequiredResponse(t *testing.T) {
 		t.Fatalf("redirect_url = %q, want %q", resp.OAuth.RedirectURL, "/auth/wechat/payment/callback")
 	}
 	if resp.OAuth.AuthorizeURL != "/api/v1/auth/oauth/wechat/payment/start?amount=12.5&order_type=balance&payment_type=wxpay&redirect=%2Fpurchase%3Ffrom%3Dwechat&scope=snsapi_base" {
+		t.Fatalf("authorize_url = %q", resp.OAuth.AuthorizeURL)
+	}
+}
+
+func TestMaybeBuildWeChatOAuthRequiredResponseUsesServerComputedAmount(t *testing.T) {
+	t.Setenv("PAYMENT_RESUME_SIGNING_KEY", "0123456789abcdef0123456789abcdef")
+
+	svc := newWeChatPaymentOAuthTestService(map[string]string{
+		SettingKeyWeChatConnectEnabled:             "true",
+		SettingKeyWeChatConnectAppID:               "wx123456",
+		SettingKeyWeChatConnectAppSecret:           "wechat-secret",
+		SettingKeyWeChatConnectMode:                "mp",
+		SettingKeyWeChatConnectScopes:              "snsapi_base",
+		SettingKeyWeChatConnectRedirectURL:         "https://api.example.com/api/v1/auth/oauth/wechat/callback",
+		SettingKeyWeChatConnectFrontendRedirectURL: "/auth/wechat/callback",
+	})
+
+	resp, err := svc.maybeBuildWeChatOAuthRequiredResponse(context.Background(), CreateOrderRequest{
+		Amount:          8.70,
+		PaymentType:     payment.TypeWxpay,
+		IsWeChatBrowser: true,
+		SrcURL:          "https://merchant.example/payment?from=wechat",
+		OrderType:       payment.OrderTypeSubscription,
+		PlanID:          7,
+	}, 7.40, 7.40, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp == nil || resp.OAuth == nil {
+		t.Fatalf("expected oauth_required response, got %+v", resp)
+	}
+
+	if resp.Amount != 7.40 || resp.PayAmount != 7.40 {
+		t.Fatalf("response amounts = (%v, %v), want (7.40, 7.40)", resp.Amount, resp.PayAmount)
+	}
+	if strings.Contains(resp.OAuth.AuthorizeURL, "amount=8.7") {
+		t.Fatalf("authorize_url used client amount: %q", resp.OAuth.AuthorizeURL)
+	}
+	if resp.OAuth.AuthorizeURL != "/api/v1/auth/oauth/wechat/payment/start?amount=7.4&order_type=subscription&payment_type=wxpay&plan_id=7&redirect=%2Fpurchase%3Ffrom%3Dwechat&scope=snsapi_base" {
 		t.Fatalf("authorize_url = %q", resp.OAuth.AuthorizeURL)
 	}
 }

@@ -123,6 +123,170 @@ func TestGetModelPricing_UnknownOpenAIModelReturnsError(t *testing.T) {
 	require.Contains(t, err.Error(), "pricing not found")
 }
 
+func TestCalculateCost_DynamicPricingWithNoTokenPricesReturnsUnavailable(t *testing.T) {
+	pricingSvc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"opencode-empty-price": {},
+		},
+	}
+	svc := NewBillingService(&config.Config{}, pricingSvc)
+
+	cost, err := svc.CalculateCost("opencode-empty-price", UsageTokens{InputTokens: 10, OutputTokens: 5}, 1.0)
+
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
+	require.Nil(t, cost)
+}
+
+func TestGetModelPricing_GeminiAntigravityPricingAliases(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gemini-3.1-pro-high": {
+				InputCostPerToken:              9e-6,
+				OutputCostPerToken:             19e-6,
+				CacheCreationInputTokenCost:    10e-6,
+				CacheReadInputTokenCost:        1e-6,
+				LongContextInputTokenThreshold: 200000,
+				LongContextInputCostMultiplier: 2,
+			},
+			"gemini-3-flash": {
+				InputCostPerToken:           1e-6,
+				OutputCostPerToken:          3e-6,
+				CacheCreationInputTokenCost: 1.2e-6,
+				CacheReadInputTokenCost:     0.1e-6,
+			},
+			"gemini-3.5-flash": {
+				InputCostPerToken:           2e-6,
+				OutputCostPerToken:          4e-6,
+				CacheCreationInputTokenCost: 2.2e-6,
+				CacheReadInputTokenCost:     0.2e-6,
+			},
+			"gemini-2.5-flash": {
+				InputCostPerToken:           3e-6,
+				OutputCostPerToken:          5e-6,
+				CacheCreationInputTokenCost: 3.2e-6,
+				CacheReadInputTokenCost:     0.3e-6,
+			},
+		},
+	})
+
+	tests := []struct {
+		alias     string
+		canonical string
+	}{
+		{"gemini-pro-agent", "gemini-3.1-pro-high"},
+		{"gemini-3-flash-agent", "gemini-3-flash"},
+		{"gemini-3.5-flash-high", "gemini-3.5-flash"},
+		{"gemini-3.5-flash-medium", "gemini-3.5-flash"},
+		{"gemini-3.5-flash-low", "gemini-3.5-flash"},
+		{"gemini-3.5-flash-extra-low", "gemini-3.5-flash"},
+		{"gemini-2.5-flash-thinking", "gemini-2.5-flash"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.alias, func(t *testing.T) {
+			aliasPricing, err := svc.GetModelPricing(tt.alias)
+			require.NoError(t, err)
+			canonicalPricing, err := svc.GetModelPricing(tt.canonical)
+			require.NoError(t, err)
+
+			require.NotNil(t, aliasPricing)
+			require.Equal(t, canonicalPricing.InputPricePerToken, aliasPricing.InputPricePerToken)
+			require.Equal(t, canonicalPricing.OutputPricePerToken, aliasPricing.OutputPricePerToken)
+			require.Equal(t, canonicalPricing.CacheCreationPricePerToken, aliasPricing.CacheCreationPricePerToken)
+			require.Equal(t, canonicalPricing.CacheReadPricePerToken, aliasPricing.CacheReadPricePerToken)
+			require.Equal(t, canonicalPricing.LongContextInputThreshold, aliasPricing.LongContextInputThreshold)
+		})
+	}
+}
+
+func TestGetModelPricing_GeminiAntigravityPricingAliasRawPriceWins(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gemini-pro-agent": {
+				InputCostPerToken:  41e-6,
+				OutputCostPerToken: 42e-6,
+			},
+			"gemini-3.1-pro-high": {
+				InputCostPerToken:  9e-6,
+				OutputCostPerToken: 19e-6,
+			},
+		},
+	})
+
+	pricing, err := svc.GetModelPricing("gemini-pro-agent")
+	require.NoError(t, err)
+	require.InDelta(t, 41e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 42e-6, pricing.OutputPricePerToken, 1e-12)
+}
+
+func TestGetModelPricing_OpenCodeGoLegacyKimiCodeAliasUsesOfficialModelID(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"kimi-k2.7": {
+				InputCostPerToken:       0.95e-6,
+				OutputCostPerToken:      4e-6,
+				CacheReadInputTokenCost: 0.19e-6,
+				LiteLLMProvider:         PlatformOpenCodeGo,
+			},
+		},
+	})
+
+	aliasPricing, err := svc.GetModelPricing("kimi-k2.7-code")
+	require.NoError(t, err)
+	prefixedAliasPricing, err := svc.GetModelPricing("opencode-go/kimi-k2.7-code")
+	require.NoError(t, err)
+	modelsPrefixedAliasPricing, err := svc.GetModelPricing("models/opencode-go/kimi-k2.7-code")
+	require.NoError(t, err)
+	officialPricing, err := svc.GetModelPricing("kimi-k2.7")
+	require.NoError(t, err)
+
+	require.Equal(t, officialPricing.InputPricePerToken, aliasPricing.InputPricePerToken)
+	require.Equal(t, officialPricing.OutputPricePerToken, aliasPricing.OutputPricePerToken)
+	require.Equal(t, officialPricing.CacheReadPricePerToken, aliasPricing.CacheReadPricePerToken)
+	require.Equal(t, officialPricing.InputPricePerToken, prefixedAliasPricing.InputPricePerToken)
+	require.Equal(t, officialPricing.OutputPricePerToken, prefixedAliasPricing.OutputPricePerToken)
+	require.Equal(t, officialPricing.CacheReadPricePerToken, prefixedAliasPricing.CacheReadPricePerToken)
+	require.Equal(t, officialPricing.InputPricePerToken, modelsPrefixedAliasPricing.InputPricePerToken)
+	require.Equal(t, officialPricing.OutputPricePerToken, modelsPrefixedAliasPricing.OutputPricePerToken)
+	require.Equal(t, officialPricing.CacheReadPricePerToken, modelsPrefixedAliasPricing.CacheReadPricePerToken)
+}
+
+func TestGetModelPricing_GeminiAntigravityPricingAliasesAreClosedSet(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gemini-2.5-flash": {
+				InputCostPerToken:  3e-6,
+				OutputCostPerToken: 5e-6,
+			},
+			"gemini-3-flash": {
+				InputCostPerToken:  1e-6,
+				OutputCostPerToken: 3e-6,
+			},
+			"gemini-3.1-pro-high": {
+				InputCostPerToken:  9e-6,
+				OutputCostPerToken: 19e-6,
+			},
+		},
+	})
+
+	for _, model := range []string{
+		"gemini-2.5-flash-image",
+		"gemini-2.5-flash-lite",
+	} {
+		t.Run(model, func(t *testing.T) {
+			pricing, err := svc.GetModelPricing(model)
+			require.Error(t, err)
+			require.Nil(t, pricing)
+		})
+	}
+
+	proHigh, err := svc.GetModelPricing("gemini-3.1-pro-high")
+	require.NoError(t, err)
+	proLow, err := svc.GetModelPricing("gemini-3.1-pro-low")
+	require.NoError(t, err)
+	require.NotEqual(t, proHigh.InputPricePerToken, proLow.InputPricePerToken)
+}
+
 func TestGetModelPricing_OpenAIGPT54Fallback(t *testing.T) {
 	svc := newTestBillingService()
 

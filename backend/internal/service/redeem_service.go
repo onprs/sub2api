@@ -471,11 +471,16 @@ func (s *RedeemService) Redeem(ctx context.Context, userID int64, code string) (
 				validityDays = 30
 			}
 			_, _, err := s.subscriptionService.AssignOrExtendSubscription(txCtx, &AssignSubscriptionInput{
-				UserID:       userID,
-				GroupID:      *redeemCode.GroupID,
-				ValidityDays: validityDays,
-				AssignedBy:   0, // 系统分配
-				Notes:        fmt.Sprintf("通过兑换码 %s 兑换", redeemCode.Code),
+				UserID:                  userID,
+				GroupID:                 *redeemCode.GroupID,
+				PlanID:                  redeemCode.SubscriptionPlanID,
+				ValidityDays:            validityDays,
+				AssignedBy:              0, // 系统分配
+				Notes:                   fmt.Sprintf("通过兑换码 %s 兑换", redeemCode.Code),
+				HasRollingQuotaSnapshot: redeemCode.SubscriptionQuotaSnapshotVersion > 0,
+				FiveHourLimitUSD:        redeemCode.FiveHourLimitUSD,
+				SevenDayLimitUSD:        redeemCode.SevenDayLimitUSD,
+				ThirtyDayLimitUSD:       redeemCode.ThirtyDayLimitUSD,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("assign or extend subscription: %w", err)

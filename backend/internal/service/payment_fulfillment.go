@@ -14,6 +14,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
+	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
@@ -153,7 +154,7 @@ func (s *PaymentService) toPaid(ctx context.Context, o *dbent.PaymentOrder, trad
 				paymentorder.UpdatedAtGTE(grace),
 			),
 		),
-	).SetStatus(OrderStatusPaid).SetPayAmount(paid).SetPaymentTradeNo(tradeNo).SetPaidAt(now).ClearFailedAt().ClearFailedReason().Save(ctx)
+	).SetStatus(OrderStatusPaid).SetPaymentTradeNo(tradeNo).SetPaidAt(now).ClearFailedAt().ClearFailedReason().Save(ctx)
 	if err != nil {
 		return fmt.Errorf("update to PAID: %w", err)
 	}
@@ -300,17 +301,41 @@ func (s *PaymentService) doBalance(ctx context.Context, o *dbent.PaymentOrder) e
 }
 
 func (s *PaymentService) markCompleted(ctx context.Context, o *dbent.PaymentOrder, auditAction string) error {
+	return s.markCompletedWithOptions(ctx, o, auditAction, true, false)
+}
+
+func (s *PaymentService) markCompletedWithoutNotification(ctx context.Context, o *dbent.PaymentOrder, auditAction string) error {
+	return s.markCompletedWithOptions(ctx, o, auditAction, false, true)
+}
+
+func (s *PaymentService) markCompletedWithOptions(ctx context.Context, o *dbent.PaymentOrder, auditAction string, notify bool, strictAudit bool) error {
 	now := time.Now()
-	_, err := s.entClient.PaymentOrder.Update().Where(paymentorder.IDEQ(o.ID), paymentorder.StatusEQ(OrderStatusRecharging)).SetStatus(OrderStatusCompleted).SetCompletedAt(now).Save(ctx)
+	client := s.entClientForContext(ctx)
+	updated, err := client.PaymentOrder.Update().Where(paymentorder.IDEQ(o.ID), paymentorder.StatusEQ(OrderStatusRecharging)).SetStatus(OrderStatusCompleted).SetCompletedAt(now).Save(ctx)
 	if err != nil {
 		return fmt.Errorf("mark completed: %w", err)
 	}
-	s.writeAuditLog(ctx, o.ID, auditAction, "system", map[string]any{
+	if updated == 0 {
+		if strictAudit {
+			return fmt.Errorf("mark completed: order %d is not in recharging status", o.ID)
+		}
+		return nil
+	}
+	detail := map[string]any{
 		"rechargeCode":   o.RechargeCode,
 		"creditedAmount": o.Amount,
 		"payAmount":      o.PayAmount,
-	})
-	s.dispatchPaymentFulfillmentNotification(o, auditAction)
+	}
+	if strictAudit {
+		if err := s.writeAuditLogStrict(ctx, client, o.ID, auditAction, "system", detail); err != nil {
+			return fmt.Errorf("write completion audit: %w", err)
+		}
+	} else {
+		s.writeAuditLog(ctx, o.ID, auditAction, "system", detail)
+	}
+	if notify {
+		s.dispatchPaymentFulfillmentNotification(o, auditAction)
+	}
 	return nil
 }
 
@@ -375,7 +400,7 @@ func (s *PaymentService) sendSubscriptionPurchaseSuccessNotification(ctx context
 			}
 		}
 		if s.subscriptionSvc != nil {
-			if sub, err := s.subscriptionSvc.GetActiveSubscription(ctx, o.UserID, *o.SubscriptionGroupID); err == nil && sub != nil {
+			if sub, err := s.subscriptionForCompletedOrder(ctx, o); err == nil && sub != nil {
 				variables["expiry_time"] = sub.ExpiresAt.Format("2006-01-02 15:04")
 			}
 		}
@@ -435,12 +460,136 @@ func (s *PaymentService) doSub(ctx context.Context, o *dbent.PaymentOrder) error
 		slog.Info("subscription already assigned for order, skipping", "orderID", o.ID, "groupID", gid)
 		return s.markCompleted(ctx, o, "SUBSCRIPTION_SUCCESS")
 	}
+	fiveHourLimitUSD, sevenDayLimitUSD, thirtyDayLimitUSD := subscriptionQuotaSnapshotFromOrder(o)
+	if o.SubscriptionQuotaSnapshotVersion == 0 && o.PlanID != nil {
+		plan, err := s.configService.GetPlan(ctx, *o.PlanID)
+		if err != nil {
+			return fmt.Errorf("get subscription plan %d: %w", *o.PlanID, err)
+		}
+		fiveHourLimitUSD = plan.FiveHourLimitUsd
+		sevenDayLimitUSD = plan.SevenDayLimitUsd
+		thirtyDayLimitUSD = plan.ThirtyDayLimitUsd
+	}
 	orderNote := fmt.Sprintf("payment order %d", o.ID)
-	_, _, err = s.subscriptionSvc.AssignOrExtendSubscription(ctx, &AssignSubscriptionInput{UserID: o.UserID, GroupID: gid, ValidityDays: days, AssignedBy: 0, Notes: orderNote})
+	input := &AssignSubscriptionInput{
+		UserID:                  o.UserID,
+		GroupID:                 gid,
+		PlanID:                  o.PlanID,
+		ValidityDays:            days,
+		AssignedBy:              0,
+		Notes:                   orderNote,
+		FiveHourLimitUSD:        fiveHourLimitUSD,
+		SevenDayLimitUSD:        sevenDayLimitUSD,
+		ThirtyDayLimitUSD:       thirtyDayLimitUSD,
+		HasRollingQuotaSnapshot: true,
+	}
+	if err := s.assignSubscriptionAndCompleteOrder(ctx, o, input); err != nil {
+		return err
+	}
+	s.dispatchPaymentFulfillmentNotification(o, "SUBSCRIPTION_SUCCESS")
+	return nil
+}
+
+func (s *PaymentService) assignSubscriptionAndCompleteOrder(ctx context.Context, o *dbent.PaymentOrder, input *AssignSubscriptionInput) error {
+	if dbent.TxFromContext(ctx) != nil {
+		return s.assignSubscriptionAndCompleteOrderInTx(ctx, o, input)
+	}
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin subscription fulfillment transaction: %w", err)
+	}
+	txCtx := dbent.NewTxContext(ctx, tx)
+	defer func() { _ = tx.Rollback() }()
+
+	if err := s.assignSubscriptionAndCompleteOrderInTx(txCtx, o, input); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit subscription fulfillment transaction: %w", err)
+	}
+	return nil
+}
+
+func (s *PaymentService) assignSubscriptionAndCompleteOrderInTx(ctx context.Context, o *dbent.PaymentOrder, input *AssignSubscriptionInput) error {
+	if o != nil && o.OrderType == payment.OrderTypeSubscription && o.PlanID != nil {
+		if err := s.consumePlanStock(ctx, *o.PlanID); err != nil {
+			return err
+		}
+	}
+	sub, _, err := s.subscriptionSvc.AssignOrExtendSubscription(ctx, input)
 	if err != nil {
 		return fmt.Errorf("assign subscription: %w", err)
 	}
-	return s.markCompleted(ctx, o, "SUBSCRIPTION_SUCCESS")
+	if sub == nil {
+		return fmt.Errorf("assign subscription: %w", ErrSubscriptionNotFound)
+	}
+	client := s.entClientForContext(ctx)
+	updated, err := client.PaymentOrder.Update().
+		Where(paymentorder.IDEQ(o.ID), paymentorder.StatusEQ(OrderStatusRecharging)).
+		SetSubscriptionID(sub.ID).
+		Save(ctx)
+	if err != nil {
+		return fmt.Errorf("record order subscription: %w", err)
+	}
+	if updated == 0 {
+		return fmt.Errorf("record order subscription: order %d is not in recharging status", o.ID)
+	}
+	o.SubscriptionID = &sub.ID
+	return s.markCompletedWithoutNotification(ctx, o, "SUBSCRIPTION_SUCCESS")
+}
+
+func (s *PaymentService) consumePlanStock(ctx context.Context, planID int64) error {
+	if planID <= 0 {
+		return nil
+	}
+	client := s.entClientForContext(ctx)
+	plan, err := client.SubscriptionPlan.Get(ctx, planID)
+	if err != nil {
+		if dbent.IsNotFound(err) {
+			return infraerrors.NotFound("PLAN_NOT_FOUND", "subscription plan not found")
+		}
+		return fmt.Errorf("get subscription plan stock: %w", err)
+	}
+	if plan.Stock == nil {
+		return nil
+	}
+	if *plan.Stock <= 0 {
+		return infraerrors.Conflict("PLAN_SOLD_OUT", "subscription plan is sold out")
+	}
+	updated, err := client.SubscriptionPlan.Update().
+		Where(subscriptionplan.IDEQ(planID), subscriptionplan.StockGT(0)).
+		AddStock(-1).
+		Save(ctx)
+	if err != nil {
+		return fmt.Errorf("consume subscription plan stock: %w", err)
+	}
+	if updated == 0 {
+		return infraerrors.Conflict("PLAN_SOLD_OUT", "subscription plan is sold out")
+	}
+	return nil
+}
+
+func (s *PaymentService) subscriptionForCompletedOrder(ctx context.Context, o *dbent.PaymentOrder) (*UserSubscription, error) {
+	if s == nil || s.subscriptionSvc == nil || o == nil {
+		return nil, ErrSubscriptionNotFound
+	}
+	if o.SubscriptionID != nil {
+		return s.subscriptionSvc.GetByID(ctx, *o.SubscriptionID)
+	}
+	if o.SubscriptionGroupID != nil && o.PlanID != nil {
+		return s.subscriptionSvc.GetByUserIDGroupIDAndPlanID(ctx, o.UserID, *o.SubscriptionGroupID, o.PlanID)
+	}
+	if o.SubscriptionGroupID != nil {
+		return s.subscriptionSvc.GetActiveSubscription(ctx, o.UserID, *o.SubscriptionGroupID)
+	}
+	return nil, ErrSubscriptionNotFound
+}
+
+func subscriptionQuotaSnapshotFromOrder(o *dbent.PaymentOrder) (*float64, *float64, *float64) {
+	if o == nil || o.SubscriptionQuotaSnapshotVersion <= 0 {
+		return nil, nil, nil
+	}
+	return o.SubscriptionFiveHourLimitUsd, o.SubscriptionSevenDayLimitUsd, o.SubscriptionThirtyDayLimitUsd
 }
 
 func (s *PaymentService) hasAuditLog(ctx context.Context, orderID int64, action string) bool {

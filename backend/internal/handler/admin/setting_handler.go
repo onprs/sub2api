@@ -206,6 +206,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		GitHubOAuthClientSecretConfigured:      settings.GitHubOAuthClientSecretConfigured,
 		GitHubOAuthRedirectURL:                 settings.GitHubOAuthRedirectURL,
 		GitHubOAuthFrontendRedirectURL:         settings.GitHubOAuthFrontendRedirectURL,
+		GitHubOAuthProxyID:                     settings.GitHubOAuthProxyID,
 		GoogleOAuthEnabled:                     settings.GoogleOAuthEnabled,
 		GoogleOAuthClientID:                    settings.GoogleOAuthClientID,
 		GoogleOAuthClientSecretConfigured:      settings.GoogleOAuthClientSecretConfigured,
@@ -295,6 +296,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ChannelMonitorDefaultIntervalSeconds: settings.ChannelMonitorDefaultIntervalSeconds,
 
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
+
+		ModelPricingEnabled: settings.ModelPricingEnabled,
 
 		AffiliateEnabled: settings.AffiliateEnabled,
 
@@ -485,6 +488,7 @@ type UpdateSettingsRequest struct {
 	GitHubOAuthClientSecret        string `json:"github_oauth_client_secret"`
 	GitHubOAuthRedirectURL         string `json:"github_oauth_redirect_url"`
 	GitHubOAuthFrontendRedirectURL string `json:"github_oauth_frontend_redirect_url"`
+	GitHubOAuthProxyID             *int64 `json:"github_oauth_proxy_id"`
 	GoogleOAuthEnabled             bool   `json:"google_oauth_enabled"`
 	GoogleOAuthClientID            string `json:"google_oauth_client_id"`
 	GoogleOAuthClientSecret        string `json:"google_oauth_client_secret"`
@@ -639,6 +643,9 @@ type UpdateSettingsRequest struct {
 
 	// Available Channels feature switch (user-facing)
 	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
+
+	// Model Pricing feature switch (user-facing)
+	ModelPricingEnabled *bool `json:"model_pricing_enabled"`
 
 	// Affiliate (邀请返利) feature switch
 	AffiliateEnabled *bool `json:"affiliate_enabled"`
@@ -1557,6 +1564,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		GitHubOAuthClientSecret:                req.GitHubOAuthClientSecret,
 		GitHubOAuthRedirectURL:                 req.GitHubOAuthRedirectURL,
 		GitHubOAuthFrontendRedirectURL:         req.GitHubOAuthFrontendRedirectURL,
+		GitHubOAuthProxyID:                     req.GitHubOAuthProxyID,
 		GoogleOAuthEnabled:                     req.GoogleOAuthEnabled,
 		GoogleOAuthClientID:                    req.GoogleOAuthClientID,
 		GoogleOAuthClientSecret:                req.GoogleOAuthClientSecret,
@@ -1756,6 +1764,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.AvailableChannelsEnabled
 			}
 			return previousSettings.AvailableChannelsEnabled
+		}(),
+		ModelPricingEnabled: func() bool {
+			if req.ModelPricingEnabled != nil {
+				return *req.ModelPricingEnabled
+			}
+			return previousSettings.ModelPricingEnabled
 		}(),
 		AffiliateEnabled: func() bool {
 			if req.AffiliateEnabled != nil {
@@ -2000,6 +2014,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		GitHubOAuthClientSecretConfigured:      updatedSettings.GitHubOAuthClientSecretConfigured,
 		GitHubOAuthRedirectURL:                 updatedSettings.GitHubOAuthRedirectURL,
 		GitHubOAuthFrontendRedirectURL:         updatedSettings.GitHubOAuthFrontendRedirectURL,
+		GitHubOAuthProxyID:                     updatedSettings.GitHubOAuthProxyID,
 		GoogleOAuthEnabled:                     updatedSettings.GoogleOAuthEnabled,
 		GoogleOAuthClientID:                    updatedSettings.GoogleOAuthClientID,
 		GoogleOAuthClientSecretConfigured:      updatedSettings.GoogleOAuthClientSecretConfigured,
@@ -2087,6 +2102,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ChannelMonitorDefaultIntervalSeconds: updatedSettings.ChannelMonitorDefaultIntervalSeconds,
 
 		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
+
+		ModelPricingEnabled: updatedSettings.ModelPricingEnabled,
 
 		AffiliateEnabled: updatedSettings.AffiliateEnabled,
 
@@ -2565,6 +2582,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.AvailableChannelsEnabled != after.AvailableChannelsEnabled {
 		changed = append(changed, "available_channels_enabled")
+	}
+	if before.ModelPricingEnabled != after.ModelPricingEnabled {
+		changed = append(changed, "model_pricing_enabled")
 	}
 	if before.AffiliateEnabled != after.AffiliateEnabled {
 		changed = append(changed, "affiliate_enabled")

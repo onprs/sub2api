@@ -111,7 +111,8 @@ const platformOptions = computed(() => [
   { value: 'openai', label: 'OpenAI' },
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'gemini', label: 'Gemini' },
-  { value: 'antigravity', label: 'Antigravity' }
+  { value: 'antigravity', label: 'Antigravity' },
+  { value: 'opencode_go', label: 'OpenCode Go' }
 ])
 
 const timeRangeOptions = computed(() => [

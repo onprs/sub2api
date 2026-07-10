@@ -87,6 +87,36 @@ func (PaymentOrder) Fields() []ent.Field {
 		field.Int("subscription_days").
 			Optional().
 			Nillable(),
+		field.Int64("subscription_id").
+			Optional().
+			Nillable(),
+		field.Float("subscription_plan_price").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,2)"}).
+			Validate(validatePositiveFloat("subscription_plan_price")).
+			Optional().
+			Nillable(),
+		field.Float("subscription_renewal_discount_percent").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(5,2)"}).
+			Validate(validateRenewalDiscountPercent).
+			Optional().
+			Nillable(),
+		field.Int("subscription_quota_snapshot_version").
+			Default(0),
+		field.Float("subscription_five_hour_limit_usd").
+			Optional().
+			Nillable().
+			Validate(validateNonNegativeFloat("subscription_five_hour_limit_usd")).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}),
+		field.Float("subscription_seven_day_limit_usd").
+			Optional().
+			Nillable().
+			Validate(validateNonNegativeFloat("subscription_seven_day_limit_usd")).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}),
+		field.Float("subscription_thirty_day_limit_usd").
+			Optional().
+			Nillable().
+			Validate(validateNonNegativeFloat("subscription_thirty_day_limit_usd")).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}),
 		field.String("provider_instance_id").
 			Optional().
 			Nillable().
@@ -195,5 +225,6 @@ func (PaymentOrder) Indexes() []ent.Index {
 		index.Fields("paid_at"),
 		index.Fields("payment_type", "paid_at"),
 		index.Fields("order_type"),
+		index.Fields("subscription_id"),
 	}
 }

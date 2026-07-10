@@ -120,6 +120,7 @@ type SystemSettings struct {
 	GitHubOAuthClientSecretConfigured bool
 	GitHubOAuthRedirectURL            string
 	GitHubOAuthFrontendRedirectURL    string
+	GitHubOAuthProxyID                *int64
 	GoogleOAuthEnabled                bool
 	GoogleOAuthClientID               string
 	GoogleOAuthClientSecret           string
@@ -176,6 +177,9 @@ type SystemSettings struct {
 
 	// Available Channels feature (user-facing aggregate view)
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
+
+	// Model Pricing feature (user-facing pricing matrix)
+	ModelPricingEnabled bool `json:"model_pricing_enabled"`
 
 	// Claude Code version check
 	MinClaudeCodeVersion string
@@ -290,6 +294,9 @@ type PublicSettings struct {
 
 	// Available Channels feature (user-facing aggregate view)
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
+
+	// Model Pricing feature (user-facing pricing matrix)
+	ModelPricingEnabled bool `json:"model_pricing_enabled"`
 
 	// Affiliate (邀请返利) feature toggle
 	AffiliateEnabled bool `json:"affiliate_enabled"`

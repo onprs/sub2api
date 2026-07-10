@@ -29,4 +29,8 @@ describe('AppSidebar header styles', () => {
     expect(sidebarHeaderBlockMatch?.[0]).not.toContain('@apply overflow-hidden;')
     expect(sidebarBrandBlockMatch?.[0]).not.toContain('overflow: hidden;')
   })
+
+  it('keeps long version badges inside the sidebar brand row', () => {
+    expect(componentSource).toContain('<VersionBadge :version="siteVersion" class="min-w-0 max-w-full" />')
+  })
 })

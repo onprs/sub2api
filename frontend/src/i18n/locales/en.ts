@@ -97,6 +97,7 @@ export default {
       claude: 'Claude',
       gemini: 'Gemini',
       antigravity: 'Antigravity',
+      opencodeGo: 'OpenCode Go',
       more: 'More'
     },
     // CTA section
@@ -361,6 +362,7 @@ export default {
     groups: 'Groups',
     channels: 'Channels',
     availableChannels: 'Available Channels',
+    modelPricing: 'Model Pricing',
     subscriptions: 'Subscriptions',
     accounts: 'Accounts',
     proxies: 'Proxies',
@@ -766,6 +768,28 @@ export default {
         modelComment: 'If you have Gemini 3 access, you can use: gemini-3-pro-preview',
         note: 'These environment variables will be active in the current terminal session. For permanent configuration, add them to ~/.bashrc, ~/.zshrc, or the appropriate configuration file.',
       },
+      opencodeGo: {
+        description: 'Generate OpenCode client configuration for OpenCode Go groups.',
+      },
+      cliImport: {
+        keyName: 'Key',
+        group: 'Group',
+        endpoint: 'Endpoint',
+        defaultModel: 'Default model',
+        unknownKey: 'Current key',
+        noGroup: 'No group',
+        notConfigured: 'Not configured',
+        downloadWindows: 'Download Windows script',
+        downloadLinux: 'Download Linux/macOS script',
+        downloadFailed: 'Failed to download script',
+        disabled: {
+          noKey: 'Open this from a specific API key to download a script.',
+          noGroup: 'This key has no group, so an accurate CLI config cannot be generated.',
+          inactive: 'This key is not active, so the import script cannot be downloaded.',
+          expired: 'This key has expired, so the import script cannot be downloaded.',
+          quotaExhausted: 'This key has exhausted its quota, so the import script cannot be downloaded.',
+        },
+      },
       opencode: {
         title: 'OpenCode Example',
         subtitle: 'opencode.json',
@@ -967,7 +991,10 @@ export default {
     providers: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
-      gemini: 'Gemini'
+      gemini: 'Gemini',
+      antigravity_claude: 'Antigravity Claude',
+      antigravity_gemini: 'Antigravity Gemini',
+      opencode_go: 'OpenCode Go'
     },
     extraModelsHeader: 'Extra Models',
     extraModelsEmpty: 'No extra models',
@@ -1065,6 +1092,45 @@ export default {
       intervals: 'Tiered Pricing',
       unitPerMillion: '/ 1M tokens',
       unitPerRequest: '/ request'
+    }
+  },
+
+  modelPricing: {
+    title: 'Model Pricing',
+    description: 'Model pricing by accessible channel and group',
+    searchPlaceholder: 'Search channel, platform, model, group, or source...',
+    empty: 'No model pricing data',
+    modes: {
+      raw: 'Raw Pricing',
+      actual: 'Actual Pricing'
+    },
+    columns: {
+      channel: 'Channel',
+      platform: 'Platform',
+      model: 'Model',
+      group: 'Group',
+      multiplier: 'Multiplier',
+      source: 'Source',
+      billingMode: 'Billing Mode',
+      inputPerMillion: 'Input/M',
+      outputPerMillion: 'Output/M',
+      cacheWritePerMillion: 'Cache Write/M',
+      cacheReadPerMillion: 'Cache Read/M',
+      unitPrice: 'Per Request/Image'
+    },
+    sources: {
+      missing: 'Missing',
+      channel: 'Channel Pricing',
+      catalog: 'Pricing Catalog'
+    },
+    billingModes: {
+      token: 'Per Token',
+      perRequest: 'Per Request',
+      image: 'Per Image'
+    },
+    units: {
+      request: 'req',
+      image: 'img'
     }
   },
 
@@ -1827,6 +1893,7 @@ export default {
         usageOpenAI: 'Usage (OpenAI)',
         usageGemini: 'Usage (Gemini)',
         usageAntigravity: 'Usage (Antigravity)',
+        usageOpenCodeGo: 'Usage (OpenCode Go)',
         concurrency: 'Concurrency',
         status: 'Status',
         lastActive: 'Last Active',
@@ -2113,7 +2180,7 @@ export default {
       optionalDescription: 'Optional description',
       platformHint: 'Select the platform this group is associated with',
       platformNotEditable: 'Platform cannot be changed after creation',
-      rateMultiplierHint: 'Cost multiplier for this group (e.g., 1.5 = 150% of base cost)',
+      rateMultiplierHint: 'Cost multiplier for this group (0 = free/no charge, 1.5 = 150% of base cost)',
       exclusiveHint: 'Exclusive group, manually assign to specific users',
       exclusiveTooltip: {
         title: 'What is an exclusive group?',
@@ -2168,6 +2235,7 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        opencode_go: 'OpenCode Go',
       },
       deleteConfirm:
         "Are you sure you want to delete '{name}'? All associated API keys will no longer belong to any group.",
@@ -2771,6 +2839,8 @@ export default {
         apiModeChatCompletionsHint: 'Use /v1/chat/completions with messages; works for most compatible providers.',
         apiModeResponses: 'Responses API',
         apiModeResponsesHint: 'Use /v1/responses with default instructions + input; best for self-check/Codex paths.',
+        apiModeMessages: 'Messages API',
+        apiModeMessagesHint: 'Use /v1/messages for OpenCode Go Anthropic-style models.',
         endpoint: 'Endpoint',
         endpointPlaceholder: 'https://api.example.com',
         useCurrentDomain: 'Use current service',
@@ -2900,12 +2970,15 @@ export default {
       form: {
         user: 'User',
         group: 'Subscription Group',
+        plan: 'Subscription Plan',
         validityDays: 'Validity (Days)',
         adjustDays: 'Adjust by (Days)'
       },
       selectUser: 'Select a user',
       selectGroup: 'Select a subscription group',
+      selectPlan: 'Select a subscription plan',
       groupHint: 'Only groups with subscription billing type are shown',
+      planHint: 'Manual assignment uses the selected plan validity and 5h, 7d, 30d rolling quotas',
       validityHint: 'Number of days the subscription will be valid',
       adjustingFor: 'Adjusting subscription for',
       currentExpiration: 'Current expiration',
@@ -2918,7 +2991,7 @@ export default {
       revoke: 'Revoke',
       resetQuota: 'Reset Quota',
       resetQuotaTitle: 'Reset Usage Quota',
-      resetQuotaConfirm: "Reset the daily, weekly, and monthly usage quota for '{user}'? Usage will be zeroed and windows restarted from today.",
+      resetQuotaConfirm: "Reset the 5h, 7d, and 30d rolling usage quota for '{user}'? Usage will be zeroed and the rolling windows will restart from now.",
       quotaResetSuccess: 'Quota reset successfully',
       failedToResetQuota: 'Failed to reset quota',
       noSubscriptionsYet: 'No subscriptions yet',
@@ -2927,6 +3000,7 @@ export default {
       subscriptionAdjusted: 'Subscription adjusted successfully',
       subscriptionRevoked: 'Subscription revoked successfully',
       failedToLoad: 'Failed to load subscriptions',
+      failedToLoadPlans: 'Failed to load subscription plans',
       failedToAssign: 'Failed to assign subscription',
       failedToAdjust: 'Failed to adjust subscription',
       failedToRevoke: 'Failed to revoke subscription',
@@ -2934,17 +3008,18 @@ export default {
       adjustOutOfRange: 'Adjustment days must be between -36500 and 36500',
       pleaseSelectUser: 'Please select a user',
       pleaseSelectGroup: 'Please select a group',
+      pleaseSelectPlan: 'Please select a subscription plan',
       validityDaysRequired: 'Please enter a valid number of days (at least 1)',
       revokeConfirm:
         "Are you sure you want to revoke the subscription for '{user}'? This action cannot be undone.",
       guide: {
         title: 'Subscription Management Guide',
-        subtitle: 'Subscription mode lets you assign time-based usage quotas to users, with daily/weekly/monthly limits. Follow these steps to get started.',
+        subtitle: 'Subscription mode lets you assign time-based usage quotas to users, with 5h/7d/30d rolling limits. Follow these steps to get started.',
         showGuide: 'Usage Guide',
         step1: {
           title: 'Create a Subscription Group',
           line1: 'Go to "Group Management" page, click "Create Group"',
-          line2: 'Set billing type to "Subscription", configure daily/weekly/monthly quota limits',
+          line2: 'Set billing type to "Subscription", configure 5h/7d/30d rolling quota limits',
           line3: 'Save the group and ensure its status is "Active"',
           link: 'Go to Group Management'
         },
@@ -2952,7 +3027,7 @@ export default {
           title: 'Assign Subscription to User',
           line1: 'Click the "Assign Subscription" button in the top right',
           line2: 'Search for a user by email and select them',
-          line3: 'Choose a subscription group, set validity days, then click "Assign"'
+          line3: 'Choose a subscription plan; its validity and 5h, 7d, 30d quotas are applied automatically'
         },
         step3: {
           title: 'Manage Existing Subscriptions'
@@ -2961,7 +3036,7 @@ export default {
           adjust: 'Adjust',
           adjustDesc: 'Extend or shorten the subscription validity period',
           resetQuota: 'Reset Quota',
-          resetQuotaDesc: 'Reset daily/weekly/monthly usage to zero',
+          resetQuotaDesc: 'Reset 5h/7d/30d rolling usage to zero',
           revoke: 'Revoke',
           revokeDesc: 'Immediately terminate the subscription (irreversible)'
         },
@@ -3070,6 +3145,7 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        opencode_go: 'OpenCode Go',
       },
       types: {
         oauth: 'OAuth',
@@ -3266,6 +3342,7 @@ export default {
         disableScheduling: 'Disable Scheduling',
         resetStatus: 'Reset Status',
         refreshToken: 'Refresh Token',
+        copyModelMapping: 'Copy Mapping',
         resetStatusSuccess: 'Successfully reset {count} account(s) status',
         refreshTokenSuccess: 'Successfully refreshed {count} account(s) token',
         partialSuccess: 'Partially completed: {success} succeeded, {failed} failed'
@@ -3284,6 +3361,24 @@ export default {
         noSelection: 'Please select accounts to edit',
         noFieldsSelected: 'Select at least one field to update',
         mixedPlatformWarning: 'Selected accounts span multiple platforms ({platforms}). Model mapping presets shown are combined — ensure mappings are appropriate for each platform.'
+      },
+      copyModelMapping: {
+        title: 'Copy Model Mapping',
+        sourceAccount: 'Source account',
+        sourcePlaceholder: 'Choose a source account with model mappings',
+        warning: 'This overwrites target account model_mapping. Access tokens, projects, proxies, and other credential fields are kept unchanged.',
+        targetCount: 'Target accounts',
+        mappingCount: '{count} mapping(s)',
+        noSourceAccounts: 'No eligible same-platform source accounts. The source must have a non-empty model_mapping and must not be one of the selected targets.',
+        noSelection: 'Select target accounts before copying mappings',
+        mixedPlatformError: 'Model mappings can only be copied between accounts on the same platform',
+        emptySourceError: 'Choose a source account',
+        loadFailed: 'Failed to load source accounts',
+        submit: 'Copy Mapping',
+        copying: 'Copying...',
+        success: 'Copied mappings to {count} account(s)',
+        partialSuccess: 'Partially copied: {success} succeeded, {failed} failed',
+        failed: 'Failed to copy model mapping'
       },
       bulkDeleteTitle: 'Bulk Delete Accounts',
       bulkDeleteConfirm: 'Delete the selected {count} account(s)? This action cannot be undone.',
@@ -3648,6 +3743,10 @@ export default {
         apiKeyHint: 'API Key for the upstream service',
         pleaseEnterBaseUrl: 'Please enter upstream Base URL',
         pleaseEnterApiKey: 'Please enter upstream API Key'
+      },
+      opencodeGo: {
+        baseUrlHint: 'Default upstream URL: https://opencode.ai/zen/go/v1',
+        apiKeyHint: 'OpenCode Go API Key'
       },
       // OAuth flow
       oauth: {
@@ -4052,7 +4151,8 @@ export default {
         gemini3Image: 'G31FI',
         claude: 'Claude',
         passiveSampled: 'Passive',
-        activeQuery: 'Query'
+        activeQuery: 'Query',
+        estimatedData: 'Estimated / Based on Sub2API logs'
       },
       tier: {
         free: 'Free',
@@ -4342,6 +4442,13 @@ export default {
       failedToDelete: 'Failed to delete code',
       failedToDeleteUnused: 'Failed to delete unused codes',
       failedToCopy: 'Failed to copy codes',
+      subscriptionGrantMode: 'Grant mode',
+      byPlan: 'By Plan',
+      byGroup: 'By Group',
+      selectPlan: 'Select Plan',
+      selectPlanPlaceholder: 'Choose a subscription plan',
+      planRequired: 'Please select a subscription plan',
+      failedToLoadPlans: 'Failed to load subscription plans',
       types: {
         balance: 'Balance',
         concurrency: 'Concurrency',
@@ -5362,6 +5469,13 @@ export default {
           configureLink: 'Configure model pricing in Channel Management > Channel Pricing',
           enabled: 'Enable Available Channels',
           enabledHint: 'When off, the sidebar entry is hidden and the endpoint returns an empty list.',
+        },
+        modelPricing: {
+          title: 'Model Pricing',
+          description: 'Show logged-in users the raw and effective pricing matrix by channel, platform, model and group. Disabled by default.',
+          configureLink: 'Open the user-facing model pricing page',
+          enabled: 'Enable Model Pricing',
+          enabledHint: 'When off, the model pricing sidebar entry is hidden. This switch is independent from Available Channels.',
         },
         riskControl: {
           title: 'Risk Control',
@@ -6929,6 +7043,7 @@ export default {
     },
     subscribeNow: 'Subscribe Now',
     renewNow: 'Renew',
+    renewalDiscount: 'Renewal -{percent}%',
     selectPlan: 'Select Plan',
     planFeatures: 'Features',
     planCard: {
@@ -6940,7 +7055,17 @@ export default {
       unlimited: 'Unlimited',
       models: 'Models',
     },
+    quotaWindows: {
+      fiveHour: '5h limit',
+      sevenDay: '7d limit',
+      thirtyDay: '30d limit',
+      fiveHourShort: '5h',
+      sevenDayShort: '7d',
+      thirtyDayShort: '30d',
+      expiresFirst: 'Subscription expires first',
+    },
     days: 'days',
+    weeks: 'weeks',
     months: 'months',
     years: 'years',
     oneMonth: '1 Month',
@@ -7024,6 +7149,10 @@ export default {
       deletePlan: 'Delete Plan',
       deletePlanConfirm: 'Are you sure you want to delete this plan?',
       originalPrice: 'Original Price',
+      renewalDiscountPercent: 'Renewal Discount Percent',
+      renewalDiscountHint: 'Applies only when a user renews the same active plan. 15 means the renewal pays 15% less. Empty or 0 means no renewal discount.',
+      renewalDiscountInvalid: 'Renewal discount must be greater than or equal to 0 and less than 100',
+      noRenewalDiscount: 'No renewal discount',
       price: 'Price',
       validityDays: 'Validity (days)',
       validityUnit: 'Validity Unit',
@@ -7071,6 +7200,12 @@ export default {
       dailyLimit: 'Daily Limit',
       weeklyLimit: 'Weekly Limit',
       monthlyLimit: 'Monthly Limit',
+      fiveHourLimit: '5h Limit',
+      sevenDayLimit: '7d Limit',
+      thirtyDayLimit: '30d Limit',
+      rollingQuotaLimits: 'Rolling Quota Limits',
+      rollingQuotaHint: 'Empty = unlimited, 0 = blocked, positive value = USD limit.',
+      rollingQuotaInvalid: 'Quota limits cannot be negative',
       unlimited: 'Unlimited',
       searchUserSubs: 'Search user subscriptions...',
       daily: 'D',

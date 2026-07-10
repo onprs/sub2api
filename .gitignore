@@ -122,7 +122,6 @@ scripts
 .code-review-state
 #openspec/
 code-reviews/
-AGENTS.md
 backend/cmd/server/server
 deploy/docker-compose.override.yml
 .gocache/
@@ -136,3 +135,11 @@ docs/*
 frontend/coverage/
 aicodex
 output/
+
+# Local release artifacts and generated caches
+artifacts/
+tools/__pycache__/
+**/__pycache__/
+
+# Contributor and agent guide is intentionally versioned.
+!AGENTS.md

@@ -3,15 +3,23 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import RedeemView from '../RedeemView.vue'
 
-const { listRedeemCodes, batchUpdateRedeemCodes, getAllGroups, showSuccess, showError, showInfo } =
-  vi.hoisted(() => ({
-    listRedeemCodes: vi.fn(),
-    batchUpdateRedeemCodes: vi.fn(),
-    getAllGroups: vi.fn(),
-    showSuccess: vi.fn(),
-    showError: vi.fn(),
-    showInfo: vi.fn()
-  }))
+const {
+  listRedeemCodes,
+  batchUpdateRedeemCodes,
+  getAllGroups,
+  getPlans,
+  showSuccess,
+  showError,
+  showInfo
+} = vi.hoisted(() => ({
+  listRedeemCodes: vi.fn(),
+  batchUpdateRedeemCodes: vi.fn(),
+  getAllGroups: vi.fn(),
+  getPlans: vi.fn(),
+  showSuccess: vi.fn(),
+  showError: vi.fn(),
+  showInfo: vi.fn()
+}))
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
@@ -25,6 +33,9 @@ vi.mock('@/api/admin', () => ({
     },
     groups: {
       getAll: getAllGroups
+    },
+    payment: {
+      getPlans
     }
   }
 }))
@@ -107,6 +118,7 @@ describe('admin RedeemView batch update', () => {
     listRedeemCodes.mockReset()
     batchUpdateRedeemCodes.mockReset()
     getAllGroups.mockReset()
+    getPlans.mockReset()
     showSuccess.mockReset()
     showError.mockReset()
     showInfo.mockReset()
@@ -143,6 +155,7 @@ describe('admin RedeemView batch update', () => {
     })
     batchUpdateRedeemCodes.mockResolvedValue({ updated: 1, message: 'ok' })
     getAllGroups.mockResolvedValue([])
+    getPlans.mockResolvedValue({ data: [] })
   })
 
   it('submits only checked fields for selected redeem codes', async () => {

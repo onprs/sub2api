@@ -7,6 +7,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
 )
@@ -75,7 +76,7 @@ func newAvailableChannelService(channels []Channel, groupRepo GroupRepository) *
 	repo := &mockChannelRepository{
 		listAllFn: func(ctx context.Context) ([]Channel, error) { return channels, nil },
 	}
-	return NewChannelService(repo, groupRepo, nil, nil)
+	return NewChannelService(repo, groupRepo, nil, nil, nil)
 }
 
 func TestListAvailable_EmptyActiveGroups_NoGroupsAttached(t *testing.T) {
@@ -134,7 +135,7 @@ func TestListAvailable_ListAllErrorPropagates(t *testing.T) {
 		listAllFn: func(ctx context.Context) ([]Channel, error) { return nil, sentinel },
 	}
 	groupRepo := &stubGroupRepoForAvailable{}
-	svc := NewChannelService(repo, groupRepo, nil, nil)
+	svc := NewChannelService(repo, groupRepo, nil, nil, nil)
 	out, err := svc.ListAvailable(context.Background())
 	require.Nil(t, out)
 	require.ErrorIs(t, err, sentinel)
@@ -259,6 +260,7 @@ func TestFillGlobalPricingFallback_NilPricing(t *testing.T) {
 	require.NotNil(t, models[0].Pricing)
 	require.NotNil(t, models[0].Pricing.InputPrice)
 	require.InDelta(t, 5e-6, *models[0].Pricing.InputPrice, 1e-12)
+	require.Equal(t, PricingSourceCatalog, models[0].PricingSource)
 }
 
 func TestFillGlobalPricingFallback_EmptyPricingFillsFromLiteLLM(t *testing.T) {
@@ -286,6 +288,7 @@ func TestFillGlobalPricingFallback_EmptyPricingFillsFromLiteLLM(t *testing.T) {
 	require.Equal(t, BillingModeImage, models[0].Pricing.BillingMode)
 	require.NotNil(t, models[0].Pricing.ImageOutputPrice)
 	require.InDelta(t, 4e-5, *models[0].Pricing.ImageOutputPrice, 1e-12)
+	require.Equal(t, PricingSourceCatalog, models[0].PricingSource)
 }
 
 func TestFillGlobalPricingFallback_KeepsExistingPrice(t *testing.T) {
@@ -304,6 +307,142 @@ func TestFillGlobalPricingFallback_KeepsExistingPrice(t *testing.T) {
 	}
 	svc.fillGlobalPricingFallback(models)
 	require.Same(t, existing, models[0].Pricing)
+	require.Equal(t, PricingSourceChannel, models[0].PricingSource)
+}
+
+func TestFillGlobalPricingFallback_MarksMissingWhenCatalogMisses(t *testing.T) {
+	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{})
+	svc := &ChannelService{pricingService: pricingSvc}
+
+	models := []SupportedModel{
+		{Name: "unknown-model", Platform: "anthropic"},
+	}
+	svc.fillGlobalPricingFallback(models)
+	require.Nil(t, models[0].Pricing)
+	require.Equal(t, PricingSourceMissing, models[0].PricingSource)
+}
+
+func TestFillGlobalPricingFallback_EmptyChannelPricingMarksMissingWhenCatalogMisses(t *testing.T) {
+	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{})
+	svc := &ChannelService{pricingService: pricingSvc}
+
+	models := []SupportedModel{
+		{
+			Name:          "empty-channel-price",
+			Platform:      "anthropic",
+			Pricing:       &ChannelModelPricing{BillingMode: BillingModeToken},
+			PricingSource: PricingSourceChannel,
+		},
+	}
+	svc.fillGlobalPricingFallback(models)
+	require.NotNil(t, models[0].Pricing)
+	require.Equal(t, PricingSourceMissing, models[0].PricingSource)
+}
+
+func TestBuildCatalogSupportedModel_UsesLookupCandidateBeforeDisplayName(t *testing.T) {
+	// Antigravity 等平台的展示模型可能是管理员自定义 mapping key；
+	// 原价查询应优先用 mapping value / 官方模型名，而不是只查展示名。
+	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
+		"gemini-3.1-pro-low": {
+			Mode:                    "chat",
+			InputCostPerToken:       2e-6,
+			OutputCostPerToken:      12e-6,
+			CacheReadInputTokenCost: 2e-7,
+		},
+	})
+	svc := &ChannelService{pricingService: pricingSvc}
+
+	got := svc.BuildCatalogSupportedModel(
+		"gemini-3.5-flash-low",
+		PlatformAntigravity,
+		[]string{"gemini-3.1-pro-low"},
+	)
+
+	require.Equal(t, "gemini-3.5-flash-low", got.Name)
+	require.Equal(t, PlatformAntigravity, got.Platform)
+	require.Equal(t, PricingSourceCatalog, got.PricingSource)
+	require.NotNil(t, got.Pricing)
+	require.NotNil(t, got.Pricing.InputPrice)
+	require.InDelta(t, 2e-6, *got.Pricing.InputPrice, 1e-12)
+	require.NotNil(t, got.Pricing.CacheReadPrice)
+}
+
+func TestBuildCatalogSupportedModel_AntigravityDefaultMappingCandidate(t *testing.T) {
+	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
+		"claude-opus-4-6-thinking": {
+			Mode:               "chat",
+			InputCostPerToken:  5e-6,
+			OutputCostPerToken: 25e-6,
+		},
+	})
+	svc := &ChannelService{pricingService: pricingSvc}
+
+	got := svc.BuildCatalogSupportedModel("claude-opus-4-6", PlatformAntigravity, nil)
+
+	require.Equal(t, PricingSourceCatalog, got.PricingSource)
+	require.NotNil(t, got.Pricing)
+	require.NotNil(t, got.Pricing.InputPrice)
+	require.InDelta(t, 5e-6, *got.Pricing.InputPrice, 1e-12)
+}
+
+func TestBuildCatalogSupportedModel_OpenCodeGoCodeAliasCandidate(t *testing.T) {
+	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
+		"kimi-k2.7": {
+			Mode:                    "chat",
+			InputCostPerToken:       0.95e-6,
+			OutputCostPerToken:      4.00e-6,
+			CacheReadInputTokenCost: 0.19e-6,
+		},
+	})
+	svc := &ChannelService{pricingService: pricingSvc}
+
+	got := svc.BuildCatalogSupportedModel("kimi-k2.7-code", PlatformOpenCodeGo, nil)
+
+	require.Equal(t, PricingSourceCatalog, got.PricingSource)
+	require.NotNil(t, got.Pricing)
+	require.NotNil(t, got.Pricing.InputPrice)
+	require.InDelta(t, 0.95e-6, *got.Pricing.InputPrice, 1e-12)
+	require.NotNil(t, got.Pricing.CacheReadPrice)
+}
+
+func TestBuildCatalogSupportedModel_OpenCodeGoUsesModelsDevSupplementalPricing(t *testing.T) {
+	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
+		"kimi-k2.5": {
+			Mode:                    "chat",
+			InputCostPerToken:       0.60e-6,
+			OutputCostPerToken:      3.00e-6,
+			CacheReadInputTokenCost: 0.10e-6,
+			LiteLLMProvider:         PlatformOpenCodeGo,
+		},
+	})
+	svc := &ChannelService{pricingService: pricingSvc}
+
+	got := svc.BuildCatalogSupportedModel("kimi-k2.5", PlatformOpenCodeGo, nil)
+
+	require.Equal(t, PricingSourceCatalog, got.PricingSource)
+	require.NotNil(t, got.Pricing)
+	require.NotNil(t, got.Pricing.InputPrice)
+	require.InDelta(t, 0.60e-6, *got.Pricing.InputPrice, 1e-12)
+	require.NotNil(t, got.Pricing.OutputPrice)
+	require.InDelta(t, 3.00e-6, *got.Pricing.OutputPrice, 1e-12)
+	require.NotNil(t, got.Pricing.CacheReadPrice)
+	require.InDelta(t, 0.10e-6, *got.Pricing.CacheReadPrice, 1e-12)
+}
+
+func TestBuildCatalogSupportedModel_UsesBillingFallbackPricing(t *testing.T) {
+	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{})
+	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
+	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
+
+	got := svc.BuildCatalogSupportedModel("gpt-5.3-codex-spark", PlatformOpenAI, nil)
+
+	require.Equal(t, PricingSourceCatalog, got.PricingSource)
+	require.NotNil(t, got.Pricing)
+	require.NotNil(t, got.Pricing.InputPrice)
+	require.InDelta(t, 1.5e-6, *got.Pricing.InputPrice, 1e-12)
+	require.NotNil(t, got.Pricing.OutputPrice)
+	require.InDelta(t, 12e-6, *got.Pricing.OutputPrice, 1e-12)
+	require.NotNil(t, got.Pricing.CacheReadPrice)
 }
 
 func newStubPricingServiceFromMap(data map[string]*LiteLLMModelPricing) *PricingService {

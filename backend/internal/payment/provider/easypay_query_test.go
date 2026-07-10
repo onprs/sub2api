@@ -82,21 +82,15 @@ func TestEasyPayQueryOrderStatusMapping(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var gotForm url.Values
+			var gotQuery url.Values
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != http.MethodPost {
-					t.Errorf("method = %q, want %q", r.Method, http.MethodPost)
+				if r.Method != http.MethodGet {
+					t.Errorf("method = %q, want %q", r.Method, http.MethodGet)
 				}
 				if r.URL.Path != "/api.php" {
 					t.Errorf("path = %q, want /api.php", r.URL.Path)
 				}
-				if err := r.ParseForm(); err != nil {
-					t.Errorf("ParseForm: %v", err)
-				}
-				gotForm = make(url.Values, len(r.PostForm))
-				for key, values := range r.PostForm {
-					gotForm[key] = append([]string(nil), values...)
-				}
+				gotQuery = r.URL.Query()
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(tt.body))
 			}))
@@ -122,8 +116,8 @@ func TestEasyPayQueryOrderStatusMapping(t *testing.T) {
 				"key":          "pkey-1",
 				"out_trade_no": orderID,
 			} {
-				if got := gotForm.Get(key); got != want {
-					t.Fatalf("form[%s] = %q, want %q (form=%v)", key, got, want, gotForm)
+				if got := gotQuery.Get(key); got != want {
+					t.Fatalf("query[%s] = %q, want %q (query=%v)", key, got, want, gotQuery)
 				}
 			}
 		})

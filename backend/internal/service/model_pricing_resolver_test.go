@@ -184,7 +184,7 @@ func newResolverWithChannel(t *testing.T, pricing []ChannelModelPricing) *ModelP
 			return map[int64]string{groupID: "anthropic"}, nil
 		},
 	}
-	cs := NewChannelService(repo, nil, nil, nil)
+	cs := NewChannelService(repo, nil, nil, nil, nil)
 	bs := newTestBillingServiceForResolver()
 	return NewModelPricingResolver(cs, bs)
 }
@@ -218,6 +218,78 @@ func TestResolve_WithChannelOverride_TokenFlat(t *testing.T) {
 	require.InDelta(t, 10e-6, resolved.BasePricing.InputPricePerTokenPriority, 1e-12)
 	require.InDelta(t, 50e-6, resolved.BasePricing.OutputPricePerToken, 1e-12)
 	require.InDelta(t, 50e-6, resolved.BasePricing.OutputPricePerTokenPriority, 1e-12)
+}
+
+func TestResolve_WithGeminiAliasChannelPricingRawAliasWins(t *testing.T) {
+	r := newResolverWithChannel(t, []ChannelModelPricing{
+		{
+			Platform:    "anthropic",
+			Models:      []string{"gemini-3.1-pro-high"},
+			BillingMode: BillingModeToken,
+			InputPrice:  testPtrFloat64(9e-6),
+			OutputPrice: testPtrFloat64(19e-6),
+		},
+		{
+			Platform:    "anthropic",
+			Models:      []string{"gemini-pro-agent"},
+			BillingMode: BillingModeToken,
+			InputPrice:  testPtrFloat64(41e-6),
+			OutputPrice: testPtrFloat64(42e-6),
+		},
+	})
+
+	resolved := r.Resolve(context.Background(), PricingInput{
+		Model:   "gemini-pro-agent",
+		GroupID: groupIDPtr(),
+	})
+
+	require.NotNil(t, resolved)
+	require.Equal(t, PricingSourceChannel, resolved.Source)
+	require.NotNil(t, resolved.BasePricing)
+	require.InDelta(t, 41e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 42e-6, resolved.BasePricing.OutputPricePerToken, 1e-12)
+}
+
+func TestResolve_WithGeminiAliasChannelPricingCanonicalFallback(t *testing.T) {
+	r := newResolverWithChannel(t, []ChannelModelPricing{{
+		Platform:    "anthropic",
+		Models:      []string{"gemini-3.1-pro-high"},
+		BillingMode: BillingModeToken,
+		InputPrice:  testPtrFloat64(9e-6),
+		OutputPrice: testPtrFloat64(19e-6),
+	}})
+
+	resolved := r.Resolve(context.Background(), PricingInput{
+		Model:   "gemini-pro-agent",
+		GroupID: groupIDPtr(),
+	})
+
+	require.NotNil(t, resolved)
+	require.Equal(t, PricingSourceChannel, resolved.Source)
+	require.NotNil(t, resolved.BasePricing)
+	require.InDelta(t, 9e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 19e-6, resolved.BasePricing.OutputPricePerToken, 1e-12)
+}
+
+func TestResolve_WithUnknownGeminiAliasDoesNotUseFlashChannelPricing(t *testing.T) {
+	r := newResolverWithChannel(t, []ChannelModelPricing{{
+		Platform:    "anthropic",
+		Models:      []string{"gemini-3-flash"},
+		BillingMode: BillingModeToken,
+		InputPrice:  testPtrFloat64(9e-6),
+		OutputPrice: testPtrFloat64(19e-6),
+	}})
+
+	resolved := r.Resolve(context.Background(), PricingInput{
+		Model:   "gemini-3.1-pro-low",
+		GroupID: groupIDPtr(),
+	})
+
+	require.NotNil(t, resolved)
+	require.NotEqual(t, PricingSourceChannel, resolved.Source)
+	if resolved.BasePricing != nil {
+		require.NotEqual(t, 9e-6, resolved.BasePricing.InputPricePerToken)
+	}
 }
 
 func TestResolve_WithChannelOverride_TokenPartialOverride(t *testing.T) {
@@ -517,7 +589,7 @@ func TestResolve_WithChannelOverride_CacheError(t *testing.T) {
 			return nil, errors.New("database unavailable")
 		},
 	}
-	cs := NewChannelService(repo, nil, nil, nil)
+	cs := NewChannelService(repo, nil, nil, nil, nil)
 	bs := newTestBillingServiceForResolver()
 	r := NewModelPricingResolver(cs, bs)
 

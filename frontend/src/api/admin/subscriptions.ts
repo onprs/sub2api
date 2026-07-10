@@ -13,6 +13,12 @@ import type {
   PaginatedResponse
 } from '@/types'
 
+export interface ResetSubscriptionQuotaRequest {
+  five_hour: boolean
+  seven_day: boolean
+  thirty_day: boolean
+}
+
 /**
  * List all subscriptions with pagination
  * @param page - Page number (default: 1)
@@ -122,14 +128,14 @@ export async function revoke(id: number): Promise<{ message: string }> {
 }
 
 /**
- * Reset daily, weekly, and/or monthly usage quota for a subscription
+ * Reset 5h, 7d, and/or 30d rolling usage quota for a subscription
  * @param id - Subscription ID
  * @param options - Which windows to reset
  * @returns Updated subscription
  */
 export async function resetQuota(
   id: number,
-  options: { daily: boolean; weekly: boolean; monthly: boolean }
+  options: ResetSubscriptionQuotaRequest
 ): Promise<UserSubscription> {
   const { data } = await apiClient.post<UserSubscription>(
     `/admin/subscriptions/${id}/reset-quota`,

@@ -143,20 +143,32 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		var subscription *service.UserSubscription
 		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 
+		var subscriptionNeedsMaintenance bool
+		var subscriptionValidateErr error
 		if isSubscriptionType && subscriptionService != nil {
-			sub, subErr := subscriptionService.GetActiveSubscription(
-				c.Request.Context(),
-				apiKey.User.ID,
-				apiKey.Group.ID,
-			)
-			if subErr != nil {
-				if !skipBilling {
-					AbortWithError(c, 403, "SUBSCRIPTION_NOT_FOUND", "No active subscription found for this group")
-					return
+			if skipBilling {
+				sub, subErr := subscriptionService.GetActiveSubscription(
+					c.Request.Context(),
+					apiKey.User.ID,
+					apiKey.Group.ID,
+				)
+				if subErr == nil {
+					subscription = sub
 				}
 				// skipBilling: 订阅不存在也放行，handler 会返回可用的数据
 			} else {
-				subscription = sub
+				sub, needsMaintenance, subErr := subscriptionService.GetUsableActiveSubscription(
+					c.Request.Context(),
+					apiKey.User.ID,
+					apiKey.Group.ID,
+					apiKey.Group,
+				)
+				if subErr != nil {
+					subscriptionValidateErr = subErr
+				} else {
+					subscription = sub
+					subscriptionNeedsMaintenance = needsMaintenance
+				}
 			}
 		}
 
@@ -185,25 +197,29 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 			// 订阅模式：验证订阅限额
 			if subscription != nil {
-				needsMaintenance, validateErr := subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
-				if validateErr != nil {
-					code := "SUBSCRIPTION_INVALID"
-					status := 403
-					if errors.Is(validateErr, service.ErrDailyLimitExceeded) ||
-						errors.Is(validateErr, service.ErrWeeklyLimitExceeded) ||
-						errors.Is(validateErr, service.ErrMonthlyLimitExceeded) {
-						code = "USAGE_LIMIT_EXCEEDED"
-						status = 429
-					}
-					AbortWithError(c, status, code, validateErr.Error())
-					return
-				}
-
 				// 窗口维护异步化（不阻塞请求）
-				if needsMaintenance {
+				if subscriptionNeedsMaintenance {
 					maintenanceCopy := *subscription
 					subscriptionService.DoWindowMaintenance(&maintenanceCopy)
 				}
+			} else if isSubscriptionType && subscriptionService != nil {
+				if subscriptionValidateErr == nil {
+					subscriptionValidateErr = service.ErrSubscriptionNotFound
+				}
+				code := "SUBSCRIPTION_INVALID"
+				status := 403
+				message := "No active subscription found for this group"
+				if isSubscriptionUsageLimitError(subscriptionValidateErr) {
+					code = "USAGE_LIMIT_EXCEEDED"
+					status = 429
+					message = subscriptionValidateErr.Error()
+				} else if errors.Is(subscriptionValidateErr, service.ErrSubscriptionNotFound) {
+					code = "SUBSCRIPTION_NOT_FOUND"
+				} else if !errors.Is(subscriptionValidateErr, service.ErrSubscriptionNotFound) {
+					message = subscriptionValidateErr.Error()
+				}
+				AbortWithError(c, status, code, message)
+				return
 			} else {
 				// 非订阅模式 或 订阅模式但 subscriptionService 未注入：回退到余额检查
 				if apiKey.User.Balance <= 0 {
@@ -229,6 +245,15 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 		c.Next()
 	}
+}
+
+func isSubscriptionUsageLimitError(err error) bool {
+	return errors.Is(err, service.ErrDailyLimitExceeded) ||
+		errors.Is(err, service.ErrWeeklyLimitExceeded) ||
+		errors.Is(err, service.ErrMonthlyLimitExceeded) ||
+		errors.Is(err, service.ErrFiveHourLimitExceeded) ||
+		errors.Is(err, service.ErrSevenDayLimitExceeded) ||
+		errors.Is(err, service.ErrThirtyDayLimitExceeded)
 }
 
 // GetAPIKeyFromContext 从上下文中获取API key

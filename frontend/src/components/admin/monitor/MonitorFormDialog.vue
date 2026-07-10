@@ -13,7 +13,7 @@
 
       <div>
         <label class="input-label">{{ t('admin.channelMonitor.form.provider') }} <span class="text-red-500">*</span></label>
-        <div class="grid grid-cols-3 gap-3">
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <button
             v-for="opt in providerOptions"
             :key="opt.value"
@@ -29,7 +29,7 @@
         </div>
       </div>
 
-      <div v-if="form.provider === PROVIDER_OPENAI" class="rounded-lg border border-blue-100 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/10">
+      <div v-if="showsAPIModePicker" class="rounded-lg border border-blue-100 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/10">
         <label class="input-label">{{ t('admin.channelMonitor.form.apiMode') }}</label>
         <div class="grid gap-3 sm:grid-cols-2">
           <button
@@ -207,9 +207,16 @@ import {
   PROVIDER_OPENAI,
   PROVIDER_ANTHROPIC,
   PROVIDER_GEMINI,
+  PROVIDER_ANTIGRAVITY_CLAUDE,
+  PROVIDER_ANTIGRAVITY_GEMINI,
+  PROVIDER_OPENCODE_GO,
   API_MODE_CHAT_COMPLETIONS,
+  API_MODE_MESSAGES,
   API_MODE_RESPONSES,
   DEFAULT_INTERVAL_SECONDS,
+  monitorCurrentDomainEndpoint,
+  monitorPayloadAPIMode,
+  monitorSelectableAPIModes,
 } from '@/constants/channelMonitor'
 
 const props = defineProps<{
@@ -288,8 +295,8 @@ const templatesLoading = ref(false)
 const templateOptions = computed(() => {
   const items = templatesCache.value.filter((t) => {
     if (t.provider !== form.provider) return false
-    if (form.provider !== PROVIDER_OPENAI) return true
-    return normalizeAPIMode(t.api_mode) === form.api_mode
+    if (monitorSelectableAPIModes(t.provider).length <= 1) return true
+    return normalizeAPIModeForProvider(t.provider, t.api_mode) === form.api_mode
   })
   return [
     { value: '', label: t('admin.channelMonitor.templateField.none') },
@@ -326,7 +333,7 @@ const templateSelectValue = computed<string>({
     const tpl = templatesCache.value.find((t) => t.id === id)
     if (tpl) {
       suppressFormWatchers = true
-      form.api_mode = normalizeAPIMode(tpl.api_mode)
+      form.api_mode = normalizeAPIModeForProvider(tpl.provider, tpl.api_mode)
       form.template_id = id
       form.extra_headers = { ...(tpl.extra_headers || {}) }
       form.body_override_mode = tpl.body_override_mode
@@ -336,21 +343,34 @@ const templateSelectValue = computed<string>({
   },
 })
 
-const apiModeOptions = computed<{ value: APIMode; label: string; hint: string }[]>(() => [
-  {
-    value: API_MODE_CHAT_COMPLETIONS,
-    label: t('admin.channelMonitor.form.apiModeChatCompletions'),
-    hint: t('admin.channelMonitor.form.apiModeChatCompletionsHint'),
-  },
-  {
-    value: API_MODE_RESPONSES,
-    label: t('admin.channelMonitor.form.apiModeResponses'),
-    hint: t('admin.channelMonitor.form.apiModeResponsesHint'),
-  },
-])
+const showsAPIModePicker = computed(() => form.provider === PROVIDER_OPENAI || form.provider === PROVIDER_OPENCODE_GO)
 
-function normalizeAPIMode(mode: APIMode | undefined | null): APIMode {
-  return mode === API_MODE_RESPONSES ? API_MODE_RESPONSES : API_MODE_CHAT_COMPLETIONS
+const apiModeOptions = computed<{ value: APIMode; label: string; hint: string }[]>(() => {
+  return monitorSelectableAPIModes(form.provider).map(apiModeOption)
+})
+
+function normalizeAPIModeForProvider(provider: Provider, mode: APIMode | undefined | null): APIMode {
+  return monitorPayloadAPIMode(provider, mode || API_MODE_CHAT_COMPLETIONS)
+}
+
+function apiModeOption(mode: APIMode): { value: APIMode; label: string; hint: string } {
+  return {
+    value: mode,
+    label: t(apiModeLabelKey(mode)),
+    hint: t(apiModeHintKey(mode)),
+  }
+}
+
+function apiModeLabelKey(mode: APIMode): string {
+  if (mode === API_MODE_RESPONSES) return 'admin.channelMonitor.form.apiModeResponses'
+  if (mode === API_MODE_MESSAGES) return 'admin.channelMonitor.form.apiModeMessages'
+  return 'admin.channelMonitor.form.apiModeChatCompletions'
+}
+
+function apiModeHintKey(mode: APIMode): string {
+  if (mode === API_MODE_RESPONSES) return 'admin.channelMonitor.form.apiModeResponsesHint'
+  if (mode === API_MODE_MESSAGES) return 'admin.channelMonitor.form.apiModeMessagesHint'
+  return 'admin.channelMonitor.form.apiModeChatCompletionsHint'
 }
 
 function apiModeButtonClass(mode: APIMode): string {
@@ -362,11 +382,8 @@ function apiModeButtonClass(mode: APIMode): string {
 }
 
 function templateOptionLabel(tpl: ChannelMonitorTemplate): string {
-  if (tpl.provider !== PROVIDER_OPENAI) return tpl.name
-  const labelKey = normalizeAPIMode(tpl.api_mode) === API_MODE_RESPONSES
-    ? 'admin.channelMonitor.form.apiModeResponses'
-    : 'admin.channelMonitor.form.apiModeChatCompletions'
-  return `${tpl.name} · ${t(labelKey)}`
+  if (monitorSelectableAPIModes(tpl.provider).length <= 1) return tpl.name
+  return `${tpl.name} · ${t(apiModeLabelKey(normalizeAPIModeForProvider(tpl.provider, tpl.api_mode)))}`
 }
 
 function clearRequestSnapshot() {
@@ -385,6 +402,9 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_ANTHROPIC, label: t('monitorCommon.providers.anthropic') },
   { value: PROVIDER_OPENAI, label: t('monitorCommon.providers.openai') },
   { value: PROVIDER_GEMINI, label: t('monitorCommon.providers.gemini') },
+  { value: PROVIDER_ANTIGRAVITY_CLAUDE, label: t('monitorCommon.providers.antigravity_claude') },
+  { value: PROVIDER_ANTIGRAVITY_GEMINI, label: t('monitorCommon.providers.antigravity_gemini') },
+  { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
 ])
 
 // Clear api_key whenever provider changes to avoid cross-provider key mismatch.
@@ -395,15 +415,13 @@ const providerOptions = computed<ProviderOption[]>(() => [
 watch(() => form.provider, () => {
   if (suppressFormWatchers) return
   form.api_key = ''
-  if (form.provider !== PROVIDER_OPENAI) {
-    form.api_mode = API_MODE_CHAT_COMPLETIONS
-  }
+  form.api_mode = normalizeAPIModeForProvider(form.provider, form.api_mode)
   clearRequestSnapshot()
 }, { flush: 'sync' })
 
 watch(() => form.api_mode, () => {
   if (suppressFormWatchers) return
-  if (form.provider === PROVIDER_OPENAI) {
+  if (form.provider === PROVIDER_OPENAI || form.provider === PROVIDER_OPENCODE_GO) {
     clearRequestSnapshot()
   }
 }, { flush: 'sync' })
@@ -431,7 +449,7 @@ function loadFromMonitor(m: ChannelMonitor) {
   suppressFormWatchers = true
   form.name = m.name
   form.provider = m.provider
-  form.api_mode = normalizeAPIMode(m.api_mode)
+  form.api_mode = normalizeAPIModeForProvider(m.provider, m.api_mode)
   form.endpoint = m.endpoint
   form.api_key = ''
   form.primary_model = m.primary_model
@@ -460,7 +478,7 @@ watch(
 )
 
 function useCurrentDomain() {
-  form.endpoint = window.location.origin
+  form.endpoint = monitorCurrentDomainEndpoint(form.provider, window.location.origin)
 }
 
 async function openMyKeyPicker() {
@@ -496,7 +514,7 @@ function buildPayload(): CreateParams {
   return {
     name: form.name.trim(),
     provider: form.provider,
-    api_mode: form.provider === PROVIDER_OPENAI ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
+    api_mode: monitorPayloadAPIMode(form.provider, form.api_mode),
     endpoint: form.endpoint.trim(),
     api_key: form.api_key.trim(),
     primary_model: form.primary_model.trim(),

@@ -60,6 +60,8 @@ func (c *pricingRemoteClient) FetchPricingJSON(ctx context.Context, url string) 
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "sub2api-pricing/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -89,6 +90,24 @@ func TestSettingService_GetPublicSettings_ExposesForceEmailOnThirdPartySignup(t 
 	settings, err := svc.GetPublicSettings(context.Background())
 	require.NoError(t, err)
 	require.True(t, settings.ForceEmailOnThirdPartySignup)
+}
+
+func TestSettingService_GetPublicSettings_ExposesModelPricingIndependently(t *testing.T) {
+	repo := &settingPublicRepoStub{
+		values: map[string]string{
+			"available_channels_enabled": "false",
+			"model_pricing_enabled":      "true",
+		},
+	}
+	svc := NewSettingService(repo, &config.Config{})
+
+	settings, err := svc.GetPublicSettings(context.Background())
+	require.NoError(t, err)
+
+	value := reflect.ValueOf(settings).Elem().FieldByName("ModelPricingEnabled")
+	require.True(t, value.IsValid(), "PublicSettings should expose ModelPricingEnabled")
+	require.True(t, value.Bool(), "model pricing should not depend on available_channels_enabled")
+	require.False(t, settings.AvailableChannelsEnabled)
 }
 
 func TestSettingService_GetPublicSettings_ExposesAllowUserViewErrorRequests(t *testing.T) {

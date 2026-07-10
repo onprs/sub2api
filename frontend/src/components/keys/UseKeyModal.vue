@@ -21,8 +21,58 @@
         </div>
       </div>
 
+      <!-- Generated Import Scripts -->
+      <div class="rounded-lg border border-gray-200 dark:border-dark-700 bg-white dark:bg-dark-800 p-3 space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <div>
+            <span class="text-gray-500 dark:text-gray-400">{{ t('keys.useKeyModal.cliImport.keyName') }}</span>
+            <p class="mt-0.5 font-medium text-gray-900 dark:text-white truncate">{{ cliImportKeyName }}</p>
+          </div>
+          <div>
+            <span class="text-gray-500 dark:text-gray-400">{{ t('keys.useKeyModal.cliImport.group') }}</span>
+            <p class="mt-0.5 font-medium text-gray-900 dark:text-white truncate">{{ cliImportGroupName }}</p>
+          </div>
+          <div>
+            <span class="text-gray-500 dark:text-gray-400">{{ t('keys.useKeyModal.cliImport.endpoint') }}</span>
+            <p class="mt-0.5 font-medium text-gray-900 dark:text-white truncate">{{ cliImportEndpoint }}</p>
+          </div>
+          <div>
+            <span class="text-gray-500 dark:text-gray-400">{{ t('keys.useKeyModal.cliImport.defaultModel') }}</span>
+            <p class="mt-0.5 font-medium text-gray-900 dark:text-white truncate">{{ cliImportDefaultModel }}</p>
+          </div>
+        </div>
+        <div class="flex flex-col sm:flex-row gap-2">
+          <button
+            type="button"
+            data-testid="download-windows-cli-import"
+            class="btn btn-secondary flex items-center justify-center gap-2"
+            :disabled="!canDownloadCliImport || downloadingScriptOS === 'windows'"
+            @click="handleDownloadCliImport('windows')"
+          >
+            <Icon name="download" size="sm" />
+            {{ t('keys.useKeyModal.cliImport.downloadWindows') }}
+          </button>
+          <button
+            type="button"
+            data-testid="download-linux-cli-import"
+            class="btn btn-secondary flex items-center justify-center gap-2"
+            :disabled="!canDownloadCliImport || downloadingScriptOS === 'linux'"
+            @click="handleDownloadCliImport('linux')"
+          >
+            <Icon name="download" size="sm" />
+            {{ t('keys.useKeyModal.cliImport.downloadLinux') }}
+          </button>
+        </div>
+        <p v-if="cliImportDisabledReason" class="text-xs text-amber-600 dark:text-amber-400">
+          {{ cliImportDisabledReason }}
+        </p>
+        <p v-if="downloadScriptError" class="text-xs text-red-600 dark:text-red-400">
+          {{ downloadScriptError }}
+        </p>
+      </div>
+
       <!-- Platform-specific content -->
-      <template v-else>
+      <template v-if="platform">
         <!-- Description -->
         <p class="text-sm text-gray-600 dark:text-gray-400">
           {{ platformDescription }}
@@ -139,7 +189,8 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useClipboard } from '@/composables/useClipboard'
-import type { GroupPlatform } from '@/types'
+import { downloadCliImportScript, type CliImportScriptOS } from '@/api/keys'
+import type { ApiKey, GroupPlatform } from '@/types'
 
 interface Props {
   show: boolean
@@ -147,6 +198,7 @@ interface Props {
   baseUrl: string
   platform: GroupPlatform | null
   allowMessagesDispatch?: boolean
+  apiKeyRecord?: ApiKey | null
 }
 
 interface Emits {
@@ -175,6 +227,8 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 const copiedIndex = ref<number | null>(null)
 const activeTab = ref<string>('unix')
 const activeClientTab = ref<string>('claude')
+const downloadingScriptOS = ref<CliImportScriptOS | null>(null)
+const downloadScriptError = ref('')
 
 // Reset tabs when platform changes
 const defaultClientTab = computed(() => {
@@ -185,6 +239,8 @@ const defaultClientTab = computed(() => {
       return 'gemini'
     case 'antigravity':
       return 'claude'
+    case 'opencode_go':
+      return 'opencode'
     default:
       return 'claude'
   }
@@ -288,6 +344,10 @@ const clientTabs = computed((): TabConfig[] => {
         { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
+    case 'opencode_go':
+      return [
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
+      ]
     default:
       return [
         { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
@@ -330,6 +390,8 @@ const platformDescription = computed(() => {
       return t('keys.useKeyModal.gemini.description')
     case 'antigravity':
       return t('keys.useKeyModal.antigravity.description')
+    case 'opencode_go':
+      return t('keys.useKeyModal.opencodeGo.description')
     default:
       return t('keys.useKeyModal.description')
   }
@@ -356,6 +418,52 @@ const platformNote = computed(() => {
 })
 
 const showPlatformNote = computed(() => activeClientTab.value !== 'opencode')
+
+const cliImportEndpoint = computed(() => {
+  const baseUrl = props.baseUrl || window.location.origin
+  const root = baseUrl.replace(/\/v1(?:beta)?\/?$/, '').replace(/\/+$/, '')
+  return `${root}/v1`
+})
+
+const cliImportKeyName = computed(() => props.apiKeyRecord?.name || t('keys.useKeyModal.cliImport.unknownKey'))
+const cliImportGroupName = computed(() => props.apiKeyRecord?.group?.name || t('keys.useKeyModal.cliImport.noGroup'))
+const cliImportDefaultModel = computed(() => props.apiKeyRecord?.group?.default_mapped_model || t('keys.useKeyModal.cliImport.notConfigured'))
+
+const cliImportDisabledReason = computed(() => {
+  const key = props.apiKeyRecord
+  if (!key?.id) {
+    return t('keys.useKeyModal.cliImport.disabled.noKey')
+  }
+  if (!key.group_id || !key.group) {
+    return t('keys.useKeyModal.cliImport.disabled.noGroup')
+  }
+  if (key.status === 'expired' || (key.expires_at && Date.parse(key.expires_at) <= Date.now())) {
+    return t('keys.useKeyModal.cliImport.disabled.expired')
+  }
+  if (key.status === 'quota_exhausted' || (key.quota > 0 && key.quota_used >= key.quota)) {
+    return t('keys.useKeyModal.cliImport.disabled.quotaExhausted')
+  }
+  if (key.status !== 'active') {
+    return t('keys.useKeyModal.cliImport.disabled.inactive')
+  }
+  return ''
+})
+
+const canDownloadCliImport = computed(() => !cliImportDisabledReason.value)
+
+const handleDownloadCliImport = async (os: CliImportScriptOS) => {
+  const keyID = props.apiKeyRecord?.id
+  if (!keyID || !canDownloadCliImport.value) return
+  downloadScriptError.value = ''
+  downloadingScriptOS.value = os
+  try {
+    await downloadCliImportScript(keyID, os)
+  } catch (error: any) {
+    downloadScriptError.value = error?.message || t('keys.useKeyModal.cliImport.downloadFailed')
+  } finally {
+    downloadingScriptOS.value = null
+  }
+}
 
 const escapeHtml = (value: string) => value
   .replace(/&/g, '&amp;')
@@ -407,6 +515,8 @@ const currentFiles = computed((): FileConfig[] => {
           generateOpenCodeConfig('antigravity-claude', antigravityBase, apiKey, 'opencode.json (Claude)'),
           generateOpenCodeConfig('antigravity-gemini', antigravityGeminiBase, apiKey, 'opencode.json (Gemini)')
         ]
+      case 'opencode_go':
+        return [generateOpenCodeConfig('opencode-go', apiBase, apiKey)]
       default:
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
     }
@@ -428,6 +538,8 @@ const currentFiles = computed((): FileConfig[] => {
         return [generateGeminiCliContent(`${baseUrl}/antigravity`, apiKey)]
       }
       return generateAnthropicFiles(`${baseUrl}/antigravity`, apiKey)
+    case 'opencode_go':
+      return [generateOpenCodeConfig('opencode-go', apiBase, apiKey)]
     default:
       return generateAnthropicFiles(baseUrl, apiKey)
   }
@@ -1017,6 +1129,8 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
     provider[platform].models = antigravityGeminiModels
   } else if (platform === 'openai') {
     provider[platform].models = openaiModels
+  } else if (platform === 'opencode-go') {
+    provider[platform].name = 'OpenCode Go'
   }
 
   const agent =

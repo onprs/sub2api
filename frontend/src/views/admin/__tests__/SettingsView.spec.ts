@@ -18,6 +18,7 @@ const {
   getBetaPolicySettings,
   getGroups,
   listProxies,
+  getAllProxiesWithCount,
   getProviders,
   updateProvider,
   createProvider,
@@ -40,6 +41,7 @@ const {
   getBetaPolicySettings: vi.fn(),
   getGroups: vi.fn(),
   listProxies: vi.fn(),
+  getAllProxiesWithCount: vi.fn(),
   getProviders: vi.fn(),
   updateProvider: vi.fn(),
   createProvider: vi.fn(),
@@ -72,6 +74,7 @@ vi.mock("@/api", () => ({
     },
     proxies: {
       list: listProxies,
+      getAllWithCount: getAllProxiesWithCount,
     },
     payment: {
       getProviders,
@@ -185,6 +188,17 @@ vi.mock("vue-i18n", async () => {
 });
 
 const AppLayoutStub = { template: "<div><slot /></div>" };
+const RouterLinkStub = defineComponent({
+  props: {
+    to: {
+      type: [String, Object],
+      default: "",
+    },
+  },
+  setup(_props, { slots }) {
+    return () => h("a", slots.default?.());
+  },
+});
 const ToggleStub = defineComponent({
   props: {
     modelValue: {
@@ -254,6 +268,51 @@ const SelectStub = defineComponent({
             String(option.label ?? ""),
           ),
         ),
+      );
+  },
+});
+
+const ProxySelectorStub = defineComponent({
+  props: {
+    modelValue: {
+      type: [Number, null],
+      default: null,
+    },
+    proxies: {
+      type: Array,
+      default: () => [],
+    },
+  },
+  emits: ["update:modelValue"],
+  inheritAttrs: false,
+  setup(props, { attrs, emit }) {
+    return () =>
+      h(
+        "div",
+        {
+          ...attrs,
+          class: "proxy-selector-stub",
+          "data-model-value": props.modelValue ?? "",
+        },
+        [
+          h(
+            "span",
+            { class: "proxy-selector-label" },
+            (props.proxies as Array<{ name: string }>).map((proxy) => proxy.name).join(","),
+          ),
+          ...(props.proxies as Array<{ id: number; name: string }>).map((proxy) =>
+            h(
+              "button",
+              {
+                type: "button",
+                class: "proxy-selector-option",
+                "data-proxy-id": String(proxy.id),
+                onClick: () => emit("update:modelValue", proxy.id),
+              },
+              proxy.name,
+            ),
+          ),
+        ],
       );
   },
 });
@@ -361,6 +420,17 @@ const baseSettingsResponse = {
   oidc_connect_userinfo_email_path: "",
   oidc_connect_userinfo_id_path: "",
   oidc_connect_userinfo_username_path: "",
+  github_oauth_enabled: false,
+  github_oauth_client_id: "",
+  github_oauth_client_secret_configured: false,
+  github_oauth_redirect_url: "",
+  github_oauth_frontend_redirect_url: "/auth/oauth/callback",
+  github_oauth_proxy_id: null,
+  google_oauth_enabled: false,
+  google_oauth_client_id: "",
+  google_oauth_client_secret_configured: false,
+  google_oauth_redirect_url: "",
+  google_oauth_frontend_redirect_url: "/auth/oauth/callback",
   enable_model_fallback: false,
   fallback_model_anthropic: "",
   fallback_model_openai: "",
@@ -407,6 +477,13 @@ const baseSettingsResponse = {
   payment_visible_method_alipay_enabled: true,
   payment_visible_method_wxpay_enabled: true,
   openai_advanced_scheduler_enabled: false,
+  channel_monitor_enabled: true,
+  channel_monitor_default_interval_seconds: 60,
+  available_channels_enabled: false,
+  model_pricing_enabled: false,
+  affiliate_enabled: false,
+  risk_control_enabled: false,
+  allow_user_view_error_requests: false,
   balance_low_notify_enabled: false,
   balance_low_notify_threshold: 0,
   balance_low_notify_recharge_url: "",
@@ -425,6 +502,15 @@ const baseSettingsResponse = {
 function mountView() {
   return mount(SettingsView, {
     global: {
+      config: {
+        compilerOptions: {
+          isCustomElement: (tag) => tag === "router-link",
+        },
+      },
+      components: {
+        RouterLink: RouterLinkStub,
+        "router-link": RouterLinkStub,
+      },
       stubs: {
         AppLayout: AppLayoutStub,
         Select: SelectStub,
@@ -435,7 +521,9 @@ function mountView() {
         PaymentProviderDialog: true,
         GroupBadge: true,
         GroupOptionItem: true,
-        ProxySelector: true,
+        ProxySelector: ProxySelectorStub,
+        RouterLink: RouterLinkStub,
+        "router-link": RouterLinkStub,
         ImageUpload: ImageUploadStub,
         BackupSettings: true,
       },
@@ -473,6 +561,16 @@ async function openUsersTab(wrapper: ReturnType<typeof mountView>) {
   await flushPromises();
 }
 
+async function openFeaturesTab(wrapper: ReturnType<typeof mountView>) {
+  const featuresTabButton = wrapper
+    .findAll("button")
+    .find((node) => node.text().includes("admin.settings.tabs.features"));
+
+  expect(featuresTabButton).toBeDefined();
+  await featuresTabButton?.trigger("click");
+  await flushPromises();
+}
+
 describe("admin SettingsView payment visible method controls", () => {
   beforeEach(() => {
     getSettings.mockReset();
@@ -488,6 +586,7 @@ describe("admin SettingsView payment visible method controls", () => {
     getBetaPolicySettings.mockReset();
     getGroups.mockReset();
     listProxies.mockReset();
+    getAllProxiesWithCount.mockReset();
     getProviders.mockReset();
     updateProvider.mockReset();
     createProvider.mockReset();
@@ -545,6 +644,7 @@ describe("admin SettingsView payment visible method controls", () => {
     listProxies.mockResolvedValue({
       items: [],
     });
+    getAllProxiesWithCount.mockResolvedValue([]);
     getProviders.mockResolvedValue({
       data: [],
     });
@@ -600,6 +700,29 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(payload).not.toHaveProperty("payment_visible_method_wxpay_source");
     expect(payload).not.toHaveProperty("payment_visible_method_alipay_enabled");
     expect(payload).not.toHaveProperty("payment_visible_method_wxpay_enabled");
+  });
+
+  it("submits model pricing as an independent feature switch", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      available_channels_enabled: false,
+      model_pricing_enabled: true,
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        available_channels_enabled: false,
+        model_pricing_enabled: true,
+      }),
+    );
   });
 
   it("submits Anthropic cache TTL injection gateway setting", async () => {
@@ -709,7 +832,7 @@ describe("admin SettingsView payment visible method controls", () => {
           PaymentProviderDialog: true,
           GroupBadge: true,
           GroupOptionItem: true,
-          ProxySelector: true,
+          ProxySelector: ProxySelectorStub,
           ImageUpload: ImageUploadStub,
           BackupSettings: true,
         },
@@ -771,6 +894,7 @@ describe("admin SettingsView wechat connect controls", () => {
     getBetaPolicySettings.mockReset();
     getGroups.mockReset();
     listProxies.mockReset();
+    getAllProxiesWithCount.mockReset();
     getProviders.mockReset();
     updateProvider.mockReset();
     createProvider.mockReset();
@@ -831,6 +955,7 @@ describe("admin SettingsView wechat connect controls", () => {
     listProxies.mockResolvedValue({
       items: [],
     });
+    getAllProxiesWithCount.mockResolvedValue([]);
     getProviders.mockResolvedValue({
       data: [],
     });
@@ -894,6 +1019,81 @@ describe("admin SettingsView wechat connect controls", () => {
     expect(link.attributes("href")).toBe("https://github.com/settings/developers");
     expect(link.attributes("target")).toBe("_blank");
     expect(link.attributes("rel")).toContain("noopener");
+  });
+
+  it("loads GitHub OAuth proxy choices and saves the selected proxy id", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      github_oauth_enabled: true,
+      github_oauth_proxy_id: 7,
+    });
+    getAllProxiesWithCount.mockResolvedValueOnce([
+      {
+        id: 7,
+        name: "Current GitHub Proxy",
+        protocol: "http",
+        host: "proxy-a.example.com",
+        port: 8080,
+        status: "active",
+      },
+      {
+        id: 9,
+        name: "Backup GitHub Proxy",
+        protocol: "http",
+        host: "proxy-b.example.com",
+        port: 8080,
+        status: "active",
+      },
+    ]);
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    const selector = wrapper.get('[data-testid="github-oauth-proxy-selector"]');
+    expect(selector.attributes("data-model-value")).toBe("7");
+    expect(selector.text()).toContain("Current GitHub Proxy");
+    expect(selector.text()).toContain("Backup GitHub Proxy");
+
+    await selector.get('[data-proxy-id="9"]').trigger("click");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(getAllProxiesWithCount).toHaveBeenCalled();
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        github_oauth_proxy_id: 9,
+      }),
+    );
+  });
+
+  it("loads GitHub OAuth proxy choices when web search config has not been created", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      github_oauth_enabled: true,
+      github_oauth_proxy_id: 7,
+    });
+    getWebSearchEmulationConfig.mockRejectedValueOnce({ status: 404 });
+    getAllProxiesWithCount.mockResolvedValueOnce([
+      {
+        id: 7,
+        name: "GitHub OAuth Proxy",
+        protocol: "http",
+        host: "proxy-oauth.example.com",
+        port: 8080,
+        status: "active",
+      },
+    ]);
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    const selector = wrapper.get('[data-testid="github-oauth-proxy-selector"]');
+    expect(selector.attributes("data-model-value")).toBe("7");
+    expect(selector.text()).toContain("GitHub OAuth Proxy");
   });
 
   it("saves WeChat Connect fields using the backend contract and clears the secret after save", async () => {
@@ -1017,6 +1217,7 @@ describe("admin SettingsView platform quota matrix", () => {
     getBetaPolicySettings.mockReset();
     getGroups.mockReset();
     listProxies.mockReset();
+    getAllProxiesWithCount.mockReset();
     getProviders.mockReset();
     updateProvider.mockReset();
     createProvider.mockReset();
@@ -1043,6 +1244,7 @@ describe("admin SettingsView platform quota matrix", () => {
     getBetaPolicySettings.mockResolvedValue({});
     getGroups.mockResolvedValue([]);
     listProxies.mockResolvedValue({ items: [] });
+    getAllProxiesWithCount.mockResolvedValue([]);
     getProviders.mockResolvedValue({ data: [] });
   });
 

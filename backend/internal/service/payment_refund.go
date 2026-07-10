@@ -250,14 +250,18 @@ func (s *PaymentService) PrepareRefund(ctx context.Context, oid int64, amt float
 func (s *PaymentService) prepDeduct(ctx context.Context, o *dbent.PaymentOrder, p *RefundPlan, force bool) *RefundResult {
 	if o.OrderType == payment.OrderTypeSubscription {
 		p.DeductionType = payment.DeductionTypeSubscription
-		if o.SubscriptionGroupID != nil && o.SubscriptionDays != nil {
-			p.SubDaysToDeduct = *o.SubscriptionDays
-			sub, err := s.subscriptionSvc.GetActiveSubscription(ctx, o.UserID, *o.SubscriptionGroupID)
-			if err == nil && sub != nil {
-				p.SubscriptionID = sub.ID
-			} else if !force {
-				return &RefundResult{Success: false, Warning: "cannot find active subscription for deduction, use force", RequireForce: true}
-			}
+		if o.SubscriptionDays == nil {
+			return nil
+		}
+		p.SubDaysToDeduct = *o.SubscriptionDays
+		subscriptionID, err := s.subscriptionIDForRefundDeduction(ctx, o)
+		if err == nil {
+			p.SubscriptionID = subscriptionID
+		} else if !force {
+			return &RefundResult{Success: false, Warning: "cannot identify the exact subscription for deduction, use force", RequireForce: true}
+		} else {
+			slog.Warn("refund subscription deduction skipped because exact subscription could not be identified", "order_id", o.ID, "error", err)
+			p.SubDaysToDeduct = 0
 		}
 		return nil
 	}
@@ -271,6 +275,46 @@ func (s *PaymentService) prepDeduct(ctx context.Context, o *dbent.PaymentOrder, 
 	p.DeductionType = payment.DeductionTypeBalance
 	p.BalanceToDeduct = math.Min(p.RefundAmount, u.Balance)
 	return nil
+}
+
+func (s *PaymentService) subscriptionIDForRefundDeduction(ctx context.Context, o *dbent.PaymentOrder) (int64, error) {
+	if s == nil || s.subscriptionSvc == nil || o == nil {
+		return 0, ErrSubscriptionNotFound
+	}
+	if o.SubscriptionID != nil && *o.SubscriptionID > 0 {
+		sub, err := s.subscriptionSvc.GetByID(ctx, *o.SubscriptionID)
+		if err != nil {
+			return 0, err
+		}
+		if sub.UserID != o.UserID {
+			return 0, ErrSubscriptionNotFound
+		}
+		if o.SubscriptionGroupID != nil && sub.GroupID != *o.SubscriptionGroupID {
+			return 0, ErrSubscriptionNotFound
+		}
+		if o.PlanID != nil && !sameOptionalInt64(o.PlanID, sub.PlanID) {
+			return 0, ErrSubscriptionNotFound
+		}
+		return sub.ID, nil
+	}
+	if o.SubscriptionGroupID != nil && o.PlanID != nil {
+		sub, err := s.subscriptionSvc.GetByUserIDGroupIDAndPlanID(ctx, o.UserID, *o.SubscriptionGroupID, o.PlanID)
+		if err != nil {
+			return 0, err
+		}
+		if sub == nil {
+			return 0, ErrSubscriptionNotFound
+		}
+		return sub.ID, nil
+	}
+	return 0, ErrSubscriptionNotFound
+}
+
+func sameOptionalInt64(a, b *int64) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }
 
 func (s *PaymentService) ExecuteRefund(ctx context.Context, p *RefundPlan) (*RefundResult, error) {

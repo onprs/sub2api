@@ -228,6 +228,116 @@ export async function applyOAuthCredentials(
   return data
 }
 
+export interface OpenCodeGoConsoleAuthTicket {
+  ticket_id: string
+  expires_at: string
+  workspace_id: string
+  helper_url: string
+  helper_command: string
+}
+
+export interface OpenCodeGoConsoleUsageWindow {
+  usage_percent: number
+  reset_in_sec: number
+  resets_at?: string
+  remaining_seconds: number
+}
+
+export interface OpenCodeGoReferralReward {
+  id: string
+  source: string
+  status: 'pending' | 'available' | 'applied' | string
+  masked_email?: string
+  amount_cents: number
+  time_created?: string
+  time_applied?: string
+}
+
+export interface OpenCodeGoConsoleSummary {
+  authorized: boolean
+  auth_status: string
+  auth_checked_at?: string
+  workspace_id?: string
+  usage_source?: string
+  usage_updated_at?: string
+  usage: {
+    five_hour: OpenCodeGoConsoleUsageWindow
+    seven_day: OpenCodeGoConsoleUsageWindow
+    thirty_day: OpenCodeGoConsoleUsageWindow
+  }
+  referral: {
+    referral_code?: string
+    invite_link?: string
+    reward_amount_cents?: number
+    available_count: number
+    available_amount_cents: number
+    applied_count: number
+    updated_at?: string
+  }
+  rewards?: OpenCodeGoReferralReward[]
+  error?: string
+}
+
+export interface OpenCodeGoReferralPreview {
+  reward_id: string
+  preview: {
+    rollingUsage: { beforePercent: number; afterPercent: number; resetInSec: number }
+    weeklyUsage: { beforePercent: number; afterPercent: number; resetInSec: number }
+    monthlyUsage: { beforePercent: number; afterPercent: number; resetInSec: number }
+  }
+}
+
+export async function createOpenCodeGoConsoleAuthTicket(id: number, workspace: string): Promise<OpenCodeGoConsoleAuthTicket> {
+  const { data } = await apiClient.post<OpenCodeGoConsoleAuthTicket>(
+    `/admin/accounts/${id}/opencode-go/console-auth/ticket`,
+    { workspace }
+  )
+  return data
+}
+
+export async function testOpenCodeGoConsoleAuth(id: number): Promise<OpenCodeGoConsoleSummary> {
+  const { data } = await apiClient.post<OpenCodeGoConsoleSummary>(
+    `/admin/accounts/${id}/opencode-go/console-auth/test`
+  )
+  return data
+}
+
+export async function clearOpenCodeGoConsoleAuth(id: number): Promise<{ cleared: boolean }> {
+  const { data } = await apiClient.delete<{ cleared: boolean }>(
+    `/admin/accounts/${id}/opencode-go/console-auth`
+  )
+  return data
+}
+
+export async function getOpenCodeGoConsoleSummary(id: number): Promise<OpenCodeGoConsoleSummary> {
+  const { data } = await apiClient.get<OpenCodeGoConsoleSummary>(
+    `/admin/accounts/${id}/opencode-go/console-summary`
+  )
+  return data
+}
+
+export async function previewOpenCodeGoReferralReward(id: number, rewardId: string): Promise<OpenCodeGoReferralPreview> {
+  const { data } = await apiClient.post<OpenCodeGoReferralPreview>(
+    `/admin/accounts/${id}/opencode-go/referral-rewards/${encodeURIComponent(rewardId)}/preview`
+  )
+  return data
+}
+
+export async function applyOpenCodeGoReferralReward(id: number, rewardId: string): Promise<{
+  applied_amount_cents: number
+  usage: OpenCodeGoConsoleSummary['usage']
+  referral: OpenCodeGoConsoleSummary['referral']
+  rewards: OpenCodeGoReferralReward[]
+}> {
+  const { data } = await apiClient.post<{
+    applied_amount_cents: number
+    usage: OpenCodeGoConsoleSummary['usage']
+    referral: OpenCodeGoConsoleSummary['referral']
+    rewards: OpenCodeGoReferralReward[]
+  }>(`/admin/accounts/${id}/opencode-go/referral-rewards/${encodeURIComponent(rewardId)}/apply`)
+  return data
+}
+
 /**
  * Get account usage statistics
  * @param id - Account ID
@@ -421,6 +531,33 @@ export async function bulkUpdate(
     failed_ids?: number[]
     results: Array<{ account_id: number; success: boolean; error?: string }>
   }>('/admin/accounts/bulk-update', payload)
+  return data
+}
+
+export interface CopyModelMappingRequest {
+  source_account_id: number
+  target_account_ids: number[]
+}
+
+export interface CopyModelMappingResult {
+  source_account_id: number
+  target_account_ids: number[]
+  platform: string
+  mapping_count: number
+  success: number
+  failed: number
+  success_ids: number[]
+  failed_ids: number[]
+  results: Array<{ account_id: number; success: boolean; error?: string }>
+}
+
+export async function copyModelMapping(
+  request: CopyModelMappingRequest
+): Promise<CopyModelMappingResult> {
+  const { data } = await apiClient.post<CopyModelMappingResult>(
+    '/admin/accounts/model-mapping/copy',
+    request
+  )
   return data
 }
 
@@ -707,6 +844,12 @@ export const accountsAPI = {
   testAccount,
   refreshCredentials,
   applyOAuthCredentials,
+  createOpenCodeGoConsoleAuthTicket,
+  testOpenCodeGoConsoleAuth,
+  clearOpenCodeGoConsoleAuth,
+  getOpenCodeGoConsoleSummary,
+  previewOpenCodeGoReferralReward,
+  applyOpenCodeGoReferralReward,
   getStats,
   clearError,
   getUsage,
@@ -727,6 +870,7 @@ export const accountsAPI = {
   batchCreate,
   batchUpdateCredentials,
   bulkUpdate,
+  copyModelMapping,
   previewFromCrs,
   syncFromCrs,
   exportData,

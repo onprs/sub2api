@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/oauth"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -28,6 +30,7 @@ const (
 	emailOAuthAffiliateCookie = "email_oauth_affiliate"
 	emailOAuthCookieMaxAgeSec = 10 * 60
 	emailOAuthDefaultRedirect = "/dashboard"
+	emailOAuthHTTPTimeout     = 20 * time.Second
 )
 
 type emailOAuthTokenResponse struct {
@@ -457,7 +460,11 @@ func buildEmailOAuthAuthorizeURL(cfg config.EmailOAuthProviderConfig, state stri
 }
 
 func exchangeEmailOAuthCode(ctx context.Context, cfg config.EmailOAuthProviderConfig, code string) (*emailOAuthTokenResponse, error) {
-	resp, err := req.C().
+	client, err := emailOAuthHTTPClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.
 		R().
 		SetContext(ctx).
 		SetHeader("Accept", "application/json").
@@ -486,7 +493,11 @@ func exchangeEmailOAuthCode(ctx context.Context, cfg config.EmailOAuthProviderCo
 }
 
 func fetchEmailOAuthProfile(ctx context.Context, provider string, cfg config.EmailOAuthProviderConfig, token *emailOAuthTokenResponse) (*emailOAuthProfile, error) {
-	resp, err := req.C().
+	client, err := emailOAuthHTTPClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.
 		R().
 		SetContext(ctx).
 		SetBearerAuthToken(token.AccessToken).
@@ -508,6 +519,18 @@ func fetchEmailOAuthProfile(ctx context.Context, provider string, cfg config.Ema
 	}
 }
 
+func emailOAuthHTTPClient(cfg config.EmailOAuthProviderConfig) (*req.Client, error) {
+	client := req.C().SetTimeout(emailOAuthHTTPTimeout)
+	trimmed, _, err := proxyurl.Parse(cfg.ProxyURL)
+	if err != nil {
+		return nil, err
+	}
+	if trimmed != "" {
+		client.SetProxyURL(trimmed)
+	}
+	return client, nil
+}
+
 func parseGitHubOAuthProfile(ctx context.Context, cfg config.EmailOAuthProviderConfig, token *emailOAuthTokenResponse, body string) (*emailOAuthProfile, error) {
 	subject := strings.TrimSpace(gjson.Get(body, "id").String())
 	if subject == "" {
@@ -518,7 +541,7 @@ func parseGitHubOAuthProfile(ctx context.Context, cfg config.EmailOAuthProviderC
 	if emailsURL == "" {
 		return nil, errors.New("github verified email is missing")
 	}
-	verifiedEmail, err := fetchGitHubPrimaryVerifiedEmail(ctx, emailsURL, token.AccessToken)
+	verifiedEmail, err := fetchGitHubPrimaryVerifiedEmail(ctx, cfg, emailsURL, token.AccessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -541,8 +564,12 @@ func parseGitHubOAuthProfile(ctx context.Context, cfg config.EmailOAuthProviderC
 	}, nil
 }
 
-func fetchGitHubPrimaryVerifiedEmail(ctx context.Context, emailsURL string, accessToken string) (string, error) {
-	resp, err := req.C().
+func fetchGitHubPrimaryVerifiedEmail(ctx context.Context, cfg config.EmailOAuthProviderConfig, emailsURL string, accessToken string) (string, error) {
+	client, err := emailOAuthHTTPClient(cfg)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.
 		R().
 		SetContext(ctx).
 		SetBearerAuthToken(accessToken).

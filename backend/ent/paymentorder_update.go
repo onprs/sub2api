@@ -365,6 +365,189 @@ func (_u *PaymentOrderUpdate) ClearSubscriptionDays() *PaymentOrderUpdate {
 	return _u
 }
 
+// SetSubscriptionID sets the "subscription_id" field.
+func (_u *PaymentOrderUpdate) SetSubscriptionID(v int64) *PaymentOrderUpdate {
+	_u.mutation.ResetSubscriptionID()
+	_u.mutation.SetSubscriptionID(v)
+	return _u
+}
+
+// SetNillableSubscriptionID sets the "subscription_id" field if the given value is not nil.
+func (_u *PaymentOrderUpdate) SetNillableSubscriptionID(v *int64) *PaymentOrderUpdate {
+	if v != nil {
+		_u.SetSubscriptionID(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionID adds value to the "subscription_id" field.
+func (_u *PaymentOrderUpdate) AddSubscriptionID(v int64) *PaymentOrderUpdate {
+	_u.mutation.AddSubscriptionID(v)
+	return _u
+}
+
+// ClearSubscriptionID clears the value of the "subscription_id" field.
+func (_u *PaymentOrderUpdate) ClearSubscriptionID() *PaymentOrderUpdate {
+	_u.mutation.ClearSubscriptionID()
+	return _u
+}
+
+// SetSubscriptionPlanPrice sets the "subscription_plan_price" field.
+func (_u *PaymentOrderUpdate) SetSubscriptionPlanPrice(v float64) *PaymentOrderUpdate {
+	_u.mutation.ResetSubscriptionPlanPrice()
+	_u.mutation.SetSubscriptionPlanPrice(v)
+	return _u
+}
+
+// SetNillableSubscriptionPlanPrice sets the "subscription_plan_price" field if the given value is not nil.
+func (_u *PaymentOrderUpdate) SetNillableSubscriptionPlanPrice(v *float64) *PaymentOrderUpdate {
+	if v != nil {
+		_u.SetSubscriptionPlanPrice(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionPlanPrice adds value to the "subscription_plan_price" field.
+func (_u *PaymentOrderUpdate) AddSubscriptionPlanPrice(v float64) *PaymentOrderUpdate {
+	_u.mutation.AddSubscriptionPlanPrice(v)
+	return _u
+}
+
+// ClearSubscriptionPlanPrice clears the value of the "subscription_plan_price" field.
+func (_u *PaymentOrderUpdate) ClearSubscriptionPlanPrice() *PaymentOrderUpdate {
+	_u.mutation.ClearSubscriptionPlanPrice()
+	return _u
+}
+
+// SetSubscriptionRenewalDiscountPercent sets the "subscription_renewal_discount_percent" field.
+func (_u *PaymentOrderUpdate) SetSubscriptionRenewalDiscountPercent(v float64) *PaymentOrderUpdate {
+	_u.mutation.ResetSubscriptionRenewalDiscountPercent()
+	_u.mutation.SetSubscriptionRenewalDiscountPercent(v)
+	return _u
+}
+
+// SetNillableSubscriptionRenewalDiscountPercent sets the "subscription_renewal_discount_percent" field if the given value is not nil.
+func (_u *PaymentOrderUpdate) SetNillableSubscriptionRenewalDiscountPercent(v *float64) *PaymentOrderUpdate {
+	if v != nil {
+		_u.SetSubscriptionRenewalDiscountPercent(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionRenewalDiscountPercent adds value to the "subscription_renewal_discount_percent" field.
+func (_u *PaymentOrderUpdate) AddSubscriptionRenewalDiscountPercent(v float64) *PaymentOrderUpdate {
+	_u.mutation.AddSubscriptionRenewalDiscountPercent(v)
+	return _u
+}
+
+// ClearSubscriptionRenewalDiscountPercent clears the value of the "subscription_renewal_discount_percent" field.
+func (_u *PaymentOrderUpdate) ClearSubscriptionRenewalDiscountPercent() *PaymentOrderUpdate {
+	_u.mutation.ClearSubscriptionRenewalDiscountPercent()
+	return _u
+}
+
+// SetSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field.
+func (_u *PaymentOrderUpdate) SetSubscriptionQuotaSnapshotVersion(v int) *PaymentOrderUpdate {
+	_u.mutation.ResetSubscriptionQuotaSnapshotVersion()
+	_u.mutation.SetSubscriptionQuotaSnapshotVersion(v)
+	return _u
+}
+
+// SetNillableSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field if the given value is not nil.
+func (_u *PaymentOrderUpdate) SetNillableSubscriptionQuotaSnapshotVersion(v *int) *PaymentOrderUpdate {
+	if v != nil {
+		_u.SetSubscriptionQuotaSnapshotVersion(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionQuotaSnapshotVersion adds value to the "subscription_quota_snapshot_version" field.
+func (_u *PaymentOrderUpdate) AddSubscriptionQuotaSnapshotVersion(v int) *PaymentOrderUpdate {
+	_u.mutation.AddSubscriptionQuotaSnapshotVersion(v)
+	return _u
+}
+
+// SetSubscriptionFiveHourLimitUsd sets the "subscription_five_hour_limit_usd" field.
+func (_u *PaymentOrderUpdate) SetSubscriptionFiveHourLimitUsd(v float64) *PaymentOrderUpdate {
+	_u.mutation.ResetSubscriptionFiveHourLimitUsd()
+	_u.mutation.SetSubscriptionFiveHourLimitUsd(v)
+	return _u
+}
+
+// SetNillableSubscriptionFiveHourLimitUsd sets the "subscription_five_hour_limit_usd" field if the given value is not nil.
+func (_u *PaymentOrderUpdate) SetNillableSubscriptionFiveHourLimitUsd(v *float64) *PaymentOrderUpdate {
+	if v != nil {
+		_u.SetSubscriptionFiveHourLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionFiveHourLimitUsd adds value to the "subscription_five_hour_limit_usd" field.
+func (_u *PaymentOrderUpdate) AddSubscriptionFiveHourLimitUsd(v float64) *PaymentOrderUpdate {
+	_u.mutation.AddSubscriptionFiveHourLimitUsd(v)
+	return _u
+}
+
+// ClearSubscriptionFiveHourLimitUsd clears the value of the "subscription_five_hour_limit_usd" field.
+func (_u *PaymentOrderUpdate) ClearSubscriptionFiveHourLimitUsd() *PaymentOrderUpdate {
+	_u.mutation.ClearSubscriptionFiveHourLimitUsd()
+	return _u
+}
+
+// SetSubscriptionSevenDayLimitUsd sets the "subscription_seven_day_limit_usd" field.
+func (_u *PaymentOrderUpdate) SetSubscriptionSevenDayLimitUsd(v float64) *PaymentOrderUpdate {
+	_u.mutation.ResetSubscriptionSevenDayLimitUsd()
+	_u.mutation.SetSubscriptionSevenDayLimitUsd(v)
+	return _u
+}
+
+// SetNillableSubscriptionSevenDayLimitUsd sets the "subscription_seven_day_limit_usd" field if the given value is not nil.
+func (_u *PaymentOrderUpdate) SetNillableSubscriptionSevenDayLimitUsd(v *float64) *PaymentOrderUpdate {
+	if v != nil {
+		_u.SetSubscriptionSevenDayLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionSevenDayLimitUsd adds value to the "subscription_seven_day_limit_usd" field.
+func (_u *PaymentOrderUpdate) AddSubscriptionSevenDayLimitUsd(v float64) *PaymentOrderUpdate {
+	_u.mutation.AddSubscriptionSevenDayLimitUsd(v)
+	return _u
+}
+
+// ClearSubscriptionSevenDayLimitUsd clears the value of the "subscription_seven_day_limit_usd" field.
+func (_u *PaymentOrderUpdate) ClearSubscriptionSevenDayLimitUsd() *PaymentOrderUpdate {
+	_u.mutation.ClearSubscriptionSevenDayLimitUsd()
+	return _u
+}
+
+// SetSubscriptionThirtyDayLimitUsd sets the "subscription_thirty_day_limit_usd" field.
+func (_u *PaymentOrderUpdate) SetSubscriptionThirtyDayLimitUsd(v float64) *PaymentOrderUpdate {
+	_u.mutation.ResetSubscriptionThirtyDayLimitUsd()
+	_u.mutation.SetSubscriptionThirtyDayLimitUsd(v)
+	return _u
+}
+
+// SetNillableSubscriptionThirtyDayLimitUsd sets the "subscription_thirty_day_limit_usd" field if the given value is not nil.
+func (_u *PaymentOrderUpdate) SetNillableSubscriptionThirtyDayLimitUsd(v *float64) *PaymentOrderUpdate {
+	if v != nil {
+		_u.SetSubscriptionThirtyDayLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionThirtyDayLimitUsd adds value to the "subscription_thirty_day_limit_usd" field.
+func (_u *PaymentOrderUpdate) AddSubscriptionThirtyDayLimitUsd(v float64) *PaymentOrderUpdate {
+	_u.mutation.AddSubscriptionThirtyDayLimitUsd(v)
+	return _u
+}
+
+// ClearSubscriptionThirtyDayLimitUsd clears the value of the "subscription_thirty_day_limit_usd" field.
+func (_u *PaymentOrderUpdate) ClearSubscriptionThirtyDayLimitUsd() *PaymentOrderUpdate {
+	_u.mutation.ClearSubscriptionThirtyDayLimitUsd()
+	return _u
+}
+
 // SetProviderInstanceID sets the "provider_instance_id" field.
 func (_u *PaymentOrderUpdate) SetProviderInstanceID(v string) *PaymentOrderUpdate {
 	_u.mutation.SetProviderInstanceID(v)
@@ -803,6 +986,31 @@ func (_u *PaymentOrderUpdate) check() error {
 			return &ValidationError{Name: "order_type", err: fmt.Errorf(`ent: validator failed for field "PaymentOrder.order_type": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.SubscriptionPlanPrice(); ok {
+		if err := paymentorder.SubscriptionPlanPriceValidator(v); err != nil {
+			return &ValidationError{Name: "subscription_plan_price", err: fmt.Errorf(`ent: validator failed for field "PaymentOrder.subscription_plan_price": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SubscriptionRenewalDiscountPercent(); ok {
+		if err := paymentorder.SubscriptionRenewalDiscountPercentValidator(v); err != nil {
+			return &ValidationError{Name: "subscription_renewal_discount_percent", err: fmt.Errorf(`ent: validator failed for field "PaymentOrder.subscription_renewal_discount_percent": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SubscriptionFiveHourLimitUsd(); ok {
+		if err := paymentorder.SubscriptionFiveHourLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "subscription_five_hour_limit_usd", err: fmt.Errorf(`ent: validator failed for field "PaymentOrder.subscription_five_hour_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SubscriptionSevenDayLimitUsd(); ok {
+		if err := paymentorder.SubscriptionSevenDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "subscription_seven_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "PaymentOrder.subscription_seven_day_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SubscriptionThirtyDayLimitUsd(); ok {
+		if err := paymentorder.SubscriptionThirtyDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "subscription_thirty_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "PaymentOrder.subscription_thirty_day_limit_usd": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.ProviderInstanceID(); ok {
 		if err := paymentorder.ProviderInstanceIDValidator(v); err != nil {
 			return &ValidationError{Name: "provider_instance_id", err: fmt.Errorf(`ent: validator failed for field "PaymentOrder.provider_instance_id": %w`, err)}
@@ -940,6 +1148,66 @@ func (_u *PaymentOrderUpdate) sqlSave(ctx context.Context) (_node int, err error
 	}
 	if _u.mutation.SubscriptionDaysCleared() {
 		_spec.ClearField(paymentorder.FieldSubscriptionDays, field.TypeInt)
+	}
+	if value, ok := _u.mutation.SubscriptionID(); ok {
+		_spec.SetField(paymentorder.FieldSubscriptionID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionID(); ok {
+		_spec.AddField(paymentorder.FieldSubscriptionID, field.TypeInt64, value)
+	}
+	if _u.mutation.SubscriptionIDCleared() {
+		_spec.ClearField(paymentorder.FieldSubscriptionID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.SubscriptionPlanPrice(); ok {
+		_spec.SetField(paymentorder.FieldSubscriptionPlanPrice, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionPlanPrice(); ok {
+		_spec.AddField(paymentorder.FieldSubscriptionPlanPrice, field.TypeFloat64, value)
+	}
+	if _u.mutation.SubscriptionPlanPriceCleared() {
+		_spec.ClearField(paymentorder.FieldSubscriptionPlanPrice, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SubscriptionRenewalDiscountPercent(); ok {
+		_spec.SetField(paymentorder.FieldSubscriptionRenewalDiscountPercent, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionRenewalDiscountPercent(); ok {
+		_spec.AddField(paymentorder.FieldSubscriptionRenewalDiscountPercent, field.TypeFloat64, value)
+	}
+	if _u.mutation.SubscriptionRenewalDiscountPercentCleared() {
+		_spec.ClearField(paymentorder.FieldSubscriptionRenewalDiscountPercent, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SubscriptionQuotaSnapshotVersion(); ok {
+		_spec.SetField(paymentorder.FieldSubscriptionQuotaSnapshotVersion, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionQuotaSnapshotVersion(); ok {
+		_spec.AddField(paymentorder.FieldSubscriptionQuotaSnapshotVersion, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.SubscriptionFiveHourLimitUsd(); ok {
+		_spec.SetField(paymentorder.FieldSubscriptionFiveHourLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionFiveHourLimitUsd(); ok {
+		_spec.AddField(paymentorder.FieldSubscriptionFiveHourLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.SubscriptionFiveHourLimitUsdCleared() {
+		_spec.ClearField(paymentorder.FieldSubscriptionFiveHourLimitUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SubscriptionSevenDayLimitUsd(); ok {
+		_spec.SetField(paymentorder.FieldSubscriptionSevenDayLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionSevenDayLimitUsd(); ok {
+		_spec.AddField(paymentorder.FieldSubscriptionSevenDayLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.SubscriptionSevenDayLimitUsdCleared() {
+		_spec.ClearField(paymentorder.FieldSubscriptionSevenDayLimitUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SubscriptionThirtyDayLimitUsd(); ok {
+		_spec.SetField(paymentorder.FieldSubscriptionThirtyDayLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionThirtyDayLimitUsd(); ok {
+		_spec.AddField(paymentorder.FieldSubscriptionThirtyDayLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.SubscriptionThirtyDayLimitUsdCleared() {
+		_spec.ClearField(paymentorder.FieldSubscriptionThirtyDayLimitUsd, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.ProviderInstanceID(); ok {
 		_spec.SetField(paymentorder.FieldProviderInstanceID, field.TypeString, value)
@@ -1428,6 +1696,189 @@ func (_u *PaymentOrderUpdateOne) ClearSubscriptionDays() *PaymentOrderUpdateOne 
 	return _u
 }
 
+// SetSubscriptionID sets the "subscription_id" field.
+func (_u *PaymentOrderUpdateOne) SetSubscriptionID(v int64) *PaymentOrderUpdateOne {
+	_u.mutation.ResetSubscriptionID()
+	_u.mutation.SetSubscriptionID(v)
+	return _u
+}
+
+// SetNillableSubscriptionID sets the "subscription_id" field if the given value is not nil.
+func (_u *PaymentOrderUpdateOne) SetNillableSubscriptionID(v *int64) *PaymentOrderUpdateOne {
+	if v != nil {
+		_u.SetSubscriptionID(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionID adds value to the "subscription_id" field.
+func (_u *PaymentOrderUpdateOne) AddSubscriptionID(v int64) *PaymentOrderUpdateOne {
+	_u.mutation.AddSubscriptionID(v)
+	return _u
+}
+
+// ClearSubscriptionID clears the value of the "subscription_id" field.
+func (_u *PaymentOrderUpdateOne) ClearSubscriptionID() *PaymentOrderUpdateOne {
+	_u.mutation.ClearSubscriptionID()
+	return _u
+}
+
+// SetSubscriptionPlanPrice sets the "subscription_plan_price" field.
+func (_u *PaymentOrderUpdateOne) SetSubscriptionPlanPrice(v float64) *PaymentOrderUpdateOne {
+	_u.mutation.ResetSubscriptionPlanPrice()
+	_u.mutation.SetSubscriptionPlanPrice(v)
+	return _u
+}
+
+// SetNillableSubscriptionPlanPrice sets the "subscription_plan_price" field if the given value is not nil.
+func (_u *PaymentOrderUpdateOne) SetNillableSubscriptionPlanPrice(v *float64) *PaymentOrderUpdateOne {
+	if v != nil {
+		_u.SetSubscriptionPlanPrice(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionPlanPrice adds value to the "subscription_plan_price" field.
+func (_u *PaymentOrderUpdateOne) AddSubscriptionPlanPrice(v float64) *PaymentOrderUpdateOne {
+	_u.mutation.AddSubscriptionPlanPrice(v)
+	return _u
+}
+
+// ClearSubscriptionPlanPrice clears the value of the "subscription_plan_price" field.
+func (_u *PaymentOrderUpdateOne) ClearSubscriptionPlanPrice() *PaymentOrderUpdateOne {
+	_u.mutation.ClearSubscriptionPlanPrice()
+	return _u
+}
+
+// SetSubscriptionRenewalDiscountPercent sets the "subscription_renewal_discount_percent" field.
+func (_u *PaymentOrderUpdateOne) SetSubscriptionRenewalDiscountPercent(v float64) *PaymentOrderUpdateOne {
+	_u.mutation.ResetSubscriptionRenewalDiscountPercent()
+	_u.mutation.SetSubscriptionRenewalDiscountPercent(v)
+	return _u
+}
+
+// SetNillableSubscriptionRenewalDiscountPercent sets the "subscription_renewal_discount_percent" field if the given value is not nil.
+func (_u *PaymentOrderUpdateOne) SetNillableSubscriptionRenewalDiscountPercent(v *float64) *PaymentOrderUpdateOne {
+	if v != nil {
+		_u.SetSubscriptionRenewalDiscountPercent(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionRenewalDiscountPercent adds value to the "subscription_renewal_discount_percent" field.
+func (_u *PaymentOrderUpdateOne) AddSubscriptionRenewalDiscountPercent(v float64) *PaymentOrderUpdateOne {
+	_u.mutation.AddSubscriptionRenewalDiscountPercent(v)
+	return _u
+}
+
+// ClearSubscriptionRenewalDiscountPercent clears the value of the "subscription_renewal_discount_percent" field.
+func (_u *PaymentOrderUpdateOne) ClearSubscriptionRenewalDiscountPercent() *PaymentOrderUpdateOne {
+	_u.mutation.ClearSubscriptionRenewalDiscountPercent()
+	return _u
+}
+
+// SetSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field.
+func (_u *PaymentOrderUpdateOne) SetSubscriptionQuotaSnapshotVersion(v int) *PaymentOrderUpdateOne {
+	_u.mutation.ResetSubscriptionQuotaSnapshotVersion()
+	_u.mutation.SetSubscriptionQuotaSnapshotVersion(v)
+	return _u
+}
+
+// SetNillableSubscriptionQuotaSnapshotVersion sets the "subscription_quota_snapshot_version" field if the given value is not nil.
+func (_u *PaymentOrderUpdateOne) SetNillableSubscriptionQuotaSnapshotVersion(v *int) *PaymentOrderUpdateOne {
+	if v != nil {
+		_u.SetSubscriptionQuotaSnapshotVersion(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionQuotaSnapshotVersion adds value to the "subscription_quota_snapshot_version" field.
+func (_u *PaymentOrderUpdateOne) AddSubscriptionQuotaSnapshotVersion(v int) *PaymentOrderUpdateOne {
+	_u.mutation.AddSubscriptionQuotaSnapshotVersion(v)
+	return _u
+}
+
+// SetSubscriptionFiveHourLimitUsd sets the "subscription_five_hour_limit_usd" field.
+func (_u *PaymentOrderUpdateOne) SetSubscriptionFiveHourLimitUsd(v float64) *PaymentOrderUpdateOne {
+	_u.mutation.ResetSubscriptionFiveHourLimitUsd()
+	_u.mutation.SetSubscriptionFiveHourLimitUsd(v)
+	return _u
+}
+
+// SetNillableSubscriptionFiveHourLimitUsd sets the "subscription_five_hour_limit_usd" field if the given value is not nil.
+func (_u *PaymentOrderUpdateOne) SetNillableSubscriptionFiveHourLimitUsd(v *float64) *PaymentOrderUpdateOne {
+	if v != nil {
+		_u.SetSubscriptionFiveHourLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionFiveHourLimitUsd adds value to the "subscription_five_hour_limit_usd" field.
+func (_u *PaymentOrderUpdateOne) AddSubscriptionFiveHourLimitUsd(v float64) *PaymentOrderUpdateOne {
+	_u.mutation.AddSubscriptionFiveHourLimitUsd(v)
+	return _u
+}
+
+// ClearSubscriptionFiveHourLimitUsd clears the value of the "subscription_five_hour_limit_usd" field.
+func (_u *PaymentOrderUpdateOne) ClearSubscriptionFiveHourLimitUsd() *PaymentOrderUpdateOne {
+	_u.mutation.ClearSubscriptionFiveHourLimitUsd()
+	return _u
+}
+
+// SetSubscriptionSevenDayLimitUsd sets the "subscription_seven_day_limit_usd" field.
+func (_u *PaymentOrderUpdateOne) SetSubscriptionSevenDayLimitUsd(v float64) *PaymentOrderUpdateOne {
+	_u.mutation.ResetSubscriptionSevenDayLimitUsd()
+	_u.mutation.SetSubscriptionSevenDayLimitUsd(v)
+	return _u
+}
+
+// SetNillableSubscriptionSevenDayLimitUsd sets the "subscription_seven_day_limit_usd" field if the given value is not nil.
+func (_u *PaymentOrderUpdateOne) SetNillableSubscriptionSevenDayLimitUsd(v *float64) *PaymentOrderUpdateOne {
+	if v != nil {
+		_u.SetSubscriptionSevenDayLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionSevenDayLimitUsd adds value to the "subscription_seven_day_limit_usd" field.
+func (_u *PaymentOrderUpdateOne) AddSubscriptionSevenDayLimitUsd(v float64) *PaymentOrderUpdateOne {
+	_u.mutation.AddSubscriptionSevenDayLimitUsd(v)
+	return _u
+}
+
+// ClearSubscriptionSevenDayLimitUsd clears the value of the "subscription_seven_day_limit_usd" field.
+func (_u *PaymentOrderUpdateOne) ClearSubscriptionSevenDayLimitUsd() *PaymentOrderUpdateOne {
+	_u.mutation.ClearSubscriptionSevenDayLimitUsd()
+	return _u
+}
+
+// SetSubscriptionThirtyDayLimitUsd sets the "subscription_thirty_day_limit_usd" field.
+func (_u *PaymentOrderUpdateOne) SetSubscriptionThirtyDayLimitUsd(v float64) *PaymentOrderUpdateOne {
+	_u.mutation.ResetSubscriptionThirtyDayLimitUsd()
+	_u.mutation.SetSubscriptionThirtyDayLimitUsd(v)
+	return _u
+}
+
+// SetNillableSubscriptionThirtyDayLimitUsd sets the "subscription_thirty_day_limit_usd" field if the given value is not nil.
+func (_u *PaymentOrderUpdateOne) SetNillableSubscriptionThirtyDayLimitUsd(v *float64) *PaymentOrderUpdateOne {
+	if v != nil {
+		_u.SetSubscriptionThirtyDayLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionThirtyDayLimitUsd adds value to the "subscription_thirty_day_limit_usd" field.
+func (_u *PaymentOrderUpdateOne) AddSubscriptionThirtyDayLimitUsd(v float64) *PaymentOrderUpdateOne {
+	_u.mutation.AddSubscriptionThirtyDayLimitUsd(v)
+	return _u
+}
+
+// ClearSubscriptionThirtyDayLimitUsd clears the value of the "subscription_thirty_day_limit_usd" field.
+func (_u *PaymentOrderUpdateOne) ClearSubscriptionThirtyDayLimitUsd() *PaymentOrderUpdateOne {
+	_u.mutation.ClearSubscriptionThirtyDayLimitUsd()
+	return _u
+}
+
 // SetProviderInstanceID sets the "provider_instance_id" field.
 func (_u *PaymentOrderUpdateOne) SetProviderInstanceID(v string) *PaymentOrderUpdateOne {
 	_u.mutation.SetProviderInstanceID(v)
@@ -1879,6 +2330,31 @@ func (_u *PaymentOrderUpdateOne) check() error {
 			return &ValidationError{Name: "order_type", err: fmt.Errorf(`ent: validator failed for field "PaymentOrder.order_type": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.SubscriptionPlanPrice(); ok {
+		if err := paymentorder.SubscriptionPlanPriceValidator(v); err != nil {
+			return &ValidationError{Name: "subscription_plan_price", err: fmt.Errorf(`ent: validator failed for field "PaymentOrder.subscription_plan_price": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SubscriptionRenewalDiscountPercent(); ok {
+		if err := paymentorder.SubscriptionRenewalDiscountPercentValidator(v); err != nil {
+			return &ValidationError{Name: "subscription_renewal_discount_percent", err: fmt.Errorf(`ent: validator failed for field "PaymentOrder.subscription_renewal_discount_percent": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SubscriptionFiveHourLimitUsd(); ok {
+		if err := paymentorder.SubscriptionFiveHourLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "subscription_five_hour_limit_usd", err: fmt.Errorf(`ent: validator failed for field "PaymentOrder.subscription_five_hour_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SubscriptionSevenDayLimitUsd(); ok {
+		if err := paymentorder.SubscriptionSevenDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "subscription_seven_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "PaymentOrder.subscription_seven_day_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SubscriptionThirtyDayLimitUsd(); ok {
+		if err := paymentorder.SubscriptionThirtyDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "subscription_thirty_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "PaymentOrder.subscription_thirty_day_limit_usd": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.ProviderInstanceID(); ok {
 		if err := paymentorder.ProviderInstanceIDValidator(v); err != nil {
 			return &ValidationError{Name: "provider_instance_id", err: fmt.Errorf(`ent: validator failed for field "PaymentOrder.provider_instance_id": %w`, err)}
@@ -2033,6 +2509,66 @@ func (_u *PaymentOrderUpdateOne) sqlSave(ctx context.Context) (_node *PaymentOrd
 	}
 	if _u.mutation.SubscriptionDaysCleared() {
 		_spec.ClearField(paymentorder.FieldSubscriptionDays, field.TypeInt)
+	}
+	if value, ok := _u.mutation.SubscriptionID(); ok {
+		_spec.SetField(paymentorder.FieldSubscriptionID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionID(); ok {
+		_spec.AddField(paymentorder.FieldSubscriptionID, field.TypeInt64, value)
+	}
+	if _u.mutation.SubscriptionIDCleared() {
+		_spec.ClearField(paymentorder.FieldSubscriptionID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.SubscriptionPlanPrice(); ok {
+		_spec.SetField(paymentorder.FieldSubscriptionPlanPrice, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionPlanPrice(); ok {
+		_spec.AddField(paymentorder.FieldSubscriptionPlanPrice, field.TypeFloat64, value)
+	}
+	if _u.mutation.SubscriptionPlanPriceCleared() {
+		_spec.ClearField(paymentorder.FieldSubscriptionPlanPrice, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SubscriptionRenewalDiscountPercent(); ok {
+		_spec.SetField(paymentorder.FieldSubscriptionRenewalDiscountPercent, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionRenewalDiscountPercent(); ok {
+		_spec.AddField(paymentorder.FieldSubscriptionRenewalDiscountPercent, field.TypeFloat64, value)
+	}
+	if _u.mutation.SubscriptionRenewalDiscountPercentCleared() {
+		_spec.ClearField(paymentorder.FieldSubscriptionRenewalDiscountPercent, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SubscriptionQuotaSnapshotVersion(); ok {
+		_spec.SetField(paymentorder.FieldSubscriptionQuotaSnapshotVersion, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionQuotaSnapshotVersion(); ok {
+		_spec.AddField(paymentorder.FieldSubscriptionQuotaSnapshotVersion, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.SubscriptionFiveHourLimitUsd(); ok {
+		_spec.SetField(paymentorder.FieldSubscriptionFiveHourLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionFiveHourLimitUsd(); ok {
+		_spec.AddField(paymentorder.FieldSubscriptionFiveHourLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.SubscriptionFiveHourLimitUsdCleared() {
+		_spec.ClearField(paymentorder.FieldSubscriptionFiveHourLimitUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SubscriptionSevenDayLimitUsd(); ok {
+		_spec.SetField(paymentorder.FieldSubscriptionSevenDayLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionSevenDayLimitUsd(); ok {
+		_spec.AddField(paymentorder.FieldSubscriptionSevenDayLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.SubscriptionSevenDayLimitUsdCleared() {
+		_spec.ClearField(paymentorder.FieldSubscriptionSevenDayLimitUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SubscriptionThirtyDayLimitUsd(); ok {
+		_spec.SetField(paymentorder.FieldSubscriptionThirtyDayLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionThirtyDayLimitUsd(); ok {
+		_spec.AddField(paymentorder.FieldSubscriptionThirtyDayLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.SubscriptionThirtyDayLimitUsdCleared() {
+		_spec.ClearField(paymentorder.FieldSubscriptionThirtyDayLimitUsd, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.ProviderInstanceID(); ok {
 		_spec.SetField(paymentorder.FieldProviderInstanceID, field.TypeString, value)

@@ -193,6 +193,304 @@ func TestGatewayServiceRecordUsage_PreservesRequestedAndUpstreamModels(t *testin
 	require.Equal(t, mappedModel, *usageRepo.lastLog.UpstreamModel)
 }
 
+func TestGatewayServiceRecordUsage_AntigravityDefaultsBillingToUpstreamModel(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+	tokens := UsageTokens{InputTokens: 20, OutputTokens: 10}
+	expectedCost, err := svc.billingService.CalculateCost("claude-sonnet-4", tokens, 1.1)
+	require.NoError(t, err)
+
+	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID:     "gateway_antigravity_upstream_default",
+			Usage:         ClaudeUsage{InputTokens: tokens.InputTokens, OutputTokens: tokens.OutputTokens},
+			Model:         "not-priceable-antigravity-alias",
+			UpstreamModel: "claude-sonnet-4",
+			Duration:      time.Second,
+		},
+		APIKey:  &APIKey{ID: 501, Quota: 100},
+		User:    &User{ID: 601},
+		Account: &Account{ID: 701, Platform: PlatformAntigravity},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Equal(t, "not-priceable-antigravity-alias", usageRepo.lastLog.Model)
+	require.Equal(t, "not-priceable-antigravity-alias", usageRepo.lastLog.RequestedModel)
+	require.NotNil(t, usageRepo.lastLog.UpstreamModel)
+	require.Equal(t, "claude-sonnet-4", *usageRepo.lastLog.UpstreamModel)
+	require.InDelta(t, expectedCost.TotalCost, usageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, expectedCost.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, expectedCost.ActualCost, userRepo.lastAmount, 1e-12)
+}
+
+func TestGatewayServiceRecordUsage_BillingModelSourceOverrides(t *testing.T) {
+	tests := []struct {
+		name        string
+		fields      ChannelUsageFields
+		wantModel   string
+		wantCost    func(*GatewayService, UsageTokens) *CostBreakdown
+		requestID   string
+		expectNoErr bool
+	}{
+		{
+			name: "requested source uses original model",
+			fields: ChannelUsageFields{
+				OriginalModel:      "claude-sonnet-4",
+				ChannelMappedModel: "claude-opus-4.6",
+				BillingModelSource: BillingModelSourceRequested,
+			},
+			wantModel: "claude-sonnet-4",
+			requestID: "gateway_billing_source_requested",
+		},
+		{
+			name: "actual channel mapping uses mapped model",
+			fields: ChannelUsageFields{
+				OriginalModel:      "not-priceable-antigravity-alias",
+				ChannelMappedModel: "claude-sonnet-4",
+				BillingModelSource: BillingModelSourceChannelMapped,
+			},
+			wantModel: "claude-sonnet-4",
+			requestID: "gateway_billing_source_channel_mapped",
+		},
+		{
+			name: "unmapped channel source falls back to upstream",
+			fields: ChannelUsageFields{
+				OriginalModel:      "not-priceable-antigravity-alias",
+				ChannelMappedModel: "not-priceable-antigravity-alias",
+				BillingModelSource: BillingModelSourceChannelMapped,
+			},
+			wantModel: "claude-opus-4.6",
+			requestID: "gateway_billing_source_channel_unmapped",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+			userRepo := &openAIRecordUsageUserRepoStub{}
+			svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+			tokens := UsageTokens{InputTokens: 20, OutputTokens: 10}
+			expectedCost, err := svc.billingService.CalculateCost(tt.wantModel, tokens, 1.1)
+			require.NoError(t, err)
+
+			err = svc.RecordUsage(context.Background(), &RecordUsageInput{
+				Result: &ForwardResult{
+					RequestID:     tt.requestID,
+					Usage:         ClaudeUsage{InputTokens: tokens.InputTokens, OutputTokens: tokens.OutputTokens},
+					Model:         "not-priceable-antigravity-alias",
+					UpstreamModel: "claude-opus-4.6",
+					Duration:      time.Second,
+				},
+				APIKey:             &APIKey{ID: 501, Quota: 100},
+				User:               &User{ID: 601},
+				Account:            &Account{ID: 701, Platform: PlatformAntigravity},
+				ChannelUsageFields: tt.fields,
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, usageRepo.lastLog)
+			require.InDelta(t, expectedCost.TotalCost, usageRepo.lastLog.TotalCost, 1e-12)
+			require.InDelta(t, expectedCost.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+			require.InDelta(t, expectedCost.ActualCost, userRepo.lastAmount, 1e-12)
+		})
+	}
+}
+
+func TestGatewayServiceRecordUsage_BillingModelCandidatesFallBackToPriceableUpstream(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+	tokens := UsageTokens{InputTokens: 20, OutputTokens: 10}
+	expectedCost, err := svc.billingService.CalculateCost("claude-sonnet-4", tokens, 1.1)
+	require.NoError(t, err)
+
+	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID:     "gateway_billing_candidate_upstream",
+			Usage:         ClaudeUsage{InputTokens: tokens.InputTokens, OutputTokens: tokens.OutputTokens},
+			Model:         "not-priceable-antigravity-alias",
+			UpstreamModel: "claude-sonnet-4",
+			Duration:      time.Second,
+		},
+		APIKey:  &APIKey{ID: 501, Quota: 100},
+		User:    &User{ID: 601},
+		Account: &Account{ID: 701, Platform: PlatformAntigravity},
+		ChannelUsageFields: ChannelUsageFields{
+			OriginalModel:      "not-priceable-antigravity-alias",
+			ChannelMappedModel: "not-priceable-antigravity-alias",
+			BillingModelSource: BillingModelSourceRequested,
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, expectedCost.TotalCost, usageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, expectedCost.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, expectedCost.ActualCost, userRepo.lastAmount, 1e-12)
+	require.True(t, usageRepo.lastLog.ActualCost > 0, "cost must not be zero")
+}
+
+func TestGatewayServiceRecordUsage_RejectsUnpricedBillingModels(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+
+	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "gateway_unpriced_model",
+			Usage: ClaudeUsage{
+				InputTokens:  20,
+				OutputTokens: 10,
+			},
+			Model:    "opencode-unpriced-model",
+			Duration: time.Second,
+		},
+		APIKey:  &APIKey{ID: 501, Quota: 100},
+		User:    &User{ID: 601},
+		Account: &Account{ID: 701, Platform: PlatformOpenCodeGo},
+	})
+
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
+	require.Equal(t, 0, usageRepo.calls)
+	require.Equal(t, 0, userRepo.deductCalls)
+}
+
+func TestGatewayServiceValidateGatewayTokenPricingAvailable_RejectsUnpricedOpenCodeGoModel(t *testing.T) {
+	svc := newGatewayRecordUsageServiceForTest(&openAIRecordUsageLogRepoStub{}, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+	apiKey := &APIKey{ID: 501, Quota: 100}
+	account := &Account{ID: 701, Platform: PlatformOpenCodeGo}
+
+	err := svc.ValidateGatewayTokenPricingAvailable(context.Background(), apiKey, account, "opencode-unpriced-model", ChannelMappingResult{
+		MappedModel:        "opencode-unpriced-model",
+		BillingModelSource: BillingModelSourceChannelMapped,
+	})
+
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
+}
+
+func TestGatewayServiceValidateGatewayTokenPricingAvailable_AllowsPriceableModel(t *testing.T) {
+	svc := newGatewayRecordUsageServiceForTest(&openAIRecordUsageLogRepoStub{}, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+	apiKey := &APIKey{ID: 501, Quota: 100}
+	account := &Account{ID: 701, Platform: PlatformOpenCodeGo}
+
+	err := svc.ValidateGatewayTokenPricingAvailable(context.Background(), apiKey, account, "claude-sonnet-4", ChannelMappingResult{
+		MappedModel:        "claude-sonnet-4",
+		BillingModelSource: BillingModelSourceChannelMapped,
+	})
+
+	require.NoError(t, err)
+}
+
+func TestGatewayServiceValidateGatewayTokenPricingAvailable_AllowsOpenCodeGoModelsDevPricing(t *testing.T) {
+	pricingSvc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"kimi-k2.5": {
+				Mode:               "chat",
+				InputCostPerToken:  0.60e-6,
+				OutputCostPerToken: 3.00e-6,
+				LiteLLMProvider:    PlatformOpenCodeGo,
+			},
+		},
+	}
+	svc := newGatewayRecordUsageServiceForTest(&openAIRecordUsageLogRepoStub{}, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+	svc.billingService = NewBillingService(svc.cfg, pricingSvc)
+	apiKey := &APIKey{ID: 501, Quota: 100}
+	account := &Account{ID: 701, Platform: PlatformOpenCodeGo}
+
+	err := svc.ValidateGatewayTokenPricingAvailable(context.Background(), apiKey, account, "kimi-k2.5", ChannelMappingResult{
+		MappedModel:        "kimi-k2.5",
+		BillingModelSource: BillingModelSourceChannelMapped,
+	})
+
+	require.NoError(t, err)
+}
+
+func TestGatewayServiceRecordUsage_AntigravityCacheReadWriteCostsPersisted(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+	tokens := UsageTokens{
+		InputTokens:         20,
+		OutputTokens:        10,
+		CacheCreationTokens: 7,
+		CacheReadTokens:     13,
+	}
+	expectedCost, err := svc.billingService.CalculateCost("claude-sonnet-4", tokens, 1.1)
+	require.NoError(t, err)
+
+	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "gateway_antigravity_cache_cost",
+			Usage: ClaudeUsage{
+				InputTokens:              tokens.InputTokens,
+				OutputTokens:             tokens.OutputTokens,
+				CacheCreationInputTokens: tokens.CacheCreationTokens,
+				CacheReadInputTokens:     tokens.CacheReadTokens,
+			},
+			Model:         "not-priceable-antigravity-alias",
+			UpstreamModel: "claude-sonnet-4",
+			Duration:      time.Second,
+		},
+		APIKey:  &APIKey{ID: 501, Quota: 100},
+		User:    &User{ID: 601},
+		Account: &Account{ID: 701, Platform: PlatformAntigravity},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Equal(t, tokens.CacheCreationTokens, usageRepo.lastLog.CacheCreationTokens)
+	require.Equal(t, tokens.CacheReadTokens, usageRepo.lastLog.CacheReadTokens)
+	require.InDelta(t, expectedCost.CacheCreationCost, usageRepo.lastLog.CacheCreationCost, 1e-12)
+	require.InDelta(t, expectedCost.CacheReadCost, usageRepo.lastLog.CacheReadCost, 1e-12)
+	require.InDelta(t, expectedCost.TotalCost, usageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, expectedCost.ActualCost, userRepo.lastAmount, 1e-12)
+}
+
+func TestGatewayServiceRecordUsageWithLongContext_AntigravityCacheReadWriteCostsPersisted(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+	tokens := UsageTokens{
+		InputTokens:         20,
+		OutputTokens:        10,
+		CacheCreationTokens: 7,
+		CacheReadTokens:     13,
+	}
+	expectedCost, err := svc.billingService.CalculateCostWithLongContext("claude-sonnet-4", tokens, 1.1, 10, 2)
+	require.NoError(t, err)
+
+	err = svc.RecordUsageWithLongContext(context.Background(), &RecordUsageLongContextInput{
+		Result: &ForwardResult{
+			RequestID: "gateway_antigravity_cache_long_context_cost",
+			Usage: ClaudeUsage{
+				InputTokens:              tokens.InputTokens,
+				OutputTokens:             tokens.OutputTokens,
+				CacheCreationInputTokens: tokens.CacheCreationTokens,
+				CacheReadInputTokens:     tokens.CacheReadTokens,
+			},
+			Model:         "not-priceable-antigravity-alias",
+			UpstreamModel: "claude-sonnet-4",
+			Duration:      time.Second,
+		},
+		APIKey:                &APIKey{ID: 501, Quota: 100},
+		User:                  &User{ID: 601},
+		Account:               &Account{ID: 701, Platform: PlatformAntigravity},
+		LongContextThreshold:  10,
+		LongContextMultiplier: 2,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Equal(t, tokens.CacheCreationTokens, usageRepo.lastLog.CacheCreationTokens)
+	require.Equal(t, tokens.CacheReadTokens, usageRepo.lastLog.CacheReadTokens)
+	require.InDelta(t, expectedCost.CacheCreationCost, usageRepo.lastLog.CacheCreationCost, 1e-12)
+	require.InDelta(t, expectedCost.CacheReadCost, usageRepo.lastLog.CacheReadCost, 1e-12)
+	require.InDelta(t, expectedCost.TotalCost, usageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, expectedCost.ActualCost, userRepo.lastAmount, 1e-12)
+}
+
 func TestGatewayServiceRecordUsage_EmptyImageSizeDefaultsBeforeBillingAndPersistence(t *testing.T) {
 	imagePrice2K := 0.19
 	groupID := int64(901)

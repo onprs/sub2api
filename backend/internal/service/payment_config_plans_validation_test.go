@@ -3,6 +3,7 @@
 package service
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -73,6 +74,12 @@ func TestValidatePlanRequired_WhitespaceValidityUnit(t *testing.T) {
 	require.Contains(t, err.Error(), "validity unit")
 }
 
+func TestValidatePlanRequired_InvalidValidityUnit(t *testing.T) {
+	err := validatePlanRequired("Pro", 1, 9.99, 30, "fortnights", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "validity unit")
+}
+
 func TestValidatePlanRequired_NameValidatedFirst(t *testing.T) {
 	err := validatePlanRequired("", 0, 0, 0, "", nil)
 	require.Error(t, err)
@@ -103,6 +110,29 @@ func TestValidatePlanRequired_ValidOriginalPrice(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestValidatePlanRequired_RollingLimits(t *testing.T) {
+	negative := -0.01
+	zero := 0.0
+	positive := 1.5
+
+	require.Error(t, validatePlanRequired("Pro", 1, 9.99, 30, "days", nil, &negative, nil, nil))
+	require.NoError(t, validatePlanRequired("Pro", 1, 9.99, 30, "days", nil, &zero, nil, nil))
+	require.NoError(t, validatePlanRequired("Pro", 1, 9.99, 30, "days", nil, &positive, &positive, &positive))
+	require.NoError(t, validatePlanRequired("Pro", 1, 9.99, 30, "days", nil, nil, nil, nil))
+}
+
+func TestValidatePlanRequired_RenewalDiscountPercent(t *testing.T) {
+	negative := -0.01
+	zero := 0.0
+	discount := 15.0
+	full := 100.0
+
+	require.Error(t, validatePlanRequired("Pro", 1, 9.99, 30, "days", nil, nil, nil, nil, &negative))
+	require.NoError(t, validatePlanRequired("Pro", 1, 9.99, 30, "days", nil, nil, nil, nil, &zero))
+	require.NoError(t, validatePlanRequired("Pro", 1, 9.99, 30, "days", nil, nil, nil, nil, &discount))
+	require.Error(t, validatePlanRequired("Pro", 1, 9.99, 30, "days", nil, nil, nil, nil, &full))
+}
+
 // --- validatePlanPatch tests ---
 
 func TestValidatePlanPatch_NegativeOriginalPrice(t *testing.T) {
@@ -127,6 +157,103 @@ func TestValidatePlanPatch_ValidOriginalPrice(t *testing.T) {
 func TestValidatePlanPatch_NilOriginalPrice(t *testing.T) {
 	err := validatePlanPatch(UpdatePlanRequest{OriginalPrice: nil})
 	require.NoError(t, err)
+}
+
+func TestValidatePlanPatchRejectsNegativeRollingLimits(t *testing.T) {
+	neg := -0.01
+
+	err := validatePlanPatch(UpdatePlanRequest{FiveHourLimitUSD: NullableFloatPatch{Set: true, Value: &neg}})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "five_hour_limit_usd")
+}
+
+func TestValidatePlanPatchAllowsZeroAndNilRollingLimits(t *testing.T) {
+	zero := 0.0
+
+	require.NoError(t, validatePlanPatch(UpdatePlanRequest{FiveHourLimitUSD: NullableFloatPatch{Set: true, Value: &zero}}))
+	require.NoError(t, validatePlanPatch(UpdatePlanRequest{SevenDayLimitUSD: NullableFloatPatch{Set: true, Value: nil}}))
+	require.NoError(t, validatePlanPatch(UpdatePlanRequest{}))
+}
+
+func TestValidatePlanPatchRejectsInvalidRenewalDiscountPercent(t *testing.T) {
+	negative := -0.01
+	full := 100.0
+
+	require.Error(t, validatePlanPatch(UpdatePlanRequest{RenewalDiscountPercent: NullableFloatPatch{Set: true, Value: &negative}}))
+	require.Error(t, validatePlanPatch(UpdatePlanRequest{RenewalDiscountPercent: NullableFloatPatch{Set: true, Value: &full}}))
+}
+
+func TestValidatePlanPatchAllowsNilZeroAndPositiveRenewalDiscountPercent(t *testing.T) {
+	zero := 0.0
+	discount := 15.0
+	largeButInRange := 99.9
+
+	require.NoError(t, validatePlanPatch(UpdatePlanRequest{RenewalDiscountPercent: NullableFloatPatch{Set: true, Value: nil}}))
+	require.NoError(t, validatePlanPatch(UpdatePlanRequest{RenewalDiscountPercent: NullableFloatPatch{Set: true, Value: &zero}}))
+	require.NoError(t, validatePlanPatch(UpdatePlanRequest{RenewalDiscountPercent: NullableFloatPatch{Set: true, Value: &discount}}))
+	require.NoError(t, validatePlanPatch(UpdatePlanRequest{RenewalDiscountPercent: NullableFloatPatch{Set: true, Value: &largeButInRange}}))
+}
+
+func TestValidatePlanPatchRejectsNegativeStock(t *testing.T) {
+	negative := -1
+
+	err := validatePlanPatch(UpdatePlanRequest{Stock: NullableIntPatch{Set: true, Value: &negative}})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "stock")
+}
+
+func TestValidatePlanPatchAllowsNilZeroAndPositiveStock(t *testing.T) {
+	zero := 0
+	positive := 12
+
+	require.NoError(t, validatePlanPatch(UpdatePlanRequest{Stock: NullableIntPatch{Set: true, Value: nil}}))
+	require.NoError(t, validatePlanPatch(UpdatePlanRequest{Stock: NullableIntPatch{Set: true, Value: &zero}}))
+	require.NoError(t, validatePlanPatch(UpdatePlanRequest{Stock: NullableIntPatch{Set: true, Value: &positive}}))
+	require.NoError(t, validatePlanPatch(UpdatePlanRequest{}))
+}
+
+func TestNullableFloatPatchUnmarshalTracksOmittedNullAndNumber(t *testing.T) {
+	var req struct {
+		FiveHourLimitUSD NullableFloatPatch `json:"five_hour_limit_usd"`
+		SevenDayLimitUSD NullableFloatPatch `json:"seven_day_limit_usd"`
+	}
+
+	require.NoError(t, json.Unmarshal([]byte(`{"five_hour_limit_usd":null,"seven_day_limit_usd":0}`), &req))
+
+	require.True(t, req.FiveHourLimitUSD.Set)
+	require.Nil(t, req.FiveHourLimitUSD.Value)
+	require.True(t, req.SevenDayLimitUSD.Set)
+	require.NotNil(t, req.SevenDayLimitUSD.Value)
+	require.Equal(t, 0.0, *req.SevenDayLimitUSD.Value)
+
+	var omitted struct {
+		FiveHourLimitUSD NullableFloatPatch `json:"five_hour_limit_usd"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(`{}`), &omitted))
+	require.False(t, omitted.FiveHourLimitUSD.Set)
+}
+
+func TestNullableIntPatchUnmarshalTracksOmittedNullAndNumber(t *testing.T) {
+	var req struct {
+		Stock NullableIntPatch `json:"stock"`
+	}
+
+	require.NoError(t, json.Unmarshal([]byte(`{"stock":0}`), &req))
+	require.True(t, req.Stock.Set)
+	require.NotNil(t, req.Stock.Value)
+	require.Equal(t, 0, *req.Stock.Value)
+
+	require.NoError(t, json.Unmarshal([]byte(`{"stock":null}`), &req))
+	require.True(t, req.Stock.Set)
+	require.Nil(t, req.Stock.Value)
+
+	var omitted struct {
+		Stock NullableIntPatch `json:"stock"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(`{}`), &omitted))
+	require.False(t, omitted.Stock.Set)
 }
 
 // --- validatePlanPatch: other fields ---
@@ -185,6 +312,12 @@ func TestValidatePlanPatch_EmptyValidityUnit(t *testing.T) {
 func TestValidatePlanPatch_ValidValidityUnit(t *testing.T) {
 	err := validatePlanPatch(UpdatePlanRequest{ValidityUnit: ptrStr("days")})
 	require.NoError(t, err)
+}
+
+func TestValidatePlanPatch_InvalidValidityUnit(t *testing.T) {
+	err := validatePlanPatch(UpdatePlanRequest{ValidityUnit: ptrStr("fortnights")})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "validity unit")
 }
 
 func TestValidatePlanPatch_AllNil(t *testing.T) {

@@ -27,10 +27,14 @@
         <div class="shrink-0 text-right">
           <div class="flex items-baseline gap-1">
             <span class="text-xs text-gray-400 dark:text-dark-500">$</span>
-            <span :class="['text-2xl font-extrabold tracking-tight', textClass]">{{ plan.price }}</span>
+            <span :class="['text-2xl font-extrabold tracking-tight', textClass]">{{ displayPriceText }}</span>
           </div>
           <span class="text-[11px] text-gray-400 dark:text-dark-500">/ {{ validitySuffix }}</span>
-          <div v-if="plan.original_price" class="mt-0.5 flex items-center justify-end gap-1.5">
+          <div v-if="showRenewalDiscount" class="mt-0.5 flex items-center justify-end gap-1.5">
+            <span class="text-xs text-gray-400 line-through dark:text-dark-500">${{ priceText }}</span>
+            <span :class="['rounded px-1 py-0.5 text-[10px] font-semibold', discountClass]">{{ renewalDiscountText }}</span>
+          </div>
+          <div v-else-if="plan.original_price" class="mt-0.5 flex items-center justify-end gap-1.5">
             <span class="text-xs text-gray-400 line-through dark:text-dark-500">${{ plan.original_price }}</span>
             <span :class="['rounded px-1 py-0.5 text-[10px] font-semibold', discountClass]">{{ discountText }}</span>
           </div>
@@ -43,21 +47,17 @@
           <span class="text-gray-400 dark:text-dark-500">{{ t('payment.planCard.rate') }}</span>
           <span class="font-medium text-gray-700 dark:text-gray-300">{{ rateDisplay }}</span>
         </div>
-        <div v-if="plan.daily_limit_usd != null" class="flex items-center justify-between">
-          <span class="text-gray-400 dark:text-dark-500">{{ t('payment.planCard.dailyLimit') }}</span>
-          <span class="font-medium text-gray-700 dark:text-gray-300">${{ plan.daily_limit_usd }}</span>
+        <div v-for="quota in rollingPlanQuotas" :key="quota.key" class="flex items-center justify-between">
+          <span class="text-gray-400 dark:text-dark-500">{{ quota.label }}</span>
+          <span class="font-medium text-gray-700 dark:text-gray-300">{{ quota.limit }}</span>
         </div>
-        <div v-if="plan.weekly_limit_usd != null" class="flex items-center justify-between">
-          <span class="text-gray-400 dark:text-dark-500">{{ t('payment.planCard.weeklyLimit') }}</span>
-          <span class="font-medium text-gray-700 dark:text-gray-300">${{ plan.weekly_limit_usd }}</span>
-        </div>
-        <div v-if="plan.monthly_limit_usd != null" class="flex items-center justify-between">
-          <span class="text-gray-400 dark:text-dark-500">{{ t('payment.planCard.monthlyLimit') }}</span>
-          <span class="font-medium text-gray-700 dark:text-gray-300">${{ plan.monthly_limit_usd }}</span>
-        </div>
-        <div v-if="plan.daily_limit_usd == null && plan.weekly_limit_usd == null && plan.monthly_limit_usd == null" class="flex items-center justify-between">
+        <div v-if="!hasPlanRollingQuotaLimits" class="flex items-center justify-between">
           <span class="text-gray-400 dark:text-dark-500">{{ t('payment.planCard.quota') }}</span>
           <span class="font-medium text-gray-700 dark:text-gray-300">{{ t('payment.planCard.unlimited') }}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-gray-400 dark:text-dark-500">库存</span>
+          <span :class="['font-medium', stockTextClass]">{{ stockText }}</span>
         </div>
         <div v-if="modelScopeLabels.length > 0" class="col-span-2 flex items-center justify-between">
           <span class="text-gray-400 dark:text-dark-500">{{ t('payment.planCard.models') }}</span>
@@ -85,10 +85,14 @@
       <!-- Subscribe Button -->
       <button
         type="button"
-        :class="['w-full rounded-xl py-2.5 text-sm font-semibold transition-all active:scale-[0.98]', btnClass]"
-        @click="emit('select', plan)"
+        :disabled="isSoldOut"
+        :class="[
+          'w-full rounded-xl py-2.5 text-sm font-semibold transition-all active:scale-[0.98]',
+          isSoldOut ? 'cursor-not-allowed bg-gray-200 text-gray-500 dark:bg-dark-700 dark:text-dark-400' : btnClass,
+        ]"
+        @click="handleSelect"
       >
-        {{ isRenewal ? t('payment.renewNow') : t('payment.subscribeNow') }}
+        {{ isSoldOut ? '售罄' : (isRenewal ? t('payment.renewNow') : t('payment.subscribeNow')) }}
       </button>
     </div>
   </div>
@@ -99,6 +103,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { SubscriptionPlan } from '@/types/payment'
 import type { UserSubscription } from '@/types'
+import { formatUsdLimit, hasRollingQuotaLimits, rollingQuotaWindows } from '@/utils/rollingQuota'
 import {
   platformAccentBarClass,
   platformBadgeLightClass,
@@ -115,9 +120,10 @@ const emit = defineEmits<{ select: [plan: SubscriptionPlan] }>()
 const { t } = useI18n()
 
 const platform = computed(() => props.plan.group_platform || '')
-const isRenewal = computed(() =>
-  props.activeSubscriptions?.some(s => s.group_id === props.plan.group_id && s.status === 'active') ?? false
+const isSamePlanActive = computed(() =>
+  props.activeSubscriptions?.some(s => s.plan_id === props.plan.id && s.status === 'active') ?? false
 )
+const isRenewal = computed(() => props.plan.renewal_eligible === true || isSamePlanActive.value)
 
 // Derived color classes from central config
 const accentClass = computed(() => platformAccentBarClass(platform.value))
@@ -128,6 +134,34 @@ const iconClass = computed(() => platformIconClass(platform.value))
 const btnClass = computed(() => platformButtonClass(platform.value))
 const discountClass = computed(() => platformDiscountClass(platform.value))
 const pLabel = computed(() => platformLabel(platform.value))
+const isSoldOut = computed(() => props.plan.sold_out === true || props.plan.stock === 0)
+const stockText = computed(() => {
+  if (isSoldOut.value) return '售罄'
+  if (props.plan.stock == null) return '不限库存'
+  return props.plan.stock > 0 ? `剩余库存 ${props.plan.stock}` : '库存充足'
+})
+const stockTextClass = computed(() =>
+  isSoldOut.value
+    ? 'text-red-600 dark:text-red-400'
+    : props.plan.stock == null
+      ? 'text-gray-700 dark:text-gray-300'
+      : 'text-emerald-600 dark:text-emerald-400'
+)
+const effectivePrice = computed(() =>
+  props.plan.renewal_eligible === true
+    ? (props.plan.renewal_price ?? props.plan.effective_price ?? props.plan.price)
+    : props.plan.price
+)
+const priceText = computed(() => formatPlanPrice(props.plan.price))
+const displayPriceText = computed(() => formatPlanPrice(effectivePrice.value))
+const showRenewalDiscount = computed(() =>
+  props.plan.renewal_eligible === true
+    && (props.plan.renewal_discount_percent ?? 0) > 0
+    && effectivePrice.value < props.plan.price
+)
+const renewalDiscountText = computed(() =>
+  t('payment.renewalDiscount', { percent: formatDiscountPercent(props.plan.renewal_discount_percent ?? 0) })
+)
 
 const discountText = computed(() => {
   if (!props.plan.original_price || props.plan.original_price <= 0) return ''
@@ -135,10 +169,44 @@ const discountText = computed(() => {
   return pct > 0 ? `-${pct}%` : ''
 })
 
+function formatPlanPrice(value: number): string {
+  return Number(value.toFixed(2)).toString()
+}
+
+function formatDiscountPercent(value: number): string {
+  return Number(value.toFixed(2)).toString()
+}
+
+function handleSelect() {
+  if (isSoldOut.value) return
+  emit('select', props.plan)
+}
+
 const rateDisplay = computed(() => {
   const rate = props.plan.rate_multiplier ?? 1
   return `×${Number(rate.toPrecision(10))}`
 })
+
+const hasPlanRollingQuotaLimits = computed(() => hasRollingQuotaLimits(props.plan))
+const rollingPlanQuotas = computed(() =>
+  rollingQuotaWindows
+    .filter(window => props.plan[window.limitField] != null)
+    .map(window => ({
+      key: window.key,
+      label: translatedQuotaLabel(window.shortLabelKey, window.shortLabel),
+      limit: formatUsdLimit(props.plan[window.limitField]),
+    }))
+)
+
+function translatedQuotaLabel(key: string, fallback: string): string {
+  const label = t(key)
+  return label === key ? fallback : label
+}
+
+function translatedValidityUnit(key: string, fallback: string): string {
+  const label = t(key)
+  return label === key ? fallback : label
+}
 
 const MODEL_SCOPE_LABELS: Record<string, string> = {
   claude: 'Claude',
@@ -154,9 +222,12 @@ const modelScopeLabels = computed(() => {
 })
 
 const validitySuffix = computed(() => {
-  const u = props.plan.validity_unit || 'day'
+  const u = (props.plan.validity_unit || 'days').toLowerCase()
   if (u === 'month') return t('payment.perMonth')
+  if (u === 'months') return `${props.plan.validity_days}${translatedValidityUnit('payment.months', 'months')}`
+  if (u === 'week' || u === 'weeks') return `${props.plan.validity_days}${translatedValidityUnit('payment.weeks', 'weeks')}`
   if (u === 'year') return t('payment.perYear')
-  return `${props.plan.validity_days}${t('payment.days')}`
+  if (u === 'years') return `${props.plan.validity_days}${translatedValidityUnit('payment.years', 'years')}`
+  return `${props.plan.validity_days}${translatedValidityUnit('payment.days', 'days')}`
 })
 </script>

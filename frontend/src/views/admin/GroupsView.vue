@@ -490,7 +490,7 @@
             v-model.number="createForm.rate_multiplier"
             type="number"
             step="0.001"
-            min="0.001"
+            min="0"
             required
             class="input"
             data-tour="group-form-multiplier"
@@ -1777,7 +1777,7 @@
             v-model.number="editForm.rate_multiplier"
             type="number"
             step="0.001"
-            min="0.001"
+            min="0"
             required
             class="input"
             data-tour="group-form-multiplier"
@@ -3138,6 +3138,7 @@ const platformOptions = computed(() => [
   { value: "openai", label: "OpenAI" },
   { value: "gemini", label: "Gemini" },
   { value: "antigravity", label: "Antigravity" },
+  { value: "opencode_go", label: "OpenCode Go" },
 ]);
 
 const platformFilterOptions = computed(() => [
@@ -3146,6 +3147,7 @@ const platformFilterOptions = computed(() => [
   { value: "openai", label: "OpenAI" },
   { value: "gemini", label: "Gemini" },
   { value: "antigravity", label: "Antigravity" },
+  { value: "opencode_go", label: "OpenCode Go" },
 ]);
 
 const editStatusOptions = computed(() => [

@@ -6,7 +6,7 @@
     @close="handleClose"
   >
     <!-- Step Indicator for OAuth accounts -->
-    <div v-if="isOAuthFlow" class="mb-6 flex items-center justify-center">
+    <div v-if="showCreateStepIndicator" class="mb-6 flex items-center justify-center">
       <div class="flex items-center space-x-4">
         <div class="flex items-center">
           <div
@@ -70,12 +70,12 @@
       <!-- Platform Selection - Segmented Control Style -->
       <div>
         <label class="input-label">{{ t('admin.accounts.platform') }}</label>
-        <div class="mt-2 flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
+        <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
           <button
             type="button"
             @click="form.platform = 'anthropic'"
             :class="[
-              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              'flex min-w-[8.5rem] flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
               form.platform === 'anthropic'
                 ? 'bg-white text-orange-600 shadow-sm dark:bg-dark-600 dark:text-orange-400'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
@@ -88,7 +88,7 @@
             type="button"
             @click="form.platform = 'openai'"
             :class="[
-              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              'flex min-w-[8.5rem] flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
               form.platform === 'openai'
                 ? 'bg-white text-green-600 shadow-sm dark:bg-dark-600 dark:text-green-400'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
@@ -113,7 +113,7 @@
             type="button"
             @click="form.platform = 'gemini'"
             :class="[
-              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              'flex min-w-[8.5rem] flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
               form.platform === 'gemini'
                 ? 'bg-white text-blue-600 shadow-sm dark:bg-dark-600 dark:text-blue-400'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
@@ -138,7 +138,7 @@
             type="button"
             @click="form.platform = 'antigravity'"
             :class="[
-              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              'flex min-w-[8.5rem] flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
               form.platform === 'antigravity'
                 ? 'bg-white text-purple-600 shadow-sm dark:bg-dark-600 dark:text-purple-400'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
@@ -146,6 +146,22 @@
           >
             <Icon name="cloud" size="sm" />
             Antigravity
+          </button>
+          <button
+            type="button"
+            @click="form.platform = 'opencode_go'"
+            :class="[
+              'flex min-w-[8.5rem] flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'opencode_go'
+                ? 'bg-white text-cyan-600 shadow-sm dark:bg-dark-600 dark:text-cyan-300'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6.75A2.75 2.75 0 0 1 6.75 4h10.5A2.75 2.75 0 0 1 20 6.75v10.5A2.75 2.75 0 0 1 17.25 20H6.75A2.75 2.75 0 0 1 4 17.25V6.75Z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 9 3 3-3 3M12.75 15h3" />
+            </svg>
+            OpenCode Go
           </button>
         </div>
       </div>
@@ -1021,7 +1037,9 @@
                 ? 'https://api.openai.com'
                 : form.platform === 'gemini'
                   ? 'https://generativelanguage.googleapis.com'
-                  : 'https://api.anthropic.com'
+                  : form.platform === 'opencode_go'
+                    ? OPENCODE_GO_DEFAULT_BASE_URL
+                    : 'https://api.anthropic.com'
             "
           />
           <p class="input-hint">{{ baseUrlHint }}</p>
@@ -1038,7 +1056,9 @@
                 ? 'sk-proj-...'
                 : form.platform === 'gemini'
                   ? 'AIza...'
-                  : 'sk-ant-...'
+                  : form.platform === 'opencode_go'
+                    ? 'sk-...'
+                    : 'sk-ant-...'
             "
           />
           <p class="input-hint">{{ apiKeyHint }}</p>
@@ -1069,7 +1089,7 @@
 
           <template v-else>
             <!-- Mode Toggle -->
-            <div class="mb-4 flex gap-2">
+            <div v-if="form.platform !== 'opencode_go'" class="mb-4 flex gap-2">
               <button
                 type="button"
                 @click="modelRestrictionMode = 'whitelist'"
@@ -1123,7 +1143,7 @@
             </div>
 
             <!-- Whitelist Mode -->
-            <div v-if="modelRestrictionMode === 'whitelist'">
+            <div v-if="modelRestrictionMode === 'whitelist' && form.platform !== 'opencode_go'">
               <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" :sync-credentials="syncPreviewCredentials" />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
@@ -1241,7 +1261,7 @@
         </div>
 
         <!-- Pool Mode Section -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div v-if="form.platform !== 'opencode_go'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.poolMode') }}</label>
@@ -1305,7 +1325,7 @@
         </div>
 
         <!-- Custom Error Codes Section -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div v-if="form.platform !== 'opencode_go'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.customErrorCodes') }}</label>
@@ -1716,7 +1736,7 @@
 
       <!-- 配额控制 (非 Anthropic apikey/bedrock) -->
       <div
-        v-else-if="form.type === 'apikey' || form.type === 'bedrock'"
+        v-else-if="(form.type === 'apikey' || form.type === 'bedrock') && form.platform !== 'opencode_go'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="mb-3">
@@ -2851,6 +2871,62 @@
 
     </form>
 
+    <!-- Step 2: OpenCode Go Console Sync -->
+    <div v-else-if="isOpenCodeGoConsoleSyncStep" class="space-y-5">
+      <div class="rounded-lg border border-cyan-200 bg-cyan-50 p-4 dark:border-cyan-800/40 dark:bg-cyan-900/20">
+        <div class="flex items-start gap-3">
+          <Icon name="key" size="md" class="mt-0.5 text-cyan-700 dark:text-cyan-300" />
+          <div class="min-w-0">
+            <h3 class="text-sm font-semibold text-cyan-900 dark:text-cyan-100">官方用量同步</h3>
+            <p class="mt-1 text-sm text-cyan-800 dark:text-cyan-200">
+              {{ openCodeGoCreatedAccount?.name || form.name }} 已创建，可继续授权官方 Console，用于读取真实 5h/7d/30d 用量和邀请奖励。
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <label class="input-label">Workspace</label>
+        <input
+          v-model="openCodeGoConsoleWorkspaceInput"
+          type="text"
+          class="input"
+          placeholder="wrk_... 或 https://opencode.ai/workspace/wrk_.../go"
+          data-testid="opencode-go-console-workspace"
+        />
+        <p class="input-hint">每个 Sub2API OpenCode Go 账号绑定一个官方 workspace。</p>
+      </div>
+
+      <div
+        v-if="openCodeGoConsoleTicketError"
+        class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800/40 dark:bg-red-900/20 dark:text-red-300"
+      >
+        {{ openCodeGoConsoleTicketError }}
+      </div>
+
+      <div
+        v-if="openCodeGoConsoleHelperCommand"
+        class="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-dark-600 dark:bg-dark-800"
+      >
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="text-sm font-medium text-gray-900 dark:text-white">PowerShell 授权命令</div>
+            <div class="text-xs text-gray-500 dark:text-dark-400">
+              Ticket 已绑定 {{ openCodeGoConsoleTicketWorkspaceID || openCodeGoConsoleWorkspaceInput }}，10 分钟内有效。
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" @click="copyOpenCodeGoConsoleHelperCommand">
+            复制
+          </button>
+        </div>
+        <pre class="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-white p-3 text-xs text-gray-700 dark:bg-dark-900 dark:text-dark-100">{{ openCodeGoConsoleHelperCommand }}</pre>
+      </div>
+
+      <div class="rounded-lg border border-gray-200 p-4 text-sm text-gray-600 dark:border-dark-700 dark:text-dark-300">
+        稍后也可以在账号编辑页重新生成授权命令、测试刷新或清除登录态。
+      </div>
+    </div>
+
     <!-- Step 2: OAuth Authorization -->
     <div v-else class="space-y-5">
       <OAuthAuthorizationFlow
@@ -2920,6 +2996,40 @@
                 ? t('admin.accounts.creating')
                 : t('common.create')
           }}
+        </button>
+      </div>
+      <div v-else-if="isOpenCodeGoConsoleSyncStep" class="flex justify-between gap-3">
+        <button type="button" class="btn btn-secondary" @click="handleClose">
+          完成
+        </button>
+        <button
+          type="button"
+          class="btn btn-primary"
+          :disabled="openCodeGoConsoleTicketLoading || !openCodeGoConsoleWorkspaceInput.trim()"
+          data-testid="opencode-go-console-ticket-button"
+          @click="createOpenCodeGoConsoleTicketForCreated"
+        >
+          <svg
+            v-if="openCodeGoConsoleTicketLoading"
+            class="-ml-1 mr-2 h-4 w-4 animate-spin"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              class="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              stroke-width="4"
+            ></circle>
+            <path
+              class="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            ></path>
+          </svg>
+          {{ openCodeGoConsoleTicketLoading ? '生成中' : '生成授权命令' }}
         </button>
       </div>
       <div v-else class="flex justify-between gap-3">
@@ -3220,6 +3330,7 @@ import { useAntigravityOAuth } from '@/composables/useAntigravityOAuth'
 import type {
   Proxy,
   AdminGroup,
+  Account,
   AccountPlatform,
   AccountType,
   CheckMixedChannelResponse,
@@ -3268,8 +3379,10 @@ interface OAuthFlowExposed {
 
 const { t } = useI18n()
 const authStore = useAuthStore()
+const OPENCODE_GO_DEFAULT_BASE_URL = 'https://opencode.ai/zen/go/v1'
 
 const oauthStepTitle = computed(() => {
+  if (form.platform === 'opencode_go') return '官方用量同步'
   if (form.platform === 'openai') return t('admin.accounts.oauth.openai.title')
   if (form.platform === 'gemini') return t('admin.accounts.oauth.gemini.title')
   if (form.platform === 'antigravity') return t('admin.accounts.oauth.antigravity.title')
@@ -3280,12 +3393,14 @@ const oauthStepTitle = computed(() => {
 const baseUrlHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
+  if (form.platform === 'opencode_go') return t('admin.accounts.opencodeGo.baseUrlHint')
   return t('admin.accounts.baseUrlHint')
 })
 
 const apiKeyHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
+  if (form.platform === 'opencode_go') return t('admin.accounts.opencodeGo.apiKeyHint')
   return t('admin.accounts.apiKeyHint')
 })
 
@@ -3361,6 +3476,12 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+const openCodeGoCreatedAccount = ref<Account | null>(null)
+const openCodeGoConsoleWorkspaceInput = ref('')
+const openCodeGoConsoleHelperCommand = ref('')
+const openCodeGoConsoleTicketWorkspaceID = ref('')
+const openCodeGoConsoleTicketLoading = ref(false)
+const openCodeGoConsoleTicketError = ref('')
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -3698,6 +3819,9 @@ const form = reactive({
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
+  if (form.platform === 'opencode_go') {
+    return false
+  }
   // Antigravity upstream 类型不需要 OAuth 流程
   if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
     return false
@@ -3708,6 +3832,18 @@ const isOAuthFlow = computed(() => {
   }
   return accountCategory.value === 'oauth-based'
 })
+
+const isOpenCodeGoConsoleSyncStep = computed(() => (
+  step.value === 2 &&
+  form.platform === 'opencode_go' &&
+  !!openCodeGoCreatedAccount.value
+))
+
+const showCreateStepIndicator = computed(() => (
+  isOAuthFlow.value ||
+  form.platform === 'opencode_go' ||
+  isOpenCodeGoConsoleSyncStep.value
+))
 
 const isManualInputMethod = computed(() => {
   return oauthFlowRef.value?.inputMethod === 'manual'
@@ -3767,6 +3903,10 @@ watch(
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
+    if (form.platform === 'opencode_go') {
+      form.type = 'apikey'
+      return
+    }
     // Antigravity upstream 类型（实际创建为 apikey）
     if (form.platform === 'antigravity' && agType === 'upstream') {
       form.type = 'apikey'
@@ -3798,7 +3938,9 @@ watch(
         ? 'https://api.openai.com'
         : newPlatform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
-          : 'https://api.anthropic.com'
+          : newPlatform === 'opencode_go'
+            ? OPENCODE_GO_DEFAULT_BASE_URL
+            : 'https://api.anthropic.com'
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
@@ -3811,6 +3953,12 @@ watch(
       antigravityWhitelistModels.value = []
       accountCategory.value = 'oauth-based'
       antigravityAccountType.value = 'oauth'
+    } else if (newPlatform === 'opencode_go') {
+      accountCategory.value = 'apikey'
+      modelRestrictionMode.value = 'mapping'
+      poolModeEnabled.value = false
+      customErrorCodesEnabled.value = false
+      tempUnschedEnabled.value = false
     } else {
       allowOverages.value = false
       antigravityWhitelistModels.value = []
@@ -4194,13 +4342,76 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
   }
 }
 
+const startOpenCodeGoConsoleSyncStep = (account: Account) => {
+  openCodeGoCreatedAccount.value = account
+  openCodeGoConsoleWorkspaceInput.value = ''
+  openCodeGoConsoleHelperCommand.value = ''
+  openCodeGoConsoleTicketWorkspaceID.value = ''
+  openCodeGoConsoleTicketError.value = ''
+  step.value = 2
+}
+
+const createOpenCodeGoAccountAndStartConsoleSync = async (payload: CreateAccountRequest) => {
+  submitting.value = true
+  try {
+    const account = await adminAPI.accounts.create(payload)
+    appStore.showSuccess(t('admin.accounts.accountCreated'))
+    emit('created')
+    startOpenCodeGoConsoleSyncStep(account)
+  } catch (error: any) {
+    appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToCreate'))
+  } finally {
+    submitting.value = false
+  }
+}
+
+const createOpenCodeGoConsoleTicketForCreated = async () => {
+  const accountID = openCodeGoCreatedAccount.value?.id
+  const workspace = openCodeGoConsoleWorkspaceInput.value.trim()
+  if (!accountID) {
+    openCodeGoConsoleTicketError.value = 'OpenCode Go 账号 ID 不可用'
+    return
+  }
+  if (!workspace) {
+    openCodeGoConsoleTicketError.value = '请填写 workspace ID 或官方 Go 页面 URL'
+    return
+  }
+  openCodeGoConsoleTicketLoading.value = true
+  openCodeGoConsoleTicketError.value = ''
+  try {
+    const ticket = await adminAPI.accounts.createOpenCodeGoConsoleAuthTicket(accountID, workspace)
+    openCodeGoConsoleHelperCommand.value = ticket.helper_command
+    openCodeGoConsoleTicketWorkspaceID.value = ticket.workspace_id
+    appStore.showSuccess('OpenCode Go 授权命令已生成')
+  } catch (error: any) {
+    openCodeGoConsoleTicketError.value =
+      error.response?.data?.message ||
+      error.response?.data?.detail ||
+      error.message ||
+      '生成授权命令失败'
+    appStore.showError(openCodeGoConsoleTicketError.value)
+  } finally {
+    openCodeGoConsoleTicketLoading.value = false
+  }
+}
+
+const copyOpenCodeGoConsoleHelperCommand = async () => {
+  if (!openCodeGoConsoleHelperCommand.value) return
+  try {
+    await navigator.clipboard?.writeText(openCodeGoConsoleHelperCommand.value)
+    appStore.showSuccess('已复制授权命令')
+  } catch {
+    appStore.showError('复制失败，请手动复制命令')
+  }
+}
+
 // Methods
 const resetForm = () => {
   step.value = 1
   form.name = ''
   form.notes = ''
   form.platform = 'anthropic'
-  form.type = 'oauth'
+    form.type = 'oauth'
   form.credentials = {}
   form.proxy_id = null
   form.concurrency = 10
@@ -4209,6 +4420,12 @@ const resetForm = () => {
   form.rate_multiplier = 1
   form.group_ids = []
   form.expires_at = null
+  openCodeGoCreatedAccount.value = null
+  openCodeGoConsoleWorkspaceInput.value = ''
+  openCodeGoConsoleHelperCommand.value = ''
+  openCodeGoConsoleTicketWorkspaceID.value = ''
+  openCodeGoConsoleTicketLoading.value = false
+  openCodeGoConsoleTicketError.value = ''
   accountCategory.value = 'oauth-based'
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
@@ -4617,7 +4834,9 @@ const handleSubmit = async () => {
       ? 'https://api.openai.com'
       : form.platform === 'gemini'
         ? 'https://generativelanguage.googleapis.com'
-        : 'https://api.anthropic.com'
+        : form.platform === 'opencode_go'
+          ? OPENCODE_GO_DEFAULT_BASE_URL
+          : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {
@@ -4630,7 +4849,8 @@ const handleSubmit = async () => {
 
   // Add model mapping if configured（OpenAI 开启自动透传时不应用）
   if (!isOpenAIModelRestrictionDisabled.value) {
-    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    const mappingMode = form.platform === 'opencode_go' ? 'mapping' : modelRestrictionMode.value
+    const modelMapping = buildModelMappingObject(mappingMode, allowedModels.value, modelMappings.value)
     if (modelMapping) {
       credentials.model_mapping = modelMapping
     }
@@ -4667,12 +4887,19 @@ const handleSubmit = async () => {
   form.credentials = credentials
   const extra = buildAnthropicExtra(buildOpenAIExtra())
 
-  await doCreateAccount({
+  const payload: CreateAccountRequest = {
     ...form,
     group_ids: form.group_ids,
     extra,
     auto_pause_on_expired: autoPauseOnExpired.value
-  })
+  }
+
+  if (form.platform === 'opencode_go') {
+    await createOpenCodeGoAccountAndStartConsoleSync(payload)
+    return
+  }
+
+  await doCreateAccount(payload)
 }
 
 const goBackToBasicInfo = () => {

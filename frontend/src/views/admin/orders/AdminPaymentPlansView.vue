@@ -36,6 +36,22 @@
         <template #cell-validity_days="{ value, row }">
           <span class="text-sm">{{ value }} {{ t('payment.admin.' + (row.validity_unit || 'days')) }}</span>
         </template>
+        <template #cell-renewal_discount_percent="{ value }">
+          <span v-if="value != null && value > 0" class="badge badge-success">-{{ Number(value).toFixed(2) }}%</span>
+          <span v-else class="text-sm text-gray-500">{{ t('payment.admin.noRenewalDiscount') }}</span>
+        </template>
+        <template #cell-quota_limits="{ row }">
+          <div v-if="hasRollingQuotaLimits(row)" class="space-y-0.5 text-xs text-gray-600 dark:text-gray-300">
+            <div v-for="quota in formatPlanQuotas(row)" :key="quota.key">
+              <span class="text-gray-400">{{ quota.label }}:</span>
+              <span class="ml-1 font-medium">{{ quota.limit }}</span>
+            </div>
+          </div>
+          <span v-else class="text-sm text-gray-500">{{ t('payment.admin.unlimited') }}</span>
+        </template>
+        <template #cell-stock="{ row }">
+          <span class="text-sm" :class="planStockClass(row)">{{ formatPlanStock(row) }}</span>
+        </template>
         <template #cell-for_sale="{ value, row }">
           <button
             type="button"
@@ -90,6 +106,7 @@ import Icon from '@/components/icons/Icon.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import PlanEditDialog from './PlanEditDialog.vue'
 import { platformTextClass } from '@/utils/platformColors'
+import { formatUsdLimit, hasRollingQuotaLimits, rollingQuotaWindows } from '@/utils/rollingQuota'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -132,11 +149,45 @@ const planColumns = computed((): Column[] => [
   { key: 'name', label: t('payment.admin.planName') },
   { key: 'group_id', label: t('payment.admin.group') },
   { key: 'price', label: t('payment.admin.price') },
+  { key: 'renewal_discount_percent', label: t('payment.admin.renewalDiscountPercent') },
   { key: 'validity_days', label: t('payment.admin.validityDays') },
+  { key: 'quota_limits', label: t('payment.admin.rollingQuotaLimits') },
+  { key: 'stock', label: '库存' },
   { key: 'for_sale', label: t('payment.admin.forSale') },
   { key: 'sort_order', label: t('payment.admin.sortOrder') },
   { key: 'actions', label: t('common.actions') },
 ])
+
+function formatPlanQuotas(plan: SubscriptionPlan) {
+  return rollingQuotaWindows
+    .filter(window => plan[window.limitField] != null)
+    .map(window => ({
+      key: window.key,
+      label: translatedQuotaLabel(window.shortLabelKey, window.shortLabel),
+      limit: formatUsdLimit(plan[window.limitField]),
+    }))
+}
+
+function translatedQuotaLabel(key: string, fallback: string): string {
+  const label = t(key)
+  return label === key ? fallback : label
+}
+
+function isPlanSoldOut(plan: SubscriptionPlan): boolean {
+  return plan.sold_out === true || plan.stock === 0
+}
+
+function formatPlanStock(plan: SubscriptionPlan): string {
+  if (isPlanSoldOut(plan)) return '售罄'
+  if (plan.stock == null) return '不限库存'
+  return String(plan.stock)
+}
+
+function planStockClass(plan: SubscriptionPlan): string {
+  if (isPlanSoldOut(plan)) return 'font-medium text-red-600 dark:text-red-400'
+  if (plan.stock == null) return 'text-gray-500'
+  return 'font-medium text-gray-900 dark:text-white'
+}
 
 async function loadPlans() {
   plansLoading.value = true

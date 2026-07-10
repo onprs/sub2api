@@ -40,18 +40,16 @@ func NewSubscriptionHandler(subscriptionService *service.SubscriptionService) *S
 
 // AssignSubscriptionRequest represents assign subscription request
 type AssignSubscriptionRequest struct {
-	UserID       int64  `json:"user_id" binding:"required"`
-	GroupID      int64  `json:"group_id" binding:"required"`
-	ValidityDays int    `json:"validity_days" binding:"omitempty,max=36500"` // max 100 years
-	Notes        string `json:"notes"`
+	UserID             int64  `json:"user_id" binding:"required"`
+	SubscriptionPlanID int64  `json:"subscription_plan_id" binding:"required"`
+	Notes              string `json:"notes"`
 }
 
 // BulkAssignSubscriptionRequest represents bulk assign subscription request
 type BulkAssignSubscriptionRequest struct {
-	UserIDs      []int64 `json:"user_ids" binding:"required,min=1"`
-	GroupID      int64   `json:"group_id" binding:"required"`
-	ValidityDays int     `json:"validity_days" binding:"omitempty,max=36500"` // max 100 years
-	Notes        string  `json:"notes"`
+	UserIDs            []int64 `json:"user_ids" binding:"required,min=1"`
+	SubscriptionPlanID int64   `json:"subscription_plan_id" binding:"required"`
+	Notes              string  `json:"notes"`
 }
 
 // AdjustSubscriptionRequest represents adjust subscription request (extend or shorten)
@@ -144,12 +142,11 @@ func (h *SubscriptionHandler) Assign(c *gin.Context) {
 	// Get admin user ID from context
 	adminID := getAdminIDFromContext(c)
 
-	subscription, err := h.subscriptionService.AssignSubscription(c.Request.Context(), &service.AssignSubscriptionInput{
-		UserID:       req.UserID,
-		GroupID:      req.GroupID,
-		ValidityDays: req.ValidityDays,
-		AssignedBy:   adminID,
-		Notes:        req.Notes,
+	subscription, err := h.subscriptionService.AssignSubscriptionPlan(c.Request.Context(), &service.AssignSubscriptionPlanInput{
+		UserID:             req.UserID,
+		SubscriptionPlanID: req.SubscriptionPlanID,
+		AssignedBy:         adminID,
+		Notes:              req.Notes,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -171,12 +168,11 @@ func (h *SubscriptionHandler) BulkAssign(c *gin.Context) {
 	// Get admin user ID from context
 	adminID := getAdminIDFromContext(c)
 
-	result, err := h.subscriptionService.BulkAssignSubscription(c.Request.Context(), &service.BulkAssignSubscriptionInput{
-		UserIDs:      req.UserIDs,
-		GroupID:      req.GroupID,
-		ValidityDays: req.ValidityDays,
-		AssignedBy:   adminID,
-		Notes:        req.Notes,
+	result, err := h.subscriptionService.BulkAssignSubscriptionPlan(c.Request.Context(), &service.BulkAssignSubscriptionPlanInput{
+		UserIDs:            req.UserIDs,
+		SubscriptionPlanID: req.SubscriptionPlanID,
+		AssignedBy:         adminID,
+		Notes:              req.Notes,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -219,12 +215,15 @@ func (h *SubscriptionHandler) Extend(c *gin.Context) {
 
 // ResetSubscriptionQuotaRequest represents the reset quota request
 type ResetSubscriptionQuotaRequest struct {
-	Daily   bool `json:"daily"`
-	Weekly  bool `json:"weekly"`
-	Monthly bool `json:"monthly"`
+	Daily     bool `json:"daily"`
+	Weekly    bool `json:"weekly"`
+	Monthly   bool `json:"monthly"`
+	FiveHour  bool `json:"five_hour"`
+	SevenDay  bool `json:"seven_day"`
+	ThirtyDay bool `json:"thirty_day"`
 }
 
-// ResetQuota resets daily, weekly, and/or monthly usage for a subscription.
+// ResetQuota resets selected legacy and rolling usage windows for a subscription.
 // POST /api/v1/admin/subscriptions/:id/reset-quota
 func (h *SubscriptionHandler) ResetQuota(c *gin.Context) {
 	subscriptionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -237,11 +236,11 @@ func (h *SubscriptionHandler) ResetQuota(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	if !req.Daily && !req.Weekly && !req.Monthly {
-		response.BadRequest(c, "At least one of 'daily', 'weekly', or 'monthly' must be true")
+	if !req.Daily && !req.Weekly && !req.Monthly && !req.FiveHour && !req.SevenDay && !req.ThirtyDay {
+		response.BadRequest(c, "At least one quota window must be true")
 		return
 	}
-	sub, err := h.subscriptionService.AdminResetQuota(c.Request.Context(), subscriptionID, req.Daily, req.Weekly, req.Monthly)
+	sub, err := h.subscriptionService.AdminResetQuota(c.Request.Context(), subscriptionID, req.Daily, req.Weekly, req.Monthly, req.FiveHour, req.SevenDay, req.ThirtyDay)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

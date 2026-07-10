@@ -84,7 +84,7 @@ func NewGroupHandler(adminService service.AdminService, dashboardService *servic
 type CreateGroupRequest struct {
 	Name             string             `json:"name" binding:"required"`
 	Description      string             `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity"`
+	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai opencode_go gemini antigravity"`
 	RateMultiplier   float64            `json:"rate_multiplier"`
 	IsExclusive      bool               `json:"is_exclusive"`
 	SubscriptionType string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
@@ -124,7 +124,7 @@ type CreateGroupRequest struct {
 type UpdateGroupRequest struct {
 	Name             string             `json:"name"`
 	Description      *string            `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity"`
+	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai opencode_go gemini antigravity"`
 	RateMultiplier   *float64           `json:"rate_multiplier"`
 	IsExclusive      *bool              `json:"is_exclusive"`
 	Status           string             `json:"status" binding:"omitempty,oneof=active inactive"`
@@ -270,6 +270,9 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	if rejectOpenCodeGoRequireOAuthOnly(c, req.Platform, req.RequireOAuthOnly) {
+		return
+	}
 
 	group, err := h.adminService.CreateGroup(c.Request.Context(), &service.CreateGroupInput{
 		Name:                            req.Name,
@@ -325,6 +328,17 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	if req.RequireOAuthOnly != nil && *req.RequireOAuthOnly {
+		platform := req.Platform
+		if platform == "" {
+			if existing, getErr := h.adminService.GetGroup(c.Request.Context(), groupID); getErr == nil && existing != nil {
+				platform = existing.Platform
+			}
+		}
+		if rejectOpenCodeGoRequireOAuthOnly(c, platform, true) {
+			return
+		}
+	}
 
 	group, err := h.adminService.UpdateGroup(c.Request.Context(), groupID, &service.UpdateGroupInput{
 		Name:                            req.Name,
@@ -365,6 +379,14 @@ func (h *GroupHandler) Update(c *gin.Context) {
 	}
 
 	response.Success(c, dto.GroupFromServiceAdmin(group))
+}
+
+func rejectOpenCodeGoRequireOAuthOnly(c *gin.Context, platform string, requireOAuthOnly bool) bool {
+	if platform != service.PlatformOpenCodeGo || !requireOAuthOnly {
+		return false
+	}
+	response.BadRequest(c, "require_oauth_only is not supported for opencode_go groups")
+	return true
 }
 
 // Delete handles deleting a group

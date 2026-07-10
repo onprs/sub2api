@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
+	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
@@ -85,6 +86,26 @@ func (_u *UserSubscriptionUpdate) SetNillableGroupID(v *int64) *UserSubscription
 	return _u
 }
 
+// SetPlanID sets the "plan_id" field.
+func (_u *UserSubscriptionUpdate) SetPlanID(v int64) *UserSubscriptionUpdate {
+	_u.mutation.SetPlanID(v)
+	return _u
+}
+
+// SetNillablePlanID sets the "plan_id" field if the given value is not nil.
+func (_u *UserSubscriptionUpdate) SetNillablePlanID(v *int64) *UserSubscriptionUpdate {
+	if v != nil {
+		_u.SetPlanID(*v)
+	}
+	return _u
+}
+
+// ClearPlanID clears the value of the "plan_id" field.
+func (_u *UserSubscriptionUpdate) ClearPlanID() *UserSubscriptionUpdate {
+	_u.mutation.ClearPlanID()
+	return _u
+}
+
 // SetStartsAt sets the "starts_at" field.
 func (_u *UserSubscriptionUpdate) SetStartsAt(v time.Time) *UserSubscriptionUpdate {
 	_u.mutation.SetStartsAt(v)
@@ -124,6 +145,87 @@ func (_u *UserSubscriptionUpdate) SetNillableStatus(v *string) *UserSubscription
 	if v != nil {
 		_u.SetStatus(*v)
 	}
+	return _u
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (_u *UserSubscriptionUpdate) SetFiveHourLimitUsd(v float64) *UserSubscriptionUpdate {
+	_u.mutation.ResetFiveHourLimitUsd()
+	_u.mutation.SetFiveHourLimitUsd(v)
+	return _u
+}
+
+// SetNillableFiveHourLimitUsd sets the "five_hour_limit_usd" field if the given value is not nil.
+func (_u *UserSubscriptionUpdate) SetNillableFiveHourLimitUsd(v *float64) *UserSubscriptionUpdate {
+	if v != nil {
+		_u.SetFiveHourLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddFiveHourLimitUsd adds value to the "five_hour_limit_usd" field.
+func (_u *UserSubscriptionUpdate) AddFiveHourLimitUsd(v float64) *UserSubscriptionUpdate {
+	_u.mutation.AddFiveHourLimitUsd(v)
+	return _u
+}
+
+// ClearFiveHourLimitUsd clears the value of the "five_hour_limit_usd" field.
+func (_u *UserSubscriptionUpdate) ClearFiveHourLimitUsd() *UserSubscriptionUpdate {
+	_u.mutation.ClearFiveHourLimitUsd()
+	return _u
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (_u *UserSubscriptionUpdate) SetSevenDayLimitUsd(v float64) *UserSubscriptionUpdate {
+	_u.mutation.ResetSevenDayLimitUsd()
+	_u.mutation.SetSevenDayLimitUsd(v)
+	return _u
+}
+
+// SetNillableSevenDayLimitUsd sets the "seven_day_limit_usd" field if the given value is not nil.
+func (_u *UserSubscriptionUpdate) SetNillableSevenDayLimitUsd(v *float64) *UserSubscriptionUpdate {
+	if v != nil {
+		_u.SetSevenDayLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddSevenDayLimitUsd adds value to the "seven_day_limit_usd" field.
+func (_u *UserSubscriptionUpdate) AddSevenDayLimitUsd(v float64) *UserSubscriptionUpdate {
+	_u.mutation.AddSevenDayLimitUsd(v)
+	return _u
+}
+
+// ClearSevenDayLimitUsd clears the value of the "seven_day_limit_usd" field.
+func (_u *UserSubscriptionUpdate) ClearSevenDayLimitUsd() *UserSubscriptionUpdate {
+	_u.mutation.ClearSevenDayLimitUsd()
+	return _u
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (_u *UserSubscriptionUpdate) SetThirtyDayLimitUsd(v float64) *UserSubscriptionUpdate {
+	_u.mutation.ResetThirtyDayLimitUsd()
+	_u.mutation.SetThirtyDayLimitUsd(v)
+	return _u
+}
+
+// SetNillableThirtyDayLimitUsd sets the "thirty_day_limit_usd" field if the given value is not nil.
+func (_u *UserSubscriptionUpdate) SetNillableThirtyDayLimitUsd(v *float64) *UserSubscriptionUpdate {
+	if v != nil {
+		_u.SetThirtyDayLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddThirtyDayLimitUsd adds value to the "thirty_day_limit_usd" field.
+func (_u *UserSubscriptionUpdate) AddThirtyDayLimitUsd(v float64) *UserSubscriptionUpdate {
+	_u.mutation.AddThirtyDayLimitUsd(v)
+	return _u
+}
+
+// ClearThirtyDayLimitUsd clears the value of the "thirty_day_limit_usd" field.
+func (_u *UserSubscriptionUpdate) ClearThirtyDayLimitUsd() *UserSubscriptionUpdate {
+	_u.mutation.ClearThirtyDayLimitUsd()
 	return _u
 }
 
@@ -187,6 +289,66 @@ func (_u *UserSubscriptionUpdate) ClearMonthlyWindowStart() *UserSubscriptionUpd
 	return _u
 }
 
+// SetFiveHourWindowStart sets the "five_hour_window_start" field.
+func (_u *UserSubscriptionUpdate) SetFiveHourWindowStart(v time.Time) *UserSubscriptionUpdate {
+	_u.mutation.SetFiveHourWindowStart(v)
+	return _u
+}
+
+// SetNillableFiveHourWindowStart sets the "five_hour_window_start" field if the given value is not nil.
+func (_u *UserSubscriptionUpdate) SetNillableFiveHourWindowStart(v *time.Time) *UserSubscriptionUpdate {
+	if v != nil {
+		_u.SetFiveHourWindowStart(*v)
+	}
+	return _u
+}
+
+// ClearFiveHourWindowStart clears the value of the "five_hour_window_start" field.
+func (_u *UserSubscriptionUpdate) ClearFiveHourWindowStart() *UserSubscriptionUpdate {
+	_u.mutation.ClearFiveHourWindowStart()
+	return _u
+}
+
+// SetSevenDayWindowStart sets the "seven_day_window_start" field.
+func (_u *UserSubscriptionUpdate) SetSevenDayWindowStart(v time.Time) *UserSubscriptionUpdate {
+	_u.mutation.SetSevenDayWindowStart(v)
+	return _u
+}
+
+// SetNillableSevenDayWindowStart sets the "seven_day_window_start" field if the given value is not nil.
+func (_u *UserSubscriptionUpdate) SetNillableSevenDayWindowStart(v *time.Time) *UserSubscriptionUpdate {
+	if v != nil {
+		_u.SetSevenDayWindowStart(*v)
+	}
+	return _u
+}
+
+// ClearSevenDayWindowStart clears the value of the "seven_day_window_start" field.
+func (_u *UserSubscriptionUpdate) ClearSevenDayWindowStart() *UserSubscriptionUpdate {
+	_u.mutation.ClearSevenDayWindowStart()
+	return _u
+}
+
+// SetThirtyDayWindowStart sets the "thirty_day_window_start" field.
+func (_u *UserSubscriptionUpdate) SetThirtyDayWindowStart(v time.Time) *UserSubscriptionUpdate {
+	_u.mutation.SetThirtyDayWindowStart(v)
+	return _u
+}
+
+// SetNillableThirtyDayWindowStart sets the "thirty_day_window_start" field if the given value is not nil.
+func (_u *UserSubscriptionUpdate) SetNillableThirtyDayWindowStart(v *time.Time) *UserSubscriptionUpdate {
+	if v != nil {
+		_u.SetThirtyDayWindowStart(*v)
+	}
+	return _u
+}
+
+// ClearThirtyDayWindowStart clears the value of the "thirty_day_window_start" field.
+func (_u *UserSubscriptionUpdate) ClearThirtyDayWindowStart() *UserSubscriptionUpdate {
+	_u.mutation.ClearThirtyDayWindowStart()
+	return _u
+}
+
 // SetDailyUsageUsd sets the "daily_usage_usd" field.
 func (_u *UserSubscriptionUpdate) SetDailyUsageUsd(v float64) *UserSubscriptionUpdate {
 	_u.mutation.ResetDailyUsageUsd()
@@ -247,6 +409,69 @@ func (_u *UserSubscriptionUpdate) SetNillableMonthlyUsageUsd(v *float64) *UserSu
 // AddMonthlyUsageUsd adds value to the "monthly_usage_usd" field.
 func (_u *UserSubscriptionUpdate) AddMonthlyUsageUsd(v float64) *UserSubscriptionUpdate {
 	_u.mutation.AddMonthlyUsageUsd(v)
+	return _u
+}
+
+// SetFiveHourUsageUsd sets the "five_hour_usage_usd" field.
+func (_u *UserSubscriptionUpdate) SetFiveHourUsageUsd(v float64) *UserSubscriptionUpdate {
+	_u.mutation.ResetFiveHourUsageUsd()
+	_u.mutation.SetFiveHourUsageUsd(v)
+	return _u
+}
+
+// SetNillableFiveHourUsageUsd sets the "five_hour_usage_usd" field if the given value is not nil.
+func (_u *UserSubscriptionUpdate) SetNillableFiveHourUsageUsd(v *float64) *UserSubscriptionUpdate {
+	if v != nil {
+		_u.SetFiveHourUsageUsd(*v)
+	}
+	return _u
+}
+
+// AddFiveHourUsageUsd adds value to the "five_hour_usage_usd" field.
+func (_u *UserSubscriptionUpdate) AddFiveHourUsageUsd(v float64) *UserSubscriptionUpdate {
+	_u.mutation.AddFiveHourUsageUsd(v)
+	return _u
+}
+
+// SetSevenDayUsageUsd sets the "seven_day_usage_usd" field.
+func (_u *UserSubscriptionUpdate) SetSevenDayUsageUsd(v float64) *UserSubscriptionUpdate {
+	_u.mutation.ResetSevenDayUsageUsd()
+	_u.mutation.SetSevenDayUsageUsd(v)
+	return _u
+}
+
+// SetNillableSevenDayUsageUsd sets the "seven_day_usage_usd" field if the given value is not nil.
+func (_u *UserSubscriptionUpdate) SetNillableSevenDayUsageUsd(v *float64) *UserSubscriptionUpdate {
+	if v != nil {
+		_u.SetSevenDayUsageUsd(*v)
+	}
+	return _u
+}
+
+// AddSevenDayUsageUsd adds value to the "seven_day_usage_usd" field.
+func (_u *UserSubscriptionUpdate) AddSevenDayUsageUsd(v float64) *UserSubscriptionUpdate {
+	_u.mutation.AddSevenDayUsageUsd(v)
+	return _u
+}
+
+// SetThirtyDayUsageUsd sets the "thirty_day_usage_usd" field.
+func (_u *UserSubscriptionUpdate) SetThirtyDayUsageUsd(v float64) *UserSubscriptionUpdate {
+	_u.mutation.ResetThirtyDayUsageUsd()
+	_u.mutation.SetThirtyDayUsageUsd(v)
+	return _u
+}
+
+// SetNillableThirtyDayUsageUsd sets the "thirty_day_usage_usd" field if the given value is not nil.
+func (_u *UserSubscriptionUpdate) SetNillableThirtyDayUsageUsd(v *float64) *UserSubscriptionUpdate {
+	if v != nil {
+		_u.SetThirtyDayUsageUsd(*v)
+	}
+	return _u
+}
+
+// AddThirtyDayUsageUsd adds value to the "thirty_day_usage_usd" field.
+func (_u *UserSubscriptionUpdate) AddThirtyDayUsageUsd(v float64) *UserSubscriptionUpdate {
+	_u.mutation.AddThirtyDayUsageUsd(v)
 	return _u
 }
 
@@ -314,6 +539,11 @@ func (_u *UserSubscriptionUpdate) SetGroup(v *Group) *UserSubscriptionUpdate {
 	return _u.SetGroupID(v.ID)
 }
 
+// SetPlan sets the "plan" edge to the SubscriptionPlan entity.
+func (_u *UserSubscriptionUpdate) SetPlan(v *SubscriptionPlan) *UserSubscriptionUpdate {
+	return _u.SetPlanID(v.ID)
+}
+
 // SetAssignedByUserID sets the "assigned_by_user" edge to the User entity by ID.
 func (_u *UserSubscriptionUpdate) SetAssignedByUserID(id int64) *UserSubscriptionUpdate {
 	_u.mutation.SetAssignedByUserID(id)
@@ -362,6 +592,12 @@ func (_u *UserSubscriptionUpdate) ClearUser() *UserSubscriptionUpdate {
 // ClearGroup clears the "group" edge to the Group entity.
 func (_u *UserSubscriptionUpdate) ClearGroup() *UserSubscriptionUpdate {
 	_u.mutation.ClearGroup()
+	return _u
+}
+
+// ClearPlan clears the "plan" edge to the SubscriptionPlan entity.
+func (_u *UserSubscriptionUpdate) ClearPlan() *UserSubscriptionUpdate {
+	_u.mutation.ClearPlan()
 	return _u
 }
 
@@ -441,6 +677,21 @@ func (_u *UserSubscriptionUpdate) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "UserSubscription.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.FiveHourLimitUsd(); ok {
+		if err := usersubscription.FiveHourLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "five_hour_limit_usd", err: fmt.Errorf(`ent: validator failed for field "UserSubscription.five_hour_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SevenDayLimitUsd(); ok {
+		if err := usersubscription.SevenDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "seven_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "UserSubscription.seven_day_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ThirtyDayLimitUsd(); ok {
+		if err := usersubscription.ThirtyDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "thirty_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "UserSubscription.thirty_day_limit_usd": %w`, err)}
+		}
+	}
 	if _u.mutation.UserCleared() && len(_u.mutation.UserIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "UserSubscription.user"`)
 	}
@@ -480,6 +731,33 @@ func (_u *UserSubscriptionUpdate) sqlSave(ctx context.Context) (_node int, err e
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(usersubscription.FieldStatus, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.FiveHourLimitUsd(); ok {
+		_spec.SetField(usersubscription.FieldFiveHourLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedFiveHourLimitUsd(); ok {
+		_spec.AddField(usersubscription.FieldFiveHourLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.FiveHourLimitUsdCleared() {
+		_spec.ClearField(usersubscription.FieldFiveHourLimitUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SevenDayLimitUsd(); ok {
+		_spec.SetField(usersubscription.FieldSevenDayLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSevenDayLimitUsd(); ok {
+		_spec.AddField(usersubscription.FieldSevenDayLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.SevenDayLimitUsdCleared() {
+		_spec.ClearField(usersubscription.FieldSevenDayLimitUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.ThirtyDayLimitUsd(); ok {
+		_spec.SetField(usersubscription.FieldThirtyDayLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedThirtyDayLimitUsd(); ok {
+		_spec.AddField(usersubscription.FieldThirtyDayLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.ThirtyDayLimitUsdCleared() {
+		_spec.ClearField(usersubscription.FieldThirtyDayLimitUsd, field.TypeFloat64)
+	}
 	if value, ok := _u.mutation.DailyWindowStart(); ok {
 		_spec.SetField(usersubscription.FieldDailyWindowStart, field.TypeTime, value)
 	}
@@ -498,6 +776,24 @@ func (_u *UserSubscriptionUpdate) sqlSave(ctx context.Context) (_node int, err e
 	if _u.mutation.MonthlyWindowStartCleared() {
 		_spec.ClearField(usersubscription.FieldMonthlyWindowStart, field.TypeTime)
 	}
+	if value, ok := _u.mutation.FiveHourWindowStart(); ok {
+		_spec.SetField(usersubscription.FieldFiveHourWindowStart, field.TypeTime, value)
+	}
+	if _u.mutation.FiveHourWindowStartCleared() {
+		_spec.ClearField(usersubscription.FieldFiveHourWindowStart, field.TypeTime)
+	}
+	if value, ok := _u.mutation.SevenDayWindowStart(); ok {
+		_spec.SetField(usersubscription.FieldSevenDayWindowStart, field.TypeTime, value)
+	}
+	if _u.mutation.SevenDayWindowStartCleared() {
+		_spec.ClearField(usersubscription.FieldSevenDayWindowStart, field.TypeTime)
+	}
+	if value, ok := _u.mutation.ThirtyDayWindowStart(); ok {
+		_spec.SetField(usersubscription.FieldThirtyDayWindowStart, field.TypeTime, value)
+	}
+	if _u.mutation.ThirtyDayWindowStartCleared() {
+		_spec.ClearField(usersubscription.FieldThirtyDayWindowStart, field.TypeTime)
+	}
 	if value, ok := _u.mutation.DailyUsageUsd(); ok {
 		_spec.SetField(usersubscription.FieldDailyUsageUsd, field.TypeFloat64, value)
 	}
@@ -515,6 +811,24 @@ func (_u *UserSubscriptionUpdate) sqlSave(ctx context.Context) (_node int, err e
 	}
 	if value, ok := _u.mutation.AddedMonthlyUsageUsd(); ok {
 		_spec.AddField(usersubscription.FieldMonthlyUsageUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.FiveHourUsageUsd(); ok {
+		_spec.SetField(usersubscription.FieldFiveHourUsageUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedFiveHourUsageUsd(); ok {
+		_spec.AddField(usersubscription.FieldFiveHourUsageUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.SevenDayUsageUsd(); ok {
+		_spec.SetField(usersubscription.FieldSevenDayUsageUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSevenDayUsageUsd(); ok {
+		_spec.AddField(usersubscription.FieldSevenDayUsageUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.ThirtyDayUsageUsd(); ok {
+		_spec.SetField(usersubscription.FieldThirtyDayUsageUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedThirtyDayUsageUsd(); ok {
+		_spec.AddField(usersubscription.FieldThirtyDayUsageUsd, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.AssignedAt(); ok {
 		_spec.SetField(usersubscription.FieldAssignedAt, field.TypeTime, value)
@@ -576,6 +890,35 @@ func (_u *UserSubscriptionUpdate) sqlSave(ctx context.Context) (_node int, err e
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.PlanCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usersubscription.PlanTable,
+			Columns: []string{usersubscription.PlanColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subscriptionplan.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.PlanIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usersubscription.PlanTable,
+			Columns: []string{usersubscription.PlanColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subscriptionplan.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -731,6 +1074,26 @@ func (_u *UserSubscriptionUpdateOne) SetNillableGroupID(v *int64) *UserSubscript
 	return _u
 }
 
+// SetPlanID sets the "plan_id" field.
+func (_u *UserSubscriptionUpdateOne) SetPlanID(v int64) *UserSubscriptionUpdateOne {
+	_u.mutation.SetPlanID(v)
+	return _u
+}
+
+// SetNillablePlanID sets the "plan_id" field if the given value is not nil.
+func (_u *UserSubscriptionUpdateOne) SetNillablePlanID(v *int64) *UserSubscriptionUpdateOne {
+	if v != nil {
+		_u.SetPlanID(*v)
+	}
+	return _u
+}
+
+// ClearPlanID clears the value of the "plan_id" field.
+func (_u *UserSubscriptionUpdateOne) ClearPlanID() *UserSubscriptionUpdateOne {
+	_u.mutation.ClearPlanID()
+	return _u
+}
+
 // SetStartsAt sets the "starts_at" field.
 func (_u *UserSubscriptionUpdateOne) SetStartsAt(v time.Time) *UserSubscriptionUpdateOne {
 	_u.mutation.SetStartsAt(v)
@@ -770,6 +1133,87 @@ func (_u *UserSubscriptionUpdateOne) SetNillableStatus(v *string) *UserSubscript
 	if v != nil {
 		_u.SetStatus(*v)
 	}
+	return _u
+}
+
+// SetFiveHourLimitUsd sets the "five_hour_limit_usd" field.
+func (_u *UserSubscriptionUpdateOne) SetFiveHourLimitUsd(v float64) *UserSubscriptionUpdateOne {
+	_u.mutation.ResetFiveHourLimitUsd()
+	_u.mutation.SetFiveHourLimitUsd(v)
+	return _u
+}
+
+// SetNillableFiveHourLimitUsd sets the "five_hour_limit_usd" field if the given value is not nil.
+func (_u *UserSubscriptionUpdateOne) SetNillableFiveHourLimitUsd(v *float64) *UserSubscriptionUpdateOne {
+	if v != nil {
+		_u.SetFiveHourLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddFiveHourLimitUsd adds value to the "five_hour_limit_usd" field.
+func (_u *UserSubscriptionUpdateOne) AddFiveHourLimitUsd(v float64) *UserSubscriptionUpdateOne {
+	_u.mutation.AddFiveHourLimitUsd(v)
+	return _u
+}
+
+// ClearFiveHourLimitUsd clears the value of the "five_hour_limit_usd" field.
+func (_u *UserSubscriptionUpdateOne) ClearFiveHourLimitUsd() *UserSubscriptionUpdateOne {
+	_u.mutation.ClearFiveHourLimitUsd()
+	return _u
+}
+
+// SetSevenDayLimitUsd sets the "seven_day_limit_usd" field.
+func (_u *UserSubscriptionUpdateOne) SetSevenDayLimitUsd(v float64) *UserSubscriptionUpdateOne {
+	_u.mutation.ResetSevenDayLimitUsd()
+	_u.mutation.SetSevenDayLimitUsd(v)
+	return _u
+}
+
+// SetNillableSevenDayLimitUsd sets the "seven_day_limit_usd" field if the given value is not nil.
+func (_u *UserSubscriptionUpdateOne) SetNillableSevenDayLimitUsd(v *float64) *UserSubscriptionUpdateOne {
+	if v != nil {
+		_u.SetSevenDayLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddSevenDayLimitUsd adds value to the "seven_day_limit_usd" field.
+func (_u *UserSubscriptionUpdateOne) AddSevenDayLimitUsd(v float64) *UserSubscriptionUpdateOne {
+	_u.mutation.AddSevenDayLimitUsd(v)
+	return _u
+}
+
+// ClearSevenDayLimitUsd clears the value of the "seven_day_limit_usd" field.
+func (_u *UserSubscriptionUpdateOne) ClearSevenDayLimitUsd() *UserSubscriptionUpdateOne {
+	_u.mutation.ClearSevenDayLimitUsd()
+	return _u
+}
+
+// SetThirtyDayLimitUsd sets the "thirty_day_limit_usd" field.
+func (_u *UserSubscriptionUpdateOne) SetThirtyDayLimitUsd(v float64) *UserSubscriptionUpdateOne {
+	_u.mutation.ResetThirtyDayLimitUsd()
+	_u.mutation.SetThirtyDayLimitUsd(v)
+	return _u
+}
+
+// SetNillableThirtyDayLimitUsd sets the "thirty_day_limit_usd" field if the given value is not nil.
+func (_u *UserSubscriptionUpdateOne) SetNillableThirtyDayLimitUsd(v *float64) *UserSubscriptionUpdateOne {
+	if v != nil {
+		_u.SetThirtyDayLimitUsd(*v)
+	}
+	return _u
+}
+
+// AddThirtyDayLimitUsd adds value to the "thirty_day_limit_usd" field.
+func (_u *UserSubscriptionUpdateOne) AddThirtyDayLimitUsd(v float64) *UserSubscriptionUpdateOne {
+	_u.mutation.AddThirtyDayLimitUsd(v)
+	return _u
+}
+
+// ClearThirtyDayLimitUsd clears the value of the "thirty_day_limit_usd" field.
+func (_u *UserSubscriptionUpdateOne) ClearThirtyDayLimitUsd() *UserSubscriptionUpdateOne {
+	_u.mutation.ClearThirtyDayLimitUsd()
 	return _u
 }
 
@@ -833,6 +1277,66 @@ func (_u *UserSubscriptionUpdateOne) ClearMonthlyWindowStart() *UserSubscription
 	return _u
 }
 
+// SetFiveHourWindowStart sets the "five_hour_window_start" field.
+func (_u *UserSubscriptionUpdateOne) SetFiveHourWindowStart(v time.Time) *UserSubscriptionUpdateOne {
+	_u.mutation.SetFiveHourWindowStart(v)
+	return _u
+}
+
+// SetNillableFiveHourWindowStart sets the "five_hour_window_start" field if the given value is not nil.
+func (_u *UserSubscriptionUpdateOne) SetNillableFiveHourWindowStart(v *time.Time) *UserSubscriptionUpdateOne {
+	if v != nil {
+		_u.SetFiveHourWindowStart(*v)
+	}
+	return _u
+}
+
+// ClearFiveHourWindowStart clears the value of the "five_hour_window_start" field.
+func (_u *UserSubscriptionUpdateOne) ClearFiveHourWindowStart() *UserSubscriptionUpdateOne {
+	_u.mutation.ClearFiveHourWindowStart()
+	return _u
+}
+
+// SetSevenDayWindowStart sets the "seven_day_window_start" field.
+func (_u *UserSubscriptionUpdateOne) SetSevenDayWindowStart(v time.Time) *UserSubscriptionUpdateOne {
+	_u.mutation.SetSevenDayWindowStart(v)
+	return _u
+}
+
+// SetNillableSevenDayWindowStart sets the "seven_day_window_start" field if the given value is not nil.
+func (_u *UserSubscriptionUpdateOne) SetNillableSevenDayWindowStart(v *time.Time) *UserSubscriptionUpdateOne {
+	if v != nil {
+		_u.SetSevenDayWindowStart(*v)
+	}
+	return _u
+}
+
+// ClearSevenDayWindowStart clears the value of the "seven_day_window_start" field.
+func (_u *UserSubscriptionUpdateOne) ClearSevenDayWindowStart() *UserSubscriptionUpdateOne {
+	_u.mutation.ClearSevenDayWindowStart()
+	return _u
+}
+
+// SetThirtyDayWindowStart sets the "thirty_day_window_start" field.
+func (_u *UserSubscriptionUpdateOne) SetThirtyDayWindowStart(v time.Time) *UserSubscriptionUpdateOne {
+	_u.mutation.SetThirtyDayWindowStart(v)
+	return _u
+}
+
+// SetNillableThirtyDayWindowStart sets the "thirty_day_window_start" field if the given value is not nil.
+func (_u *UserSubscriptionUpdateOne) SetNillableThirtyDayWindowStart(v *time.Time) *UserSubscriptionUpdateOne {
+	if v != nil {
+		_u.SetThirtyDayWindowStart(*v)
+	}
+	return _u
+}
+
+// ClearThirtyDayWindowStart clears the value of the "thirty_day_window_start" field.
+func (_u *UserSubscriptionUpdateOne) ClearThirtyDayWindowStart() *UserSubscriptionUpdateOne {
+	_u.mutation.ClearThirtyDayWindowStart()
+	return _u
+}
+
 // SetDailyUsageUsd sets the "daily_usage_usd" field.
 func (_u *UserSubscriptionUpdateOne) SetDailyUsageUsd(v float64) *UserSubscriptionUpdateOne {
 	_u.mutation.ResetDailyUsageUsd()
@@ -893,6 +1397,69 @@ func (_u *UserSubscriptionUpdateOne) SetNillableMonthlyUsageUsd(v *float64) *Use
 // AddMonthlyUsageUsd adds value to the "monthly_usage_usd" field.
 func (_u *UserSubscriptionUpdateOne) AddMonthlyUsageUsd(v float64) *UserSubscriptionUpdateOne {
 	_u.mutation.AddMonthlyUsageUsd(v)
+	return _u
+}
+
+// SetFiveHourUsageUsd sets the "five_hour_usage_usd" field.
+func (_u *UserSubscriptionUpdateOne) SetFiveHourUsageUsd(v float64) *UserSubscriptionUpdateOne {
+	_u.mutation.ResetFiveHourUsageUsd()
+	_u.mutation.SetFiveHourUsageUsd(v)
+	return _u
+}
+
+// SetNillableFiveHourUsageUsd sets the "five_hour_usage_usd" field if the given value is not nil.
+func (_u *UserSubscriptionUpdateOne) SetNillableFiveHourUsageUsd(v *float64) *UserSubscriptionUpdateOne {
+	if v != nil {
+		_u.SetFiveHourUsageUsd(*v)
+	}
+	return _u
+}
+
+// AddFiveHourUsageUsd adds value to the "five_hour_usage_usd" field.
+func (_u *UserSubscriptionUpdateOne) AddFiveHourUsageUsd(v float64) *UserSubscriptionUpdateOne {
+	_u.mutation.AddFiveHourUsageUsd(v)
+	return _u
+}
+
+// SetSevenDayUsageUsd sets the "seven_day_usage_usd" field.
+func (_u *UserSubscriptionUpdateOne) SetSevenDayUsageUsd(v float64) *UserSubscriptionUpdateOne {
+	_u.mutation.ResetSevenDayUsageUsd()
+	_u.mutation.SetSevenDayUsageUsd(v)
+	return _u
+}
+
+// SetNillableSevenDayUsageUsd sets the "seven_day_usage_usd" field if the given value is not nil.
+func (_u *UserSubscriptionUpdateOne) SetNillableSevenDayUsageUsd(v *float64) *UserSubscriptionUpdateOne {
+	if v != nil {
+		_u.SetSevenDayUsageUsd(*v)
+	}
+	return _u
+}
+
+// AddSevenDayUsageUsd adds value to the "seven_day_usage_usd" field.
+func (_u *UserSubscriptionUpdateOne) AddSevenDayUsageUsd(v float64) *UserSubscriptionUpdateOne {
+	_u.mutation.AddSevenDayUsageUsd(v)
+	return _u
+}
+
+// SetThirtyDayUsageUsd sets the "thirty_day_usage_usd" field.
+func (_u *UserSubscriptionUpdateOne) SetThirtyDayUsageUsd(v float64) *UserSubscriptionUpdateOne {
+	_u.mutation.ResetThirtyDayUsageUsd()
+	_u.mutation.SetThirtyDayUsageUsd(v)
+	return _u
+}
+
+// SetNillableThirtyDayUsageUsd sets the "thirty_day_usage_usd" field if the given value is not nil.
+func (_u *UserSubscriptionUpdateOne) SetNillableThirtyDayUsageUsd(v *float64) *UserSubscriptionUpdateOne {
+	if v != nil {
+		_u.SetThirtyDayUsageUsd(*v)
+	}
+	return _u
+}
+
+// AddThirtyDayUsageUsd adds value to the "thirty_day_usage_usd" field.
+func (_u *UserSubscriptionUpdateOne) AddThirtyDayUsageUsd(v float64) *UserSubscriptionUpdateOne {
+	_u.mutation.AddThirtyDayUsageUsd(v)
 	return _u
 }
 
@@ -960,6 +1527,11 @@ func (_u *UserSubscriptionUpdateOne) SetGroup(v *Group) *UserSubscriptionUpdateO
 	return _u.SetGroupID(v.ID)
 }
 
+// SetPlan sets the "plan" edge to the SubscriptionPlan entity.
+func (_u *UserSubscriptionUpdateOne) SetPlan(v *SubscriptionPlan) *UserSubscriptionUpdateOne {
+	return _u.SetPlanID(v.ID)
+}
+
 // SetAssignedByUserID sets the "assigned_by_user" edge to the User entity by ID.
 func (_u *UserSubscriptionUpdateOne) SetAssignedByUserID(id int64) *UserSubscriptionUpdateOne {
 	_u.mutation.SetAssignedByUserID(id)
@@ -1008,6 +1580,12 @@ func (_u *UserSubscriptionUpdateOne) ClearUser() *UserSubscriptionUpdateOne {
 // ClearGroup clears the "group" edge to the Group entity.
 func (_u *UserSubscriptionUpdateOne) ClearGroup() *UserSubscriptionUpdateOne {
 	_u.mutation.ClearGroup()
+	return _u
+}
+
+// ClearPlan clears the "plan" edge to the SubscriptionPlan entity.
+func (_u *UserSubscriptionUpdateOne) ClearPlan() *UserSubscriptionUpdateOne {
+	_u.mutation.ClearPlan()
 	return _u
 }
 
@@ -1100,6 +1678,21 @@ func (_u *UserSubscriptionUpdateOne) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "UserSubscription.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.FiveHourLimitUsd(); ok {
+		if err := usersubscription.FiveHourLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "five_hour_limit_usd", err: fmt.Errorf(`ent: validator failed for field "UserSubscription.five_hour_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SevenDayLimitUsd(); ok {
+		if err := usersubscription.SevenDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "seven_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "UserSubscription.seven_day_limit_usd": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ThirtyDayLimitUsd(); ok {
+		if err := usersubscription.ThirtyDayLimitUsdValidator(v); err != nil {
+			return &ValidationError{Name: "thirty_day_limit_usd", err: fmt.Errorf(`ent: validator failed for field "UserSubscription.thirty_day_limit_usd": %w`, err)}
+		}
+	}
 	if _u.mutation.UserCleared() && len(_u.mutation.UserIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "UserSubscription.user"`)
 	}
@@ -1156,6 +1749,33 @@ func (_u *UserSubscriptionUpdateOne) sqlSave(ctx context.Context) (_node *UserSu
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(usersubscription.FieldStatus, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.FiveHourLimitUsd(); ok {
+		_spec.SetField(usersubscription.FieldFiveHourLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedFiveHourLimitUsd(); ok {
+		_spec.AddField(usersubscription.FieldFiveHourLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.FiveHourLimitUsdCleared() {
+		_spec.ClearField(usersubscription.FieldFiveHourLimitUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SevenDayLimitUsd(); ok {
+		_spec.SetField(usersubscription.FieldSevenDayLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSevenDayLimitUsd(); ok {
+		_spec.AddField(usersubscription.FieldSevenDayLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.SevenDayLimitUsdCleared() {
+		_spec.ClearField(usersubscription.FieldSevenDayLimitUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.ThirtyDayLimitUsd(); ok {
+		_spec.SetField(usersubscription.FieldThirtyDayLimitUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedThirtyDayLimitUsd(); ok {
+		_spec.AddField(usersubscription.FieldThirtyDayLimitUsd, field.TypeFloat64, value)
+	}
+	if _u.mutation.ThirtyDayLimitUsdCleared() {
+		_spec.ClearField(usersubscription.FieldThirtyDayLimitUsd, field.TypeFloat64)
+	}
 	if value, ok := _u.mutation.DailyWindowStart(); ok {
 		_spec.SetField(usersubscription.FieldDailyWindowStart, field.TypeTime, value)
 	}
@@ -1174,6 +1794,24 @@ func (_u *UserSubscriptionUpdateOne) sqlSave(ctx context.Context) (_node *UserSu
 	if _u.mutation.MonthlyWindowStartCleared() {
 		_spec.ClearField(usersubscription.FieldMonthlyWindowStart, field.TypeTime)
 	}
+	if value, ok := _u.mutation.FiveHourWindowStart(); ok {
+		_spec.SetField(usersubscription.FieldFiveHourWindowStart, field.TypeTime, value)
+	}
+	if _u.mutation.FiveHourWindowStartCleared() {
+		_spec.ClearField(usersubscription.FieldFiveHourWindowStart, field.TypeTime)
+	}
+	if value, ok := _u.mutation.SevenDayWindowStart(); ok {
+		_spec.SetField(usersubscription.FieldSevenDayWindowStart, field.TypeTime, value)
+	}
+	if _u.mutation.SevenDayWindowStartCleared() {
+		_spec.ClearField(usersubscription.FieldSevenDayWindowStart, field.TypeTime)
+	}
+	if value, ok := _u.mutation.ThirtyDayWindowStart(); ok {
+		_spec.SetField(usersubscription.FieldThirtyDayWindowStart, field.TypeTime, value)
+	}
+	if _u.mutation.ThirtyDayWindowStartCleared() {
+		_spec.ClearField(usersubscription.FieldThirtyDayWindowStart, field.TypeTime)
+	}
 	if value, ok := _u.mutation.DailyUsageUsd(); ok {
 		_spec.SetField(usersubscription.FieldDailyUsageUsd, field.TypeFloat64, value)
 	}
@@ -1191,6 +1829,24 @@ func (_u *UserSubscriptionUpdateOne) sqlSave(ctx context.Context) (_node *UserSu
 	}
 	if value, ok := _u.mutation.AddedMonthlyUsageUsd(); ok {
 		_spec.AddField(usersubscription.FieldMonthlyUsageUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.FiveHourUsageUsd(); ok {
+		_spec.SetField(usersubscription.FieldFiveHourUsageUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedFiveHourUsageUsd(); ok {
+		_spec.AddField(usersubscription.FieldFiveHourUsageUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.SevenDayUsageUsd(); ok {
+		_spec.SetField(usersubscription.FieldSevenDayUsageUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedSevenDayUsageUsd(); ok {
+		_spec.AddField(usersubscription.FieldSevenDayUsageUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.ThirtyDayUsageUsd(); ok {
+		_spec.SetField(usersubscription.FieldThirtyDayUsageUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedThirtyDayUsageUsd(); ok {
+		_spec.AddField(usersubscription.FieldThirtyDayUsageUsd, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.AssignedAt(); ok {
 		_spec.SetField(usersubscription.FieldAssignedAt, field.TypeTime, value)
@@ -1252,6 +1908,35 @@ func (_u *UserSubscriptionUpdateOne) sqlSave(ctx context.Context) (_node *UserSu
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.PlanCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usersubscription.PlanTable,
+			Columns: []string{usersubscription.PlanColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subscriptionplan.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.PlanIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   usersubscription.PlanTable,
+			Columns: []string{usersubscription.PlanColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subscriptionplan.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

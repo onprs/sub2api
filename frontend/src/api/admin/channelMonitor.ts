@@ -5,10 +5,10 @@
 
 import { apiClient } from '../client'
 
-export type Provider = 'openai' | 'anthropic' | 'gemini'
+export type Provider = 'openai' | 'anthropic' | 'gemini' | 'antigravity_claude' | 'antigravity_gemini' | 'opencode_go'
 export type MonitorStatus = 'operational' | 'degraded' | 'failed' | 'error'
 export type BodyOverrideMode = 'off' | 'merge' | 'replace'
-export type APIMode = 'chat_completions' | 'responses'
+export type APIMode = 'chat_completions' | 'responses' | 'messages'
 
 export interface ChannelMonitor {
   id: number

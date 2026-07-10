@@ -110,6 +110,31 @@ func ValidityDays(v int) predicate.RedeemCode {
 	return predicate.RedeemCode(sql.FieldEQ(FieldValidityDays, v))
 }
 
+// SubscriptionPlanID applies equality check predicate on the "subscription_plan_id" field. It's identical to SubscriptionPlanIDEQ.
+func SubscriptionPlanID(v int64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldEQ(FieldSubscriptionPlanID, v))
+}
+
+// SubscriptionQuotaSnapshotVersion applies equality check predicate on the "subscription_quota_snapshot_version" field. It's identical to SubscriptionQuotaSnapshotVersionEQ.
+func SubscriptionQuotaSnapshotVersion(v int) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldEQ(FieldSubscriptionQuotaSnapshotVersion, v))
+}
+
+// FiveHourLimitUsd applies equality check predicate on the "five_hour_limit_usd" field. It's identical to FiveHourLimitUsdEQ.
+func FiveHourLimitUsd(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldEQ(FieldFiveHourLimitUsd, v))
+}
+
+// SevenDayLimitUsd applies equality check predicate on the "seven_day_limit_usd" field. It's identical to SevenDayLimitUsdEQ.
+func SevenDayLimitUsd(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldEQ(FieldSevenDayLimitUsd, v))
+}
+
+// ThirtyDayLimitUsd applies equality check predicate on the "thirty_day_limit_usd" field. It's identical to ThirtyDayLimitUsdEQ.
+func ThirtyDayLimitUsd(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldEQ(FieldThirtyDayLimitUsd, v))
+}
+
 // CodeEQ applies the EQ predicate on the "code" field.
 func CodeEQ(v string) predicate.RedeemCode {
 	return predicate.RedeemCode(sql.FieldEQ(FieldCode, v))
@@ -660,6 +685,226 @@ func ValidityDaysLTE(v int) predicate.RedeemCode {
 	return predicate.RedeemCode(sql.FieldLTE(FieldValidityDays, v))
 }
 
+// SubscriptionPlanIDEQ applies the EQ predicate on the "subscription_plan_id" field.
+func SubscriptionPlanIDEQ(v int64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldEQ(FieldSubscriptionPlanID, v))
+}
+
+// SubscriptionPlanIDNEQ applies the NEQ predicate on the "subscription_plan_id" field.
+func SubscriptionPlanIDNEQ(v int64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNEQ(FieldSubscriptionPlanID, v))
+}
+
+// SubscriptionPlanIDIn applies the In predicate on the "subscription_plan_id" field.
+func SubscriptionPlanIDIn(vs ...int64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldIn(FieldSubscriptionPlanID, vs...))
+}
+
+// SubscriptionPlanIDNotIn applies the NotIn predicate on the "subscription_plan_id" field.
+func SubscriptionPlanIDNotIn(vs ...int64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNotIn(FieldSubscriptionPlanID, vs...))
+}
+
+// SubscriptionPlanIDIsNil applies the IsNil predicate on the "subscription_plan_id" field.
+func SubscriptionPlanIDIsNil() predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldIsNull(FieldSubscriptionPlanID))
+}
+
+// SubscriptionPlanIDNotNil applies the NotNil predicate on the "subscription_plan_id" field.
+func SubscriptionPlanIDNotNil() predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNotNull(FieldSubscriptionPlanID))
+}
+
+// SubscriptionQuotaSnapshotVersionEQ applies the EQ predicate on the "subscription_quota_snapshot_version" field.
+func SubscriptionQuotaSnapshotVersionEQ(v int) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldEQ(FieldSubscriptionQuotaSnapshotVersion, v))
+}
+
+// SubscriptionQuotaSnapshotVersionNEQ applies the NEQ predicate on the "subscription_quota_snapshot_version" field.
+func SubscriptionQuotaSnapshotVersionNEQ(v int) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNEQ(FieldSubscriptionQuotaSnapshotVersion, v))
+}
+
+// SubscriptionQuotaSnapshotVersionIn applies the In predicate on the "subscription_quota_snapshot_version" field.
+func SubscriptionQuotaSnapshotVersionIn(vs ...int) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldIn(FieldSubscriptionQuotaSnapshotVersion, vs...))
+}
+
+// SubscriptionQuotaSnapshotVersionNotIn applies the NotIn predicate on the "subscription_quota_snapshot_version" field.
+func SubscriptionQuotaSnapshotVersionNotIn(vs ...int) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNotIn(FieldSubscriptionQuotaSnapshotVersion, vs...))
+}
+
+// SubscriptionQuotaSnapshotVersionGT applies the GT predicate on the "subscription_quota_snapshot_version" field.
+func SubscriptionQuotaSnapshotVersionGT(v int) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldGT(FieldSubscriptionQuotaSnapshotVersion, v))
+}
+
+// SubscriptionQuotaSnapshotVersionGTE applies the GTE predicate on the "subscription_quota_snapshot_version" field.
+func SubscriptionQuotaSnapshotVersionGTE(v int) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldGTE(FieldSubscriptionQuotaSnapshotVersion, v))
+}
+
+// SubscriptionQuotaSnapshotVersionLT applies the LT predicate on the "subscription_quota_snapshot_version" field.
+func SubscriptionQuotaSnapshotVersionLT(v int) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldLT(FieldSubscriptionQuotaSnapshotVersion, v))
+}
+
+// SubscriptionQuotaSnapshotVersionLTE applies the LTE predicate on the "subscription_quota_snapshot_version" field.
+func SubscriptionQuotaSnapshotVersionLTE(v int) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldLTE(FieldSubscriptionQuotaSnapshotVersion, v))
+}
+
+// FiveHourLimitUsdEQ applies the EQ predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdEQ(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldEQ(FieldFiveHourLimitUsd, v))
+}
+
+// FiveHourLimitUsdNEQ applies the NEQ predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdNEQ(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNEQ(FieldFiveHourLimitUsd, v))
+}
+
+// FiveHourLimitUsdIn applies the In predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdIn(vs ...float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldIn(FieldFiveHourLimitUsd, vs...))
+}
+
+// FiveHourLimitUsdNotIn applies the NotIn predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdNotIn(vs ...float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNotIn(FieldFiveHourLimitUsd, vs...))
+}
+
+// FiveHourLimitUsdGT applies the GT predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdGT(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldGT(FieldFiveHourLimitUsd, v))
+}
+
+// FiveHourLimitUsdGTE applies the GTE predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdGTE(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldGTE(FieldFiveHourLimitUsd, v))
+}
+
+// FiveHourLimitUsdLT applies the LT predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdLT(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldLT(FieldFiveHourLimitUsd, v))
+}
+
+// FiveHourLimitUsdLTE applies the LTE predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdLTE(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldLTE(FieldFiveHourLimitUsd, v))
+}
+
+// FiveHourLimitUsdIsNil applies the IsNil predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdIsNil() predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldIsNull(FieldFiveHourLimitUsd))
+}
+
+// FiveHourLimitUsdNotNil applies the NotNil predicate on the "five_hour_limit_usd" field.
+func FiveHourLimitUsdNotNil() predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNotNull(FieldFiveHourLimitUsd))
+}
+
+// SevenDayLimitUsdEQ applies the EQ predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdEQ(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldEQ(FieldSevenDayLimitUsd, v))
+}
+
+// SevenDayLimitUsdNEQ applies the NEQ predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdNEQ(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNEQ(FieldSevenDayLimitUsd, v))
+}
+
+// SevenDayLimitUsdIn applies the In predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdIn(vs ...float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldIn(FieldSevenDayLimitUsd, vs...))
+}
+
+// SevenDayLimitUsdNotIn applies the NotIn predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdNotIn(vs ...float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNotIn(FieldSevenDayLimitUsd, vs...))
+}
+
+// SevenDayLimitUsdGT applies the GT predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdGT(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldGT(FieldSevenDayLimitUsd, v))
+}
+
+// SevenDayLimitUsdGTE applies the GTE predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdGTE(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldGTE(FieldSevenDayLimitUsd, v))
+}
+
+// SevenDayLimitUsdLT applies the LT predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdLT(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldLT(FieldSevenDayLimitUsd, v))
+}
+
+// SevenDayLimitUsdLTE applies the LTE predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdLTE(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldLTE(FieldSevenDayLimitUsd, v))
+}
+
+// SevenDayLimitUsdIsNil applies the IsNil predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdIsNil() predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldIsNull(FieldSevenDayLimitUsd))
+}
+
+// SevenDayLimitUsdNotNil applies the NotNil predicate on the "seven_day_limit_usd" field.
+func SevenDayLimitUsdNotNil() predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNotNull(FieldSevenDayLimitUsd))
+}
+
+// ThirtyDayLimitUsdEQ applies the EQ predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdEQ(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldEQ(FieldThirtyDayLimitUsd, v))
+}
+
+// ThirtyDayLimitUsdNEQ applies the NEQ predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdNEQ(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNEQ(FieldThirtyDayLimitUsd, v))
+}
+
+// ThirtyDayLimitUsdIn applies the In predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdIn(vs ...float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldIn(FieldThirtyDayLimitUsd, vs...))
+}
+
+// ThirtyDayLimitUsdNotIn applies the NotIn predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdNotIn(vs ...float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNotIn(FieldThirtyDayLimitUsd, vs...))
+}
+
+// ThirtyDayLimitUsdGT applies the GT predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdGT(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldGT(FieldThirtyDayLimitUsd, v))
+}
+
+// ThirtyDayLimitUsdGTE applies the GTE predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdGTE(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldGTE(FieldThirtyDayLimitUsd, v))
+}
+
+// ThirtyDayLimitUsdLT applies the LT predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdLT(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldLT(FieldThirtyDayLimitUsd, v))
+}
+
+// ThirtyDayLimitUsdLTE applies the LTE predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdLTE(v float64) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldLTE(FieldThirtyDayLimitUsd, v))
+}
+
+// ThirtyDayLimitUsdIsNil applies the IsNil predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdIsNil() predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldIsNull(FieldThirtyDayLimitUsd))
+}
+
+// ThirtyDayLimitUsdNotNil applies the NotNil predicate on the "thirty_day_limit_usd" field.
+func ThirtyDayLimitUsdNotNil() predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNotNull(FieldThirtyDayLimitUsd))
+}
+
 // HasUser applies the HasEdge predicate on the "user" edge.
 func HasUser() predicate.RedeemCode {
 	return predicate.RedeemCode(func(s *sql.Selector) {
@@ -698,6 +943,29 @@ func HasGroup() predicate.RedeemCode {
 func HasGroupWith(preds ...predicate.Group) predicate.RedeemCode {
 	return predicate.RedeemCode(func(s *sql.Selector) {
 		step := newGroupStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasSubscriptionPlan applies the HasEdge predicate on the "subscription_plan" edge.
+func HasSubscriptionPlan() predicate.RedeemCode {
+	return predicate.RedeemCode(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, SubscriptionPlanTable, SubscriptionPlanColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasSubscriptionPlanWith applies the HasEdge predicate on the "subscription_plan" edge with a given conditions (other predicates).
+func HasSubscriptionPlanWith(preds ...predicate.SubscriptionPlan) predicate.RedeemCode {
+	return predicate.RedeemCode(func(s *sql.Selector) {
+		step := newSubscriptionPlanStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

@@ -410,9 +410,18 @@ func TestAPIContracts(t *testing.T) {
 						"daily_window_start": null,
 						"weekly_window_start": null,
 						"monthly_window_start": null,
+						"five_hour_limit_usd": null,
+						"seven_day_limit_usd": null,
+						"thirty_day_limit_usd": null,
+						"five_hour_window_start": null,
+						"seven_day_window_start": null,
+						"thirty_day_window_start": null,
 						"daily_usage_usd": 1.23,
 						"weekly_usage_usd": 2.34,
 						"monthly_usage_usd": 3.45,
+						"five_hour_usage_usd": 0,
+						"seven_day_usage_usd": 0,
+						"thirty_day_usage_usd": 0,
 						"created_at": "2025-01-02T03:04:05Z",
 						"updated_at": "2025-01-02T03:04:05Z"
 					}
@@ -744,6 +753,7 @@ func TestAPIContracts(t *testing.T) {
 						"github_oauth_client_secret_configured": false,
 						"github_oauth_redirect_url": "",
 						"github_oauth_frontend_redirect_url": "/auth/oauth/callback",
+						"github_oauth_proxy_id": null,
 						"google_oauth_enabled": false,
 						"google_oauth_client_id": "",
 						"google_oauth_client_secret_configured": false,
@@ -798,7 +808,7 @@ func TestAPIContracts(t *testing.T) {
 					"force_email_on_third_party_signup": false,
 					"default_concurrency": 5,
 					"default_balance": 1.25,
-					"default_platform_quotas": {"anthropic":{"daily":null,"weekly":null,"monthly":null},"antigravity":{"daily":null,"weekly":null,"monthly":null},"gemini":{"daily":null,"weekly":null,"monthly":null},"openai":{"daily":null,"weekly":null,"monthly":null}},
+					"default_platform_quotas": {"anthropic":{"daily":null,"weekly":null,"monthly":null},"antigravity":{"daily":null,"weekly":null,"monthly":null},"gemini":{"daily":null,"weekly":null,"monthly":null},"openai":{"daily":null,"weekly":null,"monthly":null},"opencode_go":{"daily":null,"weekly":null,"monthly":null}},
 					"auth_source_default_email_platform_quotas": null,
 					"auth_source_default_github_platform_quotas": null,
 					"auth_source_default_google_platform_quotas": null,
@@ -879,6 +889,7 @@ func TestAPIContracts(t *testing.T) {
 					"channel_monitor_enabled": true,
 					"channel_monitor_default_interval_seconds": 60,
 					"available_channels_enabled": false,
+					"model_pricing_enabled": false,
 					"risk_control_enabled": false,
 					"affiliate_enabled": false,
 					"wechat_connect_enabled": false,
@@ -1017,6 +1028,7 @@ func TestAPIContracts(t *testing.T) {
 					"github_oauth_client_secret_configured": false,
 					"github_oauth_redirect_url": "",
 					"github_oauth_frontend_redirect_url": "/auth/oauth/callback",
+					"github_oauth_proxy_id": null,
 					"google_oauth_enabled": false,
 					"google_oauth_client_id": "",
 					"google_oauth_client_secret_configured": false,
@@ -1035,7 +1047,7 @@ func TestAPIContracts(t *testing.T) {
 					"purchase_subscription_url": "",
 					"table_default_page_size": 20,
 					"table_page_size_options": [10, 20, 50],
-					"default_platform_quotas": {"anthropic":{"daily":null,"weekly":null,"monthly":null},"antigravity":{"daily":null,"weekly":null,"monthly":null},"gemini":{"daily":null,"weekly":null,"monthly":null},"openai":{"daily":null,"weekly":null,"monthly":null}},
+					"default_platform_quotas": {"anthropic":{"daily":null,"weekly":null,"monthly":null},"antigravity":{"daily":null,"weekly":null,"monthly":null},"gemini":{"daily":null,"weekly":null,"monthly":null},"openai":{"daily":null,"weekly":null,"monthly":null},"opencode_go":{"daily":null,"weekly":null,"monthly":null}},
 					"auth_source_default_email_platform_quotas": null,
 					"auth_source_default_github_platform_quotas": null,
 					"auth_source_default_google_platform_quotas": null,
@@ -1115,6 +1127,7 @@ func TestAPIContracts(t *testing.T) {
 					"channel_monitor_enabled": true,
 					"channel_monitor_default_interval_seconds": 60,
 					"available_channels_enabled": false,
+					"model_pricing_enabled": false,
 					"risk_control_enabled": false,
 					"affiliate_enabled": false,
 					"wechat_connect_enabled": true,
@@ -1197,6 +1210,50 @@ func TestAPIContracts(t *testing.T) {
 				}
 			}`,
 		},
+		{
+			name:   "POST /api/v1/admin/accounts/model-mapping/copy",
+			method: http.MethodPost,
+			path:   "/api/v1/admin/accounts/model-mapping/copy",
+			body:   `{"source_account_id":201,"target_account_ids":[202,203]}`,
+			headers: map[string]string{
+				"Content-Type": "application/json",
+			},
+			setup: func(t *testing.T, deps *contractDeps) {
+				deps.accountRepo.accounts = map[int64]*service.Account{
+					201: {
+						ID:       201,
+						Platform: service.PlatformAntigravity,
+						Credentials: map[string]any{
+							"model_mapping": map[string]any{
+								"claude-sonnet-4-6": "claude-sonnet-4-6",
+								"gemini-3-flash":    "gemini-3-flash",
+							},
+						},
+					},
+					202: {ID: 202, Platform: service.PlatformAntigravity, Credentials: map[string]any{"access_token": "keep-202"}},
+					203: {ID: 203, Platform: service.PlatformAntigravity, Credentials: map[string]any{"access_token": "keep-203"}},
+				}
+			},
+			wantStatus: http.StatusOK,
+			wantJSON: `{
+				"code": 0,
+				"message": "success",
+				"data": {
+					"source_account_id": 201,
+					"target_account_ids": [202, 203],
+					"platform": "antigravity",
+					"mapping_count": 2,
+					"success": 2,
+					"failed": 0,
+					"success_ids": [202, 203],
+					"failed_ids": [],
+					"results": [
+						{"account_id": 202, "success": true},
+						{"account_id": 203, "success": true}
+					]
+				}
+			}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1219,6 +1276,7 @@ type contractDeps struct {
 	cfg         *config.Config
 	apiKeyRepo  *stubApiKeyRepo
 	groupRepo   *stubGroupRepo
+	accountRepo *stubAccountRepo
 	userSubRepo *stubUserSubscriptionRepo
 	usageRepo   *stubUsageLogRepo
 	settingRepo *stubSettingRepo
@@ -1280,7 +1338,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 
 	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil, nil)
-	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
+	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService, nil, nil, nil)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)
 	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil, nil, nil)
 	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
@@ -1333,6 +1391,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 	v1Admin.Use(adminAuth)
 	v1Admin.GET("/settings", adminSettingHandler.GetSettings)
 	v1Admin.POST("/accounts/bulk-update", adminAccountHandler.BulkUpdate)
+	v1Admin.POST("/accounts/model-mapping/copy", adminAccountHandler.CopyModelMapping)
 
 	return &contractDeps{
 		now:         now,
@@ -1340,6 +1399,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 		cfg:         cfg,
 		apiKeyRepo:  apiKeyRepo,
 		groupRepo:   groupRepo,
+		accountRepo: &accountRepo,
 		userSubRepo: userSubRepo,
 		usageRepo:   usageRepo,
 		settingRepo: settingRepo,
@@ -1621,6 +1681,7 @@ func (stubGroupRepo) UpdateSortOrders(ctx context.Context, updates []service.Gro
 
 type stubAccountRepo struct {
 	bulkUpdateIDs []int64
+	accounts      map[int64]*service.Account
 }
 
 func (s *stubAccountRepo) Create(ctx context.Context, account *service.Account) error {
@@ -1628,10 +1689,26 @@ func (s *stubAccountRepo) Create(ctx context.Context, account *service.Account) 
 }
 
 func (s *stubAccountRepo) GetByID(ctx context.Context, id int64) (*service.Account, error) {
+	if s.accounts != nil {
+		if account, ok := s.accounts[id]; ok {
+			copied := cloneContractAccount(account)
+			return &copied, nil
+		}
+	}
 	return nil, service.ErrAccountNotFound
 }
 
 func (s *stubAccountRepo) GetByIDs(ctx context.Context, ids []int64) ([]*service.Account, error) {
+	if s.accounts != nil {
+		out := make([]*service.Account, 0, len(ids))
+		for _, id := range ids {
+			if account, ok := s.accounts[id]; ok {
+				copied := cloneContractAccount(account)
+				out = append(out, &copied)
+			}
+		}
+		return out, nil
+	}
 	return nil, errors.New("not implemented")
 }
 
@@ -1648,7 +1725,34 @@ func (s *stubAccountRepo) FindByExtraField(ctx context.Context, key string, valu
 }
 
 func (s *stubAccountRepo) Update(ctx context.Context, account *service.Account) error {
+	if s.accounts != nil {
+		copied := cloneContractAccount(account)
+		s.accounts[account.ID] = &copied
+		return nil
+	}
 	return errors.New("not implemented")
+}
+
+func cloneContractAccount(account *service.Account) service.Account {
+	if account == nil {
+		return service.Account{}
+	}
+	copied := *account
+	if account.Credentials != nil {
+		copied.Credentials = make(map[string]any, len(account.Credentials))
+		for key, value := range account.Credentials {
+			if nested, ok := value.(map[string]any); ok {
+				nestedCopy := make(map[string]any, len(nested))
+				for nestedKey, nestedValue := range nested {
+					nestedCopy[nestedKey] = nestedValue
+				}
+				copied.Credentials[key] = nestedCopy
+				continue
+			}
+			copied.Credentials[key] = value
+		}
+	}
+	return copied
 }
 
 func (s *stubAccountRepo) Delete(ctx context.Context, id int64) error {
@@ -1944,6 +2048,9 @@ func (stubUserSubscriptionRepo) GetByID(ctx context.Context, id int64) (*service
 func (stubUserSubscriptionRepo) GetByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
 	return nil, errors.New("not implemented")
 }
+func (stubUserSubscriptionRepo) GetByUserIDGroupIDAndPlanID(ctx context.Context, userID, groupID int64, planID *int64) (*service.UserSubscription, error) {
+	return nil, errors.New("not implemented")
+}
 func (stubUserSubscriptionRepo) GetActiveByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1965,6 +2072,18 @@ func (r *stubUserSubscriptionRepo) ListActiveByUserID(ctx context.Context, userI
 	}
 	return append([]service.UserSubscription(nil), r.activeByUser[userID]...), nil
 }
+func (r *stubUserSubscriptionRepo) ListActiveByUserIDAndGroupID(ctx context.Context, userID, groupID int64) ([]service.UserSubscription, error) {
+	if r.activeByUser == nil {
+		return nil, nil
+	}
+	subs := make([]service.UserSubscription, 0)
+	for _, sub := range r.activeByUser[userID] {
+		if sub.GroupID == groupID {
+			subs = append(subs, sub)
+		}
+	}
+	return subs, nil
+}
 func (stubUserSubscriptionRepo) ListByGroupID(ctx context.Context, groupID int64, params pagination.PaginationParams) ([]service.UserSubscription, *pagination.PaginationResult, error) {
 	return nil, nil, errors.New("not implemented")
 }
@@ -1973,6 +2092,12 @@ func (stubUserSubscriptionRepo) List(ctx context.Context, params pagination.Pagi
 }
 func (stubUserSubscriptionRepo) ExistsByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (bool, error) {
 	return false, errors.New("not implemented")
+}
+func (stubUserSubscriptionRepo) ExistsByUserIDGroupIDAndPlanID(ctx context.Context, userID, groupID int64, planID *int64) (bool, error) {
+	return false, errors.New("not implemented")
+}
+func (stubUserSubscriptionRepo) RenewTerm(ctx context.Context, input *service.RenewSubscriptionTermInput) error {
+	return errors.New("not implemented")
 }
 func (stubUserSubscriptionRepo) ExtendExpiry(ctx context.Context, subscriptionID int64, newExpiresAt time.Time) error {
 	return errors.New("not implemented")
@@ -1983,7 +2108,13 @@ func (stubUserSubscriptionRepo) UpdateStatus(ctx context.Context, subscriptionID
 func (stubUserSubscriptionRepo) UpdateNotes(ctx context.Context, subscriptionID int64, notes string) error {
 	return errors.New("not implemented")
 }
+func (stubUserSubscriptionRepo) UpdateRollingQuotaSnapshot(ctx context.Context, subscriptionID int64, fiveHourLimitUSD, sevenDayLimitUSD, thirtyDayLimitUSD *float64) error {
+	return errors.New("not implemented")
+}
 func (stubUserSubscriptionRepo) ActivateWindows(ctx context.Context, id int64, start time.Time) error {
+	return errors.New("not implemented")
+}
+func (stubUserSubscriptionRepo) ActivateRollingWindows(ctx context.Context, id int64, start time.Time) error {
 	return errors.New("not implemented")
 }
 func (stubUserSubscriptionRepo) ResetDailyUsage(ctx context.Context, id int64, newWindowStart time.Time) error {
@@ -1993,6 +2124,15 @@ func (stubUserSubscriptionRepo) ResetWeeklyUsage(ctx context.Context, id int64, 
 	return errors.New("not implemented")
 }
 func (stubUserSubscriptionRepo) ResetMonthlyUsage(ctx context.Context, id int64, newWindowStart time.Time) error {
+	return errors.New("not implemented")
+}
+func (stubUserSubscriptionRepo) ResetFiveHourUsage(ctx context.Context, id int64, newWindowStart time.Time) error {
+	return errors.New("not implemented")
+}
+func (stubUserSubscriptionRepo) ResetSevenDayUsage(ctx context.Context, id int64, newWindowStart time.Time) error {
+	return errors.New("not implemented")
+}
+func (stubUserSubscriptionRepo) ResetThirtyDayUsage(ctx context.Context, id int64, newWindowStart time.Time) error {
 	return errors.New("not implemented")
 }
 func (stubUserSubscriptionRepo) IncrementUsage(ctx context.Context, id int64, costUSD float64) error {

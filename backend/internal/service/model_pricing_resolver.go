@@ -10,6 +10,8 @@ const (
 	PricingSourceChannel  = "channel"
 	PricingSourceLiteLLM  = "litellm"
 	PricingSourceFallback = "fallback"
+	PricingSourceCatalog  = "catalog"
+	PricingSourceMissing  = "missing"
 )
 
 // ResolvedPricing 统一定价解析结果
@@ -63,7 +65,7 @@ type PricingInput struct {
 func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) *ResolvedPricing {
 	var chPricing *ChannelModelPricing
 	if input.GroupID != nil && r.channelService != nil {
-		chPricing = r.channelService.GetChannelModelPricing(ctx, *input.GroupID, input.Model)
+		chPricing = r.resolveChannelModelPricing(ctx, *input.GroupID, input.Model)
 		if chPricing != nil {
 			mode := chPricing.BillingMode
 			if mode == "" {
@@ -112,9 +114,21 @@ func (r *ModelPricingResolver) resolveBasePricing(model string) (*ModelPricing, 
 	return pricing, PricingSourceLiteLLM
 }
 
+func (r *ModelPricingResolver) resolveChannelModelPricing(ctx context.Context, groupID int64, model string) *ChannelModelPricing {
+	if r.channelService == nil {
+		return nil
+	}
+	for _, candidate := range billingModelPricingCandidates(model) {
+		if chPricing := r.channelService.GetChannelModelPricing(ctx, groupID, candidate); chPricing != nil {
+			return chPricing
+		}
+	}
+	return nil
+}
+
 // applyChannelOverrides 应用渠道定价覆盖
 func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupID int64, model string, resolved *ResolvedPricing) {
-	chPricing := r.channelService.GetChannelModelPricing(ctx, groupID, model)
+	chPricing := r.resolveChannelModelPricing(ctx, groupID, model)
 	if chPricing == nil {
 		return
 	}

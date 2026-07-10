@@ -94,7 +94,7 @@
       <div v-else class="max-h-[28rem] space-y-3 overflow-y-auto">
         <div
           v-for="item in history"
-          :key="item.id"
+          :key="balanceHistoryItemKey(item)"
           class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-600 dark:bg-dark-800"
         >
           <div class="flex items-start justify-between">
@@ -140,7 +140,7 @@
                 v-else
                 class="font-mono text-xs text-gray-400 dark:text-dark-500"
               >
-                {{ item.code.slice(0, 8) }}...
+                {{ formatSourceCode(item) }}
               </p>
             </div>
           </div>
@@ -244,6 +244,12 @@ const isBalanceType = (type: string) => type === 'balance' || type === 'admin_ba
 // Helper: check if subscription type
 const isSubscriptionType = (type: string) => type === 'subscription'
 
+const balanceHistoryItemKey = (item: BalanceHistoryItem) => {
+  const source = item.source || 'redeem_code'
+  const sourceId = item.source_id ?? item.payment_order_id ?? item.id
+  return `${source}:${sourceId}`
+}
+
 // Icon name based on type
 const getIconName = (item: BalanceHistoryItem) => {
   if (isBalanceType(item.type)) return 'dollar'
@@ -324,5 +330,13 @@ const formatValue = (item: BalanceHistoryItem) => {
   // concurrency types
   const sign = item.value >= 0 ? '+' : ''
   return `${sign}${item.value}`
+}
+
+const formatSourceCode = (item: BalanceHistoryItem) => {
+  if (item.source === 'payment_order') {
+    const orderId = item.payment_order_id ?? item.source_id
+    return orderId ? `#${orderId}` : 'payment_order'
+  }
+  return item.code ? `${item.code.slice(0, 8)}...` : '-'
 }
 </script>

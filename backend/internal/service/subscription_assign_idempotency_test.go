@@ -76,6 +76,9 @@ func (userSubRepoNoop) GetByID(context.Context, int64) (*UserSubscription, error
 func (userSubRepoNoop) GetByUserIDAndGroupID(context.Context, int64, int64) (*UserSubscription, error) {
 	panic("unexpected GetByUserIDAndGroupID call")
 }
+func (userSubRepoNoop) GetByUserIDGroupIDAndPlanID(context.Context, int64, int64, *int64) (*UserSubscription, error) {
+	panic("unexpected GetByUserIDGroupIDAndPlanID call")
+}
 func (userSubRepoNoop) GetActiveByUserIDAndGroupID(context.Context, int64, int64) (*UserSubscription, error) {
 	panic("unexpected GetActiveByUserIDAndGroupID call")
 }
@@ -89,6 +92,9 @@ func (userSubRepoNoop) ListByUserID(context.Context, int64) ([]UserSubscription,
 func (userSubRepoNoop) ListActiveByUserID(context.Context, int64) ([]UserSubscription, error) {
 	panic("unexpected ListActiveByUserID call")
 }
+func (userSubRepoNoop) ListActiveByUserIDAndGroupID(context.Context, int64, int64) ([]UserSubscription, error) {
+	panic("unexpected ListActiveByUserIDAndGroupID call")
+}
 func (userSubRepoNoop) ListByGroupID(context.Context, int64, pagination.PaginationParams) ([]UserSubscription, *pagination.PaginationResult, error) {
 	panic("unexpected ListByGroupID call")
 }
@@ -97,6 +103,12 @@ func (userSubRepoNoop) List(context.Context, pagination.PaginationParams, *int64
 }
 func (userSubRepoNoop) ExistsByUserIDAndGroupID(context.Context, int64, int64) (bool, error) {
 	panic("unexpected ExistsByUserIDAndGroupID call")
+}
+func (userSubRepoNoop) ExistsByUserIDGroupIDAndPlanID(context.Context, int64, int64, *int64) (bool, error) {
+	panic("unexpected ExistsByUserIDGroupIDAndPlanID call")
+}
+func (userSubRepoNoop) RenewTerm(context.Context, *RenewSubscriptionTermInput) error {
+	panic("unexpected RenewTerm call")
 }
 func (userSubRepoNoop) ExtendExpiry(context.Context, int64, time.Time) error {
 	panic("unexpected ExtendExpiry call")
@@ -107,8 +119,14 @@ func (userSubRepoNoop) UpdateStatus(context.Context, int64, string) error {
 func (userSubRepoNoop) UpdateNotes(context.Context, int64, string) error {
 	panic("unexpected UpdateNotes call")
 }
+func (userSubRepoNoop) UpdateRollingQuotaSnapshot(context.Context, int64, *float64, *float64, *float64) error {
+	panic("unexpected UpdateRollingQuotaSnapshot call")
+}
 func (userSubRepoNoop) ActivateWindows(context.Context, int64, time.Time) error {
 	panic("unexpected ActivateWindows call")
+}
+func (userSubRepoNoop) ActivateRollingWindows(context.Context, int64, time.Time) error {
+	panic("unexpected ActivateRollingWindows call")
 }
 func (userSubRepoNoop) ResetDailyUsage(context.Context, int64, time.Time) error {
 	panic("unexpected ResetDailyUsage call")
@@ -118,6 +136,15 @@ func (userSubRepoNoop) ResetWeeklyUsage(context.Context, int64, time.Time) error
 }
 func (userSubRepoNoop) ResetMonthlyUsage(context.Context, int64, time.Time) error {
 	panic("unexpected ResetMonthlyUsage call")
+}
+func (userSubRepoNoop) ResetFiveHourUsage(context.Context, int64, time.Time) error {
+	panic("unexpected ResetFiveHourUsage call")
+}
+func (userSubRepoNoop) ResetSevenDayUsage(context.Context, int64, time.Time) error {
+	panic("unexpected ResetSevenDayUsage call")
+}
+func (userSubRepoNoop) ResetThirtyDayUsage(context.Context, int64, time.Time) error {
+	panic("unexpected ResetThirtyDayUsage call")
 }
 func (userSubRepoNoop) IncrementUsage(context.Context, int64, float64) error {
 	panic("unexpected IncrementUsage call")
@@ -133,6 +160,8 @@ type subscriptionUserSubRepoStub struct {
 	byID        map[int64]*UserSubscription
 	byUserGroup map[string]*UserSubscription
 	createCalls int
+
+	createConflictSub *UserSubscription
 }
 
 func newSubscriptionUserSubRepoStub() *subscriptionUserSubRepoStub {
@@ -143,8 +172,12 @@ func newSubscriptionUserSubRepoStub() *subscriptionUserSubRepoStub {
 	}
 }
 
-func (s *subscriptionUserSubRepoStub) key(userID, groupID int64) string {
-	return strconvFormatInt(userID) + ":" + strconvFormatInt(groupID)
+func (s *subscriptionUserSubRepoStub) key(userID, groupID int64, planID *int64) string {
+	planPart := "legacy"
+	if planID != nil {
+		planPart = strconv.FormatInt(*planID, 10)
+	}
+	return strconvFormatInt(userID) + ":" + strconvFormatInt(groupID) + ":" + planPart
 }
 
 func (s *subscriptionUserSubRepoStub) seed(sub *UserSubscription) {
@@ -157,16 +190,29 @@ func (s *subscriptionUserSubRepoStub) seed(sub *UserSubscription) {
 		s.nextID++
 	}
 	s.byID[cp.ID] = &cp
-	s.byUserGroup[s.key(cp.UserID, cp.GroupID)] = &cp
+	s.byUserGroup[s.key(cp.UserID, cp.GroupID, cp.PlanID)] = &cp
 }
 
 func (s *subscriptionUserSubRepoStub) ExistsByUserIDAndGroupID(_ context.Context, userID, groupID int64) (bool, error) {
-	_, ok := s.byUserGroup[s.key(userID, groupID)]
+	for _, sub := range s.byUserGroup {
+		if sub.UserID == userID && sub.GroupID == groupID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (s *subscriptionUserSubRepoStub) ExistsByUserIDGroupIDAndPlanID(_ context.Context, userID, groupID int64, planID *int64) (bool, error) {
+	_, ok := s.byUserGroup[s.key(userID, groupID, planID)]
 	return ok, nil
 }
 
-func (s *subscriptionUserSubRepoStub) GetByUserIDAndGroupID(_ context.Context, userID, groupID int64) (*UserSubscription, error) {
-	sub := s.byUserGroup[s.key(userID, groupID)]
+func (s *subscriptionUserSubRepoStub) GetByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*UserSubscription, error) {
+	return s.GetByUserIDGroupIDAndPlanID(ctx, userID, groupID, nil)
+}
+
+func (s *subscriptionUserSubRepoStub) GetByUserIDGroupIDAndPlanID(_ context.Context, userID, groupID int64, planID *int64) (*UserSubscription, error) {
+	sub := s.byUserGroup[s.key(userID, groupID, planID)]
 	if sub == nil {
 		return nil, ErrSubscriptionNotFound
 	}
@@ -174,11 +220,46 @@ func (s *subscriptionUserSubRepoStub) GetByUserIDAndGroupID(_ context.Context, u
 	return &cp, nil
 }
 
+func (s *subscriptionUserSubRepoStub) GetActiveByUserIDAndGroupID(_ context.Context, userID, groupID int64) (*UserSubscription, error) {
+	var selected *UserSubscription
+	for _, sub := range s.byUserGroup {
+		if sub.UserID != userID || sub.GroupID != groupID || sub.Status != SubscriptionStatusActive || !time.Now().Before(sub.ExpiresAt) {
+			continue
+		}
+		if selected == nil || sub.ExpiresAt.Before(selected.ExpiresAt) || (sub.ExpiresAt.Equal(selected.ExpiresAt) && sub.ID < selected.ID) {
+			selected = sub
+		}
+	}
+	if selected == nil {
+		return nil, ErrSubscriptionNotFound
+	}
+	cp := *selected
+	return &cp, nil
+}
+
+func (s *subscriptionUserSubRepoStub) ListActiveByUserIDAndGroupID(_ context.Context, userID, groupID int64) ([]UserSubscription, error) {
+	subs := make([]UserSubscription, 0)
+	for _, sub := range s.byUserGroup {
+		if sub.UserID == userID && sub.GroupID == groupID && sub.Status == SubscriptionStatusActive && time.Now().Before(sub.ExpiresAt) {
+			subs = append(subs, *sub)
+		}
+	}
+	return subs, nil
+}
+
 func (s *subscriptionUserSubRepoStub) Create(_ context.Context, sub *UserSubscription) error {
 	if sub == nil {
 		return nil
 	}
 	s.createCalls++
+	if s.createConflictSub != nil {
+		s.seed(s.createConflictSub)
+		s.createConflictSub = nil
+		return ErrSubscriptionAlreadyExists
+	}
+	if _, ok := s.byUserGroup[s.key(sub.UserID, sub.GroupID, sub.PlanID)]; ok {
+		return ErrSubscriptionAlreadyExists
+	}
 	cp := *sub
 	if cp.ID == 0 {
 		cp.ID = s.nextID
@@ -186,7 +267,7 @@ func (s *subscriptionUserSubRepoStub) Create(_ context.Context, sub *UserSubscri
 	}
 	sub.ID = cp.ID
 	s.byID[cp.ID] = &cp
-	s.byUserGroup[s.key(cp.UserID, cp.GroupID)] = &cp
+	s.byUserGroup[s.key(cp.UserID, cp.GroupID, cp.PlanID)] = &cp
 	return nil
 }
 
@@ -207,13 +288,73 @@ func (s *subscriptionUserSubRepoStub) Update(_ context.Context, sub *UserSubscri
 	if existing == nil {
 		return ErrSubscriptionNotFound
 	}
-	oldKey := s.key(existing.UserID, existing.GroupID)
+	oldKey := s.key(existing.UserID, existing.GroupID, existing.PlanID)
 	cp := *sub
 	s.byID[cp.ID] = &cp
-	if oldKey != s.key(cp.UserID, cp.GroupID) {
+	if oldKey != s.key(cp.UserID, cp.GroupID, cp.PlanID) {
 		delete(s.byUserGroup, oldKey)
 	}
-	s.byUserGroup[s.key(cp.UserID, cp.GroupID)] = &cp
+	s.byUserGroup[s.key(cp.UserID, cp.GroupID, cp.PlanID)] = &cp
+	return nil
+}
+
+func (s *subscriptionUserSubRepoStub) ExtendExpiry(_ context.Context, subscriptionID int64, newExpiresAt time.Time) error {
+	existing := s.byID[subscriptionID]
+	if existing == nil {
+		return ErrSubscriptionNotFound
+	}
+	existing.ExpiresAt = newExpiresAt
+	return nil
+}
+
+func (s *subscriptionUserSubRepoStub) RenewTerm(_ context.Context, input *RenewSubscriptionTermInput) error {
+	if input == nil {
+		return ErrSubscriptionNilInput
+	}
+	existing := s.byID[input.SubscriptionID]
+	if existing == nil {
+		return ErrSubscriptionNotFound
+	}
+	wasActive := existing.ExpiresAt.After(input.Now)
+	if wasActive {
+		existing.ExpiresAt = existing.ExpiresAt.AddDate(0, 0, input.ValidityDays)
+	} else {
+		existing.StartsAt = input.Now
+		existing.ExpiresAt = input.Now.AddDate(0, 0, input.ValidityDays)
+		existing.DailyUsageUSD = 0
+		existing.WeeklyUsageUSD = 0
+		existing.MonthlyUsageUSD = 0
+		existing.FiveHourUsageUSD = 0
+		existing.SevenDayUsageUSD = 0
+		existing.ThirtyDayUsageUSD = 0
+		existing.DailyWindowStart = &input.LegacyWindowStart
+		existing.WeeklyWindowStart = &input.LegacyWindowStart
+		existing.MonthlyWindowStart = &input.LegacyWindowStart
+		existing.FiveHourWindowStart = nil
+		existing.SevenDayWindowStart = nil
+		existing.ThirtyDayWindowStart = nil
+	}
+	if existing.ExpiresAt.After(input.MaxExpiresAt) {
+		existing.ExpiresAt = input.MaxExpiresAt
+	}
+	existing.Status = SubscriptionStatusActive
+	if input.HasRollingQuotaSnapshot {
+		existing.FiveHourLimitUSD = input.FiveHourLimitUSD
+		existing.SevenDayLimitUSD = input.SevenDayLimitUSD
+		existing.ThirtyDayLimitUSD = input.ThirtyDayLimitUSD
+	}
+	existing.Notes = appendSubscriptionNotes(existing.Notes, input.Notes)
+	return nil
+}
+
+func (s *subscriptionUserSubRepoStub) UpdateRollingQuotaSnapshot(_ context.Context, subscriptionID int64, fiveHourLimitUSD, sevenDayLimitUSD, thirtyDayLimitUSD *float64) error {
+	existing := s.byID[subscriptionID]
+	if existing == nil {
+		return ErrSubscriptionNotFound
+	}
+	existing.FiveHourLimitUSD = fiveHourLimitUSD
+	existing.SevenDayLimitUSD = sevenDayLimitUSD
+	existing.ThirtyDayLimitUSD = thirtyDayLimitUSD
 	return nil
 }
 

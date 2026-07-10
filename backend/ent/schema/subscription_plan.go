@@ -1,12 +1,14 @@
 package schema
 
 import (
+	"fmt"
 	"time"
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/entsql"
 	"entgo.io/ent/schema"
+	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
 	"entgo.io/ent/schema/index"
 )
@@ -20,6 +22,40 @@ import (
 //   - 已购买的订阅记录保存在 UserSubscription 中，不受套餐删除影响
 type SubscriptionPlan struct {
 	ent.Schema
+}
+
+func validateNonNegativeFloat(name string) func(float64) error {
+	return func(v float64) error {
+		if v < 0 {
+			return fmt.Errorf("%s must be greater than or equal to 0", name)
+		}
+		return nil
+	}
+}
+
+func validatePositiveFloat(name string) func(float64) error {
+	return func(v float64) error {
+		if v <= 0 {
+			return fmt.Errorf("%s must be greater than 0", name)
+		}
+		return nil
+	}
+}
+
+func validateNonNegativeInt(name string) func(int) error {
+	return func(v int) error {
+		if v < 0 {
+			return fmt.Errorf("%s must be greater than or equal to 0", name)
+		}
+		return nil
+	}
+}
+
+func validateRenewalDiscountPercent(v float64) error {
+	if v < 0 || v >= 100 {
+		return fmt.Errorf("renewal_discount_percent must be greater than or equal to 0 and less than 100")
+	}
+	return nil
 }
 
 func (SubscriptionPlan) Annotations() []schema.Annotation {
@@ -41,6 +77,30 @@ func (SubscriptionPlan) Fields() []ent.Field {
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,2)"}),
 		field.Float("original_price").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,2)"}).
+			Optional().
+			Nillable(),
+		field.Float("renewal_discount_percent").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(5,2)"}).
+			Validate(validateRenewalDiscountPercent).
+			Optional().
+			Nillable(),
+		field.Float("five_hour_limit_usd").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Validate(validateNonNegativeFloat("five_hour_limit_usd")).
+			Optional().
+			Nillable(),
+		field.Float("seven_day_limit_usd").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Validate(validateNonNegativeFloat("seven_day_limit_usd")).
+			Optional().
+			Nillable(),
+		field.Float("thirty_day_limit_usd").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Validate(validateNonNegativeFloat("thirty_day_limit_usd")).
+			Optional().
+			Nillable(),
+		field.Int("stock").
+			Validate(validateNonNegativeInt("stock")).
 			Optional().
 			Nillable(),
 		field.Int("validity_days").
@@ -73,5 +133,12 @@ func (SubscriptionPlan) Indexes() []ent.Index {
 	return []ent.Index{
 		index.Fields("group_id"),
 		index.Fields("for_sale"),
+	}
+}
+
+func (SubscriptionPlan) Edges() []ent.Edge {
+	return []ent.Edge{
+		edge.To("redeem_codes", RedeemCode.Type),
+		edge.To("user_subscriptions", UserSubscription.Type),
 	}
 }

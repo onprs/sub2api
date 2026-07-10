@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildOpenAIUsageRefreshKey } from '../accountUsageRefresh'
+import { buildAccountUsageRefreshKey, buildOpenAIUsageRefreshKey } from '../accountUsageRefresh'
 
 describe('buildOpenAIUsageRefreshKey', () => {
   it('会在 codex 快照变化时生成不同 key', () => {
@@ -59,5 +59,37 @@ describe('buildOpenAIUsageRefreshKey', () => {
       last_used_at: '2026-03-07T10:00:00Z',
       extra: {}
     } as any)).toBe('')
+  })
+
+  it('OpenCode Go 官方 Console 快照变化时生成不同账号 usage key', () => {
+    const base = {
+      id: 4,
+      platform: 'opencode_go',
+      type: 'apikey',
+      updated_at: '2026-06-22T10:00:00Z',
+      last_used_at: null,
+      rate_limit_reset_at: null,
+      extra: {
+        opencode_go_console_auth_status: 'ready',
+        opencode_go_usage_source: 'estimated',
+        opencode_go_usage_updated_at: '2026-06-22T10:00:00Z',
+        opencode_go_usage_5h_used_percent: 51
+      }
+    } as any
+
+    const next = {
+      ...base,
+      extra: {
+        ...base.extra,
+        opencode_go_usage_source: 'official_console',
+        opencode_go_usage_updated_at: '2026-06-22T10:05:00Z',
+        opencode_go_usage_5h_used_percent: 19,
+        opencode_go_usage_5h_resets_at: '2026-06-22T11:30:00Z',
+        opencode_go_usage_7d_used_percent: 7,
+        opencode_go_usage_30d_used_percent: 10
+      }
+    }
+
+    expect(buildAccountUsageRefreshKey(base)).not.toBe(buildAccountUsageRefreshKey(next))
   })
 })

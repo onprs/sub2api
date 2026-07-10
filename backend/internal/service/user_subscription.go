@@ -6,18 +6,31 @@ type UserSubscription struct {
 	ID      int64
 	UserID  int64
 	GroupID int64
+	PlanID  *int64
+
+	PlanName string
 
 	StartsAt  time.Time
 	ExpiresAt time.Time
 	Status    string
 
-	DailyWindowStart   *time.Time
-	WeeklyWindowStart  *time.Time
-	MonthlyWindowStart *time.Time
+	FiveHourLimitUSD  *float64
+	SevenDayLimitUSD  *float64
+	ThirtyDayLimitUSD *float64
 
-	DailyUsageUSD   float64
-	WeeklyUsageUSD  float64
-	MonthlyUsageUSD float64
+	DailyWindowStart     *time.Time
+	WeeklyWindowStart    *time.Time
+	MonthlyWindowStart   *time.Time
+	FiveHourWindowStart  *time.Time
+	SevenDayWindowStart  *time.Time
+	ThirtyDayWindowStart *time.Time
+
+	DailyUsageUSD     float64
+	WeeklyUsageUSD    float64
+	MonthlyUsageUSD   float64
+	FiveHourUsageUSD  float64
+	SevenDayUsageUSD  float64
+	ThirtyDayUsageUSD float64
 
 	AssignedBy *int64
 	AssignedAt time.Time
@@ -30,6 +43,14 @@ type UserSubscription struct {
 	Group          *Group
 	AssignedByUser *User
 }
+
+const (
+	SubscriptionWindowFiveHour  = 5 * time.Hour
+	SubscriptionWindowSevenDay  = 7 * 24 * time.Hour
+	SubscriptionWindowThirtyDay = 30 * 24 * time.Hour
+
+	subscriptionQuotaPreflightReserveUSD = 0.005
+)
 
 func (s *UserSubscription) IsActive() bool {
 	return s.Status == SubscriptionStatusActive && time.Now().Before(s.ExpiresAt)
@@ -48,6 +69,10 @@ func (s *UserSubscription) DaysRemaining() int {
 
 func (s *UserSubscription) IsWindowActivated() bool {
 	return s.DailyWindowStart != nil || s.WeeklyWindowStart != nil || s.MonthlyWindowStart != nil
+}
+
+func (s *UserSubscription) IsRollingWindowActivated() bool {
+	return s.FiveHourWindowStart != nil || s.SevenDayWindowStart != nil || s.ThirtyDayWindowStart != nil
 }
 
 func (s *UserSubscription) HasOneTimeDailyQuota() bool {
@@ -85,6 +110,51 @@ func (s *UserSubscription) NeedsMonthlyReset() bool {
 	return time.Since(*s.MonthlyWindowStart) >= 30*24*time.Hour
 }
 
+func (s *UserSubscription) NeedsFiveHourResetAt(now time.Time) bool {
+	return s.FiveHourWindowStart != nil && !now.Before(s.FiveHourWindowStart.Add(SubscriptionWindowFiveHour))
+}
+
+func (s *UserSubscription) NeedsSevenDayResetAt(now time.Time) bool {
+	return s.SevenDayWindowStart != nil && !now.Before(s.SevenDayWindowStart.Add(SubscriptionWindowSevenDay))
+}
+
+func (s *UserSubscription) NeedsThirtyDayResetAt(now time.Time) bool {
+	return s.ThirtyDayWindowStart != nil && !now.Before(s.ThirtyDayWindowStart.Add(SubscriptionWindowThirtyDay))
+}
+
+func (s *UserSubscription) NeedsFiveHourReset() bool {
+	return s.NeedsFiveHourResetAt(time.Now())
+}
+
+func (s *UserSubscription) NeedsSevenDayReset() bool {
+	return s.NeedsSevenDayResetAt(time.Now())
+}
+
+func (s *UserSubscription) NeedsThirtyDayReset() bool {
+	return s.NeedsThirtyDayResetAt(time.Now())
+}
+
+// NormalizeSubscriptionWindowsForDisplay clears expired rolling quota windows on a copy or DTO path.
+// It does not persist anything; write-side maintenance still owns DB resets.
+func NormalizeSubscriptionWindowsForDisplay(sub *UserSubscription) {
+	if sub == nil {
+		return
+	}
+	now := time.Now()
+	if sub.NeedsFiveHourResetAt(now) {
+		sub.FiveHourWindowStart = nil
+		sub.FiveHourUsageUSD = 0
+	}
+	if sub.NeedsSevenDayResetAt(now) {
+		sub.SevenDayWindowStart = nil
+		sub.SevenDayUsageUSD = 0
+	}
+	if sub.NeedsThirtyDayResetAt(now) {
+		sub.ThirtyDayWindowStart = nil
+		sub.ThirtyDayUsageUSD = 0
+	}
+}
+
 func (s *UserSubscription) DailyResetTime() *time.Time {
 	if s.DailyWindowStart == nil {
 		return nil
@@ -113,6 +183,30 @@ func (s *UserSubscription) MonthlyResetTime() *time.Time {
 	return &t
 }
 
+func (s *UserSubscription) FiveHourResetTime() *time.Time {
+	if s.FiveHourWindowStart == nil {
+		return nil
+	}
+	t := s.FiveHourWindowStart.Add(SubscriptionWindowFiveHour)
+	return &t
+}
+
+func (s *UserSubscription) SevenDayResetTime() *time.Time {
+	if s.SevenDayWindowStart == nil {
+		return nil
+	}
+	t := s.SevenDayWindowStart.Add(SubscriptionWindowSevenDay)
+	return &t
+}
+
+func (s *UserSubscription) ThirtyDayResetTime() *time.Time {
+	if s.ThirtyDayWindowStart == nil {
+		return nil
+	}
+	t := s.ThirtyDayWindowStart.Add(SubscriptionWindowThirtyDay)
+	return &t
+}
+
 func (s *UserSubscription) CheckDailyLimit(group *Group, additionalCost float64) bool {
 	if !group.HasDailyLimit() {
 		return true
@@ -132,6 +226,31 @@ func (s *UserSubscription) CheckMonthlyLimit(group *Group, additionalCost float6
 		return true
 	}
 	return s.MonthlyUsageUSD+additionalCost <= *group.MonthlyLimitUSD
+}
+
+func (s *UserSubscription) CheckFiveHourLimit(additionalCost float64) bool {
+	return checkRollingSubscriptionLimit(s.FiveHourLimitUSD, s.FiveHourUsageUSD, additionalCost)
+}
+
+func (s *UserSubscription) CheckSevenDayLimit(additionalCost float64) bool {
+	return checkRollingSubscriptionLimit(s.SevenDayLimitUSD, s.SevenDayUsageUSD, additionalCost)
+}
+
+func (s *UserSubscription) CheckThirtyDayLimit(additionalCost float64) bool {
+	return checkRollingSubscriptionLimit(s.ThirtyDayLimitUSD, s.ThirtyDayUsageUSD, additionalCost)
+}
+
+func checkRollingSubscriptionLimit(limit *float64, usage, additionalCost float64) bool {
+	if limit == nil {
+		return true
+	}
+	if *limit <= 0 {
+		return false
+	}
+	if additionalCost <= 0 {
+		additionalCost = subscriptionQuotaPreflightReserveUSD
+	}
+	return usage+additionalCost <= *limit
 }
 
 func (s *UserSubscription) CheckAllLimits(group *Group, additionalCost float64) (daily, weekly, monthly bool) {

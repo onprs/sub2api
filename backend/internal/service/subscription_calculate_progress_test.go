@@ -253,3 +253,72 @@ func TestCalculateProgress_ResetsInSeconds_NotNegative(t *testing.T) {
 	assert.GreaterOrEqual(t, progress.Daily.ResetsInSeconds, int64(0),
 		"ResetsInSeconds 不应为负数")
 }
+
+func TestCalculateProgress_RollingQuotaWindows(t *testing.T) {
+	svc := newTestSubscriptionService()
+	five := 5.0
+	seven := 20.0
+	thirty := 50.0
+	start := time.Now().Add(-time.Hour)
+	sub := &UserSubscription{
+		ID:                   1,
+		GroupID:              2,
+		ExpiresAt:            time.Now().Add(24 * time.Hour),
+		FiveHourLimitUSD:     &five,
+		SevenDayLimitUSD:     &seven,
+		ThirtyDayLimitUSD:    &thirty,
+		FiveHourUsageUSD:     2.5,
+		SevenDayUsageUSD:     5,
+		ThirtyDayUsageUSD:    10,
+		FiveHourWindowStart:  &start,
+		SevenDayWindowStart:  &start,
+		ThirtyDayWindowStart: &start,
+	}
+
+	progress := svc.calculateProgress(sub, &Group{Name: "Pro"})
+
+	require.NotNil(t, progress.FiveHour)
+	require.NotNil(t, progress.SevenDay)
+	require.NotNil(t, progress.ThirtyDay)
+	assert.Equal(t, 50.0, progress.FiveHour.Percentage)
+	assert.Equal(t, 15.0, progress.SevenDay.RemainingUSD)
+	assert.Equal(t, 40.0, progress.ThirtyDay.RemainingUSD)
+}
+
+func TestCalculateProgress_RollingQuotaUsesSubscriptionExpiryBeforeWindowReset(t *testing.T) {
+	svc := newTestSubscriptionService()
+	limit := 10.0
+	start := time.Now().Add(-time.Hour)
+	expiresAt := time.Now().Add(2 * time.Hour)
+	sub := &UserSubscription{
+		ID:                  1,
+		GroupID:             2,
+		ExpiresAt:           expiresAt,
+		FiveHourLimitUSD:    &limit,
+		FiveHourUsageUSD:    5,
+		FiveHourWindowStart: &start,
+	}
+
+	progress := svc.calculateProgress(sub, &Group{Name: "Short Plan"})
+
+	require.NotNil(t, progress.FiveHour)
+	assert.Equal(t, expiresAt, progress.FiveHour.ResetsAt)
+}
+
+func TestCalculateProgress_NormalizesExpiredRollingQuotaWindow(t *testing.T) {
+	svc := newTestSubscriptionService()
+	limit := 10.0
+	start := time.Now().Add(-6 * time.Hour)
+	sub := &UserSubscription{
+		ID:                  1,
+		GroupID:             2,
+		ExpiresAt:           time.Now().Add(24 * time.Hour),
+		FiveHourLimitUSD:    &limit,
+		FiveHourUsageUSD:    10,
+		FiveHourWindowStart: &start,
+	}
+
+	progress := svc.calculateProgress(sub, &Group{Name: "Pro"})
+
+	assert.Nil(t, progress.FiveHour, "expired rolling windows should not render stale exhausted progress")
+}

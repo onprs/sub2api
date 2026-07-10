@@ -15,15 +15,17 @@ const (
 	MonitorBodyOverrideModeReplace = "replace"
 )
 
-// MonitorAPIMode 描述 OpenAI provider 的请求协议。
+// MonitorAPIMode 描述监控请求协议。
 //
 //   - chat_completions  OpenAI-compatible Chat Completions: /v1/chat/completions + messages
 //   - responses         OpenAI Responses API: /v1/responses + instructions/input
+//   - messages          Anthropic-style Messages: /v1/messages + messages
 //
-// 非 OpenAI provider 固定使用 chat_completions 作为占位默认值，避免为每个 provider 单独扩表。
+// 非 OpenAI/OpenCode Go provider 固定使用 chat_completions 作为占位默认值，避免为每个 provider 单独扩表。
 const (
 	MonitorAPIModeChatCompletions = "chat_completions"
 	MonitorAPIModeResponses       = "responses"
+	MonitorAPIModeMessages        = "messages"
 )
 
 // ChannelMonitor 渠道监控配置（service 层模型，不直接暴露 ent 类型）。

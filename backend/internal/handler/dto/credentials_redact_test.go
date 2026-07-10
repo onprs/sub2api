@@ -14,12 +14,17 @@ func TestRedactCredentials_NilInput(t *testing.T) {
 
 func TestRedactCredentials_StripsSensitiveKeysAndReportsStatus(t *testing.T) {
 	in := map[string]any{
-		"refresh_token":         "rt-secret",
-		"access_token":          "at-secret",
-		"api_key":               "sk-secret",
-		"aws_secret_access_key": "aws-secret",
-		"service_account_json":  map[string]any{"private_key": "..."},
-		"private_key":           "raw-key",
+		"refresh_token":            "rt-secret",
+		"access_token":             "at-secret",
+		"api_key":                  "sk-secret",
+		"console_cookie":           "auth=secret",
+		"console_workspace_id":     "wrk_secret",
+		"console_auth_source":      "windows_cdp_helper",
+		"console_auth_imported_at": "2026-06-22T10:00:00Z",
+		"console_auth_expires_at":  "2026-06-29T10:00:00Z",
+		"aws_secret_access_key":    "aws-secret",
+		"service_account_json":     map[string]any{"private_key": "..."},
+		"private_key":              "raw-key",
 		// 非敏感
 		"base_url":      "https://api.example.com",
 		"model_mapping": map[string]any{"foo": "bar"},
@@ -32,6 +37,11 @@ func TestRedactCredentials_StripsSensitiveKeysAndReportsStatus(t *testing.T) {
 	require.NotContains(t, out, "refresh_token")
 	require.NotContains(t, out, "access_token")
 	require.NotContains(t, out, "api_key")
+	require.NotContains(t, out, "console_cookie")
+	require.NotContains(t, out, "console_workspace_id")
+	require.NotContains(t, out, "console_auth_source")
+	require.NotContains(t, out, "console_auth_imported_at")
+	require.NotContains(t, out, "console_auth_expires_at")
 	require.NotContains(t, out, "aws_secret_access_key")
 	require.NotContains(t, out, "service_account_json")
 	require.NotContains(t, out, "private_key")
@@ -44,6 +54,11 @@ func TestRedactCredentials_StripsSensitiveKeysAndReportsStatus(t *testing.T) {
 	require.True(t, status["has_refresh_token"])
 	require.True(t, status["has_access_token"])
 	require.True(t, status["has_api_key"])
+	require.True(t, status["has_console_cookie"])
+	require.True(t, status["has_console_workspace_id"])
+	require.True(t, status["has_console_auth_source"])
+	require.True(t, status["has_console_auth_imported_at"])
+	require.True(t, status["has_console_auth_expires_at"])
 	require.True(t, status["has_aws_secret_access_key"])
 	require.True(t, status["has_service_account_json"])
 	require.True(t, status["has_private_key"])
@@ -81,7 +96,8 @@ func TestRedactCredentials_DoesNotMutateInput(t *testing.T) {
 func TestRedactCredentials_AllKnownSensitiveKeys(t *testing.T) {
 	keys := []string{
 		"access_token", "refresh_token", "id_token",
-		"api_key", "session_key", "cookie",
+		"api_key", "session_key", "cookie", "console_cookie",
+		"console_workspace_id", "console_auth_source", "console_auth_imported_at", "console_auth_expires_at",
 		"aws_secret_access_key", "aws_session_token",
 		"service_account_json", "service_account", "private_key",
 	}

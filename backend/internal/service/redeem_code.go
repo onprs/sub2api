@@ -8,6 +8,8 @@ import (
 
 type RedeemCode struct {
 	ID        int64
+	Source    string
+	SourceID  int64
 	Code      string
 	Type      string
 	Value     float64
@@ -20,6 +22,13 @@ type RedeemCode struct {
 
 	GroupID      *int64
 	ValidityDays int
+
+	SubscriptionPlanID               *int64
+	PaymentOrderID                   *int64
+	SubscriptionQuotaSnapshotVersion int
+	FiveHourLimitUSD                 *float64
+	SevenDayLimitUSD                 *float64
+	ThirtyDayLimitUSD                *float64
 
 	User  *User
 	Group *Group

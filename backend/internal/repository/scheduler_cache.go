@@ -516,7 +516,7 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 	if len(credentials) == 0 {
 		return nil
 	}
-	keys := []string{"model_mapping", "api_key", "project_id", "oauth_type"}
+	keys := []string{"model_mapping", "api_key", "base_url", "model_protocols", "project_id", "oauth_type"}
 	filtered := make(map[string]any)
 	for _, key := range keys {
 		if value, ok := credentials[key]; ok && value != nil {

@@ -13,12 +13,27 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
+	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/payment/provider"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
 // --- Order Creation ---
+
+type subscriptionOrderPricing struct {
+	PlanPrice              float64
+	EffectivePrice         float64
+	RenewalEligible        bool
+	RenewalDiscountPercent *float64
+}
+
+type SubscriptionPlanPricing struct {
+	RenewalDiscountPercent *float64 `json:"renewal_discount_percent"`
+	RenewalEligible        bool     `json:"renewal_eligible"`
+	RenewalPrice           *float64 `json:"renewal_price"`
+	EffectivePrice         float64  `json:"effective_price"`
+}
 
 func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest) (*CreateOrderResponse, error) {
 	if req.OrderType == "" {
@@ -51,13 +66,16 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 	if s.notificationEmailService != nil {
 		s.notificationEmailService.RememberRecipientLocale(ctx, req.UserID, user.Email, req.Locale)
 	}
-	orderAmount := req.Amount
 	limitAmount := req.Amount
+	var subscriptionPricing subscriptionOrderPricing
 	if plan != nil {
-		orderAmount = plan.Price
-		limitAmount = plan.Price
+		subscriptionPricing, err = s.resolveSubscriptionOrderPricing(ctx, req, plan)
+		if err != nil {
+			return nil, err
+		}
+		limitAmount = subscriptionPricing.EffectivePrice
 	} else if req.OrderType == payment.OrderTypeBalance {
-		orderAmount = calculateCreditedBalance(req.Amount, cfg.BalanceRechargeMultiplier)
+		subscriptionPricing.EffectivePrice = calculateCreditedBalance(req.Amount, cfg.BalanceRechargeMultiplier)
 	}
 	feeRate := cfg.RechargeFeeRate
 	methodCurrency := payment.DefaultPaymentCurrency
@@ -98,7 +116,7 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 	if oauthResp != nil {
 		return oauthResp, nil
 	}
-	order, err := s.createOrderInTx(ctx, req, user, plan, cfg, orderAmount, limitAmount, feeRate, payAmount, sel)
+	order, err := s.createOrderInTx(ctx, req, user, plan, cfg, subscriptionPricing, feeRate, payAmount, sel)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +155,9 @@ func (s *PaymentService) validateSubOrder(ctx context.Context, req CreateOrderRe
 	if err != nil || !plan.ForSale {
 		return nil, infraerrors.NotFound("PLAN_NOT_AVAILABLE", "plan not found or not for sale")
 	}
+	if SubscriptionPlanSoldOut(plan) {
+		return nil, infraerrors.Conflict("PLAN_SOLD_OUT", "subscription plan is sold out")
+	}
 	group, err := s.groupRepo.GetByID(ctx, plan.GroupID)
 	if err != nil || group.Status != payment.EntityStatusActive {
 		return nil, infraerrors.NotFound("GROUP_NOT_FOUND", "subscription group is no longer available")
@@ -147,12 +168,79 @@ func (s *PaymentService) validateSubOrder(ctx context.Context, req CreateOrderRe
 	return plan, nil
 }
 
-func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderRequest, user *User, plan *dbent.SubscriptionPlan, cfg *PaymentConfig, orderAmount, limitAmount, feeRate, payAmount float64, sel *payment.InstanceSelection) (*dbent.PaymentOrder, error) {
+func (s *PaymentService) BuildSubscriptionPlanPricing(ctx context.Context, userID int64, plan *dbent.SubscriptionPlan) (SubscriptionPlanPricing, error) {
+	pricing, err := s.resolveSubscriptionOrderPricing(ctx, CreateOrderRequest{
+		UserID:    userID,
+		OrderType: payment.OrderTypeSubscription,
+	}, plan)
+	if err != nil {
+		return SubscriptionPlanPricing{}, err
+	}
+	var renewalPrice *float64
+	if pricing.RenewalEligible && pricing.RenewalDiscountPercent != nil {
+		renewalPrice = &pricing.EffectivePrice
+	}
+	return SubscriptionPlanPricing{
+		RenewalDiscountPercent: plan.RenewalDiscountPercent,
+		RenewalEligible:        pricing.RenewalEligible,
+		RenewalPrice:           renewalPrice,
+		EffectivePrice:         pricing.EffectivePrice,
+	}, nil
+}
+
+func (s *PaymentService) resolveSubscriptionOrderPricing(ctx context.Context, req CreateOrderRequest, plan *dbent.SubscriptionPlan) (subscriptionOrderPricing, error) {
+	if plan == nil {
+		return subscriptionOrderPricing{}, infraerrors.BadRequest("INVALID_INPUT", "subscription order requires a plan")
+	}
+	pricing := subscriptionOrderPricing{
+		PlanPrice:      plan.Price,
+		EffectivePrice: plan.Price,
+	}
+	if plan.RenewalDiscountPercent == nil || *plan.RenewalDiscountPercent <= 0 {
+		return pricing, nil
+	}
+	if req.UserID <= 0 {
+		return pricing, nil
+	}
+	eligible, err := s.entClient.UserSubscription.Query().
+		Where(
+			usersubscription.UserIDEQ(req.UserID),
+			usersubscription.GroupIDEQ(plan.GroupID),
+			usersubscription.PlanIDEQ(plan.ID),
+			usersubscription.StatusEQ(SubscriptionStatusActive),
+			usersubscription.ExpiresAtGT(time.Now()),
+		).
+		Exist(ctx)
+	if err != nil {
+		return subscriptionOrderPricing{}, fmt.Errorf("check renewal eligibility: %w", err)
+	}
+	if !eligible {
+		return pricing, nil
+	}
+	effectivePrice := calculateRenewalDiscountedPrice(plan.Price, *plan.RenewalDiscountPercent)
+	if effectivePrice <= 0 {
+		return subscriptionOrderPricing{}, infraerrors.BadRequest("INVALID_AMOUNT", "renewal discount makes the payment amount too low")
+	}
+	pricing.EffectivePrice = effectivePrice
+	pricing.RenewalEligible = true
+	pricing.RenewalDiscountPercent = plan.RenewalDiscountPercent
+	return pricing, nil
+}
+
+func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderRequest, user *User, plan *dbent.SubscriptionPlan, cfg *PaymentConfig, pricing subscriptionOrderPricing, feeRate, payAmount float64, sel *payment.InstanceSelection) (*dbent.PaymentOrder, error) {
 	tx, err := s.entClient.Tx(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	orderAmount := req.Amount
+	limitAmount := req.Amount
+	if plan != nil {
+		orderAmount = pricing.EffectivePrice
+		limitAmount = pricing.EffectivePrice
+	} else if req.OrderType == payment.OrderTypeBalance {
+		orderAmount = calculateCreditedBalance(req.Amount, cfg.BalanceRechargeMultiplier)
+	}
 	if err := s.checkPendingLimit(ctx, tx, req.UserID, cfg.MaxPendingOrders); err != nil {
 		return nil, err
 	}
@@ -205,7 +293,15 @@ func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderReq
 		b.SetProviderSnapshot(providerSnapshot)
 	}
 	if plan != nil {
-		b.SetPlanID(plan.ID).SetSubscriptionGroupID(plan.GroupID).SetSubscriptionDays(psComputeValidityDays(plan.ValidityDays, plan.ValidityUnit))
+		b.SetPlanID(plan.ID).
+			SetSubscriptionGroupID(plan.GroupID).
+			SetSubscriptionPlanPrice(pricing.PlanPrice).
+			SetSubscriptionDays(psComputeValidityDays(plan.ValidityDays, plan.ValidityUnit)).
+			SetSubscriptionQuotaSnapshotVersion(1).
+			SetNillableSubscriptionRenewalDiscountPercent(pricing.RenewalDiscountPercent).
+			SetNillableSubscriptionFiveHourLimitUsd(plan.FiveHourLimitUsd).
+			SetNillableSubscriptionSevenDayLimitUsd(plan.SevenDayLimitUsd).
+			SetNillableSubscriptionThirtyDayLimitUsd(plan.ThirtyDayLimitUsd)
 	}
 	order, err := b.Save(ctx)
 	if err != nil {
@@ -560,7 +656,7 @@ func (s *PaymentService) buildWeChatOAuthRequiredResponse(ctx context.Context, r
 		return nil, err
 	}
 
-	authorizeURL, err := buildWeChatPaymentOAuthStartURL(req, "snsapi_base")
+	authorizeURL, err := buildWeChatPaymentOAuthStartURL(req, amount, "snsapi_base")
 	if err != nil {
 		return nil, err
 	}
@@ -701,15 +797,15 @@ func buildCreateOrderResponse(order *dbent.PaymentOrder, req CreateOrderRequest,
 	}
 }
 
-func buildWeChatPaymentOAuthStartURL(req CreateOrderRequest, scope string) (string, error) {
+func buildWeChatPaymentOAuthStartURL(req CreateOrderRequest, amount float64, scope string) (string, error) {
 	u, err := url.Parse("/api/v1/auth/oauth/wechat/payment/start")
 	if err != nil {
 		return "", fmt.Errorf("build wechat payment oauth start url: %w", err)
 	}
 	q := u.Query()
 	q.Set("payment_type", strings.TrimSpace(req.PaymentType))
-	if req.Amount > 0 {
-		q.Set("amount", strconv.FormatFloat(req.Amount, 'f', -1, 64))
+	if amount > 0 {
+		q.Set("amount", strconv.FormatFloat(amount, 'f', -1, 64))
 	}
 	if orderType := strings.TrimSpace(req.OrderType); orderType != "" {
 		q.Set("order_type", orderType)

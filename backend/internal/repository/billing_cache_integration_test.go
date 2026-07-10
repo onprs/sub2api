@@ -146,13 +146,13 @@ func (s *BillingCacheSuite) TestSubscriptionCache() {
 			},
 		},
 		{
-			name: "update_usage_on_nonexistent_is_noop",
+			name: "update_usage_on_nonexistent_returns_miss",
 			fn: func(ctx context.Context, rdb *redis.Client, cache service.BillingCache) {
 				userID := int64(11)
 				groupID := int64(21)
 				subKey := fmt.Sprintf("%s%d:%d", billingSubKeyPrefix, userID, groupID)
 
-				require.NoError(s.T(), cache.UpdateSubscriptionUsage(ctx, userID, groupID, 1.0), "UpdateSubscriptionUsage should not error")
+				require.ErrorIs(s.T(), cache.UpdateSubscriptionUsage(ctx, userID, groupID, 1.0), redis.Nil, "UpdateSubscriptionUsage should report cache miss")
 
 				exists, err := rdb.Exists(ctx, subKey).Result()
 				require.NoError(s.T(), err, "Exists")
@@ -331,15 +331,15 @@ func (s *BillingCacheSuite) TestDeductUserBalance_ErrorPropagation() {
 }
 
 // TestUpdateSubscriptionUsage_ErrorPropagation 验证 P2-12 修复：
-// Redis 真实错误应传播，key 不存在（redis.Nil）应返回 nil。
+// Redis 真实错误应传播，key 不存在应返回 redis.Nil 让上层回源重建缓存。
 func (s *BillingCacheSuite) TestUpdateSubscriptionUsage_ErrorPropagation() {
-	s.Run("key_not_exists_returns_nil", func() {
+	s.Run("key_not_exists_returns_redis_nil", func() {
 		rdb := testRedis(s.T())
 		cache := NewBillingCache(rdb)
 		ctx := context.Background()
 
 		err := cache.UpdateSubscriptionUsage(ctx, 88888, 77777, 1.0)
-		require.NoError(s.T(), err, "UpdateSubscriptionUsage on non-existent key should return nil")
+		require.ErrorIs(s.T(), err, redis.Nil, "UpdateSubscriptionUsage on non-existent key should return redis.Nil")
 	})
 
 	s.Run("cancelled_context_propagates_error", func() {

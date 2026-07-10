@@ -80,6 +80,7 @@ import type { Provider } from '@/api/admin/channelMonitor'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import { maskApiKey } from '@/utils/maskApiKey'
+import { monitorProviderKeyGroupPlatform } from '@/constants/channelMonitor'
 
 const props = withDefaults(defineProps<{
   show: boolean
@@ -106,8 +107,9 @@ watch(() => props.show, (shown) => {
 
 const filteredKeys = computed<ApiKey[]>(() => {
   const q = search.value.trim().toLowerCase()
+  const groupPlatform = monitorProviderKeyGroupPlatform(props.provider)
   return props.keys.filter((k) => {
-    if (k.group?.platform !== props.provider) return false
+    if (k.group?.platform !== groupPlatform) return false
     if (!q) return true
     return (
       k.name.toLowerCase().includes(q) ||

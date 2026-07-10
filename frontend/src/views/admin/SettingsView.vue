@@ -1877,6 +1877,25 @@
 
                     <div>
                       <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        {{ localText("出站代理", "Outbound Proxy") }}
+                      </label>
+                      <ProxySelector
+                        v-model="form.github_oauth_proxy_id"
+                        :proxies="settingsProxies"
+                        data-testid="github-oauth-proxy-selector"
+                      />
+                      <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        {{
+                          localText(
+                            "用于 GitHub token、用户信息和邮箱接口请求。",
+                            "Used for GitHub token, user info, and email requests.",
+                          )
+                        }}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                         {{ localText("后端回调地址", "Backend Callback URL") }}
                       </label>
                       <input
@@ -3287,7 +3306,7 @@
                       </tr>
                     </thead>
                     <tbody class="space-y-2">
-                      <tr v-for="p in (['anthropic', 'openai', 'gemini', 'antigravity'] as const)" :key="p" class="align-top">
+                      <tr v-for="p in (['anthropic', 'openai', 'gemini', 'antigravity', 'opencode_go'] as const)" :key="p" class="align-top">
                         <td class="pr-4 py-1">
                           <span class="font-mono text-xs text-gray-700 dark:text-gray-300">{{ p }}</span>
                         </td>
@@ -3622,7 +3641,7 @@
                             </tr>
                           </thead>
                           <tbody>
-                            <tr v-for="p in (['anthropic', 'openai', 'gemini', 'antigravity'] as const)" :key="`${authSource.source}-pq-${p}`" class="align-top">
+                            <tr v-for="p in (['anthropic', 'openai', 'gemini', 'antigravity', 'opencode_go'] as const)" :key="`${authSource.source}-pq-${p}`" class="align-top">
                               <td class="pr-4 py-1">
                                 <span class="font-mono text-xs text-gray-700 dark:text-gray-300">{{ p }}</span>
                               </td>
@@ -4299,7 +4318,7 @@
                         }}</label>
                         <ProxySelector
                           v-model="provider.proxy_id"
-                          :proxies="webSearchProxies"
+                          :proxies="settingsProxies"
                         />
                       </div>
                       <button
@@ -5230,6 +5249,39 @@
               <p class="mt-1 text-xs text-gray-400">
                 {{ t('admin.settings.features.channelMonitor.defaultIntervalHint') }}
               </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.features.modelPricing.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.features.modelPricing.description') }}
+            </p>
+            <p class="mt-1.5 text-xs">
+              <router-link
+                to="/model-pricing"
+                class="inline-flex items-center gap-1 text-primary-600 hover:underline dark:text-primary-400"
+              >
+                {{ t('admin.settings.features.modelPricing.configureLink') }}
+                <span aria-hidden="true">→</span>
+              </router-link>
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.modelPricing.enabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.modelPricing.enabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.model_pricing_enabled" />
             </div>
           </div>
         </div>
@@ -7170,6 +7222,7 @@ const form = reactive<SettingsForm>({
   github_oauth_client_secret_configured: false,
   github_oauth_redirect_url: "",
   github_oauth_frontend_redirect_url: "/auth/oauth/callback",
+  github_oauth_proxy_id: null,
   google_oauth_enabled: false,
   google_oauth_client_id: "",
   google_oauth_client_secret: "",
@@ -7217,6 +7270,8 @@ const form = reactive<SettingsForm>({
   channel_monitor_default_interval_seconds: 60,
   // Available Channels feature switch
   available_channels_enabled: false,
+  // Model Pricing feature switch
+  model_pricing_enabled: false,
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: false,
   // Allow user view error requests
@@ -7274,8 +7329,8 @@ const authSourceDefaultsMeta = computed(() => [
   },
 ]);
 
-// Proxies for web search emulation ProxySelector
-const webSearchProxies = ref<Proxy[]>([]);
+// Active proxies reused by settings selectors.
+const settingsProxies = ref<Proxy[]>([]);
 
 // Web Search Emulation config (loaded/saved separately)
 const DEFAULT_WEB_SEARCH_QUOTA_LIMIT = 1000;
@@ -7403,23 +7458,30 @@ async function testWebSearchProvider() {
   }
 }
 
-async function loadWebSearchConfig() {
+async function loadSettingsProxies() {
   try {
-    const [resp, proxiesResp] = await Promise.all([
-      adminAPI.settings.getWebSearchEmulationConfig(),
-      adminAPI.proxies.list().catch(() => ({ items: [] as Proxy[] })),
-    ]);
+    settingsProxies.value = await adminAPI.proxies.getAllWithCount();
+  } catch {
+    settingsProxies.value = [];
+  }
+}
+
+async function loadWebSearchConfig() {
+  const proxiesPromise = loadSettingsProxies();
+  try {
+    const resp = await adminAPI.settings.getWebSearchEmulationConfig();
     if (resp) {
       webSearchConfig.enabled = resp.enabled || false;
       webSearchConfig.providers = resp.providers || [];
     }
-    webSearchProxies.value = proxiesResp.items || [];
   } catch (err: unknown) {
     // 404 is expected when config hasn't been created yet; show error for other failures
     const status = (err as { status?: number })?.status;
     if (status !== 404 && status !== undefined) {
       appStore.showError(extractApiErrorMessage(err, t("common.error")));
     }
+  } finally {
+    await proxiesPromise;
   }
 }
 
@@ -8285,6 +8347,7 @@ async function saveSettings() {
       github_oauth_redirect_url: form.github_oauth_redirect_url,
       github_oauth_frontend_redirect_url:
         form.github_oauth_frontend_redirect_url,
+      github_oauth_proxy_id: form.github_oauth_proxy_id,
       google_oauth_enabled: form.google_oauth_enabled,
       google_oauth_client_id: form.google_oauth_client_id,
       google_oauth_client_secret:
@@ -8360,6 +8423,8 @@ async function saveSettings() {
         Number(form.channel_monitor_default_interval_seconds) || 60,
       // Available Channels feature switch
       available_channels_enabled: form.available_channels_enabled,
+      // Model Pricing feature switch
+      model_pricing_enabled: form.model_pricing_enabled,
       // Affiliate (邀请返利) feature switch
       affiliate_enabled: form.affiliate_enabled,
       allow_user_view_error_requests: form.allow_user_view_error_requests,

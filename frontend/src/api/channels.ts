@@ -37,6 +37,9 @@ export interface UserSupportedModelPricing {
   cache_read_price: number | null
   image_output_price: number | null
   per_request_price: number | null
+  pricing_source?: string | null
+  pricing_source_label?: string | null
+  pricing_source_detail?: string | null
   intervals: UserPricingInterval[]
 }
 
@@ -64,8 +67,12 @@ export interface UserAvailableChannel {
 }
 
 /** 列出当前用户可见的「可用渠道」（与 /groups/available 保持一致，返回平数组）。 */
-export async function getAvailable(options?: { signal?: AbortSignal }): Promise<UserAvailableChannel[]> {
+export async function getAvailable(options?: {
+  signal?: AbortSignal
+  purpose?: 'model_pricing'
+}): Promise<UserAvailableChannel[]> {
   const { data } = await apiClient.get<UserAvailableChannel[]>('/channels/available', {
+    params: options?.purpose ? { purpose: options.purpose } : undefined,
     signal: options?.signal
   })
   return data

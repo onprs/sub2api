@@ -367,6 +367,94 @@ func newPaymentConfigServiceTestClient(t *testing.T) *dbent.Client {
 	return client
 }
 
+func TestPaymentConfigServicePlanRollingLimitsPersistAndClear(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	svc := NewPaymentConfigService(client, nil, nil)
+	five := 1.25
+	seven := 7.5
+	thirty := 30.75
+
+	plan, err := svc.CreatePlan(ctx, CreatePlanRequest{
+		GroupID: 42, Name: "Quota Pro", Price: 9.99,
+		ValidityDays: 30, ValidityUnit: "days",
+		ForSale:          true,
+		FiveHourLimitUSD: &five, SevenDayLimitUSD: &seven, ThirtyDayLimitUSD: &thirty,
+	})
+	if err != nil {
+		t.Fatalf("CreatePlan returned error: %v", err)
+	}
+	if plan.FiveHourLimitUsd == nil || *plan.FiveHourLimitUsd != five {
+		t.Fatalf("FiveHourLimitUsd = %v, want %v", plan.FiveHourLimitUsd, five)
+	}
+	if plan.SevenDayLimitUsd == nil || *plan.SevenDayLimitUsd != seven {
+		t.Fatalf("SevenDayLimitUsd = %v, want %v", plan.SevenDayLimitUsd, seven)
+	}
+	if plan.ThirtyDayLimitUsd == nil || *plan.ThirtyDayLimitUsd != thirty {
+		t.Fatalf("ThirtyDayLimitUsd = %v, want %v", plan.ThirtyDayLimitUsd, thirty)
+	}
+
+	updatedSeven := 8.5
+	plan, err = svc.UpdatePlan(ctx, plan.ID, UpdatePlanRequest{
+		FiveHourLimitUSD:  NullableFloatPatch{Set: true, Value: nil},
+		SevenDayLimitUSD:  NullableFloatPatch{Set: true, Value: &updatedSeven},
+		ThirtyDayLimitUSD: NullableFloatPatch{Set: true, Value: nil},
+	})
+	if err != nil {
+		t.Fatalf("UpdatePlan returned error: %v", err)
+	}
+	if plan.FiveHourLimitUsd != nil {
+		t.Fatalf("FiveHourLimitUsd = %v, want nil after clear", plan.FiveHourLimitUsd)
+	}
+	if plan.SevenDayLimitUsd == nil || *plan.SevenDayLimitUsd != updatedSeven {
+		t.Fatalf("SevenDayLimitUsd = %v, want %v", plan.SevenDayLimitUsd, updatedSeven)
+	}
+	if plan.ThirtyDayLimitUsd != nil {
+		t.Fatalf("ThirtyDayLimitUsd = %v, want nil after clear", plan.ThirtyDayLimitUsd)
+	}
+}
+
+func TestPaymentConfigServicePlanStockPersistsAndClears(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	svc := NewPaymentConfigService(client, nil, nil)
+	initialStock := 5
+
+	plan, err := svc.CreatePlan(ctx, CreatePlanRequest{
+		GroupID: 42, Name: "Stocked Pro", Price: 9.99,
+		ValidityDays: 30, ValidityUnit: "days",
+		ForSale: true,
+		Stock:   &initialStock,
+	})
+	if err != nil {
+		t.Fatalf("CreatePlan returned error: %v", err)
+	}
+	if plan.Stock == nil || *plan.Stock != initialStock {
+		t.Fatalf("Stock = %v, want %v", plan.Stock, initialStock)
+	}
+
+	zero := 0
+	plan, err = svc.UpdatePlan(ctx, plan.ID, UpdatePlanRequest{
+		Stock: NullableIntPatch{Set: true, Value: &zero},
+	})
+	if err != nil {
+		t.Fatalf("UpdatePlan returned error: %v", err)
+	}
+	if plan.Stock == nil || *plan.Stock != 0 {
+		t.Fatalf("Stock = %v, want 0", plan.Stock)
+	}
+
+	plan, err = svc.UpdatePlan(ctx, plan.ID, UpdatePlanRequest{
+		Stock: NullableIntPatch{Set: true, Value: nil},
+	})
+	if err != nil {
+		t.Fatalf("UpdatePlan returned error: %v", err)
+	}
+	if plan.Stock != nil {
+		t.Fatalf("Stock = %v, want nil after clear", plan.Stock)
+	}
+}
+
 type paymentConfigSettingRepoStub struct {
 	values  map[string]string
 	updates map[string]string

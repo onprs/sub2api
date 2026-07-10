@@ -31,6 +31,10 @@ import (
 // 匹配格式: /Users/xxx/.gemini/tmp/[64位十六进制哈希]
 var geminiCLITmpDirRegex = regexp.MustCompile(`/\.gemini/tmp/([A-Fa-f0-9]{64})`)
 
+const antigravityGeminiModelsMappingMessage = "No Gemini-compatible Antigravity model_mapping configured. Please ask the administrator to configure model mappings."
+
+var antigravityGeminiSupportedGenerationMethods = []string{"generateContent", "streamGenerateContent"}
+
 // GeminiV1BetaListModels proxies:
 // GET /v1beta/models
 func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
@@ -48,7 +52,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 
 	// 强制 antigravity 模式：返回 antigravity 支持的模型列表
 	if forcePlatform == service.PlatformAntigravity {
-		c.JSON(http.StatusOK, antigravity.FallbackGeminiModelsList())
+		h.writeAntigravityGeminiMappedModels(c, apiKeyGroupIDFromContext(c))
 		return
 	}
 
@@ -76,6 +80,37 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 	writeUpstreamResponse(c, res)
+}
+
+func (h *GatewayHandler) writeAntigravityGeminiMappedModels(c *gin.Context, groupID *int64) {
+	var modelIDs []string
+	if h != nil && h.gatewayService != nil {
+		modelIDs = h.gatewayService.GetAntigravityMappedModels(c.Request.Context(), groupID, service.AntigravityModelsProtocolGemini)
+	}
+	if len(modelIDs) == 0 {
+		c.JSON(http.StatusOK, map[string]any{
+			"models":  []antigravity.GeminiModel{},
+			"message": antigravityGeminiModelsMappingMessage,
+		})
+		return
+	}
+
+	models := make([]antigravity.GeminiModel, 0, len(modelIDs))
+	for _, modelID := range modelIDs {
+		name := strings.TrimSpace(modelID)
+		if name == "" {
+			continue
+		}
+		if !strings.HasPrefix(name, "models/") {
+			name = "models/" + name
+		}
+		models = append(models, antigravity.GeminiModel{
+			Name:                       name,
+			DisplayName:                strings.TrimPrefix(name, "models/"),
+			SupportedGenerationMethods: antigravityGeminiSupportedGenerationMethods,
+		})
+	}
+	c.JSON(http.StatusOK, antigravity.GeminiModelsListResponse{Models: models})
 }
 
 // GeminiV1BetaGetModel proxies:

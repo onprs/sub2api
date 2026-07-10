@@ -36,10 +36,22 @@ const (
 	FieldGroupID = "group_id"
 	// FieldValidityDays holds the string denoting the validity_days field in the database.
 	FieldValidityDays = "validity_days"
+	// FieldSubscriptionPlanID holds the string denoting the subscription_plan_id field in the database.
+	FieldSubscriptionPlanID = "subscription_plan_id"
+	// FieldSubscriptionQuotaSnapshotVersion holds the string denoting the subscription_quota_snapshot_version field in the database.
+	FieldSubscriptionQuotaSnapshotVersion = "subscription_quota_snapshot_version"
+	// FieldFiveHourLimitUsd holds the string denoting the five_hour_limit_usd field in the database.
+	FieldFiveHourLimitUsd = "five_hour_limit_usd"
+	// FieldSevenDayLimitUsd holds the string denoting the seven_day_limit_usd field in the database.
+	FieldSevenDayLimitUsd = "seven_day_limit_usd"
+	// FieldThirtyDayLimitUsd holds the string denoting the thirty_day_limit_usd field in the database.
+	FieldThirtyDayLimitUsd = "thirty_day_limit_usd"
 	// EdgeUser holds the string denoting the user edge name in mutations.
 	EdgeUser = "user"
 	// EdgeGroup holds the string denoting the group edge name in mutations.
 	EdgeGroup = "group"
+	// EdgeSubscriptionPlan holds the string denoting the subscription_plan edge name in mutations.
+	EdgeSubscriptionPlan = "subscription_plan"
 	// Table holds the table name of the redeemcode in the database.
 	Table = "redeem_codes"
 	// UserTable is the table that holds the user relation/edge.
@@ -56,6 +68,13 @@ const (
 	GroupInverseTable = "groups"
 	// GroupColumn is the table column denoting the group relation/edge.
 	GroupColumn = "group_id"
+	// SubscriptionPlanTable is the table that holds the subscription_plan relation/edge.
+	SubscriptionPlanTable = "redeem_codes"
+	// SubscriptionPlanInverseTable is the table name for the SubscriptionPlan entity.
+	// It exists in this package in order to avoid circular dependency with the "subscriptionplan" package.
+	SubscriptionPlanInverseTable = "subscription_plans"
+	// SubscriptionPlanColumn is the table column denoting the subscription_plan relation/edge.
+	SubscriptionPlanColumn = "subscription_plan_id"
 )
 
 // Columns holds all SQL columns for redeemcode fields.
@@ -72,6 +91,11 @@ var Columns = []string{
 	FieldExpiresAt,
 	FieldGroupID,
 	FieldValidityDays,
+	FieldSubscriptionPlanID,
+	FieldSubscriptionQuotaSnapshotVersion,
+	FieldFiveHourLimitUsd,
+	FieldSevenDayLimitUsd,
+	FieldThirtyDayLimitUsd,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -101,6 +125,14 @@ var (
 	DefaultCreatedAt func() time.Time
 	// DefaultValidityDays holds the default value on creation for the "validity_days" field.
 	DefaultValidityDays int
+	// DefaultSubscriptionQuotaSnapshotVersion holds the default value on creation for the "subscription_quota_snapshot_version" field.
+	DefaultSubscriptionQuotaSnapshotVersion int
+	// FiveHourLimitUsdValidator is a validator for the "five_hour_limit_usd" field. It is called by the builders before save.
+	FiveHourLimitUsdValidator func(float64) error
+	// SevenDayLimitUsdValidator is a validator for the "seven_day_limit_usd" field. It is called by the builders before save.
+	SevenDayLimitUsdValidator func(float64) error
+	// ThirtyDayLimitUsdValidator is a validator for the "thirty_day_limit_usd" field. It is called by the builders before save.
+	ThirtyDayLimitUsdValidator func(float64) error
 )
 
 // OrderOption defines the ordering options for the RedeemCode queries.
@@ -166,6 +198,31 @@ func ByValidityDays(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldValidityDays, opts...).ToFunc()
 }
 
+// BySubscriptionPlanID orders the results by the subscription_plan_id field.
+func BySubscriptionPlanID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSubscriptionPlanID, opts...).ToFunc()
+}
+
+// BySubscriptionQuotaSnapshotVersion orders the results by the subscription_quota_snapshot_version field.
+func BySubscriptionQuotaSnapshotVersion(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSubscriptionQuotaSnapshotVersion, opts...).ToFunc()
+}
+
+// ByFiveHourLimitUsd orders the results by the five_hour_limit_usd field.
+func ByFiveHourLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldFiveHourLimitUsd, opts...).ToFunc()
+}
+
+// BySevenDayLimitUsd orders the results by the seven_day_limit_usd field.
+func BySevenDayLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSevenDayLimitUsd, opts...).ToFunc()
+}
+
+// ByThirtyDayLimitUsd orders the results by the thirty_day_limit_usd field.
+func ByThirtyDayLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldThirtyDayLimitUsd, opts...).ToFunc()
+}
+
 // ByUserField orders the results by user field.
 func ByUserField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -177,6 +234,13 @@ func ByUserField(field string, opts ...sql.OrderTermOption) OrderOption {
 func ByGroupField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newGroupStep(), sql.OrderByField(field, opts...))
+	}
+}
+
+// BySubscriptionPlanField orders the results by subscription_plan field.
+func BySubscriptionPlanField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newSubscriptionPlanStep(), sql.OrderByField(field, opts...))
 	}
 }
 func newUserStep() *sqlgraph.Step {
@@ -191,5 +255,12 @@ func newGroupStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(GroupInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, true, GroupTable, GroupColumn),
+	)
+}
+func newSubscriptionPlanStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(SubscriptionPlanInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, SubscriptionPlanTable, SubscriptionPlanColumn),
 	)
 }

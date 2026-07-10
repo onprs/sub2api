@@ -5,12 +5,18 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
+	"strconv"
 	"testing"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type paymentFulfillmentTestProvider struct {
@@ -417,4 +423,451 @@ func TestPaymentAmountToleranceForThreeDecimalCurrency(t *testing.T) {
 	assert.Equal(t, amountToleranceCNY, paymentAmountToleranceForCurrency("CNY"))
 	assert.Equal(t, amountToleranceCNY, paymentAmountToleranceForCurrency("JPY"))
 	assert.InDelta(t, 0.0005, paymentAmountToleranceForCurrency("KWD"), 1e-12)
+}
+
+func TestDoSubSnapshotsRollingQuotaLimitsFromPurchasedOrder(t *testing.T) {
+	ctx := context.Background()
+	client := newOrderNotFoundTestClient(t)
+	user := client.User.Create().
+		SetEmail("quota-buyer@example.com").
+		SetPasswordHash("hash").
+		SetUsername("quota-buyer").
+		SaveX(ctx)
+	five := 1.25
+	seven := 7.5
+	thirty := 30.75
+	plan := client.SubscriptionPlan.Create().
+		SetGroupID(42).
+		SetName("Quota Pro").
+		SetPrice(9.99).
+		SetValidityDays(30).
+		SetValidityUnit("days").
+		SetFiveHourLimitUsd(99).
+		SetSevenDayLimitUsd(99).
+		SetThirtyDayLimitUsd(99).
+		SaveX(ctx)
+	days := 30
+	order := client.PaymentOrder.Create().
+		SetUserID(user.ID).
+		SetUserEmail(user.Email).
+		SetUserName(user.Username).
+		SetAmount(plan.Price).
+		SetPayAmount(plan.Price).
+		SetRechargeCode("PAY-ROLLING-QUOTA").
+		SetOutTradeNo("sub2_rolling_quota").
+		SetPaymentType(payment.TypeAlipay).
+		SetPaymentTradeNo("trade_rolling_quota").
+		SetOrderType(payment.OrderTypeSubscription).
+		SetStatus(OrderStatusRecharging).
+		SetExpiresAt(time.Now().Add(time.Hour)).
+		SetClientIP("127.0.0.1").
+		SetSrcHost("example.com").
+		SetPlanID(plan.ID).
+		SetSubscriptionGroupID(plan.GroupID).
+		SetSubscriptionDays(days).
+		SetSubscriptionQuotaSnapshotVersion(1).
+		SetNillableSubscriptionFiveHourLimitUsd(&five).
+		SetNillableSubscriptionSevenDayLimitUsd(&seven).
+		SetNillableSubscriptionThirtyDayLimitUsd(&thirty).
+		SaveX(ctx)
+
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{
+			ID:               plan.GroupID,
+			Status:           payment.EntityStatusActive,
+			SubscriptionType: SubscriptionTypeSubscription,
+		},
+	}
+	subRepo := newSubscriptionUserSubRepoStub()
+	subscriptionSvc := NewSubscriptionService(groupRepo, subRepo, nil, nil, nil)
+	svc := &PaymentService{
+		entClient:       client,
+		groupRepo:       groupRepo,
+		subscriptionSvc: subscriptionSvc,
+	}
+
+	require.NoError(t, svc.doSub(ctx, order))
+
+	sub, err := subRepo.GetByUserIDGroupIDAndPlanID(ctx, user.ID, plan.GroupID, &plan.ID)
+	require.NoError(t, err)
+	require.Equal(t, plan.ID, *sub.PlanID)
+	require.Equal(t, five, *sub.FiveHourLimitUSD)
+	require.Equal(t, seven, *sub.SevenDayLimitUSD)
+	require.Equal(t, thirty, *sub.ThirtyDayLimitUSD)
+	require.Zero(t, sub.FiveHourUsageUSD)
+	require.Nil(t, sub.FiveHourWindowStart)
+
+	reloadedOrder, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.NotNil(t, reloadedOrder.SubscriptionID)
+	require.Equal(t, sub.ID, *reloadedOrder.SubscriptionID)
+}
+
+func TestDoSubRollsBackSubscriptionWhenOrderCompletionFails(t *testing.T) {
+	ctx := context.Background()
+	client := newOrderNotFoundTestClient(t)
+	user := client.User.Create().
+		SetEmail("rollback-buyer@example.com").
+		SetPasswordHash("hash").
+		SetUsername("rollback-buyer").
+		SaveX(ctx)
+
+	group := client.Group.Create().
+		SetName("Rollback Plan Group").
+		SetStatus(payment.EntityStatusActive).
+		SetSubscriptionType(SubscriptionTypeSubscription).
+		SaveX(ctx)
+	groupID := group.ID
+	days := 30
+	order := client.PaymentOrder.Create().
+		SetUserID(user.ID).
+		SetUserEmail(user.Email).
+		SetUserName(user.Username).
+		SetAmount(9.99).
+		SetPayAmount(9.99).
+		SetRechargeCode("PAY-SUB-ROLLBACK").
+		SetOutTradeNo("sub2_subscription_rollback").
+		SetPaymentType(payment.TypeAlipay).
+		SetPaymentTradeNo("trade_subscription_rollback").
+		SetOrderType(payment.OrderTypeSubscription).
+		SetStatus(OrderStatusRecharging).
+		SetExpiresAt(time.Now().Add(time.Hour)).
+		SetClientIP("127.0.0.1").
+		SetSrcHost("example.com").
+		SetSubscriptionGroupID(groupID).
+		SetSubscriptionDays(days).
+		SetSubscriptionQuotaSnapshotVersion(1).
+		SaveX(ctx)
+
+	failCompletion := true
+	client.PaymentOrder.Use(func(next dbent.Mutator) dbent.Mutator {
+		return dbent.MutateFunc(func(ctx context.Context, m dbent.Mutation) (dbent.Value, error) {
+			pm, ok := m.(*dbent.PaymentOrderMutation)
+			if ok && m.Op().Is(dbent.OpUpdate) {
+				if status, exists := pm.Status(); exists && status == OrderStatusCompleted && failCompletion {
+					return nil, errors.New("forced completed update failure")
+				}
+			}
+			return next.Mutate(ctx, m)
+		})
+	})
+
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{
+			ID:               groupID,
+			Status:           payment.EntityStatusActive,
+			SubscriptionType: SubscriptionTypeSubscription,
+		},
+	}
+	subRepo := &paymentFulfillmentEntSubRepo{client: client}
+	subscriptionSvc := NewSubscriptionService(groupRepo, subRepo, nil, nil, nil)
+	svc := &PaymentService{
+		entClient:       client,
+		groupRepo:       groupRepo,
+		subscriptionSvc: subscriptionSvc,
+	}
+
+	err := svc.doSub(ctx, order)
+
+	require.ErrorContains(t, err, "forced completed update failure")
+	count := client.UserSubscription.Query().
+		Where(usersubscription.UserIDEQ(user.ID), usersubscription.GroupIDEQ(groupID)).
+		CountX(ctx)
+	require.Zero(t, count, "subscription entitlement must roll back when order completion fails")
+	auditCount := client.PaymentAuditLog.Query().CountX(ctx)
+	require.Zero(t, auditCount, "success audit must roll back with failed fulfillment")
+
+	failCompletion = false
+	require.NoError(t, svc.doSub(ctx, order))
+
+	count = client.UserSubscription.Query().
+		Where(usersubscription.UserIDEQ(user.ID), usersubscription.GroupIDEQ(groupID)).
+		CountX(ctx)
+	require.Equal(t, 1, count)
+	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusCompleted, reloaded.Status)
+	auditCount = client.PaymentAuditLog.Query().CountX(ctx)
+	require.Equal(t, 1, auditCount)
+}
+
+func TestValidateSubOrderRejectsSoldOutPlan(t *testing.T) {
+	ctx := context.Background()
+	client := newOrderNotFoundTestClient(t)
+	stock := 0
+	plan := client.SubscriptionPlan.Create().
+		SetGroupID(42).
+		SetName("Sold Out").
+		SetPrice(9.99).
+		SetValidityDays(30).
+		SetValidityUnit("days").
+		SetForSale(true).
+		SetStock(stock).
+		SaveX(ctx)
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{
+			ID:               plan.GroupID,
+			Status:           payment.EntityStatusActive,
+			SubscriptionType: SubscriptionTypeSubscription,
+		},
+	}
+	svc := &PaymentService{
+		entClient:     client,
+		configService: NewPaymentConfigService(client, nil, nil),
+		groupRepo:     groupRepo,
+	}
+
+	_, err := svc.validateSubOrder(ctx, CreateOrderRequest{
+		UserID:    100,
+		OrderType: payment.OrderTypeSubscription,
+		PlanID:    plan.ID,
+	})
+
+	require.Error(t, err)
+	require.Equal(t, "PLAN_SOLD_OUT", infraerrors.Reason(err))
+}
+
+func TestDoSubConsumesFinitePlanStock(t *testing.T) {
+	ctx := context.Background()
+	client := newOrderNotFoundTestClient(t)
+	plan, order, userID := createSubscriptionFulfillmentOrderWithStock(t, ctx, client, 1)
+	svc := newPaymentFulfillmentStockTestService(client, plan)
+
+	require.NoError(t, svc.doSub(ctx, order))
+
+	reloadedPlan, err := client.SubscriptionPlan.Get(ctx, plan.ID)
+	require.NoError(t, err)
+	require.NotNil(t, reloadedPlan.Stock)
+	require.Equal(t, 0, *reloadedPlan.Stock)
+	count := client.UserSubscription.Query().
+		Where(usersubscription.UserIDEQ(userID), usersubscription.GroupIDEQ(plan.GroupID)).
+		CountX(ctx)
+	require.Equal(t, 1, count)
+}
+
+func TestDoSubRejectsSoldOutPlanAndDoesNotCreateSubscription(t *testing.T) {
+	ctx := context.Background()
+	client := newOrderNotFoundTestClient(t)
+	plan, order, userID := createSubscriptionFulfillmentOrderWithStock(t, ctx, client, 0)
+	svc := newPaymentFulfillmentStockTestService(client, plan)
+
+	err := svc.doSub(ctx, order)
+
+	require.Error(t, err)
+	require.Equal(t, "PLAN_SOLD_OUT", infraerrors.Reason(err))
+	count := client.UserSubscription.Query().
+		Where(usersubscription.UserIDEQ(userID), usersubscription.GroupIDEQ(plan.GroupID)).
+		CountX(ctx)
+	require.Zero(t, count)
+}
+
+func TestDoSubRollsBackStockWhenOrderCompletionFails(t *testing.T) {
+	ctx := context.Background()
+	client := newOrderNotFoundTestClient(t)
+	plan, order, userID := createSubscriptionFulfillmentOrderWithStock(t, ctx, client, 1)
+	failCompletion := true
+	client.PaymentOrder.Use(func(next dbent.Mutator) dbent.Mutator {
+		return dbent.MutateFunc(func(ctx context.Context, m dbent.Mutation) (dbent.Value, error) {
+			pm, ok := m.(*dbent.PaymentOrderMutation)
+			if ok && m.Op().Is(dbent.OpUpdate) {
+				if status, exists := pm.Status(); exists && status == OrderStatusCompleted && failCompletion {
+					return nil, errors.New("forced completed update failure")
+				}
+			}
+			return next.Mutate(ctx, m)
+		})
+	})
+	svc := newPaymentFulfillmentStockTestService(client, plan)
+
+	err := svc.doSub(ctx, order)
+
+	require.ErrorContains(t, err, "forced completed update failure")
+	reloadedPlan, err := client.SubscriptionPlan.Get(ctx, plan.ID)
+	require.NoError(t, err)
+	require.NotNil(t, reloadedPlan.Stock)
+	require.Equal(t, 1, *reloadedPlan.Stock, "stock decrement must roll back with failed order completion")
+	count := client.UserSubscription.Query().
+		Where(usersubscription.UserIDEQ(userID), usersubscription.GroupIDEQ(plan.GroupID)).
+		CountX(ctx)
+	require.Zero(t, count)
+}
+
+func TestDoSubSuccessRetryDoesNotConsumeStockAgain(t *testing.T) {
+	ctx := context.Background()
+	client := newOrderNotFoundTestClient(t)
+	plan, order, _ := createSubscriptionFulfillmentOrderWithStock(t, ctx, client, 1)
+	client.PaymentAuditLog.Create().
+		SetOrderID(strconv.FormatInt(order.ID, 10)).
+		SetAction("SUBSCRIPTION_SUCCESS").
+		SetOperator("system").
+		SaveX(ctx)
+	svc := newPaymentFulfillmentStockTestService(client, plan)
+
+	require.NoError(t, svc.doSub(ctx, order))
+
+	reloadedPlan, err := client.SubscriptionPlan.Get(ctx, plan.ID)
+	require.NoError(t, err)
+	require.NotNil(t, reloadedPlan.Stock)
+	require.Equal(t, 1, *reloadedPlan.Stock)
+}
+
+type paymentFulfillmentEntSubRepo struct {
+	userSubRepoNoop
+	client *dbent.Client
+}
+
+func (r *paymentFulfillmentEntSubRepo) entClient(ctx context.Context) *dbent.Client {
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		return tx.Client()
+	}
+	return r.client
+}
+
+func (r *paymentFulfillmentEntSubRepo) Create(ctx context.Context, sub *UserSubscription) error {
+	created, err := r.entClient(ctx).UserSubscription.Create().
+		SetUserID(sub.UserID).
+		SetGroupID(sub.GroupID).
+		SetStartsAt(sub.StartsAt).
+		SetExpiresAt(sub.ExpiresAt).
+		SetStatus(sub.Status).
+		SetAssignedAt(sub.AssignedAt).
+		SetNotes(sub.Notes).
+		SetNillablePlanID(sub.PlanID).
+		SetNillableFiveHourLimitUsd(sub.FiveHourLimitUSD).
+		SetNillableSevenDayLimitUsd(sub.SevenDayLimitUSD).
+		SetNillableThirtyDayLimitUsd(sub.ThirtyDayLimitUSD).
+		Save(ctx)
+	if err != nil {
+		return err
+	}
+	sub.ID = created.ID
+	return nil
+}
+
+func (r *paymentFulfillmentEntSubRepo) GetByID(ctx context.Context, id int64) (*UserSubscription, error) {
+	sub, err := r.entClient(ctx).UserSubscription.Get(ctx, id)
+	if err != nil {
+		if dbent.IsNotFound(err) {
+			return nil, ErrSubscriptionNotFound
+		}
+		return nil, err
+	}
+	return paymentFulfillmentEntSubToService(sub), nil
+}
+
+func (r *paymentFulfillmentEntSubRepo) GetByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*UserSubscription, error) {
+	sub, err := r.entClient(ctx).UserSubscription.Query().
+		Where(usersubscription.UserIDEQ(userID), usersubscription.GroupIDEQ(groupID)).
+		Only(ctx)
+	if err != nil {
+		if dbent.IsNotFound(err) {
+			return nil, ErrSubscriptionNotFound
+		}
+		return nil, err
+	}
+	return paymentFulfillmentEntSubToService(sub), nil
+}
+
+func (r *paymentFulfillmentEntSubRepo) GetByUserIDGroupIDAndPlanID(ctx context.Context, userID, groupID int64, planID *int64) (*UserSubscription, error) {
+	query := r.entClient(ctx).UserSubscription.Query().
+		Where(usersubscription.UserIDEQ(userID), usersubscription.GroupIDEQ(groupID))
+	if planID == nil {
+		query = query.Where(usersubscription.PlanIDIsNil())
+	} else {
+		query = query.Where(usersubscription.PlanIDEQ(*planID))
+	}
+	sub, err := query.Only(ctx)
+	if err != nil {
+		if dbent.IsNotFound(err) {
+			return nil, ErrSubscriptionNotFound
+		}
+		return nil, err
+	}
+	return paymentFulfillmentEntSubToService(sub), nil
+}
+
+func paymentFulfillmentEntSubToService(sub *dbent.UserSubscription) *UserSubscription {
+	if sub == nil {
+		return nil
+	}
+	return &UserSubscription{
+		ID:                   sub.ID,
+		UserID:               sub.UserID,
+		GroupID:              sub.GroupID,
+		PlanID:               sub.PlanID,
+		StartsAt:             sub.StartsAt,
+		ExpiresAt:            sub.ExpiresAt,
+		Status:               sub.Status,
+		FiveHourLimitUSD:     sub.FiveHourLimitUsd,
+		SevenDayLimitUSD:     sub.SevenDayLimitUsd,
+		ThirtyDayLimitUSD:    sub.ThirtyDayLimitUsd,
+		FiveHourUsageUSD:     sub.FiveHourUsageUsd,
+		SevenDayUsageUSD:     sub.SevenDayUsageUsd,
+		ThirtyDayUsageUSD:    sub.ThirtyDayUsageUsd,
+		FiveHourWindowStart:  sub.FiveHourWindowStart,
+		SevenDayWindowStart:  sub.SevenDayWindowStart,
+		ThirtyDayWindowStart: sub.ThirtyDayWindowStart,
+	}
+}
+
+func createSubscriptionFulfillmentOrderWithStock(t *testing.T, ctx context.Context, client *dbent.Client, stock int) (*dbent.SubscriptionPlan, *dbent.PaymentOrder, int64) {
+	t.Helper()
+	user := client.User.Create().
+		SetEmail(fmt.Sprintf("stock-buyer-%d@example.com", time.Now().UnixNano())).
+		SetPasswordHash("hash").
+		SetUsername(fmt.Sprintf("stock-buyer-%d", time.Now().UnixNano())).
+		SaveX(ctx)
+	group := client.Group.Create().
+		SetName(fmt.Sprintf("Stock Group %d", time.Now().UnixNano())).
+		SetStatus(payment.EntityStatusActive).
+		SetSubscriptionType(SubscriptionTypeSubscription).
+		SaveX(ctx)
+	plan := client.SubscriptionPlan.Create().
+		SetGroupID(group.ID).
+		SetName("Stocked Plan").
+		SetPrice(9.99).
+		SetValidityDays(30).
+		SetValidityUnit("days").
+		SetForSale(true).
+		SetStock(stock).
+		SaveX(ctx)
+	days := 30
+	order := client.PaymentOrder.Create().
+		SetUserID(user.ID).
+		SetUserEmail(user.Email).
+		SetUserName(user.Username).
+		SetAmount(plan.Price).
+		SetPayAmount(plan.Price).
+		SetRechargeCode(fmt.Sprintf("PAY-STOCK-%d", time.Now().UnixNano())).
+		SetOutTradeNo(fmt.Sprintf("sub2_stock_%d", time.Now().UnixNano())).
+		SetPaymentType(payment.TypeAlipay).
+		SetPaymentTradeNo(fmt.Sprintf("trade_stock_%d", time.Now().UnixNano())).
+		SetOrderType(payment.OrderTypeSubscription).
+		SetStatus(OrderStatusRecharging).
+		SetExpiresAt(time.Now().Add(time.Hour)).
+		SetClientIP("127.0.0.1").
+		SetSrcHost("example.com").
+		SetPlanID(plan.ID).
+		SetSubscriptionGroupID(plan.GroupID).
+		SetSubscriptionDays(days).
+		SetSubscriptionQuotaSnapshotVersion(1).
+		SaveX(ctx)
+	return plan, order, user.ID
+}
+
+func newPaymentFulfillmentStockTestService(client *dbent.Client, plan *dbent.SubscriptionPlan) *PaymentService {
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{
+			ID:               plan.GroupID,
+			Status:           payment.EntityStatusActive,
+			SubscriptionType: SubscriptionTypeSubscription,
+		},
+	}
+	subRepo := &paymentFulfillmentEntSubRepo{client: client}
+	return &PaymentService{
+		entClient:       client,
+		configService:   NewPaymentConfigService(client, nil, nil),
+		groupRepo:       groupRepo,
+		subscriptionSvc: NewSubscriptionService(groupRepo, subRepo, nil, nil, nil),
+	}
 }

@@ -26,6 +26,14 @@ func mustParseGeminiSessionHashRequest(t *testing.T, body string, ctx *SessionCo
 	return parsed
 }
 
+func mustParseChatSessionHashRequest(t *testing.T, body string, ctx *SessionContext) *ParsedRequest {
+	t.Helper()
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef([]byte(body)), "chat_completions")
+	require.NoError(t, err)
+	parsed.SessionContext = ctx
+	return parsed
+}
+
 func anthropicSessionBody(system any, messages []any, metadataUserID string) string {
 	body := map[string]any{}
 	if system != nil {
@@ -48,6 +56,16 @@ func geminiSessionBody(systemParts []any, contents []any) string {
 	}
 	if contents != nil {
 		body["contents"] = contents
+	}
+	data, _ := json.Marshal(body)
+	return string(data)
+}
+
+func chatSessionBody(messages []any) string {
+	body := map[string]any{
+		"model":    "mimo-v2.5",
+		"messages": messages,
+		"stream":   true,
 	}
 	data, _ := json.Marshal(body)
 	return string(data)
@@ -583,4 +601,37 @@ func TestGenerateSessionHash_GeminiEndToEnd(t *testing.T) {
 	parsed3 := mustParseGeminiSessionHashRequest(t, body, &SessionContext{ClientIP: "10.0.0.2", UserAgent: "gemini-cli/1.0", APIKeyID: 99})
 	h3 := svc.GenerateSessionHash(parsed3)
 	require.NotEqual(t, h, h3, "different user with same Gemini request should get different hash")
+}
+
+func TestGenerateOpenCodeGoCacheAffinityHash_GrowingChatConversationUsesStablePrefix(t *testing.T) {
+	svc := &GatewayService{}
+	ctx := &SessionContext{ClientIP: "127.0.0.1", UserAgent: "opencode/1.0", APIKeyID: 21}
+	system := "Mimo cache-sensitive system prefix"
+	round1 := mustParseChatSessionHashRequest(t, chatSessionBody([]any{
+		msg("system", system),
+		msg("user", "Turn 1: reply ok"),
+	}), ctx)
+	round2 := mustParseChatSessionHashRequest(t, chatSessionBody([]any{
+		msg("system", system),
+		msg("user", "Turn 1: reply ok"),
+		msg("assistant", "ok"),
+		msg("user", "Turn 2: reply ok"),
+	}), ctx)
+	round3 := mustParseChatSessionHashRequest(t, chatSessionBody([]any{
+		msg("system", system),
+		msg("user", "Turn 1: reply ok"),
+		msg("assistant", "ok"),
+		msg("user", "Turn 2: reply ok"),
+		msg("assistant", "ok"),
+		msg("user", "Turn 3: reply ok"),
+	}), ctx)
+
+	require.NotEqual(t, svc.GenerateSessionHash(round1), svc.GenerateSessionHash(round2), "default full-message hash changes as chat history grows")
+
+	h1 := svc.GenerateOpenCodeGoCacheAffinityHash(round1)
+	h2 := svc.GenerateOpenCodeGoCacheAffinityHash(round2)
+	h3 := svc.GenerateOpenCodeGoCacheAffinityHash(round3)
+	require.NotEmpty(t, h1)
+	require.Equal(t, h1, h2)
+	require.Equal(t, h1, h3)
 }

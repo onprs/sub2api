@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqlgraph"
 )
 
 const (
@@ -23,6 +24,16 @@ const (
 	FieldPrice = "price"
 	// FieldOriginalPrice holds the string denoting the original_price field in the database.
 	FieldOriginalPrice = "original_price"
+	// FieldRenewalDiscountPercent holds the string denoting the renewal_discount_percent field in the database.
+	FieldRenewalDiscountPercent = "renewal_discount_percent"
+	// FieldFiveHourLimitUsd holds the string denoting the five_hour_limit_usd field in the database.
+	FieldFiveHourLimitUsd = "five_hour_limit_usd"
+	// FieldSevenDayLimitUsd holds the string denoting the seven_day_limit_usd field in the database.
+	FieldSevenDayLimitUsd = "seven_day_limit_usd"
+	// FieldThirtyDayLimitUsd holds the string denoting the thirty_day_limit_usd field in the database.
+	FieldThirtyDayLimitUsd = "thirty_day_limit_usd"
+	// FieldStock holds the string denoting the stock field in the database.
+	FieldStock = "stock"
 	// FieldValidityDays holds the string denoting the validity_days field in the database.
 	FieldValidityDays = "validity_days"
 	// FieldValidityUnit holds the string denoting the validity_unit field in the database.
@@ -39,8 +50,26 @@ const (
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
 	FieldUpdatedAt = "updated_at"
+	// EdgeRedeemCodes holds the string denoting the redeem_codes edge name in mutations.
+	EdgeRedeemCodes = "redeem_codes"
+	// EdgeUserSubscriptions holds the string denoting the user_subscriptions edge name in mutations.
+	EdgeUserSubscriptions = "user_subscriptions"
 	// Table holds the table name of the subscriptionplan in the database.
 	Table = "subscription_plans"
+	// RedeemCodesTable is the table that holds the redeem_codes relation/edge.
+	RedeemCodesTable = "redeem_codes"
+	// RedeemCodesInverseTable is the table name for the RedeemCode entity.
+	// It exists in this package in order to avoid circular dependency with the "redeemcode" package.
+	RedeemCodesInverseTable = "redeem_codes"
+	// RedeemCodesColumn is the table column denoting the redeem_codes relation/edge.
+	RedeemCodesColumn = "subscription_plan_id"
+	// UserSubscriptionsTable is the table that holds the user_subscriptions relation/edge.
+	UserSubscriptionsTable = "user_subscriptions"
+	// UserSubscriptionsInverseTable is the table name for the UserSubscription entity.
+	// It exists in this package in order to avoid circular dependency with the "usersubscription" package.
+	UserSubscriptionsInverseTable = "user_subscriptions"
+	// UserSubscriptionsColumn is the table column denoting the user_subscriptions relation/edge.
+	UserSubscriptionsColumn = "plan_id"
 )
 
 // Columns holds all SQL columns for subscriptionplan fields.
@@ -51,6 +80,11 @@ var Columns = []string{
 	FieldDescription,
 	FieldPrice,
 	FieldOriginalPrice,
+	FieldRenewalDiscountPercent,
+	FieldFiveHourLimitUsd,
+	FieldSevenDayLimitUsd,
+	FieldThirtyDayLimitUsd,
+	FieldStock,
 	FieldValidityDays,
 	FieldValidityUnit,
 	FieldFeatures,
@@ -76,6 +110,16 @@ var (
 	NameValidator func(string) error
 	// DefaultDescription holds the default value on creation for the "description" field.
 	DefaultDescription string
+	// RenewalDiscountPercentValidator is a validator for the "renewal_discount_percent" field. It is called by the builders before save.
+	RenewalDiscountPercentValidator func(float64) error
+	// FiveHourLimitUsdValidator is a validator for the "five_hour_limit_usd" field. It is called by the builders before save.
+	FiveHourLimitUsdValidator func(float64) error
+	// SevenDayLimitUsdValidator is a validator for the "seven_day_limit_usd" field. It is called by the builders before save.
+	SevenDayLimitUsdValidator func(float64) error
+	// ThirtyDayLimitUsdValidator is a validator for the "thirty_day_limit_usd" field. It is called by the builders before save.
+	ThirtyDayLimitUsdValidator func(float64) error
+	// StockValidator is a validator for the "stock" field. It is called by the builders before save.
+	StockValidator func(int) error
 	// DefaultValidityDays holds the default value on creation for the "validity_days" field.
 	DefaultValidityDays int
 	// DefaultValidityUnit holds the default value on creation for the "validity_unit" field.
@@ -133,6 +177,31 @@ func ByOriginalPrice(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldOriginalPrice, opts...).ToFunc()
 }
 
+// ByRenewalDiscountPercent orders the results by the renewal_discount_percent field.
+func ByRenewalDiscountPercent(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRenewalDiscountPercent, opts...).ToFunc()
+}
+
+// ByFiveHourLimitUsd orders the results by the five_hour_limit_usd field.
+func ByFiveHourLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldFiveHourLimitUsd, opts...).ToFunc()
+}
+
+// BySevenDayLimitUsd orders the results by the seven_day_limit_usd field.
+func BySevenDayLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSevenDayLimitUsd, opts...).ToFunc()
+}
+
+// ByThirtyDayLimitUsd orders the results by the thirty_day_limit_usd field.
+func ByThirtyDayLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldThirtyDayLimitUsd, opts...).ToFunc()
+}
+
+// ByStock orders the results by the stock field.
+func ByStock(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldStock, opts...).ToFunc()
+}
+
 // ByValidityDays orders the results by the validity_days field.
 func ByValidityDays(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldValidityDays, opts...).ToFunc()
@@ -171,4 +240,46 @@ func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByUpdatedAt orders the results by the updated_at field.
 func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
+}
+
+// ByRedeemCodesCount orders the results by redeem_codes count.
+func ByRedeemCodesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newRedeemCodesStep(), opts...)
+	}
+}
+
+// ByRedeemCodes orders the results by redeem_codes terms.
+func ByRedeemCodes(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newRedeemCodesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByUserSubscriptionsCount orders the results by user_subscriptions count.
+func ByUserSubscriptionsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newUserSubscriptionsStep(), opts...)
+	}
+}
+
+// ByUserSubscriptions orders the results by user_subscriptions terms.
+func ByUserSubscriptions(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newUserSubscriptionsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+func newRedeemCodesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(RedeemCodesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, RedeemCodesTable, RedeemCodesColumn),
+	)
+}
+func newUserSubscriptionsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(UserSubscriptionsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, UserSubscriptionsTable, UserSubscriptionsColumn),
+	)
 }

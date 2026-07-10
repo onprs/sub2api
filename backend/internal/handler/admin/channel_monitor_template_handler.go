@@ -26,8 +26,8 @@ func NewChannelMonitorRequestTemplateHandler(templateService *service.ChannelMon
 
 type channelMonitorTemplateCreateRequest struct {
 	Name             string            `json:"name" binding:"required,max=100"`
-	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini"`
-	APIMode          string            `json:"api_mode" binding:"omitempty,oneof=chat_completions responses"`
+	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini opencode_go antigravity_claude antigravity_gemini"`
+	APIMode          string            `json:"api_mode" binding:"omitempty,oneof=chat_completions messages responses"`
 	Description      string            `json:"description" binding:"max=500"`
 	ExtraHeaders     map[string]string `json:"extra_headers"`
 	BodyOverrideMode string            `json:"body_override_mode" binding:"omitempty,oneof=off merge replace"`
@@ -36,7 +36,7 @@ type channelMonitorTemplateCreateRequest struct {
 
 type channelMonitorTemplateUpdateRequest struct {
 	Name             *string            `json:"name" binding:"omitempty,max=100"`
-	APIMode          *string            `json:"api_mode" binding:"omitempty,oneof=chat_completions responses"`
+	APIMode          *string            `json:"api_mode" binding:"omitempty,oneof=chat_completions messages responses"`
 	Description      *string            `json:"description" binding:"omitempty,max=500"`
 	ExtraHeaders     *map[string]string `json:"extra_headers"`
 	BodyOverrideMode *string            `json:"body_override_mode" binding:"omitempty,oneof=off merge replace"`

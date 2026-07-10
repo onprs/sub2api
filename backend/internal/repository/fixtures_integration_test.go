@@ -386,6 +386,7 @@ func mustCreateSubscription(t *testing.T, client *dbent.Client, s *service.UserS
 	create := client.UserSubscription.Create().
 		SetUserID(s.UserID).
 		SetGroupID(s.GroupID).
+		SetNillablePlanID(s.PlanID).
 		SetStartsAt(s.StartsAt).
 		SetExpiresAt(s.ExpiresAt).
 		SetStatus(s.Status).
@@ -393,7 +394,16 @@ func mustCreateSubscription(t *testing.T, client *dbent.Client, s *service.UserS
 		SetNotes(s.Notes).
 		SetDailyUsageUsd(s.DailyUsageUSD).
 		SetWeeklyUsageUsd(s.WeeklyUsageUSD).
-		SetMonthlyUsageUsd(s.MonthlyUsageUSD)
+		SetMonthlyUsageUsd(s.MonthlyUsageUSD).
+		SetNillableFiveHourLimitUsd(s.FiveHourLimitUSD).
+		SetNillableSevenDayLimitUsd(s.SevenDayLimitUSD).
+		SetNillableThirtyDayLimitUsd(s.ThirtyDayLimitUSD).
+		SetFiveHourUsageUsd(s.FiveHourUsageUSD).
+		SetSevenDayUsageUsd(s.SevenDayUsageUSD).
+		SetThirtyDayUsageUsd(s.ThirtyDayUsageUSD).
+		SetNillableFiveHourWindowStart(s.FiveHourWindowStart).
+		SetNillableSevenDayWindowStart(s.SevenDayWindowStart).
+		SetNillableThirtyDayWindowStart(s.ThirtyDayWindowStart)
 
 	if s.AssignedBy != nil {
 		create.SetAssignedBy(*s.AssignedBy)

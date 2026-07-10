@@ -63,6 +63,26 @@
             </div>
           </div>
         </div>
+
+        <div
+          v-if="openCodeGoImportNames.length"
+          class="mt-3 rounded-lg border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-800 dark:border-cyan-800/40 dark:bg-cyan-900/20 dark:text-cyan-200"
+          data-testid="opencode-go-import-auth-hint"
+        >
+          <div class="font-medium">OpenCode Go 官方用量同步</div>
+          <div class="mt-1">
+            检测到 {{ openCodeGoImportNames.length }} 个 OpenCode Go 账号，导入后请在账号编辑页逐个授权官方同步。
+          </div>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <span
+              v-for="name in openCodeGoImportNames"
+              :key="name"
+              class="rounded bg-white/70 px-2 py-1 text-xs text-cyan-900 dark:bg-dark-800/70 dark:text-cyan-100"
+            >
+              {{ name }}
+            </span>
+          </div>
+        </div>
       </div>
     </form>
 
@@ -110,6 +130,7 @@ const appStore = useAppStore()
 const importing = ref(false)
 const file = ref<File | null>(null)
 const result = ref<AdminDataImportResult | null>(null)
+const openCodeGoImportNames = ref<string[]>([])
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const fileName = computed(() => file.value?.name || '')
@@ -122,6 +143,7 @@ watch(
     if (open) {
       file.value = null
       result.value = null
+      openCodeGoImportNames.value = []
       if (fileInput.value) {
         fileInput.value.value = ''
       }
@@ -161,6 +183,23 @@ const readFileAsText = async (sourceFile: File): Promise<string> => {
   })
 }
 
+const extractOpenCodeGoImportNames = (payload: unknown): string[] => {
+  if (!payload || typeof payload !== 'object') return []
+  const accounts = (payload as { accounts?: unknown }).accounts
+  if (!Array.isArray(accounts)) return []
+  const names: string[] = []
+  for (const item of accounts) {
+    if (!item || typeof item !== 'object') continue
+    const account = item as { platform?: unknown; type?: unknown; name?: unknown }
+    if (account.platform !== 'opencode_go' || account.type !== 'apikey') continue
+    const name = typeof account.name === 'string' && account.name.trim()
+      ? account.name.trim()
+      : 'OpenCode Go'
+    names.push(name)
+  }
+  return names
+}
+
 const handleImport = async () => {
   if (!file.value) {
     appStore.showError(t('admin.accounts.dataImportSelectFile'))
@@ -171,6 +210,7 @@ const handleImport = async () => {
   try {
     const text = await readFileAsText(file.value)
     const dataPayload = JSON.parse(text)
+    const opencodeGoNames = extractOpenCodeGoImportNames(dataPayload)
 
     const res = await adminAPI.accounts.importData({
       data: dataPayload,
@@ -178,6 +218,7 @@ const handleImport = async () => {
     })
 
     result.value = res
+    openCodeGoImportNames.value = res.account_created > 0 ? opencodeGoNames : []
 
     const msgParams: Record<string, unknown> = {
       account_created: res.account_created,

@@ -69,7 +69,7 @@
       <div
         class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 whitespace-normal rounded bg-gray-900 px-3 py-2 text-center text-xs leading-relaxed text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
       >
-        {{ t('admin.accounts.status.rateLimitedUntil', { time: formatDateTime(account.rate_limit_reset_at) }) }}
+        {{ t('admin.accounts.status.rateLimitedUntil', { time: formatDateTime(effectiveRateLimitResetAt) }) }}
         <div
           class="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-700"
         ></div>
@@ -170,12 +170,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'show-temp-unsched', account: Account): void
 }>()
-
-// Computed: is rate limited (429)
-const isRateLimited = computed(() => {
-  if (!props.account.rate_limit_reset_at) return false
-  return new Date(props.account.rate_limit_reset_at) > new Date()
-})
 
 type AccountModelStatusItem = {
   kind: 'rate_limit' | 'credits_exhausted' | 'credits_active'
@@ -288,19 +282,87 @@ const hasError = computed(() => {
   return props.account.status === 'error'
 })
 
+const numberFromExtra = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+const timeFromExtra = (value: unknown): number | null => {
+  if (typeof value !== 'string' || !value.trim()) return null
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const resetTimeFromExtra = (extra: Record<string, unknown>, window: string): number | null => {
+  const resetAt = timeFromExtra(extra[`opencode_go_usage_${window}_resets_at`])
+  if (resetAt !== null) return resetAt
+
+  const updatedAt = timeFromExtra(extra.opencode_go_usage_updated_at)
+  const resetInSec = numberFromExtra(extra[`opencode_go_usage_${window}_reset_in_sec`])
+  if (updatedAt === null || resetInSec === null || resetInSec <= 0) return null
+  return updatedAt + resetInSec * 1000
+}
+
+const openCodeGoOfficialUsageRateLimitResetMs = (account: Account): number | null => {
+  if (account.platform !== 'opencode_go' || account.type !== 'apikey') return null
+  const extra = account.extra as Record<string, unknown> | undefined
+  if (!extra) return null
+  if (String(extra.opencode_go_usage_source || '').trim() !== 'official_console') return null
+  const authStatus = String(extra.opencode_go_console_auth_status || '').trim()
+  if (authStatus && authStatus !== 'ready') return null
+
+  let latest: number | null = null
+  for (const window of ['5h', '7d', '30d']) {
+    const usedPercent = numberFromExtra(extra[`opencode_go_usage_${window}_used_percent`])
+    if (usedPercent === null || usedPercent < 100) continue
+
+    const resetAtMs = resetTimeFromExtra(extra, window)
+    if (resetAtMs === null || resetAtMs <= Date.now()) continue
+    if (latest === null || resetAtMs > latest) latest = resetAtMs
+  }
+  return latest
+}
+
+const isOpenCodeGoOfficialUsageExceeded = computed(() => {
+  return openCodeGoOfficialUsageRateLimitResetMs(props.account) !== null
+})
+
+const effectiveRateLimitResetAt = computed(() => {
+  const accountResetMs = timeFromExtra(props.account.rate_limit_reset_at)
+  if (accountResetMs !== null && accountResetMs > Date.now()) {
+    return props.account.rate_limit_reset_at
+  }
+  const openCodeGoResetMs = openCodeGoOfficialUsageRateLimitResetMs(props.account)
+  if (openCodeGoResetMs !== null && openCodeGoResetMs > Date.now()) {
+    return new Date(openCodeGoResetMs).toISOString()
+  }
+  return props.account.rate_limit_reset_at
+})
+
+// Computed: is rate limited (429)
+const isRateLimited = computed(() => {
+  const resetMs = timeFromExtra(effectiveRateLimitResetAt.value)
+  return resetMs !== null && resetMs > Date.now()
+})
+
 const isQuotaExceeded = computed(() => {
   const exceeded = (used?: number | null, limit?: number | null) =>
     typeof limit === 'number' && limit > 0 && typeof used === 'number' && used >= limit
   return (
     exceeded(props.account.quota_used, props.account.quota_limit) ||
     exceeded(props.account.quota_daily_used, props.account.quota_daily_limit) ||
-    exceeded(props.account.quota_weekly_used, props.account.quota_weekly_limit)
+    exceeded(props.account.quota_weekly_used, props.account.quota_weekly_limit) ||
+    isOpenCodeGoOfficialUsageExceeded.value
   )
 })
 
 // Computed: countdown text for rate limit (429)
 const rateLimitCountdown = computed(() => {
-  return formatCountdown(props.account.rate_limit_reset_at)
+  return formatCountdown(effectiveRateLimitResetAt.value)
 })
 
 const rateLimitResumeText = computed(() => {

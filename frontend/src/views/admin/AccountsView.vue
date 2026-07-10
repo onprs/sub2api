@@ -179,6 +179,7 @@
           @refresh-token="handleBulkRefreshToken"
           @edit-selected="openBulkEditSelected"
           @edit-filtered="openBulkEditFiltered"
+          @copy-model-mapping="openCopyModelMapping"
           @clear="clearSelection"
           @select-page="selectPage"
           @toggle-schedulable="handleBulkToggleSchedulable"
@@ -370,6 +371,13 @@
       @close="showBulkEdit = false"
       @updated="handleBulkUpdated"
     />
+    <CopyModelMappingModal
+      :show="showCopyModelMapping"
+      :target-account-ids="selIds"
+      :target-platform="copyModelMappingPlatform"
+      @close="showCopyModelMapping = false"
+      @copied="handleCopyModelMappingCopied"
+    />
     <TempUnschedStatusModal :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
     <ConfirmDialog :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
     <ConfirmDialog :show="showExportDataDialog" :title="t('admin.accounts.dataExport')" :message="t('admin.accounts.dataExportConfirmMessage')" :confirm-text="t('admin.accounts.dataExportConfirm')" :cancel-text="t('common.cancel')" @confirm="handleExportData" @cancel="showExportDataDialog = false">
@@ -399,7 +407,7 @@ import DataTable from '@/components/common/DataTable.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
+import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, CopyModelMappingModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
@@ -419,9 +427,10 @@ import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
 import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
-import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
+import { buildAccountUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
+import type { CopyModelMappingResult } from '@/api/admin/accounts'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -478,6 +487,8 @@ const showExportDataDialog = ref(false)
 const includeProxyOnExport = ref(true)
 const showBulkEdit = ref(false)
 const bulkEditTarget = ref<AccountBulkEditTarget | null>(null)
+const showCopyModelMapping = ref(false)
+const copyModelMappingPlatform = ref<AccountPlatform | string | null>(null)
 const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
 const showReAuth = ref(false)
@@ -856,6 +867,7 @@ const isAnyModalOpen = computed(() => {
     showImportData.value ||
     showExportDataDialog.value ||
     showBulkEdit.value ||
+    showCopyModelMapping.value ||
     showTempUnsched.value ||
     showDeleteDialog.value ||
     showReAuth.value ||
@@ -887,7 +899,7 @@ const shouldReplaceAutoRefreshRow = (current: Account, next: Account) => {
     current.rate_limit_reset_at !== next.rate_limit_reset_at ||
     current.overload_until !== next.overload_until ||
     current.temp_unschedulable_until !== next.temp_unschedulable_until ||
-    buildOpenAIUsageRefreshKey(current) !== buildOpenAIUsageRefreshKey(next)
+    buildAccountUsageRefreshKey(current) !== buildAccountUsageRefreshKey(next)
   )
 }
 
@@ -1400,6 +1412,29 @@ const handleBulkUpdated = () => {
   clearSelection()
   reload()
 }
+const openCopyModelMapping = () => {
+  if (selIds.value.length === 0) {
+    appStore.showError(t('admin.accounts.copyModelMapping.noSelection'))
+    return
+  }
+  if (selPlatforms.value.length !== 1) {
+    appStore.showError(t('admin.accounts.copyModelMapping.mixedPlatformError'))
+    return
+  }
+  copyModelMappingPlatform.value = selPlatforms.value[0]
+  showCopyModelMapping.value = true
+}
+const handleCopyModelMappingCopied = (result: CopyModelMappingResult) => {
+  showCopyModelMapping.value = false
+  copyModelMappingPlatform.value = null
+  if (result.failed > 0) {
+    appStore.showError(t('admin.accounts.copyModelMapping.partialSuccess', { success: result.success, failed: result.failed }))
+  } else {
+    appStore.showSuccess(t('admin.accounts.copyModelMapping.success', { count: result.success }))
+  }
+  clearSelection()
+  reload()
+}
 const handleDataImported = () => { showImportData.value = false; reload() }
 const ACCOUNT_UNGROUPED_GROUP_QUERY_VALUE = 'ungrouped'
 const ACCOUNT_PRIVACY_MODE_UNSET_QUERY_VALUE = '__unset__'
@@ -1497,7 +1532,14 @@ const patchAccountInList = (updatedAccount: Account) => {
   syncAccountRefs(mergedAccount)
 }
 const handleAccountUpdated = (updatedAccount: Account) => {
+  const currentAccount = accounts.value.find(account => account.id === updatedAccount.id)
+  const usageRefreshNeeded =
+    (currentAccount && buildAccountUsageRefreshKey(currentAccount) !== buildAccountUsageRefreshKey(updatedAccount)) ||
+    (updatedAccount.platform === 'opencode_go' && updatedAccount.type === 'apikey')
   patchAccountInList(updatedAccount)
+  if (usageRefreshNeeded) {
+    usageManualRefreshToken.value += 1
+  }
   enterAutoRefreshSilentWindow()
 }
 const formatExportTimestamp = () => {

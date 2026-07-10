@@ -1,4 +1,4 @@
-.PHONY: build build-backend build-frontend build-datamanagementd test test-backend test-frontend test-frontend-critical test-datamanagementd secret-scan
+.PHONY: build build-backend build-frontend build-datamanagementd test test-backend test-frontend test-frontend-critical test-datamanagementd secret-scan verify-release-binary
 
 FRONTEND_CRITICAL_VITEST := \
 	src/views/auth/__tests__/LinuxDoCallbackView.spec.ts \
@@ -42,3 +42,7 @@ test-datamanagementd:
 
 secret-scan:
 	@python3 tools/secret_scan.py
+
+verify-release-binary:
+	@test -n "$(BINARY)" || (echo "Usage: make verify-release-binary BINARY=/path/to/sub2api [EXPECTED_SHA256=...]" >&2; exit 2)
+	@python3 tools/verify_release_binary.py "$(BINARY)" --profile onprs-subquota $(if $(EXPECTED_SHA256),--expected-sha256 "$(EXPECTED_SHA256)")

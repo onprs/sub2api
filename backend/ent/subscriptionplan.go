@@ -27,6 +27,16 @@ type SubscriptionPlan struct {
 	Price float64 `json:"price,omitempty"`
 	// OriginalPrice holds the value of the "original_price" field.
 	OriginalPrice *float64 `json:"original_price,omitempty"`
+	// RenewalDiscountPercent holds the value of the "renewal_discount_percent" field.
+	RenewalDiscountPercent *float64 `json:"renewal_discount_percent,omitempty"`
+	// FiveHourLimitUsd holds the value of the "five_hour_limit_usd" field.
+	FiveHourLimitUsd *float64 `json:"five_hour_limit_usd,omitempty"`
+	// SevenDayLimitUsd holds the value of the "seven_day_limit_usd" field.
+	SevenDayLimitUsd *float64 `json:"seven_day_limit_usd,omitempty"`
+	// ThirtyDayLimitUsd holds the value of the "thirty_day_limit_usd" field.
+	ThirtyDayLimitUsd *float64 `json:"thirty_day_limit_usd,omitempty"`
+	// Stock holds the value of the "stock" field.
+	Stock *int `json:"stock,omitempty"`
 	// ValidityDays holds the value of the "validity_days" field.
 	ValidityDays int `json:"validity_days,omitempty"`
 	// ValidityUnit holds the value of the "validity_unit" field.
@@ -42,8 +52,40 @@ type SubscriptionPlan struct {
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// UpdatedAt holds the value of the "updated_at" field.
-	UpdatedAt    time.Time `json:"updated_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the SubscriptionPlanQuery when eager-loading is set.
+	Edges        SubscriptionPlanEdges `json:"edges"`
 	selectValues sql.SelectValues
+}
+
+// SubscriptionPlanEdges holds the relations/edges for other nodes in the graph.
+type SubscriptionPlanEdges struct {
+	// RedeemCodes holds the value of the redeem_codes edge.
+	RedeemCodes []*RedeemCode `json:"redeem_codes,omitempty"`
+	// UserSubscriptions holds the value of the user_subscriptions edge.
+	UserSubscriptions []*UserSubscription `json:"user_subscriptions,omitempty"`
+	// loadedTypes holds the information for reporting if a
+	// type was loaded (or requested) in eager-loading or not.
+	loadedTypes [2]bool
+}
+
+// RedeemCodesOrErr returns the RedeemCodes value or an error if the edge
+// was not loaded in eager-loading.
+func (e SubscriptionPlanEdges) RedeemCodesOrErr() ([]*RedeemCode, error) {
+	if e.loadedTypes[0] {
+		return e.RedeemCodes, nil
+	}
+	return nil, &NotLoadedError{edge: "redeem_codes"}
+}
+
+// UserSubscriptionsOrErr returns the UserSubscriptions value or an error if the edge
+// was not loaded in eager-loading.
+func (e SubscriptionPlanEdges) UserSubscriptionsOrErr() ([]*UserSubscription, error) {
+	if e.loadedTypes[1] {
+		return e.UserSubscriptions, nil
+	}
+	return nil, &NotLoadedError{edge: "user_subscriptions"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -53,9 +95,9 @@ func (*SubscriptionPlan) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case subscriptionplan.FieldForSale:
 			values[i] = new(sql.NullBool)
-		case subscriptionplan.FieldPrice, subscriptionplan.FieldOriginalPrice:
+		case subscriptionplan.FieldPrice, subscriptionplan.FieldOriginalPrice, subscriptionplan.FieldRenewalDiscountPercent, subscriptionplan.FieldFiveHourLimitUsd, subscriptionplan.FieldSevenDayLimitUsd, subscriptionplan.FieldThirtyDayLimitUsd:
 			values[i] = new(sql.NullFloat64)
-		case subscriptionplan.FieldID, subscriptionplan.FieldGroupID, subscriptionplan.FieldValidityDays, subscriptionplan.FieldSortOrder:
+		case subscriptionplan.FieldID, subscriptionplan.FieldGroupID, subscriptionplan.FieldStock, subscriptionplan.FieldValidityDays, subscriptionplan.FieldSortOrder:
 			values[i] = new(sql.NullInt64)
 		case subscriptionplan.FieldName, subscriptionplan.FieldDescription, subscriptionplan.FieldValidityUnit, subscriptionplan.FieldFeatures, subscriptionplan.FieldProductName:
 			values[i] = new(sql.NullString)
@@ -112,6 +154,41 @@ func (_m *SubscriptionPlan) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.OriginalPrice = new(float64)
 				*_m.OriginalPrice = value.Float64
+			}
+		case subscriptionplan.FieldRenewalDiscountPercent:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field renewal_discount_percent", values[i])
+			} else if value.Valid {
+				_m.RenewalDiscountPercent = new(float64)
+				*_m.RenewalDiscountPercent = value.Float64
+			}
+		case subscriptionplan.FieldFiveHourLimitUsd:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field five_hour_limit_usd", values[i])
+			} else if value.Valid {
+				_m.FiveHourLimitUsd = new(float64)
+				*_m.FiveHourLimitUsd = value.Float64
+			}
+		case subscriptionplan.FieldSevenDayLimitUsd:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field seven_day_limit_usd", values[i])
+			} else if value.Valid {
+				_m.SevenDayLimitUsd = new(float64)
+				*_m.SevenDayLimitUsd = value.Float64
+			}
+		case subscriptionplan.FieldThirtyDayLimitUsd:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field thirty_day_limit_usd", values[i])
+			} else if value.Valid {
+				_m.ThirtyDayLimitUsd = new(float64)
+				*_m.ThirtyDayLimitUsd = value.Float64
+			}
+		case subscriptionplan.FieldStock:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field stock", values[i])
+			} else if value.Valid {
+				_m.Stock = new(int)
+				*_m.Stock = int(value.Int64)
 			}
 		case subscriptionplan.FieldValidityDays:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -174,6 +251,16 @@ func (_m *SubscriptionPlan) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryRedeemCodes queries the "redeem_codes" edge of the SubscriptionPlan entity.
+func (_m *SubscriptionPlan) QueryRedeemCodes() *RedeemCodeQuery {
+	return NewSubscriptionPlanClient(_m.config).QueryRedeemCodes(_m)
+}
+
+// QueryUserSubscriptions queries the "user_subscriptions" edge of the SubscriptionPlan entity.
+func (_m *SubscriptionPlan) QueryUserSubscriptions() *UserSubscriptionQuery {
+	return NewSubscriptionPlanClient(_m.config).QueryUserSubscriptions(_m)
+}
+
 // Update returns a builder for updating this SubscriptionPlan.
 // Note that you need to call SubscriptionPlan.Unwrap() before calling this method if this SubscriptionPlan
 // was returned from a transaction, and the transaction was committed or rolled back.
@@ -211,6 +298,31 @@ func (_m *SubscriptionPlan) String() string {
 	builder.WriteString(", ")
 	if v := _m.OriginalPrice; v != nil {
 		builder.WriteString("original_price=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.RenewalDiscountPercent; v != nil {
+		builder.WriteString("renewal_discount_percent=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.FiveHourLimitUsd; v != nil {
+		builder.WriteString("five_hour_limit_usd=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.SevenDayLimitUsd; v != nil {
+		builder.WriteString("seven_day_limit_usd=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.ThirtyDayLimitUsd; v != nil {
+		builder.WriteString("thirty_day_limit_usd=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.Stock; v != nil {
+		builder.WriteString("stock=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteString(", ")

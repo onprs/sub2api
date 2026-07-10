@@ -296,6 +296,8 @@ type EmailOAuthProviderConfig struct {
 	Scopes              string `mapstructure:"scopes"`
 	RedirectURL         string `mapstructure:"redirect_url"`
 	FrontendRedirectURL string `mapstructure:"frontend_redirect_url"`
+	ProxyID             *int64 `mapstructure:"proxy_id"`
+	ProxyURL            string `mapstructure:"proxy_url"`
 }
 
 const (
@@ -536,6 +538,8 @@ type PricingConfig struct {
 	RemoteURL string `mapstructure:"remote_url"`
 	// 哈希校验文件URL
 	HashURL string `mapstructure:"hash_url"`
+	// OpenCode Go 官方文档 URL；为空表示不合并 OpenCode Go 官方价格
+	OpenCodeGoDocsURL string `mapstructure:"opencode_go_docs_url"`
 	// 本地数据目录
 	DataDir string `mapstructure:"data_dir"`
 	// 回退文件路径
@@ -1581,12 +1585,15 @@ func setDefaults() {
 		"api.kimi.com",
 		"open.bigmodel.cn",
 		"api.minimaxi.com",
+		"opencode.ai",
 		"generativelanguage.googleapis.com",
 		"cloudcode-pa.googleapis.com",
 		"*.openai.azure.com",
 	})
 	viper.SetDefault("security.url_allowlist.pricing_hosts", []string{
 		"raw.githubusercontent.com",
+		"opencode.ai",
+		"models.dev",
 	})
 	viper.SetDefault("security.url_allowlist.crs_hosts", []string{})
 	viper.SetDefault("security.url_allowlist.allow_private_hosts", true)
@@ -1752,6 +1759,7 @@ func setDefaults() {
 	// Pricing - 从 model-price-repo 同步模型定价和上下文窗口数据（固定到 commit，避免分支漂移）
 	viper.SetDefault("pricing.remote_url", "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.json")
 	viper.SetDefault("pricing.hash_url", "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.sha256")
+	viper.SetDefault("pricing.opencode_go_docs_url", "https://opencode.ai/docs/go/")
 	viper.SetDefault("pricing.data_dir", "./data")
 	viper.SetDefault("pricing.fallback_file", "./resources/model-pricing/model_prices_and_context_window.json")
 	viper.SetDefault("pricing.update_interval_hours", 24)

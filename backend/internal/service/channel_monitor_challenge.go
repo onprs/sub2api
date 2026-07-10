@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // monitorChallengePromptTemplate 1:1 复刻 BingZi-233/check-cx 的 few-shot 模板。
@@ -19,6 +20,9 @@ A: 5
 Q: %d %s %d = ?
 A:`
 
+const monitorExactChallengePromptTemplate = `Reply with ONLY this exact check code:
+%s`
+
 // monitorChallengeNumberRegex 提取响应中的所有整数（含负号）。
 var monitorChallengeNumberRegex = regexp.MustCompile(`-?\d+`)
 
@@ -26,6 +30,14 @@ var monitorChallengeNumberRegex = regexp.MustCompile(`-?\d+`)
 type monitorChallenge struct {
 	Prompt   string
 	Expected string
+	Exact    bool
+}
+
+func generateChallengeForProvider(provider string) monitorChallenge {
+	if provider == MonitorProviderAntigravityGemini {
+		return generateExactChallenge()
+	}
+	return generateChallenge()
 }
 
 // generateChallenge 生成一次随机算术 challenge：
@@ -57,6 +69,15 @@ func generateChallenge() monitorChallenge {
 	}
 }
 
+func generateExactChallenge() monitorChallenge {
+	code := strconv.Itoa(randIntInRange(100000, 999999))
+	return monitorChallenge{
+		Prompt:   fmt.Sprintf(monitorExactChallengePromptTemplate, code),
+		Expected: code,
+		Exact:    true,
+	}
+}
+
 // randIntInRange 返回 [min, max] 闭区间的随机整数。
 func randIntInRange(minVal, maxVal int) int {
 	if maxVal <= minVal {
@@ -77,4 +98,18 @@ func validateChallenge(responseText, expected string) bool {
 		}
 	}
 	return false
+}
+
+func validateMonitorChallenge(responseText string, challenge monitorChallenge) bool {
+	if challenge.Exact {
+		return normalizeExactChallengeResponse(responseText) == challenge.Expected
+	}
+	return validateChallenge(responseText, challenge.Expected)
+}
+
+func normalizeExactChallengeResponse(responseText string) string {
+	normalized := strings.TrimSpace(responseText)
+	normalized = strings.Trim(normalized, "`'\" \t\r\n")
+	normalized = strings.TrimSuffix(normalized, ".")
+	return strings.TrimSpace(normalized)
 }

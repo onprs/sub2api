@@ -59,18 +59,21 @@ export async function getById(id: number): Promise<RedeemCode> {
  * @param count - Number of codes to generate
  * @param type - Type of redeem code
  * @param value - Value of the code
- * @param groupId - Group ID (required for subscription type)
- * @param validityDays - Validity days (for subscription type)
- * @param expiresInDays - Days before the code itself expires
+ * @param options - Optional subscription and expiry fields
  * @returns Array of generated redeem codes
  */
+export interface GenerateRedeemOptions {
+  groupId?: number | null
+  validityDays?: number
+  expiresInDays?: number | null
+  subscriptionPlanId?: number | null
+}
+
 export async function generate(
   count: number,
   type: RedeemCodeType,
   value: number,
-  groupId?: number | null,
-  validityDays?: number,
-  expiresInDays?: number | null
+  options: GenerateRedeemOptions = {}
 ): Promise<RedeemCode[]> {
   const payload: GenerateRedeemCodesRequest = {
     count,
@@ -80,13 +83,17 @@ export async function generate(
 
   // 订阅类型专用字段
   if (type === 'subscription') {
-    payload.group_id = groupId
-    if (validityDays && validityDays > 0) {
-      payload.validity_days = validityDays
+    if (options.subscriptionPlanId) {
+      payload.subscription_plan_id = options.subscriptionPlanId
+    } else {
+      payload.group_id = options.groupId
+      if (options.validityDays && options.validityDays > 0) {
+        payload.validity_days = options.validityDays
+      }
     }
   }
-  if (expiresInDays && expiresInDays > 0) {
-    payload.expires_in_days = expiresInDays
+  if (options.expiresInDays && options.expiresInDays > 0) {
+    payload.expires_in_days = options.expiresInDays
   }
 
   const { data } = await apiClient.post<RedeemCode[]>('/admin/redeem-codes/generate', payload)

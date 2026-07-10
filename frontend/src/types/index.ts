@@ -233,6 +233,7 @@ export interface PublicSettings {
   channel_monitor_enabled: boolean
   channel_monitor_default_interval_seconds: number
   available_channels_enabled: boolean
+  model_pricing_enabled: boolean
   affiliate_enabled: boolean
   allow_user_view_error_requests?: boolean
 }
@@ -486,7 +487,7 @@ export interface PaginationConfig {
 
 // ==================== API Key & Group Types ====================
 
-export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
+export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'opencode_go'
 
 export type SubscriptionType = 'standard' | 'subscription'
 
@@ -510,6 +511,9 @@ export interface Group {
   daily_limit_usd: number | null
   weekly_limit_usd: number | null
   monthly_limit_usd: number | null
+  five_hour_limit_usd?: number | null
+  seven_day_limit_usd?: number | null
+  thirty_day_limit_usd?: number | null
   // 图片生成计费配置
   allow_image_generation: boolean
   image_rate_independent: boolean
@@ -689,7 +693,7 @@ export interface UpdateGroupRequest {
 
 // ==================== Account & Proxy Types ====================
 
-export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
+export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'opencode_go'
 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
@@ -929,6 +933,9 @@ export interface UsageProgress {
   window_stats?: WindowStats | null // 窗口期统计（从窗口开始到当前的使用量）
   used_requests?: number
   limit_requests?: number
+  source?: 'official' | 'official_console' | 'estimated' | string
+  source_label?: string
+  estimated?: boolean
 }
 
 // Antigravity 单个模型的配额信息
@@ -938,10 +945,11 @@ export interface AntigravityModelQuota {
 }
 
 export interface AccountUsageInfo {
-  source?: 'passive' | 'active'
+  source?: 'passive' | 'active' | 'estimated' | 'official_console'
   updated_at: string | null
   five_hour: UsageProgress | null
   seven_day: UsageProgress | null
+  thirty_day?: UsageProgress | null
   seven_day_sonnet: UsageProgress | null
   gemini_shared_daily?: UsageProgress | null
   gemini_pro_daily?: UsageProgress | null
@@ -1321,6 +1329,11 @@ export interface RedeemCode {
   notes?: string
   group_id?: number | null // 订阅类型专用
   validity_days?: number // 订阅类型专用
+  subscription_plan_id?: number | null
+  subscription_quota_snapshot_version?: number
+  five_hour_limit_usd?: number | null
+  seven_day_limit_usd?: number | null
+  thirty_day_limit_usd?: number | null
   user?: User
   group?: Group // 关联的分组
 }
@@ -1331,6 +1344,7 @@ export interface GenerateRedeemCodesRequest {
   value: number
   group_id?: number | null // 订阅类型专用
   validity_days?: number // 订阅类型专用
+  subscription_plan_id?: number | null
   expires_at?: string | null
   expires_in_days?: number
 }
@@ -1536,14 +1550,25 @@ export interface UserSubscription {
   id: number
   user_id: number
   group_id: number
+  plan_id?: number | null
+  plan_name?: string
   status: 'active' | 'expired' | 'revoked'
   starts_at: string
-  daily_usage_usd: number
-  weekly_usage_usd: number
-  monthly_usage_usd: number
-  daily_window_start: string | null
-  weekly_window_start: string | null
-  monthly_window_start: string | null
+  daily_usage_usd?: number
+  weekly_usage_usd?: number
+  monthly_usage_usd?: number
+  daily_window_start?: string | null
+  weekly_window_start?: string | null
+  monthly_window_start?: string | null
+  five_hour_limit_usd: number | null
+  seven_day_limit_usd: number | null
+  thirty_day_limit_usd: number | null
+  five_hour_usage_usd: number
+  seven_day_usage_usd: number
+  thirty_day_usage_usd: number
+  five_hour_window_start: string | null
+  seven_day_window_start: string | null
+  thirty_day_window_start: string | null
   created_at: string
   updated_at: string
   expires_at: string | null
@@ -1551,40 +1576,41 @@ export interface UserSubscription {
   group?: Group
 }
 
+export interface SubscriptionUsageWindowProgress {
+  limit_usd: number
+  used_usd: number
+  remaining_usd: number
+  percentage: number
+  window_start: string
+  resets_at: string
+  resets_in_seconds: number
+}
+
 export interface SubscriptionProgress {
-  subscription_id: number
-  daily: {
-    used: number
-    limit: number | null
-    percentage: number
-    reset_in_seconds: number | null
-  } | null
-  weekly: {
-    used: number
-    limit: number | null
-    percentage: number
-    reset_in_seconds: number | null
-  } | null
-  monthly: {
-    used: number
-    limit: number | null
-    percentage: number
-    reset_in_seconds: number | null
-  } | null
-  expires_at: string | null
-  days_remaining: number | null
+  id: number
+  group_name: string
+  expires_at: string
+  expires_in_days: number
+  daily?: SubscriptionUsageWindowProgress | null
+  weekly?: SubscriptionUsageWindowProgress | null
+  monthly?: SubscriptionUsageWindowProgress | null
+  five_hour?: SubscriptionUsageWindowProgress | null
+  seven_day?: SubscriptionUsageWindowProgress | null
+  thirty_day?: SubscriptionUsageWindowProgress | null
+  subscription_id?: number
+  days_remaining?: number | null
 }
 
 export interface AssignSubscriptionRequest {
   user_id: number
-  group_id: number
-  validity_days?: number
+  subscription_plan_id: number
+  notes?: string
 }
 
 export interface BulkAssignSubscriptionRequest {
   user_ids: number[]
-  group_id: number
-  validity_days?: number
+  subscription_plan_id: number
+  notes?: string
 }
 
 export interface ExtendSubscriptionRequest {

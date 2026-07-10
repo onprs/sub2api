@@ -53,11 +53,18 @@ const (
 	providerAnthropicPath = "/v1/messages"
 	// providerGeminiPathTemplate Gemini generateContent 路径模板（含 model 占位）。
 	providerGeminiPathTemplate = "/v1beta/models/%s:generateContent"
+	// providerOpenCodeGoChatPath OpenCode Go OpenAI-compatible Chat Completions path.
+	providerOpenCodeGoChatPath = "/chat/completions"
+	// providerOpenCodeGoMessagesPath OpenCode Go Anthropic-style Messages path.
+	providerOpenCodeGoMessagesPath = "/messages"
 
-	// MonitorProviderOpenAI / Anthropic / Gemini provider 字符串常量（也是 ent enum 的实际值）。
-	MonitorProviderOpenAI    = "openai"
-	MonitorProviderAnthropic = "anthropic"
-	MonitorProviderGemini    = "gemini"
+	// MonitorProvider* provider 字符串常量（也是 ent enum 的实际值）。
+	MonitorProviderOpenAI            = "openai"
+	MonitorProviderAnthropic         = "anthropic"
+	MonitorProviderGemini            = "gemini"
+	MonitorProviderOpenCodeGo        = "opencode_go"
+	MonitorProviderAntigravityClaude = "antigravity_claude"
+	MonitorProviderAntigravityGemini = "antigravity_gemini"
 
 	// MonitorStatusOperational 等监控状态字符串常量（与 ent enum 一致）。
 	MonitorStatusOperational = "operational"
@@ -87,6 +94,12 @@ const (
 	monitorAnthropicAPIVersion = "2023-06-01"
 	// monitorChallengeMaxTokens 单次 challenge 请求的 max_tokens（足够回答个位数算术）。
 	monitorChallengeMaxTokens = 50
+	// monitorOpenCodeGoChallengeMaxTokens 为 OpenCode Go 推理/转换链路保留更宽的输出预算，避免 final content 偶发为空。
+	monitorOpenCodeGoChallengeMaxTokens = 512
+	// monitorAntigravityGeminiChallengeMaxTokens 为 Antigravity Gemini thinking/agent 模型保留更多输出预算。
+	monitorAntigravityGeminiChallengeMaxTokens = 1024
+	// monitorAntigravityGeminiThinkingLevel 渠道监控只做极简探活，Gemini 3 用 low 降低 thinking 消耗与首 token 延迟。
+	monitorAntigravityGeminiThinkingLevel = "low"
 
 	// monitorRunOneBuffer runOne 的总超时缓冲（除请求超时与 ping 超时外的额外裕量）。
 	monitorRunOneBuffer = 10 * time.Second
@@ -112,13 +125,13 @@ var (
 		"CHANNEL_MONITOR_NOT_FOUND", "channel monitor not found",
 	)
 	ErrChannelMonitorInvalidProvider = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini",
+		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/opencode_go/antigravity_claude/antigravity_gemini",
 	)
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions or responses; responses is only supported for openai",
+		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, messages, or responses; responses is only supported for openai and messages is only supported for opencode_go",
 	)
 	ErrChannelMonitorInvalidRequestBody = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_REQUEST_BODY", "openai replace-mode body_override must include non-empty messages for chat_completions or non-empty instructions and input for responses",
+		"CHANNEL_MONITOR_INVALID_REQUEST_BODY", "replace-mode body_override must include non-empty messages for chat_completions/messages or non-empty instructions and input for responses",
 	)
 	ErrChannelMonitorInvalidInterval = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_INTERVAL", "interval_seconds must be in [15, 3600]",

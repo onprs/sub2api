@@ -41,6 +41,20 @@ func TestBillingErrorDetails_APIKeyRateLimitStillMaps(t *testing.T) {
 	}
 }
 
+func TestBillingErrorDetails_SubscriptionRollingLimitsMapTo429(t *testing.T) {
+	for _, err := range []error{
+		service.ErrFiveHourLimitExceeded,
+		service.ErrSevenDayLimitExceeded,
+		service.ErrThirtyDayLimitExceeded,
+	} {
+		status, code, msg, retryAfter := billingErrorDetails(err)
+		require.Equal(t, http.StatusTooManyRequests, status, "status for %v", err)
+		require.Equal(t, "rate_limit_exceeded", code)
+		require.NotEmpty(t, msg)
+		require.Equal(t, 0, retryAfter)
+	}
+}
+
 func TestBillingErrorDetails_BillingServiceUnavailableMapsTo503(t *testing.T) {
 	status, code, _, retryAfter := billingErrorDetails(service.ErrBillingServiceUnavailable)
 	require.Equal(t, http.StatusServiceUnavailable, status)

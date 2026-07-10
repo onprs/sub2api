@@ -108,7 +108,9 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { APIMode, BodyOverrideMode, Provider } from '@/api/admin/channelMonitor'
 import {
+  API_MODE_MESSAGES,
   API_MODE_RESPONSES,
+  PROVIDER_OPENCODE_GO,
   PROVIDER_OPENAI,
 } from '@/constants/channelMonitor'
 
@@ -310,6 +312,18 @@ const bodyPlaceholder = computed(() => {
       return '{\n  "max_tokens": 20\n}'
     }
     return '{\n  "model": "gpt-4o-mini",\n  "messages": [{"role":"user","content":"Reply with exactly: ok"}],\n  "max_tokens": 20,\n  "stream": false\n}'
+  }
+  if (props.provider === PROVIDER_OPENCODE_GO && props.apiMode !== API_MODE_MESSAGES) {
+    if (props.bodyOverrideMode === 'merge') {
+      return '{\n  "max_tokens": 20\n}'
+    }
+    return '{\n  "model": "kimi-k2.7-code",\n  "messages": [{"role":"user","content":"Reply with exactly: ok"}],\n  "max_tokens": 20,\n  "stream": false\n}'
+  }
+  if (props.provider === PROVIDER_OPENCODE_GO) {
+    if (props.bodyOverrideMode === 'merge') {
+      return '{\n  "max_tokens": 20\n}'
+    }
+    return '{\n  "model": "qwen3.7-plus",\n  "messages": [{"role":"user","content":"Reply with exactly: ok"}],\n  "max_tokens": 20\n}'
   }
   if (props.bodyOverrideMode === 'merge') {
     return '{\n  "system": "You are Claude Code..."\n}'

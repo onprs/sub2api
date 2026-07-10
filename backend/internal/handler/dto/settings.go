@@ -121,6 +121,7 @@ type SystemSettings struct {
 	GitHubOAuthClientSecretConfigured bool   `json:"github_oauth_client_secret_configured"`
 	GitHubOAuthRedirectURL            string `json:"github_oauth_redirect_url"`
 	GitHubOAuthFrontendRedirectURL    string `json:"github_oauth_frontend_redirect_url"`
+	GitHubOAuthProxyID                *int64 `json:"github_oauth_proxy_id"`
 	GoogleOAuthEnabled                bool   `json:"google_oauth_enabled"`
 	GoogleOAuthClientID               string `json:"google_oauth_client_id"`
 	GoogleOAuthClientSecretConfigured bool   `json:"google_oauth_client_secret_configured"`
@@ -241,6 +242,9 @@ type SystemSettings struct {
 	// Available Channels feature switch (user-facing aggregate view)
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
 
+	// Model Pricing feature switch (user-facing pricing matrix)
+	ModelPricingEnabled bool `json:"model_pricing_enabled"`
+
 	// 风控中心功能开关
 	RiskControlEnabled bool `json:"risk_control_enabled"`
 
@@ -315,6 +319,8 @@ type PublicSettings struct {
 	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
 
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
+
+	ModelPricingEnabled bool `json:"model_pricing_enabled"`
 
 	AffiliateEnabled bool `json:"affiliate_enabled"`
 

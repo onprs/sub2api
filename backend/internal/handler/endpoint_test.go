@@ -86,6 +86,11 @@ func TestDeriveUpstreamEndpoint(t *testing.T) {
 		{"antigravity claude", EndpointMessages, "/antigravity/v1/messages", service.PlatformAntigravity, EndpointMessages},
 		{"antigravity gemini", EndpointGeminiModels, "/antigravity/v1beta/models", service.PlatformAntigravity, EndpointGeminiModels},
 
+		// OpenCode Go — preserves the supported OpenAI-compatible and Anthropic-style surfaces.
+		{"opencode go messages", EndpointMessages, "/v1/messages", service.PlatformOpenCodeGo, EndpointMessages},
+		{"opencode go chat completions", EndpointChatCompletions, "/v1/chat/completions", service.PlatformOpenCodeGo, EndpointChatCompletions},
+		{"opencode go responses unsupported passthrough", EndpointResponses, "/v1/responses", service.PlatformOpenCodeGo, EndpointResponses},
+
 		// Unknown platform — passthrough.
 		{"unknown platform", "/v1/embeddings", "/v1/embeddings", "unknown", "/v1/embeddings"},
 	}

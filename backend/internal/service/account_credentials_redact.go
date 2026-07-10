@@ -6,7 +6,9 @@ var SensitiveCredentialKeys = []string{
 	// OAuth
 	"access_token", "refresh_token", "id_token",
 	// API Key 类
-	"api_key", "session_key", "cookie",
+	"api_key", "session_key", "cookie", "console_cookie",
+	// OpenCode Go Console auth metadata must survive ordinary account edits.
+	"console_workspace_id", "console_auth_source", "console_auth_imported_at", "console_auth_expires_at",
 	// 云服务凭据
 	"aws_secret_access_key", "aws_session_token",
 	"service_account_json", "service_account", "private_key",

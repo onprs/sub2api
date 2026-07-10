@@ -75,6 +75,64 @@ const (
 
 const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
 
+const (
+	DefaultOpenCodeGoBaseURL           = "https://opencode.ai/zen/go/v1"
+	OpenCodeGoProtocolChatCompletions  = "chat_completions"
+	OpenCodeGoProtocolMessages         = "messages"
+	openCodeGoModelProtocolsCredential = "model_protocols"
+)
+
+var openCodeGoBuiltinModelProtocols = map[string]string{
+	"glm-5.1":           OpenCodeGoProtocolChatCompletions,
+	"glm-5.2":           OpenCodeGoProtocolChatCompletions,
+	"glm-5":             OpenCodeGoProtocolChatCompletions,
+	"kimi-k2.7":         OpenCodeGoProtocolChatCompletions, // legacy docs alias; OpenCode Go exposes kimi-k2.7-code.
+	"kimi-k2.7-code":    OpenCodeGoProtocolChatCompletions,
+	"kimi-k2.6":         OpenCodeGoProtocolChatCompletions,
+	"kimi-k2.5":         OpenCodeGoProtocolChatCompletions,
+	"deepseek-v4-pro":   OpenCodeGoProtocolChatCompletions,
+	"deepseek-v4-flash": OpenCodeGoProtocolChatCompletions,
+	"mimo-v2.5":         OpenCodeGoProtocolChatCompletions,
+	"mimo-v2.5-pro":     OpenCodeGoProtocolChatCompletions,
+	"mimo-v2-pro":       OpenCodeGoProtocolChatCompletions,
+	"mimo-v2-omni":      OpenCodeGoProtocolChatCompletions,
+	"minimax-m3":        OpenCodeGoProtocolMessages,
+	"minimax-m2.7":      OpenCodeGoProtocolMessages,
+	"minimax-m2.5":      OpenCodeGoProtocolMessages,
+	"qwen3.5-plus":      OpenCodeGoProtocolMessages,
+	"qwen3.7-max":       OpenCodeGoProtocolMessages,
+	"qwen3.7-plus":      OpenCodeGoProtocolMessages,
+	"qwen3.6-plus":      OpenCodeGoProtocolMessages,
+}
+
+func inferOpenCodeGoModelFamilyProtocol(model string) string {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if model == "" || strings.Contains(model, "*") || !isOpenCodeGoModelID(model) {
+		return ""
+	}
+
+	switch {
+	case openCodeGoHasVersionedPrefix(model, "glm-"),
+		openCodeGoHasVersionedPrefix(model, "deepseek-v"),
+		openCodeGoHasVersionedPrefix(model, "mimo-v"),
+		openCodeGoHasVersionedPrefix(model, "kimi-k2."):
+		return OpenCodeGoProtocolChatCompletions
+	case openCodeGoHasVersionedPrefix(model, "qwen"),
+		openCodeGoHasVersionedPrefix(model, "minimax-m"):
+		return OpenCodeGoProtocolMessages
+	default:
+		return ""
+	}
+}
+
+func openCodeGoHasVersionedPrefix(model, prefix string) bool {
+	if !strings.HasPrefix(model, prefix) || len(model) <= len(prefix) {
+		return false
+	}
+	ch := model[len(prefix)]
+	return ch >= '0' && ch <= '9'
+}
+
 type TempUnschedulableRule struct {
 	ErrorCode       int      `json:"error_code"`
 	Keywords        []string `json:"keywords"`
@@ -450,6 +508,26 @@ func stringMappingFromRaw(raw any) map[string]string {
 	default:
 		return nil
 	}
+}
+
+func normalizeOpenCodeGoModelProtocol(protocol string) string {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case OpenCodeGoProtocolChatCompletions:
+		return OpenCodeGoProtocolChatCompletions
+	case OpenCodeGoProtocolMessages:
+		return OpenCodeGoProtocolMessages
+	default:
+		return ""
+	}
+}
+
+// GetExplicitModelMapping returns only the account-configured model_mapping.
+// Unlike GetModelMapping, it never applies platform defaults.
+func (a *Account) GetExplicitModelMapping() map[string]string {
+	if a == nil || a.Credentials == nil {
+		return nil
+	}
+	return stringMappingFromRaw(a.Credentials["model_mapping"])
 }
 
 func (a *Account) GetModelMapping() map[string]string {
@@ -1054,6 +1132,14 @@ func (a *Account) IsAnthropic() bool {
 	return a.Platform == PlatformAnthropic
 }
 
+func (a *Account) IsOpenCodeGo() bool {
+	return a != nil && a.Platform == PlatformOpenCodeGo
+}
+
+func (a *Account) IsOpenCodeGoAPIKey() bool {
+	return a.IsOpenCodeGo() && a.Type == AccountTypeAPIKey
+}
+
 func (a *Account) IsOpenAIOAuth() bool {
 	return a.IsOpenAI() && a.Type == AccountTypeOAuth
 }
@@ -1101,6 +1187,75 @@ func (a *Account) GetOpenAIApiKey() string {
 		return ""
 	}
 	return a.GetCredential("api_key")
+}
+
+func (a *Account) GetOpenCodeGoAPIKey() string {
+	if !a.IsOpenCodeGoAPIKey() {
+		return ""
+	}
+	return strings.TrimSpace(a.GetCredential("api_key"))
+}
+
+func (a *Account) GetOpenCodeGoBaseURL() string {
+	if !a.IsOpenCodeGo() {
+		return ""
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(a.GetCredential("base_url")), "/")
+	if baseURL == "" {
+		return DefaultOpenCodeGoBaseURL
+	}
+	return baseURL
+}
+
+func (a *Account) GetOpenCodeGoModelProtocols() map[string]string {
+	if a == nil || a.Credentials == nil {
+		return nil
+	}
+	raw, ok := a.Credentials[openCodeGoModelProtocolsCredential]
+	if !ok || raw == nil {
+		return nil
+	}
+
+	parsed := stringMappingFromRaw(raw)
+	if len(parsed) == 0 {
+		return nil
+	}
+
+	result := make(map[string]string, len(parsed))
+	for model, protocol := range parsed {
+		model = strings.TrimSpace(model)
+		normalized := normalizeOpenCodeGoModelProtocol(protocol)
+		if model == "" || normalized == "" {
+			continue
+		}
+		result[model] = normalized
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func (a *Account) ResolveOpenCodeGoModelProtocol(upstreamModel string) (string, bool) {
+	model := strings.TrimSpace(upstreamModel)
+	if model == "" {
+		return "", false
+	}
+	if protocols := a.GetOpenCodeGoModelProtocols(); len(protocols) > 0 {
+		if protocol := normalizeOpenCodeGoModelProtocol(protocols[model]); protocol != "" {
+			return protocol, true
+		}
+	}
+	if protocol, ok := OpenCodeGoCatalogModelProtocol(model); ok {
+		return protocol, true
+	}
+	if protocol := normalizeOpenCodeGoModelProtocol(openCodeGoBuiltinModelProtocols[model]); protocol != "" {
+		return protocol, true
+	}
+	if protocol := inferOpenCodeGoModelFamilyProtocol(model); protocol != "" {
+		return protocol, true
+	}
+	return "", false
 }
 
 func (a *Account) GetOpenAIUserAgent() string {
@@ -2088,6 +2243,54 @@ func (a *Account) HasAnyQuotaLimit() bool {
 	return a.GetQuotaLimit() > 0 || a.GetQuotaDailyLimit() > 0 || a.GetQuotaWeeklyLimit() > 0
 }
 
+var openCodeGoOfficialUsageQuotaWindows = [...]string{"5h", "7d", "30d"}
+
+func (a *Account) IsOpenCodeGoOfficialUsageExhausted() bool {
+	return a.OpenCodeGoOfficialUsageRateLimitResetAt(time.Now()) != nil
+}
+
+func (a *Account) OpenCodeGoOfficialUsageRateLimitResetAt(now time.Time) *time.Time {
+	if a == nil || !a.IsOpenCodeGoAPIKey() || len(a.Extra) == 0 {
+		return nil
+	}
+	if strings.TrimSpace(a.getExtraString("opencode_go_usage_source")) != openCodeGoUsageSourceOfficialConsole {
+		return nil
+	}
+	if status := strings.TrimSpace(a.getExtraString("opencode_go_console_auth_status")); status != "" && status != OpenCodeGoConsoleAuthStatusReady {
+		return nil
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	var latest *time.Time
+	for _, window := range openCodeGoOfficialUsageQuotaWindows {
+		resetAt := a.openCodeGoOfficialUsageWindowResetAt(window, now)
+		if resetAt != nil && (latest == nil || resetAt.After(*latest)) {
+			copyResetAt := *resetAt
+			latest = &copyResetAt
+		}
+	}
+	return latest
+}
+
+func (a *Account) openCodeGoOfficialUsageWindowResetAt(window string, now time.Time) *time.Time {
+	if a.getExtraFloat64("opencode_go_usage_"+window+"_used_percent") < 100 {
+		return nil
+	}
+	resetAt := a.getExtraTime("opencode_go_usage_" + window + "_resets_at")
+	if resetAt.IsZero() {
+		updatedAt := a.getExtraTime("opencode_go_usage_updated_at")
+		resetInSec := a.getExtraInt("opencode_go_usage_" + window + "_reset_in_sec")
+		if !updatedAt.IsZero() && resetInSec > 0 {
+			resetAt = updatedAt.Add(time.Duration(resetInSec) * time.Second)
+		}
+	}
+	if resetAt.IsZero() || !now.Before(resetAt) {
+		return nil
+	}
+	return &resetAt
+}
+
 // isPeriodExpired 检查指定周期（自 periodStart 起经过 dur）是否已过期
 func isPeriodExpired(periodStart time.Time, dur time.Duration) bool {
 	if periodStart.IsZero() {
@@ -2116,6 +2319,9 @@ func (a *Account) IsWeeklyQuotaPeriodExpired() bool {
 
 // IsQuotaExceeded 检查 API Key 账号配额是否已超限（任一维度超限即返回 true）
 func (a *Account) IsQuotaExceeded() bool {
+	if a.IsOpenCodeGoOfficialUsageExhausted() {
+		return true
+	}
 	// 总额度
 	if limit := a.GetQuotaLimit(); limit > 0 && a.GetQuotaUsed() >= limit {
 		return true

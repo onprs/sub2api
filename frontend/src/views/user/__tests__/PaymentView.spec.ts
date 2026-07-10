@@ -140,6 +140,124 @@ function checkoutInfoWithPlansFixture() {
   }
 }
 
+function checkoutInfoWithRenewalPlanFixture() {
+  return {
+    data: {
+      ...checkoutInfoFixture().data,
+      plans: [
+        {
+          id: 7,
+          group_id: 3,
+          name: 'Starter',
+          description: '',
+          price: 8.7,
+          original_price: 0,
+          renewal_discount_percent: 15,
+          renewal_eligible: true,
+          renewal_price: 7.4,
+          effective_price: 7.4,
+          validity_days: 30,
+          validity_unit: 'day',
+          rate_multiplier: 1,
+          daily_limit_usd: null,
+          weekly_limit_usd: null,
+          monthly_limit_usd: null,
+          five_hour_limit_usd: null,
+          seven_day_limit_usd: null,
+          thirty_day_limit_usd: null,
+          features: [],
+          group_platform: 'openai',
+          sort_order: 1,
+          for_sale: true,
+          group_name: 'OpenAI',
+        },
+      ],
+    },
+  }
+}
+
+function checkoutInfoWithSoldOutPlanFixture() {
+  return {
+    data: {
+      ...checkoutInfoFixture().data,
+      balance_disabled: true,
+      plans: [
+        {
+          id: 9,
+          group_id: 3,
+          name: 'Sold Out',
+          description: '',
+          price: 128,
+          original_price: 0,
+          validity_days: 30,
+          validity_unit: 'day',
+          rate_multiplier: 1,
+          daily_limit_usd: null,
+          weekly_limit_usd: null,
+          monthly_limit_usd: null,
+          five_hour_limit_usd: null,
+          seven_day_limit_usd: null,
+          thirty_day_limit_usd: null,
+          features: [],
+          group_platform: 'openai',
+          sort_order: 1,
+          for_sale: true,
+          group_name: 'OpenAI',
+          stock: 0,
+          sold_out: true,
+        },
+      ],
+    },
+  }
+}
+
+function checkoutInfoWithRenewalChoicesFixture() {
+  return {
+    data: {
+      ...checkoutInfoFixture().data,
+      balance_disabled: true,
+      plans: [
+        {
+          id: 7,
+          group_id: 3,
+          name: 'Available',
+          description: '',
+          price: 128,
+          original_price: 0,
+          validity_days: 30,
+          validity_unit: 'day',
+          rate_multiplier: 1,
+          features: [],
+          group_platform: 'openai',
+          sort_order: 1,
+          for_sale: true,
+          group_name: 'OpenAI',
+          stock: 4,
+          sold_out: false,
+        },
+        {
+          id: 9,
+          group_id: 3,
+          name: 'Sold Out',
+          description: '',
+          price: 128,
+          original_price: 0,
+          validity_days: 30,
+          validity_unit: 'day',
+          rate_multiplier: 1,
+          features: [],
+          group_platform: 'openai',
+          sort_order: 2,
+          for_sale: true,
+          group_name: 'OpenAI',
+          stock: 0,
+          sold_out: true,
+        },
+      ],
+    },
+  }
+}
+
 function jsapiOrderFixture(resumeToken: string) {
   return {
     order_id: 123,
@@ -414,5 +532,183 @@ describe('PaymentView WeChat JSAPI flow', () => {
     expect(showWarning).toHaveBeenCalledWith('payment.errors.mobilePaymentFallbackToQr')
     expect(showError).not.toHaveBeenCalled()
     expect(window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).toContain('weixin://wxpay/bizpayurl?pr=fallback-native')
+  })
+
+  it('creates subscription orders with the effective renewal price', async () => {
+    routeState.query = {
+      tab: 'subscription',
+      group: '3',
+    }
+    getCheckoutInfo.mockResolvedValue(checkoutInfoWithRenewalPlanFixture())
+    createOrder.mockResolvedValue({
+      order_id: 779,
+      amount: 7.4,
+      pay_amount: 7.4,
+      fee_rate: 0,
+      expires_at: '2099-01-01T00:10:00.000Z',
+      payment_type: 'wxpay',
+      qr_code: 'weixin://wxpay/bizpayurl?pr=renewal',
+      out_trade_no: 'sub2_renewal_779',
+    })
+
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<main><slot /></main>' },
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+    await flushPromises()
+
+    const createButton = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))
+    expect(createButton).toBeTruthy()
+    await createButton!.trigger('click')
+    await flushPromises()
+
+    expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({
+      amount: 7.4,
+      order_type: 'subscription',
+      plan_id: 7,
+    }))
+    expect(createOrder).not.toHaveBeenCalledWith(expect.objectContaining({
+      amount: 8.7,
+    }))
+  })
+
+  it('does not select a sold-out plan from the plan list', async () => {
+    routeState.query = {}
+    getCheckoutInfo.mockResolvedValue(checkoutInfoWithSoldOutPlanFixture())
+
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<main><slot /></main>' },
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+    await flushPromises()
+
+    const card = wrapper.findComponent({ name: 'SubscriptionPlanCard' })
+    expect(card.exists()).toBe(true)
+    card.vm.$emit('select', checkoutInfoWithSoldOutPlanFixture().data.plans[0])
+    await flushPromises()
+
+    expect(wrapper.findAll('button').some(button => button.text().includes('payment.createOrder'))).toBe(false)
+    expect(createOrder).not.toHaveBeenCalled()
+  })
+
+  it('does not select a sold-out plan from the renewal modal', async () => {
+    routeState.query = {
+      tab: 'subscription',
+      group: '3',
+    }
+    getCheckoutInfo.mockResolvedValue(checkoutInfoWithRenewalChoicesFixture())
+
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<main><slot /></main>' },
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+    await flushPromises()
+
+    const cards = wrapper.findAllComponents({ name: 'SubscriptionPlanCard' })
+    expect(cards.length).toBeGreaterThan(1)
+    cards[1].vm.$emit('select', checkoutInfoWithRenewalChoicesFixture().data.plans[1])
+    await flushPromises()
+
+    expect(wrapper.findAll('button').some(button => button.text().includes('payment.createOrder'))).toBe(false)
+    expect(createOrder).not.toHaveBeenCalled()
+  })
+
+  it('does not create a subscription order if the selected route plan is sold out', async () => {
+    routeState.query = {
+      tab: 'subscription',
+      group: '3',
+    }
+    getCheckoutInfo.mockResolvedValue(checkoutInfoWithSoldOutPlanFixture())
+    createOrder.mockResolvedValue({
+      order_id: 781,
+      amount: 128,
+      pay_amount: 128,
+      fee_rate: 0,
+      expires_at: '2099-01-01T00:10:00.000Z',
+      payment_type: 'wxpay',
+      qr_code: 'weixin://wxpay/bizpayurl?pr=sold-out',
+      out_trade_no: 'sub2_sold_out_781',
+    })
+
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<main><slot /></main>' },
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+    await flushPromises()
+
+    const createButton = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))
+    if (createButton) {
+      await createButton.trigger('click')
+      await flushPromises()
+    }
+
+    expect(createOrder).not.toHaveBeenCalled()
+  })
+
+  it('refreshes checkout plans after a subscription payment succeeds', async () => {
+    routeState.query = {
+      tab: 'subscription',
+      group: '3',
+    }
+    getCheckoutInfo.mockResolvedValue(checkoutInfoWithPlansFixture())
+    createOrder.mockResolvedValue({
+      order_id: 780,
+      amount: 128,
+      pay_amount: 128,
+      fee_rate: 0,
+      expires_at: '2099-01-01T00:10:00.000Z',
+      payment_type: 'wxpay',
+      qr_code: 'weixin://wxpay/bizpayurl?pr=subscription-success',
+      out_trade_no: 'sub2_subscription_780',
+    })
+
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<main><slot /></main>' },
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+    await flushPromises()
+
+    const createButton = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))
+    expect(createButton).toBeTruthy()
+    await createButton!.trigger('click')
+    await flushPromises()
+
+    const statusPanel = wrapper.findComponent({ name: 'PaymentStatusPanel' })
+    expect(statusPanel.exists()).toBe(true)
+    statusPanel.vm.$emit('success')
+    await flushPromises()
+
+    expect(fetchActiveSubscriptions).toHaveBeenCalledWith(true)
+    expect(getCheckoutInfo).toHaveBeenCalledTimes(2)
   })
 })

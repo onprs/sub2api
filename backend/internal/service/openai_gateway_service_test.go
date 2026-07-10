@@ -2417,6 +2417,35 @@ func TestHandleSSEToJSON_CompletedEventReturnsJSON(t *testing.T) {
 	require.NotContains(t, rec.Body.String(), "data:")
 }
 
+func TestHandleSSEToJSON_EventNamedCompletedReturnsJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	svc := &OpenAIGatewayService{cfg: &config.Config{}}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+	}
+	body := []byte(strings.Join([]string{
+		`event: response.completed`,
+		`data: {"response":{"id":"resp_event_named","object":"response","model":"gpt-5.5","status":"completed","output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":7,"output_tokens":3,"total_tokens":10,"input_tokens_details":{"cached_tokens":2}}}}`,
+		``,
+		`data: [DONE]`,
+	}, "\n"))
+
+	usage, err := svc.handleSSEToJSON(resp, c, body, "gpt-5.5", "gpt-5.5")
+	require.NoError(t, err)
+	require.NotNil(t, usage)
+	require.Equal(t, 7, usage.InputTokens)
+	require.Equal(t, 3, usage.OutputTokens)
+	require.Equal(t, 2, usage.CacheReadInputTokens)
+	require.NotContains(t, rec.Body.String(), "data:")
+	require.Equal(t, "resp_event_named", gjson.Get(rec.Body.String(), "id").String())
+	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+}
+
 func TestHandleNonStreamingResponse_APIKeyFallsBackToSSEBodyWhenContentTypeIsWrong(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

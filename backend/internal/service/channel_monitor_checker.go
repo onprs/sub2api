@@ -62,7 +62,7 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 		CheckedAt: time.Now(),
 	}
 
-	challenge := generateChallenge()
+	challenge := generateChallengeForProvider(provider)
 	mode := bodyOverrideMode(opts)
 
 	start := time.Now()
@@ -97,7 +97,13 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 		return finalizeOperationalOrDegraded(res, latency, latencyMs)
 	}
 
-	if !validateChallenge(respText, challenge.Expected) {
+	if strings.TrimSpace(respText) == "" {
+		res.Status = MonitorStatusFailed
+		res.Message = truncateMessage("upstream returned 2xx but response text was empty; check endpoint, api_mode, and response format")
+		return res
+	}
+
+	if !validateMonitorChallenge(respText, challenge) {
 		res.Status = MonitorStatusFailed
 		res.Message = truncateMessage(sanitizeErrorMessage(fmt.Sprintf("challenge mismatch (expected %s, got %q)", challenge.Expected, respText)))
 		return res
@@ -156,10 +162,11 @@ func pingEndpointOrigin(ctx context.Context, endpoint string) *int {
 //
 // 加新 provider 只需要在 providerAdapters 里增加一个条目，无需触碰 callProvider / validateProvider。
 type providerAdapter struct {
-	buildPath    func(model string) string
-	buildBody    func(model, prompt string) ([]byte, error)
-	buildHeaders func(apiKey string) map[string]string
-	textPath     string // gjson 提取响应文本的 path
+	buildPath          func(model string) string
+	buildBody          func(model, prompt string) ([]byte, error)
+	buildHeaders       func(apiKey string) map[string]string
+	textPath           string // gjson 提取响应文本的 path
+	releaseGuardMarker string
 }
 
 // providerAdapters 全部已支持的 provider。键值即 MonitorProvider* 字符串。
@@ -201,6 +208,44 @@ var providerAdapters = map[string]providerAdapter{
 		},
 		textPath: "candidates.0.content.parts.0.text",
 	},
+	MonitorProviderOpenCodeGo: providerOpenCodeGoChatAdapter,
+	MonitorProviderAntigravityClaude: {
+		buildPath: func(string) string { return "/antigravity/v1/messages" },
+		buildBody: func(model, prompt string) ([]byte, error) {
+			return json.Marshal(map[string]any{
+				"model":      model,
+				"messages":   []map[string]string{{"role": "user", "content": prompt}},
+				"max_tokens": monitorChallengeMaxTokens,
+			})
+		},
+		buildHeaders: func(apiKey string) map[string]string {
+			return map[string]string{
+				"Authorization":     "Bearer " + apiKey,
+				"anthropic-version": monitorAnthropicAPIVersion,
+			}
+		},
+		textPath: "content.0.text",
+	},
+	MonitorProviderAntigravityGemini: {
+		buildPath: func(model string) string {
+			return fmt.Sprintf("/antigravity/v1beta/models/%s:generateContent", model)
+		},
+		buildBody: func(model, prompt string) ([]byte, error) {
+			return json.Marshal(map[string]any{
+				"contents": []map[string]any{
+					{
+						"role":  "user",
+						"parts": []map[string]any{{"text": prompt}},
+					},
+				},
+				"generationConfig": antigravityGeminiMonitorGenerationConfig(model),
+			})
+		},
+		buildHeaders: func(apiKey string) map[string]string {
+			return map[string]string{"x-goog-api-key": apiKey}
+		},
+		textPath: "candidates.0.content.parts.0.text",
+	},
 }
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
@@ -218,6 +263,42 @@ var providerOpenAIChatAdapter = providerAdapter{
 		return map[string]string{"Authorization": "Bearer " + apiKey}
 	},
 	textPath: "choices.0.message.content",
+}
+
+//nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
+var providerOpenCodeGoChatAdapter = providerAdapter{
+	buildPath: func(string) string { return providerOpenCodeGoChatPath },
+	buildBody: func(model, prompt string) ([]byte, error) {
+		return json.Marshal(map[string]any{
+			"model":       model,
+			"messages":    []map[string]string{{"role": "user", "content": prompt}},
+			"max_tokens":  monitorOpenCodeGoChallengeMaxTokens,
+			"temperature": 0,
+			"stream":      false,
+		})
+	},
+	buildHeaders: func(apiKey string) map[string]string {
+		return map[string]string{"Authorization": "Bearer " + apiKey}
+	},
+	textPath:           "choices.0.message.content",
+	releaseGuardMarker: "channel_monitor_provider_opencode_go",
+}
+
+//nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
+var providerOpenCodeGoMessagesAdapter = providerAdapter{
+	buildPath: func(string) string { return providerOpenCodeGoMessagesPath },
+	buildBody: func(model, prompt string) ([]byte, error) {
+		return json.Marshal(map[string]any{
+			"model":       model,
+			"messages":    []map[string]string{{"role": "user", "content": prompt}},
+			"max_tokens":  monitorOpenCodeGoChallengeMaxTokens,
+			"temperature": 0,
+		})
+	},
+	buildHeaders: func(apiKey string) map[string]string {
+		return map[string]string{"Authorization": "Bearer " + apiKey}
+	},
+	textPath: "content.0.text",
 }
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
@@ -242,6 +323,9 @@ var providerOpenAIResponsesAdapter = providerAdapter{
 func providerAdapterFor(provider, apiMode string) (providerAdapter, string, bool) {
 	if provider == MonitorProviderOpenAI && defaultAPIMode(apiMode) == MonitorAPIModeResponses {
 		return providerOpenAIResponsesAdapter, MonitorAPIModeResponses, true
+	}
+	if provider == MonitorProviderOpenCodeGo && defaultAPIMode(apiMode) == MonitorAPIModeMessages {
+		return providerOpenCodeGoMessagesAdapter, MonitorAPIModeMessages, true
 	}
 	adapter, ok := providerAdapters[provider]
 	return adapter, MonitorAPIModeChatCompletions, ok
@@ -283,6 +367,15 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	}
 	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
 		return extractOpenAIResponsesText(respBytes), string(respBytes), status, nil
+	}
+	if provider == MonitorProviderGemini || provider == MonitorProviderAntigravityGemini {
+		return extractGeminiGenerateContentText(respBytes), string(respBytes), status, nil
+	}
+	if provider == MonitorProviderOpenCodeGo {
+		if apiMode == MonitorAPIModeMessages {
+			return extractOpenCodeGoMessagesText(respBytes), string(respBytes), status, nil
+		}
+		return extractOpenCodeGoChatText(respBytes), string(respBytes), status, nil
 	}
 	return gjson.GetBytes(respBytes, adapter.textPath).String(), string(respBytes), status, nil
 }
@@ -327,6 +420,148 @@ func extractOpenAIResponsesText(respBytes []byte) string {
 		return strings.Join(texts, "")
 	}
 	return gjson.GetBytes(respBytes, providerOpenAIResponsesAdapter.textPath).String()
+}
+
+// extractGeminiGenerateContentText 聚合 Gemini/Antigravity Gemini 的候选文本。
+// Agent/thinking 响应里 parts 顺序不稳定，functionCall / thought / empty part 可能排在文本前面。
+func extractGeminiGenerateContentText(respBytes []byte) string {
+	texts := collectGeminiCandidateTexts(gjson.GetBytes(respBytes, "candidates"))
+	if len(texts) == 0 {
+		texts = collectGeminiCandidateTexts(gjson.GetBytes(respBytes, "response.candidates"))
+	}
+	if len(texts) > 0 {
+		return strings.Join(texts, "")
+	}
+	return gjson.GetBytes(respBytes, providerAdapters[MonitorProviderGemini].textPath).String()
+}
+
+func collectGeminiCandidateTexts(candidates gjson.Result) []string {
+	if !candidates.IsArray() {
+		return nil
+	}
+
+	var texts []string
+	candidates.ForEach(func(_, candidate gjson.Result) bool {
+		parts := candidate.Get("content.parts")
+		if !parts.IsArray() {
+			return true
+		}
+		parts.ForEach(func(_, part gjson.Result) bool {
+			if part.Get("thought").Bool() {
+				return true
+			}
+			if text := part.Get("text").String(); strings.TrimSpace(text) != "" {
+				texts = append(texts, text)
+			}
+			return true
+		})
+		return true
+	})
+	return texts
+}
+
+func extractOpenCodeGoChatText(respBytes []byte) string {
+	if text := strings.TrimSpace(gjson.GetBytes(respBytes, "output_text").String()); text != "" {
+		return text
+	}
+
+	var texts []string
+	choices := gjson.GetBytes(respBytes, "choices")
+	if choices.IsArray() {
+		choices.ForEach(func(_, choice gjson.Result) bool {
+			texts = append(texts, collectMonitorVisibleTexts(choice.Get("message.content"))...)
+			texts = append(texts, collectMonitorVisibleTexts(choice.Get("delta.content"))...)
+			if text := strings.TrimSpace(choice.Get("text").String()); text != "" {
+				texts = append(texts, text)
+			}
+			return true
+		})
+	}
+	if len(texts) > 0 {
+		return strings.Join(texts, "")
+	}
+	return gjson.GetBytes(respBytes, providerOpenCodeGoChatAdapter.textPath).String()
+}
+
+func extractOpenCodeGoMessagesText(respBytes []byte) string {
+	if text := strings.TrimSpace(gjson.GetBytes(respBytes, "output_text").String()); text != "" {
+		return text
+	}
+	texts := collectMonitorVisibleTexts(gjson.GetBytes(respBytes, "content"))
+	if len(texts) == 0 {
+		texts = collectMonitorVisibleTexts(gjson.GetBytes(respBytes, "message.content"))
+	}
+	if len(texts) > 0 {
+		return strings.Join(texts, "")
+	}
+	return gjson.GetBytes(respBytes, providerOpenCodeGoMessagesAdapter.textPath).String()
+}
+
+func collectMonitorVisibleTexts(content gjson.Result) []string {
+	if !content.Exists() {
+		return nil
+	}
+	if content.IsArray() {
+		var texts []string
+		content.ForEach(func(_, block gjson.Result) bool {
+			if isMonitorReasoningBlock(block) {
+				return true
+			}
+			if text := firstNonEmptyMonitorText(block); text != "" {
+				texts = append(texts, text)
+			}
+			return true
+		})
+		return texts
+	}
+	if content.IsObject() {
+		if isMonitorReasoningBlock(content) {
+			return nil
+		}
+		if text := firstNonEmptyMonitorText(content); text != "" {
+			return []string{text}
+		}
+		return nil
+	}
+	if text := strings.TrimSpace(content.String()); text != "" {
+		return []string{text}
+	}
+	return nil
+}
+
+func isMonitorReasoningBlock(block gjson.Result) bool {
+	if block.Get("thought").Bool() {
+		return true
+	}
+	blockType := strings.ToLower(strings.TrimSpace(block.Get("type").String()))
+	return strings.Contains(blockType, "reasoning") || strings.Contains(blockType, "thinking")
+}
+
+func firstNonEmptyMonitorText(block gjson.Result) string {
+	for _, path := range []string{"text", "content", "output_text"} {
+		if text := strings.TrimSpace(block.Get(path).String()); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func antigravityGeminiMonitorGenerationConfig(model string) map[string]any {
+	config := map[string]any{
+		"maxOutputTokens": monitorAntigravityGeminiChallengeMaxTokens,
+		"temperature":     0,
+	}
+	if isGemini3MonitorModel(model) {
+		config["thinkingConfig"] = map[string]any{
+			"includeThoughts": false,
+			"thinkingLevel":   monitorAntigravityGeminiThinkingLevel,
+		}
+	}
+	return config
+}
+
+func isGemini3MonitorModel(model string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "gemini-3")
 }
 
 // mergeHeaders 把用户自定义 headers 合并到 adapter 默认 headers 上。
@@ -405,10 +640,14 @@ func buildRequestBody(adapter providerAdapter, provider, apiMode, model, prompt 
 //
 //nolint:gochecknoglobals // 静态查表，初始化后不变。
 var bodyMergeKeyDenyList = map[string]map[string]bool{
-	MonitorProviderOpenAI + ":" + MonitorAPIModeChatCompletions: {"model": true, "messages": true, "stream": true},
-	MonitorProviderOpenAI + ":" + MonitorAPIModeResponses:       {"model": true, "instructions": true, "input": true, "stream": true},
-	MonitorProviderAnthropic:                                    {"model": true, "messages": true},
-	MonitorProviderGemini:                                       {"contents": true},
+	MonitorProviderOpenAI + ":" + MonitorAPIModeChatCompletions:     {"model": true, "messages": true, "stream": true},
+	MonitorProviderOpenAI + ":" + MonitorAPIModeResponses:           {"model": true, "instructions": true, "input": true, "stream": true},
+	MonitorProviderAnthropic:                                        {"model": true, "messages": true},
+	MonitorProviderGemini:                                           {"contents": true},
+	MonitorProviderOpenCodeGo + ":" + MonitorAPIModeChatCompletions: {"model": true, "messages": true, "stream": true},
+	MonitorProviderOpenCodeGo + ":" + MonitorAPIModeMessages:        {"model": true, "messages": true},
+	MonitorProviderAntigravityClaude:                                {"model": true, "messages": true},
+	MonitorProviderAntigravityGemini:                                {"contents": true},
 }
 
 func checkAPIMode(opts *CheckOptions) string {
@@ -419,24 +658,27 @@ func checkAPIMode(opts *CheckOptions) string {
 }
 
 func bodyMergeDenyKey(provider, apiMode string) string {
-	if provider == MonitorProviderOpenAI {
+	if provider == MonitorProviderOpenAI || provider == MonitorProviderOpenCodeGo {
 		return provider + ":" + defaultAPIMode(apiMode)
 	}
 	return provider
 }
 
 func validateReplaceRequestBody(provider, apiMode string, body map[string]any) error {
-	if provider != MonitorProviderOpenAI {
-		return nil
-	}
 	switch defaultAPIMode(apiMode) {
 	case MonitorAPIModeResponses:
+		if provider != MonitorProviderOpenAI {
+			return nil
+		}
 		if strings.TrimSpace(stringFromAny(body["instructions"])) == "" || !hasNonEmptyBodyValue(body["input"]) {
 			return fmt.Errorf("replace mode responses body: instructions and input are required")
 		}
-	case MonitorAPIModeChatCompletions:
+	case MonitorAPIModeChatCompletions, MonitorAPIModeMessages:
+		if provider != MonitorProviderOpenAI && provider != MonitorProviderOpenCodeGo {
+			return nil
+		}
 		if !hasNonEmptyBodyValue(body["messages"]) {
-			return fmt.Errorf("replace mode chat_completions body: messages are required")
+			return fmt.Errorf("replace mode %s body: messages are required", defaultAPIMode(apiMode))
 		}
 	}
 	return nil
