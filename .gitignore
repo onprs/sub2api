@@ -141,5 +141,5 @@ artifacts/
 tools/__pycache__/
 **/__pycache__/
 
-# Contributor and agent guide is intentionally versioned.
-!AGENTS.md
+# Local Pi/agent guide is intentionally not versioned.
+AGENTS.md
