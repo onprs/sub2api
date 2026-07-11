@@ -133,7 +133,7 @@ describe('UseKeyModal', () => {
     expect(codeBlock.text()).not.toContain('"name": "GPT-5.4 Nano"')
   })
 
-  it('renders GPT-5.6 alias and max variants in OpenCode config', async () => {
+  it('renders model-specific GPT-5.6 reasoning variants in OpenCode config', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {
         show: true,
@@ -162,10 +162,14 @@ describe('UseKeyModal', () => {
 
     const parsed = JSON.parse(wrapper.find('pre code').text())
     const models = parsed.provider.openai.models
-    for (const model of ['gpt-5.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
-      expect(models[model]).toBeDefined()
-      expect(models[model].variants).toHaveProperty('max')
-      expect(models[model].variants).toHaveProperty('xhigh')
+    const expectedVariants = {
+      'gpt-5.6': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+      'gpt-5.6-sol': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+      'gpt-5.6-terra': ['none', 'low', 'medium', 'high', 'xhigh'],
+      'gpt-5.6-luna': ['none', 'low', 'medium', 'high', 'xhigh']
+    }
+    for (const [model, variants] of Object.entries(expectedVariants)) {
+      expect(Object.keys(models[model].variants)).toEqual(variants)
     }
     expect(models['gpt-5.6'].name).toBe('GPT-5.6 (Sol)')
   })

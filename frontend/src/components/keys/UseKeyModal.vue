@@ -758,6 +758,7 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
         store: false
       },
       variants: {
+        none: {},
         low: {},
         medium: {},
         high: {},
@@ -775,6 +776,7 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
         store: false
       },
       variants: {
+        none: {},
         low: {},
         medium: {},
         high: {},
@@ -792,11 +794,11 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
         store: false
       },
       variants: {
+        none: {},
         low: {},
         medium: {},
         high: {},
-        xhigh: {},
-        max: {}
+        xhigh: {}
       }
     },
     'gpt-5.6-luna': {
@@ -809,11 +811,11 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
         store: false
       },
       variants: {
+        none: {},
         low: {},
         medium: {},
         high: {},
-        xhigh: {},
-        max: {}
+        xhigh: {}
       }
     },
     'gpt-5.5': {
