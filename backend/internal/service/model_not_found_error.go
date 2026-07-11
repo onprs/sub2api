@@ -8,14 +8,17 @@ import (
 var upstreamModelNotFoundKeywords = []string{"model not found", "unknown model", "not found"}
 
 func isUpstreamModelNotFoundError(statusCode int, body []byte) bool {
-	if statusCode != http.StatusNotFound {
-		return false
-	}
 	normalized := normalizeModelNotFoundBody(body)
 	if normalized == "" || !strings.Contains(normalized, "model") {
 		return false
 	}
-	return containsModelNotFoundKeyword(normalized)
+	if statusCode == http.StatusNotFound {
+		return containsModelNotFoundKeyword(normalized)
+	}
+	if statusCode == http.StatusBadRequest {
+		return isOpenAIChatGPTCodexModelUnsupported(normalized)
+	}
+	return false
 }
 
 func isModelNotFoundError(statusCode int, body []byte) bool {
@@ -32,6 +35,15 @@ func containsModelNotFoundKeyword(normalizedBody string) bool {
 		}
 	}
 	return false
+}
+
+func isOpenAIChatGPTCodexModelUnsupported(normalizedBody string) bool {
+	if normalizedBody == "" {
+		return false
+	}
+	return strings.Contains(normalizedBody, "not supported") &&
+		strings.Contains(normalizedBody, "codex") &&
+		strings.Contains(normalizedBody, "chatgpt account")
 }
 
 func normalizeModelNotFoundBody(body []byte) string {

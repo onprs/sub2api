@@ -743,7 +743,7 @@ func TestOpenAISelectAccountForModelWithExclusions_NoModelSupport(t *testing.T) 
 	}
 }
 
-func TestOpenAISelectAccountForModelWithExclusions_GPT56SkipsEmptyMappingOAuth(t *testing.T) {
+func TestOpenAISelectAccountForModelWithExclusions_GPT56AllowsEmptyMappingOAuth(t *testing.T) {
 	repo := stubOpenAIAccountRepo{
 		accounts: []Account{
 			{
@@ -753,14 +753,6 @@ func TestOpenAISelectAccountForModelWithExclusions_GPT56SkipsEmptyMappingOAuth(t
 				Status:      StatusActive,
 				Schedulable: true,
 			},
-			{
-				ID:          6000,
-				Platform:    PlatformOpenAI,
-				Type:        AccountTypeAPIKey,
-				Status:      StatusActive,
-				Schedulable: true,
-				Credentials: map[string]any{"model_mapping": map[string]any{"gpt-5.6-sol": "gpt-5.6-sol"}},
-			},
 		},
 	}
 	svc := &GatewayService{
@@ -768,10 +760,10 @@ func TestOpenAISelectAccountForModelWithExclusions_GPT56SkipsEmptyMappingOAuth(t
 		cache:       &stubGatewayCache{},
 	}
 
-	acc, err := svc.selectAccountForModelWithPlatform(context.Background(), nil, "", "gpt-5.6-sol", nil, PlatformOpenAI)
+	acc, err := svc.selectAccountForModelWithPlatform(context.Background(), nil, "", "gpt-5.6-luna", nil, PlatformOpenAI)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
-	require.Equal(t, int64(6000), acc.ID)
+	require.Equal(t, int64(5182), acc.ID)
 }
 
 func TestOpenAISelectAccountWithLoadAwareness_LoadBatchErrorFallback(t *testing.T) {

@@ -338,7 +338,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			return nil, foErr
 		}
 		// Non-failover error: return Anthropic-formatted error to client
-		return s.handleAnthropicErrorResponse(resp, c, account, billingModel)
+		return s.handleAnthropicErrorResponse(resp, c, account, upstreamModel)
 	}
 
 	if account.Type == AccountTypeOAuth && promptCacheKey != "" {

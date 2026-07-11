@@ -43,9 +43,21 @@ func TestIsUpstreamModelNotFoundError(t *testing.T) {
 			want:       false,
 		},
 		{
-			name:       "non 404 does not match",
+			name:       "400 ChatGPT Codex model unsupported matches",
+			statusCode: http.StatusBadRequest,
+			body:       []byte(`{"error":{"message":"Model \"gpt-5.6-sol\" is not supported when using Codex with a ChatGPT account.","type":"invalid_request_error"}}`),
+			want:       true,
+		},
+		{
+			name:       "400 model not found does not match without ChatGPT Codex signal",
 			statusCode: http.StatusBadRequest,
 			body:       []byte(`{"error":{"message":"model not found"}}`),
+			want:       false,
+		},
+		{
+			name:       "400 unsupported parameter does not match",
+			statusCode: http.StatusBadRequest,
+			body:       []byte(`{"error":{"message":"Parameter temperature is not supported by this model"}}`),
 			want:       false,
 		},
 	}

@@ -31,7 +31,14 @@ func TestIsModelSupported_OpenAIOAuthEmptyMapping_ServableModels(t *testing.T) {
 		"gpt-image-1",       // 图像生成模型
 		"claude-sonnet-4-6", // /v1/messages 调度默认映射兜底
 		"claude-3-opus-20240229",
-		"gpt-4o",          // 保守 fail-open：非黑名单模型保持允许
+		"gpt-4o", // 保守 fail-open：非黑名单模型保持允许
+		"gpt-5.6",
+		"gpt-5.6-max",
+		"gpt-5.6-sol",
+		"gpt-5.6-sol-2026-07-09",
+		"gpt-5.6-terra",
+		"gpt-5.6-luna",
+		"openai/gpt-5.6-sol",
 		"my-custom-alias", // 自定义别名可能由渠道级映射在转发前改写，保持允许
 	}
 	for _, model := range servable {
@@ -39,12 +46,12 @@ func TestIsModelSupported_OpenAIOAuthEmptyMapping_ServableModels(t *testing.T) {
 	}
 }
 
-func TestIsModelSupported_OpenAIOAuthEmptyMapping_RejectsKnownUnsupportedModels(t *testing.T) {
+func TestIsModelSupported_OpenAIOAuthEmptyMapping_RejectsForeignModels(t *testing.T) {
 	account := newOpenAIOAuthAccountForModelTest()
 
-	// Codex 上游必然以不可重试的 400 拒绝这些模型；调度阶段就应跳过
+	// Codex 上游必然以不可重试的 400 拒绝这些厂商家族；调度阶段就应跳过
 	// 该账号，让显式声明支持的账号接手（#3662）。
-	unsupported := []string{
+	foreign := []string{
 		"deepseek-v4",
 		"deepseek-chat",
 		"glm-4.7",
@@ -56,15 +63,8 @@ func TestIsModelSupported_OpenAIOAuthEmptyMapping_RejectsKnownUnsupportedModels(
 		"minimax-m2.5",
 		"llama-3.3-70b",
 		"provider/deepseek-v4", // vendor/model 形式取最后一段判定
-		"gpt-5.6",
-		"gpt-5.6-max",
-		"gpt-5.6-sol",
-		"gpt-5.6-sol-2026-07-09",
-		"gpt-5.6-terra",
-		"gpt-5.6-luna",
-		"openai/gpt-5.6-sol",
 	}
-	for _, model := range unsupported {
+	for _, model := range foreign {
 		require.False(t, account.IsModelSupported(model), "expected %q to be rejected by empty-mapping OpenAI OAuth account", model)
 	}
 }
@@ -113,6 +113,8 @@ func TestIsModelSupported_NonOpenAIPlatformsUnchanged(t *testing.T) {
 func TestIsOpenAIOAuthServableModel(t *testing.T) {
 	require.True(t, isOpenAIOAuthServableModel("gpt-5.4-high"))
 	require.True(t, isOpenAIOAuthServableModel("  gpt-5.3-codex  "))
+	require.True(t, isOpenAIOAuthServableModel("gpt-5.6-luna"))
+	require.True(t, isOpenAIOAuthServableModel("openai/gpt-5.6-sol"))
 	require.True(t, isOpenAIOAuthServableModel("claude-3-5-haiku-20241022"))
 	require.True(t, isOpenAIOAuthServableModel("DeepThink-x"))  // 非黑名单前缀，保持允许
 	require.False(t, isOpenAIOAuthServableModel("DeepSeek-V4")) // 大小写不敏感

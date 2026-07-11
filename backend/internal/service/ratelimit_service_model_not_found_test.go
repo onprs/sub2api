@@ -5,10 +5,14 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,6 +70,57 @@ func TestRateLimitService_HandleUpstreamError_ModelNotFoundUsesModelRateLimit(t 
 	require.Equal(t, "gpt-5.4", call.scope)
 	require.Equal(t, upstreamModelNotFoundReason, call.reason)
 	require.WithinDuration(t, time.Now().Add(upstreamModelNotFoundCooldown), call.resetAt, 5*time.Second)
+}
+
+func TestRateLimitService_HandleUpstreamError_ChatGPTCodexUnsupportedUsesModelRateLimit(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAIModelNotFoundTempAccount()
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusBadRequest,
+		http.Header{},
+		[]byte(`{"error":{"message":"Model \"gpt-5.6-sol\" is not supported when using Codex with a ChatGPT account."}}`),
+		"gpt-5.6-sol",
+	)
+
+	require.True(t, handled)
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, account.ID, call.accountID)
+	require.Equal(t, "gpt-5.6-sol", call.scope)
+	require.Equal(t, upstreamModelNotFoundReason, call.reason)
+	require.WithinDuration(t, time.Now().Add(upstreamModelNotFoundCooldown), call.resetAt, 5*time.Second)
+}
+
+func TestOpenAICompatErrorResponse_ChatGPTCodexUnsupportedTriggersFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &OpenAIGatewayService{rateLimitService: &RateLimitService{accountRepo: repo}}
+	account := openAIModelNotFoundTempAccount()
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"x-request-id": []string{"rid-codex-model"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"Model \"gpt-5.6-sol\" is not supported when using Codex with a ChatGPT account."}}`)),
+	}
+
+	_, err := svc.handleChatCompletionsErrorResponse(resp, c, account, "gpt-5.6-sol")
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadRequest, failoverErr.StatusCode)
+	require.False(t, c.Writer.Written(), "handler owns the response after account failover")
+	require.Empty(t, rec.Body.String())
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, "gpt-5.6-sol", repo.modelRateLimitCalls[0].scope)
 }
 
 func TestRateLimitService_HandleUpstreamError_ModelNotFoundWriteFailureDoesNotTempUnschedule(t *testing.T) {

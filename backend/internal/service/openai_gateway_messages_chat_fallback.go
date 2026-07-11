@@ -115,7 +115,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		}
 		// Non-failover error: return Anthropic-formatted error to client via the
 		// shared compat handler (passthrough rules, ops recording, cyber_policy).
-		return s.handleAnthropicErrorResponse(resp, c, account, billingModel)
+		return s.handleAnthropicErrorResponse(resp, c, account, upstreamModel)
 	}
 
 	// 5. Convert response
