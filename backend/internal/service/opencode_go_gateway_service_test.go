@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -668,6 +669,86 @@ func TestOpenCodeGoGatewayServiceNormalizesCachedTokensInChatCompletionsStreamUs
 	}
 	if result.Usage.CacheReadInputTokens != 60 {
 		t.Fatalf("expected cache read tokens 60, got %+v", result.Usage)
+	}
+}
+
+func TestShouldFailoverOpenCodeGoResponse(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{
+			name:   "console go transient provider failure",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"type":"invalid_request_error","message":"Error from provider (Console Go): Upstream request failed"}}`,
+			want:   true,
+		},
+		{
+			name:   "client validation failure",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"type":"invalid_request_error","message":"max_tokens must be greater than zero"}}`,
+			want:   false,
+		},
+		{
+			name:   "provider wording alone is insufficient",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"type":"invalid_request_error","message":"Error from provider: invalid model"}}`,
+			want:   false,
+		},
+		{
+			name:   "server failure",
+			status: http.StatusBadGateway,
+			body:   `{"error":{"message":"bad gateway"}}`,
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldFailoverOpenCodeGoResponse(tt.status, []byte(tt.body)); got != tt.want {
+				t.Fatalf("shouldFailoverOpenCodeGoResponse() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOpenCodeGoGatewayServiceProviderWrappedBadRequestTriggersFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := `{"error":{"code":"invalid_request_error","message":"Error from provider (Console Go): Upstream request failed","type":"invalid_request_error"}}`
+	upstream := &openCodeGoHTTPUpstreamStub{
+		resp: &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+		},
+	}
+	svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{
+		ID:          42,
+		Platform:    PlatformOpenCodeGo,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key": "ocg-secret",
+			"model_protocols": map[string]any{
+				"kimi-k2.7-code": OpenCodeGoProtocolChatCompletions,
+			},
+		},
+	}
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/messages", `{"model":"kimi-k2.7-code","messages":[{"role":"user","content":"hi"}],"max_tokens":128,"stream":true}`)
+
+	_, err := svc.ForwardMessages(context.Background(), rec.Context, account, []byte(`{"model":"kimi-k2.7-code","messages":[{"role":"user","content":"hi"}],"max_tokens":128,"stream":true}`))
+	var failoverErr *UpstreamFailoverError
+	if !errors.As(err, &failoverErr) {
+		t.Fatalf("expected UpstreamFailoverError, got %T: %v", err, err)
+	}
+	if failoverErr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected upstream status 400, got %d", failoverErr.StatusCode)
+	}
+	if rec.Recorder.Body.Len() != 0 {
+		t.Fatalf("failover response must remain unwritten, got %s", rec.Recorder.Body.String())
 	}
 }
 

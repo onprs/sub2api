@@ -317,7 +317,7 @@ func (s *OpenCodeGoGatewayService) handleUpstreamError(
 	}
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, detail)
 
-	if shouldFailoverOpenCodeGoStatus(resp.StatusCode) {
+	if shouldFailoverOpenCodeGoResponse(resp.StatusCode, body) {
 		s.applyOpenCodeGoFailureSideEffects(ctx, account, resp.StatusCode, resp.Header, body)
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform:           account.Platform,
@@ -984,11 +984,24 @@ func readOpenCodeGoErrorBody(body io.Reader) []byte {
 	return data
 }
 
-func shouldFailoverOpenCodeGoStatus(status int) bool {
+func shouldFailoverOpenCodeGoResponse(status int, body []byte) bool {
 	if status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusTooManyRequests {
 		return true
 	}
-	return status >= http.StatusInternalServerError
+	if status >= http.StatusInternalServerError {
+		return true
+	}
+	if status != http.StatusBadRequest {
+		return false
+	}
+
+	// Console Go sometimes wraps a transient provider failure in HTTP 400. It is
+	// not a client validation error, so let the handler try another account.
+	errType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "error.type").String()))
+	message := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "error.message").String()))
+	return errType == "invalid_request_error" &&
+		strings.Contains(message, "error from provider") &&
+		strings.Contains(message, "upstream request failed")
 }
 
 type openCodeGoErrorFormat string
