@@ -1,10 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent } from 'vue'
-import { mount } from '@vue/test-utils'
+import { defineComponent, nextTick } from 'vue'
+import { flushPromises, mount } from '@vue/test-utils'
 
-const { updateAccountMock, checkMixedChannelRiskMock, authIsSimpleMode } = vi.hoisted(() => ({
+const {
+  updateAccountMock,
+  checkMixedChannelRiskMock,
+  getByIdMock,
+  getOpenCodeGoConsoleSummaryMock,
+  createOpenCodeGoConsoleAuthTicketMock,
+  authIsSimpleMode
+} = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
   checkMixedChannelRiskMock: vi.fn(),
+  getByIdMock: vi.fn(),
+  getOpenCodeGoConsoleSummaryMock: vi.fn(),
+  createOpenCodeGoConsoleAuthTicketMock: vi.fn(),
   authIsSimpleMode: { value: true }
 }))
 
@@ -167,6 +177,36 @@ function buildAccount() {
     expires_at: null,
     auto_pause_on_expired: false
   } as any
+}
+
+function buildOpenCodeGoAccount() {
+  const account = buildAccount()
+  return {
+    ...account,
+    id: 5,
+    name: 'OpenCode Go Key',
+    platform: 'opencode_go',
+    credentials: {
+      api_key: 'sk-opencode-go-test',
+      base_url: 'https://opencode.ai/zen/go/v1',
+      model_mapping: {
+        'zen-default': 'zen-default'
+      }
+    }
+  } as any
+}
+
+function buildOpenCodeGoConsoleSummary() {
+  return {
+    authorized: true,
+    auth_status: '已授权',
+    workspace_id: 'wrk_test',
+    usage_source: 'console',
+    usage: {},
+    referral: {},
+    rewards: [],
+    error: ''
+  }
 }
 
 function buildOpenAISparkShadowAccount() {
@@ -384,6 +424,28 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.compact_model_mapping).toEqual({
       'gpt-5.4': 'gpt-5.4-openai-compact'
     })
+  })
+
+  it('loads and submits GPT-5.6 cache-write inference settings', async () => {
+    const account = buildAccount()
+    account.extra = {
+      infer_gpt56_cache_write: true,
+      infer_gpt56_cache_write_min_tokens: 1536
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    const threshold = wrapper.get('[data-testid="infer-gpt56-cache-write-min-tokens"]')
+    expect((threshold.element as HTMLInputElement).value).toBe('1536')
+    await threshold.setValue('2048')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.infer_gpt56_cache_write).toBe(true)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.infer_gpt56_cache_write_min_tokens).toBe(2048)
   })
 
   it('loads and submits Grok OAuth model mapping edits', async () => {

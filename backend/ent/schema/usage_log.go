@@ -77,6 +77,8 @@ func (UsageLog) Fields() []ent.Field {
 			Default(0),
 		field.Int("cache_creation_1h_tokens").
 			Default(0),
+		field.Bool("cache_write_inferred").
+			Default(false),
 
 		// 成本字段
 		field.Float("input_cost").

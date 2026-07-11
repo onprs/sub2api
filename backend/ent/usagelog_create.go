@@ -253,6 +253,20 @@ func (_c *UsageLogCreate) SetNillableCacheCreation1hTokens(v *int) *UsageLogCrea
 	return _c
 }
 
+// SetCacheWriteInferred sets the "cache_write_inferred" field.
+func (_c *UsageLogCreate) SetCacheWriteInferred(v bool) *UsageLogCreate {
+	_c.mutation.SetCacheWriteInferred(v)
+	return _c
+}
+
+// SetNillableCacheWriteInferred sets the "cache_write_inferred" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableCacheWriteInferred(v *bool) *UsageLogCreate {
+	if v != nil {
+		_c.SetCacheWriteInferred(*v)
+	}
+	return _c
+}
+
 // SetInputCost sets the "input_cost" field.
 func (_c *UsageLogCreate) SetInputCost(v float64) *UsageLogCreate {
 	_c.mutation.SetInputCost(v)
@@ -679,6 +693,10 @@ func (_c *UsageLogCreate) defaults() {
 		v := usagelog.DefaultCacheCreation1hTokens
 		_c.mutation.SetCacheCreation1hTokens(v)
 	}
+	if _, ok := _c.mutation.CacheWriteInferred(); !ok {
+		v := usagelog.DefaultCacheWriteInferred
+		_c.mutation.SetCacheWriteInferred(v)
+	}
 	if _, ok := _c.mutation.InputCost(); !ok {
 		v := usagelog.DefaultInputCost
 		_c.mutation.SetInputCost(v)
@@ -802,6 +820,9 @@ func (_c *UsageLogCreate) check() error {
 	}
 	if _, ok := _c.mutation.CacheCreation1hTokens(); !ok {
 		return &ValidationError{Name: "cache_creation_1h_tokens", err: errors.New(`ent: missing required field "UsageLog.cache_creation_1h_tokens"`)}
+	}
+	if _, ok := _c.mutation.CacheWriteInferred(); !ok {
+		return &ValidationError{Name: "cache_write_inferred", err: errors.New(`ent: missing required field "UsageLog.cache_write_inferred"`)}
 	}
 	if _, ok := _c.mutation.InputCost(); !ok {
 		return &ValidationError{Name: "input_cost", err: errors.New(`ent: missing required field "UsageLog.input_cost"`)}
@@ -968,6 +989,10 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.CacheCreation1hTokens(); ok {
 		_spec.SetField(usagelog.FieldCacheCreation1hTokens, field.TypeInt, value)
 		_node.CacheCreation1hTokens = value
+	}
+	if value, ok := _c.mutation.CacheWriteInferred(); ok {
+		_spec.SetField(usagelog.FieldCacheWriteInferred, field.TypeBool, value)
+		_node.CacheWriteInferred = value
 	}
 	if value, ok := _c.mutation.InputCost(); ok {
 		_spec.SetField(usagelog.FieldInputCost, field.TypeFloat64, value)
@@ -1521,6 +1546,18 @@ func (u *UsageLogUpsert) UpdateCacheCreation1hTokens() *UsageLogUpsert {
 // AddCacheCreation1hTokens adds v to the "cache_creation_1h_tokens" field.
 func (u *UsageLogUpsert) AddCacheCreation1hTokens(v int) *UsageLogUpsert {
 	u.Add(usagelog.FieldCacheCreation1hTokens, v)
+	return u
+}
+
+// SetCacheWriteInferred sets the "cache_write_inferred" field.
+func (u *UsageLogUpsert) SetCacheWriteInferred(v bool) *UsageLogUpsert {
+	u.Set(usagelog.FieldCacheWriteInferred, v)
+	return u
+}
+
+// UpdateCacheWriteInferred sets the "cache_write_inferred" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateCacheWriteInferred() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldCacheWriteInferred)
 	return u
 }
 
@@ -2381,6 +2418,20 @@ func (u *UsageLogUpsertOne) AddCacheCreation1hTokens(v int) *UsageLogUpsertOne {
 func (u *UsageLogUpsertOne) UpdateCacheCreation1hTokens() *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.UpdateCacheCreation1hTokens()
+	})
+}
+
+// SetCacheWriteInferred sets the "cache_write_inferred" field.
+func (u *UsageLogUpsertOne) SetCacheWriteInferred(v bool) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetCacheWriteInferred(v)
+	})
+}
+
+// UpdateCacheWriteInferred sets the "cache_write_inferred" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateCacheWriteInferred() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateCacheWriteInferred()
 	})
 }
 
@@ -3481,6 +3532,20 @@ func (u *UsageLogUpsertBulk) AddCacheCreation1hTokens(v int) *UsageLogUpsertBulk
 func (u *UsageLogUpsertBulk) UpdateCacheCreation1hTokens() *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.UpdateCacheCreation1hTokens()
+	})
+}
+
+// SetCacheWriteInferred sets the "cache_write_inferred" field.
+func (u *UsageLogUpsertBulk) SetCacheWriteInferred(v bool) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetCacheWriteInferred(v)
+	})
+}
+
+// UpdateCacheWriteInferred sets the "cache_write_inferred" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateCacheWriteInferred() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateCacheWriteInferred()
 	})
 }
 

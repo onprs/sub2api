@@ -23,6 +23,7 @@ const messages: Record<string, string> = {
   'usage.outputTokenPrice': 'Output price',
   'usage.perMillionTokens': '/ 1M tokens',
   'usage.serviceTier': 'Service tier',
+  'usage.cacheWriteInferredHint': 'Inferred cache write',
   'usage.serviceTierPriority': 'Fast',
   'usage.serviceTierFlex': 'Flex',
   'usage.serviceTierStandard': 'Standard',
@@ -168,6 +169,31 @@ describe('admin UsageTable tooltip', () => {
     expect(text).toContain('$5.0000 / 1M tokens')
     expect(text).toContain('$30.0000 / 1M tokens')
     expect(text).toContain('$0.069568')
+  })
+
+  it('marks inferred cache writes', () => {
+    const row = {
+      ...baseImageRow,
+      request_id: 'req-admin-inferred-cache-write',
+      billing_mode: 'token',
+      cache_creation_tokens: 2048,
+      cache_write_inferred: true,
+    }
+
+    const wrapper = mount(UsageTable, {
+      props: { data: [row], loading: false, columns: [] },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    const marker = wrapper.get('[title="Inferred cache write"]')
+    expect(marker.text()).toBe('I')
   })
 
   it('shows requested and upstream models separately for admin rows', () => {

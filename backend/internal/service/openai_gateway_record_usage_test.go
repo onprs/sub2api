@@ -1045,6 +1045,116 @@ func TestOpenAIGatewayServiceRecordUsage_GPT56SeparatesCacheWriteForBillingAndSt
 	require.InDelta(t, usageRepo.lastLog.TotalCost*1.1, usageRepo.lastLog.ActualCost, 1e-12)
 }
 
+func TestOpenAIGatewayServiceRecordUsage_GPT56InfersMissingCacheWriteForEnabledAccount(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID: "resp_gpt56_inferred_cache_write",
+			Usage: OpenAIUsage{
+				InputTokens:          6319,
+				OutputTokens:         5,
+				CacheReadInputTokens: 431,
+			},
+			Model: "gpt-5.6-sol",
+		},
+		APIKey: &APIKey{ID: 1058},
+		User:   &User{ID: 2058},
+		Account: &Account{ID: 3058, Extra: map[string]any{
+			openAIGPT56CacheWriteInferenceExtraKey: true,
+		}},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Zero(t, usageRepo.lastLog.InputTokens)
+	require.Equal(t, 5888, usageRepo.lastLog.CacheCreationTokens)
+	require.Equal(t, 431, usageRepo.lastLog.CacheReadTokens)
+	require.True(t, usageRepo.lastLog.CacheWriteInferred)
+	require.InDelta(t, 5888*6.25e-6, usageRepo.lastLog.CacheCreationCost, 1e-12)
+	require.InDelta(t, 431*0.5e-6, usageRepo.lastLog.CacheReadCost, 1e-12)
+}
+
+func TestInferMissingGPT56CacheWriteGuards(t *testing.T) {
+	tests := []struct {
+		name    string
+		result  OpenAIForwardResult
+		account *Account
+		want    bool
+		write   int
+	}{
+		{
+			name:    "disabled",
+			result:  OpenAIForwardResult{Model: "gpt-5.6-sol", Usage: OpenAIUsage{InputTokens: 2000}},
+			account: &Account{},
+		},
+		{
+			name:    "short request",
+			result:  OpenAIForwardResult{Model: "gpt-5.6-sol", Usage: OpenAIUsage{InputTokens: 1023}},
+			account: &Account{Extra: map[string]any{openAIGPT56CacheWriteInferenceExtraKey: true}},
+		},
+		{
+			name:    "non gpt56",
+			result:  OpenAIForwardResult{Model: "gpt-5.5", Usage: OpenAIUsage{InputTokens: 2000}},
+			account: &Account{Extra: map[string]any{openAIGPT56CacheWriteInferenceExtraKey: true}},
+		},
+		{
+			name: "reported write wins",
+			result: OpenAIForwardResult{Model: "gpt-5.6-sol", Usage: OpenAIUsage{
+				InputTokens: 2000, CacheCreationInputTokens: 500,
+			}},
+			account: &Account{Extra: map[string]any{openAIGPT56CacheWriteInferenceExtraKey: true}},
+			write:   500,
+		},
+		{
+			name:   "mapped upstream model",
+			result: OpenAIForwardResult{Model: "sol", UpstreamModel: "gpt-5.6-sol", Usage: OpenAIUsage{InputTokens: 2000, CacheReadInputTokens: 200}},
+			account: &Account{Extra: map[string]any{
+				openAIGPT56CacheWriteInferenceExtraKey:          true,
+				openAIGPT56CacheWriteInferenceMinTokensExtraKey: 1500,
+			}},
+			want:  true,
+			write: 1800,
+		},
+		{
+			name:    "requested gpt56 mapped away",
+			result:  OpenAIForwardResult{Model: "gpt-5.6-sol", UpstreamModel: "gpt-5.5", Usage: OpenAIUsage{InputTokens: 2048}},
+			account: &Account{Extra: map[string]any{openAIGPT56CacheWriteInferenceExtraKey: true}},
+		},
+		{
+			name:    "terra enabled",
+			result:  OpenAIForwardResult{Model: "gpt-5.6-terra", Usage: OpenAIUsage{InputTokens: 2048}},
+			account: &Account{Extra: map[string]any{openAIGPT56CacheWriteInferenceExtraKey: true}},
+			want:    true,
+			write:   2048,
+		},
+		{
+			name:    "luna enabled",
+			result:  OpenAIForwardResult{Model: "gpt-5.6-luna-2026-07-09", Usage: OpenAIUsage{InputTokens: 3072}},
+			account: &Account{Extra: map[string]any{openAIGPT56CacheWriteInferenceExtraKey: true}},
+			want:    true,
+			write:   3072,
+		},
+		{
+			name:   "custom threshold blocks",
+			result: OpenAIForwardResult{Model: "gpt-5.6-terra", Usage: OpenAIUsage{InputTokens: 1999}},
+			account: &Account{Extra: map[string]any{
+				openAIGPT56CacheWriteInferenceExtraKey:          true,
+				openAIGPT56CacheWriteInferenceMinTokensExtraKey: 2000,
+			}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := inferMissingGPT56CacheWrite(&tt.result, tt.account)
+			require.Equal(t, tt.want, got)
+			require.Equal(t, tt.write, tt.result.Usage.CacheCreationInputTokens)
+		})
+	}
+}
+
 func TestOpenAIGatewayServiceRecordUsage_GPT56UsesCacheCreationBreakdown(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}

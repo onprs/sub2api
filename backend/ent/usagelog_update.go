@@ -395,6 +395,20 @@ func (_u *UsageLogUpdate) AddCacheCreation1hTokens(v int) *UsageLogUpdate {
 	return _u
 }
 
+// SetCacheWriteInferred sets the "cache_write_inferred" field.
+func (_u *UsageLogUpdate) SetCacheWriteInferred(v bool) *UsageLogUpdate {
+	_u.mutation.SetCacheWriteInferred(v)
+	return _u
+}
+
+// SetNillableCacheWriteInferred sets the "cache_write_inferred" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableCacheWriteInferred(v *bool) *UsageLogUpdate {
+	if v != nil {
+		_u.SetCacheWriteInferred(*v)
+	}
+	return _u
+}
+
 // SetInputCost sets the "input_cost" field.
 func (_u *UsageLogUpdate) SetInputCost(v float64) *UsageLogUpdate {
 	_u.mutation.ResetInputCost()
@@ -1157,6 +1171,9 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.AddedCacheCreation1hTokens(); ok {
 		_spec.AddField(usagelog.FieldCacheCreation1hTokens, field.TypeInt, value)
 	}
+	if value, ok := _u.mutation.CacheWriteInferred(); ok {
+		_spec.SetField(usagelog.FieldCacheWriteInferred, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.InputCost(); ok {
 		_spec.SetField(usagelog.FieldInputCost, field.TypeFloat64, value)
 	}
@@ -1832,6 +1849,20 @@ func (_u *UsageLogUpdateOne) SetNillableCacheCreation1hTokens(v *int) *UsageLogU
 // AddCacheCreation1hTokens adds value to the "cache_creation_1h_tokens" field.
 func (_u *UsageLogUpdateOne) AddCacheCreation1hTokens(v int) *UsageLogUpdateOne {
 	_u.mutation.AddCacheCreation1hTokens(v)
+	return _u
+}
+
+// SetCacheWriteInferred sets the "cache_write_inferred" field.
+func (_u *UsageLogUpdateOne) SetCacheWriteInferred(v bool) *UsageLogUpdateOne {
+	_u.mutation.SetCacheWriteInferred(v)
+	return _u
+}
+
+// SetNillableCacheWriteInferred sets the "cache_write_inferred" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableCacheWriteInferred(v *bool) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetCacheWriteInferred(*v)
+	}
 	return _u
 }
 
@@ -2626,6 +2657,9 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if value, ok := _u.mutation.AddedCacheCreation1hTokens(); ok {
 		_spec.AddField(usagelog.FieldCacheCreation1hTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.CacheWriteInferred(); ok {
+		_spec.SetField(usagelog.FieldCacheWriteInferred, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.InputCost(); ok {
 		_spec.SetField(usagelog.FieldInputCost, field.TypeFloat64, value)

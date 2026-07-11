@@ -150,6 +150,11 @@ func CacheCreation1hTokens(v int) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldCacheCreation1hTokens, v))
 }
 
+// CacheWriteInferred applies equality check predicate on the "cache_write_inferred" field. It's identical to CacheWriteInferredEQ.
+func CacheWriteInferred(v bool) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldCacheWriteInferred, v))
+}
+
 // InputCost applies equality check predicate on the "input_cost" field. It's identical to InputCostEQ.
 func InputCost(v float64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldInputCost, v))
@@ -1183,6 +1188,16 @@ func CacheCreation1hTokensLT(v int) predicate.UsageLog {
 // CacheCreation1hTokensLTE applies the LTE predicate on the "cache_creation_1h_tokens" field.
 func CacheCreation1hTokensLTE(v int) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldLTE(FieldCacheCreation1hTokens, v))
+}
+
+// CacheWriteInferredEQ applies the EQ predicate on the "cache_write_inferred" field.
+func CacheWriteInferredEQ(v bool) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldCacheWriteInferred, v))
+}
+
+// CacheWriteInferredNEQ applies the NEQ predicate on the "cache_write_inferred" field.
+func CacheWriteInferredNEQ(v bool) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldCacheWriteInferred, v))
 }
 
 // InputCostEQ applies the EQ predicate on the "input_cost" field.

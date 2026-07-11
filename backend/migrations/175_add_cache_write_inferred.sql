@@ -1,0 +1,2 @@
+ALTER TABLE usage_logs
+    ADD COLUMN IF NOT EXISTS cache_write_inferred BOOLEAN NOT NULL DEFAULT FALSE;

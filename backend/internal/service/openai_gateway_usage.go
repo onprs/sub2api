@@ -119,6 +119,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ApplyOpenAIImageBillingResolution(result)
 	}
 
+	cacheWriteInferred := inferMissingGPT56CacheWrite(result, account)
+
 	// OpenAI input_tokens 是总输入，包含缓存读取和缓存写入明细。
 	// 将三类 token 拆成互斥桶，避免缓存写入同时按普通输入和 cache_write 重复计费。
 	actualInputTokens := result.Usage.InputTokens - result.Usage.CacheReadInputTokens - result.Usage.CacheCreationInputTokens
@@ -239,6 +241,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		CacheReadTokens:       result.Usage.CacheReadInputTokens,
 		CacheCreation5mTokens: result.Usage.CacheCreation5mTokens,
 		CacheCreation1hTokens: result.Usage.CacheCreation1hTokens,
+		CacheWriteInferred:    cacheWriteInferred,
 		ImageOutputTokens:     result.Usage.ImageOutputTokens,
 		ImageCount:            result.ImageCount,
 		ImageSize:             optionalTrimmedStringPtr(result.ImageSize),
@@ -366,6 +369,32 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
 
 	return nil
+}
+
+func inferMissingGPT56CacheWrite(result *OpenAIForwardResult, account *Account) bool {
+	if result == nil || account == nil || !account.ShouldInferGPT56CacheWrite() {
+		return false
+	}
+	effectiveModel := strings.TrimSpace(result.UpstreamModel)
+	if effectiveModel == "" {
+		effectiveModel = strings.TrimSpace(result.BillingModel)
+	}
+	if effectiveModel == "" {
+		effectiveModel = result.Model
+	}
+	if !isOpenAIGPT56Model(effectiveModel) {
+		return false
+	}
+	usage := &result.Usage
+	if usage.CacheCreationInputTokens > 0 || usage.CacheCreation5mTokens > 0 || usage.CacheCreation1hTokens > 0 {
+		return false
+	}
+	uncachedInput := usage.InputTokens - usage.CacheReadInputTokens
+	if uncachedInput < account.GPT56CacheWriteInferenceMinTokens() {
+		return false
+	}
+	usage.CacheCreationInputTokens = uncachedInput
+	return true
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(

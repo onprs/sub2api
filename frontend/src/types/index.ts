@@ -1105,6 +1105,8 @@ export type OpenAIResponsesMode = 'auto' | 'force_responses' | 'force_chat_compl
 export type OpenAIEndpointCapability = 'chat_completions' | 'embeddings'
 
 export interface OpenAICompactState {
+  infer_gpt56_cache_write?: boolean
+  infer_gpt56_cache_write_min_tokens?: number
   openai_compact_mode?: OpenAICompactMode
   openai_compact_supported?: boolean
   openai_compact_checked_at?: string
@@ -1344,6 +1346,7 @@ export interface UsageLog {
   cache_read_tokens: number
   cache_creation_5m_tokens: number
   cache_creation_1h_tokens: number
+  cache_write_inferred?: boolean
 
   input_cost: number
   output_cost: number
