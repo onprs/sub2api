@@ -487,6 +487,14 @@ export default {
     renewNow: 'Renew',
     selectPlan: 'Select Plan',
     planFeatures: 'Features',
+    quotaWindows: {
+      fiveHour: '5 hours',
+      fiveHourShort: '5h',
+      sevenDay: '7 days',
+      sevenDayShort: '7d',
+      thirtyDay: '30 days',
+      thirtyDayShort: '30d',
+    },
     planCard: {
       rate: 'Rate',
       peakRate: 'Peak Rate',

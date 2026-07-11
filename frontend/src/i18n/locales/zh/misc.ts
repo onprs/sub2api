@@ -511,6 +511,14 @@ export default {
     renewNow: '续费',
     selectPlan: '选择套餐',
     planFeatures: '功能特性',
+    quotaWindows: {
+      fiveHour: '5 小时',
+      fiveHourShort: '5h',
+      sevenDay: '7 天',
+      sevenDayShort: '7d',
+      thirtyDay: '30 天',
+      thirtyDayShort: '30d',
+    },
     planCard: {
       rate: '倍率',
       peakRate: '高峰倍率',

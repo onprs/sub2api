@@ -276,7 +276,7 @@
                 class="usage-row"
               >
                 <div class="flex items-center gap-2">
-                  <span class="usage-label">{{ t(window.shortLabelKey) }}</span>
+                  <span class="usage-label">{{ translateOrFallback(window.shortLabelKey, window.shortLabel) }}</span>
                   <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
                     <div
                       class="h-1.5 rounded-full transition-all"
@@ -842,6 +842,11 @@ import {
 
 const { t } = useI18n()
 const appStore = useAppStore()
+
+const translateOrFallback = (key: string, fallback: string): string => {
+  const translated = t(key)
+  return translated === key ? fallback : translated
+}
 
 interface SubscriptionPlanOption {
   value: number

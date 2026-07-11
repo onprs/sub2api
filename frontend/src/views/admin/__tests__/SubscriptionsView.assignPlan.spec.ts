@@ -298,6 +298,12 @@ describe('admin SubscriptionsView plan assignment', () => {
     const wrapper = mountSubscriptionsView()
 
     await flushPromises()
+    const renderedText = wrapper.text()
+    expect(renderedText).toContain('5h')
+    expect(renderedText).toContain('7d')
+    expect(renderedText).toContain('30d')
+    expect(renderedText).not.toContain('payment.quotaWindows')
+
     await wrapper.get('[data-test="reset-filtered-quota-open"]').trigger('click')
     await wrapper.get('[data-test="reset-window-seven-day"]').setValue(false)
     await wrapper.get('[data-test="reset-quota-confirm"]').trigger('click')
