@@ -355,6 +355,7 @@ func (s *SettingService) effectiveEmailOAuthConfig(settings map[string]string, p
 		cfg.ClientSecret = firstNonEmpty(settings[SettingKeyGitHubOAuthClientSecret], cfg.ClientSecret)
 		cfg.RedirectURL = firstNonEmpty(settings[SettingKeyGitHubOAuthRedirectURL], cfg.RedirectURL)
 		cfg.FrontendRedirectURL = firstNonEmpty(settings[SettingKeyGitHubOAuthFrontendRedirectURL], cfg.FrontendRedirectURL, defaultGitHubOAuthFrontend)
+		cfg.ProxyID = parseOptionalPositiveInt64(settings[SettingKeyGitHubOAuthProxyID])
 	case "google":
 		if raw, ok := settings[SettingKeyGoogleOAuthEnabled]; ok {
 			cfg.Enabled = raw == "true"
@@ -365,6 +366,28 @@ func (s *SettingService) effectiveEmailOAuthConfig(settings map[string]string, p
 		cfg.FrontendRedirectURL = firstNonEmpty(settings[SettingKeyGoogleOAuthFrontendRedirectURL], cfg.FrontendRedirectURL, defaultGoogleOAuthFrontend)
 	}
 	return cfg
+}
+
+func parseOptionalPositiveInt64(raw string) *int64 {
+	v, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || v <= 0 {
+		return nil
+	}
+	return &v
+}
+
+func (s *SettingService) resolveProxyURL(ctx context.Context, proxyID int64) (string, error) {
+	if proxyID <= 0 {
+		return "", nil
+	}
+	if s == nil || s.proxyRepo == nil {
+		return "", infraerrors.BadRequest("OAUTH_PROXY_NOT_AVAILABLE", "proxy repository is not available")
+	}
+	proxy, err := s.proxyRepo.GetByID(ctx, proxyID)
+	if err != nil || proxy == nil {
+		return "", infraerrors.BadRequest("OAUTH_PROXY_NOT_FOUND", "oauth proxy not found")
+	}
+	return proxy.URL(), nil
 }
 
 func oidcUsePKCECompatibilityDefault(base config.OIDCConnectConfig) bool {
@@ -424,6 +447,7 @@ func (s *SettingService) GetEmailOAuthProviderConfig(ctx context.Context, provid
 		SettingKeyGitHubOAuthClientSecret,
 		SettingKeyGitHubOAuthRedirectURL,
 		SettingKeyGitHubOAuthFrontendRedirectURL,
+		SettingKeyGitHubOAuthProxyID,
 		SettingKeyGoogleOAuthEnabled,
 		SettingKeyGoogleOAuthClientID,
 		SettingKeyGoogleOAuthClientSecret,
@@ -464,6 +488,13 @@ func (s *SettingService) GetEmailOAuthProviderConfig(ctx context.Context, provid
 	}
 	if err := config.ValidateFrontendRedirectURL(cfg.FrontendRedirectURL); err != nil {
 		return config.EmailOAuthProviderConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth frontend redirect url invalid")
+	}
+	if cfg.ProxyID != nil {
+		proxyURL, err := s.resolveProxyURL(ctx, *cfg.ProxyID)
+		if err != nil {
+			return config.EmailOAuthProviderConfig{}, err
+		}
+		cfg.ProxyURL = proxyURL
 	}
 	return cfg, nil
 }

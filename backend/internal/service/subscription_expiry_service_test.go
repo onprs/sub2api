@@ -135,6 +135,10 @@ func (r *subscriptionExpiryRepoStub) ResetThirtyDayUsage(context.Context, int64,
 	return nil
 }
 
+func (r *subscriptionExpiryRepoStub) ListIDs(context.Context, pagination.PaginationParams, *int64, *int64, string, string, string, string) ([]int64, *pagination.PaginationResult, error) {
+	return nil, &pagination.PaginationResult{Page: 1, Pages: 1}, nil
+}
+
 func (r *subscriptionExpiryRepoStub) IncrementUsage(context.Context, int64, float64) error {
 	return nil
 }

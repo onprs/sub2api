@@ -174,6 +174,14 @@ func NewBillingCache(rdb *redis.Client) service.BillingCache {
 	return &billingCache{rdb: rdb}
 }
 
+type billingCacheMissError struct{}
+
+func (billingCacheMissError) Error() string   { return redis.Nil.Error() }
+func (billingCacheMissError) Unwrap() error   { return redis.Nil }
+func (billingCacheMissError) CacheMiss() bool { return true }
+
+func errBillingCacheMiss() error { return billingCacheMissError{} }
+
 func (c *billingCache) GetUserBalance(ctx context.Context, userID int64) (float64, error) {
 	key := billingBalanceKey(userID)
 	val, err := c.rdb.Get(ctx, key).Result()
@@ -210,7 +218,7 @@ func (c *billingCache) GetSubscriptionCache(ctx context.Context, userID, groupID
 		return nil, err
 	}
 	if len(result) == 0 {
-		return nil, redis.Nil
+		return nil, errBillingCacheMiss()
 	}
 	return c.parseSubscriptionCache(result)
 }
@@ -368,7 +376,7 @@ func (c *billingCache) UpdateSubscriptionUsage(ctx context.Context, userID, grou
 		return err
 	}
 	if n, ok := result.(int64); ok && n == 0 {
-		return redis.Nil
+		return errBillingCacheMiss()
 	}
 	return nil
 }

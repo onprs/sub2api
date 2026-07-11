@@ -497,7 +497,7 @@ func sanitizeEasyPayProductName(name string) string {
 		if utf8.RuneLen(r) > 3 {
 			continue
 		}
-		b.WriteRune(r)
+		_, _ = b.WriteRune(r)
 	}
 	sanitized := strings.TrimSpace(b.String())
 	if sanitized == "" {

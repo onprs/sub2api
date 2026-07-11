@@ -208,6 +208,7 @@ func extractOpenAIEmbeddingsUsage(body []byte) OpenAIUsage {
 	)
 	cacheReadTokens := openAICacheReadTokensFromUsage(usage)
 	cacheCreationTokens := openAICacheCreationTokensFromUsage(usage)
+	cacheCreation5mTokens, cacheCreation1hTokens := openAICacheCreationBreakdownTokensFromUsage(usage)
 	// 多模态 embedding（如 doubao-embedding-vision）回传图文 token 拆分，
 	// 用于图文不同价计费；纯文本 embedding 该字段为 0，行为不变。
 	imageInputTokens := firstPositiveGJSONInt(
@@ -220,6 +221,8 @@ func extractOpenAIEmbeddingsUsage(body []byte) OpenAIUsage {
 		OutputTokens:             outputTokens,
 		CacheReadInputTokens:     cacheReadTokens,
 		CacheCreationInputTokens: cacheCreationTokens,
+		CacheCreation5mTokens:    cacheCreation5mTokens,
+		CacheCreation1hTokens:    cacheCreation1hTokens,
 	}
 }
 

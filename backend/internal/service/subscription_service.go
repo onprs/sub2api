@@ -35,7 +35,7 @@ var (
 	ErrSubscriptionNotRevoked      = infraerrors.Conflict("SUBSCRIPTION_NOT_REVOKED", "subscription is not revoked")
 	ErrSubscriptionRestoreConflict = infraerrors.Conflict("SUBSCRIPTION_RESTORE_CONFLICT", "subscription already exists for this user and group")
 	ErrGroupNotSubscriptionType    = infraerrors.BadRequest("GROUP_NOT_SUBSCRIPTION_TYPE", "group is not a subscription type")
-	ErrInvalidInput                = infraerrors.BadRequest("INVALID_INPUT", "at least one of resetDaily, resetWeekly, or resetMonthly must be true")
+	ErrInvalidInput                = infraerrors.BadRequest("INVALID_INPUT", "at least one quota window must be selected")
 	ErrDailyLimitExceeded          = infraerrors.TooManyRequests("DAILY_LIMIT_EXCEEDED", "daily usage limit exceeded")
 	ErrWeeklyLimitExceeded         = infraerrors.TooManyRequests("WEEKLY_LIMIT_EXCEEDED", "weekly usage limit exceeded")
 	ErrMonthlyLimitExceeded        = infraerrors.TooManyRequests("MONTHLY_LIMIT_EXCEEDED", "monthly usage limit exceeded")
@@ -293,7 +293,7 @@ func (s *SubscriptionService) assignOrExtendSubscription(ctx context.Context, in
 			if err != nil {
 				return nil, false, err
 			}
-			s.invalidateSubscriptionCaches(input.UserID, input.GroupID)
+			_ = s.invalidateSubscriptionCaches(input.UserID, input.GroupID)
 			return sub, true, nil
 		}
 		return nil, false, err
@@ -385,29 +385,6 @@ func (s *SubscriptionService) withSubscriptionUpdateTx(ctx context.Context, fn f
 		return fmt.Errorf("commit transaction: %w", err)
 	}
 	return nil
-}
-
-func renewedSubscriptionTerm(existingSub *UserSubscription, input *AssignSubscriptionInput, startsAt, expiresAt time.Time) *UserSubscription {
-	renewed := *existingSub
-	windowStart := startOfDay(startsAt)
-	renewed.StartsAt = startsAt
-	renewed.ExpiresAt = expiresAt
-	renewed.Status = SubscriptionStatusActive
-	renewed.DailyWindowStart = &windowStart
-	renewed.WeeklyWindowStart = &windowStart
-	renewed.MonthlyWindowStart = &windowStart
-	renewed.DailyUsageUSD = 0
-	renewed.WeeklyUsageUSD = 0
-	renewed.MonthlyUsageUSD = 0
-	renewed.FiveHourUsageUSD = 0
-	renewed.SevenDayUsageUSD = 0
-	renewed.ThirtyDayUsageUSD = 0
-	renewed.FiveHourWindowStart = nil
-	renewed.SevenDayWindowStart = nil
-	renewed.ThirtyDayWindowStart = nil
-	applyRollingQuotaSnapshot(&renewed, input)
-	renewed.Notes = appendSubscriptionNotes(existingSub.Notes, input.Notes)
-	return &renewed
 }
 
 func applyRollingQuotaSnapshot(sub *UserSubscription, input *AssignSubscriptionInput) {
@@ -1009,6 +986,37 @@ func (s *SubscriptionService) CheckAndActivateWindow(ctx context.Context, sub *U
 	return s.userSubRepo.ActivateWindows(ctx, sub.ID, windowStart)
 }
 
+type BulkResetSubscriptionQuotaInput struct {
+	SubscriptionIDs []int64
+	AllFiltered     bool
+	Filter          BulkResetSubscriptionQuotaFilter
+	ResetDaily      bool
+	ResetWeekly     bool
+	ResetMonthly    bool
+	ResetFiveHour   bool
+	ResetSevenDay   bool
+	ResetThirtyDay  bool
+}
+
+type BulkResetSubscriptionQuotaFilter struct {
+	UserID    *int64
+	GroupID   *int64
+	Status    string
+	Platform  string
+	SortBy    string
+	SortOrder string
+}
+
+// BulkResetQuotaResult reports the outcome of resetting subscription quota windows.
+type BulkResetQuotaResult struct {
+	SuccessCount  int
+	FailedCount   int
+	Subscriptions []UserSubscription
+	Errors        []string
+	Warnings      []string
+	Statuses      map[int64]string
+}
+
 // AdminResetQuota manually resets selected legacy and rolling usage windows.
 // Legacy windows use startOfDay(now), matching automatic legacy resets. Rolling
 // windows restart from now because their periods are not calendar-day anchored.
@@ -1023,33 +1031,147 @@ func (s *SubscriptionService) AdminResetQuota(ctx context.Context, subscriptionI
 	now := time.Now()
 	windowStart := startOfDay(now)
 	rollingWindowStart := now
-	if err := s.userSubRepo.ResetUsageWindows(ctx, sub.ID, resetDaily, resetWeekly, resetMonthly, windowStart); err != nil {
+	if err := s.resetQuotaWindows(ctx, sub.ID, resetDaily, resetWeekly, resetMonthly, resetFiveHour, resetSevenDay, resetThirtyDay, windowStart, rollingWindowStart); err != nil {
 		return nil, err
 	}
-	if resetFiveHour {
-		if err := s.userSubRepo.ResetFiveHourUsage(ctx, sub.ID, rollingWindowStart); err != nil {
-			return nil, err
-		}
-	}
-	if resetSevenDay {
-		if err := s.userSubRepo.ResetSevenDayUsage(ctx, sub.ID, rollingWindowStart); err != nil {
-			return nil, err
-		}
-	}
-	if resetThirtyDay {
-		if err := s.userSubRepo.ResetThirtyDayUsage(ctx, sub.ID, rollingWindowStart); err != nil {
-			return nil, err
-		}
-	}
-	// Invalidate L1 ristretto cache. Ristretto's Del() is asynchronous by design,
-	// so call Wait() immediately after to flush pending operations and guarantee
-	// the deleted key is not returned on the very next Get() call.
-	s.InvalidateSubCacheSync(sub.UserID, sub.GroupID)
-	if s.billingCacheService != nil {
-		_ = s.billingCacheService.InvalidateSubscription(ctx, sub.UserID, sub.GroupID)
+	if err := s.invalidateSubscriptionCaches(sub.UserID, sub.GroupID); err != nil {
+		return nil, err
 	}
 	// Return the refreshed subscription from DB
 	return s.userSubRepo.GetByID(ctx, subscriptionID)
+}
+
+func (s *SubscriptionService) BulkAdminResetQuota(ctx context.Context, input BulkResetSubscriptionQuotaInput) (*BulkResetQuotaResult, error) {
+	if !input.ResetDaily && !input.ResetWeekly && !input.ResetMonthly && !input.ResetFiveHour && !input.ResetSevenDay && !input.ResetThirtyDay {
+		return nil, ErrInvalidInput
+	}
+
+	ids, err := s.resolveBulkResetSubscriptionIDs(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return &BulkResetQuotaResult{
+			Subscriptions: []UserSubscription{},
+			Errors:        []string{},
+			Warnings:      []string{},
+			Statuses:      map[int64]string{},
+		}, nil
+	}
+
+	result := &BulkResetQuotaResult{
+		Subscriptions: make([]UserSubscription, 0, len(ids)),
+		Errors:        make([]string, 0),
+		Warnings:      make([]string, 0),
+		Statuses:      make(map[int64]string, len(ids)),
+	}
+	now := time.Now()
+	windowStart := startOfDay(now)
+	rollingWindowStart := now
+	for _, id := range ids {
+		sub, err := s.userSubRepo.GetByID(ctx, id)
+		if err != nil {
+			result.FailedCount++
+			result.Errors = append(result.Errors, fmt.Sprintf("subscription %d: %v", id, err))
+			result.Statuses[id] = "failed"
+			continue
+		}
+		if err := s.resetQuotaWindows(ctx, sub.ID, input.ResetDaily, input.ResetWeekly, input.ResetMonthly, input.ResetFiveHour, input.ResetSevenDay, input.ResetThirtyDay, windowStart, rollingWindowStart); err != nil {
+			result.FailedCount++
+			result.Errors = append(result.Errors, fmt.Sprintf("subscription %d: %v", id, err))
+			result.Statuses[id] = "failed"
+			continue
+		}
+		cacheWarn := ""
+		if err := s.invalidateSubscriptionCaches(sub.UserID, sub.GroupID); err != nil {
+			// The database reset has already committed. Report the subscription as
+			// successfully reset and surface cache invalidation as a warning so the
+			// API result does not claim the quota reset failed when only cache fanout
+			// needs attention.
+			cacheWarn = fmt.Sprintf("subscription %d reset but cache invalidation failed: %v", id, err)
+			result.Warnings = append(result.Warnings, cacheWarn)
+		}
+		refreshed, err := s.userSubRepo.GetByID(ctx, id)
+		if err != nil {
+			result.FailedCount++
+			result.Errors = append(result.Errors, fmt.Sprintf("subscription %d: %v", id, err))
+			result.Statuses[id] = "failed"
+			continue
+		}
+		result.SuccessCount++
+		if cacheWarn != "" {
+			result.Statuses[id] = "reset_cache_warning"
+		} else {
+			result.Statuses[id] = "reset"
+		}
+		result.Subscriptions = append(result.Subscriptions, *refreshed)
+	}
+	return result, nil
+}
+
+func (s *SubscriptionService) resetQuotaWindows(ctx context.Context, subscriptionID int64, resetDaily, resetWeekly, resetMonthly, resetFiveHour, resetSevenDay, resetThirtyDay bool, legacyWindowStart, rollingWindowStart time.Time) error {
+	return s.withSubscriptionUpdateTx(ctx, func(txCtx context.Context) error {
+		if resetDaily || resetWeekly || resetMonthly {
+			if err := s.userSubRepo.ResetUsageWindows(txCtx, subscriptionID, resetDaily, resetWeekly, resetMonthly, legacyWindowStart); err != nil {
+				return err
+			}
+		}
+		// Rolling windows are hierarchical: 5h is contained by 7d, and 7d is
+		// contained by 30d. Apply only the largest selected rolling reset so a
+		// parent reset also clears child windows without double-deducting usage.
+		switch {
+		case resetThirtyDay:
+			if err := s.userSubRepo.ResetThirtyDayUsage(txCtx, subscriptionID, rollingWindowStart); err != nil {
+				return err
+			}
+		case resetSevenDay:
+			if err := s.userSubRepo.ResetSevenDayUsage(txCtx, subscriptionID, rollingWindowStart); err != nil {
+				return err
+			}
+		case resetFiveHour:
+			if err := s.userSubRepo.ResetFiveHourUsage(txCtx, subscriptionID, rollingWindowStart); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (s *SubscriptionService) resolveBulkResetSubscriptionIDs(ctx context.Context, input BulkResetSubscriptionQuotaInput) ([]int64, error) {
+	if !input.AllFiltered {
+		if len(input.SubscriptionIDs) == 0 {
+			return nil, ErrInvalidInput
+		}
+		seen := make(map[int64]struct{}, len(input.SubscriptionIDs))
+		ids := make([]int64, 0, len(input.SubscriptionIDs))
+		for _, id := range input.SubscriptionIDs {
+			if id <= 0 {
+				return nil, ErrInvalidInput
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+		return ids, nil
+	}
+
+	const bulkResetMaxPageSize = 1000
+	params := pagination.PaginationParams{Page: 1, PageSize: bulkResetMaxPageSize}
+	ids := make([]int64, 0)
+	for {
+		batch, pag, err := s.userSubRepo.ListIDs(ctx, params, input.Filter.UserID, input.Filter.GroupID, input.Filter.Status, input.Filter.Platform, input.Filter.SortBy, input.Filter.SortOrder)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, batch...)
+		if pag == nil || params.Page >= pag.Pages || len(batch) == 0 {
+			break
+		}
+		params.Page++
+	}
+	return ids, nil
 }
 
 // CheckAndResetWindows checks and resets legacy usage windows.

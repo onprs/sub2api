@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -13,7 +12,6 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
-	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -529,7 +527,7 @@ func (s *BillingCacheService) UpdateSubscriptionUsage(ctx context.Context, userI
 		return nil
 	}
 	if err := s.cache.UpdateSubscriptionUsage(ctx, userID, groupID, costUSD); err != nil {
-		if !errors.Is(err, redis.Nil) {
+		if !IsCacheMissError(err) {
 			return err
 		}
 		if s.subRepo == nil {
@@ -965,16 +963,6 @@ func (s *BillingCacheService) checkSubscriptionEligibility(ctx context.Context, 
 	}
 
 	return nil
-}
-
-func subscriptionCacheWindowExceeded(limit *float64, usage float64, windowStart *time.Time, windowDuration time.Duration, now time.Time) bool {
-	if limit == nil {
-		return false
-	}
-	if windowStart == nil || !now.Before(windowStart.Add(windowDuration)) {
-		usage = 0
-	}
-	return usage >= *limit
 }
 
 type billingCircuitBreakerState int

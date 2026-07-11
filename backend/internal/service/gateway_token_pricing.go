@@ -25,17 +25,24 @@ func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Contex
 		return tokenPricingUnavailableError(requestedModel)
 	}
 
+	candidates := billableUsageModelCandidates(billingModel, mapping.MappedModel, requestedModel)
 	if s.resolver != nil && apiKey != nil && apiKey.GroupID != nil {
-		resolved := s.resolver.Resolve(ctx, PricingInput{Model: billingModel, GroupID: apiKey.GroupID})
-		if resolved == nil {
-			return tokenPricingUnavailableError(billingModel)
-		}
-		if resolved.Mode == BillingModePerRequest || resolved.Mode == BillingModeImage {
-			return nil
-		}
-		pricing := s.resolver.GetIntervalPricing(resolved, 0)
-		if hasBillableTokenPricing(pricing) {
-			return nil
+		for _, candidate := range candidates {
+			candidate = strings.TrimSpace(candidate)
+			if candidate == "" {
+				continue
+			}
+			resolved := s.resolver.Resolve(ctx, PricingInput{Model: candidate, GroupID: apiKey.GroupID})
+			if resolved == nil {
+				continue
+			}
+			if resolved.Mode == BillingModePerRequest || resolved.Mode == BillingModeImage {
+				return nil
+			}
+			pricing := s.resolver.GetIntervalPricing(resolved, 0)
+			if hasBillableTokenPricing(pricing) {
+				return nil
+			}
 		}
 		return tokenPricingUnavailableError(billingModel)
 	}
@@ -44,12 +51,11 @@ func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Contex
 	if billingService == nil {
 		billingService = NewBillingService(s.cfg, nil)
 	}
-	pricing, err := billingService.GetModelPricing(billingModel)
-	if err != nil {
-		return err
+	for _, candidate := range candidates {
+		pricing, err := billingService.GetModelPricing(candidate)
+		if err == nil && hasBillableTokenPricing(pricing) {
+			return nil
+		}
 	}
-	if !hasBillableTokenPricing(pricing) {
-		return tokenPricingUnavailableError(billingModel)
-	}
-	return nil
+	return tokenPricingUnavailableError(billingModel)
 }

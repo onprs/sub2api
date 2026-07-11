@@ -73,6 +73,79 @@ func TestResponsesUsageNestedCacheWritePresenceOverridesTopLevelAlias(t *testing
 	}
 }
 
+func TestResponsesUsageParsesCacheCreationBreakdown(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		body string
+	}{
+		{
+			name: "nested input details",
+			body: `{
+				"input_tokens":20,
+				"output_tokens":2,
+				"input_tokens_details":{
+					"cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":4}
+				}
+			}`,
+		},
+		{
+			name: "top level responses usage",
+			body: `{
+				"input_tokens":20,
+				"output_tokens":2,
+				"cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":4}
+			}`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var usage ResponsesUsage
+			require.NoError(t, json.Unmarshal([]byte(tt.body), &usage))
+			require.NotNil(t, usage.InputTokensDetails)
+			require.Equal(t, 7, usage.CacheCreationInputTokens)
+			require.Equal(t, 3, usage.InputTokensDetails.CacheCreation5mTokens)
+			require.Equal(t, 4, usage.InputTokensDetails.CacheCreation1hTokens)
+		})
+	}
+}
+
+func TestChatUsageToResponsesUsageCarriesCacheCreationBreakdown(t *testing.T) {
+	chatUsage := &ChatUsage{
+		PromptTokens:     20,
+		CompletionTokens: 2,
+		PromptTokensDetails: &ChatTokenDetails{
+			CachedTokens:          5,
+			CacheCreation5mTokens: 3,
+			CacheCreation1hTokens: 4,
+		},
+	}
+
+	got := ChatUsageToResponsesUsage(chatUsage)
+	require.NotNil(t, got)
+	require.NotNil(t, got.InputTokensDetails)
+	require.Equal(t, 7, got.CacheCreationInputTokens)
+	require.Equal(t, 3, got.InputTokensDetails.CacheCreation5mTokens)
+	require.Equal(t, 4, got.InputTokensDetails.CacheCreation1hTokens)
+}
+
+func TestResponsesUsageToChatUsageCarriesCacheCreationBreakdown(t *testing.T) {
+	responsesUsage := &ResponsesUsage{
+		InputTokens:              20,
+		OutputTokens:             2,
+		CacheCreationInputTokens: 7,
+		InputTokensDetails: &ResponsesInputTokensDetails{
+			CachedTokens:          5,
+			CacheCreation5mTokens: 3,
+			CacheCreation1hTokens: 4,
+		},
+	}
+
+	got := chatUsageFromResponsesUsage(responsesUsage)
+	require.NotNil(t, got)
+	require.NotNil(t, got.PromptTokensDetails)
+	require.Equal(t, 3, got.PromptTokensDetails.CacheCreation5mTokens)
+	require.Equal(t, 4, got.PromptTokensDetails.CacheCreation1hTokens)
+}
+
 func TestChatCompletionsToResponses_SystemMessage(t *testing.T) {
 	req := &ChatCompletionsRequest{
 		Model: "gpt-4o",

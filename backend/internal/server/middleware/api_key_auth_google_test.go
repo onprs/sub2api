@@ -234,6 +234,9 @@ func (f fakeGoogleSubscriptionRepo) ResetSevenDayUsage(ctx context.Context, id i
 func (f fakeGoogleSubscriptionRepo) ResetThirtyDayUsage(ctx context.Context, id int64, start time.Time) error {
 	return errors.New("not implemented")
 }
+func (f fakeGoogleSubscriptionRepo) ListIDs(ctx context.Context, params pagination.PaginationParams, userID, groupID *int64, status, platform, sortBy, sortOrder string) ([]int64, *pagination.PaginationResult, error) {
+	return nil, nil, errors.New("not implemented")
+}
 func (f fakeGoogleSubscriptionRepo) IncrementUsage(ctx context.Context, id int64, costUSD float64) error {
 	return errors.New("not implemented")
 }

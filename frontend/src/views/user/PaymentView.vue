@@ -260,7 +260,6 @@ import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiErro
 import { isMobileDevice } from '@/utils/device'
 import { hasPeakRate, formatPeakRateWindow, serverTimezoneLabel, type PeakRateFields } from '@/utils/peak-rate'
 import type { SubscriptionPlan, CheckoutInfoResponse, CreateOrderResult, OrderType } from '@/types/payment'
-import type { UserSubscription } from '@/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
@@ -277,7 +276,7 @@ import {
   writePaymentRecoverySnapshot,
 } from '@/components/payment/paymentFlow'
 import { platformAccentBarClass, platformBadgeLightClass, platformBadgeClass, platformTextClass, platformLabel } from '@/utils/platformColors'
-import { formatUsdLimit, hasRollingQuotaLimits, rollingQuotaWindows } from '@/utils/rollingQuota'
+import { hasRollingQuotaLimits } from '@/utils/rollingQuota'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import PaymentStatusPanel from '@/components/payment/PaymentStatusPanel.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -670,9 +669,29 @@ const canSubmit = computed(() =>
     && selectedLimit.value?.available !== false
 )
 
+const selectedPlanEffectivePrice = computed(() => {
+  const plan = selectedPlan.value
+  if (!plan) return 0
+  return plan.renewal_eligible === true
+    ? (plan.renewal_price ?? plan.effective_price ?? plan.price)
+    : plan.price
+})
+
+const selectedPlanHasRenewalDiscount = computed(() => {
+  const plan = selectedPlan.value
+  if (!plan) return false
+  return plan.renewal_eligible === true
+    && (plan.renewal_discount_percent ?? 0) > 0
+    && selectedPlanEffectivePrice.value < plan.price
+})
+
+const selectedPlanRenewalDiscountPercentText = computed(() => {
+  const value = selectedPlan.value?.renewal_discount_percent ?? 0
+  return Number(value.toFixed(2)).toString()
+})
+
 const subPaymentAmount = computed(() => {
-  const price = selectedPlan.value?.price ?? 0
-  return subscriptionPaymentAmountForCurrency(price, selectedCurrency.value)
+  return subscriptionPaymentAmountForCurrency(selectedPlanEffectivePrice.value, selectedCurrency.value)
 })
 
 const subFeeAmount = computed(() => {
@@ -694,7 +713,7 @@ function subscriptionTotalAmountForCurrency(value: number, currency: string): nu
 
 // Subscription-specific: method options based on gateway pay amount
 const subMethodOptions = computed<PaymentMethodOption[]>(() => {
-  const price = selectedPlan.value?.price ?? 0
+  const price = selectedPlanEffectivePrice.value
   return enabledMethods.value.map((type) => {
     const ml = visibleMethods.value[type]
     const currency = normalizePaymentCurrency(ml?.currency)
@@ -734,32 +753,6 @@ const paymentButtonClass = computed(() => {
 // Subscription confirm: platform accent colors (clean card, no gradient)
 const planBadgeClass = computed(() => platformBadgeClass(selectedPlan.value?.group_platform || ''))
 const planTextClass = computed(() => platformTextClass(selectedPlan.value?.group_platform || ''))
-const selectedPlanQuotas = computed(() => {
-  if (!selectedPlan.value) return []
-  return rollingQuotaWindows
-    .filter(window => selectedPlan.value?.[window.limitField] != null)
-    .map(window => ({
-      key: window.key,
-      label: translatedQuotaLabel(window.shortLabelKey, window.shortLabel),
-      limit: formatUsdLimit(selectedPlan.value?.[window.limitField]),
-    }))
-})
-
-function activeSubscriptionSummaryQuotas(sub: UserSubscription) {
-  return rollingQuotaWindows
-    .filter(window => sub[window.limitField] != null)
-    .map(window => ({
-      key: window.key,
-      label: translatedQuotaLabel(window.shortLabelKey, window.shortLabel),
-      limit: formatUsdLimit(sub[window.limitField]),
-    }))
-}
-
-function translatedQuotaLabel(key: string, fallback: string): string {
-  const label = t(key)
-  return label === key ? fallback : label
-}
-
 function translatedValidityUnit(key: string, fallback: string): string {
   const label = t(key)
   return label === key ? fallback : label
@@ -790,6 +783,25 @@ function planHasPeakRate(plan: SubscriptionPlan): boolean {
 
 function planPeakRateLabel(plan: SubscriptionPlan): string {
   return formatPeakRateWindow(plan, serverTimezoneLabel(appStore.cachedPublicSettings?.server_utc_offset))
+}
+
+function isPlanSoldOut(plan: SubscriptionPlan | null | undefined): boolean {
+  return !!plan && (plan.sold_out === true || plan.stock === 0)
+}
+
+function notifyPlanSoldOut() {
+  errorMessage.value = t('payment.planSoldOut')
+}
+
+function syncSelectedPlanAvailability() {
+  if (!selectedPlan.value) return
+  const fresh = checkout.value.plans.find(plan => plan.id === selectedPlan.value?.id) ?? null
+  if (!fresh || isPlanSoldOut(fresh)) {
+    selectedPlan.value = null
+    notifyPlanSoldOut()
+    return
+  }
+  selectedPlan.value = fresh
 }
 
 function selectPlan(plan: SubscriptionPlan) {

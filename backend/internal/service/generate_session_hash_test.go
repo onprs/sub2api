@@ -26,6 +26,14 @@ func mustParseGeminiSessionHashRequest(t *testing.T, body string, ctx *SessionCo
 	return parsed
 }
 
+func mustParseChatSessionHashRequest(t *testing.T, body string, ctx *SessionContext) *ParsedRequest {
+	t.Helper()
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef([]byte(body)), domain.PlatformAnthropic)
+	require.NoError(t, err)
+	parsed.SessionContext = ctx
+	return parsed
+}
+
 func mustParseResponsesSessionHashRequest(t *testing.T, body string, ctx *SessionContext) *ParsedRequest {
 	t.Helper()
 	parsed, err := ParseGatewayRequest(NewRequestBodyRef([]byte(body)), "responses")

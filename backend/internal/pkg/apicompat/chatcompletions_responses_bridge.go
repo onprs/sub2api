@@ -972,19 +972,37 @@ func ChatUsageToResponsesUsage(usage *ChatUsage) *ResponsesUsage {
 		out.TotalTokens = out.InputTokens + out.OutputTokens
 	}
 	if usage.PromptTokensDetails != nil && (usage.PromptTokensDetails.CachedTokens > 0 ||
-		usage.PromptTokensDetails.CacheCreationTokens > 0 || usage.PromptTokensDetails.CacheWriteTokens > 0) {
+		usage.PromptTokensDetails.CacheCreationTokens > 0 || usage.PromptTokensDetails.CacheWriteTokens > 0 ||
+		usage.PromptTokensDetails.CacheCreation5mTokens > 0 || usage.PromptTokensDetails.CacheCreation1hTokens > 0 ||
+		usage.PromptTokensDetails.Ephemeral5mInputTokens > 0 || usage.PromptTokensDetails.Ephemeral1hInputTokens > 0) {
 		out.InputTokensDetails = &ResponsesInputTokensDetails{
-			CachedTokens:        usage.PromptTokensDetails.CachedTokens,
-			CacheCreationTokens: usage.PromptTokensDetails.CacheCreationTokens,
-			CacheWriteTokens:    usage.PromptTokensDetails.CacheWriteTokens,
+			CachedTokens:           usage.PromptTokensDetails.CachedTokens,
+			CacheCreationTokens:    usage.PromptTokensDetails.CacheCreationTokens,
+			CacheWriteTokens:       usage.PromptTokensDetails.CacheWriteTokens,
+			CacheCreation5mTokens:  firstPositiveIntCompat(usage.PromptTokensDetails.CacheCreation5mTokens, usage.PromptTokensDetails.Ephemeral5mInputTokens),
+			CacheCreation1hTokens:  firstPositiveIntCompat(usage.PromptTokensDetails.CacheCreation1hTokens, usage.PromptTokensDetails.Ephemeral1hInputTokens),
+			Ephemeral5mInputTokens: usage.PromptTokensDetails.Ephemeral5mInputTokens,
+			Ephemeral1hInputTokens: usage.PromptTokensDetails.Ephemeral1hInputTokens,
+			CacheCreationBreakdown: usage.PromptTokensDetails.CacheCreationBreakdown,
 		}
 		if usage.PromptTokensDetails.CacheWriteTokens > 0 {
 			out.CacheCreationInputTokens = usage.PromptTokensDetails.CacheWriteTokens
-		} else {
+		} else if usage.PromptTokensDetails.CacheCreationTokens > 0 {
 			out.CacheCreationInputTokens = usage.PromptTokensDetails.CacheCreationTokens
+		} else {
+			out.CacheCreationInputTokens = out.InputTokensDetails.CacheCreation5mTokens + out.InputTokensDetails.CacheCreation1hTokens
 		}
 	}
 	return out
+}
+
+func firstPositiveIntCompat(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 // ChatCompletionsToResponsesStreamState tracks state while converting Chat

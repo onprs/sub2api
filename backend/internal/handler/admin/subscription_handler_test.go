@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -188,6 +189,125 @@ type subscriptionHandlerPlanFixture struct {
 	handler   *SubscriptionHandler
 }
 
+type subscriptionHandlerGroupRepoStub struct {
+	service.GroupRepository
+	group *dbent.Group
+}
+
+func (s *subscriptionHandlerGroupRepoStub) GetByID(_ context.Context, id int64) (*service.Group, error) {
+	if s == nil || s.group == nil || s.group.ID != id {
+		return nil, service.ErrGroupNotFound
+	}
+	return &service.Group{
+		ID:               s.group.ID,
+		Name:             s.group.Name,
+		Platform:         s.group.Platform,
+		RateMultiplier:   s.group.RateMultiplier,
+		Status:           s.group.Status,
+		SubscriptionType: s.group.SubscriptionType,
+	}, nil
+}
+
+type subscriptionHandlerUserSubRepoStub struct {
+	service.UserSubscriptionRepository
+	client *dbent.Client
+}
+
+func (s *subscriptionHandlerUserSubRepoStub) Create(ctx context.Context, sub *service.UserSubscription) error {
+	created, err := s.client.UserSubscription.Create().
+		SetUserID(sub.UserID).
+		SetGroupID(sub.GroupID).
+		SetNillablePlanID(sub.PlanID).
+		SetStartsAt(sub.StartsAt).
+		SetExpiresAt(sub.ExpiresAt).
+		SetStatus(sub.Status).
+		SetNillableFiveHourLimitUsd(sub.FiveHourLimitUSD).
+		SetNillableSevenDayLimitUsd(sub.SevenDayLimitUSD).
+		SetNillableThirtyDayLimitUsd(sub.ThirtyDayLimitUSD).
+		SetDailyUsageUsd(sub.DailyUsageUSD).
+		SetWeeklyUsageUsd(sub.WeeklyUsageUSD).
+		SetMonthlyUsageUsd(sub.MonthlyUsageUSD).
+		SetFiveHourUsageUsd(sub.FiveHourUsageUSD).
+		SetSevenDayUsageUsd(sub.SevenDayUsageUSD).
+		SetThirtyDayUsageUsd(sub.ThirtyDayUsageUSD).
+		SetNillableAssignedBy(sub.AssignedBy).
+		SetNotes(sub.Notes).
+		Save(ctx)
+	if err != nil {
+		return err
+	}
+	sub.ID = created.ID
+	return nil
+}
+
+func (s *subscriptionHandlerUserSubRepoStub) GetByID(ctx context.Context, id int64) (*service.UserSubscription, error) {
+	entSub, err := s.client.UserSubscription.Get(ctx, id)
+	if err != nil {
+		return nil, service.ErrSubscriptionNotFound
+	}
+	return subscriptionHandlerServiceSubscriptionFromEnt(entSub), nil
+}
+
+func (s *subscriptionHandlerUserSubRepoStub) ExistsByUserIDGroupIDAndPlanID(ctx context.Context, userID, groupID int64, planID *int64) (bool, error) {
+	_, err := s.GetByUserIDGroupIDAndPlanID(ctx, userID, groupID, planID)
+	if err != nil {
+		if errors.Is(err, service.ErrSubscriptionNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *subscriptionHandlerUserSubRepoStub) GetByUserIDGroupIDAndPlanID(ctx context.Context, userID, groupID int64, planID *int64) (*service.UserSubscription, error) {
+	query := s.client.UserSubscription.Query().
+		Where(usersubscription.UserIDEQ(userID), usersubscription.GroupIDEQ(groupID))
+	if planID == nil {
+		query = query.Where(usersubscription.PlanIDIsNil())
+	} else {
+		query = query.Where(usersubscription.PlanIDEQ(*planID))
+	}
+	entSub, err := query.Only(ctx)
+	if err != nil {
+		return nil, service.ErrSubscriptionNotFound
+	}
+	return subscriptionHandlerServiceSubscriptionFromEnt(entSub), nil
+}
+
+func subscriptionHandlerServiceSubscriptionFromEnt(entSub *dbent.UserSubscription) *service.UserSubscription {
+	if entSub == nil {
+		return nil
+	}
+	notes := ""
+	if entSub.Notes != nil {
+		notes = *entSub.Notes
+	}
+	return &service.UserSubscription{
+		ID:                entSub.ID,
+		UserID:            entSub.UserID,
+		GroupID:           entSub.GroupID,
+		PlanID:            entSub.PlanID,
+		StartsAt:          entSub.StartsAt,
+		ExpiresAt:         entSub.ExpiresAt,
+		Status:            entSub.Status,
+		FiveHourLimitUSD:  entSub.FiveHourLimitUsd,
+		SevenDayLimitUSD:  entSub.SevenDayLimitUsd,
+		ThirtyDayLimitUSD: entSub.ThirtyDayLimitUsd,
+		DailyUsageUSD:     entSub.DailyUsageUsd,
+		WeeklyUsageUSD:    entSub.WeeklyUsageUsd,
+		MonthlyUsageUSD:   entSub.MonthlyUsageUsd,
+		FiveHourUsageUSD:  entSub.FiveHourUsageUsd,
+		SevenDayUsageUSD:  entSub.SevenDayUsageUsd,
+		ThirtyDayUsageUSD: entSub.ThirtyDayUsageUsd,
+		AssignedBy:        entSub.AssignedBy,
+		AssignedAt:        entSub.AssignedAt,
+		Notes:             notes,
+		CreatedAt:         entSub.CreatedAt,
+		UpdatedAt:         entSub.UpdatedAt,
+		DeletedAt:         entSub.DeletedAt,
+	}
+}
+
 func newSubscriptionHandlerPlanFixture(t *testing.T, five, seven, thirty float64) subscriptionHandlerPlanFixture {
 	t.Helper()
 
@@ -226,8 +346,9 @@ func newSubscriptionHandlerPlanFixture(t *testing.T, five, seven, thirty float64
 		Save(ctx)
 	require.NoError(t, err)
 
-	groupRepo := repository.NewGroupRepository(client, db)
-	subRepo := repository.NewUserSubscriptionRepository(client)
+	_ = db
+	groupRepo := &subscriptionHandlerGroupRepoStub{group: groupEnt}
+	subRepo := &subscriptionHandlerUserSubRepoStub{client: client}
 	subSvc := service.NewSubscriptionService(groupRepo, subRepo, nil, client, nil)
 	return subscriptionHandlerPlanFixture{
 		client:    client,

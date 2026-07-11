@@ -240,7 +240,7 @@ func (c *OpenCodeGoReferralActionClient) postServerAction(ctx context.Context, s
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if readErr != nil {
 		return nil, readErr
@@ -279,7 +279,7 @@ func (c *OpenCodeGoReferralActionClient) fetchText(ctx context.Context, endpoint
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if isOpenCodeGoConsoleAuthExpiredResponse(resp) {
 		return "", ErrOpenCodeGoConsoleAuthExpired
 	}

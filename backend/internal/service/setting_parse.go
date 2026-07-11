@@ -180,6 +180,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		// Available channels feature (default disabled; opt-in)
 		SettingKeyAvailableChannelsEnabled: "false",
 
+		// Model pricing feature (default disabled; opt-in)
+		SettingKeyModelPricingEnabled: "false",
+
 		// Affiliate (邀请返利) feature (default disabled; opt-in)
 		SettingKeyAffiliateEnabled: "false",
 
@@ -639,6 +642,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.GitHubOAuthClientSecretConfigured = result.GitHubOAuthClientSecret != ""
 	result.GitHubOAuthRedirectURL = strings.TrimSpace(gitHubEffective.RedirectURL)
 	result.GitHubOAuthFrontendRedirectURL = strings.TrimSpace(gitHubEffective.FrontendRedirectURL)
+	result.GitHubOAuthProxyID = gitHubEffective.ProxyID
 
 	googleEffective := s.effectiveEmailOAuthConfig(settings, "google")
 	result.GoogleOAuthEnabled = googleEffective.Enabled
@@ -713,6 +717,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// Available channels feature (default: disabled; strict true)
 	result.AvailableChannelsEnabled = settings[SettingKeyAvailableChannelsEnabled] == "true"
+
+	// Model pricing feature (default: disabled; strict true; independent from available channels)
+	result.ModelPricingEnabled = settings[SettingKeyModelPricingEnabled] == "true"
 
 	// Affiliate (邀请返利) feature (default: disabled; strict true)
 	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"

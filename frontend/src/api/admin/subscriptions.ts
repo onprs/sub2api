@@ -19,6 +19,30 @@ export interface ResetSubscriptionQuotaRequest {
   thirty_day: boolean
 }
 
+export interface BulkResetSubscriptionQuotaFilter {
+  status?: 'active' | 'expired' | 'revoked' | 'suspended'
+  user_id?: number
+  group_id?: number
+  platform?: string
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
+}
+
+export interface BulkResetSubscriptionQuotaRequest extends ResetSubscriptionQuotaRequest {
+  subscription_ids?: number[]
+  all_filtered?: boolean
+  filter?: BulkResetSubscriptionQuotaFilter
+}
+
+export interface BulkResetSubscriptionQuotaResult {
+  success_count: number
+  failed_count: number
+  subscriptions: UserSubscription[]
+  errors: string[]
+  warnings?: string[]
+  statuses?: Record<string, string>
+}
+
 /**
  * List all subscriptions with pagination
  * @param page - Page number (default: 1)
@@ -155,6 +179,19 @@ export async function resetQuota(
 }
 
 /**
+ * Reset selected rolling usage quota windows for selected subscriptions or all subscriptions matching filters.
+ */
+export async function bulkResetQuota(
+  request: BulkResetSubscriptionQuotaRequest
+): Promise<BulkResetSubscriptionQuotaResult> {
+  const { data } = await apiClient.post<BulkResetSubscriptionQuotaResult>(
+    '/admin/subscriptions/bulk-reset-quota',
+    request
+  )
+  return data
+}
+
+/**
  * List subscriptions by group
  * @param groupId - Group ID
  * @param page - Page number
@@ -206,6 +243,7 @@ export const subscriptionsAPI = {
   revoke,
   restore,
   resetQuota,
+  bulkResetQuota,
   listByGroup,
   listByUser
 }

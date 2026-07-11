@@ -10,9 +10,12 @@ import (
 	"strings"
 	"time"
 
+	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
+	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
+	"github.com/Wei-Shaw/sub2api/internal/payment"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -638,6 +641,10 @@ func (s *adminServiceImpl) GetUserBalanceHistory(ctx context.Context, userID int
 		return s.getAllUserBalanceHistory(ctx, userID, params)
 	}
 
+	if codeType == RedeemTypeSubscription {
+		return s.getSubscriptionUserBalanceHistory(ctx, userID, params)
+	}
+
 	codes, result, err := s.redeemCodeRepo.ListByUserPaginated(ctx, userID, params, codeType)
 	if err != nil {
 		return nil, 0, 0, err
@@ -651,13 +658,36 @@ func (s *adminServiceImpl) GetUserBalanceHistory(ctx context.Context, userID int
 	return codes, total, totalRecharged, nil
 }
 
+func (s *adminServiceImpl) getSubscriptionUserBalanceHistory(ctx context.Context, userID int64, params pagination.PaginationParams) ([]RedeemCode, int64, float64, error) {
+	needed := params.Offset() + params.Limit()
+	if needed < params.Limit() {
+		needed = params.Limit()
+	}
+
+	redeemCodes, redeemTotal, err := s.listRedeemBalanceHistoryForMerge(ctx, userID, needed, RedeemTypeSubscription)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	paymentOrderCodes, paymentOrderTotal, err := s.listSubscriptionPaymentOrderHistoryForMerge(ctx, userID, needed)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	codes := mergeBalanceHistoryCodes(params, redeemCodes, paymentOrderCodes)
+
+	totalRecharged, err := s.redeemCodeRepo.SumPositiveBalanceByUser(ctx, userID)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return codes, redeemTotal + paymentOrderTotal, totalRecharged, nil
+}
+
 func (s *adminServiceImpl) getAllUserBalanceHistory(ctx context.Context, userID int64, params pagination.PaginationParams) ([]RedeemCode, int64, float64, error) {
 	needed := params.Offset() + params.Limit()
 	if needed < params.Limit() {
 		needed = params.Limit()
 	}
 
-	redeemCodes, redeemTotal, err := s.listRedeemBalanceHistoryForMerge(ctx, userID, needed)
+	redeemCodes, redeemTotal, err := s.listRedeemBalanceHistoryForMerge(ctx, userID, needed, "")
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -665,16 +695,20 @@ func (s *adminServiceImpl) getAllUserBalanceHistory(ctx context.Context, userID 
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	codes := mergeBalanceHistoryCodes(params, redeemCodes, affiliateCodes)
+	paymentOrderCodes, paymentOrderTotal, err := s.listSubscriptionPaymentOrderHistoryForMerge(ctx, userID, needed)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	codes := mergeBalanceHistoryCodes(params, redeemCodes, affiliateCodes, paymentOrderCodes)
 
 	totalRecharged, err := s.redeemCodeRepo.SumPositiveBalanceByUser(ctx, userID)
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	return codes, redeemTotal + affiliateTotal, totalRecharged, nil
+	return codes, redeemTotal + affiliateTotal + paymentOrderTotal, totalRecharged, nil
 }
 
-func (s *adminServiceImpl) listRedeemBalanceHistoryForMerge(ctx context.Context, userID int64, needed int) ([]RedeemCode, int64, error) {
+func (s *adminServiceImpl) listRedeemBalanceHistoryForMerge(ctx context.Context, userID int64, needed int, codeType string) ([]RedeemCode, int64, error) {
 	if needed <= 0 {
 		return nil, 0, nil
 	}
@@ -685,7 +719,7 @@ func (s *adminServiceImpl) listRedeemBalanceHistoryForMerge(ctx context.Context,
 	)
 	for page := 1; len(out) < needed; page++ {
 		params := pagination.PaginationParams{Page: page, PageSize: 1000}
-		codes, result, err := s.redeemCodeRepo.ListByUserPaginated(ctx, userID, params, "")
+		codes, result, err := s.redeemCodeRepo.ListByUserPaginated(ctx, userID, params, codeType)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -701,6 +735,73 @@ func (s *adminServiceImpl) listRedeemBalanceHistoryForMerge(ctx context.Context,
 		out = out[:needed]
 	}
 	return out, total, nil
+}
+
+func (s *adminServiceImpl) listSubscriptionPaymentOrderHistoryForMerge(ctx context.Context, userID int64, needed int) ([]RedeemCode, int64, error) {
+	if needed <= 0 || s == nil || s.entClient == nil || userID <= 0 {
+		return nil, 0, nil
+	}
+
+	base := s.entClient.PaymentOrder.Query().Where(
+		paymentorder.UserIDEQ(userID),
+		paymentorder.OrderTypeEQ(payment.OrderTypeSubscription),
+		paymentorder.StatusEQ(OrderStatusCompleted),
+	)
+	total, err := base.Clone().Count(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	orders, err := base.
+		Order(paymentorder.ByCompletedAt(entsql.OrderDesc()), paymentorder.ByID(entsql.OrderDesc())).
+		Limit(needed).
+		All(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	codes := make([]RedeemCode, 0, len(orders))
+	for _, order := range orders {
+		if order == nil {
+			continue
+		}
+		usedAt := order.CreatedAt
+		if order.CompletedAt != nil {
+			usedAt = *order.CompletedAt
+		}
+		usedBy := order.UserID
+		code := strings.TrimSpace(order.OutTradeNo)
+		if code == "" {
+			code = strings.TrimSpace(order.RechargeCode)
+		}
+		if code == "" {
+			code = fmt.Sprintf("PAY-%d", order.ID)
+		}
+		value := 0.0
+		if order.SubscriptionDays != nil {
+			value = float64(*order.SubscriptionDays)
+		}
+		codes = append(codes, RedeemCode{
+			ID:                               -order.ID,
+			Source:                           "payment_order",
+			SourceID:                         order.ID,
+			Code:                             code,
+			Type:                             RedeemTypeSubscription,
+			Value:                            value,
+			Status:                           StatusUsed,
+			UsedBy:                           &usedBy,
+			UsedAt:                           &usedAt,
+			CreatedAt:                        order.CreatedAt,
+			GroupID:                          order.SubscriptionGroupID,
+			ValidityDays:                     int(value),
+			SubscriptionPlanID:               order.PlanID,
+			PaymentOrderID:                   &order.ID,
+			SubscriptionQuotaSnapshotVersion: order.SubscriptionQuotaSnapshotVersion,
+			FiveHourLimitUSD:                 order.SubscriptionFiveHourLimitUsd,
+			SevenDayLimitUSD:                 order.SubscriptionSevenDayLimitUsd,
+			ThirtyDayLimitUSD:                order.SubscriptionThirtyDayLimitUsd,
+		})
+	}
+	return codes, int64(total), nil
 }
 
 func (s *adminServiceImpl) listAffiliateBalanceHistoryForMerge(ctx context.Context, userID int64, needed int) ([]RedeemCode, int64, error) {
@@ -1183,21 +1284,6 @@ func (s *adminServiceImpl) GenerateRedeemCodes(ctx context.Context, input *Gener
 		return nil, ErrRedeemCodeExpired
 	}
 
-	// 如果是订阅类型，验证必须有 GroupID
-	if input.Type == RedeemTypeSubscription {
-		if input.GroupID == nil {
-			return nil, errors.New("group_id is required for subscription type")
-		}
-		// 验证分组存在且为订阅类型
-		group, err := s.groupRepo.GetByID(ctx, *input.GroupID)
-		if err != nil {
-			return nil, fmt.Errorf("group not found: %w", err)
-		}
-		if !group.IsSubscriptionType() {
-			return nil, errors.New("group must be subscription type")
-		}
-	}
-
 	codes := make([]RedeemCode, 0, input.Count)
 	for i := 0; i < input.Count; i++ {
 		codeValue, err := GenerateRedeemCode()
@@ -1215,9 +1301,14 @@ func (s *adminServiceImpl) GenerateRedeemCodes(ctx context.Context, input *Gener
 		if input.Type == RedeemTypeSubscription {
 			code.GroupID = input.GroupID
 			code.ValidityDays = input.ValidityDays
-			if code.ValidityDays <= 0 {
+			code.SubscriptionPlanID = input.SubscriptionPlanID
+			if code.SubscriptionPlanID == nil && code.ValidityDays <= 0 {
 				code.ValidityDays = 30 // 默认30天
 			}
+		}
+		code, err = s.BuildRedeemCode(ctx, code)
+		if err != nil {
+			return nil, err
 		}
 		if err := s.redeemCodeRepo.Create(ctx, &code); err != nil {
 			return nil, err
@@ -1225,6 +1316,48 @@ func (s *adminServiceImpl) GenerateRedeemCodes(ctx context.Context, input *Gener
 		codes = append(codes, code)
 	}
 	return codes, nil
+}
+
+func (s *adminServiceImpl) BuildRedeemCode(ctx context.Context, code RedeemCode) (RedeemCode, error) {
+	if code.Type != RedeemTypeSubscription {
+		return code, nil
+	}
+
+	if code.SubscriptionPlanID != nil {
+		if s.entClient == nil {
+			return code, errors.New("ent client is required for subscription plan redeem code")
+		}
+		plan, err := s.entClient.SubscriptionPlan.Get(ctx, *code.SubscriptionPlanID)
+		if err != nil {
+			if dbent.IsNotFound(err) {
+				return code, infraerrors.NotFound("PLAN_NOT_FOUND", "subscription plan not found")
+			}
+			return code, fmt.Errorf("subscription plan not found: %w", err)
+		}
+		groupID := plan.GroupID
+		planID := plan.ID
+		code.SubscriptionPlanID = &planID
+		code.GroupID = &groupID
+		code.ValidityDays = psComputeValidityDays(plan.ValidityDays, plan.ValidityUnit)
+		code.SubscriptionQuotaSnapshotVersion = 1
+		code.FiveHourLimitUSD = plan.FiveHourLimitUsd
+		code.SevenDayLimitUSD = plan.SevenDayLimitUsd
+		code.ThirtyDayLimitUSD = plan.ThirtyDayLimitUsd
+	}
+
+	if code.GroupID == nil {
+		return code, errors.New("group_id is required for subscription type")
+	}
+	if s.groupRepo != nil {
+		group, err := s.groupRepo.GetByID(ctx, *code.GroupID)
+		if err != nil {
+			return code, fmt.Errorf("group not found: %w", err)
+		}
+		if !group.IsSubscriptionType() {
+			return code, errors.New("group must be subscription type")
+		}
+	}
+	return code, nil
 }
 
 func (s *adminServiceImpl) DeleteRedeemCode(ctx context.Context, id int64) error {

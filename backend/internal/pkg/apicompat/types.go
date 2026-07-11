@@ -385,13 +385,14 @@ func (u *ResponsesUsage) UnmarshalJSON(data []byte) error {
 	}
 	var aux struct {
 		responsesUsageAlias
-		PromptTokens            int                           `json:"prompt_tokens"`
-		CompletionTokens        int                           `json:"completion_tokens"`
-		CacheCreationTokens     int                           `json:"cache_creation_tokens"`
-		CacheWriteInputTokens   int                           `json:"cache_write_input_tokens"`
-		CacheWriteTokens        int                           `json:"cache_write_tokens"`
-		PromptTokensDetails     *ResponsesInputTokensDetails  `json:"prompt_tokens_details,omitempty"`
-		CompletionTokensDetails *ResponsesOutputTokensDetails `json:"completion_tokens_details,omitempty"`
+		PromptTokens            int                              `json:"prompt_tokens"`
+		CompletionTokens        int                              `json:"completion_tokens"`
+		CacheCreationTokens     int                              `json:"cache_creation_tokens"`
+		CacheWriteInputTokens   int                              `json:"cache_write_input_tokens"`
+		CacheWriteTokens        int                              `json:"cache_write_tokens"`
+		CacheCreationBreakdown  *ResponsesCacheCreationBreakdown `json:"cache_creation,omitempty"`
+		PromptTokensDetails     *ResponsesInputTokensDetails     `json:"prompt_tokens_details,omitempty"`
+		CompletionTokensDetails *ResponsesOutputTokensDetails    `json:"completion_tokens_details,omitempty"`
 	}
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
@@ -426,6 +427,12 @@ func (u *ResponsesUsage) UnmarshalJSON(data []byte) error {
 	if u.OutputTokensDetails == nil && aux.CompletionTokensDetails != nil {
 		u.OutputTokensDetails = aux.CompletionTokensDetails
 	}
+	if aux.CacheCreationBreakdown != nil {
+		if u.InputTokensDetails == nil {
+			u.InputTokensDetails = &ResponsesInputTokensDetails{}
+		}
+		u.InputTokensDetails.applyCacheCreationBreakdown(aux.CacheCreationBreakdown)
+	}
 	var canonicalCacheCreationTokens *int
 	switch {
 	case nestedPresence.InputTokensDetails != nil && nestedPresence.InputTokensDetails.CacheWriteTokens != nil:
@@ -440,6 +447,11 @@ func (u *ResponsesUsage) UnmarshalJSON(data []byte) error {
 	if canonicalCacheCreationTokens != nil {
 		u.CacheCreationInputTokens = max(*canonicalCacheCreationTokens, 0)
 	}
+	if canonicalCacheCreationTokens == nil && u.CacheCreationInputTokens == 0 && u.InputTokensDetails != nil {
+		if total := u.InputTokensDetails.CacheCreation5mTokens + u.InputTokensDetails.CacheCreation1hTokens; total > 0 {
+			u.CacheCreationInputTokens = total
+		}
+	}
 	if u.TotalTokens == 0 && (u.InputTokens != 0 || u.OutputTokens != 0) {
 		u.TotalTokens = u.InputTokens + u.OutputTokens
 	}
@@ -448,10 +460,67 @@ func (u *ResponsesUsage) UnmarshalJSON(data []byte) error {
 
 // ResponsesInputTokensDetails breaks down input token usage.
 type ResponsesInputTokensDetails struct {
-	CachedTokens        int `json:"cached_tokens,omitempty"`
-	AudioTokens         int `json:"audio_tokens,omitempty"`
-	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
-	CacheWriteTokens    int `json:"cache_write_tokens,omitempty"`
+	CachedTokens           int                              `json:"cached_tokens,omitempty"`
+	AudioTokens            int                              `json:"audio_tokens,omitempty"`
+	CacheCreationTokens    int                              `json:"cache_creation_tokens,omitempty"`
+	CacheWriteTokens       int                              `json:"cache_write_tokens,omitempty"`
+	CacheCreation5mTokens  int                              `json:"cache_creation_5m_tokens,omitempty"`
+	CacheCreation1hTokens  int                              `json:"cache_creation_1h_tokens,omitempty"`
+	Ephemeral5mInputTokens int                              `json:"ephemeral_5m_input_tokens,omitempty"`
+	Ephemeral1hInputTokens int                              `json:"ephemeral_1h_input_tokens,omitempty"`
+	CacheCreationBreakdown *ResponsesCacheCreationBreakdown `json:"cache_creation,omitempty"`
+}
+
+func (d *ResponsesInputTokensDetails) UnmarshalJSON(data []byte) error {
+	type responsesInputTokensDetailsAlias ResponsesInputTokensDetails
+	var aux responsesInputTokensDetailsAlias
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*d = ResponsesInputTokensDetails(aux)
+	d.normalizeCacheCreationBreakdown()
+	return nil
+}
+
+func (d *ResponsesInputTokensDetails) applyCacheCreationBreakdown(breakdown *ResponsesCacheCreationBreakdown) {
+	if d == nil || breakdown == nil {
+		return
+	}
+	if d.CacheCreationBreakdown == nil {
+		d.CacheCreationBreakdown = breakdown
+	}
+	if d.Ephemeral5mInputTokens == 0 {
+		d.Ephemeral5mInputTokens = breakdown.Ephemeral5mInputTokens
+	}
+	if d.Ephemeral1hInputTokens == 0 {
+		d.Ephemeral1hInputTokens = breakdown.Ephemeral1hInputTokens
+	}
+	d.normalizeCacheCreationBreakdown()
+}
+
+func (d *ResponsesInputTokensDetails) normalizeCacheCreationBreakdown() {
+	if d == nil {
+		return
+	}
+	if d.CacheCreationBreakdown != nil {
+		if d.Ephemeral5mInputTokens == 0 {
+			d.Ephemeral5mInputTokens = d.CacheCreationBreakdown.Ephemeral5mInputTokens
+		}
+		if d.Ephemeral1hInputTokens == 0 {
+			d.Ephemeral1hInputTokens = d.CacheCreationBreakdown.Ephemeral1hInputTokens
+		}
+	}
+	if d.CacheCreation5mTokens == 0 {
+		d.CacheCreation5mTokens = d.Ephemeral5mInputTokens
+	}
+	if d.CacheCreation1hTokens == 0 {
+		d.CacheCreation1hTokens = d.Ephemeral1hInputTokens
+	}
+}
+
+type ResponsesCacheCreationBreakdown struct {
+	Ephemeral5mInputTokens int `json:"ephemeral_5m_input_tokens,omitempty"`
+	Ephemeral1hInputTokens int `json:"ephemeral_1h_input_tokens,omitempty"`
 }
 
 // ResponsesOutputTokensDetails breaks down output token usage.
@@ -635,13 +704,42 @@ type ChatUsage struct {
 //   - completion_tokens_details: reasoning_tokens, audio_tokens,
 //     accepted_prediction_tokens, rejected_prediction_tokens
 type ChatTokenDetails struct {
-	CachedTokens             int `json:"cached_tokens,omitempty"`
-	AudioTokens              int `json:"audio_tokens,omitempty"`
-	CacheCreationTokens      int `json:"cache_creation_tokens,omitempty"`
-	CacheWriteTokens         int `json:"cache_write_tokens,omitempty"`
-	ReasoningTokens          int `json:"reasoning_tokens,omitempty"`
-	AcceptedPredictionTokens int `json:"accepted_prediction_tokens,omitempty"`
-	RejectedPredictionTokens int `json:"rejected_prediction_tokens,omitempty"`
+	CachedTokens             int                              `json:"cached_tokens,omitempty"`
+	AudioTokens              int                              `json:"audio_tokens,omitempty"`
+	CacheCreationTokens      int                              `json:"cache_creation_tokens,omitempty"`
+	CacheWriteTokens         int                              `json:"cache_write_tokens,omitempty"`
+	CacheCreation5mTokens    int                              `json:"cache_creation_5m_tokens,omitempty"`
+	CacheCreation1hTokens    int                              `json:"cache_creation_1h_tokens,omitempty"`
+	Ephemeral5mInputTokens   int                              `json:"ephemeral_5m_input_tokens,omitempty"`
+	Ephemeral1hInputTokens   int                              `json:"ephemeral_1h_input_tokens,omitempty"`
+	CacheCreationBreakdown   *ResponsesCacheCreationBreakdown `json:"cache_creation,omitempty"`
+	ReasoningTokens          int                              `json:"reasoning_tokens,omitempty"`
+	AcceptedPredictionTokens int                              `json:"accepted_prediction_tokens,omitempty"`
+	RejectedPredictionTokens int                              `json:"rejected_prediction_tokens,omitempty"`
+}
+
+func (d *ChatTokenDetails) UnmarshalJSON(data []byte) error {
+	type chatTokenDetailsAlias ChatTokenDetails
+	var aux chatTokenDetailsAlias
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*d = ChatTokenDetails(aux)
+	if d.CacheCreationBreakdown != nil {
+		if d.Ephemeral5mInputTokens == 0 {
+			d.Ephemeral5mInputTokens = d.CacheCreationBreakdown.Ephemeral5mInputTokens
+		}
+		if d.Ephemeral1hInputTokens == 0 {
+			d.Ephemeral1hInputTokens = d.CacheCreationBreakdown.Ephemeral1hInputTokens
+		}
+	}
+	if d.CacheCreation5mTokens == 0 {
+		d.CacheCreation5mTokens = d.Ephemeral5mInputTokens
+	}
+	if d.CacheCreation1hTokens == 0 {
+		d.CacheCreation1hTokens = d.Ephemeral1hInputTokens
+	}
+	return nil
 }
 
 // ChatCompletionsChunk is a single streaming chunk from POST /v1/chat/completions.

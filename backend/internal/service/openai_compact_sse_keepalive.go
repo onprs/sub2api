@@ -71,7 +71,10 @@ func StartOpenAICompactSSEKeepalive(c *gin.Context, interval time.Duration) func
 			timer.Reset(interval)
 		}
 	}()
-	return k.Stop
+	return func() {
+		k.Stop()
+		restoreOpenAICompactKeepaliveWriter(c, k)
+	}
 }
 
 // beat 在锁内提交（首次）响应头并写出一条 SSE 注释行；返回 false 表示心跳已
@@ -136,7 +139,17 @@ func StopOpenAICompactSSEKeepaliveCommitted(c *gin.Context) bool {
 	k.markStoppedLocked()
 	committed := k.started
 	k.mu.Unlock()
+	restoreOpenAICompactKeepaliveWriter(c, k)
 	return committed
+}
+
+func restoreOpenAICompactKeepaliveWriter(c *gin.Context, k *openAICompactSSEKeepalive) {
+	if c == nil || k == nil || c.Writer == nil {
+		return
+	}
+	if w, ok := c.Writer.(*openAICompactKeepaliveWriter); ok && w.k == k {
+		c.Writer = w.ResponseWriter
+	}
 }
 
 // OpenAICompactKeepaliveAdjustedWrittenSize 返回排除 compact 心跳注释字节后
@@ -182,6 +195,10 @@ type openAICompactKeepaliveWriter struct {
 // 响应头）都视为请求侧接管 ResponseWriter。
 func (w *openAICompactKeepaliveWriter) suspend() {
 	w.k.Stop()
+}
+
+func (w *openAICompactKeepaliveWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 func (w *openAICompactKeepaliveWriter) Header() http.Header {

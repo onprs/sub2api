@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -408,6 +409,41 @@ func (s *HTTPUpstreamSuite) TestIdleTTLDoesNotEvictActive() {
 	_, _ = svc.getOrCreateClient("", 2, 1)
 
 	require.True(s.T(), hasEntry(svc, entry1), "有活跃请求时不应回收")
+}
+
+func TestTrackedBodyMarksDoneOnEOFOnceAndStillClosesUnderlyingBody(t *testing.T) {
+	closed := false
+	calls := int32(0)
+	body := wrapTrackedBody(&trackedTestReadCloser{
+		Reader: strings.NewReader("ok"),
+		onClose: func() {
+			closed = true
+		},
+	}, func() {
+		atomic.AddInt32(&calls, 1)
+	})
+
+	data, err := io.ReadAll(body)
+	require.NoError(t, err)
+	require.Equal(t, "ok", string(data))
+	require.Equal(t, int32(1), atomic.LoadInt32(&calls), "EOF should mark response done")
+	require.False(t, closed, "EOF should not close the underlying body")
+
+	require.NoError(t, body.Close())
+	require.True(t, closed, "Close should still close the underlying body after EOF")
+	require.Equal(t, int32(1), atomic.LoadInt32(&calls), "Close after EOF must not double-count")
+}
+
+type trackedTestReadCloser struct {
+	io.Reader
+	onClose func()
+}
+
+func (r *trackedTestReadCloser) Close() error {
+	if r.onClose != nil {
+		r.onClose()
+	}
+	return nil
 }
 
 // TestHTTPUpstreamSuite 运行测试套件

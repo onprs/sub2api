@@ -245,7 +245,6 @@ func mergeOpenCodeGoCatalogEntry(entries map[string]OpenCodeGoCatalogEntry, id, 
 			if strings.EqualFold(key, id) || strings.EqualFold(entry.ID, id) {
 				existing = entry
 				delete(entries, key)
-				ok = true
 				break
 			}
 		}

@@ -213,6 +213,11 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyGitHubOAuthClientID] = strings.TrimSpace(settings.GitHubOAuthClientID)
 	updates[SettingKeyGitHubOAuthRedirectURL] = settings.GitHubOAuthRedirectURL
 	updates[SettingKeyGitHubOAuthFrontendRedirectURL] = settings.GitHubOAuthFrontendRedirectURL
+	if settings.GitHubOAuthProxyID != nil && *settings.GitHubOAuthProxyID > 0 {
+		updates[SettingKeyGitHubOAuthProxyID] = strconv.FormatInt(*settings.GitHubOAuthProxyID, 10)
+	} else {
+		updates[SettingKeyGitHubOAuthProxyID] = ""
+	}
 	if settings.GitHubOAuthClientSecret != "" {
 		updates[SettingKeyGitHubOAuthClientSecret] = strings.TrimSpace(settings.GitHubOAuthClientSecret)
 	}
@@ -331,6 +336,9 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	// Available channels feature switch
 	updates[SettingKeyAvailableChannelsEnabled] = strconv.FormatBool(settings.AvailableChannelsEnabled)
+
+	// Model pricing feature switch (independent from available channels)
+	updates[SettingKeyModelPricingEnabled] = strconv.FormatBool(settings.ModelPricingEnabled)
 
 	// Affiliate (邀请返利) feature switch
 	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)

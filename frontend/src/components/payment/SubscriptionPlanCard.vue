@@ -109,6 +109,7 @@ import type { SubscriptionPlan } from '@/types/payment'
 import type { UserSubscription } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { hasPeakRate as groupHasPeakRate, formatPeakRateWindow, serverTimezoneLabel } from '@/utils/peak-rate'
+import { hasRollingQuotaLimits } from '@/utils/rollingQuota'
 import {
   platformAccentBarClass,
   platformBadgeLightClass,
@@ -164,6 +165,7 @@ const showRenewalDiscount = computed(() =>
     && (props.plan.renewal_discount_percent ?? 0) > 0
     && effectivePrice.value < props.plan.price
 )
+const hasPlanRollingQuotaLimits = computed(() => hasRollingQuotaLimits(props.plan))
 const renewalDiscountText = computed(() =>
   t('payment.renewalDiscount', { percent: formatDiscountPercent(props.plan.renewal_discount_percent ?? 0) })
 )
@@ -180,6 +182,11 @@ function formatPlanPrice(value: number): string {
 
 function formatDiscountPercent(value: number): string {
   return Number(value.toFixed(2)).toString()
+}
+
+function translatedValidityUnit(key: string, fallback: string): string {
+  const label = t(key)
+  return label === key ? fallback : label
 }
 
 function handleSelect() {

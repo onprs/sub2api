@@ -1127,6 +1127,23 @@ func copyOpenAIUsageFromResponsesUsage(usage *apicompat.ResponsesUsage) OpenAIUs
 	}
 	if usage.InputTokensDetails != nil {
 		result.CacheReadInputTokens = usage.InputTokensDetails.CachedTokens
+		result.CacheCreation5mTokens = firstPositiveInt(
+			usage.InputTokensDetails.CacheCreation5mTokens,
+			usage.InputTokensDetails.Ephemeral5mInputTokens,
+		)
+		result.CacheCreation1hTokens = firstPositiveInt(
+			usage.InputTokensDetails.CacheCreation1hTokens,
+			usage.InputTokensDetails.Ephemeral1hInputTokens,
+		)
 	}
 	return result
+}
+
+func firstPositiveInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }

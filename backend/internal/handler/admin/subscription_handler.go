@@ -223,6 +223,20 @@ type ResetSubscriptionQuotaRequest struct {
 	ThirtyDay bool `json:"thirty_day"`
 }
 
+type BulkResetSubscriptionQuotaRequest struct {
+	ResetSubscriptionQuotaRequest
+	SubscriptionIDs []int64 `json:"subscription_ids"`
+	AllFiltered     bool    `json:"all_filtered"`
+	Filter          struct {
+		UserID    *int64 `json:"user_id"`
+		GroupID   *int64 `json:"group_id"`
+		Status    string `json:"status"`
+		Platform  string `json:"platform"`
+		SortBy    string `json:"sort_by"`
+		SortOrder string `json:"sort_order"`
+	} `json:"filter"`
+}
+
 // ResetQuota resets selected legacy and rolling usage windows for a subscription.
 // POST /api/v1/admin/subscriptions/:id/reset-quota
 func (h *SubscriptionHandler) ResetQuota(c *gin.Context) {
@@ -246,6 +260,47 @@ func (h *SubscriptionHandler) ResetQuota(c *gin.Context) {
 		return
 	}
 	response.Success(c, dto.UserSubscriptionFromServiceAdmin(sub))
+}
+
+// BulkResetQuota resets selected usage windows for selected or filtered subscriptions.
+// POST /api/v1/admin/subscriptions/bulk-reset-quota
+func (h *SubscriptionHandler) BulkResetQuota(c *gin.Context) {
+	var req BulkResetSubscriptionQuotaRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if !req.Daily && !req.Weekly && !req.Monthly && !req.FiveHour && !req.SevenDay && !req.ThirtyDay {
+		response.BadRequest(c, "At least one quota window must be true")
+		return
+	}
+	if !req.AllFiltered && len(req.SubscriptionIDs) == 0 {
+		response.BadRequest(c, "subscription_ids is required unless all_filtered is true")
+		return
+	}
+	result, err := h.subscriptionService.BulkAdminResetQuota(c.Request.Context(), service.BulkResetSubscriptionQuotaInput{
+		SubscriptionIDs: req.SubscriptionIDs,
+		AllFiltered:     req.AllFiltered,
+		Filter: service.BulkResetSubscriptionQuotaFilter{
+			UserID:    req.Filter.UserID,
+			GroupID:   req.Filter.GroupID,
+			Status:    req.Filter.Status,
+			Platform:  req.Filter.Platform,
+			SortBy:    req.Filter.SortBy,
+			SortOrder: req.Filter.SortOrder,
+		},
+		ResetDaily:     req.Daily,
+		ResetWeekly:    req.Weekly,
+		ResetMonthly:   req.Monthly,
+		ResetFiveHour:  req.FiveHour,
+		ResetSevenDay:  req.SevenDay,
+		ResetThirtyDay: req.ThirtyDay,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.BulkResetQuotaResultFromService(result))
 }
 
 // Revoke handles revoking a subscription.

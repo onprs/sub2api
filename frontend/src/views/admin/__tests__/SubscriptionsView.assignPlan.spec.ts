@@ -9,6 +9,7 @@ const {
   getAllGroups,
   searchUsers,
   getPlans,
+  bulkResetQuota,
   showSuccess,
   showError
 } = vi.hoisted(() => ({
@@ -17,6 +18,7 @@ const {
   getAllGroups: vi.fn(),
   searchUsers: vi.fn(),
   getPlans: vi.fn(),
+  bulkResetQuota: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn()
 }))
@@ -28,7 +30,8 @@ vi.mock('@/api/admin', () => ({
       assign: assignSubscription,
       extend: vi.fn(),
       revoke: vi.fn(),
-      resetQuota: vi.fn()
+      resetQuota: vi.fn(),
+      bulkResetQuota
     },
     groups: {
       getAll: getAllGroups
@@ -93,7 +96,28 @@ const mountSubscriptionsView = () =>
         TablePageLayout: {
           template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
         },
-        DataTable: { template: '<div></div>' },
+        DataTable: {
+          props: ['columns', 'data'],
+          template: `
+            <table>
+              <thead>
+                <tr>
+                  <th v-for="col in columns" :key="col.key">
+                    <slot :name="'header-' + col.key" />
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in data" :key="row.id">
+                  <td v-for="col in columns" :key="col.key">
+                    <slot :name="'cell-' + col.key" :row="row" :value="row[col.key]" />
+                  </td>
+                </tr>
+              </tbody>
+              <slot v-if="!data || data.length === 0" name="empty" />
+            </table>
+          `
+        },
         Pagination: true,
         BaseDialog: { template: '<div v-if="show"><slot /><slot name="footer" /></div>', props: ['show'] },
         ConfirmDialog: true,
@@ -118,6 +142,7 @@ describe('admin SubscriptionsView plan assignment', () => {
     getAllGroups.mockReset()
     searchUsers.mockReset()
     getPlans.mockReset()
+    bulkResetQuota.mockReset()
     showSuccess.mockReset()
     showError.mockReset()
 
@@ -163,6 +188,12 @@ describe('admin SubscriptionsView plan assignment', () => {
       { id: 1001, email: 'target@example.com', username: 'target' }
     ])
     assignSubscription.mockResolvedValue({ id: 1 })
+    bulkResetQuota.mockResolvedValue({
+      success_count: 1,
+      failed_count: 0,
+      subscriptions: [],
+      errors: []
+    })
   })
 
   it('assigns a selected subscription plan instead of group validity fields', async () => {
@@ -190,5 +221,170 @@ describe('admin SubscriptionsView plan assignment', () => {
       })
     )
     expect(showError).not.toHaveBeenCalled()
+  })
+
+  it('resets all currently filtered subscriptions with selected rolling windows', async () => {
+    listSubscriptions.mockResolvedValue({
+      items: [
+        {
+          id: 55,
+          user_id: 1001,
+          group_id: 2,
+          status: 'active',
+          starts_at: '2026-01-01T00:00:00Z',
+          expires_at: '2026-02-01T00:00:00Z',
+          five_hour_limit_usd: 5,
+          seven_day_limit_usd: 70,
+          thirty_day_limit_usd: 300,
+          five_hour_usage_usd: 1,
+          seven_day_usage_usd: 2,
+          thirty_day_usage_usd: 3,
+          five_hour_window_start: '2026-01-01T00:00:00Z',
+          seven_day_window_start: '2026-01-01T00:00:00Z',
+          thirty_day_window_start: '2026-01-01T00:00:00Z',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+          user: { id: 1001, email: 'target@example.com', username: 'target' },
+          group: {
+            id: 2,
+            name: 'Codex Plus Group',
+            platform: 'openai',
+            subscription_type: 'subscription',
+            status: 'active',
+            rate_multiplier: 1
+          }
+        }
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+    const wrapper = mountSubscriptionsView()
+
+    await flushPromises()
+    await wrapper.get('[data-test="reset-filtered-quota-open"]').trigger('click')
+    await wrapper.get('[data-test="reset-window-seven-day"]').setValue(false)
+    await wrapper.get('[data-test="reset-quota-confirm"]').trigger('click')
+    await flushPromises()
+
+    expect(bulkResetQuota).toHaveBeenCalledWith({
+      five_hour: true,
+      seven_day: false,
+      thirty_day: true,
+      all_filtered: true,
+      subscription_ids: undefined,
+      filter: {
+        status: 'active',
+        group_id: undefined,
+        platform: undefined,
+        user_id: undefined,
+        sort_by: 'created_at',
+        sort_order: 'desc'
+      }
+    })
+  })
+
+  it('sends only the selected five-hour reset window for filtered subscriptions', async () => {
+    listSubscriptions.mockResolvedValue({
+      items: [
+        {
+          id: 56,
+          user_id: 1001,
+          group_id: 2,
+          status: 'active',
+          starts_at: '2026-01-01T00:00:00Z',
+          expires_at: '2026-02-01T00:00:00Z',
+          five_hour_limit_usd: 5,
+          seven_day_limit_usd: 70,
+          thirty_day_limit_usd: 300,
+          five_hour_usage_usd: 1,
+          seven_day_usage_usd: 2,
+          thirty_day_usage_usd: 3,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+          user: { id: 1001, email: 'target@example.com', username: 'target' },
+          group: {
+            id: 2,
+            name: 'Codex Plus Group',
+            platform: 'openai',
+            subscription_type: 'subscription',
+            status: 'active',
+            rate_multiplier: 1
+          }
+        }
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+    const wrapper = mountSubscriptionsView()
+
+    await flushPromises()
+    await wrapper.get('[data-test="reset-filtered-quota-open"]').trigger('click')
+    await wrapper.get('[data-test="reset-window-seven-day"]').setValue(false)
+    await wrapper.get('[data-test="reset-window-thirty-day"]').setValue(false)
+    await wrapper.get('[data-test="reset-quota-confirm"]').trigger('click')
+    await flushPromises()
+
+    expect(bulkResetQuota).toHaveBeenCalledWith(expect.objectContaining({
+      five_hour: true,
+      seven_day: false,
+      thirty_day: false,
+      all_filtered: true,
+      subscription_ids: undefined
+    }))
+  })
+
+  it('does not show success toast after partial bulk reset failure', async () => {
+    listSubscriptions.mockResolvedValue({
+      items: [
+        {
+          id: 57,
+          user_id: 1001,
+          group_id: 2,
+          status: 'active',
+          starts_at: '2026-01-01T00:00:00Z',
+          expires_at: '2026-02-01T00:00:00Z',
+          five_hour_limit_usd: 5,
+          seven_day_limit_usd: 70,
+          thirty_day_limit_usd: 300,
+          five_hour_usage_usd: 1,
+          seven_day_usage_usd: 2,
+          thirty_day_usage_usd: 3,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+          user: { id: 1001, email: 'target@example.com', username: 'target' },
+          group: {
+            id: 2,
+            name: 'Codex Plus Group',
+            platform: 'openai',
+            subscription_type: 'subscription',
+            status: 'active',
+            rate_multiplier: 1
+          }
+        }
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+    bulkResetQuota.mockResolvedValueOnce({
+      success_count: 1,
+      failed_count: 1,
+      subscriptions: [],
+      errors: ['subscription 999: not found']
+    })
+    const wrapper = mountSubscriptionsView()
+
+    await flushPromises()
+    await wrapper.get('[data-test="reset-filtered-quota-open"]').trigger('click')
+    await wrapper.get('[data-test="reset-quota-confirm"]').trigger('click')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith('admin.subscriptions.quotaResetPartialSuccess')
+    expect(showSuccess).not.toHaveBeenCalledWith('admin.subscriptions.quotaResetSuccess')
   })
 })

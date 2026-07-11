@@ -12,6 +12,17 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
+// CacheMissError marks backend cache misses without tying service code to a cache implementation package.
+type CacheMissError interface {
+	error
+	CacheMiss() bool
+}
+
+func IsCacheMissError(err error) bool {
+	var miss CacheMissError
+	return errors.As(err, &miss) && miss.CacheMiss()
+}
+
 // APIKeyRateLimitCacheData holds rate limit usage data cached in Redis.
 type APIKeyRateLimitCacheData struct {
 	Usage5h  float64 `json:"usage_5h"`
@@ -142,6 +153,58 @@ func hasBillableTokenPricing(pricing *ModelPricing) bool {
 		pricing.CacheCreation5mPrice > 0 ||
 		pricing.CacheCreation1hPrice > 0 ||
 		pricing.ImageOutputPricePerToken > 0
+}
+
+func hasTokenPricingForUsage(pricing *ModelPricing, tokens UsageTokens) bool {
+	if pricing == nil {
+		return false
+	}
+	if tokens.InputTokens == 0 && tokens.OutputTokens == 0 &&
+		tokens.CacheCreationTokens == 0 && tokens.CacheCreation5mTokens == 0 && tokens.CacheCreation1hTokens == 0 &&
+		tokens.CacheReadTokens == 0 && tokens.ImageOutputTokens == 0 {
+		return true
+	}
+
+	if tokens.InputTokens > 0 {
+		imageInputTokens := tokens.ImageInputTokens
+		if imageInputTokens > tokens.InputTokens {
+			imageInputTokens = tokens.InputTokens
+		}
+		textInputTokens := tokens.InputTokens - imageInputTokens
+		if textInputTokens > 0 && pricing.InputPricePerToken <= 0 && pricing.InputPricePerTokenPriority <= 0 {
+			return false
+		}
+		if imageInputTokens > 0 && pricing.ImageInputPricePerToken <= 0 &&
+			pricing.InputPricePerToken <= 0 && pricing.InputPricePerTokenPriority <= 0 {
+			return false
+		}
+	}
+
+	if tokens.OutputTokens > 0 {
+		imageOutputTokens := tokens.ImageOutputTokens
+		if imageOutputTokens > tokens.OutputTokens {
+			imageOutputTokens = tokens.OutputTokens
+		}
+		textOutputTokens := tokens.OutputTokens - imageOutputTokens
+		if textOutputTokens > 0 && pricing.OutputPricePerToken <= 0 && pricing.OutputPricePerTokenPriority <= 0 {
+			return false
+		}
+		if imageOutputTokens > 0 && pricing.ImageOutputPricePerToken <= 0 && !pricing.ImageOutputPriceExplicit &&
+			pricing.OutputPricePerToken <= 0 && pricing.OutputPricePerTokenPriority <= 0 {
+			return false
+		}
+	}
+
+	if tokens.CacheCreationTokens > 0 || tokens.CacheCreation5mTokens > 0 || tokens.CacheCreation1hTokens > 0 {
+		if pricing.CacheCreationPricePerToken <= 0 && pricing.CacheCreationPricePerTokenPriority <= 0 &&
+			pricing.CacheCreation5mPrice <= 0 && pricing.CacheCreation1hPrice <= 0 && !pricing.CacheCreationPriceExplicit {
+			return false
+		}
+	}
+	if tokens.CacheReadTokens > 0 && pricing.CacheReadPricePerToken <= 0 && pricing.CacheReadPricePerTokenPriority <= 0 {
+		return false
+	}
+	return true
 }
 
 func tokenPricingUnavailableError(model string) error {
@@ -777,8 +840,19 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 // GetModelPricing 获取模型价格配置
 func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	model = strings.ToLower(strings.TrimSpace(model))
-	for _, candidate := range billingModelPricingCandidates(model) {
-		if pricing, ok := s.getModelPricingExact(candidate); ok {
+	candidates := billingModelPricingCandidates(model)
+
+	// Prefer dynamic pricing across every canonical/alias candidate before falling
+	// back to built-in prices. This keeps OpenCode Go aliases such as
+	// kimi-k2.7-code tied to the official kimi-k2.7 catalog price instead of being
+	// swallowed by the broader kimi-k2 fallback on the raw alias.
+	for _, candidate := range candidates {
+		if pricing, ok := s.getDynamicModelPricingExact(candidate); ok {
+			return pricing, nil
+		}
+	}
+	for _, candidate := range candidates {
+		if pricing, ok := s.getFallbackModelPricingExact(candidate); ok {
 			return pricing, nil
 		}
 	}
@@ -786,57 +860,59 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
 }
 
-func (s *BillingService) getModelPricingExact(model string) (*ModelPricing, bool) {
-	// 1. 优先从动态价格服务获取
-	if s.pricingService != nil {
-		litellmPricing := s.pricingService.GetModelPricing(model)
-		// 仅有图片价、无 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
-		// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 fallback，
-		// 无 fallback 则 fail-closed（ErrModelPricingUnavailable）。
-		// 图片计费路径（getDefaultImagePrice / getImageUnitPrice）直接读
-		// PricingService，不受影响。
-		if litellmPricing != nil && litellmPricing.TokenPricingAbsent {
-			litellmPricing = nil
-		}
-		if litellmPricing != nil {
-			// 启用 5m/1h 分类计费的条件：
-			// 1. 存在 1h 价格
-			// 2. 1h 价格 > 5m 价格（防止 LiteLLM 数据错误导致少收费）
-			price5m := litellmPricing.CacheCreationInputTokenCost
-			price1h := litellmPricing.CacheCreationInputTokenCostAbove1hr
-			enableBreakdown := price1h > 0 && price1h > price5m
-			return s.applyModelSpecificPricingPolicy(model, &ModelPricing{
-				InputPricePerToken:                 litellmPricing.InputCostPerToken,
-				InputPricePerTokenPriority:         litellmPricing.InputCostPerTokenPriority,
-				OutputPricePerToken:                litellmPricing.OutputCostPerToken,
-				OutputPricePerTokenPriority:        litellmPricing.OutputCostPerTokenPriority,
-				CacheCreationPricePerToken:         litellmPricing.CacheCreationInputTokenCost,
-				CacheCreationPricePerTokenPriority: litellmPricing.CacheCreationInputTokenCostPriority,
-				CacheReadPricePerToken:             litellmPricing.CacheReadInputTokenCost,
-				CacheReadPricePerTokenPriority:     litellmPricing.CacheReadInputTokenCostPriority,
-				CacheCreation5mPrice:               price5m,
-				CacheCreation1hPrice:               price1h,
-				SupportsCacheBreakdown:             enableBreakdown,
-				LongContextInputThreshold:          litellmPricing.LongContextInputTokenThreshold,
-				LongContextInputMultiplier:         litellmPricing.LongContextInputCostMultiplier,
-				LongContextOutputMultiplier:        litellmPricing.LongContextOutputCostMultiplier,
-				ImageOutputPricePerToken:           litellmPricing.OutputCostPerImageToken,
-			}), true
-		}
+func (s *BillingService) getDynamicModelPricingExact(model string) (*ModelPricing, bool) {
+	if s.pricingService == nil {
+		return nil, false
+	}
+	litellmPricing := s.pricingService.GetModelPricing(model)
+	// 仅有图片价、无 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
+	// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 fallback，
+	// 无 fallback 则 fail-closed（ErrModelPricingUnavailable）。
+	// 图片计费路径（getDefaultImagePrice / getImageUnitPrice）直接读
+	// PricingService，不受影响。
+	if litellmPricing != nil && litellmPricing.TokenPricingAbsent {
+		litellmPricing = nil
+	}
+	if litellmPricing == nil {
+		return nil, false
 	}
 
-	// 2. 使用硬编码回退价格
+	// 启用 5m/1h 分类计费的条件：
+	// 1. 存在 1h 价格
+	// 2. 1h 价格 > 5m 价格（防止 LiteLLM 数据错误导致少收费）
+	price5m := litellmPricing.CacheCreationInputTokenCost
+	price1h := litellmPricing.CacheCreationInputTokenCostAbove1hr
+	enableBreakdown := price1h > 0 && price1h > price5m
+	return s.applyModelSpecificPricingPolicy(model, &ModelPricing{
+		InputPricePerToken:                 litellmPricing.InputCostPerToken,
+		InputPricePerTokenPriority:         litellmPricing.InputCostPerTokenPriority,
+		OutputPricePerToken:                litellmPricing.OutputCostPerToken,
+		OutputPricePerTokenPriority:        litellmPricing.OutputCostPerTokenPriority,
+		CacheCreationPricePerToken:         litellmPricing.CacheCreationInputTokenCost,
+		CacheCreationPricePerTokenPriority: litellmPricing.CacheCreationInputTokenCostPriority,
+		CacheReadPricePerToken:             litellmPricing.CacheReadInputTokenCost,
+		CacheReadPricePerTokenPriority:     litellmPricing.CacheReadInputTokenCostPriority,
+		CacheCreation5mPrice:               price5m,
+		CacheCreation1hPrice:               price1h,
+		SupportsCacheBreakdown:             enableBreakdown,
+		LongContextInputThreshold:          litellmPricing.LongContextInputTokenThreshold,
+		LongContextInputMultiplier:         litellmPricing.LongContextInputCostMultiplier,
+		LongContextOutputMultiplier:        litellmPricing.LongContextOutputCostMultiplier,
+		ImageOutputPricePerToken:           litellmPricing.OutputCostPerImageToken,
+	}), true
+}
+
+func (s *BillingService) getFallbackModelPricingExact(model string) (*ModelPricing, bool) {
 	fallback := s.getFallbackPricing(model)
-	if fallback != nil {
-		// 按模型名去重:每个模型每进程最多打一条 warn,避免热路径每请求刷屏（issue #3394）。
-		// model 在函数入口已 ToLower,故 GLM-5.2 / glm-5.2 视为同一条目。
-		if _, seen := s.fallbackWarnSeen.LoadOrStore(model, struct{}{}); !seen {
-			log.Printf("[Billing] Using fallback pricing for model: %s", model)
-		}
-		return s.applyModelSpecificPricingPolicy(model, fallback), true
+	if fallback == nil {
+		return nil, false
 	}
-
-	return nil, false
+	// 按模型名去重:每个模型每进程最多打一条 warn,避免热路径每请求刷屏（issue #3394）。
+	// model 在函数入口已 ToLower,故 GLM-5.2 / glm-5.2 视为同一条目。
+	if _, seen := s.fallbackWarnSeen.LoadOrStore(model, struct{}{}); !seen {
+		log.Printf("[Billing] Using fallback pricing for model: %s", model)
+	}
+	return s.applyModelSpecificPricingPolicy(model, fallback), true
 }
 
 // GetModelPricingWithChannel 获取模型定价，渠道配置的价格覆盖默认值
@@ -943,11 +1019,11 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	if pricing == nil {
 		return nil, fmt.Errorf("no pricing available for model: %s: %w", input.Model, ErrModelPricingUnavailable)
 	}
-	if !hasBillableTokenPricing(pricing) {
-		return nil, tokenPricingUnavailableError(input.Model)
-	}
 
 	pricing = s.applyModelSpecificPricingPolicy(input.Model, pricing)
+	if !hasTokenPricingForUsage(pricing, input.Tokens) {
+		return nil, tokenPricingUnavailableError(input.Model)
+	}
 
 	// 长上下文定价仅在无区间定价时应用（区间定价已包含上下文分层）
 	applyLongCtx := len(resolved.Intervals) == 0

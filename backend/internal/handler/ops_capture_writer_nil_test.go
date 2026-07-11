@@ -30,6 +30,9 @@ func TestOpsCaptureWriter_NilInnerWriter_NoPanic(t *testing.T) {
 		assert.NoError(t, err)
 	})
 	assert.NotPanics(t, func() {
+		assert.Nil(t, w.Unwrap())
+	})
+	assert.NotPanics(t, func() {
 		h := w.Header()
 		assert.NotNil(t, h)
 	})

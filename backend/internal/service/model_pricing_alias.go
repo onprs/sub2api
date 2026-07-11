@@ -30,10 +30,27 @@ func billingModelPricingCandidates(model string) []string {
 		return nil
 	}
 
-	candidates := []string{raw}
+	seen := make(map[string]struct{}, 6)
+	candidates := make([]string, 0, 6)
+	add := func(candidate string) {
+		candidate = strings.ToLower(strings.TrimSpace(candidate))
+		if candidate == "" {
+			return
+		}
+		if _, ok := seen[candidate]; ok {
+			return
+		}
+		seen[candidate] = struct{}{}
+		candidates = append(candidates, candidate)
+	}
+
+	add(raw)
+	lookupKey := billingModelAliasLookupKey(raw)
+	add(lookupKey)
 	canonical := canonicalBillingModelForPricing(raw)
-	if canonical != "" && canonical != raw {
-		candidates = append(candidates, canonical)
+	add(canonical)
+	if lookupKey != "" {
+		add(canonicalBillingModelForPricing(lookupKey))
 	}
 	return candidates
 }

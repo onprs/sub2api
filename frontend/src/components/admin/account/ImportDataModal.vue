@@ -314,6 +314,10 @@ const handleImport = async () => {
       dataPayloads.push(parsed)
     }
     const dataPayload = mergeDataPayloads(dataPayloads)
+    const opencodeGoNames = dataPayload.accounts
+      .filter(account => account.platform === 'opencode_go')
+      .map(account => account.name)
+      .filter((name): name is string => !!name)
 
     const res = await adminAPI.accounts.importData({
       data: dataPayload,

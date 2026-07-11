@@ -764,23 +764,34 @@ func UserSubscriptionFromServiceAdmin(sub *service.UserSubscription) *AdminUserS
 
 func userSubscriptionFromServiceBase(sub *service.UserSubscription) UserSubscription {
 	return UserSubscription{
-		ID:                 sub.ID,
-		UserID:             sub.UserID,
-		GroupID:            sub.GroupID,
-		StartsAt:           sub.StartsAt,
-		ExpiresAt:          sub.ExpiresAt,
-		Status:             sub.Status,
-		DailyWindowStart:   sub.DailyWindowStart,
-		WeeklyWindowStart:  sub.WeeklyWindowStart,
-		MonthlyWindowStart: sub.MonthlyWindowStart,
-		DailyUsageUSD:      sub.DailyUsageUSD,
-		WeeklyUsageUSD:     sub.WeeklyUsageUSD,
-		MonthlyUsageUSD:    sub.MonthlyUsageUSD,
-		CreatedAt:          sub.CreatedAt,
-		UpdatedAt:          sub.UpdatedAt,
-		RevokedAt:          sub.DeletedAt,
-		User:               UserFromServiceShallow(sub.User),
-		Group:              GroupFromServiceShallow(sub.Group),
+		ID:                   sub.ID,
+		UserID:               sub.UserID,
+		GroupID:              sub.GroupID,
+		PlanID:               sub.PlanID,
+		PlanName:             sub.PlanName,
+		StartsAt:             sub.StartsAt,
+		ExpiresAt:            sub.ExpiresAt,
+		Status:               sub.Status,
+		FiveHourLimitUSD:     sub.FiveHourLimitUSD,
+		SevenDayLimitUSD:     sub.SevenDayLimitUSD,
+		ThirtyDayLimitUSD:    sub.ThirtyDayLimitUSD,
+		DailyWindowStart:     sub.DailyWindowStart,
+		WeeklyWindowStart:    sub.WeeklyWindowStart,
+		MonthlyWindowStart:   sub.MonthlyWindowStart,
+		FiveHourWindowStart:  sub.FiveHourWindowStart,
+		SevenDayWindowStart:  sub.SevenDayWindowStart,
+		ThirtyDayWindowStart: sub.ThirtyDayWindowStart,
+		DailyUsageUSD:        sub.DailyUsageUSD,
+		WeeklyUsageUSD:       sub.WeeklyUsageUSD,
+		MonthlyUsageUSD:      sub.MonthlyUsageUSD,
+		FiveHourUsageUSD:     sub.FiveHourUsageUSD,
+		SevenDayUsageUSD:     sub.SevenDayUsageUSD,
+		ThirtyDayUsageUSD:    sub.ThirtyDayUsageUSD,
+		CreatedAt:            sub.CreatedAt,
+		UpdatedAt:            sub.UpdatedAt,
+		RevokedAt:            sub.DeletedAt,
+		User:                 UserFromServiceShallow(sub.User),
+		Group:                GroupFromServiceShallow(sub.Group),
 	}
 }
 
@@ -803,6 +814,28 @@ func BulkAssignResultFromService(r *service.BulkAssignResult) *BulkAssignResult 
 		FailedCount:   r.FailedCount,
 		Subscriptions: subs,
 		Errors:        r.Errors,
+		Statuses:      statuses,
+	}
+}
+
+func BulkResetQuotaResultFromService(r *service.BulkResetQuotaResult) *BulkResetQuotaResult {
+	if r == nil {
+		return nil
+	}
+	subs := make([]AdminUserSubscription, 0, len(r.Subscriptions))
+	for i := range r.Subscriptions {
+		subs = append(subs, *UserSubscriptionFromServiceAdmin(&r.Subscriptions[i]))
+	}
+	statuses := make(map[string]string, len(r.Statuses))
+	for subscriptionID, status := range r.Statuses {
+		statuses[strconv.FormatInt(subscriptionID, 10)] = status
+	}
+	return &BulkResetQuotaResult{
+		SuccessCount:  r.SuccessCount,
+		FailedCount:   r.FailedCount,
+		Subscriptions: subs,
+		Errors:        r.Errors,
+		Warnings:      r.Warnings,
 		Statuses:      statuses,
 	}
 }

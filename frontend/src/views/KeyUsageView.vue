@@ -424,6 +424,12 @@ import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { buildGatewayUrl } from '@/api/client'
 import { sanitizeUrl } from '@/utils/url'
+import {
+  effectiveWindowEnd,
+  formatUsdLimit,
+  rollingQuotaWindows,
+  windowEndsBySubscriptionExpiry,
+} from '@/utils/rollingQuota'
 
 const { t, locale } = useI18n()
 const appStore = useAppStore()

@@ -145,6 +145,9 @@ func TestSimpleModeBypassesQuotaCheck(t *testing.T) {
 		fresh.WeeklyWindowStart = &current
 		fresh.MonthlyWindowStart = &current
 		fresh.DailyUsageUSD = 2
+		fresh.FiveHourLimitUSD = &limit
+		fresh.FiveHourWindowStart = &current
+		fresh.FiveHourUsageUSD = limit
 
 		subscriptionRepo := &stubUserSubscriptionRepo{
 			getActive: func(context.Context, int64, int64) (*service.UserSubscription, error) {
@@ -254,6 +257,9 @@ func TestSimpleModeBypassesQuotaCheck(t *testing.T) {
 			Status:              service.SubscriptionStatusActive,
 			StartsAt:            now.Add(-24 * time.Hour),
 			ExpiresAt:           now.Add(24 * time.Hour),
+			DailyWindowStart:    &now,
+			WeeklyWindowStart:   &now,
+			MonthlyWindowStart:  &now,
 			FiveHourLimitUSD:    &limit,
 			FiveHourWindowStart: &now,
 			FiveHourUsageUSD:    limit,
@@ -266,6 +272,9 @@ func TestSimpleModeBypassesQuotaCheck(t *testing.T) {
 			Status:              service.SubscriptionStatusActive,
 			StartsAt:            now.Add(-24 * time.Hour),
 			ExpiresAt:           now.Add(48 * time.Hour),
+			DailyWindowStart:    &now,
+			WeeklyWindowStart:   &now,
+			MonthlyWindowStart:  &now,
 			FiveHourLimitUSD:    &limit,
 			FiveHourWindowStart: &now,
 			FiveHourUsageUSD:    0,
@@ -1454,11 +1463,19 @@ func (r *stubUserSubscriptionRepo) ExistsByUserIDAndGroupID(ctx context.Context,
 	return false, errors.New("not implemented")
 }
 
+func (r *stubUserSubscriptionRepo) ExistsByUserIDGroupIDAndPlanID(ctx context.Context, userID, groupID int64, planID *int64) (bool, error) {
+	return false, errors.New("not implemented")
+}
+
 func (r *stubUserSubscriptionRepo) ExistsActiveByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (bool, error) {
 	return false, errors.New("not implemented")
 }
 
 func (r *stubUserSubscriptionRepo) ExtendExpiry(ctx context.Context, subscriptionID int64, newExpiresAt time.Time) error {
+	return errors.New("not implemented")
+}
+
+func (r *stubUserSubscriptionRepo) RenewTerm(ctx context.Context, input *service.RenewSubscriptionTermInput) error {
 	return errors.New("not implemented")
 }
 
@@ -1519,6 +1536,10 @@ func (r *stubUserSubscriptionRepo) ResetSevenDayUsage(ctx context.Context, id in
 
 func (r *stubUserSubscriptionRepo) ResetThirtyDayUsage(ctx context.Context, id int64, newWindowStart time.Time) error {
 	return errors.New("not implemented")
+}
+
+func (r *stubUserSubscriptionRepo) ListIDs(ctx context.Context, params pagination.PaginationParams, userID, groupID *int64, status, platform, sortBy, sortOrder string) ([]int64, *pagination.PaginationResult, error) {
+	return nil, nil, errors.New("not implemented")
 }
 
 func (r *stubUserSubscriptionRepo) IncrementUsage(ctx context.Context, id int64, costUSD float64) error {

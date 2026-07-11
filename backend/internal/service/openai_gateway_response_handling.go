@@ -758,6 +758,7 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 	}
 	cacheReadTokens := openAICacheReadTokensFromUsage(value)
 	cacheCreationTokens := openAICacheCreationTokensFromUsage(value)
+	cacheCreation5mTokens, cacheCreation1hTokens := openAICacheCreationBreakdownTokensFromUsage(value)
 	imageOutputTokens := value.Get("output_tokens_details.image_tokens").Int()
 	if imageOutputTokens == 0 {
 		imageOutputTokens = value.Get("completion_tokens_details.image_tokens").Int()
@@ -767,6 +768,8 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 		OutputTokens:             int(outputTokens),
 		CacheCreationInputTokens: cacheCreationTokens,
 		CacheReadInputTokens:     cacheReadTokens,
+		CacheCreation5mTokens:    cacheCreation5mTokens,
+		CacheCreation1hTokens:    cacheCreation1hTokens,
 		ImageOutputTokens:        int(imageOutputTokens),
 	}, true
 }
@@ -800,12 +803,36 @@ func openAICacheCreationTokensFromUsage(value gjson.Result) int {
 		}
 	}
 
+	if fiveMinute, oneHour := openAICacheCreationBreakdownTokensFromUsage(value); fiveMinute > 0 || oneHour > 0 {
+		return fiveMinute + oneHour
+	}
+
 	return firstPositiveGJSONInt(
 		value.Get("cache_write_tokens"),
 		value.Get("cache_creation_input_tokens"),
 		value.Get("cache_write_input_tokens"),
 		value.Get("cache_creation_tokens"),
 	)
+}
+
+func openAICacheCreationBreakdownTokensFromUsage(value gjson.Result) (int, int) {
+	fiveMinute := firstPositiveGJSONInt(
+		value.Get("cache_creation.ephemeral_5m_input_tokens"),
+		value.Get("input_tokens_details.cache_creation.ephemeral_5m_input_tokens"),
+		value.Get("prompt_tokens_details.cache_creation.ephemeral_5m_input_tokens"),
+		value.Get("cache_creation_5m_tokens"),
+		value.Get("cache_creation_5m_input_tokens"),
+		value.Get("ephemeral_5m_input_tokens"),
+	)
+	oneHour := firstPositiveGJSONInt(
+		value.Get("cache_creation.ephemeral_1h_input_tokens"),
+		value.Get("input_tokens_details.cache_creation.ephemeral_1h_input_tokens"),
+		value.Get("prompt_tokens_details.cache_creation.ephemeral_1h_input_tokens"),
+		value.Get("cache_creation_1h_tokens"),
+		value.Get("cache_creation_1h_input_tokens"),
+		value.Get("ephemeral_1h_input_tokens"),
+	)
+	return fiveMinute, oneHour
 }
 
 func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, originalModel, mappedModel string) (*openaiNonStreamingResult, error) {

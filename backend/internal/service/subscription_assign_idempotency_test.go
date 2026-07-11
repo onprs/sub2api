@@ -193,6 +193,9 @@ func (userSubRepoNoop) ResetSevenDayUsage(context.Context, int64, time.Time) err
 func (userSubRepoNoop) ResetThirtyDayUsage(context.Context, int64, time.Time) error {
 	panic("unexpected ResetThirtyDayUsage call")
 }
+func (userSubRepoNoop) ListIDs(context.Context, pagination.PaginationParams, *int64, *int64, string, string, string, string) ([]int64, *pagination.PaginationResult, error) {
+	panic("unexpected ListIDs call")
+}
 func (userSubRepoNoop) IncrementUsage(context.Context, int64, float64) error {
 	panic("unexpected IncrementUsage call")
 }

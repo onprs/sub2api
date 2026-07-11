@@ -8,6 +8,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
+	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -350,6 +351,55 @@ func (r *userSubscriptionRepository) ListByGroupID(ctx context.Context, groupID 
 }
 
 func (r *userSubscriptionRepository) List(ctx context.Context, params pagination.PaginationParams, userID, groupID *int64, status, platform, sortBy, sortOrder string) ([]service.UserSubscription, *pagination.PaginationResult, error) {
+	queryCtx, q := r.buildListQuery(ctx, userID, groupID, status, platform)
+
+	total, err := q.Clone().Count(queryCtx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	includeSoftDeleted := status == "" || status == service.SubscriptionStatusRevoked
+	if !includeSoftDeleted {
+		q = q.WithUser().WithGroup().WithPlan().WithAssignedByUser()
+	}
+
+	q = orderUserSubscriptionQuery(q, sortBy, sortOrder)
+
+	subs, err := q.
+		Offset(params.Offset()).
+		Limit(params.Limit()).
+		All(queryCtx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result := userSubscriptionEntitiesToService(subs)
+	if includeSoftDeleted {
+		if err := r.attachUserSubscriptionRelations(ctx, result); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return result, paginationResultFromTotal(int64(total), params), nil
+}
+
+func (r *userSubscriptionRepository) ListIDs(ctx context.Context, params pagination.PaginationParams, userID, groupID *int64, status, platform, sortBy, sortOrder string) ([]int64, *pagination.PaginationResult, error) {
+	queryCtx, q := r.buildListQuery(ctx, userID, groupID, status, platform)
+	total, err := q.Clone().Count(queryCtx)
+	if err != nil {
+		return nil, nil, err
+	}
+	ids, err := orderUserSubscriptionQuery(q, sortBy, sortOrder).
+		Offset(params.Offset()).
+		Limit(params.Limit()).
+		IDs(queryCtx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return ids, paginationResultFromTotal(int64(total), params), nil
+}
+
+func (r *userSubscriptionRepository) buildListQuery(ctx context.Context, userID, groupID *int64, status, platform string) (context.Context, *dbent.UserSubscriptionQuery) {
 	client := clientFromContext(ctx, r.client)
 	q := client.UserSubscription.Query()
 	includeSoftDeleted := status == "" || status == service.SubscriptionStatusRevoked
@@ -401,16 +451,10 @@ func (r *userSubscriptionRepository) List(ctx context.Context, params pagination
 	if includeSoftDeleted {
 		queryCtx = mixins.SkipSoftDelete(ctx)
 	}
+	return queryCtx, q
+}
 
-	total, err := q.Clone().Count(queryCtx)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if !includeSoftDeleted {
-		q = q.WithUser().WithGroup().WithAssignedByUser()
-	}
-
+func orderUserSubscriptionQuery(q *dbent.UserSubscriptionQuery, sortBy, sortOrder string) *dbent.UserSubscriptionQuery {
 	// Determine sort field
 	var field string
 	switch sortBy {
@@ -424,27 +468,9 @@ func (r *userSubscriptionRepository) List(ctx context.Context, params pagination
 
 	// Determine sort order (default: desc)
 	if sortOrder == "asc" && sortBy != "" {
-		q = q.Order(dbent.Asc(field))
-	} else {
-		q = q.Order(dbent.Desc(field))
+		return q.Order(dbent.Asc(field))
 	}
-
-	subs, err := q.
-		Offset(params.Offset()).
-		Limit(params.Limit()).
-		All(queryCtx)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	result := userSubscriptionEntitiesToService(subs)
-	if includeSoftDeleted {
-		if err := r.attachUserSubscriptionRelations(ctx, result); err != nil {
-			return nil, nil, err
-		}
-	}
-
-	return result, paginationResultFromTotal(int64(total), params), nil
+	return q.Order(dbent.Desc(field))
 }
 
 func (r *userSubscriptionRepository) ExistsByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (bool, error) {
@@ -560,13 +586,6 @@ func (r *userSubscriptionRepository) UpdateRollingQuotaSnapshot(ctx context.Cont
 	return translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
 }
 
-func nullableFloatArg(v *float64) any {
-	if v == nil {
-		return nil
-	}
-	return *v
-}
-
 func (r *userSubscriptionRepository) ActivateWindows(ctx context.Context, id int64, start time.Time) error {
 	client := clientFromContext(ctx, r.client)
 	_, err := client.UserSubscription.UpdateOneID(id).
@@ -578,6 +597,9 @@ func (r *userSubscriptionRepository) ActivateWindows(ctx context.Context, id int
 }
 
 func (r *userSubscriptionRepository) ResetUsageWindows(ctx context.Context, id int64, resetDaily, resetWeekly, resetMonthly bool, newWindowStart time.Time) error {
+	if !resetDaily && !resetWeekly && !resetMonthly {
+		return nil
+	}
 	client := clientFromContext(ctx, r.client)
 	update := client.UserSubscription.UpdateOneID(id)
 	if resetDaily {
@@ -594,30 +616,67 @@ func (r *userSubscriptionRepository) ResetUsageWindows(ctx context.Context, id i
 }
 
 func (r *userSubscriptionRepository) ResetFiveHourUsage(ctx context.Context, id int64, newWindowStart time.Time) error {
-	client := clientFromContext(ctx, r.client)
-	_, err := client.UserSubscription.UpdateOneID(id).
-		SetFiveHourUsageUsd(0).
-		SetFiveHourWindowStart(newWindowStart).
-		Save(ctx)
-	return translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+	const updateSQL = `
+		UPDATE user_subscriptions
+		SET
+			seven_day_usage_usd = GREATEST(seven_day_usage_usd - five_hour_usage_usd, 0),
+			thirty_day_usage_usd = GREATEST(thirty_day_usage_usd - five_hour_usage_usd, 0),
+			five_hour_usage_usd = 0,
+			five_hour_window_start = $2,
+			updated_at = $2
+		WHERE id = $1
+			AND deleted_at IS NULL
+	`
+	return r.execResetUsageSQL(ctx, updateSQL, id, newWindowStart)
 }
 
 func (r *userSubscriptionRepository) ResetSevenDayUsage(ctx context.Context, id int64, newWindowStart time.Time) error {
-	client := clientFromContext(ctx, r.client)
-	_, err := client.UserSubscription.UpdateOneID(id).
-		SetSevenDayUsageUsd(0).
-		SetSevenDayWindowStart(newWindowStart).
-		Save(ctx)
-	return translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+	const updateSQL = `
+		UPDATE user_subscriptions
+		SET
+			thirty_day_usage_usd = GREATEST(thirty_day_usage_usd - seven_day_usage_usd, 0),
+			five_hour_usage_usd = 0,
+			seven_day_usage_usd = 0,
+			five_hour_window_start = $2,
+			seven_day_window_start = $2,
+			updated_at = $2
+		WHERE id = $1
+			AND deleted_at IS NULL
+	`
+	return r.execResetUsageSQL(ctx, updateSQL, id, newWindowStart)
 }
 
 func (r *userSubscriptionRepository) ResetThirtyDayUsage(ctx context.Context, id int64, newWindowStart time.Time) error {
+	const updateSQL = `
+		UPDATE user_subscriptions
+		SET
+			five_hour_usage_usd = 0,
+			seven_day_usage_usd = 0,
+			thirty_day_usage_usd = 0,
+			five_hour_window_start = $2,
+			seven_day_window_start = $2,
+			thirty_day_window_start = $2,
+			updated_at = $2
+		WHERE id = $1
+			AND deleted_at IS NULL
+	`
+	return r.execResetUsageSQL(ctx, updateSQL, id, newWindowStart)
+}
+
+func (r *userSubscriptionRepository) execResetUsageSQL(ctx context.Context, query string, id int64, newWindowStart time.Time) error {
 	client := clientFromContext(ctx, r.client)
-	_, err := client.UserSubscription.UpdateOneID(id).
-		SetThirtyDayUsageUsd(0).
-		SetThirtyDayWindowStart(newWindowStart).
-		Save(ctx)
-	return translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+	result, err := client.ExecContext(ctx, query, id, newWindowStart)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrSubscriptionNotFound
+	}
+	return nil
 }
 
 func (r *userSubscriptionRepository) ResetDailyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error {
@@ -818,11 +877,15 @@ func (r *userSubscriptionRepository) attachUserSubscriptionRelations(ctx context
 	userIDs := make([]int64, 0, len(subs))
 	groupIDs := make([]int64, 0, len(subs))
 	assignedByIDs := make([]int64, 0, len(subs))
+	planIDs := make([]int64, 0, len(subs))
 	for i := range subs {
 		userIDs = append(userIDs, subs[i].UserID)
 		groupIDs = append(groupIDs, subs[i].GroupID)
 		if subs[i].AssignedBy != nil {
 			assignedByIDs = append(assignedByIDs, *subs[i].AssignedBy)
+		}
+		if subs[i].PlanID != nil {
+			planIDs = append(planIDs, *subs[i].PlanID)
 		}
 	}
 
@@ -857,11 +920,26 @@ func (r *userSubscriptionRepository) attachUserSubscriptionRelations(ctx context
 		}
 	}
 
+	planNameByID := map[int64]string{}
+	if len(planIDs) > 0 {
+		plans, err := client.SubscriptionPlan.Query().Where(subscriptionplan.IDIn(uniqueInt64s(planIDs)...)).All(ctx)
+		if err != nil {
+			return err
+		}
+		planNameByID = make(map[int64]string, len(plans))
+		for _, p := range plans {
+			planNameByID[p.ID] = p.Name
+		}
+	}
+
 	for i := range subs {
 		subs[i].User = userByID[subs[i].UserID]
 		subs[i].Group = groupByID[subs[i].GroupID]
 		if subs[i].AssignedBy != nil {
 			subs[i].AssignedByUser = assignedByID[*subs[i].AssignedBy]
+		}
+		if subs[i].PlanID != nil {
+			subs[i].PlanName = planNameByID[*subs[i].PlanID]
 		}
 	}
 	return nil
@@ -897,24 +975,34 @@ func userSubscriptionEntityToServiceWithStatusMapping(m *dbent.UserSubscription,
 		status = service.SubscriptionStatusRevoked
 	}
 	out := &service.UserSubscription{
-		ID:                 m.ID,
-		UserID:             m.UserID,
-		GroupID:            m.GroupID,
-		StartsAt:           m.StartsAt,
-		ExpiresAt:          m.ExpiresAt,
-		Status:             status,
-		DailyWindowStart:   m.DailyWindowStart,
-		WeeklyWindowStart:  m.WeeklyWindowStart,
-		MonthlyWindowStart: m.MonthlyWindowStart,
-		DailyUsageUSD:      m.DailyUsageUsd,
-		WeeklyUsageUSD:     m.WeeklyUsageUsd,
-		MonthlyUsageUSD:    m.MonthlyUsageUsd,
-		AssignedBy:         m.AssignedBy,
-		AssignedAt:         m.AssignedAt,
-		Notes:              derefString(m.Notes),
-		CreatedAt:          m.CreatedAt,
-		UpdatedAt:          m.UpdatedAt,
-		DeletedAt:          m.DeletedAt,
+		ID:                   m.ID,
+		UserID:               m.UserID,
+		GroupID:              m.GroupID,
+		PlanID:               m.PlanID,
+		StartsAt:             m.StartsAt,
+		ExpiresAt:            m.ExpiresAt,
+		Status:               status,
+		FiveHourLimitUSD:     m.FiveHourLimitUsd,
+		SevenDayLimitUSD:     m.SevenDayLimitUsd,
+		ThirtyDayLimitUSD:    m.ThirtyDayLimitUsd,
+		DailyWindowStart:     m.DailyWindowStart,
+		WeeklyWindowStart:    m.WeeklyWindowStart,
+		MonthlyWindowStart:   m.MonthlyWindowStart,
+		FiveHourWindowStart:  m.FiveHourWindowStart,
+		SevenDayWindowStart:  m.SevenDayWindowStart,
+		ThirtyDayWindowStart: m.ThirtyDayWindowStart,
+		DailyUsageUSD:        m.DailyUsageUsd,
+		WeeklyUsageUSD:       m.WeeklyUsageUsd,
+		MonthlyUsageUSD:      m.MonthlyUsageUsd,
+		FiveHourUsageUSD:     m.FiveHourUsageUsd,
+		SevenDayUsageUSD:     m.SevenDayUsageUsd,
+		ThirtyDayUsageUSD:    m.ThirtyDayUsageUsd,
+		AssignedBy:           m.AssignedBy,
+		AssignedAt:           m.AssignedAt,
+		Notes:                derefString(m.Notes),
+		CreatedAt:            m.CreatedAt,
+		UpdatedAt:            m.UpdatedAt,
+		DeletedAt:            m.DeletedAt,
 	}
 	if m.Edges.User != nil {
 		out.User = userEntityToService(m.Edges.User)
@@ -923,6 +1011,7 @@ func userSubscriptionEntityToServiceWithStatusMapping(m *dbent.UserSubscription,
 		out.Group = groupEntityToService(m.Edges.Group)
 	}
 	if m.Edges.Plan != nil {
+		out.PlanID = &m.Edges.Plan.ID
 		out.PlanName = m.Edges.Plan.Name
 	}
 	if m.Edges.AssignedByUser != nil {

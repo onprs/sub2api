@@ -357,14 +357,21 @@ func promptDetailsFromResponses(src *ResponsesInputTokensDetails) *ChatTokenDeta
 	if src == nil {
 		return nil
 	}
-	if src.CachedTokens == 0 && src.AudioTokens == 0 && src.CacheCreationTokens == 0 && src.CacheWriteTokens == 0 {
+	if src.CachedTokens == 0 && src.AudioTokens == 0 && src.CacheCreationTokens == 0 && src.CacheWriteTokens == 0 &&
+		src.CacheCreation5mTokens == 0 && src.CacheCreation1hTokens == 0 &&
+		src.Ephemeral5mInputTokens == 0 && src.Ephemeral1hInputTokens == 0 {
 		return nil
 	}
 	return &ChatTokenDetails{
-		CachedTokens:        src.CachedTokens,
-		AudioTokens:         src.AudioTokens,
-		CacheCreationTokens: src.CacheCreationTokens,
-		CacheWriteTokens:    src.CacheWriteTokens,
+		CachedTokens:           src.CachedTokens,
+		AudioTokens:            src.AudioTokens,
+		CacheCreationTokens:    src.CacheCreationTokens,
+		CacheWriteTokens:       src.CacheWriteTokens,
+		CacheCreation5mTokens:  firstPositiveIntCompat(src.CacheCreation5mTokens, src.Ephemeral5mInputTokens),
+		CacheCreation1hTokens:  firstPositiveIntCompat(src.CacheCreation1hTokens, src.Ephemeral1hInputTokens),
+		Ephemeral5mInputTokens: src.Ephemeral5mInputTokens,
+		Ephemeral1hInputTokens: src.Ephemeral1hInputTokens,
+		CacheCreationBreakdown: src.CacheCreationBreakdown,
 	}
 }
 

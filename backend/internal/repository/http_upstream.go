@@ -1135,25 +1135,38 @@ func buildUpstreamTransportWithTLSFingerprint(settings poolSettings, proxyURL *u
 }
 
 // trackedBody 带跟踪功能的响应体包装器
-// 在 Close 时执行回调，用于更新请求计数
+// 在响应体读到 EOF 或 Close 时执行回调，用于更新请求计数。
+// EOF 保护可避免调用方读完整个 body 但忘记 Close 时长期占用 inFlight，
+// Close 仍会关闭底层 body，且回调通过 sync.Once 保证只执行一次。
 type trackedBody struct {
 	io.ReadCloser // 原始响应体
 	once          sync.Once
-	onClose       func() // 关闭时的回调函数
+	onClose       func() // 响应生命周期结束时的回调函数
 }
 
-// Close 关闭响应体并执行回调
-// 使用 sync.Once 确保回调只执行一次
-func (b *trackedBody) Close() error {
-	err := b.ReadCloser.Close()
+func (b *trackedBody) markDone() {
 	if b.onClose != nil {
 		b.once.Do(b.onClose)
 	}
+}
+
+func (b *trackedBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if errors.Is(err, io.EOF) {
+		b.markDone()
+	}
+	return n, err
+}
+
+// Close 关闭响应体并执行回调。
+func (b *trackedBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.markDone()
 	return err
 }
 
-// wrapTrackedBody 包装响应体以跟踪关闭事件
-// 用于在响应体关闭时更新 inFlight 计数
+// wrapTrackedBody 包装响应体以跟踪响应生命周期结束事件。
+// 用于在响应体读完或关闭时更新 inFlight 计数。
 //
 // 参数:
 //   - body: 原始响应体

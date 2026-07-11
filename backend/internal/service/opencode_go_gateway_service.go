@@ -441,7 +441,7 @@ func (s *OpenCodeGoGatewayService) bufferChatToAnthropic(
 		return nil, err
 	}
 	usage := claudeUsageFromChatUsage(cc.Usage)
-	responsesResp := apicompat.ChatCompletionsResponseToResponses(&cc, originalModel)
+	responsesResp := apicompat.ChatCompletionsResponseToResponses(&cc, originalModel, nil, false, nil)
 	anthResp := apicompat.ResponsesToAnthropic(responsesResp, originalModel)
 	out, err := json.Marshal(anthResp)
 	if err != nil {

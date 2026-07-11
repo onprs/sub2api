@@ -483,16 +483,6 @@ type GenerateRedeemCodesInput struct {
 	ExpiresAt          *time.Time
 }
 
-type redeemSubscriptionSnapshot struct {
-	PlanID               *int64
-	GroupID              *int64
-	ValidityDays         int
-	QuotaSnapshotVersion int
-	FiveHourLimitUSD     *float64
-	SevenDayLimitUSD     *float64
-	ThirtyDayLimitUSD    *float64
-}
-
 type ProxyBatchDeleteResult struct {
 	DeletedIDs []int64                   `json:"deleted_ids"`
 	Skipped    []ProxyBatchDeleteSkipped `json:"skipped"`

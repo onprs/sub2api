@@ -38,6 +38,7 @@ type UserSubscriptionRepository interface {
 	ResetFiveHourUsage(ctx context.Context, id int64, newWindowStart time.Time) error
 	ResetSevenDayUsage(ctx context.Context, id int64, newWindowStart time.Time) error
 	ResetThirtyDayUsage(ctx context.Context, id int64, newWindowStart time.Time) error
+	ListIDs(ctx context.Context, params pagination.PaginationParams, userID, groupID *int64, status, platform, sortBy, sortOrder string) ([]int64, *pagination.PaginationResult, error)
 	ResetDailyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error
 	ResetWeeklyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error
 	ResetMonthlyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error

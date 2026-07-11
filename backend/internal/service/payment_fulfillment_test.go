@@ -5,7 +5,6 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math"
 	"strconv"
 	"testing"

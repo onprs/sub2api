@@ -25,6 +25,8 @@ type Usage struct {
 	OutputTokens             int
 	CacheCreationInputTokens int
 	CacheReadInputTokens     int
+	CacheCreation5mTokens    int
+	CacheCreation1hTokens    int
 	ImageOutputTokens        int
 }
 
@@ -784,11 +786,14 @@ func parseUsageAndAccumulate(
 		// 解析失败时不做部分字段累加，避免计费 usage 出现“半有效”状态。
 		return Usage{}
 	}
+	cacheCreation5mTokens, cacheCreation1hTokens := openAICacheCreationBreakdownTokensFromUsage(usageResult)
 	parsedUsage := Usage{
 		InputTokens:              inputTokens,
 		OutputTokens:             outputTokens,
 		CacheCreationInputTokens: openAICacheCreationTokensFromUsage(usageResult),
 		CacheReadInputTokens:     cachedTokens,
+		CacheCreation5mTokens:    cacheCreation5mTokens,
+		CacheCreation1hTokens:    cacheCreation1hTokens,
 		ImageOutputTokens:        int(imageTokens),
 	}
 
@@ -796,6 +801,8 @@ func parseUsageAndAccumulate(
 	state.usage.OutputTokens += parsedUsage.OutputTokens
 	state.usage.CacheCreationInputTokens += parsedUsage.CacheCreationInputTokens
 	state.usage.CacheReadInputTokens += parsedUsage.CacheReadInputTokens
+	state.usage.CacheCreation5mTokens += parsedUsage.CacheCreation5mTokens
+	state.usage.CacheCreation1hTokens += parsedUsage.CacheCreation1hTokens
 	state.usage.ImageOutputTokens += parsedUsage.ImageOutputTokens
 	return parsedUsage
 }
@@ -819,8 +826,11 @@ func openAICacheCreationTokensFromUsage(value gjson.Result) int {
 	} {
 		result := value.Get(field)
 		if result.Exists() {
-			return max(int(result.Int()), 0)
+			return maxInt(int(result.Int()), 0)
 		}
+	}
+	if fiveMinute, oneHour := openAICacheCreationBreakdownTokensFromUsage(value); fiveMinute > 0 || oneHour > 0 {
+		return fiveMinute + oneHour
 	}
 	for _, field := range []string{
 		"cache_write_tokens",
@@ -833,6 +843,45 @@ func openAICacheCreationTokensFromUsage(value gjson.Result) int {
 		}
 	}
 	return 0
+}
+
+func openAICacheCreationBreakdownTokensFromUsage(value gjson.Result) (int, int) {
+	fiveMinute := firstPositiveGJSONInt(
+		value.Get("cache_creation.ephemeral_5m_input_tokens"),
+		value.Get("input_tokens_details.cache_creation.ephemeral_5m_input_tokens"),
+		value.Get("prompt_tokens_details.cache_creation.ephemeral_5m_input_tokens"),
+		value.Get("cache_creation_5m_tokens"),
+		value.Get("cache_creation_5m_input_tokens"),
+		value.Get("ephemeral_5m_input_tokens"),
+	)
+	oneHour := firstPositiveGJSONInt(
+		value.Get("cache_creation.ephemeral_1h_input_tokens"),
+		value.Get("input_tokens_details.cache_creation.ephemeral_1h_input_tokens"),
+		value.Get("prompt_tokens_details.cache_creation.ephemeral_1h_input_tokens"),
+		value.Get("cache_creation_1h_tokens"),
+		value.Get("cache_creation_1h_input_tokens"),
+		value.Get("ephemeral_1h_input_tokens"),
+	)
+	return fiveMinute, oneHour
+}
+
+func firstPositiveGJSONInt(values ...gjson.Result) int {
+	for _, value := range values {
+		if !value.Exists() {
+			continue
+		}
+		if tokens := int(value.Int()); tokens > 0 {
+			return tokens
+		}
+	}
+	return 0
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func enrichResult(result *RelayResult, state *relayState, duration time.Duration) {

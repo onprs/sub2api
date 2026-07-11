@@ -2,9 +2,13 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func newCodexModelsTestAccount() *Account {
@@ -135,4 +139,221 @@ func TestFetchCodexModelsManifestMissingToken(t *testing.T) {
 	if _, err := s.FetchCodexModelsManifest(context.Background(), account, "0.137.0", ""); err == nil {
 		t.Fatal("expected error for missing access token, got nil")
 	}
+}
+
+func TestFetchCodexModelsManifestRejectsAPIKeyAccount(t *testing.T) {
+	account := &Account{
+		ID:          11,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"api_key": "sk-test",
+		},
+	}
+
+	s := &OpenAIGatewayService{}
+	_, err := s.FetchCodexModelsManifest(context.Background(), account, "0.137.0", "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "requires an OpenAI OAuth account")
+}
+
+func TestSelectCodexModelsManifestAccountSkipsAPIKeyAndSelectsOAuth(t *testing.T) {
+	now := time.Now()
+	old := now.Add(-2 * time.Hour)
+	groupID := int64(99)
+	repo := groupAwareStubOpenAIAccountRepo{stubOpenAIAccountRepo{accounts: []Account{
+		{
+			ID:          1,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 1,
+			Priority:    1,
+			LastUsedAt:  &old,
+			GroupIDs:    []int64{groupID},
+			Credentials: map[string]any{"api_key": "sk-priority"},
+		},
+		{
+			ID:          2,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 1,
+			Priority:    5,
+			LastUsedAt:  &now,
+			GroupIDs:    []int64{groupID},
+			Credentials: map[string]any{
+				"access_token":       "oauth-token",
+				"chatgpt_account_id": "acct-oauth",
+			},
+		},
+	}}}
+	s := &OpenAIGatewayService{accountRepo: repo}
+
+	selected, err := s.SelectCodexModelsManifestAccount(context.Background(), &groupID)
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	require.Equal(t, int64(2), selected.ID)
+}
+
+func TestSelectCodexModelsManifestAccountSkipsShadowWithInvalidParent(t *testing.T) {
+	parentID := int64(10)
+	groupID := int64(99)
+	repo := groupAwareStubOpenAIAccountRepo{stubOpenAIAccountRepo{accounts: []Account{
+		{
+			ID:              1,
+			Platform:        PlatformOpenAI,
+			Type:            AccountTypeOAuth,
+			Status:          StatusActive,
+			Schedulable:     true,
+			Concurrency:     1,
+			Priority:        1,
+			ParentAccountID: &parentID,
+			GroupIDs:        []int64{groupID},
+		},
+		{
+			ID:          parentID,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Schedulable: true,
+			Credentials: map[string]any{"api_key": "sk-parent"},
+		},
+		{
+			ID:          2,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 1,
+			Priority:    2,
+			GroupIDs:    []int64{groupID},
+			Credentials: map[string]any{"access_token": "oauth-token"},
+		},
+	}}}
+	s := &OpenAIGatewayService{accountRepo: repo}
+
+	selected, err := s.SelectCodexModelsManifestAccount(context.Background(), &groupID)
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	require.Equal(t, int64(2), selected.ID)
+}
+
+func TestSelectCodexModelsManifestAccountNoOAuthAvailable(t *testing.T) {
+	groupID := int64(99)
+	repo := groupAwareStubOpenAIAccountRepo{stubOpenAIAccountRepo{accounts: []Account{
+		{
+			ID:          1,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 1,
+			Priority:    1,
+			GroupIDs:    []int64{groupID},
+			Credentials: map[string]any{"api_key": "sk-only"},
+		},
+	}}}
+	s := &OpenAIGatewayService{accountRepo: repo}
+
+	selected, err := s.SelectCodexModelsManifestAccount(context.Background(), &groupID)
+	require.Error(t, err)
+	require.Nil(t, selected)
+	require.True(t, errors.Is(err, ErrNoAvailableAccounts), "got %v", err)
+}
+
+type codexModelsSnapshotHydrationCache struct {
+	snapshot []*Account
+	accounts map[int64]*Account
+}
+
+func (c *codexModelsSnapshotHydrationCache) GetSnapshot(ctx context.Context, bucket SchedulerBucket) ([]*Account, bool, error) {
+	return c.snapshot, true, nil
+}
+
+func (c *codexModelsSnapshotHydrationCache) SetSnapshot(ctx context.Context, bucket SchedulerBucket, accounts []Account) error {
+	return nil
+}
+
+func (c *codexModelsSnapshotHydrationCache) GetAccount(ctx context.Context, accountID int64) (*Account, error) {
+	if c.accounts == nil {
+		return nil, nil
+	}
+	return c.accounts[accountID], nil
+}
+
+func (c *codexModelsSnapshotHydrationCache) SetAccount(ctx context.Context, account *Account) error {
+	return nil
+}
+
+func (c *codexModelsSnapshotHydrationCache) DeleteAccount(ctx context.Context, accountID int64) error {
+	return nil
+}
+
+func (c *codexModelsSnapshotHydrationCache) UpdateLastUsed(ctx context.Context, updates map[int64]time.Time) error {
+	return nil
+}
+
+func (c *codexModelsSnapshotHydrationCache) TryLockBucket(ctx context.Context, bucket SchedulerBucket, ttl time.Duration) (bool, error) {
+	return true, nil
+}
+
+func (c *codexModelsSnapshotHydrationCache) UnlockBucket(ctx context.Context, bucket SchedulerBucket) error {
+	return nil
+}
+
+func (c *codexModelsSnapshotHydrationCache) ListBuckets(ctx context.Context) ([]SchedulerBucket, error) {
+	return nil, nil
+}
+
+func (c *codexModelsSnapshotHydrationCache) GetOutboxWatermark(ctx context.Context) (int64, error) {
+	return 0, nil
+}
+
+func (c *codexModelsSnapshotHydrationCache) SetOutboxWatermark(ctx context.Context, id int64) error {
+	return nil
+}
+
+func TestSelectCodexModelsManifestAccountHydratesSnapshotBeforeTokenCheck(t *testing.T) {
+	groupID := int64(99)
+	cache := &codexModelsSnapshotHydrationCache{
+		snapshot: []*Account{
+			{
+				ID:          1,
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 1,
+				Priority:    1,
+				GroupIDs:    []int64{groupID},
+			},
+		},
+		accounts: map[int64]*Account{
+			1: {
+				ID:          1,
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 1,
+				Priority:    1,
+				GroupIDs:    []int64{groupID},
+				Credentials: map[string]any{"access_token": "hydrated-token"},
+			},
+		},
+	}
+	s := &OpenAIGatewayService{
+		schedulerSnapshot: NewSchedulerSnapshotService(cache, nil, nil, nil, nil),
+		cache:             &stubGatewayCache{},
+	}
+
+	selected, err := s.SelectCodexModelsManifestAccount(context.Background(), &groupID)
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	require.Equal(t, "hydrated-token", selected.GetOpenAIAccessToken())
 }

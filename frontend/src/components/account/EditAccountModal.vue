@@ -3482,7 +3482,11 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
   }
 }
 
-const syncFormFromAccount = (newAccount: Account | null) => {
+interface SyncFormFromAccountOptions {
+  refreshOpenCodeGoConsole?: boolean
+}
+
+const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAccountOptions = {}) => {
   if (!newAccount) {
     return
   }

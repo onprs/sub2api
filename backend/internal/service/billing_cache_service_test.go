@@ -8,9 +8,13 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
+
+type billingCacheWorkerMissError struct{}
+
+func (billingCacheWorkerMissError) Error() string   { return "cache miss" }
+func (billingCacheWorkerMissError) CacheMiss() bool { return true }
 
 type billingCacheWorkerStub struct {
 	balanceUpdates        int64
@@ -204,7 +208,7 @@ func TestBillingCacheServiceUpdateSubscriptionUsageReloadsCacheOnMiss(t *testing
 		FiveHourWindowStart: &windowStart,
 		UpdatedAt:           time.Now(),
 	})
-	cache := &billingCacheWorkerStub{subscriptionUpdateErr: redis.Nil}
+	cache := &billingCacheWorkerStub{subscriptionUpdateErr: billingCacheWorkerMissError{}}
 	svc := NewBillingCacheService(cache, nil, subRepo, nil, nil, nil, &config.Config{}, nil)
 	t.Cleanup(svc.Stop)
 

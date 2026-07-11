@@ -522,6 +522,13 @@ func (w *opsCaptureWriter) Written() bool {
 	return w.ResponseWriter.Written()
 }
 
+func (w *opsCaptureWriter) Unwrap() http.ResponseWriter {
+	if w.ResponseWriter == nil {
+		return nil
+	}
+	return w.ResponseWriter
+}
+
 func (w *opsCaptureWriter) Header() http.Header {
 	if w.ResponseWriter == nil {
 		return http.Header{}
