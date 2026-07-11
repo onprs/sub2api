@@ -13,6 +13,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/gin-gonic/gin"
 )
 
@@ -116,8 +117,17 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		proxyURL = account.Proxy.URL()
 	}
 
+	// Validate the explicit Antigravity Gemini endpoint family before applying
+	// provider-specific identity/schema policy.
+	nativeBody, err := protocolconv.ConvertAntigravityRequest(body, protocolconv.ProtocolGemini, protocolconv.AntigravityFamilyGemini, protocolconv.AntigravityOptions{
+		MappedModel: mappedModel,
+	})
+	if err != nil {
+		return nil, s.writeGoogleError(c, http.StatusBadRequest, "Invalid request body")
+	}
+
 	// Antigravity 上游要求必须包含身份提示词，注入到请求中
-	injectedBody, err := injectIdentityPatchToGeminiRequest(body)
+	injectedBody, err := injectIdentityPatchToGeminiRequest(nativeBody)
 	if err != nil {
 		return nil, s.writeGoogleError(c, http.StatusBadRequest, "Invalid request body")
 	}

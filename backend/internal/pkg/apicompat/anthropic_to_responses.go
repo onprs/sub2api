@@ -55,17 +55,24 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 		out.Tools = convertAnthropicToolsToResponses(req.Tools)
 	}
 
-	// Determine reasoning effort: only output_config.effort controls the
-	// level; thinking.type is ignored. Default follows Codex CLI / airgate's
-	// Anthropic bridge shape, which uses medium when unset.
-	// Anthropic levels map 1:1 to OpenAI: low→low, medium→medium, high→high, max→xhigh.
-	effort := "medium"
-	if req.OutputConfig != nil && req.OutputConfig.Effort != "" {
-		effort = req.OutputConfig.Effort
+	// output_config.effort is an explicit cross-protocol control. A plain
+	// Messages request without thinking must stay plain; defaulting every request
+	// to medium leaks a Responses/Codex policy into native compatible endpoints.
+	// For legacy Messages clients, an enabled/adaptive thinking block implies a
+	// medium effort when no explicit effort is present.
+	effort := ""
+	if req.OutputConfig != nil {
+		effort = strings.TrimSpace(req.OutputConfig.Effort)
 	}
-	out.Reasoning = &ResponsesReasoning{
-		Effort:  mapAnthropicEffortToResponses(effort),
-		Summary: "auto",
+	if effort == "" && req.Thinking != nil &&
+		(req.Thinking.Type == "enabled" || req.Thinking.Type == "adaptive") {
+		effort = "medium"
+	}
+	if effort != "" {
+		out.Reasoning = &ResponsesReasoning{
+			Effort:  mapAnthropicEffortToResponses(effort),
+			Summary: "auto",
+		}
 	}
 
 	// Convert tool_choice
@@ -255,9 +262,9 @@ func anthropicUserToResponses(raw json.RawMessage) ([]ResponsesInputItem, error)
 }
 
 // anthropicAssistantToResponses handles an Anthropic assistant message.
-// Text content → assistant message with output_text parts.
-// tool_use blocks → function_call items.
-// thinking blocks → ignored (OpenAI doesn't accept them as input).
+// Text content becomes an assistant message, tool_use becomes function_call,
+// and thinking becomes a Responses reasoning item so replay/cache prefixes do
+// not lose the reasoning turn.
 func anthropicAssistantToResponses(raw json.RawMessage) ([]ResponsesInputItem, error) {
 	// Try plain string.
 	var s string
@@ -276,6 +283,20 @@ func anthropicAssistantToResponses(raw json.RawMessage) ([]ResponsesInputItem, e
 	}
 
 	var items []ResponsesInputItem
+
+	for _, b := range blocks {
+		if b.Type != "thinking" || b.Thinking == "" {
+			continue
+		}
+		items = append(items, ResponsesInputItem{
+			Type: "reasoning",
+			Summary: []ResponsesSummary{{
+				Type: "summary_text",
+				Text: b.Thinking,
+			}},
+			EncryptedContent: b.Signature,
+		})
+	}
 
 	// Text content → assistant message with output_text content parts.
 	text := extractAnthropicTextFromBlocks(blocks)

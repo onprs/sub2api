@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -45,10 +46,16 @@ func (s *GatewayService) ForwardAsResponses(
 	originalModel := responsesReq.Model
 	clientStream := responsesReq.Stream
 
-	// 2. Convert Responses → Anthropic
-	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(&responsesReq)
+	// 2. Convert Responses → Anthropic through the protocol layer.
+	anthropicBody, err := protocolconv.ConvertRequest(body, protocolconv.ProtocolOpenAIResponses, protocolconv.Target{
+		Protocol: protocolconv.ProtocolAnthropic,
+	}, protocolconv.Options{})
 	if err != nil {
 		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
+	}
+	var anthropicReq apicompat.AnthropicRequest
+	if err := json.Unmarshal(anthropicBody, &anthropicReq); err != nil {
+		return nil, fmt.Errorf("decode converted anthropic request: %w", err)
 	}
 
 	// 3. Force upstream streaming (Anthropic works best with streaming)
@@ -83,8 +90,8 @@ func (s *GatewayService) ForwardAsResponses(
 		zap.Bool("client_stream", clientStream),
 	)
 
-	// 5. Marshal Anthropic request body
-	anthropicBody, err := json.Marshal(anthropicReq)
+	// 5. Marshal the mapped Anthropic request body.
+	anthropicBody, err = json.Marshal(anthropicReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal anthropic request: %w", err)
 	}

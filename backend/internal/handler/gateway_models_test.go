@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -130,6 +131,39 @@ func TestGatewayModels_OpenCodeGoGroupFallsBackToOpenCodeGoModels(t *testing.T) 
 	require.Contains(t, modelIDs, "qwen3.7-plus")
 	require.NotContains(t, modelIDs, "kimi-k2.7")
 	require.NotContains(t, modelIDs, "claude-sonnet-4-6")
+}
+
+func TestGatewayModels_OpenAIAllMappedModelsCoolingDownReturnsEmptyList(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(35)
+	resetAt := time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{
+			groupID: {
+				{
+					ID: 1, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
+					Credentials: map[string]any{"model_mapping": map[string]any{"gpt-5.2": "gpt-5.2"}},
+					Extra: map[string]any{"model_rate_limits": map[string]any{
+						"gpt-5.2": map[string]any{"rate_limit_reset_at": resetAt, "reason": "upstream_404_model_not_found"},
+					}},
+				},
+			},
+		}},
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI}})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, "list", got.Object)
+	require.Empty(t, got.Data)
 }
 
 func TestGatewayModels_GeminiGroupFiltersMappedModelsByPlatform(t *testing.T) {

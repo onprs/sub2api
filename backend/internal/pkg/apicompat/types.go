@@ -58,8 +58,10 @@ type AnthropicContentBlock struct {
 	// type=text
 	Text string `json:"text,omitempty"`
 
-	// type=thinking
-	Thinking string `json:"thinking,omitempty"`
+	// type=thinking / redacted_thinking
+	Thinking  string `json:"thinking,omitempty"`
+	Signature string `json:"signature,omitempty"`
+	Data      string `json:"data,omitempty"`
 
 	// type=image
 	Source *AnthropicImageSource `json:"source,omitempty"`
@@ -238,6 +240,11 @@ type ResponsesInputItem struct {
 
 	// type=function_call_output
 	Output string `json:"output,omitempty"`
+
+	// type=reasoning. Summary is cache-stable replay context; encrypted content
+	// carries an opaque provider signature when one is available.
+	Summary          []ResponsesSummary `json:"summary,omitempty"`
+	EncryptedContent string             `json:"encrypted_content,omitempty"`
 }
 
 // ResponsesContentPart is a typed content part in a Responses message.
@@ -598,6 +605,8 @@ type ChatCompletionsRequest struct {
 	ParallelToolCalls   *bool              `json:"parallel_tool_calls,omitempty"`
 	ToolChoice          json.RawMessage    `json:"tool_choice,omitempty"`
 	ReasoningEffort     string             `json:"reasoning_effort,omitempty"` // "low" | "medium" | "high" | "xhigh"
+	Thinking            *AnthropicThinking `json:"thinking,omitempty"`         // common OpenAI-compatible extension
+	EnableThinking      *bool              `json:"enable_thinking,omitempty"`  // Kimi/Qwen-compatible extension
 	ServiceTier         string             `json:"service_tier,omitempty"`
 	Stop                json.RawMessage    `json:"stop,omitempty"` // string or []string
 	ResponseFormat      json.RawMessage    `json:"response_format,omitempty"`

@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -44,15 +45,16 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	clientStream := ccReq.Stream
 	includeUsage := ccReq.StreamOptions != nil && ccReq.StreamOptions.IncludeUsage
 
-	// 2. Convert CC → Responses → Anthropic (chained conversion)
-	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
+	// 2. Convert Chat Completions → Anthropic through the protocol layer.
+	anthropicBody, err := protocolconv.ConvertRequest(body, protocolconv.ProtocolOpenAICompat, protocolconv.Target{
+		Protocol: protocolconv.ProtocolAnthropic,
+	}, protocolconv.Options{})
 	if err != nil {
-		return nil, fmt.Errorf("convert chat completions to responses: %w", err)
+		return nil, fmt.Errorf("convert chat completions to anthropic: %w", err)
 	}
-
-	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(responsesReq)
-	if err != nil {
-		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
+	var anthropicReq apicompat.AnthropicRequest
+	if err := json.Unmarshal(anthropicBody, &anthropicReq); err != nil {
+		return nil, fmt.Errorf("decode converted anthropic request: %w", err)
 	}
 
 	// 3. Force upstream streaming
@@ -84,8 +86,8 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		zap.Bool("client_stream", clientStream),
 	)
 
-	// 5. Marshal Anthropic request body
-	anthropicBody, err := json.Marshal(anthropicReq)
+	// 5. Marshal the mapped Anthropic request body.
+	anthropicBody, err = json.Marshal(anthropicReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal anthropic request: %w", err)
 	}

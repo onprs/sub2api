@@ -189,6 +189,32 @@ func TestPrepareOpenCodeGoMessagesCacheBody_StripsDriftingClientMessageAnchors(t
 	}
 }
 
+func TestPrepareOpenCodeGoChatBodyNormalizesUnsupportedKimiToolChoices(t *testing.T) {
+	tests := []struct {
+		name  string
+		model string
+		body  string
+		want  string
+	}{
+		{name: "named function", model: "kimi-k2.7-code", body: `{"tool_choice":{"type":"function","function":{"name":"read_file"}}}`, want: "auto"},
+		{name: "required", model: "kimi-k2.7-code", body: `{"tool_choice":"required"}`, want: "auto"},
+		{name: "auto unchanged", model: "kimi-k2.7-code", body: `{"tool_choice":"auto"}`, want: "auto"},
+		{name: "other model unchanged", model: "glm-5.2", body: `{"tool_choice":"required"}`, want: "required"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := prepareOpenCodeGoChatBody([]byte(tt.body), tt.model)
+			if err != nil {
+				t.Fatalf("prepareOpenCodeGoChatBody error: %v", err)
+			}
+			if got := gjson.GetBytes(out, "tool_choice").String(); got != tt.want {
+				t.Fatalf("tool_choice=%q, want %q; body=%s", got, tt.want, out)
+			}
+		})
+	}
+}
+
 func TestOpenCodeGoGatewayServiceForwardChatCompletionsDirectUsesOpenCodeGoEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := &openCodeGoHTTPUpstreamStub{}
@@ -212,9 +238,10 @@ func TestOpenCodeGoGatewayServiceForwardChatCompletionsDirectUsesOpenCodeGoEndpo
 			},
 		},
 	}
-	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", `{"model":"opencode-go/kimi","messages":[{"role":"user","content":"hi"}],"stream":false}`)
+	body := `{"model":"opencode-go/kimi","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}],"tool_choice":{"type":"function","function":{"name":"read_file"}},"stream":false}`
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", body)
 
-	result, err := svc.ForwardChatCompletions(context.Background(), rec.Context, account, []byte(`{"model":"opencode-go/kimi","messages":[{"role":"user","content":"hi"}],"stream":false}`))
+	result, err := svc.ForwardChatCompletions(context.Background(), rec.Context, account, []byte(body))
 	if err != nil {
 		t.Fatalf("ForwardChatCompletions error: %v", err)
 	}
@@ -230,11 +257,47 @@ func TestOpenCodeGoGatewayServiceForwardChatCompletionsDirectUsesOpenCodeGoEndpo
 	if !strings.Contains(upstream.body, `"model":"kimi-k2.7-code"`) {
 		t.Fatalf("expected upstream model rewrite, body=%s", upstream.body)
 	}
+	if got := gjson.Get(upstream.body, "tool_choice").String(); got != "auto" {
+		t.Fatalf("expected unsupported Kimi named tool choice to normalize to auto, got %q body=%s", got, upstream.body)
+	}
 	if result.Model != "opencode-go/kimi" || result.UpstreamModel != "kimi-k2.7-code" {
 		t.Fatalf("unexpected models: result=%+v", result)
 	}
 	if result.Usage.InputTokens != 3 || result.Usage.OutputTokens != 2 {
 		t.Fatalf("unexpected usage: %+v", result.Usage)
+	}
+}
+
+func TestOpenCodeGoGatewayServiceForwardMessagesNormalizesKimiNamedToolChoice(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &openCodeGoHTTPUpstreamStub{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"chatcmpl_ok","model":"kimi-k2.7-code","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2}}`)),
+		},
+	}
+	svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{
+		ID: 42, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key": "ocg-secret",
+			"model_protocols": map[string]any{
+				"kimi-k2.7-code": OpenCodeGoProtocolChatCompletions,
+			},
+		},
+	}
+	body := `{"model":"kimi-k2.7-code","messages":[{"role":"user","content":"read demo.txt"}],"tools":[{"name":"read_file","input_schema":{"type":"object"}}],"tool_choice":{"type":"tool","name":"read_file"},"max_tokens":2048}`
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/messages", body)
+
+	if _, err := svc.ForwardMessages(context.Background(), rec.Context, account, []byte(body)); err != nil {
+		t.Fatalf("ForwardMessages error: %v", err)
+	}
+	if got := gjson.Get(upstream.body, "tool_choice").String(); got != "auto" {
+		t.Fatalf("expected converted Kimi named tool choice to normalize to auto, got %q body=%s", got, upstream.body)
+	}
+	if got := rec.Recorder.Code; got != http.StatusOK {
+		t.Fatalf("unexpected response status %d body=%s", got, rec.Recorder.Body.String())
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
@@ -78,6 +79,11 @@ func (s *OpenCodeGoGatewayService) ForwardChatCompletions(
 
 	switch protocol {
 	case OpenCodeGoProtocolChatCompletions:
+		upstreamBody, err = prepareOpenCodeGoChatBody(upstreamBody, upstreamModel)
+		if err != nil {
+			writeOpenCodeGoError(c, http.StatusBadRequest, openCodeGoErrorFormatChat, "invalid_request_error", "Failed to normalize chat completions request")
+			return nil, err
+		}
 		if gjson.GetBytes(upstreamBody, "stream").Bool() {
 			upstreamBody, err = ensureOpenAIChatStreamUsage(upstreamBody)
 			if err != nil {
@@ -130,6 +136,11 @@ func (s *OpenCodeGoGatewayService) ForwardMessages(
 			writeOpenCodeGoError(c, http.StatusBadRequest, openCodeGoErrorFormatAnthropic, "invalid_request_error", "Failed to convert messages request to chat completions")
 			return nil, err
 		}
+		converted, err = prepareOpenCodeGoChatBody(converted, upstreamModel)
+		if err != nil {
+			writeOpenCodeGoError(c, http.StatusBadRequest, openCodeGoErrorFormatAnthropic, "invalid_request_error", "Failed to normalize chat completions request")
+			return nil, err
+		}
 		if gjson.GetBytes(converted, "stream").Bool() {
 			converted, err = ensureOpenAIChatStreamUsage(converted)
 			if err != nil {
@@ -141,6 +152,25 @@ func (s *OpenCodeGoGatewayService) ForwardMessages(
 		writeOpenCodeGoError(c, http.StatusBadRequest, openCodeGoErrorFormatAnthropic, "invalid_request_error", "Unsupported model protocol")
 		return nil, fmt.Errorf("unsupported opencode go model protocol %q", protocol)
 	}
+}
+
+func prepareOpenCodeGoChatBody(body []byte, upstreamModel string) ([]byte, error) {
+	model := strings.ToLower(strings.TrimSpace(upstreamModel))
+	if !strings.HasPrefix(model, "kimi-k2.7") {
+		return body, nil
+	}
+
+	toolChoice := gjson.GetBytes(body, "tool_choice")
+	if !toolChoice.Exists() {
+		return body, nil
+	}
+	if toolChoice.Type != gjson.JSON && toolChoice.String() != "required" {
+		return body, nil
+	}
+
+	// OpenCode Go's Kimi K2.7 endpoint supports tools and auto selection, but
+	// rejects required and named function choices with a generic upstream 400.
+	return sjson.SetBytes(body, "tool_choice", "auto")
 }
 
 func (s *OpenCodeGoGatewayService) forwardChatBody(
@@ -857,35 +887,15 @@ func ensureOpenCodeGoSystemCacheAnchor(body []byte) []byte {
 }
 
 func convertChatCompletionsBodyToAnthropicBody(body []byte) ([]byte, error) {
-	var req apicompat.ChatCompletionsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, err
-	}
-	responsesReq, err := apicompat.ChatCompletionsToResponses(&req)
-	if err != nil {
-		return nil, err
-	}
-	anthReq, err := apicompat.ResponsesToAnthropicRequest(responsesReq)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(anthReq)
+	return protocolconv.ConvertRequest(body, protocolconv.ProtocolOpenAICompat, protocolconv.Target{
+		Protocol: protocolconv.ProtocolAnthropic,
+	}, protocolconv.Options{})
 }
 
 func convertAnthropicBodyToChatCompletionsBody(body []byte) ([]byte, error) {
-	var req apicompat.AnthropicRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, err
-	}
-	responsesReq, err := apicompat.AnthropicToResponses(&req)
-	if err != nil {
-		return nil, err
-	}
-	ccReq, err := apicompat.ResponsesToChatCompletionsRequest(responsesReq)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(ccReq)
+	return protocolconv.ConvertRequest(body, protocolconv.ProtocolAnthropic, protocolconv.Target{
+		Protocol: protocolconv.ProtocolOpenAICompat,
+	}, protocolconv.Options{})
 }
 
 func claudeUsageFromChatBody(body []byte) ClaudeUsage {

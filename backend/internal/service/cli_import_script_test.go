@@ -663,6 +663,9 @@ func TestResolveCLIImportModelListUsesCustomThenProviderThenDefault(t *testing.T
 	models = resolveCLIImportModelList([]string{"z-model", "a-model", "a-model"}, group)
 	require.Equal(t, []string{"z-model", "a-model"}, models)
 
+	models = resolveCLIImportModelList([]string{}, group)
+	require.Empty(t, models, "explicit empty availability must not fall back to platform defaults")
+
 	models = resolveCLIImportModelList(nil, &Group{Platform: PlatformOpenCodeGo})
 	require.True(t, len(models) > 0)
 	require.True(t, strings.Contains(strings.Join(models, ","), "qwen3.7-plus"))

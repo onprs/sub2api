@@ -312,8 +312,8 @@ func resolveCLIImportModelList(available []string, group *Group) []string {
 	if group != nil && group.CustomModelsListEnabled() {
 		return cleanCLIImportModelList(group.ModelsListConfig.Models)
 	}
-	if cleaned := cleanCLIImportModelList(available); len(cleaned) > 0 {
-		return cleaned
+	if available != nil {
+		return cleanCLIImportModelList(available)
 	}
 	if group == nil {
 		return nil
