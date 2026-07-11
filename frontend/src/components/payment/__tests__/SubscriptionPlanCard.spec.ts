@@ -106,7 +106,7 @@ describe("SubscriptionPlanCard", () => {
           },
         ],
       },
-      global: { plugins: [i18n] },
+      global: { plugins: [i18n, createPinia()] },
     }).text();
 
     expect(text).toContain("payment.subscribeNow");
@@ -153,7 +153,7 @@ describe("SubscriptionPlanCard", () => {
           },
         ],
       },
-      global: { plugins: [i18n] },
+      global: { plugins: [i18n, createPinia()] },
     }).text();
 
     expect(text).toContain("payment.renewNow");
@@ -203,7 +203,7 @@ describe("SubscriptionPlanCard", () => {
           },
         ],
       },
-      global: { plugins: [i18n] },
+      global: { plugins: [i18n, createPinia()] },
     }).text();
 
     expect(text).toContain("7.4");
@@ -255,7 +255,7 @@ describe("SubscriptionPlanCard", () => {
           },
         ],
       },
-      global: { plugins: [i18n] },
+      global: { plugins: [i18n, createPinia()] },
     }).text();
 
     expect(text).toContain("8.7");
@@ -303,7 +303,7 @@ describe("SubscriptionPlanCard", () => {
           is_active: true,
         },
       },
-      global: { plugins: [i18n] },
+      global: { plugins: [i18n, createPinia()] },
     }).text();
 
     expect(text).toContain("5h");
@@ -334,7 +334,7 @@ describe("SubscriptionPlanCard", () => {
           is_active: true,
         },
       },
-      global: { plugins: [i18n] },
+      global: { plugins: [i18n, createPinia()] },
     }).text();
 
     expect(text).toContain("2weeks");
@@ -358,10 +358,10 @@ describe("SubscriptionPlanCard", () => {
           sort_order: 1,
         },
       },
-      global: { plugins: [i18n] },
+      global: { plugins: [i18n, createPinia()] },
     }).text();
 
-    expect(text).toContain("不限库存");
+    expect(text).toContain("payment.stock.unlimited");
   });
 
   it("shows remaining stock for positive stock values", () => {
@@ -382,10 +382,10 @@ describe("SubscriptionPlanCard", () => {
           sort_order: 1,
         },
       },
-      global: { plugins: [i18n] },
+      global: { plugins: [i18n, createPinia()] },
     }).text();
 
-    expect(text).toContain("剩余库存 3");
+    expect(text).toContain("payment.stock.remaining");
   });
 
   it("disables sold-out plans and does not emit select", async () => {
@@ -407,12 +407,12 @@ describe("SubscriptionPlanCard", () => {
           sort_order: 1,
         },
       },
-      global: { plugins: [i18n] },
+      global: { plugins: [i18n, createPinia()] },
     });
 
     const button = wrapper.find("button");
     expect(button.attributes("disabled")).toBeDefined();
-    expect(button.text()).toContain("售罄");
+    expect(button.text()).toContain("payment.stock.soldOut");
 
     await button.trigger("click");
 

@@ -161,7 +161,7 @@ const planColumns = computed((): Column[] => [
   { key: 'renewal_discount_percent', label: t('payment.admin.renewalDiscountPercent') },
   { key: 'validity_days', label: t('payment.admin.validityDays') },
   { key: 'quota_limits', label: t('payment.admin.rollingQuotaLimits') },
-  { key: 'stock', label: '库存' },
+  { key: 'stock', label: t('payment.admin.stock') },
   { key: 'for_sale', label: t('payment.admin.forSale') },
   { key: 'sort_order', label: t('payment.admin.sortOrder') },
   { key: 'actions', label: t('common.actions') },
@@ -187,8 +187,8 @@ function isPlanSoldOut(plan: SubscriptionPlan): boolean {
 }
 
 function formatPlanStock(plan: SubscriptionPlan): string {
-  if (isPlanSoldOut(plan)) return '售罄'
-  if (plan.stock == null) return '不限库存'
+  if (isPlanSoldOut(plan)) return t('payment.stock.soldOut')
+  if (plan.stock == null) return t('payment.stock.unlimited')
   return String(plan.stock)
 }
 

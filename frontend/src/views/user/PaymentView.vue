@@ -130,9 +130,9 @@
                       {{ planPeakRateLabel(selectedPlan) }}
                     </div>
                   </div>
-                  <div v-if="selectedPlan.daily_limit_usd != null">
-                    <span class="text-xs text-gray-400 dark:text-gray-500">{{ t('payment.planCard.dailyLimit') }}</span>
-                    <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">${{ selectedPlan.daily_limit_usd }}</div>
+                  <div v-for="quota in selectedPlanQuotas" :key="quota.key">
+                    <span class="text-xs text-gray-400 dark:text-gray-500">{{ quota.label }}</span>
+                    <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">{{ quota.limit }}</div>
                   </div>
                   <div v-if="selectedPlan && !hasRollingQuotaLimits(selectedPlan)">
                     <span class="text-xs text-gray-400 dark:text-gray-500">{{ t('payment.planCard.quota') }}</span>
@@ -197,7 +197,10 @@
                         <span v-if="sub.plan_name">{{ sub.plan_name }}</span>
                         <span>{{ t('payment.planCard.rate') }}: ×{{ sub.group?.rate_multiplier ?? 1 }}</span>
                         <span v-if="subscriptionHasPeakRate(sub)">{{ t('payment.planCard.peakRate') }}: {{ subscriptionPeakRateLabel(sub) }}</span>
-                        <span v-if="sub.group?.daily_limit_usd == null && sub.group?.weekly_limit_usd == null && sub.group?.monthly_limit_usd == null">{{ t('payment.planCard.quota') }}: {{ t('payment.planCard.unlimited') }}</span>
+                        <span v-for="quota in activeSubscriptionSummaryQuotas(sub)" :key="quota.key">
+                          {{ quota.label }}: {{ quota.limit }}
+                        </span>
+                        <span v-if="!hasRollingQuotaLimits(sub)">{{ t('payment.planCard.quota') }}: {{ t('payment.planCard.unlimited') }}</span>
                         <span v-if="sub.expires_at">{{ t('userSubscriptions.daysRemaining', { days: getDaysRemaining(sub.expires_at) }) }}</span>
                         <span v-else>{{ t('userSubscriptions.noExpiration') }}</span>
                       </div>
@@ -260,6 +263,7 @@ import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiErro
 import { isMobileDevice } from '@/utils/device'
 import { hasPeakRate, formatPeakRateWindow, serverTimezoneLabel, type PeakRateFields } from '@/utils/peak-rate'
 import type { SubscriptionPlan, CheckoutInfoResponse, CreateOrderResult, OrderType } from '@/types/payment'
+import type { UserSubscription } from '@/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
@@ -276,7 +280,7 @@ import {
   writePaymentRecoverySnapshot,
 } from '@/components/payment/paymentFlow'
 import { platformAccentBarClass, platformBadgeLightClass, platformBadgeClass, platformTextClass, platformLabel } from '@/utils/platformColors'
-import { hasRollingQuotaLimits } from '@/utils/rollingQuota'
+import { formatUsdLimit, hasRollingQuotaLimits, rollingQuotaWindows } from '@/utils/rollingQuota'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import PaymentStatusPanel from '@/components/payment/PaymentStatusPanel.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -753,6 +757,32 @@ const paymentButtonClass = computed(() => {
 // Subscription confirm: platform accent colors (clean card, no gradient)
 const planBadgeClass = computed(() => platformBadgeClass(selectedPlan.value?.group_platform || ''))
 const planTextClass = computed(() => platformTextClass(selectedPlan.value?.group_platform || ''))
+const selectedPlanQuotas = computed(() => {
+  if (!selectedPlan.value) return []
+  return rollingQuotaWindows
+    .filter(window => selectedPlan.value?.[window.limitField] != null)
+    .map(window => ({
+      key: window.key,
+      label: translatedQuotaLabel(window.shortLabelKey, window.shortLabel),
+      limit: formatUsdLimit(selectedPlan.value?.[window.limitField]),
+    }))
+})
+
+function activeSubscriptionSummaryQuotas(sub: UserSubscription) {
+  return rollingQuotaWindows
+    .filter(window => sub[window.limitField] != null)
+    .map(window => ({
+      key: window.key,
+      label: translatedQuotaLabel(window.shortLabelKey, window.shortLabel),
+      limit: formatUsdLimit(sub[window.limitField]),
+    }))
+}
+
+function translatedQuotaLabel(key: string, fallback: string): string {
+  const label = t(key)
+  return label === key ? fallback : label
+}
+
 function translatedValidityUnit(key: string, fallback: string): string {
   const label = t(key)
   return label === key ? fallback : label

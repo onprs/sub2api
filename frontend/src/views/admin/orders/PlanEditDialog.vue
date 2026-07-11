@@ -80,15 +80,15 @@
         <div class="grid grid-cols-3 gap-4">
           <div>
             <label class="input-label text-xs">{{ t('payment.admin.fiveHourLimit') }}</label>
-            <input v-model.number="planForm.five_hour_limit_usd" type="number" step="0.01" min="0" class="input" />
+            <input v-model.number="planForm.five_hour_limit_usd" data-testid="five-hour-limit-input" type="number" step="0.01" min="0" class="input" />
           </div>
           <div>
             <label class="input-label text-xs">{{ t('payment.admin.sevenDayLimit') }}</label>
-            <input v-model.number="planForm.seven_day_limit_usd" type="number" step="0.01" min="0" class="input" />
+            <input v-model.number="planForm.seven_day_limit_usd" data-testid="seven-day-limit-input" type="number" step="0.01" min="0" class="input" />
           </div>
           <div>
             <label class="input-label text-xs">{{ t('payment.admin.thirtyDayLimit') }}</label>
-            <input v-model.number="planForm.thirty_day_limit_usd" type="number" step="0.01" min="0" class="input" />
+            <input v-model.number="planForm.thirty_day_limit_usd" data-testid="thirty-day-limit-input" type="number" step="0.01" min="0" class="input" />
           </div>
         </div>
         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('payment.admin.rollingQuotaHint') }}</p>

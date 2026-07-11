@@ -355,6 +355,26 @@ async function mountSubscriptionConfirm(options: Parameters<typeof checkoutInfoW
 }
 
 describe('PaymentView subscription confirmation amounts', () => {
+  it('shows rolling plan quotas and suppresses legacy daily limit zero', async () => {
+    const wrapper = await mountSubscriptionConfirm({
+      plan: {
+        daily_limit_usd: 0,
+        five_hour_limit_usd: 5,
+        seven_day_limit_usd: 70,
+        thirty_day_limit_usd: 300,
+      },
+    })
+
+    const text = wrapper.text()
+    expect(text).toContain('5h')
+    expect(text).toContain('$5.00')
+    expect(text).toContain('7d')
+    expect(text).toContain('$70.00')
+    expect(text).toContain('30d')
+    expect(text).toContain('$300.00')
+    expect(text).not.toContain('payment.planCard.dailyLimit')
+  })
+
   it('shows converted CNY pay amount using the subscription rate, not the balance multiplier', async () => {
     const wrapper = await mountSubscriptionConfirm({
       checkout: {

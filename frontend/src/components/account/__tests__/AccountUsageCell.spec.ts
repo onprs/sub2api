@@ -216,7 +216,7 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledWith(2000, undefined)
+    expect(getUsage).toHaveBeenCalledWith(2000)
     expect(wrapper.text()).toContain('5h|15|300')
     expect(wrapper.text()).toContain('7d|77|300')
   })
@@ -277,7 +277,7 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledWith(2001, undefined)
+    expect(getUsage).toHaveBeenCalledWith(2001)
     // 单一数据源：始终使用 /usage API 返回值，忽略 codex 快照
     expect(wrapper.text()).toContain('5h|18|900')
     expect(wrapper.text()).toContain('7d|36|900')
@@ -355,7 +355,7 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledWith(5001, undefined)
+    expect(getUsage).toHaveBeenCalledWith(5001)
     expect(wrapper.text()).toContain('5h|25|600')
     expect(wrapper.text()).toContain('7d|50|1200')
     expect(wrapper.text()).toContain('30d|75|2400')
@@ -418,7 +418,7 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledWith(5002, undefined)
+    expect(getUsage).toHaveBeenCalledWith(5002)
     expect(wrapper.text()).toContain('5h|19|2026-06-22T05:43:10Z')
     expect(wrapper.text()).toContain('7d|7|2026-06-29T05:43:10Z')
     expect(wrapper.text()).toContain('30d|10|2026-07-22T05:43:10Z')
@@ -531,7 +531,7 @@ describe('AccountUsageCell', () => {
     await flushPromises()
 
     expect(getUsage).toHaveBeenCalledTimes(2)
-    expect(getUsage).toHaveBeenLastCalledWith(5010, undefined)
+    expect(getUsage).toHaveBeenLastCalledWith(5010)
     expect(wrapper.text()).toContain('official')
     expect(wrapper.text()).toContain('5h|19|2026-06-22T05:43:10Z|')
     expect(wrapper.text()).not.toContain('admin.accounts.usageWindow.estimatedData')
@@ -724,7 +724,7 @@ describe('AccountUsageCell', () => {
 
     // 手动刷新再拉一次
     expect(getUsage).toHaveBeenCalledTimes(2)
-    expect(getUsage).toHaveBeenCalledWith(2010, undefined)
+    expect(getUsage).toHaveBeenCalledWith(2010)
     // 单一数据源：始终使用 /usage API 值
     expect(wrapper.text()).toContain('5h|18|900')
   })
@@ -779,7 +779,7 @@ describe('AccountUsageCell', () => {
 
 	await flushPromises()
 
-	expect(getUsage).toHaveBeenCalledWith(2002, undefined)
+	expect(getUsage).toHaveBeenCalledWith(2002)
 	expect(wrapper.text()).toContain('5h|0|27700')
 	expect(wrapper.text()).toContain('7d|0|27700')
   })
@@ -911,7 +911,7 @@ describe('AccountUsageCell', () => {
 
 	await flushPromises()
 
-  expect(getUsage).toHaveBeenCalledWith(2004, undefined)
+  expect(getUsage).toHaveBeenCalledWith(2004)
   expect(wrapper.text()).toContain('5h|100|106540000')
   expect(wrapper.text()).toContain('7d|100|106540000')
   })

@@ -51,16 +51,16 @@
           <span class="text-gray-400 dark:text-dark-500">{{ t('payment.planCard.peakRate') }}</span>
           <span class="text-right font-medium text-amber-700 dark:text-amber-300">{{ peakRateDisplay }}</span>
         </div>
-        <div v-if="plan.daily_limit_usd != null" class="flex items-center justify-between">
-          <span class="text-gray-400 dark:text-dark-500">{{ t('payment.planCard.dailyLimit') }}</span>
-          <span class="font-medium text-gray-700 dark:text-gray-300">${{ plan.daily_limit_usd }}</span>
+        <div v-for="quota in rollingPlanQuotas" :key="quota.key" class="flex items-center justify-between">
+          <span class="text-gray-400 dark:text-dark-500">{{ quota.label }}</span>
+          <span class="font-medium text-gray-700 dark:text-gray-300">{{ quota.limit }}</span>
         </div>
         <div v-if="!hasPlanRollingQuotaLimits" class="flex items-center justify-between">
           <span class="text-gray-400 dark:text-dark-500">{{ t('payment.planCard.quota') }}</span>
           <span class="font-medium text-gray-700 dark:text-gray-300">{{ t('payment.planCard.unlimited') }}</span>
         </div>
         <div class="flex items-center justify-between">
-          <span class="text-gray-400 dark:text-dark-500">库存</span>
+          <span class="text-gray-400 dark:text-dark-500">{{ t('payment.stock.label') }}</span>
           <span :class="['font-medium', stockTextClass]">{{ stockText }}</span>
         </div>
         <div v-if="modelScopeLabels.length > 0" class="col-span-2 flex items-center justify-between">
@@ -96,7 +96,7 @@
         ]"
         @click="handleSelect"
       >
-        {{ isSoldOut ? '售罄' : (isRenewal ? t('payment.renewNow') : t('payment.subscribeNow')) }}
+        {{ isSoldOut ? t('payment.stock.soldOut') : (isRenewal ? t('payment.renewNow') : t('payment.subscribeNow')) }}
       </button>
     </div>
   </div>
@@ -109,7 +109,7 @@ import type { SubscriptionPlan } from '@/types/payment'
 import type { UserSubscription } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { hasPeakRate as groupHasPeakRate, formatPeakRateWindow, serverTimezoneLabel } from '@/utils/peak-rate'
-import { hasRollingQuotaLimits } from '@/utils/rollingQuota'
+import { formatUsdLimit, hasRollingQuotaLimits, rollingQuotaWindows } from '@/utils/rollingQuota'
 import {
   platformAccentBarClass,
   platformBadgeLightClass,
@@ -142,9 +142,9 @@ const discountClass = computed(() => platformDiscountClass(platform.value))
 const pLabel = computed(() => platformLabel(platform.value))
 const isSoldOut = computed(() => props.plan.sold_out === true || props.plan.stock === 0)
 const stockText = computed(() => {
-  if (isSoldOut.value) return '售罄'
-  if (props.plan.stock == null) return '不限库存'
-  return props.plan.stock > 0 ? `剩余库存 ${props.plan.stock}` : '库存充足'
+  if (isSoldOut.value) return t('payment.stock.soldOut')
+  if (props.plan.stock == null) return t('payment.stock.unlimited')
+  return t('payment.stock.remaining', { count: props.plan.stock })
 })
 const stockTextClass = computed(() =>
   isSoldOut.value
@@ -166,6 +166,15 @@ const showRenewalDiscount = computed(() =>
     && effectivePrice.value < props.plan.price
 )
 const hasPlanRollingQuotaLimits = computed(() => hasRollingQuotaLimits(props.plan))
+const rollingPlanQuotas = computed(() =>
+  rollingQuotaWindows
+    .filter(window => props.plan[window.limitField] != null)
+    .map(window => ({
+      key: window.key,
+      label: translatedQuotaLabel(window.shortLabelKey, window.shortLabel),
+      limit: formatUsdLimit(props.plan[window.limitField]),
+    }))
+)
 const renewalDiscountText = computed(() =>
   t('payment.renewalDiscount', { percent: formatDiscountPercent(props.plan.renewal_discount_percent ?? 0) })
 )
@@ -185,6 +194,11 @@ function formatDiscountPercent(value: number): string {
 }
 
 function translatedValidityUnit(key: string, fallback: string): string {
+  const label = t(key)
+  return label === key ? fallback : label
+}
+
+function translatedQuotaLabel(key: string, fallback: string): string {
   const label = t(key)
   return label === key ? fallback : label
 }
