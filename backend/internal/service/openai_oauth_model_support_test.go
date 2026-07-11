@@ -39,12 +39,12 @@ func TestIsModelSupported_OpenAIOAuthEmptyMapping_ServableModels(t *testing.T) {
 	}
 }
 
-func TestIsModelSupported_OpenAIOAuthEmptyMapping_RejectsForeignModels(t *testing.T) {
+func TestIsModelSupported_OpenAIOAuthEmptyMapping_RejectsKnownUnsupportedModels(t *testing.T) {
 	account := newOpenAIOAuthAccountForModelTest()
 
-	// Codex 上游必然以不可重试的 400 拒绝这些厂商家族；调度阶段就应跳过
-	// 该账号，让显式声明支持的 API Key 账号接手（#3662）。
-	foreign := []string{
+	// Codex 上游必然以不可重试的 400 拒绝这些模型；调度阶段就应跳过
+	// 该账号，让显式声明支持的账号接手（#3662）。
+	unsupported := []string{
 		"deepseek-v4",
 		"deepseek-chat",
 		"glm-4.7",
@@ -56,8 +56,15 @@ func TestIsModelSupported_OpenAIOAuthEmptyMapping_RejectsForeignModels(t *testin
 		"minimax-m2.5",
 		"llama-3.3-70b",
 		"provider/deepseek-v4", // vendor/model 形式取最后一段判定
+		"gpt-5.6",
+		"gpt-5.6-max",
+		"gpt-5.6-sol",
+		"gpt-5.6-sol-2026-07-09",
+		"gpt-5.6-terra",
+		"gpt-5.6-luna",
+		"openai/gpt-5.6-sol",
 	}
-	for _, model := range foreign {
+	for _, model := range unsupported {
 		require.False(t, account.IsModelSupported(model), "expected %q to be rejected by empty-mapping OpenAI OAuth account", model)
 	}
 }
@@ -65,11 +72,15 @@ func TestIsModelSupported_OpenAIOAuthEmptyMapping_RejectsForeignModels(t *testin
 func TestIsModelSupported_OpenAIOAuthExplicitMappingUnchanged(t *testing.T) {
 	account := newOpenAIOAuthAccountForModelTest()
 	account.Credentials = map[string]any{
-		"model_mapping": map[string]any{"deepseek-v4": "gpt-5.4"},
+		"model_mapping": map[string]any{
+			"deepseek-v4": "gpt-5.4",
+			"gpt-5.6-sol": "gpt-5.6-sol",
+		},
 	}
 
 	// 显式映射沿用原有语义：命中映射即支持，未命中即不支持。
 	require.True(t, account.IsModelSupported("deepseek-v4"))
+	require.True(t, account.IsModelSupported("gpt-5.6-sol"))
 	require.False(t, account.IsModelSupported("glm-4.7"))
 }
 

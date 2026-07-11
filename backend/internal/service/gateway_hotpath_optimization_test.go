@@ -563,10 +563,29 @@ func TestGetAvailableModels_OpenAIEmptyMappingAccountMergesDefaultModels(t *test
 
 	models := svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI)
 	require.Contains(t, models, "gpt-5.5")
-	require.Contains(t, models, "gpt-5.6")
+	require.NotContains(t, models, "gpt-5.6")
+	require.NotContains(t, models, "gpt-5.6-sol")
+	require.NotContains(t, models, "gpt-5.6-terra")
+	require.NotContains(t, models, "gpt-5.6-luna")
+}
+
+func TestGetAvailableModels_OpenAIEmptyMappingAPIKeyKeepsDefaultModels(t *testing.T) {
+	groupID := int64(58)
+	repo := &modelsListAccountRepoStub{
+		byGroup: map[int64][]Account{
+			groupID: {
+				{
+					ID:       1,
+					Platform: PlatformOpenAI,
+					Type:     AccountTypeAPIKey,
+				},
+			},
+		},
+	}
+	svc := &GatewayService{accountRepo: repo}
+
+	models := svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI)
 	require.Contains(t, models, "gpt-5.6-sol")
-	require.Contains(t, models, "gpt-5.6-terra")
-	require.Contains(t, models, "gpt-5.6-luna")
 }
 
 func TestGetAvailableModels_OpenAIExplicitMappingsDoNotForceDefaultModels(t *testing.T) {

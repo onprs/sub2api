@@ -1255,7 +1255,13 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	if hasOpenAIEmptyMappingAccount {
 		hasAnyMapping = true
 		for _, model := range openai.DefaultModelIDs() {
-			modelSet[model] = struct{}{}
+			for i := range accounts {
+				account := &accounts[i]
+				if account.Platform == PlatformOpenAI && len(account.GetModelMapping()) == 0 && account.IsModelSupported(model) {
+					modelSet[model] = struct{}{}
+					break
+				}
+			}
 		}
 	}
 

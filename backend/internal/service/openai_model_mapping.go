@@ -58,14 +58,17 @@ var openAIOAuthForeignModelPrefixes = []string{
 }
 
 // isOpenAIOAuthServableModel 判断「空 model_mapping 的 OpenAI OAuth 账号」能否
-// 服务请求模型。空映射默认仍是「允许」，仅排除明确属于其他厂商家族的模型
-// （deepseek-*/glm-* 等）——这类请求原样透传必然被 Codex 上游以不可重试的
-// 400 拒绝，且不触发 failover，应在调度阶段就跳过该账号，把请求让给
-// 显式声明支持该模型的账号（#3662）。
+// 服务请求模型。空映射默认仍是「允许」，但会排除明确属于其他厂商家族的
+// 模型，以及已知不受 ChatGPT Codex 账号支持的 GPT-5.6 系列。这些请求原样
+// 透传会被上游以不可重试的 400 拒绝，且不触发 failover，应在调度阶段就
+// 跳过该账号，把请求让给显式声明支持该模型的账号（#3662）。
 func isOpenAIOAuthServableModel(requestedModel string) bool {
 	model := strings.ToLower(lastOpenAIModelSegment(requestedModel))
 	if model == "" {
 		return true // 空模型交由上层必填校验处理
+	}
+	if isOpenAIGPT56Model(model) {
+		return false
 	}
 	for _, prefix := range openAIOAuthForeignModelPrefixes {
 		if strings.HasPrefix(model, prefix) {
