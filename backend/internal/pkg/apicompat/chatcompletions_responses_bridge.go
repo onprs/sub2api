@@ -973,6 +973,16 @@ func ChatUsageToResponsesUsage(usage *ChatUsage) *ResponsesUsage {
 	if out.TotalTokens == 0 {
 		out.TotalTokens = out.InputTokens + out.OutputTokens
 	}
+	if usage.CompletionTokensDetails != nil && (usage.CompletionTokensDetails.ReasoningTokens > 0 ||
+		usage.CompletionTokensDetails.AudioTokens > 0 || usage.CompletionTokensDetails.AcceptedPredictionTokens > 0 ||
+		usage.CompletionTokensDetails.RejectedPredictionTokens > 0) {
+		out.OutputTokensDetails = &ResponsesOutputTokensDetails{
+			ReasoningTokens:          usage.CompletionTokensDetails.ReasoningTokens,
+			AudioTokens:              usage.CompletionTokensDetails.AudioTokens,
+			AcceptedPredictionTokens: usage.CompletionTokensDetails.AcceptedPredictionTokens,
+			RejectedPredictionTokens: usage.CompletionTokensDetails.RejectedPredictionTokens,
+		}
+	}
 	if usage.PromptTokensDetails != nil && (usage.PromptTokensDetails.CachedTokens > 0 ||
 		usage.PromptTokensDetails.CacheCreationTokens > 0 || usage.PromptTokensDetails.CacheWriteTokens > 0 ||
 		usage.PromptTokensDetails.CacheCreation5mTokens > 0 || usage.PromptTokensDetails.CacheCreation1hTokens > 0 ||
