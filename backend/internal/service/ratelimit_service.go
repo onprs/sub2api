@@ -170,6 +170,14 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 // HandleUpstreamError 处理上游错误响应，标记账号状态
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
+	// OpenAI model availability is account-specific scheduler feedback. Handle
+	// it before pool/custom whole-account policies so an unsupported model can
+	// fail over without disabling the account or being ignored by code filters.
+	if account != nil && account.Platform == PlatformOpenAI && len(requestedModel) > 0 &&
+		s.HandleUpstreamModelNotFound(ctx, account, requestedModel[0], statusCode, responseBody) {
+		return true
+	}
+
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
 
 	// 池模式默认不标记本地账号状态；仅当用户显式配置自定义错误码时按本地策略处理。
@@ -2013,10 +2021,13 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	if s == nil || account == nil || s.accountRepo == nil {
 		return false
 	}
-	if !account.ShouldHandleErrorCode(statusCode) {
+	if !isUpstreamModelNotFoundError(statusCode, responseBody) {
 		return false
 	}
-	if !isUpstreamModelNotFoundError(statusCode, responseBody) {
+	// This is account-model capability feedback, not a whole-account error
+	// policy. OpenAI must still fail over and cool down only the rejected model
+	// when custom_error_codes omits 400/404.
+	if account.Platform != PlatformOpenAI && !account.ShouldHandleErrorCode(statusCode) {
 		return false
 	}
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)

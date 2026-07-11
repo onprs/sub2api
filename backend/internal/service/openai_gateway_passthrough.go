@@ -189,9 +189,11 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
-		// 透传模式默认保持原样代理；但 429/529 属于网关必须兜底的
-		// 上游容量类错误，应先触发多账号 failover 以维持基础 SLA。
-		if shouldFailoverOpenAIPassthroughResponse(resp.StatusCode) {
+		// Passthrough keeps ordinary errors intact. Capacity errors and explicit
+		// account-model capability errors must fail over before committing a
+		// client response; readOpenAIUpstreamError rewinds the body for handlers.
+		respBody, _ := s.readOpenAIUpstreamError(resp)
+		if shouldFailoverOpenAIPassthroughResponse(resp.StatusCode, respBody) {
 			return nil, s.handleFailoverErrorResponsePassthrough(ctx, resp, c, account, body)
 		}
 		return nil, s.handleErrorResponsePassthrough(ctx, resp, c, account, body)
@@ -417,7 +419,10 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	return req, nil
 }
 
-func shouldFailoverOpenAIPassthroughResponse(statusCode int) bool {
+func shouldFailoverOpenAIPassthroughResponse(statusCode int, responseBody []byte) bool {
+	if isUpstreamModelNotFoundError(statusCode, responseBody) {
+		return true
+	}
 	switch statusCode {
 	case http.StatusTooManyRequests, 529:
 		return true

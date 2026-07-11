@@ -222,6 +222,11 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
 		return false
 	}
+	// Model availability is account-specific. Let the handler switch accounts;
+	// side effects only cool down this account for the rejected model.
+	if isUpstreamModelNotFoundError(statusCode, upstreamBody) {
+		return true
+	}
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return true
 	}

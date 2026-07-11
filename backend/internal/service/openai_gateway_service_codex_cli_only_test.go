@@ -314,12 +314,34 @@ func TestIsOpenAIContextWindowError(t *testing.T) {
 	))
 }
 
-func TestShouldFailoverOpenAIUpstreamResponseContextWindow502(t *testing.T) {
+func TestShouldFailoverOpenAIUpstreamResponse(t *testing.T) {
 	svc := &OpenAIGatewayService{}
-	body := []byte(`{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again.","type":"upstream_error","code":null}}`)
 
-	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadGateway, "", body))
-	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadGateway, "temporary upstream outage", []byte(`{"error":{"message":"temporary upstream outage"}}`)))
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		http.StatusBadGateway,
+		"",
+		[]byte(`{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again.","type":"upstream_error","code":null}}`),
+	))
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		http.StatusBadGateway,
+		"temporary upstream outage",
+		[]byte(`{"error":{"message":"temporary upstream outage"}}`),
+	))
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		http.StatusBadRequest,
+		"Model gpt-5.6-sol is not supported when using Codex with a ChatGPT account.",
+		[]byte(`{"error":{"message":"Model \"gpt-5.6-sol\" is not supported when using Codex with a ChatGPT account."}}`),
+	))
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		http.StatusNotFound,
+		"model not found",
+		[]byte(`{"error":{"code":"model_not_found","message":"model not found"}}`),
+	))
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		http.StatusBadRequest,
+		"temperature is not supported",
+		[]byte(`{"error":{"message":"Parameter temperature is not supported by this model"}}`),
+	))
 }
 
 func TestOpenAIGatewayService_Forward_LogsInstructionsRequiredDetails(t *testing.T) {

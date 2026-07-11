@@ -76,6 +76,8 @@ func TestRateLimitService_HandleUpstreamError_ChatGPTCodexUnsupportedUsesModelRa
 	repo := &modelNotFoundAccountRepoStub{}
 	svc := &RateLimitService{accountRepo: repo}
 	account := openAIModelNotFoundTempAccount()
+	account.Credentials["custom_error_codes_enabled"] = true
+	account.Credentials["custom_error_codes"] = []any{float64(http.StatusTooManyRequests)}
 
 	handled := svc.HandleUpstreamError(
 		context.Background(),

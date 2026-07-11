@@ -215,10 +215,18 @@ func TestOpenAIGatewayService_OAuthMessagesBridgeDoesNotInjectDefaultInstruction
 	require.Empty(t, upstream.lastReq.Header.Get("originator"))
 }
 
+type openAIPassthroughModelRateLimitCall struct {
+	accountID int64
+	scope     string
+	resetAt   time.Time
+	reason    string
+}
+
 type openAIPassthroughFailoverRepo struct {
 	stubOpenAIAccountRepo
-	rateLimitCalls []time.Time
-	overloadCalls  []time.Time
+	rateLimitCalls      []time.Time
+	overloadCalls       []time.Time
+	modelRateLimitCalls []openAIPassthroughModelRateLimitCall
 }
 
 func (r *openAIPassthroughFailoverRepo) SetRateLimited(_ context.Context, _ int64, resetAt time.Time) error {
@@ -228,6 +236,15 @@ func (r *openAIPassthroughFailoverRepo) SetRateLimited(_ context.Context, _ int6
 
 func (r *openAIPassthroughFailoverRepo) SetOverloaded(_ context.Context, _ int64, until time.Time) error {
 	r.overloadCalls = append(r.overloadCalls, until)
+	return nil
+}
+
+func (r *openAIPassthroughFailoverRepo) SetModelRateLimit(_ context.Context, accountID int64, scope string, resetAt time.Time, reason ...string) error {
+	call := openAIPassthroughModelRateLimitCall{accountID: accountID, scope: scope, resetAt: resetAt}
+	if len(reason) > 0 {
+		call.reason = reason[0]
+	}
+	r.modelRateLimitCalls = append(r.modelRateLimitCalls, call)
 	return nil
 }
 
@@ -878,6 +895,20 @@ func TestOpenAIGatewayService_OpenAIPassthrough_RetryableStatusesTriggerFailover
 			},
 		},
 		{
+			name:           "oauth_400_model_unsupported",
+			accountType:    AccountTypeOAuth,
+			statusCode:     http.StatusBadRequest,
+			body:           `{"error":{"message":"Model \"gpt-5.2\" is not supported when using Codex with a ChatGPT account.","type":"invalid_request_error"}}`,
+			expectFailover: true,
+			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, _ time.Time) {
+				require.Empty(t, repo.rateLimitCalls)
+				require.Empty(t, repo.overloadCalls)
+				require.Len(t, repo.modelRateLimitCalls, 1)
+				require.Equal(t, "gpt-5.2", repo.modelRateLimitCalls[0].scope)
+				require.Equal(t, upstreamModelNotFoundReason, repo.modelRateLimitCalls[0].reason)
+			},
+		},
+		{
 			name:           "oauth_502_bad_gateway",
 			accountType:    AccountTypeOAuth,
 			statusCode:     http.StatusBadGateway,
@@ -886,6 +917,7 @@ func TestOpenAIGatewayService_OpenAIPassthrough_RetryableStatusesTriggerFailover
 			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, _ time.Time) {
 				require.Empty(t, repo.rateLimitCalls)
 				require.Empty(t, repo.overloadCalls)
+				require.Empty(t, repo.modelRateLimitCalls)
 			},
 		},
 		{

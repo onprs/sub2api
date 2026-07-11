@@ -766,6 +766,44 @@ func TestOpenAISelectAccountForModelWithExclusions_GPT56AllowsEmptyMappingOAuth(
 	require.Equal(t, int64(5182), acc.ID)
 }
 
+func TestOpenAISelectAccountForModelWithExclusions_ModelCooldownIsAccountAndModelScoped(t *testing.T) {
+	resetAt := time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339)
+	repo := stubOpenAIAccountRepo{
+		accounts: []Account{
+			{
+				ID:          100,
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Schedulable: true,
+				Priority:    0,
+				Extra: map[string]any{
+					modelRateLimitsKey: map[string]any{
+						"gpt-5.6-sol": map[string]any{"rate_limit_reset_at": resetAt},
+					},
+				},
+			},
+			{
+				ID:          200,
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Schedulable: true,
+				Priority:    1,
+			},
+		},
+	}
+	svc := &GatewayService{accountRepo: repo, cache: &stubGatewayCache{}}
+
+	sol, err := svc.selectAccountForModelWithPlatform(context.Background(), nil, "", "gpt-5.6-sol", nil, PlatformOpenAI)
+	require.NoError(t, err)
+	require.Equal(t, int64(200), sol.ID, "account 100 must be skipped only for the rejected model")
+
+	luna, err := svc.selectAccountForModelWithPlatform(context.Background(), nil, "", "gpt-5.6-luna", nil, PlatformOpenAI)
+	require.NoError(t, err)
+	require.Equal(t, int64(100), luna.ID, "the same account must remain eligible for other GPT-5.6 models")
+}
+
 func TestOpenAISelectAccountWithLoadAwareness_LoadBatchErrorFallback(t *testing.T) {
 	groupID := int64(1)
 	repo := stubOpenAIAccountRepo{
