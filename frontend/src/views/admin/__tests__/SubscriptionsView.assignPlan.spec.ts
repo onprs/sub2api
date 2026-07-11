@@ -196,7 +196,7 @@ describe('admin SubscriptionsView plan assignment', () => {
     })
   })
 
-  it('keeps active subscription actions in a non-shrinking row', async () => {
+  it('renders active subscription actions in three fixed-width command columns', async () => {
     listSubscriptions.mockResolvedValue({
       items: [
         {
@@ -220,9 +220,15 @@ describe('admin SubscriptionsView plan assignment', () => {
     await flushPromises()
 
     const actions = wrapper.get('[data-test="subscription-actions"]')
-    expect(actions.classes()).toContain('min-w-[10rem]')
+    expect(actions.classes()).toContain('grid-cols-3')
+    expect(actions.classes()).toContain('md:w-[15rem]')
     expect(actions.findAll('button')).toHaveLength(3)
-    expect(actions.findAll('button').every((button) => button.classes().includes('shrink-0'))).toBe(true)
+    expect(actions.findAll('button').every((button) => button.classes().includes('whitespace-nowrap'))).toBe(true)
+
+    const actionColumn = (wrapper.vm as unknown as { columns: Array<{ key: string; class?: string }> }).columns
+      .find((column) => column.key === 'actions')
+    expect(actionColumn?.class).toContain('w-[17rem]')
+    expect(actionColumn?.class).toContain('min-w-[17rem]')
   })
 
   it('assigns a selected subscription plan instead of group validity fields', async () => {
