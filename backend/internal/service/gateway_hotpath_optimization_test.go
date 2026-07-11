@@ -535,6 +535,64 @@ func TestGetAvailableModels_UsesShortCacheAndSupportsInvalidation(t *testing.T) 
 	require.Equal(t, int64(2), store)
 }
 
+func TestGetAvailableModels_OpenAIEmptyMappingAccountMergesDefaultModels(t *testing.T) {
+	groupID := int64(56)
+	repo := &modelsListAccountRepoStub{
+		byGroup: map[int64][]Account{
+			groupID: {
+				{
+					ID:          1,
+					Platform:    PlatformOpenAI,
+					Type:        AccountTypeOAuth,
+					Credentials: map[string]any{},
+				},
+				{
+					ID:       2,
+					Platform: PlatformOpenAI,
+					Type:     AccountTypeOAuth,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"gpt-5.5": "gpt-5.5",
+						},
+					},
+				},
+			},
+		},
+	}
+	svc := &GatewayService{accountRepo: repo}
+
+	models := svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI)
+	require.Contains(t, models, "gpt-5.5")
+	require.Contains(t, models, "gpt-5.6")
+	require.Contains(t, models, "gpt-5.6-sol")
+	require.Contains(t, models, "gpt-5.6-terra")
+	require.Contains(t, models, "gpt-5.6-luna")
+}
+
+func TestGetAvailableModels_OpenAIExplicitMappingsDoNotForceDefaultModels(t *testing.T) {
+	groupID := int64(57)
+	repo := &modelsListAccountRepoStub{
+		byGroup: map[int64][]Account{
+			groupID: {
+				{
+					ID:       1,
+					Platform: PlatformOpenAI,
+					Type:     AccountTypeOAuth,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"gpt-5.5": "gpt-5.5",
+						},
+					},
+				},
+			},
+		},
+	}
+	svc := &GatewayService{accountRepo: repo}
+
+	models := svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI)
+	require.Equal(t, []string{"gpt-5.5"}, models)
+}
+
 func TestGetAvailableModels_ErrorAndGlobalListBranches(t *testing.T) {
 	resetGatewayHotpathStatsForTest()
 

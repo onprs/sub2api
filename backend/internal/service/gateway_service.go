@@ -21,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/cespare/xxhash/v2"
 	gocache "github.com/patrickmn/go-cache"
@@ -1229,14 +1230,32 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	// Collect unique models from all accounts
 	modelSet := make(map[string]struct{})
 	hasAnyMapping := false
+	hasOpenAIEmptyMappingAccount := false
 
 	for _, acc := range accounts {
 		mapping := acc.GetModelMapping()
-		if len(mapping) > 0 {
-			hasAnyMapping = true
-			for model := range mapping {
-				modelSet[model] = struct{}{}
+		if len(mapping) == 0 {
+			if platform == PlatformOpenAI && acc.Platform == PlatformOpenAI {
+				hasOpenAIEmptyMappingAccount = true
 			}
+			continue
+		}
+
+		hasAnyMapping = true
+		for model := range mapping {
+			modelSet[model] = struct{}{}
+		}
+	}
+
+	// OpenAI OAuth accounts without explicit model_mapping are intentionally
+	// treated as default OpenAI/Codex-capable by account.IsModelSupported. When
+	// such accounts coexist with explicitly mapped accounts, include the curated
+	// default OpenAI list so /v1/models reflects the actual scheduler surface
+	// without adding mappings to accounts that have not been individually probed.
+	if hasOpenAIEmptyMappingAccount {
+		hasAnyMapping = true
+		for _, model := range openai.DefaultModelIDs() {
+			modelSet[model] = struct{}{}
 		}
 	}
 
