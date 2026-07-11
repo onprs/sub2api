@@ -1,5 +1,44 @@
 export default {
 
+  modelPricing: {
+    title: 'Model Pricing',
+    description: 'Model pricing by accessible channel and group',
+    searchPlaceholder: 'Search channel, platform, model, group, or source...',
+    empty: 'No model pricing data',
+    modes: {
+      raw: 'Raw Pricing',
+      actual: 'Actual Pricing'
+    },
+    columns: {
+      channel: 'Channel',
+      platform: 'Platform',
+      model: 'Model',
+      group: 'Group',
+      multiplier: 'Multiplier',
+      source: 'Source',
+      billingMode: 'Billing Mode',
+      inputPerMillion: 'Input/M',
+      outputPerMillion: 'Output/M',
+      cacheWritePerMillion: 'Cache Write/M',
+      cacheReadPerMillion: 'Cache Read/M',
+      unitPrice: 'Per Request/Image'
+    },
+    sources: {
+      missing: 'Missing',
+      channel: 'Channel Pricing',
+      catalog: 'Pricing Catalog'
+    },
+    billingModes: {
+      token: 'Per Token',
+      perRequest: 'Per Request',
+      image: 'Per Image'
+    },
+    units: {
+      request: 'req',
+      image: 'img'
+    }
+  },
+
   // Subscription Progress (Header component)
   subscriptionProgress: {
     title: 'My Subscriptions',

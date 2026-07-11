@@ -392,7 +392,10 @@ export default {
     providers: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
-      gemini: 'Gemini'
+      gemini: 'Gemini',
+      antigravity_claude: 'Antigravity Claude',
+      antigravity_gemini: 'Antigravity Gemini',
+      opencode_go: 'OpenCode Go'
     },
     extraModelsHeader: 'Extra Models',
     extraModelsEmpty: 'No extra models',

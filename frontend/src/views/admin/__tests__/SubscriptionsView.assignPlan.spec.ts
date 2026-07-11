@@ -196,6 +196,35 @@ describe('admin SubscriptionsView plan assignment', () => {
     })
   })
 
+  it('keeps active subscription actions in a non-shrinking row', async () => {
+    listSubscriptions.mockResolvedValue({
+      items: [
+        {
+          id: 55,
+          user_id: 1001,
+          user_email: 'target@example.com',
+          group_id: 2,
+          group_name: 'Codex Plus Group',
+          status: 'active',
+          started_at: '2026-01-01T00:00:00Z',
+          expires_at: '2026-02-01T00:00:00Z'
+        }
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mountSubscriptionsView()
+    await flushPromises()
+
+    const actions = wrapper.get('[data-test="subscription-actions"]')
+    expect(actions.classes()).toContain('min-w-[10rem]')
+    expect(actions.findAll('button')).toHaveLength(3)
+    expect(actions.findAll('button').every((button) => button.classes().includes('shrink-0'))).toBe(true)
+  })
+
   it('assigns a selected subscription plan instead of group validity fields', async () => {
     const wrapper = mountSubscriptionsView()
 

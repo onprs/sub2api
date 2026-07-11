@@ -504,6 +504,8 @@ export default {
         apiModeChatCompletionsHint: 'Use /v1/chat/completions with messages; works for most compatible providers.',
         apiModeResponses: 'Responses API',
         apiModeResponsesHint: 'Use /v1/responses with default instructions + input; best for self-check/Codex paths.',
+        apiModeMessages: 'Messages API',
+        apiModeMessagesHint: 'Use /v1/messages for OpenCode Go Anthropic-style models.',
         endpoint: 'Endpoint',
         endpointPlaceholder: 'https://api.example.com',
         useCurrentDomain: 'Use current service',

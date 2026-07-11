@@ -504,6 +504,8 @@ export default {
         apiModeChatCompletionsHint: '使用 /v1/chat/completions，发送 messages；适合大多数兼容站。',
         apiModeResponses: 'Responses API',
         apiModeResponsesHint: '使用 /v1/responses，默认带 instructions + input；适合本站自检/Codex。',
+        apiModeMessages: 'Messages API',
+        apiModeMessagesHint: '使用 /v1/messages，适合 OpenCode Go 的 Anthropic 风格模型。',
         endpoint: '上游地址',
         endpointPlaceholder: 'https://api.example.com',
         useCurrentDomain: '使用当前服务',

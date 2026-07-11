@@ -10,6 +10,7 @@ import enCommon from '../locales/en/common'
 import enDashboard from '../locales/en/dashboard'
 import enLanding from '../locales/en/landing'
 import enMisc from '../locales/en/misc'
+import enLocale from '../locales/en'
 import zhAdminAccounts from '../locales/zh/admin/accounts'
 import zhAdminChannels from '../locales/zh/admin/channels'
 import zhAdminOps from '../locales/zh/admin/ops'
@@ -20,6 +21,7 @@ import zhCommon from '../locales/zh/common'
 import zhDashboard from '../locales/zh/dashboard'
 import zhLanding from '../locales/zh/landing'
 import zhMisc from '../locales/zh/misc'
+import zhLocale from '../locales/zh'
 
 // locales/{zh,en}/index.ts 与 admin/index.ts 使用对象展开聚合各域模块，
 // 展开模块之间若出现同名顶层键会静默覆盖。本测试将该风险固化为显式失败。
@@ -78,5 +80,58 @@ describe.each(Object.keys(roots))('locale %s spread assembly', (locale) => {
 
   it('admin modules have no overlapping top-level keys', () => {
     expect(collisions(admins[locale])).toEqual([])
+  })
+})
+
+const regressionKeys = [
+  'nav.modelPricing',
+  'modelPricing.searchPlaceholder',
+  'modelPricing.columns.channel',
+  'modelPricing.columns.platform',
+  'modelPricing.columns.model',
+  'modelPricing.columns.group',
+  'modelPricing.columns.multiplier',
+  'modelPricing.columns.source',
+  'modelPricing.columns.billingMode',
+  'modelPricing.columns.inputPerMillion',
+  'modelPricing.columns.outputPerMillion',
+  'modelPricing.columns.cacheWritePerMillion',
+  'modelPricing.columns.cacheReadPerMillion',
+  'modelPricing.columns.unitPrice',
+  'admin.channelMonitor.searchPlaceholder',
+  'admin.channelMonitor.allProviders',
+  'admin.channelMonitor.enabledFilter',
+  'admin.channelMonitor.createButton',
+  'admin.channelMonitor.columns.name',
+  'admin.channelMonitor.columns.provider',
+  'admin.channelMonitor.columns.primaryModel',
+  'admin.channelMonitor.columns.availability7d',
+  'admin.channelMonitor.columns.latency',
+  'admin.channelMonitor.columns.enabled',
+  'admin.channelMonitor.columns.actions',
+  'admin.channelMonitor.form.apiModeMessages',
+  'admin.channelMonitor.form.apiModeMessagesHint',
+  'admin.groups.platforms.opencode_go',
+  'admin.accounts.platforms.opencode_go',
+  'monitorCommon.providers.antigravity_claude',
+  'monitorCommon.providers.antigravity_gemini',
+  'monitorCommon.providers.opencode_go'
+] as const
+
+function resolveMessage(messages: Record<string, unknown>, path: string): unknown {
+  return path.split('.').reduce<unknown>((value, part) => {
+    if (!value || typeof value !== 'object') return undefined
+    return (value as Record<string, unknown>)[part]
+  }, messages)
+}
+
+describe.each([
+  ['zh', zhLocale],
+  ['en', enLocale]
+] as const)('locale %s merge-regression contracts', (_locale, messages) => {
+  it.each(regressionKeys)('defines %s', (key) => {
+    const value = resolveMessage(messages, key)
+    expect(value, `${key} must survive locale module assembly`).toBeTypeOf('string')
+    expect(value).not.toBe(key)
   })
 })

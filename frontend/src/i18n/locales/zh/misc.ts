@@ -1,5 +1,44 @@
 export default {
 
+  modelPricing: {
+    title: '模型计费',
+    description: '查看可用渠道中各模型在不同分组下的计费价格',
+    searchPlaceholder: '搜索渠道、平台、模型、分组或来源...',
+    empty: '暂无模型计费数据',
+    modes: {
+      raw: '原始计费',
+      actual: '实际计费'
+    },
+    columns: {
+      channel: '渠道',
+      platform: '平台',
+      model: '模型',
+      group: '分组',
+      multiplier: '倍率',
+      source: '来源',
+      billingMode: '计费模式',
+      inputPerMillion: '输入/M',
+      outputPerMillion: '输出/M',
+      cacheWritePerMillion: '缓存写入/M',
+      cacheReadPerMillion: '缓存读取/M',
+      unitPrice: '按次/图片价'
+    },
+    sources: {
+      missing: '未配置',
+      channel: '渠道定价',
+      catalog: '定价目录'
+    },
+    billingModes: {
+      token: '按 Token',
+      perRequest: '按次',
+      image: '按图片'
+    },
+    units: {
+      request: '次',
+      image: '图'
+    }
+  },
+
   // Subscription Progress (Header component)
   subscriptionProgress: {
     title: '我的订阅',

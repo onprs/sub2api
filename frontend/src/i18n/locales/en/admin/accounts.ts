@@ -104,6 +104,7 @@ export default {
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         grok: 'Grok',
+        opencode_go: 'OpenCode Go',
       },
       types: {
         oauth: 'OAuth',
