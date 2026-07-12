@@ -325,7 +325,7 @@ func (h *AvailableChannelHandler) modelIDsForPricingGroup(ctx context.Context, g
 	if group.CustomModelsListEnabled() {
 		return filterModelsByCustomList(available, fallback, group.ModelsListConfig.Models)
 	}
-	if available != nil {
+	if len(available) > 0 {
 		return available
 	}
 	return fallback

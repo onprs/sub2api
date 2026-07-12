@@ -321,13 +321,11 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 		if err != nil {
 			return nil, err
 		}
-		message := ChatMessage{Role: role, Content: chatContent}
-		if role == "assistant" {
-			message.ReasoningContent = pendingReasoning
-		} else {
+		messages = append(messages, ChatMessage{Role: role, Content: chatContent})
+		// Reasoning only survives across an assistant text message.
+		if role != "assistant" {
 			pendingReasoning = ""
 		}
-		messages = append(messages, message)
 	}
 
 	return messages, nil

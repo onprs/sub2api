@@ -62,19 +62,10 @@ func ChatCompletionsToResponses(req *ChatCompletionsRequest) (*ResponsesRequest,
 		out.MaxOutputTokens = &v
 	}
 
-	// Explicit Chat Completions reasoning controls map to Responses. Compatible
-	// clients commonly send thinking/enable_thinking instead of reasoning_effort.
-	effort := strings.TrimSpace(req.ReasoningEffort)
-	if effort == "" && req.Thinking != nil &&
-		(req.Thinking.Type == "enabled" || req.Thinking.Type == "adaptive") {
-		effort = "medium"
-	}
-	if effort == "" && req.EnableThinking != nil && *req.EnableThinking {
-		effort = "medium"
-	}
-	if effort != "" {
+	// reasoning_effort → reasoning.effort + reasoning.summary="auto"
+	if req.ReasoningEffort != "" {
 		out.Reasoning = &ResponsesReasoning{
-			Effort:  effort,
+			Effort:  req.ReasoningEffort,
 			Summary: "auto",
 		}
 	}
@@ -175,13 +166,7 @@ func chatAssistantToResponses(m ChatMessage) ([]ResponsesInputItem, error) {
 	content := ""
 
 	if m.ReasoningContent != "" {
-		items = append(items, ResponsesInputItem{
-			Type: "reasoning",
-			Summary: []ResponsesSummary{{
-				Type: "summary_text",
-				Text: m.ReasoningContent,
-			}},
-		})
+		content = "<thinking>" + m.ReasoningContent + "</thinking>"
 	}
 
 	// Emit assistant message with output_text if content is non-empty.

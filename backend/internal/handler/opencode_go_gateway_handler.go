@@ -91,7 +91,7 @@ func (h *OpenCodeGoGatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
-	if modelIDs == nil {
+	if len(modelIDs) == 0 {
 		modelIDs = service.OpenCodeGoDefaultModelIDs()
 	}
 	writeModelsList(c, modelIDs)

@@ -203,7 +203,7 @@ func anthropicStreamEventIsTerminal(eventName, data string) bool {
 }
 
 func cloneStringSlice(src []string) []string {
-	if src == nil {
+	if len(src) == 0 {
 		return nil
 	}
 	dst := make([]string, len(src))
@@ -1189,9 +1189,8 @@ func (s *GatewayService) getOAuthToken(ctx context.Context, account *Account) (s
 	return accessToken, "oauth", nil
 }
 
-// GetAvailableModels returns the list of models currently available for a group.
-// It aggregates model_mapping keys from schedulable accounts and omits a model
-// only when every supporting account is under an active model-level cooldown.
+// GetAvailableModels returns the list of models available for a group
+// It aggregates model_mapping keys from all schedulable accounts in the group
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
 	cacheKey := modelsListCacheKey(groupID, platform)
 	if s.modelsListCache != nil {
@@ -1244,9 +1243,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 
 		hasAnyMapping = true
 		for model := range mapping {
-			if !acc.isModelRateLimitedWithContext(ctx, model) {
-				modelSet[model] = struct{}{}
-			}
+			modelSet[model] = struct{}{}
 		}
 	}
 
@@ -1260,8 +1257,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		for _, model := range openai.DefaultModelIDs() {
 			for i := range accounts {
 				account := &accounts[i]
-				if account.Platform == PlatformOpenAI && len(account.GetModelMapping()) == 0 &&
-					account.IsModelSupported(model) && !account.isModelRateLimitedWithContext(ctx, model) {
+				if account.Platform == PlatformOpenAI && len(account.GetModelMapping()) == 0 && account.IsModelSupported(model) {
 					modelSet[model] = struct{}{}
 					break
 				}

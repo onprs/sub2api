@@ -146,13 +146,13 @@ func TestAnthropicToResponses_ToolUse(t *testing.T) {
 	assert.Equal(t, "Sunny, 72°F", items[3].Output)
 }
 
-func TestAnthropicToResponses_ThinkingReplayPreserved(t *testing.T) {
+func TestAnthropicToResponses_ThinkingIgnored(t *testing.T) {
 	req := &AnthropicRequest{
 		Model:     "gpt-5.2",
 		MaxTokens: 1024,
 		Messages: []AnthropicMessage{
 			{Role: "user", Content: json.RawMessage(`"Hello"`)},
-			{Role: "assistant", Content: json.RawMessage(`[{"type":"thinking","thinking":"deep thought","signature":"sig-1"},{"type":"text","text":"Hi!"}]`)},
+			{Role: "assistant", Content: json.RawMessage(`[{"type":"thinking","thinking":"deep thought"},{"type":"text","text":"Hi!"}]`)},
 			{Role: "user", Content: json.RawMessage(`"More"`)},
 		},
 	}
@@ -162,15 +162,14 @@ func TestAnthropicToResponses_ThinkingReplayPreserved(t *testing.T) {
 
 	var items []ResponsesInputItem
 	require.NoError(t, json.Unmarshal(resp.Input, &items))
-	require.Len(t, items, 4)
-	assert.Equal(t, "reasoning", items[1].Type)
-	require.Len(t, items[1].Summary, 1)
-	assert.Equal(t, "deep thought", items[1].Summary[0].Text)
-	assert.Equal(t, "sig-1", items[1].EncryptedContent)
-	assert.Equal(t, "assistant", items[2].Role)
+	// user + assistant(text only, thinking ignored) + user = 3
+	require.Len(t, items, 3)
+	assert.Equal(t, "assistant", items[1].Role)
+	// Assistant content should only have text, not thinking.
 	var parts []ResponsesContentPart
-	require.NoError(t, json.Unmarshal(items[2].Content, &parts))
+	require.NoError(t, json.Unmarshal(items[1].Content, &parts))
 	require.Len(t, parts, 1)
+	assert.Equal(t, "output_text", parts[0].Type)
 	assert.Equal(t, "Hi!", parts[0].Text)
 }
 
@@ -1052,7 +1051,9 @@ func TestAnthropicToResponses_ThinkingDisabled(t *testing.T) {
 
 	resp, err := AnthropicToResponses(req)
 	require.NoError(t, err)
-	assert.Nil(t, resp.Reasoning)
+	// Default effort applies (medium) even when thinking is disabled.
+	require.NotNil(t, resp.Reasoning)
+	assert.Equal(t, "medium", resp.Reasoning.Effort)
 }
 
 func TestAnthropicToResponses_NoThinking(t *testing.T) {
@@ -1064,7 +1065,9 @@ func TestAnthropicToResponses_NoThinking(t *testing.T) {
 
 	resp, err := AnthropicToResponses(req)
 	require.NoError(t, err)
-	assert.Nil(t, resp.Reasoning)
+	// Default effort applies (medium) when no thinking/output_config is set.
+	require.NotNil(t, resp.Reasoning)
+	assert.Equal(t, "medium", resp.Reasoning.Effort)
 }
 
 // ---------------------------------------------------------------------------
@@ -1153,7 +1156,7 @@ func TestAnthropicToResponses_NoOutputConfig(t *testing.T) {
 }
 
 func TestAnthropicToResponses_OutputConfigWithoutEffort(t *testing.T) {
-	// An empty output_config does not imply reasoning.
+	// output_config present but effort empty (e.g. only format set) → default medium.
 	req := &AnthropicRequest{
 		Model:        "gpt-5.2",
 		MaxTokens:    1024,
@@ -1163,7 +1166,8 @@ func TestAnthropicToResponses_OutputConfigWithoutEffort(t *testing.T) {
 
 	resp, err := AnthropicToResponses(req)
 	require.NoError(t, err)
-	assert.Nil(t, resp.Reasoning)
+	require.NotNil(t, resp.Reasoning)
+	assert.Equal(t, "medium", resp.Reasoning.Effort)
 }
 
 // ---------------------------------------------------------------------------

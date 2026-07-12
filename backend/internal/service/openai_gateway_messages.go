@@ -14,7 +14,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -96,19 +95,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 
 	// 3. Convert Anthropic → Responses after compatibility-only replay guard.
-	guardedAnthropicBody, err := json.Marshal(&anthropicReq)
-	if err != nil {
-		return nil, fmt.Errorf("marshal guarded anthropic request: %w", err)
-	}
-	convertedResponsesBody, err := protocolconv.ConvertRequest(guardedAnthropicBody, protocolconv.ProtocolAnthropic, protocolconv.Target{
-		Protocol: protocolconv.ProtocolOpenAIResponses,
-	}, protocolconv.Options{})
+	responsesReq, err := apicompat.AnthropicToResponses(&anthropicReq)
 	if err != nil {
 		return nil, fmt.Errorf("convert anthropic to responses: %w", err)
-	}
-	var responsesReq apicompat.ResponsesRequest
-	if err := json.Unmarshal(convertedResponsesBody, &responsesReq); err != nil {
-		return nil, fmt.Errorf("decode converted responses request: %w", err)
 	}
 
 	// Upstream always uses streaming (upstream may not support sync mode).
@@ -124,10 +113,10 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	responsesReq.Model = upstreamModel
 	if previousResponseID != "" {
 		responsesReq.PreviousResponseID = previousResponseID
-		trimAnthropicCompatResponsesInputToLatestTurn(&responsesReq)
+		trimAnthropicCompatResponsesInputToLatestTurn(responsesReq)
 	}
 	if compatReplayGuardEnabled && account.Type != AccountTypeOAuth {
-		appendOpenAICompatClaudeCodeTodoGuard(&responsesReq)
+		appendOpenAICompatClaudeCodeTodoGuard(responsesReq)
 	}
 
 	logFields := []zap.Field{

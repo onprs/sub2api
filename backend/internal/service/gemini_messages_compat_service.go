@@ -23,7 +23,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 
@@ -3055,9 +3054,38 @@ func mapGeminiFinishReasonToClaudeStopReason(finishReason string) string {
 }
 
 func convertClaudeMessagesToGeminiGenerateContent(body []byte) ([]byte, error) {
-	return protocolconv.ConvertRequest(body, protocolconv.ProtocolAnthropic, protocolconv.Target{
-		Protocol: protocolconv.ProtocolGemini,
-	}, protocolconv.Options{})
+	var req map[string]any
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	toolUseIDToName := make(map[string]string)
+
+	systemText := extractClaudeSystemText(req["system"])
+	contents, err := convertClaudeMessagesToGeminiContents(req["messages"], toolUseIDToName)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]any)
+	if systemText != "" {
+		out["systemInstruction"] = map[string]any{
+			"parts": []any{map[string]any{"text": systemText}},
+		}
+	}
+	out["contents"] = contents
+
+	if tools := convertClaudeToolsToGeminiTools(req["tools"]); tools != nil {
+		out["tools"] = tools
+	}
+
+	generationConfig := convertClaudeGenerationConfig(req)
+	if generationConfig != nil {
+		out["generationConfig"] = generationConfig
+	}
+
+	stripGeminiFunctionIDs(out)
+	return json.Marshal(out)
 }
 
 func stripGeminiFunctionIDs(req map[string]any) {

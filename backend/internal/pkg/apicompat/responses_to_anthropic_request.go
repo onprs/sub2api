@@ -51,14 +51,16 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 		out.ToolChoice = tc
 	}
 
-	// reasoning.effort → output_config.effort + thinking. Low is still an
-	// explicit request for reasoning and must not silently disable thinking.
+	// reasoning.effort → output_config.effort + thinking
 	if req.Reasoning != nil && req.Reasoning.Effort != "" {
 		effort := mapResponsesEffortToAnthropic(req.Reasoning.Effort)
 		out.OutputConfig = &AnthropicOutputConfig{Effort: effort}
-		out.Thinking = &AnthropicThinking{
-			Type:         "enabled",
-			BudgetTokens: defaultThinkingBudget(effort),
+		// Enable thinking for non-low efforts
+		if effort != "low" {
+			out.Thinking = &AnthropicThinking{
+				Type:         "enabled",
+				BudgetTokens: defaultThinkingBudget(effort),
+			}
 		}
 	}
 
@@ -128,22 +130,6 @@ func convertResponsesInputToAnthropic(instructions string, inputRaw json.RawMess
 			text := extractTextFromContent(item.Content)
 			if text != "" {
 				systemParts = append(systemParts, text)
-			}
-
-		case item.Type == "reasoning":
-			var thinking strings.Builder
-			for _, summary := range item.Summary {
-				if summary.Type == "summary_text" {
-					thinking.WriteString(summary.Text)
-				}
-			}
-			if thinking.Len() > 0 {
-				blockJSON, _ := json.Marshal([]AnthropicContentBlock{{
-					Type:      "thinking",
-					Thinking:  thinking.String(),
-					Signature: item.EncryptedContent,
-				}})
-				messages = append(messages, AnthropicMessage{Role: "assistant", Content: blockJSON})
 			}
 
 		case item.Type == "function_call":

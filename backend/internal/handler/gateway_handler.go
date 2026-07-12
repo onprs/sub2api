@@ -1018,12 +1018,12 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
-	if availableModels != nil {
+	if len(availableModels) > 0 {
 		writeModelsList(c, availableModels)
 		return
 	}
 
-	// A nil result means no account has an explicit mapping; use platform defaults.
+	// Fallback to default models
 	if platform == service.PlatformOpenAI {
 		c.JSON(http.StatusOK, gin.H{
 			"object": "list",
@@ -1114,7 +1114,7 @@ func filterModelsByCustomList(availableModels, fallbackModels, selectedModels []
 		return availableModels
 	}
 	source := availableModels
-	if source == nil {
+	if len(source) == 0 {
 		source = fallbackModels
 	}
 	if len(source) == 0 {

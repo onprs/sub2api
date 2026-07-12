@@ -13,7 +13,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/gin-gonic/gin"
 )
 
@@ -88,12 +87,8 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	transformOpts := s.getClaudeTransformOptions(ctx)
 	transformOpts.EnableIdentityPatch = true // 强制启用，Antigravity 上游必需
 
-	// Convert through the explicit Antigravity Claude endpoint family.
-	geminiBody, err := protocolconv.ConvertAntigravityRequest(body, protocolconv.ProtocolAnthropic, protocolconv.AntigravityFamilyClaude, protocolconv.AntigravityOptions{
-		ProjectID:        projectID,
-		MappedModel:      mappedModel,
-		TransformOptions: transformOpts,
-	})
+	// 转换 Claude 请求为 Gemini 格式
+	geminiBody, err := antigravity.TransformClaudeToGeminiWithOptions(&claudeReq, projectID, mappedModel, transformOpts)
 	if err != nil {
 		return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", "Invalid request")
 	}
@@ -183,15 +178,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 
 				logger.LegacyPrintf("service.antigravity_gateway", "Antigravity account %d: detected signature-related 400, retrying once (%s)", account.ID, stage.name)
 
-				retryClaudeBody, marshalErr := json.Marshal(&retryClaudeReq)
-				if marshalErr != nil {
-					continue
-				}
-				retryGeminiBody, txErr := protocolconv.ConvertAntigravityRequest(retryClaudeBody, protocolconv.ProtocolAnthropic, protocolconv.AntigravityFamilyClaude, protocolconv.AntigravityOptions{
-					ProjectID:        projectID,
-					MappedModel:      mappedModel,
-					TransformOptions: s.getClaudeTransformOptions(ctx),
-				})
+				retryGeminiBody, txErr := antigravity.TransformClaudeToGeminiWithOptions(&retryClaudeReq, projectID, mappedModel, s.getClaudeTransformOptions(ctx))
 				if txErr != nil {
 					continue
 				}
@@ -315,16 +302,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 
 					logger.LegacyPrintf("service.antigravity_gateway", "Antigravity account %d: detected budget_tokens constraint error, retrying with rectified budget (budget_tokens=%d, max_tokens=%d)", account.ID, BudgetRectifyBudgetTokens, BudgetRectifyMaxTokens)
 
-					retryClaudeBody, marshalErr := json.Marshal(&retryClaudeReq)
-					var retryGeminiBody []byte
-					txErr := marshalErr
-					if txErr == nil {
-						retryGeminiBody, txErr = protocolconv.ConvertAntigravityRequest(retryClaudeBody, protocolconv.ProtocolAnthropic, protocolconv.AntigravityFamilyClaude, protocolconv.AntigravityOptions{
-							ProjectID:        projectID,
-							MappedModel:      mappedModel,
-							TransformOptions: transformOpts,
-						})
-					}
+					retryGeminiBody, txErr := antigravity.TransformClaudeToGeminiWithOptions(&retryClaudeReq, projectID, mappedModel, transformOpts)
 					if txErr == nil {
 						retryResult, retryErr := s.antigravityRetryLoop(antigravityRetryLoopParams{
 							ctx:             ctx,

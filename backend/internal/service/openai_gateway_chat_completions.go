@@ -13,7 +13,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -152,19 +151,13 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 			responsesReq.Reasoning = &apicompat.ResponsesReasoning{Effort: effort}
 		}
 	} else {
-		// Normal path: protocol conversion is independent from OpenAI account
-		// policy. The transport layer still forces upstream streaming below.
-		responsesBody, err = protocolconv.ConvertRequest(body, protocolconv.ProtocolOpenAICompat, protocolconv.Target{
-			Protocol: protocolconv.ProtocolOpenAIResponses,
-		}, protocolconv.Options{})
+		// Normal path: convert Chat Completions → Responses.
+		// ChatCompletionsToResponses always sets Stream=true (upstream always streams).
+		responsesReq, err = apicompat.ChatCompletionsToResponses(&chatReq)
 		if err != nil {
 			return nil, fmt.Errorf("convert chat completions to responses: %w", err)
 		}
-		if err := json.Unmarshal(responsesBody, &responsesReq); err != nil {
-			return nil, fmt.Errorf("decode converted responses request: %w", err)
-		}
 		responsesReq.Model = upstreamModel
-		responsesReq.Stream = true
 		normalizeResponsesRequestServiceTier(responsesReq)
 		responsesBody, err = json.Marshal(responsesReq)
 		if err != nil {
