@@ -994,39 +994,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 // Falls back to default models if no whitelist is configured
 func (h *GatewayHandler) Models(c *gin.Context) {
 	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
-	selection := h.selectAvailableModels(c, apiKey)
-	if selection.custom {
-		writeCustomModelsList(c, selection.platform, selection.ids)
-		return
-	}
-	if !selection.fallback {
-		writeModelsList(c, selection.ids)
-		return
-	}
 
-	// Preserve protocol-specific metadata on existing fallback responses.
-	switch selection.platform {
-	case service.PlatformOpenAI:
-		c.JSON(http.StatusOK, gin.H{"object": "list", "data": openai.DefaultModels})
-	case service.PlatformGemini:
-		c.JSON(http.StatusOK, gin.H{"object": "list", "data": geminicli.DefaultModels})
-	case service.PlatformOpenCodeGo:
-		writeModelsList(c, selection.ids)
-	default:
-		c.JSON(http.StatusOK, gin.H{"object": "list", "data": claude.DefaultModels})
-	}
-}
-
-type availableModelSelection struct {
-	ids      []string
-	platform string
-	custom   bool
-	fallback bool
-}
-
-func (h *GatewayHandler) selectAvailableModels(c *gin.Context, apiKey *service.APIKey) availableModelSelection {
 	var groupID *int64
-	platform := ""
+	var platform string
+
 	if apiKey != nil && apiKey.Group != nil {
 		groupID = &apiKey.Group.ID
 		platform = apiKey.Group.Platform
@@ -1035,36 +1006,49 @@ func (h *GatewayHandler) selectAvailableModels(c *gin.Context, apiKey *service.A
 		platform = forcedPlatform
 	}
 
+	// Get available models from account configurations for the selected group platform.
 	var availableModels []string
 	if h != nil && h.gatewayService != nil {
 		availableModels = h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
 	}
-	fallbackModels := defaultModelIDsForPlatform(platform)
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
-		return availableModelSelection{
-			ids:      filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models),
-			platform: platform,
-			custom:   true,
-		}
+		fallbackModels := defaultModelIDsForPlatform(platform)
+		availableModels = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
+		writeCustomModelsList(c, platform, availableModels)
+		return
 	}
+
 	if len(availableModels) > 0 {
-		return availableModelSelection{ids: availableModels, platform: platform}
+		writeModelsList(c, availableModels)
+		return
 	}
-	return availableModelSelection{ids: fallbackModels, platform: platform, fallback: true}
-}
 
-func (h *GatewayHandler) availableModelIDsForAPIKey(c *gin.Context, apiKey *service.APIKey) []string {
-	return h.selectAvailableModels(c, apiKey).ids
-}
-
-func containsModelID(modelIDs []string, target string) bool {
-	target = strings.TrimPrefix(strings.TrimSpace(target), "models/")
-	for _, modelID := range modelIDs {
-		if strings.TrimPrefix(strings.TrimSpace(modelID), "models/") == target {
-			return true
-		}
+	// Fallback to default models
+	if platform == service.PlatformOpenAI {
+		c.JSON(http.StatusOK, gin.H{
+			"object": "list",
+			"data":   openai.DefaultModels,
+		})
+		return
 	}
-	return false
+
+	if platform == service.PlatformGemini {
+		c.JSON(http.StatusOK, gin.H{
+			"object": "list",
+			"data":   geminicli.DefaultModels,
+		})
+		return
+	}
+
+	if platform == service.PlatformOpenCodeGo {
+		writeModelsList(c, service.OpenCodeGoDefaultModelIDs())
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"object": "list",
+		"data":   claude.DefaultModels,
+	})
 }
 
 func writeModelsList(c *gin.Context, modelIDs []string) {
