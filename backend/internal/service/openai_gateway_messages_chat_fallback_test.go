@@ -83,6 +83,49 @@ func TestForwardAsAnthropic_ForceChatCompletionsNonStreaming(t *testing.T) {
 	require.False(t, result.Stream)
 }
 
+func TestForwardAsAnthropic_ChatFallbackPipelinePreservesToolTurn(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{
+		"model":"gpt-5.4","max_tokens":32,"stream":false,
+		"messages":[
+			{"role":"assistant","content":[{"type":"tool_use","id":"call-1","name":"read_file","input":{"path":"demo"}}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"call-1","content":{"text":"demo content"}}]}
+		],
+		"tools":[{"name":"read_file","input_schema":{"type":"object"}}]
+	}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_msg_tool_pipeline"}},
+		Body: io.NopCloser(strings.NewReader(`{
+			"id":"chatcmpl_tool","object":"chat.completion","model":"gpt-5.4",
+			"choices":[{"index":0,"message":{"role":"assistant","tool_calls":[{"id":"call-2","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"next\"}"}}]},"finish_reason":"tool_calls"}],
+			"usage":{"prompt_tokens":9,"completion_tokens":3,"total_tokens":12,"prompt_tokens_details":{"cached_tokens":2}}
+		}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, forceChatMessagesFallbackAccount(), body, "", "")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "read_file", gjson.GetBytes(upstream.lastBody, "messages.0.tool_calls.0.function.name").String())
+	require.Equal(t, "call-1", gjson.GetBytes(upstream.lastBody, "messages.1.tool_call_id").String())
+	require.Equal(t, "read_file", gjson.GetBytes(upstream.lastBody, "tools.0.function.name").String())
+	require.Equal(t, "tool_use", gjson.Get(rec.Body.String(), "content.0.type").String())
+	require.Equal(t, "call-2", gjson.Get(rec.Body.String(), "content.0.id").String())
+	require.Equal(t, "read_file", gjson.Get(rec.Body.String(), "content.0.name").String())
+	require.Equal(t, "tool_use", gjson.Get(rec.Body.String(), "stop_reason").String())
+	require.Equal(t, 9, result.Usage.InputTokens)
+	require.Equal(t, 3, result.Usage.OutputTokens)
+	require.Equal(t, 2, result.Usage.CacheReadInputTokens)
+}
+
 // Covers the fully-new streaming composition: text block is still open when
 // [DONE] arrives, so finalization must close it (content_block_stop) before
 // message_delta / message_stop.

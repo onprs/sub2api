@@ -10,7 +10,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -18,12 +18,9 @@ import (
 // forwardAnthropicViaRawChatCompletions serves /v1/messages clients through
 // an OpenAI-compatible upstream that only supports /v1/chat/completions.
 //
-// Conversion chain:
-//
-//	Request:  Anthropic Messages → Responses (AnthropicToResponses)
-//	                             → Chat Completions (ResponsesToChatCompletionsRequest)
-//	Response: CC chunk → Responses events (ChatCompletionsChunkToResponsesEvents)
-//	                   → Anthropic events (ResponsesEventToAnthropicEvents)
+// Non-stream requests and responses use the standard request-scoped pipeline.
+// The characterized streaming bridge remains until stream factories receive
+// request-scoped model and tool-routing metadata.
 //
 // This is the /v1/messages counterpart of forwardResponsesViaRawChatCompletions
 // (which serves /v1/responses clients). The same conversion bridges are reused;
@@ -51,22 +48,38 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	applyOpenAICompatModelNormalization(&anthropicReq)
 	clientStream := anthropicReq.Stream
 
-	// 2. Anthropic → Responses → Chat Completions
-	responsesReq, err := apicompat.AnthropicToResponses(&anthropicReq)
+	// 2. Apply the OpenAI-account model policy, then run standard Anthropic →
+	// Chat conversion through one request-scoped pipeline.
+	normalizedBody, err := json.Marshal(&anthropicReq)
 	if err != nil {
-		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
-		return nil, fmt.Errorf("convert anthropic to responses: %w", err)
+		return nil, fmt.Errorf("marshal normalized anthropic request: %w", err)
 	}
-
 	billingModel := resolveOpenAIForwardModel(account, anthropicReq.Model, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
-	responsesReq.Model = upstreamModel
-
-	chatReq, err := apicompat.ResponsesToChatCompletionsRequest(responsesReq)
+	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+		Route: protocolconv.Route{
+			Source:         protocolconv.ProtocolAnthropic,
+			IntendedTarget: protocolconv.ProtocolOpenAIChat,
+			ClientModel:    originalModel,
+			UpstreamModel:  upstreamModel,
+			Provider:       account.Platform,
+			AccountID:      account.ID,
+		},
+		Options: protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossError},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create anthropic chat fallback pipeline: %w", err)
+	}
+	convertedRequest, err := pipeline.ConvertRequest(normalizedBody)
 	if err != nil {
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
-		return nil, fmt.Errorf("convert responses to chat completions: %w", err)
+		return nil, fmt.Errorf("convert anthropic to chat completions: %w", err)
 	}
+	var chatReq apicompat.ChatCompletionsRequest
+	if err := json.Unmarshal(convertedRequest.Body, &chatReq); err != nil {
+		return nil, fmt.Errorf("decode converted chat completions request: %w", err)
+	}
+	chatReq.Model = upstreamModel
 	chatReq.Stream = clientStream
 	if clientStream {
 		chatReq.StreamOptions = &apicompat.ChatStreamOptions{IncludeUsage: true}
@@ -122,12 +135,13 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		return s.streamChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	return s.bufferChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+	return s.bufferChatCompletionsAsAnthropic(c, resp, pipeline, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 }
 
 func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(
 	c *gin.Context,
 	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
@@ -135,31 +149,39 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(
 	serviceTier *string,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
-	requestID := resp.Header.Get("x-request-id")
-	ccResp, usage, err := s.readCCUpstreamJSONResponse(c, resp, writeAnthropicError)
+	_, usage, upstreamBody, err := s.readCCUpstreamJSONResult(c, resp, writeAnthropicError)
 	if err != nil {
 		return nil, err
 	}
-	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, originalModel, nil, false, nil)
-
-	anthropicResp := apicompat.ResponsesToAnthropic(responsesResp, originalModel)
-
-	if s.responseHeaderFilter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	structured, result, err := s.collectBufferedChatCompletionsResponse(
+		resp.StatusCode,
+		resp.Header,
+		upstreamBody,
+		usage,
+		originalModel,
+		billingModel,
+		upstreamModel,
+		reasoningEffort,
+		serviceTier,
+		startTime,
+	)
+	if err != nil {
+		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Failed to collect upstream response")
+		return nil, err
 	}
-	c.JSON(http.StatusOK, anthropicResp)
-
-	return &OpenAIForwardResult{
-		RequestID:       requestID,
-		Usage:           usage,
-		Model:           originalModel,
-		BillingModel:    billingModel,
-		UpstreamModel:   upstreamModel,
-		ReasoningEffort: reasoningEffort,
-		ServiceTier:     serviceTier,
-		Stream:          false,
-		Duration:        time.Since(startTime),
-	}, nil
+	convertedResponse, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
+	if err != nil {
+		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Failed to convert upstream response")
+		return nil, fmt.Errorf("convert anthropic chat fallback response: %w", err)
+	}
+	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolAnthropic)
+	if err != nil {
+		return nil, err
+	}
+	if err := renderer.RenderJSON(c.Writer, http.StatusOK, structured.Headers, convertedResponse.Body); err != nil {
+		return nil, fmt.Errorf("render anthropic chat fallback response: %w", err)
+	}
+	return result, nil
 }
 
 func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
