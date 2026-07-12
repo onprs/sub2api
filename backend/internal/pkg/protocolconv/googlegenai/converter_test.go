@@ -30,6 +30,37 @@ func TestEncodeRequestMapsServerSearchOutsideFunctionDeclarations(t *testing.T) 
 	require.False(t, gjson.GetBytes(body, "tools.1.functionDeclarations").Exists())
 }
 
+func TestEncodeRequestWrapsScalarFunctionResponseInStruct(t *testing.T) {
+	request := &ir.Request{
+		Model: "gemini-test",
+		Messages: []ir.Message{
+			{Role: ir.RoleTool, Content: []ir.ContentPart{{Type: ir.ContentToolResult, ToolCallID: "call-1", ToolName: "read_file", ToolResult: []byte(`"demo content"`)}}},
+		},
+	}
+
+	body, warnings, err := New().EncodeRequest(request, protocolconv.Options{})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, "call-1", gjson.GetBytes(body, "contents.0.parts.0.functionResponse.id").String())
+	require.Equal(t, "read_file", gjson.GetBytes(body, "contents.0.parts.0.functionResponse.name").String())
+	require.Equal(t, "demo content", gjson.GetBytes(body, "contents.0.parts.0.functionResponse.response.content").String())
+}
+
+func TestEncodeRequestPreservesObjectFunctionResponse(t *testing.T) {
+	request := &ir.Request{
+		Model: "gemini-test",
+		Messages: []ir.Message{
+			{Role: ir.RoleTool, Content: []ir.ContentPart{{Type: ir.ContentToolResult, ToolCallID: "call-1", ToolName: "read_file", ToolResult: []byte(`{"output":"demo content"}`)}}},
+		},
+	}
+
+	body, warnings, err := New().EncodeRequest(request, protocolconv.Options{})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, "demo content", gjson.GetBytes(body, "contents.0.parts.0.functionResponse.response.output").String())
+	require.False(t, gjson.GetBytes(body, "contents.0.parts.0.functionResponse.response.content").Exists())
+}
+
 func TestDecodeRequestPreservesGoogleSearchProviderType(t *testing.T) {
 	request, _, err := New().DecodeRequest([]byte(`{"contents":[{"role":"user","parts":[{"text":"search"}]}],"tools":[{"googleSearch":{}}]}`), protocolconv.Options{SourceModel: "gemini-test"})
 	require.NoError(t, err)
