@@ -63,13 +63,17 @@ func decodeInput(raw json.RawMessage, messages *[]ir.Message) error {
 	}
 	for _, item := range items {
 		switch item.Type {
-		case "function_call":
-			args := json.RawMessage(item.Arguments)
-			if !json.Valid(args) {
-				args = json.RawMessage(`{}`)
-			}
-			*messages = append(*messages, ir.Message{Role: ir.RoleAssistant, Content: []ir.ContentPart{{Type: ir.ContentToolCall, ToolCallID: item.CallID, ToolName: item.Name, ToolInput: args}}})
-		case "function_call_output":
+		case "function_call", "custom_tool_call", "tool_search_call":
+			args := decodeToolArguments(item.Type, item.Arguments, item.Input)
+			*messages = append(*messages, ir.Message{Role: ir.RoleAssistant, Content: []ir.ContentPart{{
+				Type:          ir.ContentToolCall,
+				ToolCallID:    item.CallID,
+				ToolName:      item.Name,
+				ToolKind:      item.Type,
+				ToolNamespace: item.Namespace,
+				ToolInput:     args,
+			}}})
+		case "function_call_output", "custom_tool_call_output", "tool_search_output":
 			result := item.Output
 			if len(result) == 0 {
 				result = json.RawMessage(`""`)
@@ -77,7 +81,12 @@ func decodeInput(raw json.RawMessage, messages *[]ir.Message) error {
 			if !json.Valid(result) {
 				result, _ = json.Marshal(string(result))
 			}
-			*messages = append(*messages, ir.Message{Role: ir.RoleTool, Content: []ir.ContentPart{{Type: ir.ContentToolResult, ToolCallID: item.CallID, ToolResult: result}}})
+			*messages = append(*messages, ir.Message{Role: ir.RoleTool, Content: []ir.ContentPart{{
+				Type:       ir.ContentToolResult,
+				ToolCallID: item.CallID,
+				ToolKind:   toolCallKindFromOutput(item.Type),
+				ToolResult: result,
+			}}})
 		case "reasoning":
 			var text strings.Builder
 			for _, summary := range item.Summary {
@@ -161,10 +170,10 @@ func encodeInput(messages []ir.Message, capabilities protocolconv.CapabilitySet,
 				items = append(items, map[string]any{"type": "reasoning", "summary": []any{map[string]any{"type": "summary_text", "text": part.Reasoning}}, "encrypted_content": part.Signature})
 			case ir.ContentToolCall:
 				flush()
-				items = append(items, map[string]any{"type": "function_call", "call_id": part.ToolCallID, "name": part.ToolName, "arguments": rawJSONString(part.ToolInput)})
+				items = append(items, encodeInputToolCall(part))
 			case ir.ContentToolResult:
 				flush()
-				items = append(items, map[string]any{"type": "function_call_output", "call_id": part.ToolCallID, "output": toolResultString(part.ToolResult)})
+				items = append(items, map[string]any{"type": toolOutputKind(part.ToolKind), "call_id": part.ToolCallID, "output": toolResultValue(part.ToolKind, part.ToolResult)})
 			default:
 				warning, err := unsupported(protocolconv.ProtocolOpenAIResponses, capabilityForPart(part.Type), path, options)
 				warnings = append(warnings, warning...)
@@ -179,10 +188,85 @@ func encodeInput(messages []ir.Message, capabilities protocolconv.CapabilitySet,
 	return body, warnings, err
 }
 
+func encodeInputToolCall(part ir.ContentPart) map[string]any {
+	kind := part.ToolKind
+	if kind == "" {
+		kind = "function_call"
+	}
+	item := map[string]any{"type": kind, "call_id": part.ToolCallID, "name": part.ToolName}
+	if part.ToolNamespace != "" {
+		item["namespace"] = part.ToolNamespace
+	}
+	switch kind {
+	case "custom_tool_call":
+		var input string
+		if json.Unmarshal(part.ToolInput, &input) != nil {
+			input = string(part.ToolInput)
+		}
+		item["input"] = input
+	case "tool_search_call":
+		arguments := json.RawMessage(part.ToolInput)
+		if !json.Valid(arguments) {
+			arguments = json.RawMessage(`{}`)
+		}
+		item["arguments"] = arguments
+	default:
+		item["arguments"] = rawJSONString(part.ToolInput)
+	}
+	return item
+}
+
+func toolCallKindFromOutput(kind string) string {
+	switch kind {
+	case "custom_tool_call_output":
+		return "custom_tool_call"
+	case "tool_search_output":
+		return "tool_search_call"
+	default:
+		return "function_call"
+	}
+}
+
+func toolOutputKind(kind string) string {
+	switch kind {
+	case "custom_tool_call":
+		return "custom_tool_call_output"
+	case "tool_search_call":
+		return "tool_search_output"
+	default:
+		return "function_call_output"
+	}
+}
+
+func toolResultValue(kind string, result json.RawMessage) any {
+	if kind != "tool_search_call" {
+		return toolResultString(result)
+	}
+	if len(result) == 0 {
+		return ""
+	}
+	var value any
+	if json.Unmarshal(result, &value) == nil {
+		return value
+	}
+	return string(result)
+}
+
 func decodeTools(tools []apicompat.ResponsesTool) []ir.ToolDefinition {
 	out := make([]ir.ToolDefinition, 0, len(tools))
 	for _, tool := range tools {
-		out = append(out, ir.ToolDefinition{Type: "function", ProviderType: tool.Type, Name: tool.Name, Description: tool.Description, Parameters: cloneRaw(tool.Parameters), Strict: tool.Strict})
+		definition := ir.ToolDefinition{Type: "function", ProviderType: tool.Type, Name: tool.Name, Description: tool.Description, Parameters: cloneRaw(tool.Parameters), Strict: tool.Strict}
+		if tool.Type == "namespace" {
+			children := tool.Tools
+			if len(children) == 0 {
+				children = tool.Children
+			}
+			definition.Children = decodeTools(children)
+			for i := range definition.Children {
+				definition.Children[i].Namespace = tool.Name
+			}
+		}
+		out = append(out, definition)
 	}
 	return out
 }
@@ -197,7 +281,11 @@ func encodeTools(tools []ir.ToolDefinition) []apicompat.ResponsesTool {
 		if kind == "" {
 			kind = "function"
 		}
-		out = append(out, apicompat.ResponsesTool{Type: kind, Name: tool.Name, Description: tool.Description, Parameters: cloneRaw(tool.Parameters), Strict: tool.Strict})
+		wire := apicompat.ResponsesTool{Type: kind, Name: tool.Name, Description: tool.Description, Parameters: cloneRaw(tool.Parameters), Strict: tool.Strict}
+		if kind == "namespace" {
+			wire.Tools = encodeTools(tool.Children)
+		}
+		out = append(out, wire)
 	}
 	return out
 }

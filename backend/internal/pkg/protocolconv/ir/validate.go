@@ -37,12 +37,27 @@ func ValidateRequest(request *Request) error {
 		}
 	}
 	for i := range request.Tools {
-		tool := &request.Tools[i]
-		if tool.Name == "" {
-			return &ValidationError{Path: fmt.Sprintf("tools[%d].name", i), Message: "tool name is required"}
+		if err := validateToolDefinition(&request.Tools[i], fmt.Sprintf("tools[%d]", i)); err != nil {
+			return err
 		}
-		if len(tool.Parameters) > 0 && !json.Valid(tool.Parameters) {
-			return &ValidationError{Path: fmt.Sprintf("tools[%d].parameters", i), Message: "tool parameters must be valid JSON"}
+	}
+	return nil
+}
+
+func validateToolDefinition(tool *ToolDefinition, path string) error {
+	if tool == nil {
+		return &ValidationError{Path: path, Message: "tool is nil"}
+	}
+	requiresName := tool.ProviderType == "" || tool.ProviderType == "function" || tool.ProviderType == "custom" || tool.ProviderType == "namespace"
+	if requiresName && tool.Name == "" {
+		return &ValidationError{Path: path + ".name", Message: "tool name is required"}
+	}
+	if len(tool.Parameters) > 0 && !json.Valid(tool.Parameters) {
+		return &ValidationError{Path: path + ".parameters", Message: "tool parameters must be valid JSON"}
+	}
+	for i := range tool.Children {
+		if err := validateToolDefinition(&tool.Children[i], fmt.Sprintf("%s.children[%d]", path, i)); err != nil {
+			return err
 		}
 	}
 	return nil

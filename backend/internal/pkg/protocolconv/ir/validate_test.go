@@ -21,6 +21,22 @@ func TestValidateRequest(t *testing.T) {
 	require.NoError(t, ValidateRequest(request))
 }
 
+func TestValidateRequestAllowsUnnamedHostedToolAndValidatesNamespaceChildren(t *testing.T) {
+	request := &Request{
+		Model: "model",
+		Tools: []ToolDefinition{
+			{ProviderType: "tool_search"},
+			{ProviderType: "namespace", Name: "gmail", Children: []ToolDefinition{{ProviderType: "function", Name: "send"}}},
+		},
+	}
+	require.NoError(t, ValidateRequest(request))
+
+	request.Tools[1].Children[0].Name = ""
+	err := ValidateRequest(request)
+	require.ErrorContains(t, err, "tool name is required")
+	require.ErrorContains(t, err, "tools[1].children[0].name")
+}
+
 func TestValidateRequestRejectsInvalidRolePartCombination(t *testing.T) {
 	request := &Request{
 		Model: "model",

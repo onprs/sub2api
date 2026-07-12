@@ -69,11 +69,13 @@ type ContentPart struct {
 	Name      string
 	Detail    string
 
-	ToolCallID string
-	ToolName   string
-	ToolInput  json.RawMessage
-	ToolResult json.RawMessage
-	IsError    bool
+	ToolCallID    string
+	ToolName      string
+	ToolKind      string
+	ToolNamespace string
+	ToolInput     json.RawMessage
+	ToolResult    json.RawMessage
+	IsError       bool
 
 	Reasoning string
 	Signature string
@@ -94,6 +96,8 @@ type ToolDefinition struct {
 	Parameters       json.RawMessage
 	Strict           *bool
 	ProviderType     string
+	Namespace        string
+	Children         []ToolDefinition
 	CacheHint        json.RawMessage
 	ProviderMetadata map[string]json.RawMessage
 }
@@ -235,6 +239,8 @@ type StreamEvent struct {
 	Signature      string
 	ToolCallID     string
 	ToolName       string
+	ToolKind       string
+	ToolNamespace  string
 	ArgumentsDelta string
 
 	FinishReason *FinishReason
