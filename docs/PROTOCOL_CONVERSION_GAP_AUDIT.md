@@ -1,0 +1,97 @@
+# LLM-Rosetta Go Rewrite Gap Audit
+
+## Scope and baseline
+
+- sub2api baseline: `main@dc6ae080`
+- implementation branch: `feature/llm-rosetta-go-rewrite`
+- reference repository: `../llm-rosetta-reference`
+- pinned reference commit: `81ed15999e9a9c40082a7392bd0c0366c18960a0`
+- audited protocols: OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, Google GenAI
+
+This audit tracks behavioral responsibilities, not file-for-file translation. sub2api keeps account selection, authentication, retries, sticky sessions, provider policy, usage accounting, and billing in its existing service domains. The protocol conversion package owns only standard wire semantics and request-scoped conversion state.
+
+Status values used below:
+
+- **integrated**: implemented and used by all applicable production paths.
+- **isolated**: implemented in Go and tested, but not consistently used by production paths.
+- **partial**: only part of the reference behavior or route matrix is implemented.
+- **legacy duplicate**: production behavior exists in service-local or pairwise code outside the common core.
+- **missing**: no applicable Go implementation.
+- **excluded**: intentionally not part of this rewrite, with the reason recorded.
+
+## Responsibility ledger
+
+| Reference responsibility | Reference files and tests | Current Go implementation | Production entrypoints using it | Status | Known difference and required action | Verification |
+| --- | --- | --- | --- | --- | --- | --- |
+| Explicit protocol IDs | `auto_detect.py`, `routing.py`, `tests/test_auto_detect.py` | `internal/pkg/protocolconv/protocol.go` | Services call explicit protocol IDs in selected compatibility paths | partial | Core correctly refuses endpoint/model inference. Production admission still chooses handlers from group platform. Add an explicit source/intended-target/actual-upstream route contract. Auto-detection is excluded from production core. | Protocol parsing tests; production route tests |
+| Converter registry | `converters/__init__.py`, `tests/test_public_api.py` | `protocolconv.Registry`, `standard.NewRegistry` | Anthropic compatibility, Gemini compatibility, OpenCode Go, Antigravity adapters | isolated | One registry exists, but production coverage is selective. Route every standard cross-protocol path through it. | Registry tests; service integration matrix |
+| One-shot conversion pipeline | `pipeline.py`, `tests/test_pipeline.py`, `tests/test_pipeline_profile.py` | `protocolconv.Pipeline` binds explicit protocols, model identities, warnings, response conversion, and stream creation | Shared request conversion helper; response/stream service paths are not yet pipeline-owned | isolated | Request-side production helpers now use the one-shot pipeline. Provider refactors must preserve the same pipeline through response or stream rendering. | Pipeline lifecycle and actual-protocol tests |
+| Request to IR to target request | `pipeline.py`, four converter suites | Four Go converters and common IR | Selected Anthropic, Gemini, OpenCode Go, Antigravity paths | isolated | 4x4 package matrix passes independently of production routing. Replace pairwise production bridges where no vendor policy is involved. | 4x4 core and production request matrices |
+| Target response to IR to source response | `pipeline.py`, converter response tests | Four Go response converters | Selected non-stream compatibility paths | isolated | Actual upstream protocol is not a universal result field. Services commonly select response conversion from the handler/account branch. Require explicit actual protocol in results. | 4x4 response matrix and fallback tests |
+| Request-scoped stream processor | `pipeline.py:StreamProcessor`, four stream suites | `protocolconv.StreamSession`, stream decoders/encoders, lifecycle context | Selected Anthropic/OpenCode conversions | isolated | State isolation exists, but stream creation is not bound to a request pipeline and actual upstream protocol. Add pipeline-owned stream creation and integrate incrementally. | 4x4 stream matrix; race tests |
+| Stream lifecycle validation | IR stream types and stream converter tests | `protocolconv/stream.Context` | Only paths using `StreamSession` | partial | Duplicate starts, incomplete blocks, post-terminal data, and missing terminal are validated in the core. Legacy service scanners use separate terminal rules. Move standard paths to the common processor. | Lifecycle unit tests; premature EOF route tests |
+| Structured non-stream upstream result | `gateway/transport/_base.py:UpstreamResponse` | `protocolconv/transport.Response` carries status, headers, body, actual protocol, IDs, timing, and metadata with validation | Provider generation services do not return it yet | isolated | Standard provider services still write directly to `gin.Context`. Refactor each provider behind characterization tests. | Contract tests; provider refactor characterization |
+| Structured stream upstream result | `gateway/transport/_base.py:UpstreamStream` | `protocolconv/transport.Stream` exposes status, actual protocol, parsed events/error body, and deterministic close | Provider generation services do not return it yet | isolated | Downstream status is still committed inside many service methods. Refactor providers to return this contract before rendering. | Immediate-error and close/cancel tests |
+| Bounded SSE parsing | vendored SSE client, `gateway/transport/http/transport.py` | `protocolconv/transport.SSEParser` covers bounded records, SSE fields, CRLF, split reads, `[DONE]`, JSON validation, cancellation, and close; legacy scanners remain | No production generation stream uses the common parser yet | isolated | Migrate standard provider streams and leave specialized image/compact/WebSocket parsing only where transport semantics differ. | Parser table tests and fuzzing |
+| Source-specific SSE formatting | `gateway/transport/sse_format.py` | `protocolconv.Renderer` implements four framing policies and Chat `[DONE]`; legacy formatting remains | No production handler uses the common renderer yet | isolated | Move handlers to the renderer after provider services return structured streams. | Wire-format renderer tests |
+| Source-specific error envelopes | `gateway/proxy.py:error_response_for_source` | `protocolconv.Renderer` builds four source envelopes; handler-local writers remain | No production handler uses the common renderer yet | isolated | Preserve status/message policy in handlers/services while replacing schema construction with the source renderer. | Four envelope tests; admission/upstream error tests |
+| Immediate stream error before 200 | `gateway/proxy.py:handle_streaming` | Varies by provider path | Some paths inspect `resp.StatusCode`; others commit headers early | partial | Common structured stream result is required before renderer commitment. | Upstream 4xx/5xx stream route tests |
+| Provider metadata preservation | `ProviderMetadataStore`, metadata round-trip tests | IR signature fields; Gemini sticky/digest handling; account-switch signature cleaning; Antigravity policy | Gemini and Antigravity paths | partial | Reference store keys only by call ID and is not tenant-safe for sub2api. Integrate with existing sticky/digest ownership or add a scoped bounded store keyed by tenant/group/account/protocol/call ID. Never use a global call-ID-only store. | Collision, TTL, failover, account-switch, race tests |
+| Capabilities and loss policy | `capabilities.py`, base helpers, converter tests | `capability.go`, typed warnings, strict/warn policy | Strict conversion helpers in selected production paths | isolated | Vision/reasoning/provider transforms remain service-local. Inventory each retained transform and make warning/drop opt-in. | Capability fixtures; strict/warn tests |
+| Shim/provider transforms | `shims/`, shim and transform tests | Provider policy spread across service packages | OpenAI, Grok, Gemini, Antigravity, OpenCode paths | partial | A generic YAML shim runtime is not required. Applicable transforms should be named Go policies after standard conversion. Vendor envelopes remain adapters. | Per-policy regression tests |
+| Tool-call/result correlation | base tool helpers and converter tests | `ir.LinkToolResults`, converter state, stream state | Paths using shared registry | isolated | Legacy bridges still own pairing and ID repair. Keep vendor call-ID repair only where standard IR cannot represent upstream behavior. | Scalar/object/array result tests; second-turn matrix |
+| Usage and cache semantics | stream usage tests and converter suites | Common IR usage plus service-specific extraction | All services, independently | partial | Conversion preserves normalized usage, but billing still reads provider-local structures. During provider refactors, return provider usage metadata alongside structured results and preserve billing ownership. | Usage/cache fixtures; billing dedup tests |
+| Routing metadata | `routing.py:ResolvedRoute` | Group/account/model mapping spread across handlers/services | All routes | partial | No common route value carries source, intended target, actual protocol, client model, and mapped model. Add a transport-neutral route contract without moving scheduler policy into `protocolconv`. | Route resolution and fallback tests |
+| Gateway admin, config UI, key rotation, metrics, persistence | `gateway/admin`, config/auth/observability tests | Existing sub2api admin, repositories, scheduler, ops, billing | Existing product domains | excluded | sub2api already owns these product capabilities. Rewriting the reference standalone gateway administration would duplicate unrelated systems. Only protocol fields needed by existing ops are applicable. | Existing subsystem tests |
+| Embeddings and non-generation passthrough | `gateway/embeddings.py`, `send_passthrough` | Existing OpenAI embedding/media services | Dedicated non-standard routes | excluded | The 4x4 standard generation architecture does not cover embeddings, image/video endpoints, compact, or arbitrary passthrough. Shared transport primitives may be reused, but no IR conversion is required. | Existing endpoint tests |
+| Automatic protocol detection | `auto_detect.py` | Deliberately absent from core | None | excluded | Production source protocol is defined by the route. Target/actual protocols come from routing and account capability. Guessing from body, endpoint, or model is prohibited. | Negative inference tests |
+| Python runtime and SDK compatibility layer | public Python API and SDK examples | None | None | excluded | Python is a reference/test oracle only. Production remains Go. SDK behavior is verified through HTTP wire compatibility and probes. | Go tests and live probes |
+
+## Production route inventory
+
+The table describes the current branch before the full provider refactor. "Renderer" names the code currently writing the downstream response, not the desired architecture.
+
+| Ingress route | Source protocol | Current selection and target behavior | Actual upstream protocol possibilities | Current renderer and usage owner | Required integration action |
+| --- | --- | --- | --- | --- | --- |
+| `/v1/chat/completions`, `/chat/completions` | OpenAI Chat | Route dispatches by group platform to OpenAI gateway, OpenCode Go, or generic Gateway | Chat, Responses, Anthropic, Google depending on account path; vendor-specific Grok/Antigravity branches also exist | OpenAI/Gateway/Gemini/OpenCode services write directly; provider service extracts usage and handler bills | Bind an explicit pipeline after account selection. Remove admission assumptions. Preserve Grok and Antigravity vendor policies outside standard conversion. |
+| `/v1/responses`, `/responses`, subpaths | OpenAI Responses | Route dispatches by group platform; OpenCode Go is rejected | Responses, OpenAI Chat fallback, Anthropic; Google is not consistently available | OpenAI or generic Gateway service writes; provider-local usage extraction | Add all standard target protocols and explicit Chat fallback actual protocol. Keep Responses WebSocket state as a transport adapter. |
+| `/v1/messages` | Anthropic Messages | Route dispatches among OpenAI, OpenCode Go, and generic Gateway | Anthropic, Responses, Chat fallback, Google, Antigravity vendor path | Multiple service-local renderers and bridges | Use common pipeline for standard paths. Retain documented Codex Messages request policy and Antigravity adapter. |
+| `/v1beta/models/{model}:generateContent` | Google GenAI | Google auth middleware plus `requireGroupGoogle`; handler rejects non-Gemini groups | Google AI Studio/Code Assist and Antigravity only | Gemini/Antigravity service writes Google response; handler bills | Decouple source-protocol authentication/admission from group platform and route to all standard account protocols through the pipeline. |
+| `/v1beta/models/{model}:streamGenerateContent` | Google GenAI | Same admission path as non-stream | Google and Antigravity only | Gemini/Antigravity service-local SSE | Use structured stream plus Google renderer; inspect immediate errors before committing 200. |
+| `/v1beta/models`, `/v1beta/models/{model}` | Google model discovery | Explicitly rejects groups whose platform is not Gemini unless forced Antigravity | Gemini model endpoint or static fallback | Handler writes Google schema | Render schedulable group model surface in Google schema for any routable standard target. This is the reported `API key group platform is not gemini` failure. |
+| `/v1/models`, aliases | OpenAI model discovery | Group-platform-specific model handlers and manifests | Group/account model mappings | Handler-specific schemas | Separate Codex manifest compatibility from standard OpenAI model listing; list only generation-routable models. |
+| OpenCode Go `/v1/chat/completions` path | OpenAI Chat | Account `model_protocols` selects Chat or Messages | Chat or Anthropic | `OpenCodeGoGatewayService` converts selected pairs and writes directly | Return structured result with explicit selected protocol, then use common source renderer. |
+| OpenCode Go `/v1/messages` path | Anthropic Messages | Account `model_protocols` selects Messages or Chat | Anthropic or Chat | Same service-local pairwise flow | Same refactor; retain OpenCode cache-anchor request policy as a named provider transform. |
+| Responses WebSocket and HTTP fallback | OpenAI Responses | OpenAI transport resolver selects WS or HTTP/SSE | Responses over WS or HTTP/SSE | Dedicated WS forwarders and HTTP bridge | Keep connection/session mechanics as transport adapters. Feed parsed Responses events into the common processor when crossing protocols. |
+| `/antigravity/v1/*`, `/antigravity/v1beta/*` | Anthropic or Google | Forced Antigravity account selection | Antigravity `v1internal` vendor envelope | Antigravity adapter/service | Retain vendor boundary. Standard conversion may run before/after the adapter, but vendor schema and signature repair never enter standard converters. |
+
+## Legacy bridge classification
+
+| Existing bridge or policy | Classification | Reason and owner |
+| --- | --- | --- |
+| `internal/pkg/apicompat` generic Chat/Responses/Anthropic pairwise converters | replace progressively | Standard message/tool/usage semantics belong to the shared IR. Characterize compatibility before removal. |
+| OpenAI Messages to Codex Responses policy | retain as named provider transform | It controls developer ordering, continuation/todo guards, Codex call IDs, and provider defaults beyond standard schema conversion. Owner: OpenAI/Codex service. |
+| OpenAI Responses to Chat fallback transport | retain transport fallback, replace semantic conversion | Endpoint selection/retry remains OpenAI service policy; request/response semantics use the pipeline with actual upstream `openai_chat_completions`. |
+| Gemini Chat and Messages compatibility services | replace standard semantics; retain account/auth/envelope policy | AI Studio versus OAuth/Code Assist URL/auth and retry behavior remain provider-owned. Standard Google JSON conversion moves to the pipeline. |
+| OpenCode Go cache anchor injection | retain as provider transform | It is an upstream caching policy, not a standard Anthropic semantic requirement. Owner: OpenCode Go service. |
+| Antigravity converters, envelope, signature repair, call-ID behavior | retain vendor adapter | The upstream is not a standard Google endpoint and may omit IDs or require vendor signatures. |
+| Grok/xAI composer and media behavior | retain provider adapter | Provider/media behavior is not representable as generic four-protocol generation semantics. |
+| OpenAI compact, image generation, and WebSocket state | retain specialized paths | These are endpoint/transport capabilities outside the standard 4x4 generation matrix. Shared parser/result contracts may be reused. |
+
+## Highest-priority gaps
+
+1. Source protocol admission is still coupled to group platform. `/v1beta` uses Google-specific auth plus `requireGroupGoogle`, and the handler explicitly rejects non-Gemini groups. Root aliases also retain `requireGroupAnthropic`.
+2. Provider generation methods write directly to `gin.Context`; handlers use writer size to decide failover. This prevents a common source renderer and makes immediate stream errors path-dependent.
+3. Actual upstream protocol is not carried by every forward result. Fallback paths can only be interpreted by knowing which service branch ran.
+4. SSE parsing and formatting are duplicated across Anthropic, OpenAI, Gemini, OpenCode Go, image, compact, and WebSocket code.
+5. Package-level 4x4 matrices do not prove production account routing, authentication, endpoint selection, errors, usage, or billing.
+6. Cross-request provider metadata has no reviewed tenant-safe common ownership. Existing sticky/digest behavior must be integrated before introducing any shared store.
+
+## Implementation order and gates
+
+1. Add request-scoped pipeline, structured transport contracts, bounded SSE parser, and source renderers under `internal/pkg/protocolconv`.
+2. Add characterization tests for current route admission, fallback selection, wire output, usage, and billing.
+3. Refactor one provider core at a time to return structured results: OpenAI Responses/fallback, OpenAI Chat, Anthropic, Google, OpenCode Go, then applicable WebSocket boundaries.
+4. Move handlers to source renderers only after the selected provider returns status and actual protocol without writing downstream.
+5. Remove platform admission gates only when generation and model discovery tests prove the corresponding source/target cells.
+6. Run the 4x4 production matrix, race/fuzz tests, full backend/frontend gates, secret scan, and redacted live probes before merge.

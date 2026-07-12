@@ -9,6 +9,8 @@
 
 The conversion layer uses a hub-and-spoke model: each standard wire protocol is decoded to a common intermediate representation (IR), then encoded to the explicitly selected target protocol. Provider routing, account selection, authentication, endpoint construction, model mapping, retries, billing, and persistence remain outside this layer.
 
+The reference-to-Go responsibility ledger and current production route inventory are maintained in [PROTOCOL_CONVERSION_GAP_AUDIT.md](PROTOCOL_CONVERSION_GAP_AUDIT.md). It distinguishes package-level implementation from production integration and records explicit exclusions.
+
 ## Standard Protocols
 
 | ID | Standard wire format | Existing public entry points |
