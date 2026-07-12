@@ -1,0 +1,236 @@
+package transport
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+	"sync"
+)
+
+const DefaultMaxSSERecordBytes = 4 << 20
+
+// ErrSSEDone is returned when a complete SSE record contains the terminal
+// [DONE] sentinel. Callers should stop reading and finalize protocol state.
+var ErrSSEDone = errors.New("SSE stream done")
+
+// SSERecord is one parsed SSE record. Data is the JSON payload formed by
+// joining multiple data fields with a newline, as required by the SSE spec.
+type SSERecord struct {
+	Event string
+	ID    string
+	Retry string
+	Data  []byte
+}
+
+// SSEParser reads complete SSE records from one upstream body. It owns the
+// reader and must not be shared between requests.
+type SSEParser struct {
+	reader    *bufio.Reader
+	closer    io.Closer
+	maxRecord int
+
+	mu     sync.Mutex
+	closed bool
+	done   bool
+}
+
+// NewSSEParser creates a bounded request-scoped parser. A non-positive maximum
+// uses DefaultMaxSSERecordBytes.
+func NewSSEParser(body io.ReadCloser, maxRecordBytes int) *SSEParser {
+	if maxRecordBytes <= 0 {
+		maxRecordBytes = DefaultMaxSSERecordBytes
+	}
+	return &SSEParser{
+		reader:    bufio.NewReaderSize(body, 64<<10),
+		closer:    body,
+		maxRecord: maxRecordBytes,
+	}
+}
+
+// Next returns the next data-bearing record. Comments and field-only records
+// are ignored. The payload must be valid JSON unless it is [DONE].
+func (p *SSEParser) Next(ctx context.Context) (SSERecord, error) {
+	if p == nil || p.reader == nil {
+		return SSERecord{}, errors.New("nil SSE parser")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return SSERecord{}, io.ErrClosedPipe
+	}
+	if p.done {
+		p.mu.Unlock()
+		return SSERecord{}, ErrSSEDone
+	}
+	p.mu.Unlock()
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return SSERecord{}, err
+		}
+		type readResult struct {
+			record SSERecord
+			eof    bool
+			err    error
+		}
+		resultCh := make(chan readResult, 1)
+		go func() {
+			record, eof, err := p.readRecord(context.Background())
+			resultCh <- readResult{record: record, eof: eof, err: err}
+		}()
+		var result readResult
+		select {
+		case <-ctx.Done():
+			_ = p.Close()
+			return SSERecord{}, ctx.Err()
+		case result = <-resultCh:
+		}
+		record, eof, err := result.record, result.eof, result.err
+		if err != nil {
+			return SSERecord{}, err
+		}
+		if len(record.Data) == 0 {
+			if eof {
+				return SSERecord{}, io.EOF
+			}
+			continue
+		}
+		if bytes.Equal(bytes.TrimSpace(record.Data), []byte("[DONE]")) {
+			p.mu.Lock()
+			p.done = true
+			p.mu.Unlock()
+			return SSERecord{}, ErrSSEDone
+		}
+		if !json.Valid(record.Data) {
+			return SSERecord{}, errors.New("malformed SSE JSON payload")
+		}
+		return record, nil
+	}
+}
+
+// Close deterministically releases the upstream body.
+func (p *SSEParser) Close() error {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return nil
+	}
+	p.closed = true
+	closer := p.closer
+	p.mu.Unlock()
+	if closer != nil {
+		return closer.Close()
+	}
+	return nil
+}
+
+func (p *SSEParser) readRecord(ctx context.Context) (SSERecord, bool, error) {
+	var record SSERecord
+	var dataLines [][]byte
+	size := 0
+	sawField := false
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return SSERecord{}, false, err
+		}
+		line, err := p.readLine()
+		if err != nil && !errors.Is(err, io.EOF) {
+			return SSERecord{}, false, err
+		}
+		eof := errors.Is(err, io.EOF)
+		size += len(line) + 1
+		if size > p.maxRecord {
+			return SSERecord{}, false, fmt.Errorf("SSE record exceeds %d bytes", p.maxRecord)
+		}
+
+		if len(line) == 0 {
+			if sawField || eof {
+				record.Data = bytes.Join(dataLines, []byte{'\n'})
+				return record, eof, nil
+			}
+			if eof {
+				return SSERecord{}, true, nil
+			}
+			continue
+		}
+
+		if line[0] != ':' {
+			sawField = true
+			field, value := splitSSEField(line)
+			switch field {
+			case "event":
+				record.Event = string(value)
+			case "data":
+				dataLines = append(dataLines, append([]byte(nil), value...))
+			case "id":
+				record.ID = string(value)
+			case "retry":
+				record.Retry = string(value)
+			}
+		}
+
+		if eof {
+			record.Data = bytes.Join(dataLines, []byte{'\n'})
+			return record, true, nil
+		}
+	}
+}
+
+func (p *SSEParser) readLine() ([]byte, error) {
+	var line []byte
+	for {
+		part, prefix, err := p.reader.ReadLine()
+		line = append(line, part...)
+		if len(line) > p.maxRecord {
+			return nil, fmt.Errorf("SSE record exceeds %d bytes", p.maxRecord)
+		}
+		if err != nil {
+			return trimTrailingCR(line), err
+		}
+		if !prefix {
+			return trimTrailingCR(line), nil
+		}
+	}
+}
+
+func splitSSEField(line []byte) (string, []byte) {
+	index := bytes.IndexByte(line, ':')
+	if index < 0 {
+		return string(line), nil
+	}
+	value := line[index+1:]
+	if len(value) > 0 && value[0] == ' ' {
+		value = value[1:]
+	}
+	return string(line[:index]), value
+}
+
+func trimTrailingCR(line []byte) []byte {
+	return bytes.TrimSuffix(line, []byte{'\r'})
+}
+
+// JSONErrorPreview returns a bounded, printable payload description for logs.
+// It intentionally does not expose the complete request or response body.
+func JSONErrorPreview(data []byte, limit int) string {
+	if limit <= 0 {
+		limit = 256
+	}
+	value := strings.TrimSpace(string(data))
+	if len(value) > limit {
+		value = value[:limit]
+	}
+	return value
+}

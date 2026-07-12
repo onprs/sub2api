@@ -18,10 +18,23 @@ func mustStandardProtocolRegistry() *protocolconv.Registry {
 }
 
 func convertStandardRequest(body []byte, source, target protocolconv.Protocol, sourceModel string) ([]byte, []protocolconv.Warning, error) {
-	return standardProtocolRegistry.ConvertRequest(body, source, target, protocolconv.Options{
-		SourceModel: sourceModel,
-		LossPolicy:  protocolconv.LossError,
+	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+		Source:         source,
+		IntendedTarget: target,
+		UpstreamModel:  sourceModel,
+		Options: protocolconv.Options{
+			SourceModel: sourceModel,
+			LossPolicy:  protocolconv.LossError,
+		},
 	})
+	if err != nil {
+		return nil, nil, err
+	}
+	converted, err := pipeline.ConvertRequest(body)
+	if err != nil {
+		return nil, pipeline.Warnings(), err
+	}
+	return converted.Body, converted.Warnings, nil
 }
 
 func convertStandardResponse(body []byte, source, target protocolconv.Protocol, sourceModel, responseModel string) ([]byte, []protocolconv.Warning, error) {
