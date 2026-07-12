@@ -68,6 +68,9 @@ func (c *Converter) DecodeRequest(body []byte, options protocolconv.Options) (*i
 		for _, tool := range group.FunctionDeclarations {
 			out.Tools = append(out.Tools, ir.ToolDefinition{Type: "function", Name: tool.Name, Description: tool.Description, Parameters: cloneRaw(tool.Parameters)})
 		}
+		if len(group.GoogleSearch) > 0 {
+			out.Tools = append(out.Tools, ir.ToolDefinition{Type: "function", ProviderType: "google_search", Name: "google_search"})
+		}
 	}
 	out.ToolChoice = toolChoiceFromGoogle(wire.ToolConfig)
 	if wire.GenerationConfig != nil {
@@ -140,9 +143,19 @@ func (c *Converter) EncodeRequest(request *ir.Request, options protocolconv.Opti
 	if len(request.Tools) > 0 {
 		group := toolGroupWire{}
 		for _, tool := range request.Tools {
+			if isGoogleSearchTool(tool) {
+				if len(group.FunctionDeclarations) > 0 {
+					wire.Tools = append(wire.Tools, group)
+					group = toolGroupWire{}
+				}
+				wire.Tools = append(wire.Tools, toolGroupWire{GoogleSearch: json.RawMessage(`{}`)})
+				continue
+			}
 			group.FunctionDeclarations = append(group.FunctionDeclarations, functionDeclarationWire{Name: tool.Name, Description: tool.Description, Parameters: cloneRaw(tool.Parameters)})
 		}
-		wire.Tools = []toolGroupWire{group}
+		if len(group.FunctionDeclarations) > 0 {
+			wire.Tools = append(wire.Tools, group)
+		}
 	}
 	wire.ToolConfig = toolChoiceToGoogle(request.ToolChoice)
 	wire.GenerationConfig = generationToGoogle(request)

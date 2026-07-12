@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
@@ -414,10 +415,9 @@ func (s *OpenCodeGoGatewayService) bufferAnthropicToChat(
 		return nil, err
 	}
 	usage := claudeUsageFromAnthropicUsage(anth.Usage)
-	responsesResp := apicompat.AnthropicToResponsesResponse(&anth)
-	ccResp := apicompat.ResponsesToChatCompletions(responsesResp, originalModel)
-	out, err := json.Marshal(ccResp)
+	out, _, err := convertStandardResponse(body, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, upstreamModel, originalModel)
 	if err != nil {
+		writeOpenCodeGoError(c, http.StatusBadGateway, openCodeGoErrorFormatChat, "upstream_error", "Failed to convert upstream messages response")
 		return nil, err
 	}
 	writeOpenCodeGoUpstreamResponse(c, resp, out, s.responseHeaderFilter, openCodeGoErrorFormatChat)
@@ -441,10 +441,9 @@ func (s *OpenCodeGoGatewayService) bufferChatToAnthropic(
 		return nil, err
 	}
 	usage := claudeUsageFromChatUsage(cc.Usage)
-	responsesResp := apicompat.ChatCompletionsResponseToResponses(&cc, originalModel, nil, false, nil)
-	anthResp := apicompat.ResponsesToAnthropic(responsesResp, originalModel)
-	out, err := json.Marshal(anthResp)
+	out, _, err := convertStandardResponse(body, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, upstreamModel, originalModel)
 	if err != nil {
+		writeOpenCodeGoError(c, http.StatusBadGateway, openCodeGoErrorFormatAnthropic, "upstream_error", "Failed to convert upstream chat completions response")
 		return nil, err
 	}
 	writeOpenCodeGoUpstreamResponse(c, resp, out, s.responseHeaderFilter, openCodeGoErrorFormatAnthropic)
@@ -525,71 +524,63 @@ func (s *OpenCodeGoGatewayService) streamAnthropicToChat(
 ) (*ForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 	s.writeStreamHeaders(c, resp, openCodeGoErrorFormatChat)
-	anthState := apicompat.NewAnthropicEventToResponsesState()
-	anthState.Model = originalModel
-	ccState := apicompat.NewResponsesEventToChatState()
-	ccState.Model = originalModel
-	ccState.IncludeUsage = true
+	session, err := newStandardStreamSession(protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat)
+	if err != nil {
+		return nil, err
+	}
 	usage := ClaudeUsage{}
 	var firstTokenMs *int
 	clientDisconnected := false
+	var conversionErr error
 
+	writePayloads := func(payloads [][]byte) {
+		for _, payload := range payloads {
+			if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", payload); err != nil {
+				clientDisconnected = true
+				return
+			}
+		}
+		if len(payloads) > 0 {
+			c.Writer.Flush()
+		}
+	}
 	process := func(payload string) {
-		var event apicompat.AnthropicStreamEvent
-		if err := json.Unmarshal([]byte(payload), &event); err != nil {
+		if conversionErr != nil {
 			return
 		}
-		if firstTokenMs == nil {
-			ms := int(time.Since(startTime).Milliseconds())
-			firstTokenMs = &ms
-		}
-		if event.Type == "message_start" && event.Message != nil {
-			mergeAnthropicUsage(&usage, event.Message.Usage)
-		}
-		if event.Type == "message_delta" && event.Usage != nil {
-			mergeAnthropicUsage(&usage, *event.Usage)
-		}
-		for _, resEvt := range apicompat.AnthropicEventToResponsesEvents(&event, anthState) {
-			for _, chunk := range apicompat.ResponsesEventToChatChunks(&resEvt, ccState) {
-				sse, err := apicompat.ChatChunkToSSE(chunk)
-				if err != nil {
-					continue
-				}
-				if _, err := fmt.Fprint(c.Writer, sse); err != nil {
-					clientDisconnected = true
-					return
-				}
+		var event apicompat.AnthropicStreamEvent
+		if err := json.Unmarshal([]byte(payload), &event); err == nil {
+			if firstTokenMs == nil {
+				ms := int(time.Since(startTime).Milliseconds())
+				firstTokenMs = &ms
+			}
+			if event.Type == "message_start" && event.Message != nil {
+				mergeAnthropicUsage(&usage, event.Message.Usage)
+			}
+			if event.Type == "message_delta" && event.Usage != nil {
+				mergeAnthropicUsage(&usage, *event.Usage)
 			}
 		}
-		c.Writer.Flush()
+		payloads, _, err := session.Convert([]byte(payload))
+		if err != nil {
+			conversionErr = err
+			return
+		}
+		if !clientDisconnected {
+			writePayloads(payloads)
+		}
 	}
 	s.scanSSE(resp, process)
-	if !clientDisconnected {
-		for _, resEvt := range apicompat.FinalizeAnthropicResponsesStream(anthState) {
-			for _, chunk := range apicompat.ResponsesEventToChatChunks(&resEvt, ccState) {
-				if sse, err := apicompat.ChatChunkToSSE(chunk); err == nil {
-					_, _ = fmt.Fprint(c.Writer, sse)
-				}
-			}
+	if conversionErr == nil {
+		payloads, _, err := session.Finalize()
+		conversionErr = err
+		if !clientDisconnected {
+			writePayloads(payloads)
+			_, _ = fmt.Fprint(c.Writer, "data: [DONE]\n\n")
+			c.Writer.Flush()
 		}
-		for _, chunk := range apicompat.FinalizeResponsesChatStream(ccState) {
-			if sse, err := apicompat.ChatChunkToSSE(chunk); err == nil {
-				_, _ = fmt.Fprint(c.Writer, sse)
-			}
-		}
-		_, _ = fmt.Fprint(c.Writer, "data: [DONE]\n\n")
-		c.Writer.Flush()
 	}
-	return &ForwardResult{
-		RequestID:        requestID,
-		Usage:            usage,
-		Model:            originalModel,
-		UpstreamModel:    optionalUpstreamModel(originalModel, upstreamModel),
-		Stream:           true,
-		Duration:         time.Since(startTime),
-		FirstTokenMs:     firstTokenMs,
-		ClientDisconnect: clientDisconnected,
-	}, nil
+	return &ForwardResult{RequestID: requestID, Usage: usage, Model: originalModel, UpstreamModel: optionalUpstreamModel(originalModel, upstreamModel), Stream: true, Duration: time.Since(startTime), FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected}, conversionErr
 }
 
 func (s *OpenCodeGoGatewayService) streamChatToAnthropic(
@@ -601,72 +592,61 @@ func (s *OpenCodeGoGatewayService) streamChatToAnthropic(
 ) (*ForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 	s.writeStreamHeaders(c, resp, openCodeGoErrorFormatAnthropic)
-	chatState := apicompat.NewChatCompletionsToResponsesStreamState(originalModel)
-	anthState := apicompat.NewResponsesEventToAnthropicState()
-	anthState.Model = originalModel
+	session, err := newStandardStreamSession(protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic)
+	if err != nil {
+		return nil, err
+	}
 	usage := ClaudeUsage{}
 	var firstTokenMs *int
 	clientDisconnected := false
+	var conversionErr error
 
-	process := func(payload string) {
-		if strings.TrimSpace(payload) == "[DONE]" {
-			return
+	writePayloads := func(payloads [][]byte) {
+		for _, payload := range payloads {
+			var event struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(payload, &event) != nil || event.Type == "" {
+				continue
+			}
+			if _, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event.Type, payload); err != nil {
+				clientDisconnected = true
+				return
+			}
 		}
-		var chunk apicompat.ChatCompletionsChunk
-		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+		if len(payloads) > 0 {
+			c.Writer.Flush()
+		}
+	}
+	process := func(payload string) {
+		if conversionErr != nil || strings.TrimSpace(payload) == "[DONE]" {
 			return
 		}
 		if u := extractCCStreamUsage(payload); u != nil {
-			usage = normalizeOpenCodeGoChatUsage(ClaudeUsage{
-				InputTokens:          u.InputTokens,
-				OutputTokens:         u.OutputTokens,
-				CacheReadInputTokens: u.CacheReadInputTokens,
-			})
+			usage = normalizeOpenCodeGoChatUsage(ClaudeUsage{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CacheReadInputTokens: u.CacheReadInputTokens})
 		}
 		if firstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
-		for _, resEvt := range apicompat.ChatCompletionsChunkToResponsesEvents(&chunk, chatState) {
-			for _, evt := range apicompat.ResponsesEventToAnthropicEvents(&resEvt, anthState) {
-				sse, err := apicompat.ResponsesAnthropicEventToSSE(evt)
-				if err != nil {
-					continue
-				}
-				if _, err := fmt.Fprint(c.Writer, sse); err != nil {
-					clientDisconnected = true
-					return
-				}
-			}
+		payloads, _, err := session.Convert([]byte(payload))
+		if err != nil {
+			conversionErr = err
+			return
 		}
-		c.Writer.Flush()
+		if !clientDisconnected {
+			writePayloads(payloads)
+		}
 	}
 	s.scanSSE(resp, process)
-	if !clientDisconnected {
-		for _, resEvt := range apicompat.FinalizeChatCompletionsResponsesStream(chatState) {
-			for _, evt := range apicompat.ResponsesEventToAnthropicEvents(&resEvt, anthState) {
-				if sse, err := apicompat.ResponsesAnthropicEventToSSE(evt); err == nil {
-					_, _ = fmt.Fprint(c.Writer, sse)
-				}
-			}
+	if conversionErr == nil {
+		payloads, _, err := session.Finalize()
+		conversionErr = err
+		if !clientDisconnected {
+			writePayloads(payloads)
 		}
-		for _, evt := range apicompat.FinalizeResponsesAnthropicStream(anthState) {
-			if sse, err := apicompat.ResponsesAnthropicEventToSSE(evt); err == nil {
-				_, _ = fmt.Fprint(c.Writer, sse)
-			}
-		}
-		c.Writer.Flush()
 	}
-	return &ForwardResult{
-		RequestID:        requestID,
-		Usage:            usage,
-		Model:            originalModel,
-		UpstreamModel:    optionalUpstreamModel(originalModel, upstreamModel),
-		Stream:           true,
-		Duration:         time.Since(startTime),
-		FirstTokenMs:     firstTokenMs,
-		ClientDisconnect: clientDisconnected,
-	}, nil
+	return &ForwardResult{RequestID: requestID, Usage: usage, Model: originalModel, UpstreamModel: optionalUpstreamModel(originalModel, upstreamModel), Stream: true, Duration: time.Since(startTime), FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected}, conversionErr
 }
 
 type openCodeGoCopySSEResult struct {
@@ -857,35 +837,15 @@ func ensureOpenCodeGoSystemCacheAnchor(body []byte) []byte {
 }
 
 func convertChatCompletionsBodyToAnthropicBody(body []byte) ([]byte, error) {
-	var req apicompat.ChatCompletionsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, err
-	}
-	responsesReq, err := apicompat.ChatCompletionsToResponses(&req)
-	if err != nil {
-		return nil, err
-	}
-	anthReq, err := apicompat.ResponsesToAnthropicRequest(responsesReq)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(anthReq)
+	model := gjson.GetBytes(body, "model").String()
+	converted, _, err := convertStandardRequest(body, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, model)
+	return converted, err
 }
 
 func convertAnthropicBodyToChatCompletionsBody(body []byte) ([]byte, error) {
-	var req apicompat.AnthropicRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, err
-	}
-	responsesReq, err := apicompat.AnthropicToResponses(&req)
-	if err != nil {
-		return nil, err
-	}
-	ccReq, err := apicompat.ResponsesToChatCompletionsRequest(responsesReq)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(ccReq)
+	model := gjson.GetBytes(body, "model").String()
+	converted, _, err := convertStandardRequest(body, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, model)
+	return converted, err
 }
 
 func claudeUsageFromChatBody(body []byte) ClaudeUsage {
