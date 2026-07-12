@@ -49,10 +49,12 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 		out = append(out, ir.StreamEvent{Type: ir.EventStreamStart, ResponseID: d.id, Model: d.model})
 	}
 	switch event.Type {
-	case "response.created", "response.in_progress":
+	case "response.created":
 		if d.started {
 			return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidStream, Protocol: protocolconv.ProtocolOpenAIResponses, Message: "duplicate response.created"}
 		}
+		start(event.Response)
+	case "response.in_progress":
 		start(event.Response)
 	case "response.output_item.added":
 		start(nil)
