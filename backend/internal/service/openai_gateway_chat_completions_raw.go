@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -399,8 +401,6 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	serviceTier *string,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
-	requestID := resp.Header.Get("x-request-id")
-
 	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		if !errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
@@ -409,13 +409,48 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		return nil, fmt.Errorf("read upstream body: %w", err)
 	}
 
-	var usage OpenAIUsage
-	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
-		usage = parsedUsage
+	if len(respBody) == 0 {
+		if s.responseHeaderFilter != nil {
+			responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+		}
+		if ct := resp.Header.Get("Content-Type"); ct != "" {
+			c.Writer.Header().Set("Content-Type", ct)
+		} else {
+			c.Writer.Header().Set("Content-Type", "application/json")
+		}
+		c.Writer.WriteHeader(http.StatusOK)
+		return &OpenAIForwardResult{
+			RequestID:       resp.Header.Get("x-request-id"),
+			Model:           originalModel,
+			BillingModel:    billingModel,
+			UpstreamModel:   upstreamModel,
+			ReasoningEffort: reasoningEffort,
+			ServiceTier:     serviceTier,
+			Stream:          false,
+			Duration:        time.Since(startTime),
+		}, nil
 	}
 
-	if s.responseHeaderFilter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	structured, result, err := s.collectRawChatCompletionsJSON(
+		resp.StatusCode,
+		resp.Header,
+		respBody,
+		originalModel,
+		billingModel,
+		upstreamModel,
+		reasoningEffort,
+		serviceTier,
+		startTime,
+	)
+	if err != nil {
+		writeChatCompletionsError(c, http.StatusBadGateway, "api_error", "Failed to parse upstream response")
+		return nil, err
+	}
+
+	for key, values := range structured.Headers {
+		for _, value := range values {
+			c.Writer.Header().Add(key, value)
+		}
 	}
 	if ct := resp.Header.Get("Content-Type"); ct != "" {
 		c.Writer.Header().Set("Content-Type", ct)
@@ -423,10 +458,45 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		c.Writer.Header().Set("Content-Type", "application/json")
 	}
 	c.Writer.WriteHeader(http.StatusOK)
-	_, _ = c.Writer.Write(respBody)
+	_, _ = c.Writer.Write(structured.Body)
 
-	return &OpenAIForwardResult{
-		RequestID:       requestID,
+	return result, nil
+}
+
+func (s *OpenAIGatewayService) collectRawChatCompletionsJSON(
+	statusCode int,
+	headers http.Header,
+	body []byte,
+	originalModel string,
+	billingModel string,
+	upstreamModel string,
+	reasoningEffort *string,
+	serviceTier *string,
+	startTime time.Time,
+) (protocoltransport.Response, *OpenAIForwardResult, error) {
+	usage := OpenAIUsage{}
+	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(body); ok {
+		usage = parsedUsage
+	}
+	filteredHeaders := make(http.Header)
+	if s.responseHeaderFilter != nil {
+		filteredHeaders = responseheaders.FilterHeaders(headers, s.responseHeaderFilter)
+	}
+	structured := protocoltransport.Response{
+		StatusCode:     statusCode,
+		Headers:        filteredHeaders,
+		Body:           append([]byte(nil), body...),
+		ActualProtocol: protocolconv.ProtocolOpenAIChat,
+		RequestID:      headers.Get("x-request-id"),
+		ResponseID:     extractOpenAIResponseIDFromJSONBytes(body),
+		Duration:       time.Since(startTime),
+	}
+	if err := structured.Validate(); err != nil {
+		return protocoltransport.Response{}, nil, fmt.Errorf("validate Chat Completions result: %w", err)
+	}
+	result := &OpenAIForwardResult{
+		RequestID:       structured.RequestID,
+		ResponseID:      structured.ResponseID,
 		Usage:           usage,
 		Model:           originalModel,
 		BillingModel:    billingModel,
@@ -434,8 +504,9 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		ReasoningEffort: reasoningEffort,
 		ServiceTier:     serviceTier,
 		Stream:          false,
-		Duration:        time.Since(startTime),
-	}, nil
+		Duration:        structured.Duration,
+	}
+	return structured, result, nil
 }
 
 // buildOpenAIChatCompletionsURL 拼接上游 Chat Completions 端点 URL。

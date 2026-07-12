@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -77,6 +78,73 @@ func TestBuildOpenAIResponsesURL_ProbeURL(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestCollectRawChatCompletionsJSONReturnsStructuredActualProtocol(t *testing.T) {
+	reasoningEffort := "high"
+	serviceTier := "priority"
+	svc := &OpenAIGatewayService{responseHeaderFilter: compileResponseHeaderFilter(rawChatCompletionsTestConfig())}
+	body := []byte(`{"id":"chatcmpl_structured","object":"chat.completion","model":"upstream-model","choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3,"prompt_tokens_details":{"cached_tokens":2}},"vendor_extension":{"trace":"preserved"}}`)
+	originalBody := append([]byte(nil), body...)
+
+	structured, result, err := svc.collectRawChatCompletionsJSON(
+		http.StatusCreated,
+		http.Header{
+			"Content-Type":      []string{"application/vnd.openai+json"},
+			"X-Request-Id":      []string{"req-structured"},
+			"X-Internal-Secret": []string{"must-not-pass"},
+		},
+		body,
+		"client-model",
+		"billing-model",
+		"upstream-model",
+		&reasoningEffort,
+		&serviceTier,
+		time.Now().Add(-time.Second),
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, protocolconv.ProtocolOpenAIChat, structured.ActualProtocol)
+	require.Equal(t, http.StatusCreated, structured.StatusCode)
+	require.Equal(t, "req-structured", structured.RequestID)
+	require.Equal(t, "chatcmpl_structured", structured.ResponseID)
+	require.Equal(t, "application/vnd.openai+json", structured.Headers.Get("Content-Type"))
+	require.Empty(t, structured.Headers.Get("X-Internal-Secret"))
+	require.Equal(t, "preserved", gjson.GetBytes(structured.Body, "vendor_extension.trace").String())
+	body[0] = 'x'
+	require.Equal(t, originalBody, structured.Body)
+	require.Equal(t, 7, result.Usage.InputTokens)
+	require.Equal(t, 3, result.Usage.OutputTokens)
+	require.Equal(t, 2, result.Usage.CacheReadInputTokens)
+	require.Equal(t, "client-model", result.Model)
+	require.Equal(t, "billing-model", result.BillingModel)
+	require.Equal(t, "upstream-model", result.UpstreamModel)
+	require.Equal(t, "chatcmpl_structured", result.ResponseID)
+	require.Equal(t, "high", *result.ReasoningEffort)
+	require.Equal(t, "priority", *result.ServiceTier)
+}
+
+func TestBufferRawChatCompletionsPreservesEmptySuccessResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"req-empty"}},
+		Body:       io.NopCloser(strings.NewReader("")),
+	}
+
+	result, err := (&OpenAIGatewayService{}).bufferRawChatCompletions(
+		c, resp, "client-model", "billing-model", "upstream-model", nil, nil, time.Now(),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Empty(t, rec.Body.String())
+	require.Equal(t, "req-empty", result.RequestID)
+	require.Zero(t, result.Usage.InputTokens)
 }
 
 func TestForwardAsRawChatCompletions_ForcesStreamUsageUpstreamAndPassesUsageDownstream(t *testing.T) {
