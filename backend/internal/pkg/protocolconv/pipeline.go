@@ -5,11 +5,8 @@ import "sync"
 // PipelineConfig defines one request's explicit protocol route. Provider and
 // transport policy stay outside this package.
 type PipelineConfig struct {
-	Source         Protocol
-	IntendedTarget Protocol
-	ClientModel    string
-	UpstreamModel  string
-	Options        Options
+	Route   Route
+	Options Options
 }
 
 // ConvertedRequest is the target-protocol body and route metadata produced for
@@ -52,16 +49,13 @@ func NewPipeline(registry *Registry, config PipelineConfig) (*Pipeline, error) {
 	if registry == nil {
 		return nil, &Error{Code: ErrorConverterUnavailable, Message: "nil converter registry"}
 	}
-	if err := config.Source.Validate(); err != nil {
+	if err := config.Route.Validate(); err != nil {
 		return nil, err
 	}
-	if err := config.IntendedTarget.Validate(); err != nil {
+	if _, err := registry.Converter(config.Route.Source); err != nil {
 		return nil, err
 	}
-	if _, err := registry.Converter(config.Source); err != nil {
-		return nil, err
-	}
-	if _, err := registry.Converter(config.IntendedTarget); err != nil {
+	if _, err := registry.Converter(config.Route.IntendedTarget); err != nil {
 		return nil, err
 	}
 	return &Pipeline{registry: registry, config: config}, nil
@@ -78,13 +72,13 @@ func (p *Pipeline) ConvertRequest(body []byte) (ConvertedRequest, error) {
 	p.mu.Lock()
 	if p.requestAttempted {
 		p.mu.Unlock()
-		return ConvertedRequest{}, &Error{Code: ErrorConversion, Protocol: p.config.Source, Message: "request conversion already attempted"}
+		return ConvertedRequest{}, &Error{Code: ErrorConversion, Protocol: p.config.Route.Source, Message: "request conversion already attempted"}
 	}
 	p.requestAttempted = true
 	p.mu.Unlock()
 
 	options := p.options()
-	converted, warnings, err := p.registry.ConvertRequest(body, p.config.Source, p.config.IntendedTarget, options)
+	converted, warnings, err := p.registry.ConvertRequest(body, p.config.Route.Source, p.config.Route.IntendedTarget, options)
 
 	p.mu.Lock()
 	p.warnings = append(p.warnings, warnings...)
@@ -98,10 +92,10 @@ func (p *Pipeline) ConvertRequest(body []byte) (ConvertedRequest, error) {
 
 	return ConvertedRequest{
 		Body:           converted,
-		Source:         p.config.Source,
-		IntendedTarget: p.config.IntendedTarget,
-		ClientModel:    p.config.ClientModel,
-		UpstreamModel:  p.config.UpstreamModel,
+		Source:         p.config.Route.Source,
+		IntendedTarget: p.config.Route.IntendedTarget,
+		ClientModel:    p.config.Route.ClientModel,
+		UpstreamModel:  p.config.Route.UpstreamModel,
 		Warnings:       cloneWarnings(warnings),
 	}, nil
 }
@@ -121,7 +115,7 @@ func (p *Pipeline) ConvertResponse(body []byte, actualUpstream Protocol) (Conver
 	var converted []byte
 	var warnings []Warning
 	var err error
-	if actualUpstream == p.config.Source {
+	if actualUpstream == p.config.Route.Source {
 		converted, warnings, err = identityJSON(body, actualUpstream, "response")
 	} else {
 		var responseWarnings []Warning
@@ -130,10 +124,10 @@ func (p *Pipeline) ConvertResponse(body []byte, actualUpstream Protocol) (Conver
 		if decodeErr != nil {
 			err = decodeErr
 		} else {
-			if p.config.ClientModel != "" {
-				response.Model = p.config.ClientModel
+			if p.config.Route.ClientModel != "" {
+				response.Model = p.config.Route.ClientModel
 			}
-			converted, responseWarnings, err = p.registry.EncodeResponse(response, p.config.Source, options)
+			converted, responseWarnings, err = p.registry.EncodeResponse(response, p.config.Route.Source, options)
 			warnings = append(warnings, responseWarnings...)
 		}
 	}
@@ -143,7 +137,7 @@ func (p *Pipeline) ConvertResponse(body []byte, actualUpstream Protocol) (Conver
 	}
 	return ConvertedResponse{
 		Body:           converted,
-		Source:         p.config.Source,
+		Source:         p.config.Route.Source,
 		ActualUpstream: actualUpstream,
 		Warnings:       cloneWarnings(warnings),
 	}, nil
@@ -158,7 +152,7 @@ func (p *Pipeline) NewStreamProcessor(actualUpstream Protocol) (*StreamSession, 
 	if err := actualUpstream.Validate(); err != nil {
 		return nil, err
 	}
-	return p.registry.NewStreamSession(actualUpstream, p.config.Source)
+	return p.registry.NewStreamSession(actualUpstream, p.config.Route.Source)
 }
 
 // Warnings returns a snapshot of warnings accumulated across completed phases.
@@ -174,7 +168,7 @@ func (p *Pipeline) Warnings() []Warning {
 func (p *Pipeline) options() Options {
 	options := p.config.Options
 	if options.SourceModel == "" {
-		options.SourceModel = p.config.UpstreamModel
+		options.SourceModel = p.config.Route.UpstreamModel
 	}
 	return options
 }
@@ -187,7 +181,7 @@ func (p *Pipeline) requireConvertedRequest() error {
 	converted := p.requestConverted
 	p.mu.Unlock()
 	if !converted {
-		return &Error{Code: ErrorConversion, Protocol: p.config.Source, Message: "request conversion has not completed"}
+		return &Error{Code: ErrorConversion, Protocol: p.config.Route.Source, Message: "request conversion has not completed"}
 	}
 	return nil
 }

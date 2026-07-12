@@ -19,9 +19,11 @@ func mustStandardProtocolRegistry() *protocolconv.Registry {
 
 func convertStandardRequest(body []byte, source, target protocolconv.Protocol, sourceModel string) ([]byte, []protocolconv.Warning, error) {
 	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
-		Source:         source,
-		IntendedTarget: target,
-		UpstreamModel:  sourceModel,
+		Route: protocolconv.Route{
+			Source:         source,
+			IntendedTarget: target,
+			UpstreamModel:  sourceModel,
+		},
 		Options: protocolconv.Options{
 			SourceModel: sourceModel,
 			LossPolicy:  protocolconv.LossError,

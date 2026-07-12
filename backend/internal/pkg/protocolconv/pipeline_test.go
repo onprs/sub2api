@@ -35,12 +35,12 @@ func TestPipelineBindsExplicitRouteAndRestoresClientModel(t *testing.T) {
 	require.NoError(t, registry.Register(source))
 	require.NoError(t, registry.Register(target))
 
-	pipeline, err := NewPipeline(registry, PipelineConfig{
+	pipeline, err := NewPipeline(registry, PipelineConfig{Route: Route{
 		Source:         ProtocolOpenAIChat,
 		IntendedTarget: ProtocolAnthropic,
 		ClientModel:    "client-model",
 		UpstreamModel:  "upstream-model",
-	})
+	}})
 	require.NoError(t, err)
 
 	request, err := pipeline.ConvertRequest([]byte(`{"model":"client-model"}`))
@@ -62,7 +62,7 @@ func TestPipelineIsOneShotEvenAfterRequestFailure(t *testing.T) {
 	registry := NewRegistry()
 	require.NoError(t, registry.Register(&stubConverter{protocol: ProtocolOpenAIChat}))
 	require.NoError(t, registry.Register(&stubConverter{protocol: ProtocolAnthropic}))
-	pipeline, err := NewPipeline(registry, PipelineConfig{Source: ProtocolOpenAIChat, IntendedTarget: ProtocolAnthropic})
+	pipeline, err := NewPipeline(registry, PipelineConfig{Route: Route{Source: ProtocolOpenAIChat, IntendedTarget: ProtocolAnthropic}})
 	require.NoError(t, err)
 
 	_, err = pipeline.ConvertRequest([]byte(`{"broken":`))
@@ -77,7 +77,7 @@ func TestPipelineRequiresExplicitActualUpstreamProtocol(t *testing.T) {
 	registry := NewRegistry()
 	require.NoError(t, registry.Register(&stubConverter{protocol: ProtocolOpenAIChat}))
 	require.NoError(t, registry.Register(&stubConverter{protocol: ProtocolAnthropic}))
-	pipeline, err := NewPipeline(registry, PipelineConfig{Source: ProtocolOpenAIChat, IntendedTarget: ProtocolAnthropic})
+	pipeline, err := NewPipeline(registry, PipelineConfig{Route: Route{Source: ProtocolOpenAIChat, IntendedTarget: ProtocolAnthropic}})
 	require.NoError(t, err)
 	_, err = pipeline.ConvertRequest([]byte(`{}`))
 	require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestPipelineRequiresExplicitActualUpstreamProtocol(t *testing.T) {
 func TestPipelineIdentityResponsePreservesBytes(t *testing.T) {
 	registry := NewRegistry()
 	require.NoError(t, registry.Register(&stubConverter{protocol: ProtocolOpenAIChat}))
-	pipeline, err := NewPipeline(registry, PipelineConfig{Source: ProtocolOpenAIChat, IntendedTarget: ProtocolOpenAIChat})
+	pipeline, err := NewPipeline(registry, PipelineConfig{Route: Route{Source: ProtocolOpenAIChat, IntendedTarget: ProtocolOpenAIChat}})
 	require.NoError(t, err)
 	requestBody := []byte(" {\n \"model\": \"client\"\n}\n")
 	_, err = pipeline.ConvertRequest(requestBody)
@@ -109,7 +109,7 @@ func TestPipelineCreatesIsolatedStreamProcessors(t *testing.T) {
 	target := &stubConverter{protocol: ProtocolAnthropic, newStreamDecoder: func() StreamDecoder { return inertStreamDecoder{} }}
 	require.NoError(t, registry.Register(source))
 	require.NoError(t, registry.Register(target))
-	pipeline, err := NewPipeline(registry, PipelineConfig{Source: ProtocolOpenAIChat, IntendedTarget: ProtocolAnthropic})
+	pipeline, err := NewPipeline(registry, PipelineConfig{Route: Route{Source: ProtocolOpenAIChat, IntendedTarget: ProtocolAnthropic}})
 	require.NoError(t, err)
 	_, err = pipeline.ConvertRequest([]byte(`{}`))
 	require.NoError(t, err)
