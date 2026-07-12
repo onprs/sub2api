@@ -43,16 +43,17 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		googleError(c, http.StatusUnauthorized, "Invalid API key")
 		return
 	}
-	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini 分组
+	// 强制 antigravity 模式：返回 antigravity 支持的模型列表。
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
-	if !hasForcePlatform && (apiKey.Group == nil || apiKey.Group.Platform != service.PlatformGemini) {
-		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
-		return
-	}
-
-	// 强制 antigravity 模式：返回 antigravity 支持的模型列表
 	if forcePlatform == service.PlatformAntigravity {
 		h.writeAntigravityGeminiMappedModels(c, apiKeyGroupIDFromContext(c))
+		return
+	}
+	// Model discovery describes the source-protocol surface and is not tied to
+	// the selected group's native upstream protocol. Generation routing remains
+	// separately gated until every provider returns structured results.
+	if !hasForcePlatform && apiKey.Group != nil && apiKey.Group.Platform != service.PlatformGemini {
+		h.writeGroupGeminiModels(c, apiKey)
 		return
 	}
 
@@ -80,6 +81,15 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 	writeUpstreamResponse(c, res)
+}
+
+func (h *GatewayHandler) writeGroupGeminiModels(c *gin.Context, apiKey *service.APIKey) {
+	modelIDs := h.availableModelIDsForAPIKey(c, apiKey)
+	models := make([]antigravity.GeminiModel, 0, len(modelIDs))
+	for _, modelID := range modelIDs {
+		models = append(models, antigravity.FallbackGeminiModel(modelID))
+	}
+	c.JSON(http.StatusOK, antigravity.GeminiModelsListResponse{Models: models})
 }
 
 func (h *GatewayHandler) writeAntigravityGeminiMappedModels(c *gin.Context, groupID *int64) {
@@ -121,12 +131,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		googleError(c, http.StatusUnauthorized, "Invalid API key")
 		return
 	}
-	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini 分组
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
-	if !hasForcePlatform && (apiKey.Group == nil || apiKey.Group.Platform != service.PlatformGemini) {
-		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
-		return
-	}
 
 	modelName := strings.TrimSpace(c.Param("model"))
 	if modelName == "" {
@@ -136,6 +141,14 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 
 	// 强制 antigravity 模式：返回 antigravity 模型信息
 	if forcePlatform == service.PlatformAntigravity {
+		c.JSON(http.StatusOK, antigravity.FallbackGeminiModel(modelName))
+		return
+	}
+	if !hasForcePlatform && apiKey.Group != nil && apiKey.Group.Platform != service.PlatformGemini {
+		if !containsModelID(h.availableModelIDsForAPIKey(c, apiKey), modelName) {
+			googleError(c, http.StatusNotFound, "Model not found: "+modelName)
+			return
+		}
 		c.JSON(http.StatusOK, antigravity.FallbackGeminiModel(modelName))
 		return
 	}
