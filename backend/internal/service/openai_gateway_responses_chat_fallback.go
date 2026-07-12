@@ -11,6 +11,8 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -125,20 +127,78 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	serviceTier *string,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
-	requestID := resp.Header.Get("x-request-id")
-	ccResp, usage, err := s.readCCUpstreamJSONResponse(c, resp, writeOpenAIResponsesFallbackError)
+	ccResp, usage, upstreamBody, err := s.readCCUpstreamJSONResult(c, resp, writeOpenAIResponsesFallbackError)
 	if err != nil {
 		return nil, err
 	}
-	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, originalModel, customTools, toolSearch, namespaceTools)
 
-	if s.responseHeaderFilter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	structured, result, err := s.collectBufferedChatCompletionsResponse(
+		resp.StatusCode,
+		resp.Header,
+		upstreamBody,
+		usage,
+		originalModel,
+		billingModel,
+		upstreamModel,
+		reasoningEffort,
+		serviceTier,
+		startTime,
+	)
+	if err != nil {
+		writeOpenAIResponsesFallbackError(c, http.StatusBadGateway, "api_error", "Failed to collect upstream response")
+		return nil, err
 	}
-	c.JSON(http.StatusOK, responsesResp)
+	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, originalModel, customTools, toolSearch, namespaceTools)
+	downstreamBody, err := json.Marshal(responsesResp)
+	if err != nil {
+		writeOpenAIResponsesFallbackError(c, http.StatusBadGateway, "api_error", "Failed to convert upstream response")
+		return nil, fmt.Errorf("marshal responses fallback response: %w", err)
+	}
+	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolOpenAIResponses)
+	if err != nil {
+		return nil, err
+	}
+	if err := renderer.RenderJSON(c.Writer, http.StatusOK, structured.Headers, downstreamBody); err != nil {
+		return nil, fmt.Errorf("render responses fallback result: %w", err)
+	}
+	return result, nil
+}
 
-	return &OpenAIForwardResult{
-		RequestID:       requestID,
+func (s *OpenAIGatewayService) collectBufferedChatCompletionsResponse(
+	statusCode int,
+	headers http.Header,
+	upstreamBody []byte,
+	usage OpenAIUsage,
+	originalModel string,
+	billingModel string,
+	upstreamModel string,
+	reasoningEffort *string,
+	serviceTier *string,
+	startTime time.Time,
+) (protocoltransport.Response, *OpenAIForwardResult, error) {
+	var ccResp apicompat.ChatCompletionsResponse
+	if err := json.Unmarshal(upstreamBody, &ccResp); err != nil {
+		return protocoltransport.Response{}, nil, fmt.Errorf("parse buffered chat completions response: %w", err)
+	}
+	filteredHeaders := make(http.Header)
+	if s.responseHeaderFilter != nil {
+		filteredHeaders = responseheaders.FilterHeaders(headers, s.responseHeaderFilter)
+	}
+	structured := protocoltransport.Response{
+		StatusCode:     statusCode,
+		Headers:        filteredHeaders,
+		Body:           append([]byte(nil), upstreamBody...),
+		ActualProtocol: protocolconv.ProtocolOpenAIChat,
+		RequestID:      headers.Get("x-request-id"),
+		ResponseID:     ccResp.ID,
+		Duration:       time.Since(startTime),
+	}
+	if err := structured.Validate(); err != nil {
+		return protocoltransport.Response{}, nil, fmt.Errorf("validate responses fallback result: %w", err)
+	}
+	result := &OpenAIForwardResult{
+		RequestID:       structured.RequestID,
+		ResponseID:      structured.ResponseID,
 		Usage:           usage,
 		Model:           originalModel,
 		BillingModel:    billingModel,
@@ -146,8 +206,9 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 		ReasoningEffort: reasoningEffort,
 		ServiceTier:     serviceTier,
 		Stream:          false,
-		Duration:        time.Since(startTime),
-	}, nil
+		Duration:        structured.Duration,
+	}
+	return structured, result, nil
 }
 
 func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(

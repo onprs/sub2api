@@ -291,25 +291,34 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 	resp *http.Response,
 	writeError compatErrorWriter,
 ) (*apicompat.ChatCompletionsResponse, OpenAIUsage, error) {
+	parsed, usage, _, err := s.readCCUpstreamJSONResult(c, resp, writeError)
+	return parsed, usage, err
+}
+
+func (s *OpenAIGatewayService) readCCUpstreamJSONResult(
+	c *gin.Context,
+	resp *http.Response,
+	writeError compatErrorWriter,
+) (*apicompat.ChatCompletionsResponse, OpenAIUsage, []byte, error) {
 	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		if !errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
 			writeError(c, http.StatusBadGateway, "api_error", "Failed to read upstream response")
 		}
-		return nil, OpenAIUsage{}, fmt.Errorf("read upstream body: %w", err)
+		return nil, OpenAIUsage{}, nil, fmt.Errorf("read upstream body: %w", err)
 	}
 
 	var ccResp apicompat.ChatCompletionsResponse
 	if err := json.Unmarshal(respBody, &ccResp); err != nil {
 		writeError(c, http.StatusBadGateway, "api_error", "Failed to parse upstream response")
-		return nil, OpenAIUsage{}, fmt.Errorf("parse chat completions response: %w", err)
+		return nil, OpenAIUsage{}, nil, fmt.Errorf("parse chat completions response: %w", err)
 	}
 
 	usage := OpenAIUsage{}
 	if parsed, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage = parsed
 	}
-	return &ccResp, usage, nil
+	return &ccResp, usage, respBody, nil
 }
 
 // writeOpenAIResponsesFallbackError 以 /v1/responses 回退路径的既有错误格式回写

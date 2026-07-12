@@ -5,17 +5,70 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestCollectBufferedChatCompletionsResponseReturnsStructuredActualProtocol(t *testing.T) {
+	svc := &OpenAIGatewayService{responseHeaderFilter: compileResponseHeaderFilter(rawChatCompletionsTestConfig())}
+	started := time.Now().Add(-time.Second)
+	serviceTier := "priority"
+	reasoningEffort := "high"
+	upstreamBody := []byte(`{"id":"chatcmpl_structured","object":"chat.completion","model":"upstream-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5},"vendor_extension":{"trace":"preserved"}}`)
+
+	structured, result, err := svc.collectBufferedChatCompletionsResponse(
+		http.StatusOK,
+		http.Header{
+			"Content-Type":      []string{"application/json"},
+			"X-Request-Id":      []string{"req-structured"},
+			"X-Internal-Secret": []string{"must-not-pass"},
+		},
+		upstreamBody,
+		OpenAIUsage{InputTokens: 3, OutputTokens: 2},
+		"client-model",
+		"billing-model",
+		"upstream-model",
+		&reasoningEffort,
+		&serviceTier,
+		started,
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, protocolconv.ProtocolOpenAIChat, structured.ActualProtocol)
+	require.Equal(t, "req-structured", structured.RequestID)
+	require.Equal(t, "chatcmpl_structured", structured.ResponseID)
+	require.Equal(t, "application/json", structured.Headers.Get("Content-Type"))
+	require.Empty(t, structured.Headers.Get("X-Internal-Secret"))
+	require.Equal(t, "upstream-model", gjson.GetBytes(structured.Body, "model").String())
+	require.Equal(t, "ok", gjson.GetBytes(structured.Body, "choices.0.message.content").String())
+	require.Equal(t, "preserved", gjson.GetBytes(structured.Body, "vendor_extension.trace").String())
+	require.Equal(t, upstreamBody, structured.Body)
+	var ccResp apicompat.ChatCompletionsResponse
+	require.NoError(t, json.Unmarshal(structured.Body, &ccResp))
+	downstream := apicompat.ChatCompletionsResponseToResponses(&ccResp, "client-model", nil, false, nil)
+	downstreamBody, err := json.Marshal(downstream)
+	require.NoError(t, err)
+	require.Equal(t, "client-model", gjson.GetBytes(downstreamBody, "model").String())
+	require.Equal(t, "ok", gjson.GetBytes(downstreamBody, "output.0.content.0.text").String())
+	require.Equal(t, 3, result.Usage.InputTokens)
+	require.Equal(t, "billing-model", result.BillingModel)
+	require.Equal(t, "upstream-model", result.UpstreamModel)
+	require.Equal(t, "chatcmpl_structured", result.ResponseID)
+	require.Equal(t, "priority", *result.ServiceTier)
+	require.Equal(t, "high", *result.ReasoningEffort)
+}
 
 func TestForwardResponses_ForceChatCompletionsRoutesNonStreamingToChatCompletions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -47,6 +100,7 @@ func TestForwardResponses_ForceChatCompletionsRoutesNonStreamingToChatCompletion
 	require.False(t, gjson.GetBytes(upstream.lastBody, "input").Exists())
 	require.Equal(t, "response", gjson.Get(rec.Body.String(), "object").String())
 	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+	require.Empty(t, rec.Header().Get("x-request-id"))
 	require.Equal(t, 3, result.Usage.InputTokens)
 	require.Equal(t, 2, result.Usage.OutputTokens)
 	require.Equal(t, 1, result.Usage.CacheReadInputTokens)
