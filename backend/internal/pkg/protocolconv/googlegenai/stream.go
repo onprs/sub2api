@@ -1,0 +1,225 @@
+package googlegenai
+
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/ir"
+)
+
+type streamDecoder struct {
+	started   bool
+	ended     bool
+	id        string
+	model     string
+	nextBlock int
+	current   *googleBlock
+}
+
+type googleBlock struct {
+	index       int
+	partType    ir.ContentType
+	choiceIndex int
+	toolIndex   int
+	toolCallID  string
+	toolName    string
+	seen        string
+}
+
+type streamEncoder struct {
+	id           string
+	model        string
+	usage        *ir.Usage
+	finishReason ir.FinishReason
+	calls        map[string]*functionCallWire
+	callArgs     map[string]string
+}
+
+func newStreamDecoder() *streamDecoder { return &streamDecoder{} }
+func newStreamEncoder() *streamEncoder {
+	return &streamEncoder{calls: make(map[string]*functionCallWire), callArgs: make(map[string]string)}
+}
+
+func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.Warning, error) {
+	var wire responseWire
+	if err := json.Unmarshal(chunk, &wire); err != nil {
+		return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolGoogleGenAI, Cause: err}
+	}
+	if d.ended {
+		return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidStream, Protocol: protocolconv.ProtocolGoogleGenAI, Message: "chunk received after terminal finishReason"}
+	}
+
+	var out []ir.StreamEvent
+	if !d.started {
+		d.started = true
+		d.id = wire.ResponseID
+		d.model = wire.ModelVersion
+		out = append(out, ir.StreamEvent{Type: ir.EventStreamStart, ResponseID: d.id, Model: d.model})
+	}
+
+	finished := false
+	finishReason := ir.FinishReason{Reason: "stop"}
+	for candidateIndex, candidate := range wire.Candidates {
+		for partIndex, part := range candidate.Content.Parts {
+			partType := googlePartType(part)
+			identity := googlePartIdentity(part)
+			if d.current == nil || d.current.partType != partType || (partType == ir.ContentToolCall && d.current.toolCallID != identity) {
+				out = append(out, d.closeCurrent()...)
+				d.current = &googleBlock{index: d.nextBlock, partType: partType, choiceIndex: candidateIndex, toolIndex: partIndex}
+				d.nextBlock++
+				out = append(out, ir.StreamEvent{Type: ir.EventContentBlockStart, BlockIndex: d.current.index, BlockType: partType, ChoiceIndex: candidateIndex})
+				if part.FunctionCall != nil {
+					d.current.toolCallID = part.FunctionCall.ID
+					d.current.toolName = part.FunctionCall.Name
+					out = append(out, ir.StreamEvent{Type: ir.EventToolCallStart, BlockIndex: d.current.index, ChoiceIndex: candidateIndex, ToolCallIndex: partIndex, ToolCallID: part.FunctionCall.ID, ToolName: part.FunctionCall.Name})
+				}
+			}
+
+			switch {
+			case part.FunctionCall != nil:
+				args := string(part.FunctionCall.Args)
+				if args == "" {
+					args = "{}"
+				}
+				delta := cumulativeDelta(d.current.seen, args)
+				if delta != "" {
+					out = append(out, ir.StreamEvent{Type: ir.EventToolCallDelta, BlockIndex: d.current.index, ChoiceIndex: candidateIndex, ToolCallIndex: partIndex, ToolCallID: d.current.toolCallID, ArgumentsDelta: delta})
+					d.current.seen = args
+				}
+			case part.Thought:
+				delta := cumulativeDelta(d.current.seen, part.Text)
+				if delta != "" || part.ThoughtSignature != "" {
+					out = append(out, ir.StreamEvent{Type: ir.EventReasoningDelta, BlockIndex: d.current.index, ChoiceIndex: candidateIndex, Reasoning: delta, Signature: part.ThoughtSignature})
+					d.current.seen = part.Text
+				}
+			default:
+				delta := cumulativeDelta(d.current.seen, part.Text)
+				if delta != "" {
+					out = append(out, ir.StreamEvent{Type: ir.EventTextDelta, BlockIndex: d.current.index, ChoiceIndex: candidateIndex, Text: delta})
+					d.current.seen = part.Text
+				}
+			}
+		}
+		if candidate.FinishReason != "" {
+			finished = true
+			finishReason = finishFromGoogle(candidate.FinishReason)
+		}
+	}
+
+	if finished {
+		out = append(out, d.closeCurrent()...)
+		out = append(out, ir.StreamEvent{Type: ir.EventFinish, FinishReason: &finishReason})
+		if usage := usageFromGoogle(wire.UsageMetadata); usage != nil {
+			out = append(out, ir.StreamEvent{Type: ir.EventUsage, Usage: usage})
+		}
+		out = append(out, ir.StreamEvent{Type: ir.EventStreamEnd})
+		d.ended = true
+	}
+	return out, nil, nil
+}
+
+func (d *streamDecoder) closeCurrent() []ir.StreamEvent {
+	if d.current == nil {
+		return nil
+	}
+	block := d.current
+	d.current = nil
+	out := make([]ir.StreamEvent, 0, 2)
+	if block.partType == ir.ContentToolCall {
+		out = append(out, ir.StreamEvent{Type: ir.EventToolCallEnd, BlockIndex: block.index, ChoiceIndex: block.choiceIndex, ToolCallIndex: block.toolIndex, ToolCallID: block.toolCallID})
+	}
+	return append(out, ir.StreamEvent{Type: ir.EventContentBlockEnd, BlockIndex: block.index, ChoiceIndex: block.choiceIndex})
+}
+
+func (d *streamDecoder) Finalize() ([]ir.StreamEvent, []protocolconv.Warning, error) {
+	if !d.ended {
+		return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidStream, Protocol: protocolconv.ProtocolGoogleGenAI, Message: "Google stream ended without finishReason"}
+	}
+	return nil, nil, nil
+}
+
+func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.Warning, error) {
+	wire := responseWire{ResponseID: e.id, ModelVersion: e.model}
+	emit := false
+	switch event.Type {
+	case ir.EventStreamStart:
+		e.id = event.ResponseID
+		e.model = event.Model
+	case ir.EventTextDelta:
+		wire.Candidates = []candidateWire{{Index: event.ChoiceIndex, Content: contentWire{Role: "model", Parts: []partWire{{Text: event.Text}}}}}
+		emit = true
+	case ir.EventReasoningDelta:
+		wire.Candidates = []candidateWire{{Index: event.ChoiceIndex, Content: contentWire{Role: "model", Parts: []partWire{{Text: event.Reasoning, Thought: true, ThoughtSignature: event.Signature}}}}}
+		emit = true
+	case ir.EventToolCallStart:
+		e.calls[event.ToolCallID] = &functionCallWire{ID: event.ToolCallID, Name: event.ToolName}
+	case ir.EventToolCallDelta:
+		e.callArgs[event.ToolCallID] += event.ArgumentsDelta
+	case ir.EventToolCallEnd:
+		call := e.calls[event.ToolCallID]
+		if call == nil {
+			return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidStream, Protocol: protocolconv.ProtocolGoogleGenAI, Message: "tool call ended before start"}
+		}
+		args := []byte(e.callArgs[event.ToolCallID])
+		if !json.Valid(args) {
+			return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidStream, Protocol: protocolconv.ProtocolGoogleGenAI, Message: "tool call arguments are not complete JSON"}
+		}
+		call.Args = json.RawMessage(args)
+		wire.Candidates = []candidateWire{{Index: event.ChoiceIndex, Content: contentWire{Role: "model", Parts: []partWire{{FunctionCall: call}}}}}
+		emit = true
+	case ir.EventUsage:
+		e.usage = event.Usage
+	case ir.EventFinish:
+		e.finishReason = ir.FinishReason{Reason: "stop"}
+		if event.FinishReason != nil {
+			e.finishReason = *event.FinishReason
+		}
+	case ir.EventStreamEnd:
+		wire.Candidates = []candidateWire{{FinishReason: finishToGoogle(e.finishReason), Content: contentWire{Role: "model", Parts: []partWire{}}}}
+		wire.UsageMetadata = usageToGoogle(e.usage)
+		emit = true
+	case ir.EventError:
+		return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidStream, Protocol: protocolconv.ProtocolGoogleGenAI, Message: "Google standard stream has no portable in-band error event"}
+	}
+	if !emit {
+		return nil, nil, nil
+	}
+	wire.ResponseID = e.id
+	wire.ModelVersion = e.model
+	body, err := json.Marshal(&wire)
+	if err != nil {
+		return nil, nil, err
+	}
+	return [][]byte{body}, nil, nil
+}
+
+func (e *streamEncoder) Finalize() ([][]byte, []protocolconv.Warning, error) { return nil, nil, nil }
+
+func googlePartType(part partWire) ir.ContentType {
+	if part.FunctionCall != nil {
+		return ir.ContentToolCall
+	}
+	if part.Thought {
+		return ir.ContentReasoning
+	}
+	return ir.ContentText
+}
+func googlePartIdentity(part partWire) string {
+	if part.FunctionCall != nil {
+		return part.FunctionCall.ID
+	}
+	return ""
+}
+func cumulativeDelta(seen, incoming string) string {
+	if strings.HasPrefix(incoming, seen) {
+		return strings.TrimPrefix(incoming, seen)
+	}
+	if incoming == seen {
+		return ""
+	}
+	return incoming
+}
+
+func (*Converter) NewStreamDecoder() protocolconv.StreamDecoder { return newStreamDecoder() }
+func (*Converter) NewStreamEncoder() protocolconv.StreamEncoder { return newStreamEncoder() }
