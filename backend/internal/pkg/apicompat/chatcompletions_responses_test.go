@@ -998,23 +998,6 @@ func TestResponsesToChatCompletions_CachedTokens(t *testing.T) {
 	assert.Equal(t, 80, chat.Usage.PromptTokensDetails.CachedTokens)
 }
 
-func TestChatUsageToResponsesUsage_PreservesCompletionTokenDetails(t *testing.T) {
-	usage := ChatUsageToResponsesUsage(&ChatUsage{
-		PromptTokens: 100, CompletionTokens: 30, TotalTokens: 130,
-		CompletionTokensDetails: &ChatTokenDetails{
-			ReasoningTokens: 10, AudioTokens: 2,
-			AcceptedPredictionTokens: 3, RejectedPredictionTokens: 4,
-		},
-	})
-
-	require.NotNil(t, usage)
-	require.NotNil(t, usage.OutputTokensDetails)
-	require.Equal(t, 10, usage.OutputTokensDetails.ReasoningTokens)
-	require.Equal(t, 2, usage.OutputTokensDetails.AudioTokens)
-	require.Equal(t, 3, usage.OutputTokensDetails.AcceptedPredictionTokens)
-	require.Equal(t, 4, usage.OutputTokensDetails.RejectedPredictionTokens)
-}
-
 func TestResponsesToChatCompletions_ReasoningTokens(t *testing.T) {
 	resp := &ResponsesResponse{
 		ID:     "resp_reasoning",

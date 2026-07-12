@@ -122,7 +122,7 @@ def payload_for(protocol: str, model: str, prefix: str, cache_key: str) -> dict[
         return {
             "model": model,
             "instructions": prefix,
-            "input": [{"role": "user", "content": [{"type": "input_text", "text": user_text}]}],
+            "input": user_text,
             "max_output_tokens": 128,
             "reasoning": {"effort": "low", "summary": "auto"},
             "prompt_cache_key": cache_key,
@@ -156,59 +156,17 @@ def classify_models(model_ids: list[str]) -> tuple[list[str], dict[str, str]]:
     skipped: dict[str, str] = {}
     for model in sorted(set(model_ids)):
         lower = model.lower()
+        if not lower.startswith("gpt-"):
+            continue
         if "image" in lower:
             skipped[model] = "image endpoint model"
         elif "audio" in lower:
             skipped[model] = "audio endpoint model"
         elif "realtime" in lower:
             skipped[model] = "realtime endpoint model"
-        elif lower == "codex-auto-review":
-            skipped[model] = "internal routing model"
         else:
             text.append(model)
     return text, skipped
-
-
-def continuation_payload(protocol: str, first_payload: dict[str, Any], first_body: dict[str, Any]) -> dict[str, Any]:
-    payload = json.loads(json.dumps(first_payload))
-    next_text = "In one word, confirm that you remember the previous request."
-    if protocol == "responses":
-        output = first_body.get("output")
-        if not isinstance(output, list) or not output:
-            raise ValueError("first Responses result has no output history")
-        payload["input"] = [
-            *payload["input"],
-            *output,
-            {"role": "user", "content": [{"type": "input_text", "text": next_text}]},
-        ]
-        return payload
-    if protocol == "chat_completions":
-        choices = first_body.get("choices") or []
-        message = choices[0].get("message") if choices and isinstance(choices[0], dict) else None
-        if not isinstance(message, dict):
-            raise ValueError("first Chat Completions result has no assistant message")
-        payload["messages"] = [*payload["messages"], message, {"role": "user", "content": next_text}]
-        return payload
-    if protocol == "anthropic_messages":
-        content = first_body.get("content")
-        if not isinstance(content, list) or not content:
-            raise ValueError("first Messages result has no assistant content")
-        payload["messages"] = [
-            *payload["messages"],
-            {"role": "assistant", "content": content},
-            {"role": "user", "content": next_text},
-        ]
-        return payload
-    candidates = first_body.get("candidates") or []
-    content = candidates[0].get("content") if candidates and isinstance(candidates[0], dict) else None
-    if not isinstance(content, dict):
-        raise ValueError("first Gemini result has no model content")
-    payload["contents"] = [
-        *payload["contents"],
-        content,
-        {"role": "user", "parts": [{"text": next_text}]},
-    ]
-    return payload
 
 
 def main() -> int:
@@ -258,24 +216,15 @@ def main() -> int:
         for protocol, path in protocols.items():
             cache_key = f"sub2api-probe-{model}-{protocol}-v1"
             payload = payload_for(protocol, model, prefix, cache_key)
-            endpoint = path.format(model=model)
-            first_body: dict[str, Any] | None = None
+            first_ok = True
             for attempt in (1, 2):
-                if attempt == 2:
-                    if first_body is None:
-                        break
-                    try:
-                        payload = continuation_payload(protocol, payload, first_body)
-                    except ValueError as exc:
-                        results.append(ProbeResult(
-                            model=model, protocol=protocol, attempt=attempt, http_status=0, ok=False,
-                            latency_ms=0, cache_read_tokens=0, input_tokens=0, output_tokens=0,
-                            reasoning_observed=False, response_id="", error=str(exc),
-                        ))
-                        break
+                if attempt == 2 and not first_ok:
+                    break
+                endpoint = path.format(model=model)
                 status, body, latency_ms = request_json(f"{base_url}{endpoint}", api_key, payload)
                 cache_read, input_tokens, output_tokens = usage_for(protocol, body)
                 ok = 200 <= status < 300 and not body.get("error")
+                first_ok = first_ok and ok
                 results.append(ProbeResult(
                     model=model,
                     protocol=protocol,
@@ -290,8 +239,6 @@ def main() -> int:
                     response_id=response_id_for(protocol, body),
                     error="" if ok else error_message(body),
                 ))
-                if attempt == 1:
-                    first_body = body if ok else None
                 time.sleep(args.pause)
 
     report = {
@@ -302,7 +249,6 @@ def main() -> int:
         "tested_protocols": list(protocols),
         "skipped_models": skipped,
         "stable_prefix_bytes": len(prefix.encode()),
-        "second_attempt_mode": "explicit_assistant_history_plus_new_user_turn",
         "results": [asdict(item) for item in results],
     }
     with open(args.output, "w", encoding="utf-8") as handle:

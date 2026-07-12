@@ -204,7 +204,10 @@ func responsesRequestToGemini(req *apicompat.ResponsesRequest) (*geminiRequest, 
 			toolNames[item.CallID] = item.Name
 			pendingThoughtSignature = ""
 		case "function_call_output":
-			response := geminiFunctionResponsePayload(item.Output)
+			response := json.RawMessage(item.Output)
+			if len(response) == 0 {
+				response = json.RawMessage(`{}`)
+			}
 			out.Contents = appendGeminiContent(out.Contents, geminiContent{Role: "user", Parts: []geminiPart{{
 				FunctionResponse: &geminiFunctionResponse{ID: item.CallID, Name: toolNames[item.CallID], Response: response},
 			}}})
@@ -264,18 +267,6 @@ func responsesRequestToGemini(req *apicompat.ResponsesRequest) (*geminiRequest, 
 		out.Tools = append(out.Tools, geminiTool{GoogleSearch: &struct{}{}})
 	}
 	return out, nil
-}
-
-func geminiFunctionResponsePayload(output string) json.RawMessage {
-	output = strings.TrimSpace(output)
-	if output == "" {
-		return json.RawMessage(`{}`)
-	}
-	if json.Valid([]byte(output)) {
-		return json.RawMessage(output)
-	}
-	encoded, _ := json.Marshal(output)
-	return encoded
 }
 
 func appendGeminiContent(contents []geminiContent, next geminiContent) []geminiContent {
