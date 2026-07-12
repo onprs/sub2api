@@ -132,7 +132,7 @@ func TestForwardAsAnthropic_ChatFallbackPipelinePreservesToolTurn(t *testing.T) 
 func TestForwardAsAnthropic_ForceChatCompletionsStreamingClosesOpenBlockOnDone(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	body := []byte(`{"model":"gpt-5.4","max_tokens":32,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
+	body := []byte(`{"model":"client-visible-model","max_tokens":32,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
@@ -147,7 +147,7 @@ func TestForwardAsAnthropic_ForceChatCompletionsStreamingClosesOpenBlockOnDone(t
 		"",
 		`data: {"id":"chatcmpl_s","object":"chat.completion.chunk","model":"gpt-5.4","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
 		"",
-		`data: {"id":"chatcmpl_s","object":"chat.completion.chunk","model":"gpt-5.4","choices":[],"usage":{"prompt_tokens":4,"completion_tokens":3,"total_tokens":7}}`,
+		`data: {"id":"chatcmpl_s","object":"chat.completion.chunk","model":"gpt-5.4","choices":[],"usage":{"prompt_tokens":4,"completion_tokens":3,"total_tokens":7,"prompt_tokens_details":{"cached_tokens":2}}}`,
 		"",
 		"data: [DONE]",
 		"",
@@ -161,14 +161,18 @@ func TestForwardAsAnthropic_ForceChatCompletionsStreamingClosesOpenBlockOnDone(t
 		cfg:          rawChatCompletionsTestConfig(),
 		httpUpstream: upstream,
 	}
+	account := forceChatMessagesFallbackAccount()
+	account.Credentials["model_mapping"] = map[string]any{"client-visible-model": "gpt-5.4"}
 
-	result, err := svc.ForwardAsAnthropic(context.Background(), c, forceChatMessagesFallbackAccount(), body, "", "")
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
 
 	out := rec.Body.String()
 	require.Contains(t, out, "event: message_start")
+	messageStart := anthropicSSEEventData(t, out, "message_start")
+	require.Equal(t, "client-visible-model", gjson.Get(messageStart, "message.model").String())
 	require.Contains(t, out, `"text":"he"`)
 	require.Contains(t, out, `"text":"llo"`)
 	require.Contains(t, out, "event: content_block_stop")
@@ -180,11 +184,27 @@ func TestForwardAsAnthropic_ForceChatCompletionsStreamingClosesOpenBlockOnDone(t
 	msgStop := strings.Index(out, "event: message_stop")
 	require.Greater(t, msgDelta, blockStop, "content_block_stop must precede message_delta")
 	require.Greater(t, msgStop, msgDelta, "message_delta must precede message_stop")
+	messageDelta := anthropicSSEEventData(t, out, "message_delta")
+	require.Equal(t, int64(2), gjson.Get(messageDelta, "usage.input_tokens").Int())
+	require.Equal(t, int64(3), gjson.Get(messageDelta, "usage.output_tokens").Int())
+	require.Equal(t, int64(2), gjson.Get(messageDelta, "usage.cache_read_input_tokens").Int())
 
 	require.Equal(t, 4, result.Usage.InputTokens)
 	require.Equal(t, 3, result.Usage.OutputTokens)
 	require.True(t, result.Stream)
 	require.NotNil(t, result.FirstTokenMs)
+}
+
+func anthropicSSEEventData(t *testing.T, wire, eventType string) string {
+	t.Helper()
+	lines := strings.Split(wire, "\n")
+	for i, line := range lines {
+		if line == "event: "+eventType && i+1 < len(lines) {
+			return strings.TrimPrefix(lines[i+1], "data: ")
+		}
+	}
+	t.Fatalf("SSE event %q not found", eventType)
+	return ""
 }
 
 // Covers multi-chunk tool_call fragments aggregated by index and finalized as

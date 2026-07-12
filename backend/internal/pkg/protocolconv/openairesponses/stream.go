@@ -352,11 +352,16 @@ func NewStreamDecoder() protocolconv.StreamDecoder { return newStreamDecoder() }
 // NewStreamEncoder creates isolated Responses target state for adapters.
 func NewStreamEncoder() protocolconv.StreamEncoder { return newStreamEncoder() }
 
+// NewStreamEncoderWithOptions creates target state with request-scoped route metadata.
+func NewStreamEncoderWithOptions(options protocolconv.Options) protocolconv.StreamEncoder {
+	return newStreamEncoderWithOptions(options)
+}
+
 func (*Converter) NewStreamDecoder() protocolconv.StreamDecoder { return NewStreamDecoder() }
 func (*Converter) NewStreamEncoder() protocolconv.StreamEncoder { return NewStreamEncoder() }
 func (*Converter) NewStreamDecoderWithOptions(protocolconv.Options) protocolconv.StreamDecoder {
 	return NewStreamDecoder()
 }
 func (*Converter) NewStreamEncoderWithOptions(options protocolconv.Options) protocolconv.StreamEncoder {
-	return newStreamEncoderWithOptions(options)
+	return NewStreamEncoderWithOptions(options)
 }
