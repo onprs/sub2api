@@ -15,6 +15,8 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -864,18 +866,19 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 		return s.handleSSEToJSON(resp, c, body, originalModel, mappedModel)
 	}
 
-	usageValue, usageOK := extractOpenAIUsageFromJSONBytes(body)
-	if !usageOK {
+	structured, result, err := s.collectOpenAIResponsesJSON(resp.StatusCode, resp.Header, body)
+	if err != nil {
 		if bodyLooksLikeSSE {
 			return s.handleSSEToJSON(resp, c, body, originalModel, mappedModel)
 		}
-		return nil, fmt.Errorf("parse response: invalid json response")
+		return nil, err
 	}
-	usage := &usageValue
 
-	// Replace model in response if needed
+	// Model restoration is a downstream compatibility policy. Keep the
+	// structured transport result as the exact upstream Responses wire body.
+	downstreamBody := structured.Body
 	if originalModel != mappedModel {
-		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
+		downstreamBody = s.replaceModelInResponseBody(downstreamBody, mappedModel, originalModel)
 	}
 
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -887,17 +890,42 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 		}
 	}
 
-	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
-		c.Data(resp.StatusCode, contentType, body)
+	if !writeOpenAICompactSSEBridge(c, structured.StatusCode, downstreamBody) {
+		c.Data(structured.StatusCode, contentType, downstreamBody)
 	}
 
-	return &openaiNonStreamingResult{
+	return result, nil
+}
+
+func (s *OpenAIGatewayService) collectOpenAIResponsesJSON(
+	statusCode int,
+	headers http.Header,
+	body []byte,
+) (protocoltransport.Response, *openaiNonStreamingResult, error) {
+	usageValue, usageOK := extractOpenAIUsageFromJSONBytes(body)
+	if !usageOK {
+		return protocoltransport.Response{}, nil, fmt.Errorf("parse response: invalid json response")
+	}
+	usage := &usageValue
+	structured := protocoltransport.Response{
+		StatusCode:     statusCode,
+		Headers:        responseheaders.FilterHeaders(headers, s.responseHeaderFilter),
+		Body:           append([]byte(nil), body...),
+		ActualProtocol: protocolconv.ProtocolOpenAIResponses,
+		RequestID:      headers.Get("x-request-id"),
+		ResponseID:     extractOpenAIResponseIDFromJSONBytes(body),
+	}
+	if err := structured.Validate(); err != nil {
+		return protocoltransport.Response{}, nil, fmt.Errorf("validate OpenAI Responses result: %w", err)
+	}
+	result := &openaiNonStreamingResult{
 		OpenAIUsage:      usage,
 		usage:            usage,
-		responseID:       extractOpenAIResponseIDFromJSONBytes(body),
+		responseID:       structured.ResponseID,
 		imageCount:       countOpenAIResponseImageOutputsFromJSONBytes(body),
 		imageOutputSizes: collectOpenAIResponseImageOutputSizesFromJSONBytes(body),
-	}, nil
+	}
+	return structured, result, nil
 }
 
 func isEventStreamResponse(header http.Header) bool {

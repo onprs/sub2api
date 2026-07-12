@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/model"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -2155,6 +2156,40 @@ func TestOpenAIStreamingTooLong(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "\"type\":\"error\"") || !strings.Contains(rec.Body.String(), "response_too_large") {
 		t.Fatalf("expected OpenAI-compatible error SSE event, got %q", rec.Body.String())
 	}
+}
+
+func TestCollectOpenAIResponsesJSONReturnsStructuredActualProtocol(t *testing.T) {
+	cfg := &config.Config{}
+	svc := &OpenAIGatewayService{responseHeaderFilter: compileResponseHeaderFilter(cfg)}
+	body := []byte(`{"id":"resp_structured","object":"response","model":"gpt-5.4","output":[{"type":"image_generation_call","result":"aGVsbG8="}],"usage":{"input_tokens":7,"output_tokens":3,"input_tokens_details":{"cached_tokens":2},"output_tokens_details":{"image_tokens":1}},"vendor_extension":{"trace":"preserved"}}`)
+	originalBody := append([]byte(nil), body...)
+
+	structured, result, err := svc.collectOpenAIResponsesJSON(
+		http.StatusCreated,
+		http.Header{
+			"Content-Type":      []string{"application/vnd.openai+json"},
+			"X-Request-Id":      []string{"req-structured"},
+			"X-Internal-Secret": []string{"must-not-pass"},
+		},
+		body,
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, protocolconv.ProtocolOpenAIResponses, structured.ActualProtocol)
+	require.Equal(t, http.StatusCreated, structured.StatusCode)
+	require.Equal(t, "req-structured", structured.RequestID)
+	require.Equal(t, "resp_structured", structured.ResponseID)
+	require.Equal(t, "application/vnd.openai+json", structured.Headers.Get("Content-Type"))
+	require.Empty(t, structured.Headers.Get("X-Internal-Secret"))
+	require.Equal(t, "preserved", gjson.GetBytes(structured.Body, "vendor_extension.trace").String())
+	body[0] = 'x'
+	require.Equal(t, originalBody, structured.Body)
+	require.Equal(t, 7, result.InputTokens)
+	require.Equal(t, 3, result.OutputTokens)
+	require.Equal(t, 2, result.CacheReadInputTokens)
+	require.Equal(t, 1, result.ImageOutputTokens)
+	require.Equal(t, "resp_structured", result.responseID)
+	require.Equal(t, 1, result.imageCount)
 }
 
 func TestOpenAINonStreamingContentTypePassThrough(t *testing.T) {
