@@ -103,6 +103,9 @@ func (r *Registry) DecodeRequest(body []byte, source Protocol, options Options) 
 	if err != nil {
 		return nil, warnings, wrapConversionError(source, "decode request", err)
 	}
+	if err := ir.LinkToolResults(request); err != nil {
+		return nil, warnings, &Error{Code: ErrorInvalidIR, Protocol: source, Message: "link tool results", Cause: err}
+	}
 	return request, warnings, nil
 }
 

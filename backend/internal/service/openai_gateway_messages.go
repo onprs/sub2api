@@ -94,7 +94,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		compatReplayTrimmed = applyAnthropicCompatFullReplayGuard(&anthropicReq)
 	}
 
-	// 3. Convert Anthropic → Responses after compatibility-only replay guard.
+	// 3. Keep the Codex-specific bridge here. Beyond wire conversion it preserves
+	// developer-input ordering, continuation trimming, and call-ID normalization.
 	responsesReq, err := apicompat.AnthropicToResponses(&anthropicReq)
 	if err != nil {
 		return nil, fmt.Errorf("convert anthropic to responses: %w", err)

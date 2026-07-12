@@ -68,6 +68,13 @@ func partToGoogle(part ir.ContentPart, target protocolconv.Protocol, options pro
 	}
 }
 
+func isGoogleSearchTool(tool ir.ToolDefinition) bool {
+	providerType := strings.ToLower(strings.TrimSpace(tool.ProviderType))
+	name := strings.ToLower(strings.TrimSpace(tool.Name))
+	return strings.HasPrefix(providerType, "web_search") || providerType == "google_search" ||
+		name == "web_search" || name == "google_search" || name == "web_search_20250305"
+}
+
 func roleFromGoogle(role string) ir.Role {
 	if role == "model" {
 		return ir.RoleAssistant

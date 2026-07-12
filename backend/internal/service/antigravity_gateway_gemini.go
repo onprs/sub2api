@@ -13,6 +13,8 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/antigravityadapter"
 	"github.com/gin-gonic/gin"
 )
 
@@ -116,24 +118,13 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		proxyURL = account.Proxy.URL()
 	}
 
-	// Antigravity 上游要求必须包含身份提示词，注入到请求中
-	injectedBody, err := injectIdentityPatchToGeminiRequest(body)
+	// Standard Google semantics are converted first; identity, schema cleanup,
+	// signatures, and the v1internal envelope remain vendor-adapter policy.
+	wrappedBody, _, err := antigravityadapter.ConvertRequest(body, protocolconv.ProtocolGoogleGenAI, antigravityadapter.Options{
+		Family: antigravityadapter.FamilyGemini, ProjectID: projectID, MappedModel: mappedModel, UserAgent: "antigravity",
+	})
 	if err != nil {
 		return nil, s.writeGoogleError(c, http.StatusBadRequest, "Invalid request body")
-	}
-
-	// 清理 Schema
-	if cleanedBody, err := cleanGeminiRequest(injectedBody); err == nil {
-		injectedBody = cleanedBody
-		logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Cleaned request schema in forwarded request for account %s", account.Name)
-	} else {
-		logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Failed to clean schema: %v", err)
-	}
-
-	// 包装请求
-	wrappedBody, err := s.wrapV1InternalRequest(projectID, mappedModel, injectedBody)
-	if err != nil {
-		return nil, s.writeGoogleError(c, http.StatusInternalServerError, "Failed to build upstream request")
 	}
 
 	// Antigravity 上游只支持流式请求，统一使用 streamGenerateContent
@@ -195,7 +186,9 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			if fallbackModel != "" && fallbackModel != mappedModel {
 				logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Model not found (%s), retrying with fallback model %s (account: %s)", mappedModel, fallbackModel, account.Name)
 
-				fallbackWrapped, err := s.wrapV1InternalRequest(projectID, fallbackModel, injectedBody)
+				fallbackWrapped, _, err := antigravityadapter.ConvertRequest(body, protocolconv.ProtocolGoogleGenAI, antigravityadapter.Options{
+					Family: antigravityadapter.FamilyGemini, ProjectID: projectID, MappedModel: fallbackModel, UserAgent: "antigravity",
+				})
 				if err == nil {
 					fallbackReq, err := antigravity.NewAPIRequest(ctx, upstreamAction, accessToken, fallbackWrapped)
 					if err == nil {
@@ -221,7 +214,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			s.settingService != nil &&
 			s.settingService.IsSignatureRectifierEnabled(ctx) &&
 			isSignatureRelatedError(signatureCheckBody) &&
-			bytes.Contains(injectedBody, []byte(`"thoughtSignature"`)) {
+			bytes.Contains(body, []byte(`"thoughtSignature"`)) {
 			upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractAntigravityErrorMessage(signatureCheckBody)))
 			upstreamDetail := s.getUpstreamErrorDetail(signatureCheckBody)
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -237,8 +230,9 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 
 			logger.LegacyPrintf("service.antigravity_gateway", "Antigravity Gemini account %d: detected signature-related 400, retrying with cleaned thought signatures", account.ID)
 
-			cleanedInjectedBody := CleanGeminiNativeThoughtSignatures(injectedBody)
-			retryWrappedBody, wrapErr := s.wrapV1InternalRequest(projectID, mappedModel, cleanedInjectedBody)
+			retryWrappedBody, _, wrapErr := antigravityadapter.ConvertRequest(body, protocolconv.ProtocolGoogleGenAI, antigravityadapter.Options{
+				Family: antigravityadapter.FamilyGemini, ProjectID: projectID, MappedModel: mappedModel, UserAgent: "antigravity", RectifySignatures: true,
+			})
 			if wrapErr == nil {
 				retryResult, retryErr := s.antigravityRetryLoop(antigravityRetryLoopParams{
 					ctx:             ctx,

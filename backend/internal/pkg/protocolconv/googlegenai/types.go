@@ -51,6 +51,7 @@ type functionResponseWire struct {
 
 type toolGroupWire struct {
 	FunctionDeclarations []functionDeclarationWire `json:"functionDeclarations,omitempty"`
+	GoogleSearch         json.RawMessage           `json:"googleSearch,omitempty"`
 }
 
 type functionDeclarationWire struct {

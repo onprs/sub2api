@@ -90,5 +90,26 @@ Confirmed behavior:
 Unresolved production behavior:
 
 - Antigravity Gemini-family non-streaming tool forcing returned HTTP 200 with no `functionCall` and no non-empty text for `gemini-2.5-flash`, `gemini-3-flash`, and `gemini-3.1-pro-high`. A direct streaming diagnostic showed the upstream first SSE chunk does contain `functionCall` plus `thoughtSignature`; the terminal chunk contains only an empty text part. The native Gemini stream-to-non-stream collector currently accumulates only text and images, so it drops the earlier function call. This is a production aggregation defect to fix in the integration branch by preserving all ordered parts. Standard Google semantics must not be weakened to hide it.
-- Antigravity Gemini function calls observed on the wire did not include an ID. Standard IR strict mode must not silently invent one; the vendor adapter needs an explicit request-scoped correlation policy, with any generated ID surfaced under the configured loss policy.
+- Antigravity Gemini function calls observed on the wire did not include an ID. Standard IR strict mode does not invent one. The retained Gemini vendor response bridge generates the client-facing tool ID; on the next request the shared decoder links that ID back to the function name, and the vendor transport strips non-portable Google IDs after encoding. This keeps correlation policy outside the standard converter.
 - A structurally invalid Codex Responses input reached the upstream path and returned 502 instead of a client-facing 400. OpenCode malformed Chat/Messages requests returned 400 with an empty body. Production integration should preserve intentional compatibility but classify local conversion/validation failures before upstream dispatch.
+
+## Production Integration
+
+The production integration keeps transport and account policy outside the converter. Authentication, model mapping, OAuth transforms, retries, sticky sessions, failover, rate limits, response headers, usage accounting, billing, and error passthrough remain owned by their existing services.
+
+Integrated through the shared IR registry:
+
+- Anthropic-platform Chat Completions and Responses request conversion, complete responses, and streaming responses;
+- OpenAI Chat Completions to Responses request conversion on accounts that use the Responses upstream path;
+- Gemini Chat Completions and Anthropic Messages request conversion to Google GenAI;
+- OpenCode Chat Completions and Messages cross-protocol requests, complete responses, and streams;
+- Antigravity Claude-family and Gemini-family request conversion through the vendor adapter, including identity, schema cleanup, signature rectification, and v1internal envelopes.
+
+The Antigravity native Gemini stream-to-non-stream collector now preserves every ordered part. This keeps early `functionCall`, thinking, `thoughtSignature`, image, and text parts when the terminal upstream chunk contains only finish and usage metadata.
+
+Intentional retained compatibility bridges:
+
+- OpenAI Messages to Codex Responses still uses the existing Codex-specific bridge. It is not a plain standard conversion: it controls developer-input ordering, Claude Code todo guards, continuation replay trimming, default reasoning/text policy, and Codex call-ID normalization. Existing service tests lock this behavior.
+- Gemini response conversion and streaming retain the provider-specific bridge while upstream function calls may omit IDs and while grounding/image behavior remains vendor-owned. The standard Google converter does not fabricate IDs in strict mode.
+
+The old service-local Anthropic-to-Gemini request converter and its duplicate schema/tool mapping were removed. Google server-search tools are represented explicitly by the standard Google converter rather than being flattened into function declarations.

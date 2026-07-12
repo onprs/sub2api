@@ -35,6 +35,23 @@ func TestValidateRequestRejectsInvalidRolePartCombination(t *testing.T) {
 	require.Equal(t, "messages[0].content[0]", validationErr.Path)
 }
 
+func TestLinkToolResultsFillsNameFromPrecedingCall(t *testing.T) {
+	request := &Request{Messages: []Message{
+		{Role: RoleAssistant, Content: []ContentPart{{Type: ContentToolCall, ToolCallID: "call-1", ToolName: "read_file"}}},
+		{Role: RoleTool, Content: []ContentPart{{Type: ContentToolResult, ToolCallID: "call-1"}}},
+	}}
+	require.NoError(t, LinkToolResults(request))
+	require.Equal(t, "read_file", request.Messages[1].Content[0].ToolName)
+}
+
+func TestLinkToolResultsRejectsConflictingCallNames(t *testing.T) {
+	request := &Request{Messages: []Message{{Role: RoleAssistant, Content: []ContentPart{
+		{Type: ContentToolCall, ToolCallID: "call-1", ToolName: "read_file"},
+		{Type: ContentToolCall, ToolCallID: "call-1", ToolName: "write_file"},
+	}}}}
+	require.ErrorContains(t, LinkToolResults(request), "multiple names")
+}
+
 func TestValidateRequestRejectsInvalidRawJSON(t *testing.T) {
 	request := &Request{
 		Model: "model",
