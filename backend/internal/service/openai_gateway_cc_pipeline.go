@@ -14,6 +14,8 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -211,6 +213,8 @@ type ccStreamScanState struct {
 	FirstTokenMs *int
 	// SawDone 表示上游发出了 [DONE] 哨兵。
 	SawDone bool
+	// ResponseID 为流中首个可识别的 Chat Completions 响应 ID。
+	ResponseID string
 	// Err 为 scanner 读错误（客户端 context 取消不属于此类，会原样带出）。
 	// 非 nil 时调用方必须跳过 finalize 并返回 usage-incomplete 错误，避免
 	// 把上游截断伪装成正常收尾。
@@ -221,58 +225,88 @@ type ccStreamScanState struct {
 // 哨兵处停止、保留最新 usage、记录首 token 时延，并把每个解析成功的 chunk 交给
 // emit 回调做各自的协议转换与写出。读错误按既有约定过滤 context 取消类噪声后
 // 记入 Warn 日志。
+func (s *OpenAIGatewayService) collectCCUpstreamStream(resp *http.Response, startTime time.Time) (*protocoltransport.Stream, error) {
+	if resp == nil || resp.Body == nil {
+		return nil, fmt.Errorf("nil Chat Completions upstream stream")
+	}
+	maxRecordSize := defaultMaxLineSize
+	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
+		maxRecordSize = s.cfg.Gateway.MaxLineSize
+	}
+	filteredHeaders := make(http.Header)
+	if s.responseHeaderFilter != nil {
+		filteredHeaders = responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
+	}
+	stream := &protocoltransport.Stream{
+		StatusCode:     resp.StatusCode,
+		Headers:        filteredHeaders,
+		ActualProtocol: protocolconv.ProtocolOpenAIChat,
+		RequestID:      resp.Header.Get("x-request-id"),
+		Duration:       time.Since(startTime),
+		Events:         protocoltransport.NewSSEParser(resp.Body, maxRecordSize),
+	}
+	if err := stream.Validate(); err != nil {
+		_ = stream.Close()
+		return nil, fmt.Errorf("validate Chat Completions stream: %w", err)
+	}
+	return stream, nil
+}
+
 func (s *OpenAIGatewayService) scanCCStream(
-	resp *http.Response,
+	stream *protocoltransport.Stream,
 	logPrefix string,
-	requestID string,
 	startTime time.Time,
 	emit func(*apicompat.ChatCompletionsChunk),
 ) ccStreamScanState {
 	var st ccStreamScanState
+	if stream == nil || stream.Events == nil {
+		st.Err = fmt.Errorf("nil Chat Completions stream parser")
+		return st
+	}
+	requestID := stream.RequestID
 
-	scanner := s.newUpstreamSSEScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
-		payload, ok := extractOpenAISSEDataLine(line)
-		if !ok {
-			continue
-		}
-		payload = strings.TrimSpace(payload)
-		if payload == "" {
-			continue
-		}
-		if payload == "[DONE]" {
+	for {
+		record, err := stream.Events.Next(context.Background())
+		if errors.Is(err, protocoltransport.ErrSSEDone) {
 			st.SawDone = true
 			break
 		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				logger.L().Warn(logPrefix+": stream read error",
+					zap.Error(err),
+					zap.String("request_id", requestID),
+				)
+			}
+			st.Err = err
+			break
+		}
 
+		payload := strings.TrimSpace(string(record.Data))
 		if u := extractCCStreamUsage(payload); u != nil {
 			st.Usage = *u
 		}
 
 		var chunk apicompat.ChatCompletionsChunk
-		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+		if err := json.Unmarshal(record.Data, &chunk); err != nil {
 			logger.L().Warn(logPrefix+": failed to parse chat stream chunk",
 				zap.Error(err),
 				zap.String("request_id", requestID),
 			)
 			continue
 		}
+		if st.ResponseID == "" {
+			st.ResponseID = strings.TrimSpace(chunk.ID)
+			stream.ResponseID = st.ResponseID
+		}
 		if st.FirstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk) {
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
 		}
 		emit(&chunk)
-	}
-
-	if err := scanner.Err(); err != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			logger.L().Warn(logPrefix+": stream read error",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-			)
-		}
-		st.Err = err
 	}
 	return st
 }

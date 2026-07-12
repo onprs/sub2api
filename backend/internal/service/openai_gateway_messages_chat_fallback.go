@@ -105,10 +105,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
-
 	// 4. Handle error responses
 	if resp.StatusCode >= 400 {
+		defer func() { _ = resp.Body.Close() }()
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
 		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
@@ -122,6 +121,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	if clientStream {
 		return s.streamChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
+	defer func() { _ = resp.Body.Close() }()
 	return s.bufferChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 }
 
@@ -172,8 +172,13 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	serviceTier *string,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
-	requestID := resp.Header.Get("x-request-id")
-	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
+	stream, err := s.collectCCUpstreamStream(resp, startTime)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = stream.Close() }()
+	requestID := stream.RequestID
+	writeStreamHeaders := s.newStreamHeaderWriter(c, stream.Headers)
 
 	ccState := apicompat.NewChatCompletionsToResponsesStreamState(originalModel)
 	anthropicState := apicompat.NewResponsesEventToAnthropicState()
@@ -207,7 +212,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 		}
 	}
 
-	scan := s.scanCCStream(resp, "openai messages chat fallback", requestID, startTime, emitChunk)
+	scan := s.scanCCStream(stream, "openai messages chat fallback", startTime, emitChunk)
 	usage := scan.Usage
 
 	if scan.Err != nil {
@@ -216,6 +221,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 		// (mirrors forwardResponsesViaRawChatCompletions).
 		return &OpenAIForwardResult{
 			RequestID:        requestID,
+			ResponseID:       scan.ResponseID,
 			Usage:            usage,
 			Model:            originalModel,
 			BillingModel:     billingModel,
@@ -260,6 +266,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 
 	return &OpenAIForwardResult{
 		RequestID:        requestID,
+		ResponseID:       scan.ResponseID,
 		Usage:            usage,
 		Model:            originalModel,
 		BillingModel:     billingModel,

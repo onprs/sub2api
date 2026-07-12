@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +21,61 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+type countingReadCloser struct {
+	io.Reader
+	closeCount atomic.Int32
+}
+
+func (r *countingReadCloser) Close() error {
+	r.closeCount.Add(1)
+	return nil
+}
+
+func TestCollectCCUpstreamStreamParsesBoundedRecordsAndOwnsBody(t *testing.T) {
+	body := &countingReadCloser{Reader: strings.NewReader(strings.Join([]string{
+		": keepalive\r\n",
+		"event: chat.chunk\r\n",
+		"data: {\"id\":\"chatcmpl_structured\",\"object\":\"chat.completion.chunk\",\r\n",
+		"data: \"model\":\"gpt-5.4\",\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}\r\n",
+		"\r\n",
+		"data: [DONE]\r\n\r\n",
+	}, ""))}
+	svc := &OpenAIGatewayService{responseHeaderFilter: compileResponseHeaderFilter(rawChatCompletionsTestConfig())}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":      []string{"text/event-stream"},
+			"X-Request-Id":      []string{"req-stream"},
+			"X-Internal-Secret": []string{"must-not-pass"},
+		},
+		Body: body,
+	}
+
+	stream, err := svc.collectCCUpstreamStream(resp, time.Now().Add(-time.Second))
+	require.NoError(t, err)
+	require.Equal(t, protocolconv.ProtocolOpenAIChat, stream.ActualProtocol)
+	require.Equal(t, "req-stream", stream.RequestID)
+	require.GreaterOrEqual(t, stream.Duration, time.Second)
+	require.Equal(t, "text/event-stream", stream.Headers.Get("Content-Type"))
+	require.Empty(t, stream.Headers.Get("X-Internal-Secret"))
+
+	var chunks int
+	scan := svc.scanCCStream(stream, "test", time.Now(), func(chunk *apicompat.ChatCompletionsChunk) {
+		chunks++
+		require.Equal(t, "chatcmpl_structured", chunk.ID)
+	})
+	require.NoError(t, scan.Err)
+	require.True(t, scan.SawDone)
+	require.Equal(t, "chatcmpl_structured", scan.ResponseID)
+	require.Equal(t, "chatcmpl_structured", stream.ResponseID)
+	require.Equal(t, 7, scan.Usage.InputTokens)
+	require.Equal(t, 3, scan.Usage.OutputTokens)
+	require.Equal(t, 1, chunks)
+	require.NoError(t, stream.Close())
+	require.NoError(t, stream.Close())
+	require.Equal(t, int32(1), body.closeCount.Load())
+}
 
 func TestCollectBufferedChatCompletionsResponseReturnsStructuredActualProtocol(t *testing.T) {
 	svc := &OpenAIGatewayService{responseHeaderFilter: compileResponseHeaderFilter(rawChatCompletionsTestConfig())}
@@ -154,6 +210,38 @@ func TestForwardResponses_ForceChatCompletionsRoutesStreamingToChatCompletions(t
 	require.Equal(t, 3, result.Usage.OutputTokens)
 	require.True(t, result.Stream)
 	require.NotNil(t, result.FirstTokenMs)
+}
+
+func TestForwardResponses_ChatFallbackMalformedStreamDoesNotFinalize(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","input":"hello","stream":true}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_malformed"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"id":"chatcmpl_malformed","object":"chat.completion.chunk","model":"gpt-5.4","choices":[],"usage":{"prompt_tokens":4,"completion_tokens":1}}`,
+			"",
+			`data: {broken}`,
+			"",
+		}, "\n"))),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+
+	require.ErrorContains(t, err, "stream usage incomplete")
+	require.NotNil(t, result)
+	require.Equal(t, 4, result.Usage.InputTokens)
+	require.Equal(t, 1, result.Usage.OutputTokens)
+	require.Equal(t, "chatcmpl_malformed", result.ResponseID)
+	require.NotContains(t, rec.Body.String(), "response.completed")
+	require.NotContains(t, rec.Body.String(), "data: [DONE]")
 }
 
 func TestForwardResponses_DeepSeekReasoningOnlyStreamProducesVisibleText(t *testing.T) {
