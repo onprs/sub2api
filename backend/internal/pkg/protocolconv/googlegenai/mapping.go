@@ -1,6 +1,7 @@
 package googlegenai
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 
@@ -56,7 +57,7 @@ func partToGoogle(part ir.ContentPart, target protocolconv.Protocol, options pro
 	case ir.ContentToolCall:
 		return []partWire{{FunctionCall: &functionCallWire{ID: part.ToolCallID, Name: part.ToolName, Args: cloneRaw(part.ToolInput)}, ThoughtSignature: part.Signature}}, nil, nil
 	case ir.ContentToolResult:
-		return []partWire{{FunctionResponse: &functionResponseWire{ID: part.ToolCallID, Name: part.ToolName, Response: cloneRaw(part.ToolResult)}}}, nil, nil
+		return []partWire{{FunctionResponse: &functionResponseWire{ID: part.ToolCallID, Name: part.ToolName, Response: googleFunctionResponse(part.ToolResult)}}}, nil, nil
 	case ir.ContentRefusal:
 		return []partWire{{Text: part.Refusal}}, []protocolconv.Warning{{Code: protocolconv.WarningNormalizedField, Protocol: target, Capability: protocolconv.CapabilityRefusal, Message: "refusal normalized to text"}}, nil
 	default:
@@ -66,6 +67,18 @@ func partToGoogle(part ir.ContentPart, target protocolconv.Protocol, options pro
 		}
 		return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorUnsupportedCapability, Protocol: target, Capability: capability, Message: "content part is not supported"}
 	}
+}
+
+func googleFunctionResponse(result json.RawMessage) json.RawMessage {
+	trimmed := bytes.TrimSpace(result)
+	if len(trimmed) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	if trimmed[0] == '{' {
+		return cloneRaw(trimmed)
+	}
+	wrapped, _ := json.Marshal(map[string]json.RawMessage{"content": cloneRaw(trimmed)})
+	return wrapped
 }
 
 func isGoogleSearchTool(tool ir.ToolDefinition) bool {
