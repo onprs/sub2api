@@ -61,9 +61,11 @@ func TestCollectCCUpstreamStreamParsesBoundedRecordsAndOwnsBody(t *testing.T) {
 	require.Empty(t, stream.Headers.Get("X-Internal-Secret"))
 
 	var chunks int
-	scan := svc.scanCCStream(stream, "test", time.Now(), func(chunk *apicompat.ChatCompletionsChunk) {
+	scan := svc.scanCCStream(stream, "test", time.Now(), func(raw []byte, chunk *apicompat.ChatCompletionsChunk) error {
 		chunks++
+		require.JSONEq(t, "{\"id\":\"chatcmpl_structured\",\"object\":\"chat.completion.chunk\",\n\"model\":\"gpt-5.4\",\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}", string(raw))
 		require.Equal(t, "chatcmpl_structured", chunk.ID)
+		return nil
 	})
 	require.NoError(t, scan.Err)
 	require.True(t, scan.SawDone)
@@ -207,6 +209,65 @@ func TestForwardResponses_ChatFallbackPipelineRestoresExtendedTools(t *testing.T
 	require.Equal(t, "client", gjson.Get(rec.Body.String(), "output.1.execution").String())
 	require.Equal(t, "send", gjson.Get(rec.Body.String(), "output.2.name").String())
 	require.Equal(t, "gmail", gjson.Get(rec.Body.String(), "output.2.namespace").String())
+	require.Equal(t, 8, result.Usage.InputTokens)
+	require.Equal(t, 4, result.Usage.OutputTokens)
+}
+
+func TestForwardResponses_ChatFallbackPipelineRestoresExtendedToolsStreaming(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{
+		"model":"gpt-5.4","input":"use tools","stream":true,
+		"tools":[
+			{"type":"custom","name":"exec"},
+			{"type":"tool_search"},
+			{"type":"namespace","name":"gmail","tools":[{"type":"function","name":"send","parameters":{"type":"object"}}]}
+		]
+	}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstreamBody := strings.Join([]string{
+		`data: {"id":"chatcmpl_tools_stream","object":"chat.completion.chunk","model":"gpt-5.4","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"custom-1","type":"function","function":{"name":"exec","arguments":"{\"input\":\"dir"}},{"index":1,"id":"search-1","type":"function","function":{"name":"tool_search","arguments":"{\"query\":\"gmail\"}"}},{"index":2,"id":"ns-1","type":"function","function":{"name":"gmail__send","arguments":"{\"to\":\"a@example.com\"}"}}]},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"chatcmpl_tools_stream","object":"chat.completion.chunk","model":"gpt-5.4","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":" /b\"}"}}]},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"chatcmpl_tools_stream","object":"chat.completion.chunk","model":"gpt-5.4","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":8,"completion_tokens":4,"total_tokens":12}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_extended_tools_stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "exec", gjson.GetBytes(upstream.lastBody, "tools.0.function.name").String())
+	require.Equal(t, "tool_search", gjson.GetBytes(upstream.lastBody, "tools.1.function.name").String())
+	require.Equal(t, "gmail__send", gjson.GetBytes(upstream.lastBody, "tools.2.function.name").String())
+	wire := rec.Body.String()
+	require.Contains(t, wire, `"type":"custom_tool_call"`)
+	require.Contains(t, wire, `event: response.custom_tool_call_input.done`)
+	require.Contains(t, wire, `"input":"dir /b"`)
+	require.Contains(t, wire, `"type":"tool_search_call"`)
+	require.Contains(t, wire, `"execution":"client"`)
+	require.Contains(t, wire, `"namespace":"gmail"`)
+	require.Contains(t, wire, `"name":"send"`)
+	require.Contains(t, wire, "event: response.completed")
+	completed := responsesSSEEventData(t, wire, "response.completed")
+	require.Equal(t, "gpt-5.4", gjson.Get(completed, "response.model").String())
+	require.Equal(t, "custom_tool_call", gjson.Get(completed, "response.output.0.type").String())
+	require.Equal(t, "tool_search_call", gjson.Get(completed, "response.output.1.type").String())
+	require.Equal(t, "gmail", gjson.Get(completed, "response.output.2.namespace").String())
+	require.Contains(t, wire, "data: [DONE]")
 	require.Equal(t, 8, result.Usage.InputTokens)
 	require.Equal(t, 4, result.Usage.OutputTokens)
 }
@@ -364,6 +425,18 @@ func TestForwardResponses_AutoSupportedAccountStillUsesResponsesEndpoint(t *test
 	require.True(t, gjson.GetBytes(upstream.lastBody, "input").Exists())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "messages").Exists())
 	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+}
+
+func responsesSSEEventData(t *testing.T, wire, eventType string) string {
+	t.Helper()
+	lines := strings.Split(wire, "\n")
+	for i, line := range lines {
+		if line == "event: "+eventType && i+1 < len(lines) {
+			return strings.TrimPrefix(lines[i+1], "data: ")
+		}
+	}
+	t.Fatalf("SSE event %q not found", eventType)
+	return ""
 }
 
 func forceChatResponsesFallbackAccount() *Account {

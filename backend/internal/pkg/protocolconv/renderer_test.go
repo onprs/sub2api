@@ -16,7 +16,7 @@ func TestRendererFramesAllStandardProtocols(t *testing.T) {
 		terminal string
 	}{
 		{ProtocolOpenAIChat, `{"id":"chat-1","choices":[]}`, "data: {\"id\":\"chat-1\",\"choices\":[]}\n\n", "data: [DONE]\n\n"},
-		{ProtocolOpenAIResponses, `{"type":"response.created","response":{}}`, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{}}\n\n", ""},
+		{ProtocolOpenAIResponses, `{"type":"response.created","response":{}}`, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{}}\n\n", "data: [DONE]\n\n"},
 		{ProtocolAnthropic, `{"type":"message_start","message":{}}`, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{}}\n\n", ""},
 		{ProtocolGoogleGenAI, `{"candidates":[]}`, "data: {\"candidates\":[]}\n\n", ""},
 	}
@@ -91,4 +91,5 @@ func TestRendererWritesJSONAndSSEHeadersWithoutHopByHopHeaders(t *testing.T) {
 	require.NoError(t, renderer.WriteStreamHeaders(streamRecorder, http.StatusOK, headers))
 	require.Equal(t, "text/event-stream", streamRecorder.Header().Get("Content-Type"))
 	require.Equal(t, "no-cache", streamRecorder.Header().Get("Cache-Control"))
+	require.Equal(t, "keep-alive", streamRecorder.Header().Get("Connection"))
 }

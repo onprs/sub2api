@@ -15,6 +15,12 @@ type StreamSession struct {
 
 // NewStreamSession creates isolated source and target state.
 func (r *Registry) NewStreamSession(source, target Protocol) (*StreamSession, error) {
+	return r.NewStreamSessionWithOptions(source, target, Options{})
+}
+
+// NewStreamSessionWithOptions creates isolated stream state with immutable
+// request-scoped metadata for converters that opt into it.
+func (r *Registry) NewStreamSessionWithOptions(source, target Protocol, options Options) (*StreamSession, error) {
 	sourceConverter, err := r.Converter(source)
 	if err != nil {
 		return nil, err
@@ -24,7 +30,13 @@ func (r *Registry) NewStreamSession(source, target Protocol) (*StreamSession, er
 		return nil, err
 	}
 	decoder := sourceConverter.NewStreamDecoder()
+	if factory, ok := sourceConverter.(StreamFactoryWithOptions); ok {
+		decoder = factory.NewStreamDecoderWithOptions(options)
+	}
 	encoder := targetConverter.NewStreamEncoder()
+	if factory, ok := targetConverter.(StreamFactoryWithOptions); ok {
+		encoder = factory.NewStreamEncoderWithOptions(options)
+	}
 	if decoder == nil {
 		return nil, &Error{Code: ErrorConverterUnavailable, Protocol: source, Message: "stream decoder is not implemented"}
 	}

@@ -256,7 +256,7 @@ func (s *OpenAIGatewayService) scanCCStream(
 	stream *protocoltransport.Stream,
 	logPrefix string,
 	startTime time.Time,
-	emit func(*apicompat.ChatCompletionsChunk),
+	emit func([]byte, *apicompat.ChatCompletionsChunk) error,
 ) ccStreamScanState {
 	var st ccStreamScanState
 	if stream == nil || stream.Events == nil {
@@ -306,7 +306,10 @@ func (s *OpenAIGatewayService) scanCCStream(
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
 		}
-		emit(&chunk)
+		if err := emit(record.Data, &chunk); err != nil {
+			st.Err = err
+			break
+		}
 	}
 	return st
 }

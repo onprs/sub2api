@@ -64,6 +64,57 @@ func TestPipelineRestoresResponsesExtendedToolsAfterChatFallback(t *testing.T) {
 	require.Equal(t, "client-model", gjson.GetBytes(response.Body, "model").String())
 }
 
+func TestPipelineStreamRestoresResponsesExtendedToolsAndClientModel(t *testing.T) {
+	registry, err := NewRegistry()
+	require.NoError(t, err)
+	pipeline, err := protocolconv.NewPipeline(registry, protocolconv.PipelineConfig{Route: protocolconv.Route{
+		Source: protocolconv.ProtocolOpenAIResponses, IntendedTarget: protocolconv.ProtocolOpenAIChat,
+		ClientModel: "client-model", UpstreamModel: "upstream-model",
+	}})
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{
+		"model":"client-model","input":"use tools","stream":true,
+		"tools":[
+			{"type":"custom","name":"exec"},
+			{"type":"tool_search"},
+			{"type":"namespace","name":"gmail","tools":[{"type":"function","name":"send","parameters":{"type":"object"}}]}
+		]
+	}`))
+	require.NoError(t, err)
+	session, err := pipeline.NewStreamProcessor(protocolconv.ProtocolOpenAIChat)
+	require.NoError(t, err)
+
+	chunks := [][]byte{
+		[]byte(`{"id":"chat-stream","object":"chat.completion.chunk","model":"upstream-model","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"custom-1","type":"function","function":{"name":"exec","arguments":"{\"input\":\"dir"}},{"index":1,"id":"search-1","type":"function","function":{"name":"tool_search","arguments":"{\"query\":\"gmail\"}"}},{"index":2,"id":"ns-1","type":"function","function":{"name":"gmail__send","arguments":"{\"to\":\"a@example.com\"}"}}]},"finish_reason":null}]}`),
+		[]byte(`{"id":"chat-stream","object":"chat.completion.chunk","model":"upstream-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":" /b\"}"}}]},"finish_reason":null}]}`),
+		[]byte(`{"id":"chat-stream","object":"chat.completion.chunk","model":"upstream-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":8,"completion_tokens":4,"total_tokens":12}}`),
+	}
+	var payloads [][]byte
+	for _, chunk := range chunks {
+		converted, _, err := session.Convert(chunk)
+		require.NoError(t, err)
+		payloads = append(payloads, converted...)
+	}
+	final, _, err := session.Finalize()
+	require.NoError(t, err)
+	payloads = append(payloads, final...)
+
+	joined := make([]byte, 0)
+	for _, payload := range payloads {
+		joined = append(joined, payload...)
+		joined = append(joined, '\n')
+	}
+	wire := string(joined)
+	require.Contains(t, wire, `"model":"client-model"`)
+	require.Contains(t, wire, `"type":"custom_tool_call"`)
+	require.Contains(t, wire, `"type":"response.custom_tool_call_input.done"`)
+	require.Contains(t, wire, `"input":"dir /b"`)
+	require.Contains(t, wire, `"type":"tool_search_call"`)
+	require.Contains(t, wire, `"execution":"client"`)
+	require.Contains(t, wire, `"namespace":"gmail"`)
+	require.Contains(t, wire, `"name":"send"`)
+}
+
 func TestPipelineToolRoutesAreRequestScopedUnderConcurrency(t *testing.T) {
 	registry, err := NewRegistry()
 	require.NoError(t, err)

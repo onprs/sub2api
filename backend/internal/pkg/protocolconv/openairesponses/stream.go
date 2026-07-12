@@ -24,12 +24,34 @@ type streamEncoder struct {
 	model    string
 	response *apicompat.ResponsesResponse
 	blocks   map[int]ir.ContentType
+	items    map[int]*apicompat.ResponsesOutput
+	tools    map[int]*streamToolState
+	options  protocolconv.Options
+}
+
+type streamToolState struct {
+	kind      string
+	name      string
+	namespace string
+	callID    string
+	arguments string
 }
 
 func newStreamDecoder() *streamDecoder {
 	return &streamDecoder{blocks: map[int]ir.ContentType{}, calls: map[int]struct{ id, name string }{}}
 }
-func newStreamEncoder() *streamEncoder { return &streamEncoder{blocks: map[int]ir.ContentType{}} }
+func newStreamEncoder() *streamEncoder {
+	return newStreamEncoderWithOptions(protocolconv.Options{})
+}
+
+func newStreamEncoderWithOptions(options protocolconv.Options) *streamEncoder {
+	return &streamEncoder{
+		blocks:  map[int]ir.ContentType{},
+		items:   map[int]*apicompat.ResponsesOutput{},
+		tools:   map[int]*streamToolState{},
+		options: options,
+	}
+}
 
 func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.Warning, error) {
 	var event apicompat.ResponsesStreamEvent
@@ -135,6 +157,9 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 	case ir.EventStreamStart:
 		e.id = event.ResponseID
 		e.model = event.Model
+		if e.options.ResponseModel != "" {
+			e.model = e.options.ResponseModel
+		}
 		e.response = &apicompat.ResponsesResponse{ID: e.id, Object: "response", Model: e.model, Status: "in_progress"}
 		x := makeEvent("response.created")
 		x.Response = e.response
@@ -151,35 +176,106 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 		case ir.ContentToolCall:
 			return nil, nil, nil
 		}
+		e.items[event.BlockIndex] = item
 		x := makeEvent("response.output_item.added")
 		x.OutputIndex = event.BlockIndex
 		x.Item = item
 		events = append(events, x)
 	case ir.EventToolCallStart:
-		item := &apicompat.ResponsesOutput{Type: "function_call", ID: fmt.Sprintf("item_%d", event.BlockIndex), CallID: event.ToolCallID, Name: event.ToolName, Status: "in_progress"}
+		kind, name, namespace := event.ToolKind, event.ToolName, event.ToolNamespace
+		if route, ok := e.options.ToolRoutes[event.ToolName]; ok {
+			kind, name, namespace = route.SourceKind, route.SourceName, route.Namespace
+		}
+		if kind == "" {
+			kind = "function_call"
+		}
+		e.tools[event.BlockIndex] = &streamToolState{kind: kind, name: name, namespace: namespace, callID: event.ToolCallID}
+		item := &apicompat.ResponsesOutput{Type: kind, ID: fmt.Sprintf("item_%d", event.BlockIndex), CallID: event.ToolCallID, Name: name, Namespace: namespace, Status: "in_progress"}
+		e.items[event.BlockIndex] = item
 		x := makeEvent("response.output_item.added")
 		x.OutputIndex = event.BlockIndex
 		x.Item = item
 		events = append(events, x)
 	case ir.EventTextDelta:
+		if item := e.items[event.BlockIndex]; item != nil {
+			if len(item.Content) == 0 {
+				item.Content = []apicompat.ResponsesContentPart{{Type: "output_text"}}
+			}
+			item.Content[0].Text += event.Text
+		}
 		x := makeEvent("response.output_text.delta")
 		x.OutputIndex = event.BlockIndex
 		x.Delta = event.Text
 		events = append(events, x)
 	case ir.EventReasoningDelta:
+		if item := e.items[event.BlockIndex]; item != nil {
+			if len(item.Summary) == 0 {
+				item.Summary = []apicompat.ResponsesSummary{{Type: "summary_text"}}
+			}
+			item.Summary[0].Text += event.Reasoning
+		}
 		x := makeEvent("response.reasoning_summary_text.delta")
 		x.OutputIndex = event.BlockIndex
 		x.Delta = event.Reasoning
 		events = append(events, x)
 	case ir.EventToolCallDelta:
-		x := makeEvent("response.function_call_arguments.delta")
-		x.OutputIndex = event.BlockIndex
-		x.CallID = event.ToolCallID
-		x.Delta = event.ArgumentsDelta
-		events = append(events, x)
+		tool := e.tools[event.BlockIndex]
+		if tool != nil {
+			tool.arguments += event.ArgumentsDelta
+		}
+		if tool == nil || tool.kind == "function_call" {
+			x := makeEvent("response.function_call_arguments.delta")
+			x.OutputIndex = event.BlockIndex
+			x.CallID = event.ToolCallID
+			x.Delta = event.ArgumentsDelta
+			events = append(events, x)
+		}
+	case ir.EventToolCallEnd:
+		tool := e.tools[event.BlockIndex]
+		if tool == nil {
+			break
+		}
+		switch tool.kind {
+		case "function_call":
+			done := makeEvent("response.function_call_arguments.done")
+			done.OutputIndex = event.BlockIndex
+			done.CallID = tool.callID
+			done.Name = tool.name
+			done.Arguments = tool.arguments
+			events = append(events, done)
+		case "custom_tool_call":
+			input := customToolStreamInput(tool.arguments)
+			if input != "" {
+				delta := makeEvent("response.custom_tool_call_input.delta")
+				delta.OutputIndex = event.BlockIndex
+				delta.CallID = tool.callID
+				delta.Name = tool.name
+				delta.Delta = input
+				events = append(events, delta)
+			}
+			done := makeEvent("response.custom_tool_call_input.done")
+			done.OutputIndex = event.BlockIndex
+			done.CallID = tool.callID
+			done.Name = tool.name
+			done.Input = input
+			events = append(events, done)
+		}
 	case ir.EventContentBlockEnd:
 		x := makeEvent("response.output_item.done")
 		x.OutputIndex = event.BlockIndex
+		item := e.items[event.BlockIndex]
+		if tool := e.tools[event.BlockIndex]; tool != nil {
+			item = completedStreamToolItem(event.BlockIndex, tool)
+			delete(e.tools, event.BlockIndex)
+		} else if item != nil {
+			item.Status = "completed"
+		}
+		x.Item = item
+		if item != nil && e.response != nil {
+			e.response.Output = append(e.response.Output, *item)
+		}
+		delete(e.items, event.BlockIndex)
+		delete(e.blocks, event.BlockIndex)
 		events = append(events, x)
 	case ir.EventFinish:
 		if e.response == nil {
@@ -222,6 +318,34 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 }
 func (e *streamEncoder) Finalize() ([][]byte, []protocolconv.Warning, error) { return nil, nil, nil }
 
+func customToolStreamInput(arguments string) string {
+	var value struct {
+		Input *string `json:"input"`
+	}
+	if json.Unmarshal([]byte(arguments), &value) == nil && value.Input != nil {
+		return *value.Input
+	}
+	return arguments
+}
+
+func completedStreamToolItem(index int, tool *streamToolState) *apicompat.ResponsesOutput {
+	item := &apicompat.ResponsesOutput{
+		Type:      tool.kind,
+		ID:        fmt.Sprintf("item_%d", index),
+		CallID:    tool.callID,
+		Name:      tool.name,
+		Namespace: tool.namespace,
+		Status:    "completed",
+	}
+	switch tool.kind {
+	case "custom_tool_call":
+		item.Input = customToolStreamInput(tool.arguments)
+	default:
+		item.Arguments = tool.arguments
+	}
+	return item
+}
+
 // NewStreamDecoder creates isolated Responses source state for adapters.
 func NewStreamDecoder() protocolconv.StreamDecoder { return newStreamDecoder() }
 
@@ -230,3 +354,9 @@ func NewStreamEncoder() protocolconv.StreamEncoder { return newStreamEncoder() }
 
 func (*Converter) NewStreamDecoder() protocolconv.StreamDecoder { return NewStreamDecoder() }
 func (*Converter) NewStreamEncoder() protocolconv.StreamEncoder { return NewStreamEncoder() }
+func (*Converter) NewStreamDecoderWithOptions(protocolconv.Options) protocolconv.StreamDecoder {
+	return NewStreamDecoder()
+}
+func (*Converter) NewStreamEncoderWithOptions(options protocolconv.Options) protocolconv.StreamEncoder {
+	return newStreamEncoderWithOptions(options)
+}

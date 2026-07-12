@@ -177,7 +177,7 @@ func (p *Pipeline) NewStreamProcessor(actualUpstream Protocol) (*StreamSession, 
 	if err := actualUpstream.Validate(); err != nil {
 		return nil, err
 	}
-	return p.registry.NewStreamSession(actualUpstream, p.config.Route.Source)
+	return p.registry.NewStreamSessionWithOptions(actualUpstream, p.config.Route.Source, p.options())
 }
 
 // Warnings returns a snapshot of warnings accumulated across completed phases.
@@ -194,6 +194,9 @@ func (p *Pipeline) options() Options {
 	options := p.config.Options
 	if options.SourceModel == "" {
 		options.SourceModel = p.config.Route.UpstreamModel
+	}
+	if options.ResponseModel == "" {
+		options.ResponseModel = p.config.Route.ClientModel
 	}
 	p.mu.Lock()
 	options.ToolRoutes = cloneToolRoutes(p.toolRoutes)

@@ -59,6 +59,7 @@ func (r *Renderer) WriteStreamHeaders(w http.ResponseWriter, status int, headers
 	copyResponseHeaders(w.Header(), headers)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(normalizeHTTPStatus(status))
 	return nil
@@ -96,10 +97,11 @@ func (r *Renderer) FrameStreamEvent(body []byte) ([]byte, error) {
 	}
 }
 
-// StreamTerminal returns the source-protocol terminal sentinel. Only OpenAI
-// Chat Completions defines a separate [DONE] frame.
+// StreamTerminal returns the source-protocol terminal sentinel. OpenAI Chat
+// Completions and Responses use a separate [DONE] frame after their JSON
+// lifecycle events.
 func (r *Renderer) StreamTerminal() []byte {
-	if r != nil && r.protocol == ProtocolOpenAIChat {
+	if r != nil && (r.protocol == ProtocolOpenAIChat || r.protocol == ProtocolOpenAIResponses) {
 		return []byte("data: [DONE]\n\n")
 	}
 	return nil

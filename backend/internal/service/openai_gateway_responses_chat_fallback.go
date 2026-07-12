@@ -41,14 +41,6 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 
 	clientStream := responsesReq.Stream
 	serviceTier := extractOpenAIServiceTierFromBody(body)
-	// custom 工具（如 codex 的 exec）降级为 function 工具转发，回程需按名字还原为
-	// custom_tool_call 项，先记下名字集合；tool_search 工具同理，回程还原为
-	// tool_search_call 项；namespace 子工具（如 MCP 工具）摊平转发，回程按映射还原
-	// 为带 namespace 字段的 function_call 项。
-	customTools := apicompat.CustomToolNames(responsesReq.Tools)
-	toolSearch := apicompat.HasToolSearchTool(responsesReq.Tools)
-	namespaceTools := apicompat.NamespaceToolNames(responsesReq.Tools)
-
 	billingModel := resolveOpenAIForwardModel(account, originalModel, "")
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
 	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
@@ -125,7 +117,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	}
 
 	if clientStream {
-		return s.streamChatCompletionsAsResponses(c, resp, originalModel, customTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		return s.streamChatCompletionsAsResponses(c, resp, pipeline, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	return s.bufferChatCompletionsAsResponses(c, resp, pipeline, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
@@ -229,10 +221,8 @@ func (s *OpenAIGatewayService) collectBufferedChatCompletionsResponse(
 func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	c *gin.Context,
 	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
-	customTools map[string]bool,
-	toolSearch bool,
-	namespaceTools map[string]apicompat.NamespacedToolName,
 	billingModel string,
 	upstreamModel string,
 	reasoningEffort *string,
@@ -245,75 +235,53 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	}
 	defer func() { _ = stream.Close() }()
 	requestID := stream.RequestID
-	writeStreamHeaders := s.newStreamHeaderWriter(c, stream.Headers)
+	session, err := pipeline.NewStreamProcessor(stream.ActualProtocol)
+	if err != nil {
+		return nil, fmt.Errorf("create responses fallback stream processor: %w", err)
+	}
+	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolOpenAIResponses)
+	if err != nil {
+		return nil, err
+	}
 
-	state := apicompat.NewChatCompletionsToResponsesStreamState(originalModel)
-	state.CustomTools = customTools
-	state.ToolSearchDeclared = toolSearch
-	state.NamespaceTools = namespaceTools
+	headersWritten := false
 	clientDisconnected := false
-
-	writeEvents := func(events []apicompat.ResponsesStreamEvent) {
-		if clientDisconnected || len(events) == 0 {
-			return
+	writePayloads := func(payloads [][]byte) error {
+		if clientDisconnected || len(payloads) == 0 {
+			return nil
 		}
-		writeStreamHeaders()
-		for _, event := range events {
-			sse, err := apicompat.ResponsesEventToSSE(event)
-			if err != nil {
-				logger.L().Warn("openai responses chat fallback: failed to marshal stream event",
-					zap.Error(err),
-					zap.String("request_id", requestID),
-				)
-				continue
+		if !headersWritten {
+			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
+				return err
 			}
-			if _, err := fmt.Fprint(c.Writer, sse); err != nil {
+			headersWritten = true
+		}
+		for _, payload := range payloads {
+			framed, err := renderer.FrameStreamEvent(payload)
+			if err != nil {
+				return err
+			}
+			if _, err := c.Writer.Write(framed); err != nil {
 				clientDisconnected = true
 				logger.L().Debug("openai responses chat fallback: client disconnected, continuing to drain upstream for billing",
 					zap.Error(err),
 					zap.String("request_id", requestID),
 				)
-				return
+				return nil
 			}
 		}
 		c.Writer.Flush()
+		return nil
 	}
 
-	scan := s.scanCCStream(stream, "openai responses chat fallback", startTime, func(chunk *apicompat.ChatCompletionsChunk) {
-		writeEvents(apicompat.ChatCompletionsChunkToResponsesEvents(chunk, state))
+	scan := s.scanCCStream(stream, "openai responses chat fallback", startTime, func(raw []byte, _ *apicompat.ChatCompletionsChunk) error {
+		payloads, _, err := session.Convert(raw)
+		if err != nil {
+			return fmt.Errorf("convert Chat Completions stream event: %w", err)
+		}
+		return writePayloads(payloads)
 	})
-
-	if scan.Err != nil {
-		return &OpenAIForwardResult{
-			RequestID:       requestID,
-			ResponseID:      scan.ResponseID,
-			Usage:           scan.Usage,
-			Model:           originalModel,
-			BillingModel:    billingModel,
-			UpstreamModel:   upstreamModel,
-			ReasoningEffort: reasoningEffort,
-			ServiceTier:     serviceTier,
-			Stream:          true,
-			Duration:        time.Since(startTime),
-			FirstTokenMs:    scan.FirstTokenMs,
-		}, fmt.Errorf("stream usage incomplete: %w", scan.Err)
-	}
-
-	writeEvents(apicompat.FinalizeChatCompletionsResponsesStream(state))
-	if !clientDisconnected {
-		writeStreamHeaders()
-		if _, err := fmt.Fprint(c.Writer, "data: [DONE]\n\n"); err != nil {
-			clientDisconnected = true
-		}
-		if !clientDisconnected {
-			c.Writer.Flush()
-		}
-	}
-	if !scan.SawDone {
-		logCCStreamMissingDoneSentinel("openai responses chat fallback", requestID)
-	}
-
-	return &OpenAIForwardResult{
+	result := &OpenAIForwardResult{
 		RequestID:       requestID,
 		ResponseID:      scan.ResponseID,
 		Usage:           scan.Usage,
@@ -325,7 +293,38 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		Stream:          true,
 		Duration:        time.Since(startTime),
 		FirstTokenMs:    scan.FirstTokenMs,
-	}, nil
+	}
+	if scan.Err != nil {
+		return result, fmt.Errorf("stream usage incomplete: %w", scan.Err)
+	}
+
+	finalPayloads, _, err := session.Finalize()
+	if err != nil {
+		return result, fmt.Errorf("finalize responses fallback stream: %w", err)
+	}
+	if err := writePayloads(finalPayloads); err != nil {
+		return result, fmt.Errorf("render responses fallback stream: %w", err)
+	}
+	if !clientDisconnected {
+		if !headersWritten {
+			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
+				return result, err
+			}
+			headersWritten = true
+		}
+		if terminal := renderer.StreamTerminal(); len(terminal) > 0 {
+			if _, err := c.Writer.Write(terminal); err != nil {
+				clientDisconnected = true
+			}
+		}
+		if !clientDisconnected {
+			c.Writer.Flush()
+		}
+	}
+	if !scan.SawDone {
+		logCCStreamMissingDoneSentinel("openai responses chat fallback", requestID)
+	}
+	return result, nil
 }
 
 func chatChunkStartsResponsesOutput(chunk *apicompat.ChatCompletionsChunk) bool {
