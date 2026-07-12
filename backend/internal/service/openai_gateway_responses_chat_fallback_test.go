@@ -163,6 +163,54 @@ func TestForwardResponses_ForceChatCompletionsRoutesNonStreamingToChatCompletion
 	require.False(t, result.Stream)
 }
 
+func TestForwardResponses_ChatFallbackPipelineRestoresExtendedTools(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{
+		"model":"gpt-5.4","input":"use tools","stream":false,
+		"tools":[
+			{"type":"custom","name":"exec"},
+			{"type":"tool_search"},
+			{"type":"namespace","name":"gmail","tools":[{"type":"function","name":"send","parameters":{"type":"object"}}]}
+		]
+	}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_extended_tools"}},
+		Body: io.NopCloser(strings.NewReader(`{
+			"id":"chatcmpl_extended","object":"chat.completion","model":"gpt-5.4",
+			"choices":[{"index":0,"message":{"role":"assistant","tool_calls":[
+				{"id":"custom-1","type":"function","function":{"name":"exec","arguments":"{\"input\":\"dir /b\"}"}},
+				{"id":"search-1","type":"function","function":{"name":"tool_search","arguments":"{\"query\":\"gmail\"}"}},
+				{"id":"ns-1","type":"function","function":{"name":"gmail__send","arguments":"{\"to\":\"a@example.com\"}"}}
+			]},"finish_reason":"tool_calls"}],
+			"usage":{"prompt_tokens":8,"completion_tokens":4,"total_tokens":12}
+		}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "exec", gjson.GetBytes(upstream.lastBody, "tools.0.function.name").String())
+	require.Equal(t, "tool_search", gjson.GetBytes(upstream.lastBody, "tools.1.function.name").String())
+	require.Equal(t, "gmail__send", gjson.GetBytes(upstream.lastBody, "tools.2.function.name").String())
+	require.Equal(t, "custom_tool_call", gjson.Get(rec.Body.String(), "output.0.type").String())
+	require.Equal(t, "dir /b", gjson.Get(rec.Body.String(), "output.0.input").String())
+	require.Equal(t, "tool_search_call", gjson.Get(rec.Body.String(), "output.1.type").String())
+	require.Equal(t, "client", gjson.Get(rec.Body.String(), "output.1.execution").String())
+	require.Equal(t, "send", gjson.Get(rec.Body.String(), "output.2.name").String())
+	require.Equal(t, "gmail", gjson.Get(rec.Body.String(), "output.2.namespace").String())
+	require.Equal(t, 8, result.Usage.InputTokens)
+	require.Equal(t, 4, result.Usage.OutputTokens)
+}
+
 func TestForwardResponses_ForceChatCompletionsRoutesStreamingToChatCompletions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -105,6 +105,7 @@ type ToolDefinition struct {
 // ToolChoice normalizes provider-specific tool selection controls.
 type ToolChoice struct {
 	Mode string
+	Kind string
 	Name string
 }
 

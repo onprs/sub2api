@@ -253,6 +253,7 @@ func (c *Converter) EncodeResponse(response *ir.Response, options protocolconv.O
 			case ir.ContentReasoning:
 				wire.Output = append(wire.Output, apicompat.ResponsesOutput{Type: "reasoning", Status: part.Status, EncryptedContent: part.Signature, Summary: []apicompat.ResponsesSummary{{Type: "summary_text", Text: part.Reasoning}}})
 			case ir.ContentToolCall:
+				part = restoreResponseToolRoute(part, options.ToolRoutes)
 				wire.Output = append(wire.Output, encodeResponseToolCall(part))
 			case ir.ContentRefusal:
 				wire.Output = append(wire.Output, apicompat.ResponsesOutput{Type: "message", Role: "assistant", Status: "completed", Content: []apicompat.ResponsesContentPart{{Type: "refusal", Text: part.Refusal}}})
@@ -333,6 +334,37 @@ func decodeToolArguments(kind string, arguments json.RawMessage, input string) j
 		return append(json.RawMessage(nil), arguments...)
 	}
 	return json.RawMessage(`{}`)
+}
+
+func restoreResponseToolRoute(part ir.ContentPart, routes map[string]protocolconv.ToolRoute) ir.ContentPart {
+	route, ok := routes[part.ToolName]
+	if !ok {
+		return part
+	}
+	part.ToolKind = route.SourceKind
+	part.ToolName = route.SourceName
+	part.ToolNamespace = route.Namespace
+	if route.SourceKind == "custom_tool_call" {
+		part.ToolInput = restoreCustomToolInput(part.ToolInput)
+	}
+	return part
+}
+
+func restoreCustomToolInput(arguments json.RawMessage) json.RawMessage {
+	var value struct {
+		Input *string `json:"input"`
+	}
+	if json.Unmarshal(arguments, &value) == nil && value.Input != nil {
+		body, _ := json.Marshal(*value.Input)
+		return body
+	}
+	var text string
+	if json.Unmarshal(arguments, &text) == nil {
+		body, _ := json.Marshal(text)
+		return body
+	}
+	body, _ := json.Marshal(string(arguments))
+	return body
 }
 
 func encodeResponseToolCall(part ir.ContentPart) apicompat.ResponsesOutput {

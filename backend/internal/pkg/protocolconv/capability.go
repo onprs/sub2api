@@ -58,6 +58,9 @@ type Options struct {
 	// SourceModel supplies model metadata carried outside the JSON body, as in
 	// Google GenAI model-action URLs. It is never inferred by the converter.
 	SourceModel string
+	// ToolRoutes is immutable request-scoped metadata populated by Pipeline
+	// after request conversion. Direct registry callers normally leave it nil.
+	ToolRoutes map[string]ToolRoute
 }
 
 func checkCapability(protocol Protocol, capabilities CapabilitySet, capability Capability, path string, options Options) ([]Warning, error) {

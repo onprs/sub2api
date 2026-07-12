@@ -1,6 +1,10 @@
 package protocolconv
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/ir"
+)
 
 // PipelineConfig defines one request's explicit protocol route. Provider and
 // transport policy stay outside this package.
@@ -40,6 +44,7 @@ type Pipeline struct {
 	mu               sync.Mutex
 	requestAttempted bool
 	requestConverted bool
+	toolRoutes       map[string]ToolRoute
 	warnings         []Warning
 }
 
@@ -78,12 +83,32 @@ func (p *Pipeline) ConvertRequest(body []byte) (ConvertedRequest, error) {
 	p.mu.Unlock()
 
 	options := p.options()
-	converted, warnings, err := p.registry.ConvertRequest(body, p.config.Route.Source, p.config.Route.IntendedTarget, options)
+	var converted []byte
+	var warnings []Warning
+	var routes map[string]ToolRoute
+	var err error
+	if p.config.Route.Source == p.config.Route.IntendedTarget {
+		converted, warnings, err = identityJSON(body, p.config.Route.Source, "request")
+	} else {
+		var request *ir.Request
+		var decodeWarnings []Warning
+		request, decodeWarnings, err = p.registry.DecodeRequest(body, p.config.Route.Source, options)
+		warnings = append(warnings, decodeWarnings...)
+		if err == nil {
+			routes, err = buildToolRoutes(request, p.config.Route.Source, p.config.Route.IntendedTarget)
+		}
+		if err == nil {
+			var encodeWarnings []Warning
+			converted, encodeWarnings, err = p.registry.EncodeRequest(request, p.config.Route.IntendedTarget, options)
+			warnings = append(warnings, encodeWarnings...)
+		}
+	}
 
 	p.mu.Lock()
 	p.warnings = append(p.warnings, warnings...)
 	if err == nil {
 		p.requestConverted = true
+		p.toolRoutes = cloneToolRoutes(routes)
 	}
 	p.mu.Unlock()
 	if err != nil {
@@ -170,6 +195,9 @@ func (p *Pipeline) options() Options {
 	if options.SourceModel == "" {
 		options.SourceModel = p.config.Route.UpstreamModel
 	}
+	p.mu.Lock()
+	options.ToolRoutes = cloneToolRoutes(p.toolRoutes)
+	p.mu.Unlock()
 	return options
 }
 

@@ -299,11 +299,18 @@ func decodeToolChoice(raw json.RawMessage) *ir.ToolChoice {
 		return &ir.ToolChoice{Mode: mode}
 	}
 	var value struct {
-		Type string `json:"type"`
-		Name string `json:"name"`
+		Type     string `json:"type"`
+		Name     string `json:"name"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
 	}
 	if json.Unmarshal(raw, &value) == nil {
-		return &ir.ToolChoice{Mode: "tool", Name: value.Name}
+		name := value.Name
+		if name == "" {
+			name = value.Function.Name
+		}
+		return &ir.ToolChoice{Mode: "tool", Kind: value.Type, Name: name}
 	}
 	return nil
 }
@@ -313,7 +320,15 @@ func encodeToolChoice(choice *ir.ToolChoice) json.RawMessage {
 		return nil
 	}
 	if choice.Mode == "tool" {
-		body, _ := json.Marshal(map[string]any{"type": "function", "name": choice.Name})
+		kind := choice.Kind
+		if kind == "" {
+			kind = "function"
+		}
+		value := map[string]any{"type": kind}
+		if choice.Name != "" {
+			value["name"] = choice.Name
+		}
+		body, _ := json.Marshal(value)
 		return body
 	}
 	body, _ := json.Marshal(choice.Mode)

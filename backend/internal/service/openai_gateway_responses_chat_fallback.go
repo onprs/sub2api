@@ -49,14 +49,31 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	toolSearch := apicompat.HasToolSearchTool(responsesReq.Tools)
 	namespaceTools := apicompat.NamespaceToolNames(responsesReq.Tools)
 
-	chatReq, err := apicompat.ResponsesToChatCompletionsRequest(&responsesReq)
+	billingModel := resolveOpenAIForwardModel(account, originalModel, "")
+	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+		Route: protocolconv.Route{
+			Source:         protocolconv.ProtocolOpenAIResponses,
+			IntendedTarget: protocolconv.ProtocolOpenAIChat,
+			ClientModel:    originalModel,
+			UpstreamModel:  upstreamModel,
+			Provider:       account.Platform,
+			AccountID:      account.ID,
+		},
+		Options: protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossError},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create responses chat fallback pipeline: %w", err)
+	}
+	convertedRequest, err := pipeline.ConvertRequest(body)
 	if err != nil {
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("convert responses to chat completions: %w", err)
 	}
-
-	billingModel := resolveOpenAIForwardModel(account, originalModel, "")
-	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	var chatReq apicompat.ChatCompletionsRequest
+	if err := json.Unmarshal(convertedRequest.Body, &chatReq); err != nil {
+		return nil, fmt.Errorf("decode converted chat completions request: %w", err)
+	}
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
 	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 billingModel 算出之后。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
@@ -111,23 +128,21 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		return s.streamChatCompletionsAsResponses(c, resp, originalModel, customTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	return s.bufferChatCompletionsAsResponses(c, resp, originalModel, customTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+	return s.bufferChatCompletionsAsResponses(c, resp, pipeline, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 }
 
 func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	c *gin.Context,
 	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
-	customTools map[string]bool,
-	toolSearch bool,
-	namespaceTools map[string]apicompat.NamespacedToolName,
 	billingModel string,
 	upstreamModel string,
 	reasoningEffort *string,
 	serviceTier *string,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
-	ccResp, usage, upstreamBody, err := s.readCCUpstreamJSONResult(c, resp, writeOpenAIResponsesFallbackError)
+	_, usage, upstreamBody, err := s.readCCUpstreamJSONResult(c, resp, writeOpenAIResponsesFallbackError)
 	if err != nil {
 		return nil, err
 	}
@@ -148,12 +163,12 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 		writeOpenAIResponsesFallbackError(c, http.StatusBadGateway, "api_error", "Failed to collect upstream response")
 		return nil, err
 	}
-	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, originalModel, customTools, toolSearch, namespaceTools)
-	downstreamBody, err := json.Marshal(responsesResp)
+	convertedResponse, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
 	if err != nil {
 		writeOpenAIResponsesFallbackError(c, http.StatusBadGateway, "api_error", "Failed to convert upstream response")
-		return nil, fmt.Errorf("marshal responses fallback response: %w", err)
+		return nil, fmt.Errorf("convert responses fallback response: %w", err)
 	}
+	downstreamBody := convertedResponse.Body
 	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolOpenAIResponses)
 	if err != nil {
 		return nil, err
