@@ -132,6 +132,139 @@ func TestPrepareOpenAICompatBufferedResponseBodyPreservesRawAndSupplementsTermin
 	require.True(t, gjson.GetBytes(body, "vendor_extension.opaque").Bool())
 }
 
+func newAnthropicResponsesStreamPipelineForTest(t *testing.T) *protocolconv.Pipeline {
+	t.Helper()
+	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+		Route: protocolconv.Route{
+			Source: protocolconv.ProtocolAnthropic, IntendedTarget: protocolconv.ProtocolOpenAIResponses,
+			ClientModel: "client-model", UpstreamModel: "upstream-model", Provider: PlatformOpenAI, AccountID: 71,
+		},
+		Options: protocolconv.Options{SourceModel: "upstream-model", LossPolicy: protocolconv.LossError},
+	})
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{"model":"client-model","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	return pipeline
+}
+
+func TestHandleAnthropicStreamingResponseStructuredMultilineRecord(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"X-Request-Id": []string{"rid_multiline"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			"event: response.created",
+			`data: {"response":{"id":"resp_multiline","model":"upstream-model",`,
+			`data: "status":"in_progress","output":[]}}`,
+			"",
+			"event: response.output_text.delta",
+			`data: {"delta":"hello"}`,
+			"",
+			"event: response.completed",
+			`data: {"response":{"id":"resp_multiline","model":"upstream-model","status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":1}}}`,
+			"",
+		}, "\n"))),
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 2048}}}
+
+	result, err := svc.handleAnthropicStreamingResponse(
+		resp, c, &Account{ID: 71, Platform: PlatformOpenAI}, newAnthropicResponsesStreamPipelineForTest(t),
+		"client-model", "upstream-model", "upstream-model", time.Now(),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "resp_multiline", result.ResponseID)
+	require.Equal(t, 3, result.Usage.InputTokens)
+	require.Equal(t, 1, result.Usage.OutputTokens)
+	require.Contains(t, recorder.Body.String(), "event: message_start")
+	require.Contains(t, recorder.Body.String(), "hello")
+	require.Contains(t, recorder.Body.String(), "event: message_stop")
+	require.Equal(t, "rid_multiline", recorder.Header().Get("X-Request-Id"))
+}
+
+func TestHandleAnthropicStreamingResponseKeepaliveDoesNotSplitPartialRecord(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	reader, writer := io.Pipe()
+	resp := &http.Response{StatusCode: http.StatusOK, Body: reader}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		MaxLineSize: 2048, StreamKeepaliveInterval: 1,
+	}}}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = io.WriteString(writer, `data: {"type":"response.created","response":{"id":"resp_partial",`+"\n")
+		time.Sleep(1200 * time.Millisecond)
+		_, _ = io.WriteString(writer, `data: "model":"upstream-model","status":"in_progress","output":[]}}`+"\n\n")
+		_, _ = io.WriteString(writer, `data: {"type":"response.output_text.delta","delta":"ok"}`+"\n\n")
+		_, _ = io.WriteString(writer, `data: {"type":"response.completed","response":{"id":"resp_partial","status":"completed","output":[],"usage":{"input_tokens":2,"output_tokens":1}}}`+"\n\n")
+		_ = writer.Close()
+	}()
+
+	result, err := svc.handleAnthropicStreamingResponse(
+		resp, c, &Account{ID: 71, Platform: PlatformOpenAI}, newAnthropicResponsesStreamPipelineForTest(t),
+		"client-model", "upstream-model", "upstream-model", time.Now(),
+	)
+	<-done
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotContains(t, recorder.Body.String(), "event: ping")
+	require.Contains(t, recorder.Body.String(), "event: message_stop")
+}
+
+func TestHandleAnthropicStreamingResponseTimeoutClosesBlockedBody(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	body := newBufferedTerminalBlockingReadCloser()
+	resp := &http.Response{StatusCode: http.StatusOK, Body: body}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		MaxLineSize: 1024, StreamDataIntervalTimeout: 1,
+	}}}
+
+	result, err := svc.handleAnthropicStreamingResponse(
+		resp, c, &Account{ID: 71, Platform: PlatformOpenAI}, newAnthropicResponsesStreamPipelineForTest(t),
+		"client-model", "upstream-model", "upstream-model", time.Now(),
+	)
+
+	require.ErrorContains(t, err, "stream data interval timeout")
+	require.NotNil(t, result)
+	require.Eventually(t, body.closed.Load, time.Second, time.Millisecond)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, recorder.Body.String())
+}
+
+func TestHandleAnthropicStreamingResponseRejectsMalformedBeforeCommit(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader("event: response.created\ndata: {broken}\n\n")),
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 1024}}}
+
+	result, err := svc.handleAnthropicStreamingResponse(
+		resp, c, &Account{ID: 71, Platform: PlatformOpenAI}, newAnthropicResponsesStreamPipelineForTest(t),
+		"client-model", "upstream-model", "upstream-model", time.Now(),
+	)
+
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Contains(t, string(failoverErr.ResponseBody), "upstream connection error")
+	require.NotContains(t, string(failoverErr.ResponseBody), "{broken}")
+	require.NotNil(t, result)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, recorder.Body.String())
+}
+
 func TestForwardAsAnthropic_ResponsesStreamUsesRequestPipeline(t *testing.T) {
 	body := []byte(`{"model":"client-model","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"lookup"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`)
 	upstreamBody := strings.Join([]string{
