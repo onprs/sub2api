@@ -148,7 +148,7 @@ func TestHandleNativeResponsesStreamingResponseFinalizesAfterTerminalReadError(t
 	}
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 1024}}}
 
-	result, err := svc.handleNativeResponsesStreamingResponse(context.Background(), resp, c, &Account{ID: 42, Platform: PlatformOpenAI}, time.Now(), output)
+	result, err := svc.handleStructuredResponsesPassthroughStream(context.Background(), resp, c, &Account{ID: 42, Platform: PlatformOpenAI}, time.Now(), output)
 
 	require.NoError(t, err)
 	require.Equal(t, "resp_terminal", result.responseID)
@@ -188,7 +188,7 @@ func TestHandleNativeResponsesStreamingResponseParsesMultilineRecords(t *testing
 	}
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 1024}}}
 
-	result, err := svc.handleNativeResponsesStreamingResponse(context.Background(), resp, c, &Account{ID: 42, Platform: PlatformOpenAI}, time.Now(), output)
+	result, err := svc.handleStructuredResponsesPassthroughStream(context.Background(), resp, c, &Account{ID: 42, Platform: PlatformOpenAI}, time.Now(), output)
 
 	require.NoError(t, err)
 	require.Equal(t, "resp_multiline", result.responseID)
@@ -213,7 +213,7 @@ func TestHandleNativeResponsesStreamingResponseRejectsMalformedRecordBeforeCommi
 	}
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 1024}}}
 
-	_, err = svc.handleNativeResponsesStreamingResponse(context.Background(), resp, c, &Account{ID: 42, Platform: PlatformOpenAI}, time.Now(), output)
+	_, err = svc.handleStructuredResponsesPassthroughStream(context.Background(), resp, c, &Account{ID: 42, Platform: PlatformOpenAI}, time.Now(), output)
 
 	require.Error(t, err)
 	var failoverErr *UpstreamFailoverError
@@ -238,7 +238,7 @@ func TestHandleNativeResponsesStreamingResponseRejectsOversizedRecordBeforeCommi
 	}
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 64}}}
 
-	_, err = svc.handleNativeResponsesStreamingResponse(context.Background(), resp, c, &Account{ID: 42, Platform: PlatformOpenAI}, time.Now(), output)
+	_, err = svc.handleStructuredResponsesPassthroughStream(context.Background(), resp, c, &Account{ID: 42, Platform: PlatformOpenAI}, time.Now(), output)
 
 	require.Error(t, err)
 	var failoverErr *UpstreamFailoverError

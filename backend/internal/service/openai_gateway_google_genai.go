@@ -159,9 +159,6 @@ func (o *googleGenAIProtocolOutput) WriteStreamHeaders(status int, headers http.
 }
 
 func (o *googleGenAIProtocolOutput) WriteStreamEvent(actual protocolconv.Protocol, payload []byte) error {
-	if o.clientDisconnected {
-		return nil
-	}
 	if o.session == nil {
 		return errors.New("stream event received before structured stream initialization")
 	}
@@ -171,6 +168,9 @@ func (o *googleGenAIProtocolOutput) WriteStreamEvent(actual protocolconv.Protoco
 	payloads, _, err := o.session.Convert(payload)
 	if err != nil {
 		return err
+	}
+	if o.clientDisconnected {
+		return nil
 	}
 	for _, converted := range payloads {
 		if err := o.ensureStreamHeaders(); err != nil {

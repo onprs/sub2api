@@ -209,7 +209,12 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		// unschedule the account on durable faults (e.g. rejected proxy credentials).
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	responseBodyOwned := true
+	defer func() {
+		if responseBodyOwned {
+			_ = resp.Body.Close()
+		}
+	}()
 
 	if resp.StatusCode >= 400 {
 		// Passthrough keeps ordinary errors intact. Capacity errors and explicit
@@ -230,6 +235,9 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	imageCount := 0
 	var imageOutputSizes []string
 	if reqStream {
+		if output != nil {
+			responseBodyOwned = false
+		}
 		result, err := s.handleStreamingResponsePassthroughWithOutput(ctx, resp, c, account, startTime, reqModel, upstreamPassthroughModel, output)
 		if err != nil {
 			return nil, err
@@ -878,27 +886,18 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithOutput(
 	mappedModel string,
 	output openAIProtocolOutput,
 ) (*openaiStreamingResultPassthrough, error) {
-	if nativeOutput, ok := output.(*nativeResponsesProtocolOutput); ok {
-		return s.handleNativeResponsesStreamingResponse(ctx, resp, c, account, startTime, nativeOutput)
-	}
 	if output != nil {
-		filteredHeaders := responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
-		if err := output.WriteStreamHeaders(resp.StatusCode, filteredHeaders, protocolconv.ProtocolOpenAIResponses); err != nil {
-			return nil, err
-		}
-	} else {
-		writeOpenAIPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+		return s.handleStructuredResponsesPassthroughStream(ctx, resp, c, account, startTime, output)
 	}
+	writeOpenAIPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 
-	// Native Responses SSE headers.
-	if output == nil {
-		c.Header("Content-Type", "text/event-stream")
-		c.Header("Cache-Control", "no-cache")
-		c.Header("Connection", "keep-alive")
-		c.Header("X-Accel-Buffering", "no")
-		if v := resp.Header.Get("x-request-id"); v != "" {
-			c.Header("x-request-id", v)
-		}
+	// Compact Responses passthrough retains its specialized native SSE bridge.
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	if v := resp.Header.Get("x-request-id"); v != "" {
+		c.Header("x-request-id", v)
 	}
 
 	w := c.Writer

@@ -12,6 +12,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
+	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -242,7 +243,11 @@ func (o *nativeResponsesProtocolOutput) restoreModel(body []byte) []byte {
 func (o *nativeResponsesProtocolOutput) ClientOutputStarted() bool { return o.outputStarted }
 func (o *nativeResponsesProtocolOutput) ClientDisconnected() bool  { return o.clientDisconnected }
 
-func (s *OpenAIGatewayService) collectNativeResponsesStream(resp *http.Response, startTime time.Time) (*protocoltransport.Stream, error) {
+func (s *OpenAIGatewayService) collectStructuredResponsesPassthroughStream(
+	resp *http.Response,
+	startTime time.Time,
+	output openAIProtocolOutput,
+) (*protocoltransport.Stream, error) {
 	if resp == nil || resp.Body == nil {
 		return nil, errors.New("nil OpenAI Responses upstream stream")
 	}
@@ -250,12 +255,13 @@ func (s *OpenAIGatewayService) collectNativeResponsesStream(resp *http.Response,
 	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
 		maxRecordSize = s.cfg.Gateway.MaxLineSize
 	}
+	filteredHeaders := responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
+	if isNativeResponsesProtocolOutput(output) {
+		filteredHeaders = filterOpenAIPassthroughResponseHeaders(resp.Header, s.responseHeaderFilter)
+	}
 	stream := &protocoltransport.Stream{
-		StatusCode: resp.StatusCode,
-		Headers: filterOpenAIPassthroughResponseHeaders(
-			resp.Header,
-			s.responseHeaderFilter,
-		),
+		StatusCode:     resp.StatusCode,
+		Headers:        filteredHeaders,
 		ActualProtocol: protocolconv.ProtocolOpenAIResponses,
 		RequestID:      resp.Header.Get("x-request-id"),
 		Duration:       time.Since(startTime),
@@ -268,15 +274,15 @@ func (s *OpenAIGatewayService) collectNativeResponsesStream(resp *http.Response,
 	return stream, nil
 }
 
-func (s *OpenAIGatewayService) handleNativeResponsesStreamingResponse(
+func (s *OpenAIGatewayService) handleStructuredResponsesPassthroughStream(
 	ctx context.Context,
 	resp *http.Response,
 	c *gin.Context,
 	account *Account,
 	startTime time.Time,
-	output *nativeResponsesProtocolOutput,
+	output openAIProtocolOutput,
 ) (*openaiStreamingResultPassthrough, error) {
-	stream, err := s.collectNativeResponsesStream(resp, startTime)
+	stream, err := s.collectStructuredResponsesPassthroughStream(resp, startTime, output)
 	if err != nil {
 		return nil, err
 	}
@@ -362,10 +368,12 @@ func (s *OpenAIGatewayService) handleNativeResponsesStreamingResponse(
 			}
 			if !openAIStreamClientOutputStarted(c, output.ClientOutputStarted()) {
 				if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(c, account.Platform, dataBytes, failedMessage); matched {
-					s.recordOpenAIStreamUpstreamError(c, account, true, upstreamRequestID, "http_error", dataBytes, failedMessage)
-					MarkResponseCommitted(c)
-					c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-					c.JSON(status, gin.H{"error": gin.H{"type": errType, "message": errMsg}})
+					if isNativeResponsesProtocolOutput(output) {
+						s.recordOpenAIStreamUpstreamError(c, account, true, upstreamRequestID, "http_error", dataBytes, failedMessage)
+						MarkResponseCommitted(c)
+						c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+						c.JSON(status, gin.H{"error": gin.H{"type": errType, "message": errMsg}})
+					}
 					return resultWithUsage(), fmt.Errorf("upstream response failed: passthrough rule matched message=%s", errMsg)
 				}
 				if openAIStreamFailedEventShouldFailover(dataBytes, failedMessage) {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -15,6 +16,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+type googleResponsesTrackingReadCloser struct {
+	io.Reader
+	closeCount atomic.Int32
+}
+
+func (r *googleResponsesTrackingReadCloser) Close() error {
+	r.closeCount.Add(1)
+	return nil
+}
 
 func TestForwardGoogleGenAIDoesNotReplaceGinResponseWriter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -214,6 +225,148 @@ func TestForwardGoogleGenAINonStreamingPassthroughUsesStructuredResponses(t *tes
 	require.Equal(t, "passthrough", gjson.GetBytes(recorder.Body.Bytes(), "candidates.0.content.parts.0.text").String())
 	require.Equal(t, "client-google-model", gjson.GetBytes(recorder.Body.Bytes(), "modelVersion").String())
 	require.Equal(t, 3, result.Usage.InputTokens)
+}
+
+func TestForwardGoogleGenAIStreamingPassthroughUsesStructuredResponses(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstreamBody := strings.Join([]string{
+		"event: response.created",
+		`data: {"type":"response.created",`,
+		`data: "response":{"id":"resp_google_passthrough_stream","model":"gpt-5.4","status":"in_progress","output":[]}}`,
+		"",
+		`data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","status":"in_progress","content":[]}}`,
+		"",
+		`data: {"type":"response.output_text.delta","sequence_number":2,"item_id":"msg_1","output_index":0,"content_index":0,"delta":"passthrough"}`,
+		"",
+		`data: {"type":"response.output_item.done","sequence_number":3,"output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"passthrough"}]}}`,
+		"",
+		`data: {"type":"response.completed","sequence_number":4,"response":{"id":"resp_google_passthrough_stream","model":"gpt-5.4","status":"completed","output":[{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"passthrough"}]}],"usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstreamBodyReader := &googleResponsesTrackingReadCloser{Reader: strings.NewReader(upstreamBody)}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":                       []string{"text/event-stream"},
+			"X-Request-Id":                       []string{"req_google_passthrough_stream"},
+			"X-RateLimit-Limit-Tokens":           []string{"90"},
+			"X-Codex-Primary-Used-Percent":       []string{"12"},
+			"X-Internal-Upstream-Implementation": []string{"drop-me"},
+		},
+		Body: upstreamBodyReader,
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 4096}}, httpUpstream: upstream}
+	account := googleIngressOpenAIAccount()
+	account.Extra["openai_passthrough"] = true
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/client-google-model:streamGenerateContent?alt=sse", bytes.NewReader(body))
+
+	result, err := svc.ForwardGoogleGenAI(context.Background(), c, account, "client-google-model", "client-google-model", true, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+	require.Equal(t, 5, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
+	require.Equal(t, int32(1), upstreamBodyReader.closeCount.Load())
+	require.Equal(t, "text/event-stream", recorder.Header().Get("Content-Type"))
+	require.Equal(t, "req_google_passthrough_stream", recorder.Header().Get("X-Request-Id"))
+	require.Equal(t, "90", recorder.Header().Get("X-RateLimit-Limit-Tokens"))
+	require.Empty(t, recorder.Header().Get("X-Codex-Primary-Used-Percent"))
+	require.Empty(t, recorder.Header().Get("X-Internal-Upstream-Implementation"))
+	wire := recorder.Body.String()
+	require.Contains(t, wire, `"responseId":"resp_google_passthrough_stream"`)
+	require.Contains(t, wire, `"modelVersion":"client-google-model"`)
+	require.Contains(t, wire, `"text":"passthrough"`)
+	require.Contains(t, wire, `"promptTokenCount":5`)
+	require.NotContains(t, wire, "event:")
+	require.NotContains(t, wire, "[DONE]")
+}
+
+func TestForwardGoogleGenAIStreamingPassthroughMalformedBeforeOutputFailsOver(t *testing.T) {
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"req_google_malformed"}},
+		Body:       io.NopCloser(strings.NewReader("data: {not-json}\n\n")),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 1024}}, httpUpstream: upstream}
+	account := googleIngressOpenAIAccount()
+	account.Extra["openai_passthrough"] = true
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/client-google-model:streamGenerateContent?alt=sse", bytes.NewReader(body))
+
+	result, err := svc.ForwardGoogleGenAI(context.Background(), c, account, "client-google-model", "client-google-model", true, body)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, recorder.Body.String())
+}
+
+func TestForwardGoogleGenAIStreamingPassthroughOversizedBeforeOutputFailsOver(t *testing.T) {
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(
+			`data: {"type":"response.output_text.delta","delta":"` + strings.Repeat("x", 128) + `"}` + "\n\n",
+		)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 64}}, httpUpstream: upstream}
+	account := googleIngressOpenAIAccount()
+	account.Extra["openai_passthrough"] = true
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/client-google-model:streamGenerateContent?alt=sse", bytes.NewReader(body))
+
+	result, err := svc.ForwardGoogleGenAI(context.Background(), c, account, "client-google-model", "client-google-model", true, body)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.False(t, c.Writer.Written())
+}
+
+func TestForwardGoogleGenAIStreamingPassthroughDisconnectDrainsTerminalUsage(t *testing.T) {
+	upstreamBody := strings.Join([]string{
+		`data: {"type":"response.created","response":{"id":"resp_google_disconnect","model":"gpt-5.4","status":"in_progress","output":[]}}`,
+		"",
+		`data: {"type":"response.output_text.delta","output_index":0,"delta":"hello"}`,
+		"",
+		`data: {"type":"response.completed","response":{"id":"resp_google_disconnect","model":"gpt-5.4","status":"completed","output":[],"usage":{"input_tokens":8,"output_tokens":3,"total_tokens":11}}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := googleIngressOpenAIAccount()
+	account.Extra["openai_passthrough"] = true
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Writer = &failingGinWriter{ResponseWriter: c.Writer, failAfter: 0}
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/client-google-model:streamGenerateContent?alt=sse", bytes.NewReader(body))
+
+	result, err := svc.ForwardGoogleGenAI(context.Background(), c, account, "client-google-model", "client-google-model", true, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.ClientDisconnect)
+	require.Equal(t, 8, result.Usage.InputTokens)
+	require.Equal(t, 3, result.Usage.OutputTokens)
 }
 
 func TestForwardGoogleGenAIStreamingRawChatFallbackUsesActualProtocol(t *testing.T) {
