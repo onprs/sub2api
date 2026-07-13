@@ -185,8 +185,8 @@ func finishFromGoogle(reason string) ir.FinishReason {
 	}
 }
 func finishToGoogle(reason ir.FinishReason) string {
-	if reason.ProviderReason != "" {
-		return reason.ProviderReason
+	if providerReason := strings.ToUpper(strings.TrimSpace(reason.ProviderReason)); isGoogleFinishReason(providerReason) {
+		return providerReason
 	}
 	switch reason.Reason {
 	case "length":
@@ -197,6 +197,15 @@ func finishToGoogle(reason ir.FinishReason) string {
 		return "OTHER"
 	default:
 		return "STOP"
+	}
+}
+
+func isGoogleFinishReason(reason string) bool {
+	switch reason {
+	case "STOP", "MAX_TOKENS", "SAFETY", "RECITATION", "LANGUAGE", "OTHER", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "MALFORMED_FUNCTION_CALL", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_OTHER", "NO_IMAGE", "IMAGE_RECITATION", "UNEXPECTED_TOOL_CALL", "TOO_MANY_TOOL_CALLS":
+		return true
+	default:
+		return false
 	}
 }
 

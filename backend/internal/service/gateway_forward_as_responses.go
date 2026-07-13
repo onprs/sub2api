@@ -92,7 +92,6 @@ func (s *GatewayService) ForwardAsResponses(
 	}
 	anthropicReq.Model = mappedModel
 	anthropicReq.Stream = true
-	reqStream := true
 
 	logger.L().Debug("gateway forward_as_responses: model mapping applied",
 		zap.Int64("account_id", account.ID),
@@ -107,92 +106,11 @@ func (s *GatewayService) ForwardAsResponses(
 		return nil, fmt.Errorf("marshal anthropic request: %w", err)
 	}
 
-	// 6. Apply Claude Code mimicry for OAuth accounts (non-Claude-Code endpoints).
-	// OpenAI Responses 协议进来的请求永远不是 Claude Code 客户端，所以对 OAuth 账号
-	// 必须完整执行 /v1/messages 主路径上的伪装链路（system 重写 + normalize + metadata 注入），
-	// 否则会被 Anthropic 判为第三方应用并扣 extra usage。
-	// 见 applyClaudeCodeOAuthMimicryToBody 的 godoc。
-	isClaudeCode := false
-	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
-
-	if shouldMimicClaudeCode {
-		anthropicBody = s.applyClaudeCodeOAuthMimicryToBody(ctx, c, account, anthropicBody, anthropicReq.System, mappedModel)
-	}
-
-	// 7. Enforce cache_control block limit
-	anthropicBody = enforceCacheControlLimit(anthropicBody)
-
-	// 8. Get access token
-	token, tokenType, err := s.GetAccessToken(ctx, account)
+	resp, err := s.forwardStandardProtocolToAnthropic(ctx, c, account, anthropicBody, anthropicReq.System, mappedModel, func(statusCode int, errorType, message string) {
+		writeResponsesError(c, statusCode, errorType, message)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("get access token: %w", err)
-	}
-
-	// 9. Get proxy URL
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
-	}
-
-	// 10. Build upstream request
-	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
-	upstreamReq, _, err := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
-	releaseUpstreamCtx()
-	if err != nil {
-		return nil, fmt.Errorf("build upstream request: %w", err)
-	}
-
-	// 11. Send request
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
-	if err != nil {
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
-		}
-		safeErr := sanitizeUpstreamErrorMessage(err.Error())
-		setOpsUpstreamError(c, 0, safeErr, "")
-		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			Platform:           account.Platform,
-			AccountID:          account.ID,
-			AccountName:        account.Name,
-			UpstreamStatusCode: 0,
-			Kind:               "request_error",
-			Message:            safeErr,
-		})
-		writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
-		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
-	}
-
-	// 12. Handle error response with failover
-	if resp.StatusCode >= 400 {
-		respBody, _ := s.readUpstreamErrorBody(resp)
-		_ = resp.Body.Close()
-		resp.Body = io.NopCloser(bytes.NewReader(respBody))
-
-		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
-		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-
-		if s.shouldFailoverUpstreamError(resp.StatusCode) {
-			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-				Platform:           account.Platform,
-				AccountID:          account.ID,
-				AccountName:        account.Name,
-				UpstreamStatusCode: resp.StatusCode,
-				UpstreamRequestID:  resp.Header.Get("x-request-id"),
-				Kind:               "failover",
-				Message:            upstreamMsg,
-			})
-			if s.rateLimitService != nil {
-				s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
-			}
-			return nil, &UpstreamFailoverError{
-				StatusCode:   resp.StatusCode,
-				ResponseBody: respBody,
-			}
-		}
-
-		// Non-failover error: return Responses-formatted error to client
-		writeResponsesError(c, mapUpstreamStatusCode(resp.StatusCode), "server_error", upstreamMsg)
-		return nil, fmt.Errorf("upstream error: %d %s", resp.StatusCode, upstreamMsg)
+		return nil, err
 	}
 
 	// 13. Handle normal response (convert Anthropic → Responses)
@@ -491,7 +409,8 @@ func responsesTerminalBody(payloads [][]byte) []byte {
 
 // appendRawJSON appends a JSON fragment string to existing raw JSON.
 func appendRawJSON(existing json.RawMessage, fragment string) json.RawMessage {
-	if len(existing) == 0 {
+	trimmed := bytes.TrimSpace(existing)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte(`{}`)) {
 		return json.RawMessage(fragment)
 	}
 	return json.RawMessage(string(existing) + fragment)

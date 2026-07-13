@@ -7,13 +7,14 @@ import (
 	"strconv"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
-func (h *GatewayHandler) forwardGeminiIngressToOpenAI(
+func (h *GatewayHandler) forwardGeminiIngressToStandardProvider(
 	c *gin.Context,
 	reqLog *zap.Logger,
 	apiKey *service.APIKey,
@@ -25,11 +26,19 @@ func (h *GatewayHandler) forwardGeminiIngressToOpenAI(
 	body []byte,
 	channelMapping service.ChannelMappingResult,
 ) {
-	if h.openAIGatewayService == nil {
+	platform := ""
+	if apiKey != nil && apiKey.Group != nil {
+		platform = apiKey.Group.Platform
+	}
+	if !isStandardGeminiIngressProvider(platform) {
+		googleError(c, http.StatusBadRequest, "API key group platform does not support standard Gemini ingress")
+		return
+	}
+	if platform == service.PlatformOpenAI && h.openAIGatewayService == nil {
 		googleError(c, http.StatusBadGateway, "OpenAI compatibility service is not configured")
 		return
 	}
-	if h.concurrencyHelper == nil || h.billingCacheService == nil {
+	if h.gatewayService == nil || h.concurrencyHelper == nil || h.billingCacheService == nil {
 		googleError(c, http.StatusInternalServerError, "Gateway dependencies are not configured")
 		return
 	}
@@ -39,7 +48,7 @@ func (h *GatewayHandler) forwardGeminiIngressToOpenAI(
 	googleConcurrency := NewConcurrencyHelper(h.concurrencyHelper.concurrencyService, SSEPingFormatNone, 0)
 	userRelease, err := googleConcurrency.AcquireUserSlotWithWait(c, userID, userConcurrency, stream, &streamStarted)
 	if err != nil {
-		reqLog.Warn("gemini.openai.user_slot_acquire_failed", zap.Error(err))
+		reqLog.Warn("gemini.standard.user_slot_acquire_failed", zap.String("platform", platform), zap.Error(err))
 		googleError(c, http.StatusTooManyRequests, err.Error())
 		return
 	}
@@ -76,13 +85,13 @@ func (h *GatewayHandler) forwardGeminiIngressToOpenAI(
 		)
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
-				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, routedModel, routedModel, service.PlatformOpenAI)
+				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, routedModel, routedModel, platform)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
 				message := cls.Message
 				if !cls.ModelNotFound {
-					message = "No available OpenAI accounts: " + err.Error()
+					message = "No available " + platform + " accounts: " + err.Error()
 				}
 				googleError(c, cls.Status, message)
 				return
@@ -93,16 +102,16 @@ func (h *GatewayHandler) forwardGeminiIngressToOpenAI(
 			case FailoverCanceled:
 				return
 			default:
-				h.handleGeminiIngressFailoverExhausted(c, service.PlatformOpenAI, fs.LastFailoverErr)
+				h.handleGeminiIngressFailoverExhausted(c, platform, fs.LastFailoverErr)
 				return
 			}
 		}
 		account := selection.Account
-		if account == nil || account.Platform != service.PlatformOpenAI {
+		if account == nil || account.Platform != platform {
 			if selection.ReleaseFunc != nil {
 				selection.ReleaseFunc()
 			}
-			googleError(c, http.StatusBadGateway, "Selected account does not support OpenAI generation")
+			googleError(c, http.StatusBadGateway, "Selected account does not support "+platform+" generation")
 			return
 		}
 		setOpsSelectedAccount(c, account.ID, account.Platform)
@@ -111,14 +120,14 @@ func (h *GatewayHandler) forwardGeminiIngressToOpenAI(
 		if !selection.Acquired {
 			if selection.WaitPlan == nil {
 				markOpsRoutingCapacityLimited(c)
-				googleError(c, http.StatusServiceUnavailable, "No available OpenAI accounts")
+				googleError(c, http.StatusServiceUnavailable, "No available "+platform+" accounts")
 				return
 			}
 			accountRelease, err = googleConcurrency.AcquireAccountSlotWithWaitTimeout(
 				c, account.ID, selection.WaitPlan.MaxConcurrency, selection.WaitPlan.Timeout, stream, &streamStarted,
 			)
 			if err != nil {
-				reqLog.Warn("gemini.openai.account_slot_acquire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+				reqLog.Warn("gemini.standard.account_slot_acquire_failed", zap.String("platform", platform), zap.Int64("account_id", account.ID), zap.Error(err))
 				googleError(c, http.StatusTooManyRequests, err.Error())
 				return
 			}
@@ -126,57 +135,87 @@ func (h *GatewayHandler) forwardGeminiIngressToOpenAI(
 		accountRelease = wrapReleaseOnDone(c.Request.Context(), accountRelease)
 
 		writerSizeBefore := c.Writer.Size()
-		result, forwardErr := h.openAIGatewayService.ForwardGoogleGenAI(
-			c.Request.Context(), c, account, reqModel, routedModel, stream, body,
-		)
+		var openAIResult *service.OpenAIForwardResult
+		var anthropicResult *service.ForwardResult
+		var forwardErr error
+		if platform == service.PlatformOpenAI {
+			openAIResult, forwardErr = h.openAIGatewayService.ForwardGoogleGenAI(
+				c.Request.Context(), c, account, reqModel, routedModel, stream, body,
+			)
+		} else {
+			anthropicResult, forwardErr = h.gatewayService.ForwardGoogleGenAI(
+				c.Request.Context(), c, account, reqModel, routedModel, stream, body,
+			)
+		}
 		if accountRelease != nil {
 			accountRelease()
 		}
 		if forwardErr != nil {
+			var conversionErr *protocolconv.Error
+			if errors.As(forwardErr, &conversionErr) && c.Writer.Size() == writerSizeBefore {
+				googleError(c, http.StatusBadRequest, "Request cannot be represented for the selected provider")
+				return
+			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(forwardErr, &failoverErr) && c.Writer.Size() == writerSizeBefore {
-				h.openAIGatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+				if platform == service.PlatformOpenAI {
+					h.openAIGatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+				}
 				switch fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr) {
 				case FailoverContinue:
 					continue
 				case FailoverCanceled:
 					return
 				default:
-					h.handleGeminiIngressFailoverExhausted(c, service.PlatformOpenAI, fs.LastFailoverErr)
+					h.handleGeminiIngressFailoverExhausted(c, platform, fs.LastFailoverErr)
 					return
 				}
 			}
 			if c.Writer.Size() == writerSizeBefore {
 				googleError(c, http.StatusBadGateway, "Upstream request failed")
 			}
-			reqLog.Error("gemini.openai.forward_failed", zap.Int64("account_id", account.ID), zap.Error(forwardErr))
+			reqLog.Error("gemini.standard.forward_failed", zap.String("platform", platform), zap.Int64("account_id", account.ID), zap.Error(forwardErr))
 			return
 		}
 
-		if result == nil {
+		if openAIResult == nil && anthropicResult == nil {
 			googleError(c, http.StatusBadGateway, "Upstream returned an empty result")
 			return
 		}
-		h.openAIGatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, result.FirstTokenMs)
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 		requestPayloadHash := service.HashUsageRequestPayload(body)
 		inboundEndpoint := GetInboundEndpoint(c)
 		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
-		cyberBlocked := service.GetOpsCyberPolicy(c) != nil
-		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
-			if err := h.openAIGatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
-				Result: result, QuotaPlatform: quotaPlatform, APIKey: apiKey, User: apiKey.User,
-				Account: account, Subscription: subscription, InboundEndpoint: inboundEndpoint,
-				UpstreamEndpoint: upstreamEndpoint, UserAgent: userAgent, IPAddress: clientIP,
-				RequestPayloadHash: requestPayloadHash, APIKeyService: h.apiKeyService,
-				ChannelUsageFields: channelMapping.ToUsageFields(reqModel, result.UpstreamModel),
-				CyberBlocked:       cyberBlocked,
-			}); err != nil {
-				reqLog.Error("gemini.openai.record_usage_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-			}
-		})
-		reqLog.Debug("gemini.openai.request_completed", zap.Int64("account_id", account.ID), zap.Int("switch_count", fs.SwitchCount))
+		if openAIResult != nil {
+			h.openAIGatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, openAIResult.FirstTokenMs)
+			cyberBlocked := service.GetOpsCyberPolicy(c) != nil
+			h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
+				if err := h.openAIGatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
+					Result: openAIResult, QuotaPlatform: quotaPlatform, APIKey: apiKey, User: apiKey.User,
+					Account: account, Subscription: subscription, InboundEndpoint: inboundEndpoint,
+					UpstreamEndpoint: upstreamEndpoint, UserAgent: userAgent, IPAddress: clientIP,
+					RequestPayloadHash: requestPayloadHash, APIKeyService: h.apiKeyService,
+					ChannelUsageFields: channelMapping.ToUsageFields(reqModel, openAIResult.UpstreamModel),
+					CyberBlocked:       cyberBlocked,
+				}); err != nil {
+					reqLog.Error("gemini.openai.record_usage_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+				}
+			})
+		} else {
+			h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
+				if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
+					Result: anthropicResult, QuotaPlatform: quotaPlatform, APIKey: apiKey, User: apiKey.User,
+					Account: account, Subscription: subscription, InboundEndpoint: inboundEndpoint,
+					UpstreamEndpoint: upstreamEndpoint, UserAgent: userAgent, IPAddress: clientIP,
+					RequestPayloadHash: requestPayloadHash, APIKeyService: h.apiKeyService,
+					ChannelUsageFields: channelMapping.ToUsageFields(reqModel, anthropicResult.UpstreamModel),
+				}); err != nil {
+					reqLog.Error("gemini.anthropic.record_usage_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+				}
+			})
+		}
+		reqLog.Debug("gemini.standard.request_completed", zap.String("platform", platform), zap.Int64("account_id", account.ID), zap.Int("switch_count", fs.SwitchCount))
 		return
 	}
 }

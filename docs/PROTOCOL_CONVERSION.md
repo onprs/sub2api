@@ -101,7 +101,7 @@ The production integration keeps transport and account policy outside the conver
 
 Integrated through the shared IR registry:
 
-- Anthropic-platform Chat Completions and Responses request conversion, complete responses, and streaming responses;
+- Anthropic-platform Chat Completions, Responses, and Google GenAI request conversion, complete responses, and streaming responses; Google ingress shares the OpenAI/Anthropic account loop while retaining each provider's auth, health, usage, and billing ownership;
 - OpenAI Chat Completions to Responses request conversion on accounts that use the Responses upstream path;
 - Gemini compatibility Chat Completions, OpenAI Responses, and Anthropic Messages request/response/stream conversion to Google GenAI through one shared provider executor;
 - OpenCode Chat Completions and Messages cross-protocol requests, complete responses, and streams;
@@ -112,6 +112,6 @@ The Antigravity native Gemini stream-to-non-stream collector now preserves every
 Intentional retained compatibility bridges:
 
 - OpenAI Messages to Codex Responses runs the standard Anthropic-to-Responses request lifecycle first, then applies the retained Codex request transform. That transform is not plain schema conversion: it controls developer-input ordering, Claude Code todo guards, continuation replay trimming, default reasoning/text policy, and Codex call-ID normalization. Successful Responses JSON and stream events return through the same request Pipeline and Anthropic renderer; existing service tests lock the provider policy.
-- Gemini native Google ingress and Antigravity response handling retain provider adapters for grounding, image, signature, and vendor-envelope behavior. Standard Chat, Responses, and Messages compatibility paths use the common pipeline; their Google stream decoder synthesizes deterministic request-scoped IDs only when an upstream standard function call omits one, so downstream tool-result correlation remains stable without global state.
+- Gemini native Google ingress and Antigravity response handling retain provider adapters for grounding, image, signature, and vendor-envelope behavior. Standard Google ingress to OpenAI and Anthropic targets, plus Chat, Responses, and Messages compatibility paths to Google targets, use request-scoped pipelines and the Google renderer. The Google stream decoder synthesizes deterministic request-scoped IDs only when an upstream standard function call omits one, so downstream tool-result correlation remains stable without global state.
 
 The old service-local Anthropic-to-Gemini request converter and its duplicate schema/tool mapping were removed. Google server-search tools are represented explicitly by the standard Google converter rather than being flattened into function declarations. Google requires `functionResponse.response` to be a protobuf Struct: object-valued IR tool results are preserved, while scalar or array results are wrapped as `{ "content": <value> }` without discarding the original value.

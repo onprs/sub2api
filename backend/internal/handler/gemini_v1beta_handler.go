@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
@@ -45,13 +46,13 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 	}
 	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求支持Google ingress的分组。
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
-	if !hasForcePlatform && (apiKey.Group == nil || (apiKey.Group.Platform != service.PlatformGemini && apiKey.Group.Platform != service.PlatformOpenAI)) {
+	if !hasForcePlatform && (apiKey.Group == nil || !supportsStandardGeminiIngress(apiKey.Group.Platform)) {
 		googleError(c, http.StatusBadRequest, "API key group platform does not support Gemini generation")
 		return
 	}
 
-	if !hasForcePlatform && apiKey.Group.Platform == service.PlatformOpenAI {
-		h.writeOpenAIGoogleIngressModels(c, apiKeyGroupIDFromContext(c))
+	if !hasForcePlatform && isStandardGeminiIngressProvider(apiKey.Group.Platform) {
+		h.writeStandardGoogleIngressModels(c, apiKeyGroupIDFromContext(c), apiKey.Group.Platform)
 		return
 	}
 
@@ -87,8 +88,8 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 	writeUpstreamResponse(c, res)
 }
 
-func (h *GatewayHandler) writeOpenAIGoogleIngressModels(c *gin.Context, groupID *int64) {
-	modelIDs := h.openAIGoogleIngressModelIDs(c, groupID)
+func (h *GatewayHandler) writeStandardGoogleIngressModels(c *gin.Context, groupID *int64, platform string) {
+	modelIDs := h.standardGoogleIngressModelIDs(c, groupID, platform)
 	models := make([]antigravity.GeminiModel, 0, len(modelIDs))
 	for _, modelID := range modelIDs {
 		name := strings.TrimSpace(modelID)
@@ -104,9 +105,9 @@ func (h *GatewayHandler) writeOpenAIGoogleIngressModels(c *gin.Context, groupID 
 	c.JSON(http.StatusOK, antigravity.GeminiModelsListResponse{Models: models})
 }
 
-func (h *GatewayHandler) openAIGoogleIngressModelAvailable(c *gin.Context, groupID *int64, model string) bool {
+func (h *GatewayHandler) standardGoogleIngressModelAvailable(c *gin.Context, groupID *int64, platform, model string) bool {
 	model = strings.TrimPrefix(strings.TrimSpace(model), "models/")
-	for _, available := range h.openAIGoogleIngressModelIDs(c, groupID) {
+	for _, available := range h.standardGoogleIngressModelIDs(c, groupID, platform) {
 		if strings.TrimPrefix(strings.TrimSpace(available), "models/") == model {
 			return true
 		}
@@ -114,11 +115,18 @@ func (h *GatewayHandler) openAIGoogleIngressModelAvailable(c *gin.Context, group
 	return false
 }
 
-func (h *GatewayHandler) openAIGoogleIngressModelIDs(c *gin.Context, groupID *int64) []string {
+func (h *GatewayHandler) standardGoogleIngressModelIDs(c *gin.Context, groupID *int64, platform string) []string {
 	if h == nil || h.gatewayService == nil {
 		return nil
 	}
-	return h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, service.PlatformOpenAI)
+	models := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+	if len(models) == 0 && platform == service.PlatformAnthropic {
+		models = make([]string, 0, len(claude.DefaultModels))
+		for _, model := range claude.DefaultModels {
+			models = append(models, model.ID)
+		}
+	}
+	return models
 }
 
 func (h *GatewayHandler) writeAntigravityGeminiMappedModels(c *gin.Context, groupID *int64) {
@@ -162,7 +170,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 	}
 	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求支持Google ingress的分组。
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
-	if !hasForcePlatform && (apiKey.Group == nil || (apiKey.Group.Platform != service.PlatformGemini && apiKey.Group.Platform != service.PlatformOpenAI)) {
+	if !hasForcePlatform && (apiKey.Group == nil || !supportsStandardGeminiIngress(apiKey.Group.Platform)) {
 		googleError(c, http.StatusBadRequest, "API key group platform does not support Gemini generation")
 		return
 	}
@@ -173,8 +181,8 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		return
 	}
 
-	if !hasForcePlatform && apiKey.Group.Platform == service.PlatformOpenAI {
-		if !h.openAIGoogleIngressModelAvailable(c, apiKeyGroupIDFromContext(c), modelName) {
+	if !hasForcePlatform && isStandardGeminiIngressProvider(apiKey.Group.Platform) {
+		if !h.standardGoogleIngressModelAvailable(c, apiKeyGroupIDFromContext(c), apiKey.Group.Platform, modelName) {
 			googleError(c, http.StatusNotFound, "Model not found")
 			return
 		}
@@ -236,9 +244,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		zap.Any("group_id", apiKey.GroupID),
 	)
 
-	// 检查平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则要求 gemini 分组
+	// 检查平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则要求支持Google ingress的分组
 	if !middleware.HasForcePlatform(c) {
-		if apiKey.Group == nil || (apiKey.Group.Platform != service.PlatformGemini && apiKey.Group.Platform != service.PlatformOpenAI) {
+		if apiKey.Group == nil || !supportsStandardGeminiIngress(apiKey.Group.Platform) {
 			googleError(c, http.StatusBadRequest, "API key group platform does not support Gemini generation")
 			return
 		}
@@ -282,8 +290,8 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		modelName = channelMapping.MappedModel
 	}
 
-	if shouldRouteGeminiIngressToOpenAI(middleware.HasForcePlatform(c), apiKey.Group) {
-		h.forwardGeminiIngressToOpenAI(c, reqLog, apiKey, authSubject.UserID, authSubject.Concurrency, reqModel, modelName, stream, body, channelMapping)
+	if shouldRouteGeminiIngressToStandardProvider(middleware.HasForcePlatform(c), apiKey.Group) {
+		h.forwardGeminiIngressToStandardProvider(c, reqLog, apiKey, authSubject.UserID, authSubject.Concurrency, reqModel, modelName, stream, body, channelMapping)
 		return
 	}
 
@@ -649,8 +657,16 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	}
 }
 
-func shouldRouteGeminiIngressToOpenAI(hasForcePlatform bool, group *service.Group) bool {
-	return !hasForcePlatform && group != nil && group.Platform == service.PlatformOpenAI
+func supportsStandardGeminiIngress(platform string) bool {
+	return platform == service.PlatformGemini || isStandardGeminiIngressProvider(platform)
+}
+
+func isStandardGeminiIngressProvider(platform string) bool {
+	return platform == service.PlatformOpenAI || platform == service.PlatformAnthropic
+}
+
+func shouldRouteGeminiIngressToStandardProvider(hasForcePlatform bool, group *service.Group) bool {
+	return !hasForcePlatform && group != nil && isStandardGeminiIngressProvider(group.Platform)
 }
 
 func parseGeminiModelAction(rest string) (model string, action string, err error) {

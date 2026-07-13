@@ -10,6 +10,20 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestEncodeResponseDoesNotLeakForeignProviderFinishReason(t *testing.T) {
+	response := &ir.Response{
+		ID: "resp_1", Model: "client-model", Status: "completed",
+		Choices: []ir.Choice{{
+			Index: 0, Message: ir.Message{Role: ir.RoleAssistant, Content: []ir.ContentPart{{Type: ir.ContentText, Text: "ok"}}},
+			FinishReason: ir.FinishReason{Reason: "stop", ProviderReason: "end_turn"},
+		}},
+	}
+	body, warnings, err := New().EncodeResponse(response, protocolconv.Options{})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, "STOP", gjson.GetBytes(body, "candidates.0.finishReason").String())
+}
+
 func TestGoogleStreamEncoderRestoresRequestScopedResponseModel(t *testing.T) {
 	encoder := New().NewStreamEncoderWithOptions(protocolconv.Options{ResponseModel: "client-model"})
 	events := []ir.StreamEvent{
