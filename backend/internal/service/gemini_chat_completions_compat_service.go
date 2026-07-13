@@ -240,7 +240,7 @@ func (s *GeminiMessagesCompatService) forwardGeminiBodyAsChatCompletions(
 			return nil, s.writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
 		}
 		collectedBytes, _ := json.Marshal(collected)
-		usageObj2, err := s.renderGoogleChatResponse(c, resp, pipeline, collectedBytes, usageObj, startTime)
+		usageObj2, err := s.renderGoogleChatResponse(c, resp, pipeline, collectedBytes, usageObj, startTime, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -435,13 +435,14 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsNonStreamingResponseF
 	if err != nil {
 		return nil, err
 	}
+	rawUpstreamBody := append([]byte(nil), respBody...)
 	if isOAuth {
 		if unwrappedBody, uwErr := unwrapGeminiResponse(respBody); uwErr == nil {
 			respBody = unwrappedBody
 		}
 	}
 
-	return s.renderGoogleChatResponse(c, resp, pipeline, respBody, nil, startTime)
+	return s.renderGoogleChatResponse(c, resp, pipeline, respBody, nil, startTime, rawUpstreamBody)
 }
 
 func (s *GeminiMessagesCompatService) renderGoogleChatResponse(
@@ -451,19 +452,9 @@ func (s *GeminiMessagesCompatService) renderGoogleChatResponse(
 	googleBody []byte,
 	usageOverride *ClaudeUsage,
 	startTime time.Time,
+	rawUpstreamBody []byte,
 ) (*ClaudeUsage, error) {
-	if usageOverride != nil {
-		var wire map[string]any
-		if json.Unmarshal(googleBody, &wire) == nil {
-			wire["usageMetadata"] = map[string]any{
-				"promptTokenCount":        usageOverride.InputTokens + usageOverride.CacheReadInputTokens,
-				"candidatesTokenCount":    usageOverride.OutputTokens,
-				"totalTokenCount":         usageOverride.InputTokens + usageOverride.CacheReadInputTokens + usageOverride.OutputTokens,
-				"cachedContentTokenCount": usageOverride.CacheReadInputTokens,
-			}
-			googleBody, _ = json.Marshal(wire)
-		}
-	}
+	googleBody = withGoogleUsageOverride(googleBody, usageOverride)
 	usage := extractGeminiUsage(googleBody)
 	if usage == nil {
 		usage = &ClaudeUsage{}
@@ -476,6 +467,9 @@ func (s *GeminiMessagesCompatService) renderGoogleChatResponse(
 		StatusCode: resp.StatusCode, Headers: responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
 		Body: googleBody, ActualProtocol: protocolconv.ProtocolGoogleGenAI,
 		RequestID: resp.Header.Get("x-request-id"), ResponseID: envelope.ResponseID, Duration: time.Since(startTime),
+	}
+	if len(rawUpstreamBody) > 0 {
+		structured.Metadata = map[string]any{"raw_upstream_body": append([]byte(nil), rawUpstreamBody...)}
 	}
 	if err := structured.Validate(); err != nil {
 		return nil, fmt.Errorf("collect Google response: %w", err)
@@ -492,6 +486,27 @@ func (s *GeminiMessagesCompatService) renderGoogleChatResponse(
 		return nil, err
 	}
 	return usage, nil
+}
+
+func withGoogleUsageOverride(googleBody []byte, usage *ClaudeUsage) []byte {
+	if usage == nil {
+		return googleBody
+	}
+	var wire map[string]any
+	if json.Unmarshal(googleBody, &wire) != nil {
+		return googleBody
+	}
+	wire["usageMetadata"] = map[string]any{
+		"promptTokenCount":        usage.InputTokens + usage.CacheReadInputTokens,
+		"candidatesTokenCount":    usage.OutputTokens,
+		"totalTokenCount":         usage.InputTokens + usage.CacheReadInputTokens + usage.OutputTokens,
+		"cachedContentTokenCount": usage.CacheReadInputTokens,
+	}
+	converted, err := json.Marshal(wire)
+	if err != nil {
+		return googleBody
+	}
+	return converted
 }
 
 func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFromGemini(

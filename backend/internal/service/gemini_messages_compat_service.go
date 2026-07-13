@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +22,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 
@@ -600,11 +599,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		mappedModel = account.GetMappedModel(req.Model)
 	}
 
-	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(body)
+	pipeline, geminiReq, err := newClaudeMessagesGooglePipeline(account, body, originalModel, mappedModel)
 	if err != nil {
 		return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
-	geminiReq = ensureGeminiFunctionCallThoughtSignatures(geminiReq)
 	originalClaudeBody := body
 
 	proxyURL := ""
@@ -848,9 +846,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 					stageName = "thinking+tools"
 					signatureRetryStage = 2
 				}
-				retryGeminiReq, txErr := convertClaudeMessagesToGeminiGenerateContent(strippedClaudeBody)
+				retryPipeline, retryGeminiReq, txErr := newClaudeMessagesGooglePipeline(account, strippedClaudeBody, originalModel, mappedModel)
 				if txErr == nil {
 					logger.LegacyPrintf("service.gemini_messages_compat", "Gemini account %d: detected signature-related 400, retrying with downgraded Claude blocks (%s)", account.ID, stageName)
+					pipeline = retryPipeline
 					geminiReq = retryGeminiReq
 					// Consume one retry budget attempt and continue with the updated request payload.
 					sleepGeminiBackoff(1)
@@ -932,9 +931,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 		break
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
+		defer func() { _ = resp.Body.Close() }()
 		respBody := s.readUpstreamErrorBody(resp)
 		// 统一错误策略：自定义错误码 + 临时不可调度
 		if s.rateLimitService != nil {
@@ -1053,27 +1052,26 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	var usage *ClaudeUsage
 	var firstTokenMs *int
 	if req.Stream {
-		streamRes, err := s.handleStreamingResponse(c, resp, startTime, originalModel)
+		streamRes, err := s.handleStreamingResponse(c, resp, pipeline, startTime)
 		if err != nil {
 			return nil, err
 		}
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
 	} else {
+		defer func() { _ = resp.Body.Close() }()
 		if useUpstreamStream {
 			collected, usageObj, err := collectGeminiSSE(resp.Body, true)
 			if err != nil {
 				return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
 			}
 			collectedBytes, _ := json.Marshal(collected)
-			claudeResp, usageObj2 := convertGeminiToClaudeMessage(collected, originalModel, collectedBytes)
-			c.JSON(http.StatusOK, claudeResp)
-			usage = usageObj2
-			if usageObj != nil && (usageObj.InputTokens > 0 || usageObj.OutputTokens > 0) {
-				usage = usageObj
+			usage, err = s.renderGoogleAnthropicResponse(c, resp, pipeline, collectedBytes, usageObj, startTime, nil)
+			if err != nil {
+				return nil, err
 			}
 		} else {
-			usage, err = s.handleNonStreamingResponse(c, resp, originalModel)
+			usage, err = s.handleNonStreamingResponse(c, resp, pipeline, startTime)
 			if err != nil {
 				return nil, err
 			}
@@ -1944,7 +1942,7 @@ type geminiStreamResult struct {
 	firstTokenMs *int
 }
 
-func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context, resp *http.Response, originalModel string) (*ClaudeUsage, error) {
+func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context, resp *http.Response, pipeline *protocolconv.Pipeline, startTime time.Time) (*ClaudeUsage, error) {
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
 		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream response")
@@ -1955,298 +1953,148 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 	}
 
-	var geminiResp map[string]any
-	if err := json.Unmarshal(unwrappedBody, &geminiResp); err != nil {
-		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
+	return s.renderGoogleAnthropicResponse(c, resp, pipeline, unwrappedBody, nil, startTime, body)
+}
+
+func (s *GeminiMessagesCompatService) renderGoogleAnthropicResponse(
+	c *gin.Context,
+	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
+	googleBody []byte,
+	usageOverride *ClaudeUsage,
+	startTime time.Time,
+	rawUpstreamBody []byte,
+) (*ClaudeUsage, error) {
+	googleBody = withGoogleUsageOverride(googleBody, usageOverride)
+	usage := extractGeminiUsage(googleBody)
+	if usage == nil {
+		usage = &ClaudeUsage{}
 	}
-
-	claudeResp, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, unwrappedBody)
-	c.JSON(http.StatusOK, claudeResp)
-
+	var envelope struct {
+		ResponseID string `json:"responseId"`
+	}
+	_ = json.Unmarshal(googleBody, &envelope)
+	structured := protocoltransport.Response{
+		StatusCode: resp.StatusCode, Headers: responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
+		Body: googleBody, ActualProtocol: protocolconv.ProtocolGoogleGenAI,
+		RequestID: resp.Header.Get("x-request-id"), ResponseID: envelope.ResponseID, Duration: time.Since(startTime),
+	}
+	if len(rawUpstreamBody) > 0 {
+		structured.Metadata = map[string]any{"raw_upstream_body": append([]byte(nil), rawUpstreamBody...)}
+	}
+	if err := structured.Validate(); err != nil {
+		return nil, fmt.Errorf("collect Google response: %w", err)
+	}
+	converted, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
+	if err != nil {
+		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to convert upstream response")
+	}
+	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolAnthropic)
+	if err != nil {
+		return nil, err
+	}
+	if err := renderer.RenderJSON(c.Writer, structured.StatusCode, structured.Headers, converted.Body); err != nil {
+		return nil, err
+	}
 	return usage, nil
 }
 
-func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, originalModel string) (*geminiStreamResult, error) {
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-	c.Status(http.StatusOK)
-
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
+func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, resp *http.Response, pipeline *protocolconv.Pipeline, startTime time.Time) (*geminiStreamResult, error) {
+	if _, ok := c.Writer.(http.Flusher); !ok {
 		return nil, errors.New("streaming not supported")
 	}
-
-	messageID := "msg_" + randomHex(12)
-	messageStart := map[string]any{
-		"type": "message_start",
-		"message": map[string]any{
-			"id":            messageID,
-			"type":          "message",
-			"role":          "assistant",
-			"model":         originalModel,
-			"content":       []any{},
-			"stop_reason":   nil,
-			"stop_sequence": nil,
-			"usage": map[string]any{
-				"input_tokens":  0,
-				"output_tokens": 0,
-			},
-		},
+	maxRecordSize := protocoltransport.DefaultMaxSSERecordBytes
+	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
+		maxRecordSize = s.cfg.Gateway.MaxLineSize
 	}
-	writeSSE(c.Writer, "message_start", messageStart)
-	flusher.Flush()
-
-	var firstTokenMs *int
+	inner := protocoltransport.NewSSEParser(resp.Body, maxRecordSize)
+	events, err := protocoltransport.NewTransformEventStream(inner, unwrapGeminiResponse)
+	if err != nil {
+		return nil, err
+	}
+	stream := &protocoltransport.Stream{
+		StatusCode: resp.StatusCode, Headers: responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
+		ActualProtocol: protocolconv.ProtocolGoogleGenAI, RequestID: resp.Header.Get("x-request-id"),
+		Duration: time.Since(startTime), Events: events,
+	}
+	if err := stream.Validate(); err != nil {
+		_ = stream.Close()
+		return nil, err
+	}
+	defer func() { _ = stream.Close() }()
+	session, err := pipeline.NewStreamProcessor(stream.ActualProtocol)
+	if err != nil {
+		return nil, err
+	}
+	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolAnthropic)
+	if err != nil {
+		return nil, err
+	}
 	var usage ClaudeUsage
-	finishReason := ""
-	sawToolUse := false
+	var firstTokenMs *int
+	headersWritten := false
+	writePayloads := func(payloads [][]byte) (bool, error) {
+		if len(payloads) == 0 {
+			return false, nil
+		}
+		if !headersWritten {
+			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
+				return false, err
+			}
+			headersWritten = true
+		}
+		for _, payload := range payloads {
+			framed, err := renderer.FrameStreamEvent(payload)
+			if err != nil {
+				return false, err
+			}
+			if _, err := c.Writer.Write(framed); err != nil {
+				return true, nil
+			}
+		}
+		c.Writer.Flush()
+		return false, nil
+	}
 
-	nextBlockIndex := 0
-	openBlockIndex := -1
-	openBlockType := ""
-	seenText := ""
-	openToolIndex := -1
-	openToolID := ""
-	openToolName := ""
-	seenToolJSON := ""
-
-	reader := bufio.NewReader(resp.Body)
 	for {
-		line, err := reader.ReadString('\n')
-		if err != nil && !errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("stream read error: %w", err)
-		}
-
-		if !strings.HasPrefix(line, "data:") {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			continue
-		}
-		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if payload == "" || payload == "[DONE]" {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			continue
-		}
-
-		unwrappedBytes, err := unwrapGeminiResponse([]byte(payload))
-		if err != nil {
-			continue
-		}
-
-		var geminiResp map[string]any
-		if err := json.Unmarshal(unwrappedBytes, &geminiResp); err != nil {
-			continue
-		}
-
-		if fr := extractGeminiFinishReason(geminiResp); fr != "" {
-			finishReason = fr
-		}
-
-		parts := extractGeminiParts(geminiResp)
-		for _, part := range parts {
-			if text, ok := part["text"].(string); ok && text != "" {
-				// Close an open tool_use block before starting text, mirroring
-				// the functionCall branch (which closes open text blocks) and
-				// the chat-completions sibling's closeOpenTool(). Otherwise a
-				// tool→text sequence keeps the tool_use block open while the
-				// text block starts, emitting overlapping Anthropic content
-				// blocks that violate the SSE contract.
-				if openToolIndex >= 0 {
-					writeSSE(c.Writer, "content_block_stop", map[string]any{
-						"type":  "content_block_stop",
-						"index": openToolIndex,
-					})
-					openToolIndex = -1
-					openToolName = ""
-					seenToolJSON = ""
-				}
-
-				delta, newSeen := computeGeminiTextDelta(seenText, text)
-				seenText = newSeen
-				if delta == "" {
-					continue
-				}
-
-				if openBlockType != "text" {
-					if openBlockIndex >= 0 {
-						writeSSE(c.Writer, "content_block_stop", map[string]any{
-							"type":  "content_block_stop",
-							"index": openBlockIndex,
-						})
-					}
-					openBlockType = "text"
-					openBlockIndex = nextBlockIndex
-					nextBlockIndex++
-					writeSSE(c.Writer, "content_block_start", map[string]any{
-						"type":  "content_block_start",
-						"index": openBlockIndex,
-						"content_block": map[string]any{
-							"type": "text",
-							"text": "",
-						},
-					})
-				}
-
-				if firstTokenMs == nil {
-					ms := int(time.Since(startTime).Milliseconds())
-					firstTokenMs = &ms
-				}
-				writeSSE(c.Writer, "content_block_delta", map[string]any{
-					"type":  "content_block_delta",
-					"index": openBlockIndex,
-					"delta": map[string]any{
-						"type": "text_delta",
-						"text": delta,
-					},
-				})
-				flusher.Flush()
-				continue
-			}
-
-			if fc, ok := part["functionCall"].(map[string]any); ok && fc != nil {
-				name, _ := fc["name"].(string)
-				args := fc["args"]
-				if strings.TrimSpace(name) == "" {
-					name = "tool"
-				}
-
-				// Close any open text block before tool_use.
-				if openBlockIndex >= 0 {
-					writeSSE(c.Writer, "content_block_stop", map[string]any{
-						"type":  "content_block_stop",
-						"index": openBlockIndex,
-					})
-					openBlockIndex = -1
-					openBlockType = ""
-				}
-
-				// If we receive streamed tool args in pieces, keep a single tool block open and emit deltas.
-				if openToolIndex >= 0 && openToolName != name {
-					writeSSE(c.Writer, "content_block_stop", map[string]any{
-						"type":  "content_block_stop",
-						"index": openToolIndex,
-					})
-					openToolIndex = -1
-					openToolName = ""
-					seenToolJSON = ""
-				}
-
-				if openToolIndex < 0 {
-					openToolID = "toolu_" + randomHex(8)
-					openToolIndex = nextBlockIndex
-					openToolName = name
-					nextBlockIndex++
-					sawToolUse = true
-
-					writeSSE(c.Writer, "content_block_start", map[string]any{
-						"type":  "content_block_start",
-						"index": openToolIndex,
-						"content_block": map[string]any{
-							"type":  "tool_use",
-							"id":    openToolID,
-							"name":  name,
-							"input": map[string]any{},
-						},
-					})
-				}
-
-				argsJSONText := "{}"
-				switch v := args.(type) {
-				case nil:
-					// keep default "{}"
-				case string:
-					if strings.TrimSpace(v) != "" {
-						argsJSONText = v
-					}
-				default:
-					if b, err := json.Marshal(args); err == nil && len(b) > 0 {
-						argsJSONText = string(b)
-					}
-				}
-
-				delta, newSeen := computeGeminiTextDelta(seenToolJSON, argsJSONText)
-				seenToolJSON = newSeen
-				if delta != "" {
-					writeSSE(c.Writer, "content_block_delta", map[string]any{
-						"type":  "content_block_delta",
-						"index": openToolIndex,
-						"delta": map[string]any{
-							"type":         "input_json_delta",
-							"partial_json": delta,
-						},
-					})
-				}
-				flusher.Flush()
-			}
-		}
-
-		if u := extractGeminiUsage(unwrappedBytes); u != nil {
-			usage = *u
-		}
-
-		// Process the final unterminated line at EOF as well.
-		if errors.Is(err, io.EOF) {
+		record, err := stream.Events.Next(context.Background())
+		if errors.Is(err, io.EOF) || errors.Is(err, protocoltransport.ErrSSEDone) {
 			break
 		}
+		if err != nil {
+			return nil, fmt.Errorf("stream read error: %w", err)
+		}
+		if current := extractGeminiUsage(record.Data); current != nil {
+			usage = *current
+		}
+		converted, _, err := session.Convert(record.Data)
+		if err != nil {
+			return nil, fmt.Errorf("convert Google stream event: %w", err)
+		}
+		if firstTokenMs == nil && len(converted) > 0 {
+			ms := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &ms
+		}
+		disconnected, err := writePayloads(converted)
+		if err != nil {
+			return nil, err
+		}
+		if disconnected {
+			return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+		}
 	}
-
-	if openBlockIndex >= 0 {
-		writeSSE(c.Writer, "content_block_stop", map[string]any{
-			"type":  "content_block_stop",
-			"index": openBlockIndex,
-		})
+	finalPayloads, _, err := session.Finalize()
+	if err != nil {
+		return nil, fmt.Errorf("finalize Google stream: %w", err)
 	}
-	if openToolIndex >= 0 {
-		writeSSE(c.Writer, "content_block_stop", map[string]any{
-			"type":  "content_block_stop",
-			"index": openToolIndex,
-		})
+	disconnected, err := writePayloads(finalPayloads)
+	if err != nil {
+		return nil, err
 	}
-
-	stopReason := mapGeminiFinishReasonToClaudeStopReason(finishReason)
-	if sawToolUse {
-		stopReason = "tool_use"
+	if disconnected {
+		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 	}
-
-	usageObj := map[string]any{
-		"output_tokens": usage.OutputTokens,
-	}
-	if usage.InputTokens > 0 {
-		usageObj["input_tokens"] = usage.InputTokens
-	}
-	writeSSE(c.Writer, "message_delta", map[string]any{
-		"type": "message_delta",
-		"delta": map[string]any{
-			"stop_reason":   stopReason,
-			"stop_sequence": nil,
-		},
-		"usage": usageObj,
-	})
-	writeSSE(c.Writer, "message_stop", map[string]any{
-		"type": "message_stop",
-	})
-	flusher.Flush()
-
 	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
-}
-
-func writeSSE(w io.Writer, event string, data any) {
-	if event != "" {
-		_, _ = fmt.Fprintf(w, "event: %s\n", event)
-	}
-	b, _ := json.Marshal(data)
-	_, _ = fmt.Fprintf(w, "data: %s\n\n", string(b))
-}
-
-func randomHex(nBytes int) string {
-	b := make([]byte, nBytes)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
 }
 
 func (s *GeminiMessagesCompatService) writeClaudeError(c *gin.Context, status int, errType, message string) error {
@@ -2712,71 +2560,6 @@ func unwrapGeminiResponse(raw []byte) ([]byte, error) {
 	return raw, nil
 }
 
-func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel string, rawData []byte) (map[string]any, *ClaudeUsage) {
-	usage := extractGeminiUsage(rawData)
-	if usage == nil {
-		usage = &ClaudeUsage{}
-	}
-
-	contentBlocks := make([]any, 0)
-	sawToolUse := false
-	if candidates, ok := geminiResp["candidates"].([]any); ok && len(candidates) > 0 {
-		if cand, ok := candidates[0].(map[string]any); ok {
-			if content, ok := cand["content"].(map[string]any); ok {
-				if parts, ok := content["parts"].([]any); ok {
-					for _, part := range parts {
-						pm, ok := part.(map[string]any)
-						if !ok {
-							continue
-						}
-						if text, ok := pm["text"].(string); ok && text != "" {
-							contentBlocks = append(contentBlocks, map[string]any{
-								"type": "text",
-								"text": text,
-							})
-						}
-						if fc, ok := pm["functionCall"].(map[string]any); ok {
-							name, _ := fc["name"].(string)
-							if strings.TrimSpace(name) == "" {
-								name = "tool"
-							}
-							args := fc["args"]
-							sawToolUse = true
-							contentBlocks = append(contentBlocks, map[string]any{
-								"type":  "tool_use",
-								"id":    "toolu_" + randomHex(8),
-								"name":  name,
-								"input": args,
-							})
-						}
-					}
-				}
-			}
-		}
-	}
-
-	stopReason := mapGeminiFinishReasonToClaudeStopReason(extractGeminiFinishReason(geminiResp))
-	if sawToolUse {
-		stopReason = "tool_use"
-	}
-
-	resp := map[string]any{
-		"id":            "msg_" + randomHex(12),
-		"type":          "message",
-		"role":          "assistant",
-		"model":         originalModel,
-		"content":       contentBlocks,
-		"stop_reason":   stopReason,
-		"stop_sequence": nil,
-		"usage": map[string]any{
-			"input_tokens":  usage.InputTokens,
-			"output_tokens": usage.OutputTokens,
-		},
-	}
-
-	return resp, usage
-}
-
 func extractGeminiUsage(data []byte) *ClaudeUsage {
 	usage := gjson.GetBytes(data, "usageMetadata")
 	if !usage.Exists() {
@@ -2807,25 +2590,6 @@ func extractGeminiUsage(data []byte) *ClaudeUsage {
 		OutputTokens:         cand + thoughts,
 		CacheReadInputTokens: cached,
 		ImageOutputTokens:    imageTokens,
-	}
-}
-
-func asInt(v any) (int, bool) {
-	switch t := v.(type) {
-	case float64:
-		return int(t), true
-	case int:
-		return t, true
-	case int64:
-		return int(t), true
-	case json.Number:
-		i, err := t.Int64()
-		if err != nil {
-			return 0, false
-		}
-		return int(i), true
-	default:
-		return 0, false
 	}
 }
 
@@ -2993,17 +2757,6 @@ func ensureGeminiFunctionCallThoughtSignatures(body []byte) []byte {
 	return b
 }
 
-func extractGeminiFinishReason(geminiResp map[string]any) string {
-	if candidates, ok := geminiResp["candidates"].([]any); ok && len(candidates) > 0 {
-		if cand, ok := candidates[0].(map[string]any); ok {
-			if fr, ok := cand["finishReason"].(string); ok {
-				return fr
-			}
-		}
-	}
-	return ""
-}
-
 func extractGeminiParts(geminiResp map[string]any) []map[string]any {
 	if candidates, ok := geminiResp["candidates"].([]any); ok && len(candidates) > 0 {
 		if cand, ok := candidates[0].(map[string]any); ok {
@@ -3025,44 +2778,34 @@ func extractGeminiParts(geminiResp map[string]any) []map[string]any {
 	return nil
 }
 
-func computeGeminiTextDelta(seen, incoming string) (delta, newSeen string) {
-	incoming = strings.TrimSuffix(incoming, "\u0000")
-	if incoming == "" {
-		return "", seen
-	}
-
-	// Cumulative mode: incoming contains full text so far.
-	if strings.HasPrefix(incoming, seen) {
-		return strings.TrimPrefix(incoming, seen), incoming
-	}
-	// Duplicate/rewind: ignore.
-	if strings.HasPrefix(seen, incoming) {
-		return "", seen
-	}
-	// Delta mode: treat incoming as incremental chunk.
-	return incoming, seen + incoming
-}
-
-func mapGeminiFinishReasonToClaudeStopReason(finishReason string) string {
-	switch strings.ToUpper(strings.TrimSpace(finishReason)) {
-	case "MAX_TOKENS":
-		return "max_tokens"
-	case "STOP":
-		return "end_turn"
-	default:
-		return "end_turn"
-	}
-}
-
 func convertClaudeMessagesToGeminiGenerateContent(body []byte) ([]byte, error) {
 	model := gjson.GetBytes(body, "model").String()
-	converted, _, err := convertStandardRequest(body, protocolconv.ProtocolAnthropic, protocolconv.ProtocolGoogleGenAI, model)
+	_, converted, err := newClaudeMessagesGooglePipeline(nil, body, model, model)
+	return converted, err
+}
+
+func newClaudeMessagesGooglePipeline(account *Account, body []byte, originalModel, mappedModel string) (*protocolconv.Pipeline, []byte, error) {
+	route := protocolconv.Route{
+		Source: protocolconv.ProtocolAnthropic, IntendedTarget: protocolconv.ProtocolGoogleGenAI,
+		ClientModel: originalModel, UpstreamModel: mappedModel,
+	}
+	if account != nil {
+		route.Provider = account.Platform
+		route.AccountID = account.ID
+	}
+	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+		Route: route, Options: protocolconv.Options{SourceModel: mappedModel, LossPolicy: protocolconv.LossError},
+	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	converted, err := pipeline.ConvertRequest(body)
+	if err != nil {
+		return nil, nil, err
 	}
 	var request map[string]any
-	if err := json.Unmarshal(converted, &request); err != nil {
-		return nil, err
+	if err := json.Unmarshal(converted.Body, &request); err != nil {
+		return nil, nil, err
 	}
 	// Google function call IDs are not portable across every Gemini upstream.
 	// Existing Gemini transports correlate by function name and preserve their
@@ -3070,9 +2813,9 @@ func convertClaudeMessagesToGeminiGenerateContent(body []byte) ([]byte, error) {
 	stripGeminiFunctionIDs(request)
 	encoded, err := json.Marshal(request)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return ensureGeminiFunctionCallThoughtSignatures(encoded), nil
+	return pipeline, ensureGeminiFunctionCallThoughtSignatures(encoded), nil
 }
 
 func stripGeminiFunctionIDs(req map[string]any) {

@@ -325,6 +325,37 @@ func TestGeminiMessagesCompatServiceForward_PreservesRequestedModelAndMappedUpst
 	require.Equal(t, 1, httpStub.calls)
 	require.NotNil(t, httpStub.lastReq)
 	require.Contains(t, httpStub.lastReq.URL.String(), "/models/claude-sonnet-4-20250514:")
+	require.Equal(t, "claude-sonnet-4", gjson.GetBytes(w.Body.Bytes(), "model").String())
+	require.Equal(t, "message", gjson.GetBytes(w.Body.Bytes(), "type").String())
+}
+
+func TestGeminiMessagesCompatServiceForward_StreamUsesPipelineAndAnthropicRenderer(t *testing.T) {
+	upstreamBody := `data: {"responseId":"google-msg","modelVersion":"gemini-upstream","candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","args":{"q":"x"}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1,"totalTokenCount":4}}` + "\n\n" +
+		"data: [DONE]\n\n"
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 2, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"api_key": "test-key", "model_mapping": map[string]any{"claude-client": "gemini-upstream"},
+	}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"claude-client","stream":true,"max_tokens":16,"messages":[{"role":"user","content":"lookup"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "gemini-upstream", result.UpstreamModel)
+	out := rec.Body.String()
+	require.Contains(t, out, `event: message_start`)
+	require.Contains(t, out, `"model":"claude-client"`)
+	require.Contains(t, out, `"id":"call_google_0_0"`)
+	require.Contains(t, out, `"stop_reason":"tool_use"`)
+	require.Contains(t, out, `event: message_stop`)
+	require.NotContains(t, out, "data: [DONE]")
 }
 
 func TestGeminiMessagesCompatServiceForward_NormalizesWebSearchToolForAIStudio(t *testing.T) {
@@ -793,7 +824,9 @@ func TestGeminiMessagesHandleStreamingResponse_ClosesToolBlockBeforeText(t *test
 	c, _ := gin.CreateTestContext(rec)
 
 	svc := &GeminiMessagesCompatService{}
-	result, err := svc.handleStreamingResponse(c, resp, time.Now(), "claude-3-5-sonnet")
+	pipeline, _, err := newClaudeMessagesGooglePipeline(nil, []byte(`{"model":"claude-3-5-sonnet","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`), "claude-3-5-sonnet", "gemini-test")
+	require.NoError(t, err)
+	result, err := svc.handleStreamingResponse(c, resp, pipeline, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
