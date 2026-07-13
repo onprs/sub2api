@@ -15,6 +15,7 @@ import (
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func nativeResponsesOutputTestPipeline(t *testing.T, clientModel, upstreamModel string, stream bool) *protocolconv.Pipeline {
@@ -244,6 +245,71 @@ func TestHandleNativeResponsesStreamingResponseRejectsOversizedRecordBeforeCommi
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.Contains(t, string(failoverErr.ResponseBody), "SSE record exceeds 64 bytes")
+	require.False(t, output.ClientOutputStarted())
+	require.Empty(t, recorder.Body.String())
+}
+
+func TestHandleStructuredPassthroughSSEToJSONUsesIdentityPipelineAndRenderer(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	pipeline := nativeResponsesOutputTestPipeline(t, "client-model", "upstream-model", false)
+	output, err := newNativeResponsesProtocolOutput(c.Writer, pipeline, "client-model", "upstream-model", false)
+	require.NoError(t, err)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":                        []string{"text/event-stream"},
+			"X-Request-Id":                        []string{"rid_sse_unary"},
+			"X-Codex-Primary-Reset-After-Seconds": []string{"18"},
+		},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.created","response":{"id":"resp_sse_unary","model":"upstream-model","status":"in_progress","output":[]}}`,
+			"",
+			`data: {"type":"response.output_text.delta","delta":"hello"}`,
+			"",
+			`data: {"type":"response.completed","response":{"id":"resp_sse_unary","model":"upstream-model","status":"completed","output":[],"usage":{"input_tokens":5,"output_tokens":2},"vendor_extension":{"opaque":true}}}`,
+			"",
+		}, "\n"))),
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 2048}}}
+
+	result, err := svc.handleNonStreamingResponsePassthroughWithOutput(
+		context.Background(), resp, c, "client-model", "upstream-model", output,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "resp_sse_unary", result.responseID)
+	require.Equal(t, 5, result.usage.InputTokens)
+	require.Equal(t, 2, result.usage.OutputTokens)
+	require.Equal(t, "hello", gjson.Get(recorder.Body.String(), "output.0.content.0.text").String())
+	require.Equal(t, "client-model", gjson.Get(recorder.Body.String(), "model").String())
+	require.True(t, gjson.Get(recorder.Body.String(), "vendor_extension.opaque").Bool())
+	require.Equal(t, "18", recorder.Header().Get("X-Codex-Primary-Reset-After-Seconds"))
+	require.NotContains(t, recorder.Body.String(), "data:")
+}
+
+func TestHandleStructuredPassthroughSSEToJSONRejectsMalformedBeforeCommit(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	pipeline := nativeResponsesOutputTestPipeline(t, "client-model", "upstream-model", false)
+	output, err := newNativeResponsesProtocolOutput(c.Writer, pipeline, "client-model", "upstream-model", false)
+	require.NoError(t, err)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader("data: {broken}\n\n")),
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 1024}}}
+
+	result, err := svc.handleNonStreamingResponsePassthroughWithOutput(
+		context.Background(), resp, c, "client-model", "upstream-model", output,
+	)
+
+	require.ErrorContains(t, err, "malformed SSE JSON payload")
+	require.Nil(t, result)
 	require.False(t, output.ClientOutputStarted())
 	require.Empty(t, recorder.Body.String())
 }

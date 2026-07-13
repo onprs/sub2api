@@ -1142,6 +1142,10 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthroughWithOutput(
 	mappedModel string,
 	output openAIProtocolOutput,
 ) (*openaiNonStreamingResultPassthrough, error) {
+	if output != nil && isEventStreamResponse(resp.Header) {
+		return s.handleStructuredPassthroughSSEToJSONWithOutput(resp, c, output)
+	}
+
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		return nil, err
@@ -1205,6 +1209,56 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthroughWithOutput(
 	}
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)
+	}
+	return result, nil
+}
+
+func (s *OpenAIGatewayService) handleStructuredPassthroughSSEToJSONWithOutput(
+	resp *http.Response,
+	c *gin.Context,
+	output openAIProtocolOutput,
+) (*openaiNonStreamingResultPassthrough, error) {
+	terminal, err := s.collectOpenAICompatBufferedTerminal(resp, "openai passthrough buffered SSE", time.Now())
+	if err != nil {
+		return nil, err
+	}
+	if terminal.Response == nil {
+		return nil, errors.New("OpenAI passthrough SSE ended without a complete terminal response")
+	}
+	if strings.TrimSpace(terminal.Response.Status) == "failed" {
+		msg := openAICompatFailedResponseMessage(terminal.Response)
+		if msg == "" {
+			msg = "Upstream compact response failed"
+		}
+		return nil, s.writeOpenAINonStreamingProtocolError(resp, c, msg)
+	}
+
+	terminal.Upstream.Body, err = prepareOpenAICompatBufferedResponseBody(
+		terminal.Response,
+		terminal.Upstream.Body,
+		terminal.Accumulator,
+	)
+	if err != nil {
+		return nil, err
+	}
+	terminal.Upstream.Body = s.correctToolCallsInResponseBody(terminal.Upstream.Body)
+	if isNativeResponsesProtocolOutput(output) {
+		terminal.Upstream.Headers = filterOpenAIPassthroughResponseHeaders(resp.Header, s.responseHeaderFilter)
+	}
+	if err := terminal.Upstream.Validate(); err != nil {
+		return nil, err
+	}
+
+	usage := &terminal.Usage
+	result := &openaiNonStreamingResultPassthrough{
+		OpenAIUsage:      usage,
+		usage:            usage,
+		responseID:       terminal.Upstream.ResponseID,
+		imageCount:       countOpenAIResponseImageOutputsFromJSONBytes(terminal.Upstream.Body),
+		imageOutputSizes: collectOpenAIResponseImageOutputSizesFromJSONBytes(terminal.Upstream.Body),
+	}
+	if err := output.WriteResponse(terminal.Upstream); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
