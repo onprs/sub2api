@@ -688,10 +688,40 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 	}
 
 	httpInvalidEncryptedContentRetryTried := false
+	httpAttempt := 0
 	for {
+		httpAttempt++
+		attemptBody := body
+		attemptOutput := output
+		if httpAttempt > 1 && attemptOutput != nil {
+			retryOutput, ok := attemptOutput.(openAIProtocolRetryOutput)
+			if !ok {
+				return nil, errors.New("OpenAI protocol output cannot create isolated retry state")
+			}
+			attemptOutput, err = retryOutput.NewRetryAttempt()
+			if err != nil {
+				return nil, fmt.Errorf("create OpenAI protocol retry output: %w", err)
+			}
+		}
+		if attemptOutput == nil && !isCompactRequest {
+			pipeline, pipelineErr := newOpenAIResponsesIdentityPipeline(account, originalModel, upstreamModel)
+			if pipelineErr != nil {
+				return nil, fmt.Errorf("create native Responses attempt pipeline: %w", pipelineErr)
+			}
+			converted, convertErr := pipeline.ConvertRequest(attemptBody)
+			if convertErr != nil {
+				return nil, fmt.Errorf("validate native Responses attempt request: %w", convertErr)
+			}
+			attemptBody = converted.Body
+			attemptOutput, pipelineErr = newNativeResponsesProtocolOutput(c.Writer, pipeline, originalModel, upstreamModel, reqStream)
+			if pipelineErr != nil {
+				return nil, pipelineErr
+			}
+		}
+
 		// Build upstream request
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
-		upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, body, token, reqStream, promptCacheKey, isCodexCLI)
+		upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, attemptBody, token, reqStream, promptCacheKey, isCodexCLI)
 		releaseUpstreamCtx()
 		if err != nil {
 			return nil, err
@@ -768,7 +798,12 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 			}
 			return s.handleErrorResponse(ctx, resp, c, account, body, billingModel)
 		}
-		defer func() { _ = resp.Body.Close() }()
+		responseBodyOwned := true
+		defer func() {
+			if responseBodyOwned {
+				_ = resp.Body.Close()
+			}
+		}()
 
 		reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
 		// 国产模型默认 effort 补充：此处 reqModel 已被 mapping 重写为 billingModel（见
@@ -785,7 +820,10 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 		imageCount := 0
 		var imageOutputSizes []string
 		if reqStream {
-			streamResult, err := s.handleStreamingResponseWithOutput(ctx, resp, c, account, startTime, originalModel, upstreamModel, output)
+			if attemptOutput != nil {
+				responseBodyOwned = false
+			}
+			streamResult, err := s.handleStreamingResponseWithOutput(ctx, resp, c, account, startTime, originalModel, upstreamModel, attemptOutput)
 			if err != nil {
 				return nil, err
 			}
@@ -795,7 +833,7 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 			imageCount = streamResult.imageCount
 			imageOutputSizes = streamResult.imageOutputSizes
 		} else {
-			nonStreamResult, err := s.handleNonStreamingResponseWithOutput(ctx, resp, c, account, originalModel, upstreamModel, output)
+			nonStreamResult, err := s.handleNonStreamingResponseWithOutput(ctx, resp, c, account, originalModel, upstreamModel, attemptOutput)
 			if err != nil {
 				return nil, err
 			}
@@ -831,6 +869,9 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 			OpenAIWSMode:    false,
 			Duration:        time.Since(startTime),
 			FirstTokenMs:    firstTokenMs,
+		}
+		if attemptOutput != nil {
+			forwardResult.ClientDisconnect = attemptOutput.ClientDisconnected()
 		}
 		if imageCount > 0 {
 			forwardResult.ImageCount = imageCount

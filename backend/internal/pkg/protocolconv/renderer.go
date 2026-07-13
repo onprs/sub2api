@@ -96,6 +96,15 @@ func (r *Renderer) FrameStreamEvent(body []byte) ([]byte, error) {
 	}
 }
 
+// StreamKeepalive returns a protocol-neutral SSE comment frame. Whether and
+// when to emit it remains service-owned transport policy.
+func (r *Renderer) StreamKeepalive() []byte {
+	if r == nil {
+		return nil
+	}
+	return []byte(":\n\n")
+}
+
 // StreamTerminal returns the source-protocol terminal sentinel. OpenAI Chat
 // Completions and Responses use a separate [DONE] frame after their JSON
 // lifecycle events.

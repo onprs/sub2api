@@ -14,7 +14,14 @@ type openAIProtocolOutput interface {
 	WriteResponse(protocoltransport.Response) error
 	WriteStreamHeaders(status int, headers http.Header, actual protocolconv.Protocol) error
 	WriteStreamEvent(actual protocolconv.Protocol, payload []byte) error
+	WriteStreamKeepalive() error
 	FinalizeStream(actual protocolconv.Protocol) error
 	ClientOutputStarted() bool
 	ClientDisconnected() bool
+}
+
+// openAIProtocolRetryOutput creates isolated conversion state when provider
+// policy rebuilds and resends a source request on the same account.
+type openAIProtocolRetryOutput interface {
+	NewRetryAttempt() (openAIProtocolOutput, error)
 }

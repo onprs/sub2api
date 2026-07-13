@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
@@ -118,9 +120,6 @@ func (o *nativeResponsesProtocolOutput) WriteStreamHeaders(status int, headers h
 }
 
 func (o *nativeResponsesProtocolOutput) WriteStreamEvent(actual protocolconv.Protocol, payload []byte) error {
-	if o.clientDisconnected {
-		return nil
-	}
 	if o.session == nil {
 		return errors.New("stream event received before native Responses stream initialization")
 	}
@@ -130,6 +129,9 @@ func (o *nativeResponsesProtocolOutput) WriteStreamEvent(actual protocolconv.Pro
 	payloads, _, err := o.session.Convert(payload)
 	if err != nil {
 		return err
+	}
+	if o.clientDisconnected {
+		return nil
 	}
 	for _, converted := range payloads {
 		converted = o.restoreModel(converted)
@@ -144,6 +146,26 @@ func (o *nativeResponsesProtocolOutput) WriteStreamEvent(actual protocolconv.Pro
 		if err := o.writeStreamPayloads(toWrite); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (o *nativeResponsesProtocolOutput) WriteStreamKeepalive() error {
+	if !o.stream || o.session == nil {
+		return errors.New("native Responses stream was not initialized")
+	}
+	if o.clientDisconnected {
+		return nil
+	}
+	if err := o.ensureStreamHeaders(); err != nil {
+		return err
+	}
+	if _, err := o.writer.Write(o.renderer.StreamKeepalive()); err != nil {
+		o.clientDisconnected = true
+		return nil
+	}
+	if flusher, ok := o.writer.(http.Flusher); ok {
+		flusher.Flush()
 	}
 	return nil
 }
@@ -243,10 +265,11 @@ func (o *nativeResponsesProtocolOutput) restoreModel(body []byte) []byte {
 func (o *nativeResponsesProtocolOutput) ClientOutputStarted() bool { return o.outputStarted }
 func (o *nativeResponsesProtocolOutput) ClientDisconnected() bool  { return o.clientDisconnected }
 
-func (s *OpenAIGatewayService) collectStructuredResponsesPassthroughStream(
+func (s *OpenAIGatewayService) collectStructuredResponsesStream(
 	resp *http.Response,
 	startTime time.Time,
 	output openAIProtocolOutput,
+	passthrough bool,
 ) (*protocoltransport.Stream, error) {
 	if resp == nil || resp.Body == nil {
 		return nil, errors.New("nil OpenAI Responses upstream stream")
@@ -256,7 +279,7 @@ func (s *OpenAIGatewayService) collectStructuredResponsesPassthroughStream(
 		maxRecordSize = s.cfg.Gateway.MaxLineSize
 	}
 	filteredHeaders := responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
-	if isNativeResponsesProtocolOutput(output) {
+	if passthrough && isNativeResponsesProtocolOutput(output) {
 		filteredHeaders = filterOpenAIPassthroughResponseHeaders(resp.Header, s.responseHeaderFilter)
 	}
 	stream := &protocoltransport.Stream{
@@ -274,6 +297,294 @@ func (s *OpenAIGatewayService) collectStructuredResponsesPassthroughStream(
 	return stream, nil
 }
 
+func (s *OpenAIGatewayService) handleStructuredResponsesStream(
+	ctx context.Context,
+	resp *http.Response,
+	c *gin.Context,
+	account *Account,
+	startTime time.Time,
+	originalModel string,
+	output openAIProtocolOutput,
+) (*openaiStreamingResult, error) {
+	stream, err := s.collectStructuredResponsesStream(resp, startTime, output, false)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = stream.Close() }()
+	if err := output.WriteStreamHeaders(stream.StatusCode, stream.Headers, stream.ActualProtocol); err != nil {
+		return nil, err
+	}
+	parser, ok := stream.Events.(*protocoltransport.SSEParser)
+	if !ok {
+		return nil, errors.New("structured Responses stream has no bounded SSE parser")
+	}
+
+	usage := &OpenAIUsage{}
+	imageCounter := newOpenAIImageOutputCounter()
+	var firstTokenMs *int
+	responseID := ""
+	sawDone := false
+	sawTerminalEvent := false
+	sawFailedEvent := false
+	failedMessage := ""
+	upstreamRequestID := strings.TrimSpace(stream.RequestID)
+	streamOutputAccumulator := apicompat.NewBufferedResponseAccumulator()
+	streamImageOutputs := make([]json.RawMessage, 0, 1)
+	streamSeenImages := make(map[string]struct{})
+	lastDownstreamWriteAt := time.Now()
+	resultWithUsage := func() *openaiStreamingResult {
+		return &openaiStreamingResult{
+			usage: usage, firstTokenMs: firstTokenMs, responseID: responseID,
+			imageCount: imageCounter.Count(), imageOutputSizes: imageCounter.Sizes(),
+		}
+	}
+	clientOutputStarted := func() bool {
+		return openAIStreamClientOutputStarted(c, output.ClientOutputStarted())
+	}
+	finalize := func() (*openaiStreamingResult, error) {
+		if sawFailedEvent {
+			return resultWithUsage(), fmt.Errorf("upstream response failed: %s", failedMessage)
+		}
+		if !sawDone && !sawTerminalEvent {
+			if !clientOutputStarted() {
+				return resultWithUsage(), s.newOpenAIStreamFailoverError(
+					c, account, false, upstreamRequestID, nil,
+					"OpenAI stream ended before a terminal event",
+				)
+			}
+			return resultWithUsage(), errors.New("stream usage incomplete: missing terminal event")
+		}
+		if err := output.FinalizeStream(stream.ActualProtocol); err != nil {
+			return resultWithUsage(), err
+		}
+		return resultWithUsage(), nil
+	}
+	handleReadError := func(readErr error) (*openaiStreamingResult, error, bool) {
+		if readErr == nil {
+			return nil, nil, false
+		}
+		if sawTerminalEvent && !sawFailedEvent {
+			logger.LegacyPrintf("service.openai_gateway", "Upstream structured stream ended after terminal event: %v", readErr)
+			result, finalizeErr := finalize()
+			return result, finalizeErr, true
+		}
+		if sawFailedEvent {
+			return resultWithUsage(), fmt.Errorf("upstream response failed: %s", failedMessage), true
+		}
+		if errors.Is(readErr, context.Canceled) || errors.Is(readErr, context.DeadlineExceeded) {
+			return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", readErr), true
+		}
+		if !clientOutputStarted() {
+			message := "OpenAI stream disconnected before completion"
+			if errText := strings.TrimSpace(readErr.Error()); errText != "" {
+				message += ": " + errText
+			}
+			return resultWithUsage(), s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, nil, message), true
+		}
+		if output.ClientDisconnected() {
+			return resultWithUsage(), fmt.Errorf("stream usage incomplete after disconnect: %w", readErr), true
+		}
+		return resultWithUsage(), fmt.Errorf("stream read error: %w", readErr), true
+	}
+	processRecord := func(record protocoltransport.SSERecord) error {
+		dataBytes := []byte(openAICompatPayloadWithEventType(string(record.Data), record.Event))
+		eventType := strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())
+		if openAIStreamEventIsTerminal(string(dataBytes)) {
+			sawTerminalEvent = true
+		}
+		if responseID == "" {
+			responseID = extractOpenAIResponseIDFromJSONBytes(dataBytes)
+			stream.ResponseID = responseID
+		}
+		forceFailedOutput := false
+		if eventType == "response.failed" {
+			failedMessage = extractOpenAISSEErrorMessage(dataBytes)
+			s.parseSSEUsageBytes(dataBytes, usage)
+			if hit, code, msg := detectOpenAICyberPolicy(dataBytes); hit {
+				MarkOpsCyberPolicy(c, CyberPolicyMark{
+					Code: code, Message: msg, Body: truncateString(string(dataBytes), 4096),
+					UpstreamStatus: http.StatusOK, UpstreamInTok: usage.InputTokens, UpstreamOutTok: usage.OutputTokens,
+				})
+			}
+			if !clientOutputStarted() {
+				if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(c, account.Platform, dataBytes, failedMessage); matched {
+					sawFailedEvent = true
+					if isNativeResponsesProtocolOutput(output) {
+						s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "http_error", dataBytes, failedMessage)
+						MarkResponseCommitted(c)
+						c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+						c.JSON(status, gin.H{"error": gin.H{"type": errType, "message": errMsg}})
+					}
+					return fmt.Errorf("upstream response failed: passthrough rule matched message=%s", errMsg)
+				}
+				if openAIStreamFailedEventShouldFailover(dataBytes, failedMessage) {
+					sawFailedEvent = true
+					return s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, dataBytes, failedMessage)
+				}
+			}
+			forceFailedOutput = true
+			sawFailedEvent = true
+		}
+
+		imageCounter.AddSSEData(dataBytes)
+		if correctedData, corrected := s.toolCorrector.CorrectToolCallsInSSEBytes(dataBytes); corrected {
+			dataBytes = correctedData
+			eventType = strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())
+		}
+		if imageOutput, found := extractImageGenerationOutputFromSSEData(dataBytes, streamSeenImages); found {
+			streamImageOutputs = append(streamImageOutputs, imageOutput)
+		}
+		if responsesStreamEventMayContributeToOutput(eventType) {
+			var streamEvent apicompat.ResponsesStreamEvent
+			if err := json.Unmarshal(dataBytes, &streamEvent); err == nil {
+				streamOutputAccumulator.ProcessEvent(&streamEvent)
+			}
+		}
+		if normalizedData, normalized := normalizeResponsesStreamingTerminalOutput(dataBytes, streamOutputAccumulator, streamImageOutputs); normalized {
+			dataBytes = normalizedData
+			eventType = strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())
+		}
+		if sanitizedData, sanitized := sanitizeOpenAIResponseFailedEventForClient(dataBytes, eventType, clientOutputStarted()); sanitized {
+			dataBytes = sanitizedData
+		}
+		startsOutput := forceFailedOutput || openAIStreamDataStartsClientOutput(string(dataBytes), eventType)
+		if firstTokenMs == nil && startsOutput {
+			ms := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &ms
+		}
+		s.parseSSEUsageBytes(dataBytes, usage)
+		wasStarted := output.ClientOutputStarted()
+		if err := output.WriteStreamEvent(stream.ActualProtocol, dataBytes); err != nil {
+			return err
+		}
+		if !output.ClientDisconnected() && (output.ClientOutputStarted() || wasStarted) {
+			lastDownstreamWriteAt = time.Now()
+		}
+		return nil
+	}
+
+	streamInterval := time.Duration(0)
+	keepaliveInterval := time.Duration(0)
+	if s.cfg != nil {
+		if s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
+			streamInterval = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
+		}
+		if s.cfg.Gateway.StreamKeepaliveInterval > 0 {
+			keepaliveInterval = time.Duration(s.cfg.Gateway.StreamKeepaliveInterval) * time.Second
+		}
+	}
+	if streamInterval <= 0 && keepaliveInterval <= 0 {
+		for {
+			record, nextErr := stream.Events.Next(context.Background())
+			if errors.Is(nextErr, protocoltransport.ErrSSEDone) {
+				sawDone = true
+				break
+			}
+			if errors.Is(nextErr, io.EOF) {
+				break
+			}
+			if result, readErr, done := handleReadError(nextErr); done {
+				return result, readErr
+			}
+			if err := processRecord(record); err != nil {
+				return resultWithUsage(), err
+			}
+		}
+		return finalize()
+	}
+
+	type streamEvent struct {
+		record protocoltransport.SSERecord
+		err    error
+	}
+	events := make(chan streamEvent, 16)
+	done := make(chan struct{})
+	go func() {
+		defer close(events)
+		for {
+			record, nextErr := stream.Events.Next(context.Background())
+			select {
+			case events <- streamEvent{record: record, err: nextErr}:
+			case <-done:
+				return
+			}
+			if nextErr != nil {
+				return
+			}
+		}
+	}()
+	defer close(done)
+
+	var intervalTicker *time.Ticker
+	if streamInterval > 0 {
+		intervalTicker = time.NewTicker(streamInterval)
+		defer intervalTicker.Stop()
+	}
+	var intervalCh <-chan time.Time
+	if intervalTicker != nil {
+		intervalCh = intervalTicker.C
+	}
+	var keepaliveTicker *time.Ticker
+	if keepaliveInterval > 0 {
+		keepaliveTicker = time.NewTicker(keepaliveInterval)
+		defer keepaliveTicker.Stop()
+	}
+	var keepaliveCh <-chan time.Time
+	if keepaliveTicker != nil {
+		keepaliveCh = keepaliveTicker.C
+	}
+
+	for {
+		select {
+		case event, open := <-events:
+			if !open {
+				return finalize()
+			}
+			if errors.Is(event.err, protocoltransport.ErrSSEDone) {
+				sawDone = true
+				return finalize()
+			}
+			if errors.Is(event.err, io.EOF) {
+				return finalize()
+			}
+			if result, readErr, handled := handleReadError(event.err); handled {
+				return result, readErr
+			}
+			if err := processRecord(event.record); err != nil {
+				return resultWithUsage(), err
+			}
+
+		case <-intervalCh:
+			if time.Since(parser.Progress().LastReadAt) < streamInterval {
+				continue
+			}
+			if output.ClientDisconnected() {
+				return resultWithUsage(), errors.New("stream usage incomplete after timeout")
+			}
+			logger.LegacyPrintf("service.openai_gateway", "Stream data interval timeout: account=%d model=%s interval=%s", account.ID, originalModel, streamInterval)
+			if s.rateLimitService != nil {
+				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
+			}
+			if isNativeResponsesProtocolOutput(output) {
+				payload := []byte(`{"type":"error","sequence_number":0,"error":{"type":"upstream_error","message":"stream_timeout","code":"stream_timeout"}}`)
+				_ = output.WriteStreamEvent(stream.ActualProtocol, payload)
+			}
+			return resultWithUsage(), errors.New("stream data interval timeout")
+
+		case <-keepaliveCh:
+			if output.ClientDisconnected() || time.Since(lastDownstreamWriteAt) < keepaliveInterval {
+				continue
+			}
+			if err := output.WriteStreamKeepalive(); err != nil {
+				return resultWithUsage(), err
+			}
+			if !output.ClientDisconnected() {
+				lastDownstreamWriteAt = time.Now()
+			}
+		}
+	}
+}
+
 func (s *OpenAIGatewayService) handleStructuredResponsesPassthroughStream(
 	ctx context.Context,
 	resp *http.Response,
@@ -282,7 +593,7 @@ func (s *OpenAIGatewayService) handleStructuredResponsesPassthroughStream(
 	startTime time.Time,
 	output openAIProtocolOutput,
 ) (*openaiStreamingResultPassthrough, error) {
-	stream, err := s.collectStructuredResponsesPassthroughStream(resp, startTime, output)
+	stream, err := s.collectStructuredResponsesStream(resp, startTime, output, true)
 	if err != nil {
 		return nil, err
 	}

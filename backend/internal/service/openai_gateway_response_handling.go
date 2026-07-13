@@ -46,23 +46,19 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 
 func (s *OpenAIGatewayService) handleStreamingResponseWithOutput(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string, output openAIProtocolOutput) (*openaiStreamingResult, error) {
 	if output != nil {
-		filteredHeaders := responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
-		if err := output.WriteStreamHeaders(resp.StatusCode, filteredHeaders, protocolconv.ProtocolOpenAIResponses); err != nil {
-			return nil, err
-		}
-	} else {
-		if s.responseHeaderFilter != nil {
-			responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-		}
+		return s.handleStructuredResponsesStream(ctx, resp, c, account, startTime, originalModel, output)
+	}
+	if s.responseHeaderFilter != nil {
+		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	}
 
-		// Set native Responses SSE headers.
-		c.Header("Content-Type", "text/event-stream")
-		c.Header("Cache-Control", "no-cache")
-		c.Header("Connection", "keep-alive")
-		c.Header("X-Accel-Buffering", "no")
-		if v := resp.Header.Get("x-request-id"); v != "" {
-			c.Header("x-request-id", v)
-		}
+	// Set native Responses SSE headers.
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	if v := resp.Header.Get("x-request-id"); v != "" {
+		c.Header("x-request-id", v)
 	}
 
 	w := c.Writer

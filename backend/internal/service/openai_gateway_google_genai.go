@@ -34,7 +34,7 @@ func (s *OpenAIGatewayService) ForwardGoogleGenAI(
 	}
 
 	upstreamModel := account.GetMappedModel(routingModel)
-	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+	pipelineConfig := protocolconv.PipelineConfig{
 		Route: protocolconv.Route{
 			Source:         protocolconv.ProtocolGoogleGenAI,
 			IntendedTarget: protocolconv.ProtocolOpenAIResponses,
@@ -44,15 +44,8 @@ func (s *OpenAIGatewayService) ForwardGoogleGenAI(
 			AccountID:      account.ID,
 		},
 		Options: protocolconv.Options{LossPolicy: protocolconv.LossError},
-	})
-	if err != nil {
-		return nil, err
 	}
-	converted, err := pipeline.ConvertRequest(body)
-	if err != nil {
-		return nil, fmt.Errorf("convert Google GenAI request to OpenAI Responses: %w", err)
-	}
-	convertedBody, err := setOpenAIResponsesStream(converted.Body, stream)
+	pipeline, convertedBody, err := newGoogleGenAIResponsesAttempt(body, pipelineConfig, stream)
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +53,8 @@ func (s *OpenAIGatewayService) ForwardGoogleGenAI(
 	if err != nil {
 		return nil, err
 	}
+	output.requestBody = append([]byte(nil), body...)
+	output.pipelineConfig = pipelineConfig
 
 	result, forwardErr := s.forwardWithProtocolOutput(ctx, c, account, convertedBody, output)
 	if forwardErr != nil {
@@ -68,9 +63,25 @@ func (s *OpenAIGatewayService) ForwardGoogleGenAI(
 	if result != nil {
 		result.Model = clientModel
 		result.Stream = stream
-		result.ClientDisconnect = output.ClientDisconnected()
+		result.ClientDisconnect = result.ClientDisconnect || output.ClientDisconnected()
 	}
 	return result, nil
+}
+
+func newGoogleGenAIResponsesAttempt(body []byte, config protocolconv.PipelineConfig, stream bool) (*protocolconv.Pipeline, []byte, error) {
+	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, config)
+	if err != nil {
+		return nil, nil, err
+	}
+	converted, err := pipeline.ConvertRequest(body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("convert Google GenAI request to OpenAI Responses: %w", err)
+	}
+	convertedBody, err := setOpenAIResponsesStream(converted.Body, stream)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pipeline, convertedBody, nil
 }
 
 func setOpenAIResponsesStream(body []byte, stream bool) ([]byte, error) {
@@ -105,6 +116,9 @@ type googleGenAIProtocolOutput struct {
 	outputStarted      bool
 	clientDisconnected bool
 	actualProtocol     protocolconv.Protocol
+
+	requestBody    []byte
+	pipelineConfig protocolconv.PipelineConfig
 }
 
 func newGoogleGenAIProtocolOutput(writer http.ResponseWriter, pipeline *protocolconv.Pipeline, stream bool) (*googleGenAIProtocolOutput, error) {
@@ -113,6 +127,23 @@ func newGoogleGenAIProtocolOutput(writer http.ResponseWriter, pipeline *protocol
 		return nil, err
 	}
 	return &googleGenAIProtocolOutput{writer: writer, pipeline: pipeline, renderer: renderer, stream: stream}, nil
+}
+
+func (o *googleGenAIProtocolOutput) NewRetryAttempt() (openAIProtocolOutput, error) {
+	if len(o.requestBody) == 0 {
+		return nil, errors.New("Google GenAI retry output has no source request")
+	}
+	pipeline, _, err := newGoogleGenAIResponsesAttempt(o.requestBody, o.pipelineConfig, o.stream)
+	if err != nil {
+		return nil, err
+	}
+	retry, err := newGoogleGenAIProtocolOutput(o.writer, pipeline, o.stream)
+	if err != nil {
+		return nil, err
+	}
+	retry.requestBody = append([]byte(nil), o.requestBody...)
+	retry.pipelineConfig = o.pipelineConfig
+	return retry, nil
 }
 
 func (o *googleGenAIProtocolOutput) WriteResponse(response protocoltransport.Response) error {
@@ -191,6 +222,12 @@ func (o *googleGenAIProtocolOutput) WriteStreamEvent(actual protocolconv.Protoco
 			flusher.Flush()
 		}
 	}
+	return nil
+}
+
+func (o *googleGenAIProtocolOutput) WriteStreamKeepalive() error {
+	// Google clients only receive source-protocol JSON events. The service may
+	// still run its upstream timeout ticker, but no Responses comment is exposed.
 	return nil
 }
 

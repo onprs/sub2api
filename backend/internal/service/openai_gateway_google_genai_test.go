@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -401,6 +403,40 @@ func TestForwardGoogleGenAIStreamingRawChatFallbackUsesActualProtocol(t *testing
 	require.NotContains(t, wire, "[DONE]")
 	require.Equal(t, 4, result.Usage.InputTokens)
 	require.Equal(t, 2, result.Usage.OutputTokens)
+}
+
+func TestGoogleGenAIProtocolOutputRetryUsesFreshPipeline(t *testing.T) {
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	config := protocolconv.PipelineConfig{
+		Route: protocolconv.Route{
+			Source: protocolconv.ProtocolGoogleGenAI, IntendedTarget: protocolconv.ProtocolOpenAIResponses,
+			ClientModel: "client-google-model", UpstreamModel: "gpt-5.4", Provider: PlatformOpenAI, AccountID: 91,
+		},
+		Options: protocolconv.Options{LossPolicy: protocolconv.LossError},
+	}
+	pipeline, _, err := newGoogleGenAIResponsesAttempt(body, config, false)
+	require.NoError(t, err)
+	firstWriter := httptest.NewRecorder()
+	first, err := newGoogleGenAIProtocolOutput(firstWriter, pipeline, false)
+	require.NoError(t, err)
+	first.requestBody = append([]byte(nil), body...)
+	first.pipelineConfig = config
+
+	retryOutput, err := first.NewRetryAttempt()
+	require.NoError(t, err)
+	retry, ok := retryOutput.(*googleGenAIProtocolOutput)
+	require.True(t, ok)
+	require.NotSame(t, first, retry)
+	require.NotSame(t, first.pipeline, retry.pipeline)
+
+	response := protocoltransport.Response{
+		StatusCode: http.StatusOK, ActualProtocol: protocolconv.ProtocolOpenAIResponses,
+		Body: []byte(`{"id":"resp_retry","model":"gpt-5.4","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"retried"}]}],"usage":{"input_tokens":4,"output_tokens":1}}`),
+	}
+	require.NoError(t, retry.WriteResponse(response))
+	require.Equal(t, "resp_retry", gjson.Get(firstWriter.Body.String(), "responseId").String())
+	require.Equal(t, "client-google-model", gjson.Get(firstWriter.Body.String(), "modelVersion").String())
+	require.Equal(t, "retried", gjson.Get(firstWriter.Body.String(), "candidates.0.content.parts.0.text").String())
 }
 
 func TestForwardGoogleGenAIPreservesPreOutputFailover(t *testing.T) {

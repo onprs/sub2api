@@ -327,3 +327,212 @@ func TestNativeResponsesProtocolOutputTracksClientDisconnect(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, output.ClientDisconnected())
 }
+
+func TestForwardNativeResponsesBufferedUsesAttemptPipelineAndStructuredResponse(t *testing.T) {
+	responseBody := []byte(" {\n  \"id\":\"resp_native_buffered\",\"model\":\"gpt-5\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":2,\"output_tokens\":1},\"vendor_extension\":{\"opaque\":1.00}\n}\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusCreated,
+		Header: http.Header{
+			"Content-Type":             []string{"application/vnd.openai+json"},
+			"X-Request-Id":             []string{"rid_native_buffered"},
+			"X-RateLimit-Limit-Tokens": []string{"60"},
+		},
+		Body: io.NopCloser(strings.NewReader(string(responseBody))),
+	}}
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = false
+	svc := &OpenAIGatewayService{cfg: cfg, httpUpstream: upstream}
+	account := &Account{
+		ID: 42, Name: "native-buffered", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "test-key", "base_url": "https://example.com"},
+		Extra:       map[string]any{"use_responses_api": true},
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+
+	result, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5","stream":false,"input":"hi"}`))
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 2, result.Usage.InputTokens)
+	require.Equal(t, 1, result.Usage.OutputTokens)
+	require.Equal(t, http.StatusCreated, recorder.Code)
+	require.Equal(t, "60", recorder.Header().Get("X-RateLimit-Limit-Tokens"))
+	require.Equal(t, responseBody, recorder.Body.Bytes())
+}
+
+func TestForwardNativeResponsesStreamingUsesAttemptPipelineAndStructuredTransport(t *testing.T) {
+	bodyReader := &googleResponsesTrackingReadCloser{Reader: strings.NewReader(strings.Join([]string{
+		"event: response.created",
+		`data: {"type":"response.created",`,
+		`data: "response":{"id":"resp_native_forward","model":"upstream-model","status":"in_progress","output":[]},"vendor_extension":{"opaque":true}}`,
+		"",
+		`data: {"type":"response.output_text.delta","delta":"hello"}`,
+		"",
+		`data: {"type":"response.completed","response":{"id":"resp_native_forward","model":"upstream-model","status":"completed","output":null,"usage":{"input_tokens":5,"output_tokens":2}}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n"))}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":             []string{"text/event-stream"},
+			"X-Request-Id":             []string{"rid_native_forward"},
+			"X-RateLimit-Limit-Tokens": []string{"120"},
+			"X-Internal-Secret":        []string{"drop-me"},
+		},
+		Body: bodyReader,
+	}}
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = false
+	svc := &OpenAIGatewayService{cfg: cfg, httpUpstream: upstream}
+	account := &Account{
+		ID: 43, Name: "native-responses", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key": "test-key", "base_url": "https://example.com",
+			"model_mapping": map[string]any{"client-model": "upstream-model"},
+		},
+		Extra: map[string]any{"use_responses_api": true},
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+	requestBody := []byte(`{"model":"client-model","stream":true,"input":"hi"}`)
+
+	result, err := svc.Forward(context.Background(), c, account, requestBody)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "client-model", result.Model)
+	require.Equal(t, "upstream-model", result.UpstreamModel)
+	require.Equal(t, 5, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
+	require.Equal(t, int32(1), bodyReader.closeCount.Load())
+	require.Equal(t, "120", recorder.Header().Get("X-RateLimit-Limit-Tokens"))
+	require.Empty(t, recorder.Header().Get("X-Internal-Secret"))
+	wire := recorder.Body.String()
+	require.Contains(t, wire, "event: response.created")
+	require.Contains(t, wire, `"model":"client-model"`)
+	require.Contains(t, wire, `"vendor_extension":{"opaque":true}`)
+	require.Contains(t, wire, `"text":"hello"`)
+	require.Equal(t, "data: [DONE]\n\n", wire[len(wire)-len("data: [DONE]\n\n"):])
+}
+
+func TestForwardNativeResponsesStreamingRejectsInvalidRecordsBeforeCommit(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		max  int
+		want string
+	}{
+		{name: "malformed", body: "data: {broken}\n\n", max: 1024, want: "malformed SSE JSON payload"},
+		{name: "oversized", body: `data: {"type":"response.output_text.delta","delta":"` + strings.Repeat("x", 128) + `"}` + "\n\n", max: 64, want: "SSE record exceeds 64 bytes"},
+		{name: "premature eof", body: `data: {"type":"response.created","response":{"id":"resp_incomplete"}}` + "\n\n", max: 1024, want: "ended before a terminal event"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body:       io.NopCloser(strings.NewReader(test.body)),
+			}}
+			cfg := &config.Config{Gateway: config.GatewayConfig{MaxLineSize: test.max}}
+			cfg.Security.URLAllowlist.Enabled = false
+			svc := &OpenAIGatewayService{cfg: cfg, httpUpstream: upstream}
+			account := &Account{
+				ID: 44, Name: "native-invalid", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "test-key", "base_url": "https://example.com"},
+				Extra:       map[string]any{"use_responses_api": true},
+			}
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+
+			result, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5","stream":true,"input":"hi"}`))
+
+			require.Nil(t, result)
+			var failoverErr *UpstreamFailoverError
+			require.ErrorAs(t, err, &failoverErr)
+			require.Contains(t, string(failoverErr.ResponseBody), test.want)
+			require.False(t, c.Writer.Written())
+			require.Empty(t, recorder.Body.String())
+		})
+	}
+}
+
+func TestStructuredNativeResponsesPreambleKeepaliveUsesDownstreamIdle(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	pipeline := nativeResponsesOutputTestPipeline(t, "gpt-5", "gpt-5", true)
+	output, err := newNativeResponsesProtocolOutput(c.Writer, pipeline, "gpt-5", "gpt-5", true)
+	require.NoError(t, err)
+	reader, writer := io.Pipe()
+	resp := &http.Response{StatusCode: http.StatusOK, Body: reader, Header: http.Header{"Content-Type": []string{"text/event-stream"}}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		MaxLineSize: 2048, StreamKeepaliveInterval: 1,
+	}}}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = io.WriteString(writer, `data: {"type":"response.created","response":{"id":"resp_keepalive","model":"gpt-5"}}`+"\n\n")
+		for i := 0; i < 6; i++ {
+			time.Sleep(250 * time.Millisecond)
+			_, _ = io.WriteString(writer, `data: {"type":"response.in_progress","response":{"id":"resp_keepalive","model":"gpt-5"}}`+"\n\n")
+		}
+		_, _ = io.WriteString(writer, `data: {"type":"response.completed","response":{"id":"resp_keepalive","model":"gpt-5","output":[],"usage":{"input_tokens":2,"output_tokens":1}}}`+"\n\n")
+		_ = writer.Close()
+	}()
+
+	result, err := svc.handleStructuredResponsesStream(context.Background(), resp, c, &Account{ID: 46, Platform: PlatformOpenAI}, time.Now(), "gpt-5", output)
+	<-done
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 2, result.usage.InputTokens)
+	require.Equal(t, 1, result.usage.OutputTokens)
+	require.Contains(t, recorder.Body.String(), ":\n\n")
+	require.Contains(t, recorder.Body.String(), "event: response.completed")
+}
+
+func TestForwardNativeResponsesStreamingDisconnectDrainsUsage(t *testing.T) {
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.created","response":{"id":"resp_native_disconnect","model":"gpt-5","status":"in_progress","output":[]}}`,
+			"",
+			`data: {"type":"response.output_text.delta","delta":"hello"}`,
+			"",
+			`data: {"type":"response.completed","response":{"id":"resp_native_disconnect","model":"gpt-5","status":"completed","output":[],"usage":{"input_tokens":9,"output_tokens":4}}}`,
+			"",
+		}, "\n"))),
+	}}
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = false
+	svc := &OpenAIGatewayService{cfg: cfg, httpUpstream: upstream}
+	account := &Account{
+		ID: 45, Name: "native-disconnect", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "test-key", "base_url": "https://example.com"},
+		Extra:       map[string]any{"use_responses_api": true},
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Writer = &failingGinWriter{ResponseWriter: c.Writer, failAfter: 0}
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+
+	result, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5","stream":true,"input":"hi"}`))
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.ClientDisconnect)
+	require.Equal(t, 9, result.Usage.InputTokens)
+	require.Equal(t, 4, result.Usage.OutputTokens)
+}

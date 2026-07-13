@@ -28,6 +28,7 @@ func TestRendererFramesAllStandardProtocols(t *testing.T) {
 			got, err := renderer.FrameStreamEvent([]byte(test.body))
 			require.NoError(t, err)
 			require.Equal(t, test.want, string(got))
+			require.Equal(t, ":\n\n", string(renderer.StreamKeepalive()))
 			require.Equal(t, test.terminal, string(renderer.StreamTerminal()))
 		})
 	}
