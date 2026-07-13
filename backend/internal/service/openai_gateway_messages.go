@@ -14,9 +14,13 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
 )
 
@@ -94,8 +98,25 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		compatReplayTrimmed = applyAnthropicCompatFullReplayGuard(&anthropicReq)
 	}
 
-	// 3. Keep the Codex-specific bridge here. Beyond wire conversion it preserves
-	// developer-input ordering, continuation trimming, and call-ID normalization.
+	// Establish the standard request lifecycle and request-scoped tool/model
+	// metadata before applying the retained Codex request policy below.
+	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+		Route: protocolconv.Route{
+			Source: protocolconv.ProtocolAnthropic, IntendedTarget: protocolconv.ProtocolOpenAIResponses,
+			ClientModel: originalModel, UpstreamModel: upstreamModel, Provider: account.Platform, AccountID: account.ID,
+		},
+		Options: protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossError},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create Anthropic Responses pipeline: %w", err)
+	}
+	if _, err := pipeline.ConvertRequest(body); err != nil {
+		return nil, fmt.Errorf("convert Anthropic request through standard pipeline: %w", err)
+	}
+
+	// Keep the Codex-specific request transform here. Beyond wire conversion it
+	// preserves developer-input ordering, provider defaults, continuation
+	// trimming, and call-ID normalization.
 	responsesReq, err := apicompat.AnthropicToResponses(&anthropicReq)
 	if err != nil {
 		return nil, fmt.Errorf("convert anthropic to responses: %w", err)
@@ -353,10 +374,10 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	var result *OpenAIForwardResult
 	var handleErr error
 	if clientStream {
-		result, handleErr = s.handleAnthropicStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime)
+		result, handleErr = s.handleAnthropicStreamingResponse(resp, c, account, pipeline, originalModel, billingModel, upstreamModel, startTime)
 	} else {
 		// Client wants JSON: buffer the streaming response and assemble a JSON reply.
-		result, handleErr = s.handleAnthropicBufferedStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime)
+		result, handleErr = s.handleAnthropicBufferedStreamingResponse(resp, c, account, pipeline, originalModel, billingModel, upstreamModel, startTime)
 	}
 
 	// cyber_policy：标记已设、error 已按 Anthropic 格式发给客户端。丢弃 result、返回哨兵，
@@ -433,6 +454,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	resp *http.Response,
 	c *gin.Context,
 	account *Account,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
@@ -440,7 +462,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 
-	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, "openai messages buffered", requestID)
+	finalResponse, terminalBody, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, "openai messages buffered", requestID)
 	if err != nil {
 		return nil, err
 	}
@@ -491,14 +513,48 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 
 	// When the terminal event has an empty output array, reconstruct from
 	// accumulated delta events so the client receives the full content.
+	terminalHadOutput := len(finalResponse.Output) > 0
 	acc.SupplementResponseOutput(finalResponse)
-
-	anthropicResp := apicompat.ResponsesToAnthropic(finalResponse, originalModel)
-
-	if s.responseHeaderFilter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	upstreamBody := terminalBody
+	if len(upstreamBody) == 0 {
+		upstreamBody, err = json.Marshal(finalResponse)
+		if err != nil {
+			return nil, fmt.Errorf("marshal buffered Responses result: %w", err)
+		}
 	}
-	c.JSON(http.StatusOK, anthropicResp)
+	if !terminalHadOutput {
+		if output, marshalErr := json.Marshal(finalResponse.Output); marshalErr == nil {
+			if updated, setErr := sjson.SetRawBytes(upstreamBody, "output", output); setErr == nil {
+				upstreamBody = updated
+			}
+		}
+	}
+	if finalResponse.Usage != nil && !gjson.GetBytes(upstreamBody, "usage").Exists() {
+		if rawUsage, marshalErr := json.Marshal(finalResponse.Usage); marshalErr == nil {
+			if updated, setErr := sjson.SetRawBytes(upstreamBody, "usage", rawUsage); setErr == nil {
+				upstreamBody = updated
+			}
+		}
+	}
+	structured := protocoltransport.Response{
+		StatusCode: http.StatusOK, Headers: responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
+		Body: upstreamBody, ActualProtocol: protocolconv.ProtocolOpenAIResponses,
+		RequestID: requestID, ResponseID: finalResponse.ID, Duration: time.Since(startTime),
+	}
+	if err := structured.Validate(); err != nil {
+		return nil, fmt.Errorf("validate buffered Responses result: %w", err)
+	}
+	converted, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
+	if err != nil {
+		return nil, fmt.Errorf("convert buffered Responses to Anthropic: %w", err)
+	}
+	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolAnthropic)
+	if err != nil {
+		return nil, err
+	}
+	if err := renderer.RenderJSON(c.Writer, structured.StatusCode, structured.Headers, converted.Body); err != nil {
+		return nil, fmt.Errorf("render Anthropic response: %w", err)
+	}
 
 	return &OpenAIForwardResult{
 		RequestID:     requestID,
@@ -551,11 +607,11 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 	resp *http.Response,
 	logPrefix string,
 	requestID string,
-) (*apicompat.ResponsesResponse, OpenAIUsage, *apicompat.BufferedResponseAccumulator, error) {
+) (*apicompat.ResponsesResponse, []byte, OpenAIUsage, *apicompat.BufferedResponseAccumulator, error) {
 	acc := apicompat.NewBufferedResponseAccumulator()
 	var usage OpenAIUsage
 	if resp == nil || resp.Body == nil {
-		return nil, usage, acc, errors.New("upstream response body is nil")
+		return nil, nil, usage, acc, errors.New("upstream response body is nil")
 	}
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
@@ -641,11 +697,11 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 							if event.Response.Usage != nil {
 								usage = copyOpenAIUsageFromResponsesUsage(event.Response.Usage)
 							}
-							return event.Response, usage, acc, nil
+							return event.Response, openAICompatTerminalResponseBody(payload), usage, acc, nil
 						}
 					}
 				}
-				return nil, usage, acc, nil
+				return nil, nil, usage, acc, nil
 			}
 			resetTimeout()
 			if ev.err != nil {
@@ -655,11 +711,11 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 						zap.String("request_id", requestID),
 					)
 				}
-				return nil, usage, acc, ev.err
+				return nil, nil, usage, acc, ev.err
 			}
 
 			if isOpenAICompatDoneSentinelLine(ev.line) {
-				return nil, usage, acc, nil
+				return nil, nil, usage, acc, nil
 			}
 			frame, ok := parser.AddLine(ev.line)
 			if !ok {
@@ -688,7 +744,7 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 				if event.Response.Usage != nil {
 					usage = copyOpenAIUsageFromResponsesUsage(event.Response.Usage)
 				}
-				return event.Response, usage, acc, nil
+				return event.Response, openAICompatTerminalResponseBody(payload), usage, acc, nil
 			}
 
 		case <-timeoutCh:
@@ -697,9 +753,17 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 				zap.String("request_id", requestID),
 				zap.Duration("interval", streamInterval),
 			)
-			return nil, usage, acc, fmt.Errorf("stream data interval timeout")
+			return nil, nil, usage, acc, fmt.Errorf("stream data interval timeout")
 		}
 	}
+}
+
+func openAICompatTerminalResponseBody(payload string) []byte {
+	response := gjson.Get(payload, "response")
+	if !response.Exists() || response.Type != gjson.JSON {
+		return nil
+	}
+	return append([]byte(nil), response.Raw...)
 }
 
 // handleAnthropicStreamingResponse reads Responses SSE events from upstream,
@@ -711,16 +775,31 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	resp *http.Response,
 	c *gin.Context,
 	account *Account,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
-	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
+	filteredHeaders := responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
+	session, err := pipeline.NewStreamProcessor(protocolconv.ProtocolOpenAIResponses)
+	if err != nil {
+		return nil, fmt.Errorf("create Anthropic Responses stream processor: %w", err)
+	}
+	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolAnthropic)
+	if err != nil {
+		return nil, err
+	}
+	headersWritten := false
+	writeStreamHeaders := func() {
+		if headersWritten {
+			return
+		}
+		_ = renderer.WriteStreamHeaders(c.Writer, http.StatusOK, filteredHeaders)
+		headersWritten = true
+	}
 
-	state := apicompat.NewResponsesEventToAnthropicState()
-	state.Model = originalModel
 	var usage OpenAIUsage
 	responseID := ""
 	var firstTokenMs *int
@@ -852,20 +931,20 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			}
 		}
 
-		// Convert to Anthropic events
-		events := apicompat.ResponsesEventToAnthropicEvents(&event, state)
+		payloads, _, conversionErr := session.Convert([]byte(payload))
+		if conversionErr != nil {
+			streamNonFailoverErr = fmt.Errorf("convert Responses stream event to Anthropic: %w", conversionErr)
+			return true
+		}
 		if !clientDisconnected {
-			for _, evt := range events {
-				sse, err := apicompat.ResponsesAnthropicEventToSSE(evt)
+			for _, converted := range payloads {
+				framed, err := renderer.FrameStreamEvent(converted)
 				if err != nil {
-					logger.L().Warn("openai messages stream: failed to marshal event",
-						zap.Error(err),
-						zap.String("request_id", requestID),
-					)
-					continue
+					streamNonFailoverErr = fmt.Errorf("frame Anthropic stream event: %w", err)
+					return true
 				}
 				writeStreamHeaders()
-				if _, err := fmt.Fprint(c.Writer, sse); err != nil {
+				if _, err := c.Writer.Write(framed); err != nil {
 					clientDisconnected = true
 					logger.L().Info("openai messages stream: client disconnected, continuing to drain upstream for billing",
 						zap.String("request_id", requestID),
@@ -875,7 +954,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				clientOutputStarted = true
 			}
 		}
-		if len(events) > 0 && !clientDisconnected {
+		if len(payloads) > 0 && !clientDisconnected {
 			c.Writer.Flush()
 		}
 		return isTerminalEvent
@@ -889,14 +968,18 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		if streamNonFailoverErr != nil {
 			return resultWithUsage(), streamNonFailoverErr
 		}
-		if finalEvents := apicompat.FinalizeResponsesAnthropicStream(state); len(finalEvents) > 0 && !clientDisconnected {
-			for _, evt := range finalEvents {
-				sse, err := apicompat.ResponsesAnthropicEventToSSE(evt)
+		finalPayloads, _, err := session.Finalize()
+		if err != nil {
+			return resultWithUsage(), fmt.Errorf("finalize Anthropic Responses stream: %w", err)
+		}
+		if !clientDisconnected {
+			for _, converted := range finalPayloads {
+				framed, err := renderer.FrameStreamEvent(converted)
 				if err != nil {
-					continue
+					return resultWithUsage(), err
 				}
 				writeStreamHeaders()
-				if _, err := fmt.Fprint(c.Writer, sse); err != nil {
+				if _, err := c.Writer.Write(framed); err != nil {
 					clientDisconnected = true
 					logger.L().Info("openai messages stream: client disconnected during final flush",
 						zap.String("request_id", requestID),
@@ -905,7 +988,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				}
 				clientOutputStarted = true
 			}
-			if !clientDisconnected {
+			if len(finalPayloads) > 0 && !clientDisconnected {
 				c.Writer.Flush()
 			}
 		}
