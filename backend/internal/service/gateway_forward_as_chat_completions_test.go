@@ -6,10 +6,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -42,14 +44,14 @@ func TestExtractCCReasoningEffortFromBody(t *testing.T) {
 
 func TestHandleCCBufferedFromAnthropic_PreservesMessageStartCacheUsageAndReasoning(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 
 	reasoningEffort := "high"
 	resp := &http.Response{
-		Header: http.Header{"x-request-id": []string{"rid_cc_buffered"}},
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"x-request-id": []string{"rid_cc_buffered"}},
 		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
 			`event: message_start`,
 			`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4.5","stop_reason":"","usage":{"input_tokens":12,"cache_read_input_tokens":9,"cache_creation_input_tokens":3}}}`,
@@ -60,11 +62,15 @@ func TestHandleCCBufferedFromAnthropic_PreservesMessageStartCacheUsageAndReasoni
 			`event: message_delta`,
 			`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}`,
 			``,
+			`event: message_stop`,
+			`data: {"type":"message_stop"}`,
+			``,
 		}, "\n"))),
 	}
 
 	svc := &GatewayService{}
-	result, err := svc.handleCCBufferedFromAnthropic(resp, c, "gpt-5", "claude-sonnet-4.5", &reasoningEffort, time.Now())
+	pipeline := chatAnthropicTestPipeline(t, false, false)
+	result, err := svc.handleCCBufferedFromAnthropic(resp, c, pipeline, "gpt-5", "claude-sonnet-4.5", &reasoningEffort, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 12, result.Usage.InputTokens)
@@ -75,16 +81,74 @@ func TestHandleCCBufferedFromAnthropic_PreservesMessageStartCacheUsageAndReasoni
 	require.Equal(t, "high", *result.ReasoningEffort)
 }
 
+func TestHandleCCBufferedFromAnthropic_RejectsMissingTerminal(t *testing.T) {
+	t.Parallel()
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"x-request-id": []string{"rid_cc_incomplete"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`event: message_start`,
+			`data: {"type":"message_start","message":{"id":"msg_incomplete","type":"message","role":"assistant","content":[],"model":"upstream-model","usage":{"input_tokens":1}}}`,
+			``,
+		}, "\n"))),
+	}
+
+	result, err := (&GatewayService{}).handleCCBufferedFromAnthropic(resp, c, chatAnthropicTestPipeline(t, false, false), "gpt-5", "upstream-model", nil, time.Now())
+	require.ErrorContains(t, err, "without message_stop")
+	require.Nil(t, result)
+}
+
+func TestHandleCCBufferedFromAnthropic_TerminalWithoutUpstreamCloseReturns(t *testing.T) {
+	t.Parallel()
+	reader, writer := io.Pipe()
+	releaseWriter := make(chan struct{})
+	defer close(releaseWriter)
+	go func() {
+		_, _ = writer.Write([]byte(strings.Join([]string{
+			`event: message_start`,
+			`data: {"type":"message_start","message":{"id":"msg_open","type":"message","role":"assistant","content":[],"model":"upstream-model","usage":{"input_tokens":1}}}`,
+			``,
+			`event: message_delta`,
+			`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}`,
+			``,
+			`event: message_stop`,
+			`data: {"type":"message_stop"}`,
+			``,
+			``,
+		}, "\n")))
+		<-releaseWriter
+		_ = writer.Close()
+	}()
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"x-request-id": []string{"rid_cc_open"}}, Body: reader}
+
+	pipeline := chatAnthropicTestPipeline(t, false, false)
+	done := make(chan error, 1)
+	go func() {
+		_, err := (&GatewayService{}).handleCCBufferedFromAnthropic(resp, c, pipeline, "gpt-5", "upstream-model", nil, time.Now())
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		require.Fail(t, "buffered Chat conversion waited for upstream close after message_stop")
+	}
+}
+
 func TestHandleCCStreamingFromAnthropic_PreservesMessageStartCacheUsageAndReasoning(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 
 	reasoningEffort := "medium"
 	resp := &http.Response{
-		Header: http.Header{"x-request-id": []string{"rid_cc_stream"}},
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"x-request-id": []string{"rid_cc_stream"}},
 		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
 			`event: message_start`,
 			`data: {"type":"message_start","message":{"id":"msg_2","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4.5","stop_reason":"","usage":{"input_tokens":20,"cache_read_input_tokens":11,"cache_creation_input_tokens":4}}}`,
@@ -102,7 +166,8 @@ func TestHandleCCStreamingFromAnthropic_PreservesMessageStartCacheUsageAndReason
 	}
 
 	svc := &GatewayService{}
-	result, err := svc.handleCCStreamingFromAnthropic(resp, c, "gpt-5", "claude-sonnet-4.5", &reasoningEffort, time.Now(), true)
+	pipeline := chatAnthropicTestPipeline(t, true, true)
+	result, err := svc.handleCCStreamingFromAnthropic(resp, c, pipeline, "gpt-5", "claude-sonnet-4.5", &reasoningEffort, time.Now(), true)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 20, result.Usage.InputTokens)
@@ -111,5 +176,56 @@ func TestHandleCCStreamingFromAnthropic_PreservesMessageStartCacheUsageAndReason
 	require.Equal(t, 4, result.Usage.CacheCreationInputTokens)
 	require.NotNil(t, result.ReasoningEffort)
 	require.Equal(t, "medium", *result.ReasoningEffort)
-	require.Contains(t, rec.Body.String(), `[DONE]`)
+	require.Equal(t, 1, strings.Count(rec.Body.String(), `data: [DONE]`))
+	require.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+}
+
+func TestHandleCCStreamingFromAnthropic_OmitsUsageWhenNotRequested(t *testing.T) {
+	t.Parallel()
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"x-request-id": []string{"rid_cc_no_usage"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`event: message_start`,
+			`data: {"type":"message_start","message":{"id":"msg_no_usage","type":"message","role":"assistant","content":[],"model":"upstream-model","usage":{"input_tokens":2}}}`,
+			``,
+			`event: content_block_start`,
+			`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":"ok"}}`,
+			``,
+			`event: message_delta`,
+			`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}`,
+			``,
+			`event: message_stop`,
+			`data: {"type":"message_stop"}`,
+			``,
+		}, "\n"))),
+	}
+
+	result, err := (&GatewayService{}).handleCCStreamingFromAnthropic(resp, c, chatAnthropicTestPipeline(t, true, false), "gpt-5", "upstream-model", nil, time.Now(), false)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotContains(t, rec.Body.String(), `"usage"`)
+	require.Equal(t, 1, strings.Count(rec.Body.String(), "data: [DONE]"))
+}
+
+func chatAnthropicTestPipeline(t *testing.T, stream, includeUsage bool) *protocolconv.Pipeline {
+	t.Helper()
+	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+		Route: protocolconv.Route{
+			Source: protocolconv.ProtocolOpenAIChat, IntendedTarget: protocolconv.ProtocolAnthropic,
+			ClientModel: "gpt-5", UpstreamModel: "claude-sonnet-4.5", Provider: PlatformAnthropic, AccountID: 1,
+		},
+		Options: protocolconv.Options{SourceModel: "claude-sonnet-4.5", LossPolicy: protocolconv.LossError},
+	})
+	require.NoError(t, err)
+	streamOptions := ""
+	if includeUsage {
+		streamOptions = `,"stream_options":{"include_usage":true}`
+	}
+	body := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}],"stream":` + strconv.FormatBool(stream) + streamOptions + `}`)
+	_, err = pipeline.ConvertRequest(body)
+	require.NoError(t, err)
+	return pipeline
 }

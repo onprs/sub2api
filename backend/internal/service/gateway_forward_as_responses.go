@@ -289,6 +289,9 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 		if terminal := responsesTerminalBody(converted); len(terminal) > 0 {
 			finalBody = terminal
 		}
+		if event.Type == "message_stop" {
+			break
+		}
 	}
 	converted, _, err := session.Finalize()
 	if err != nil {
@@ -409,13 +412,8 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		}
 		if event.Type == "message_start" && event.Message != nil {
 			mergeAnthropicUsage(&usage, event.Message.Usage)
-			event.Message.Model = originalModel
 		}
-		payload, err := json.Marshal(&event)
-		if err != nil {
-			return resultWithUsage(), err
-		}
-		converted, _, err := session.Convert(payload)
+		converted, _, err := session.Convert(record.Data)
 		if err != nil {
 			return resultWithUsage(), fmt.Errorf("convert anthropic stream event: %w", err)
 		}
@@ -425,6 +423,9 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		}
 		if disconnected {
 			return resultWithUsage(), nil
+		}
+		if event.Type == "message_stop" {
+			break
 		}
 	}
 
