@@ -1290,6 +1290,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	}
 
 	var resp *http.Response
+	var requestPipeline *protocolconv.Pipeline
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
 		upstreamReq, idHeader, err := buildReq(ctx)
 		if err != nil {
@@ -1303,6 +1304,16 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			return nil, s.writeGoogleError(c, http.StatusBadGateway, err.Error())
 		}
 		requestIDHeader = idHeader
+		if action != "countTokens" {
+			attemptPipeline, pipelineErr := newGoogleIdentityPipeline(account, originalModel, mappedModel)
+			if pipelineErr != nil {
+				return nil, s.writeGoogleError(c, http.StatusBadGateway, pipelineErr.Error())
+			}
+			if _, pipelineErr = attemptPipeline.ConvertRequest(body); pipelineErr != nil {
+				return nil, s.writeGoogleError(c, http.StatusBadRequest, pipelineErr.Error())
+			}
+			requestPipeline = attemptPipeline
+		}
 
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		if err != nil {
@@ -1577,8 +1588,22 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 	var usage *ClaudeUsage
 	var firstTokenMs *int
-
-	if stream {
+	if action == "countTokens" {
+		responseBody, readErr := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
+		if readErr != nil {
+			return nil, readErr
+		}
+		responseBody = unwrapIfNeeded(isOAuth, responseBody)
+		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+		contentType := resp.Header.Get("Content-Type")
+		if contentType == "" {
+			contentType = "application/json"
+		}
+		c.Data(resp.StatusCode, contentType, responseBody)
+		usage = &ClaudeUsage{}
+	} else if requestPipeline == nil {
+		return nil, errors.New("gemini upstream response missing request pipeline")
+	} else if stream {
 		streamRes, err := s.handleNativeStreamingResponse(c, resp, startTime, isOAuth)
 		if err != nil {
 			return nil, err
@@ -1587,15 +1612,20 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		firstTokenMs = streamRes.firstTokenMs
 	} else {
 		if useUpstreamStream {
-			collected, usageObj, err := collectGeminiSSE(resp.Body, isOAuth)
+			collected, usageObj, rawStreamBody, err := collectGeminiSSEWithRaw(resp.Body, isOAuth)
 			if err != nil {
 				return nil, s.writeGoogleError(c, http.StatusBadGateway, "Failed to read upstream stream")
 			}
-			b, _ := json.Marshal(collected)
-			c.Data(http.StatusOK, "application/json", b)
-			usage = usageObj
+			b, marshalErr := json.Marshal(collected)
+			if marshalErr != nil {
+				return nil, s.writeGoogleError(c, http.StatusBadGateway, "Failed to aggregate upstream stream")
+			}
+			usage, err = s.renderNativeGoogleResponse(c, resp, requestPipeline, b, usageObj, startTime, rawStreamBody)
+			if err != nil {
+				return nil, err
+			}
 		} else {
-			usageResp, err := s.handleNativeNonStreamingResponse(c, resp, isOAuth)
+			usageResp, err := s.handleNativeNonStreamingResponse(c, resp, requestPipeline, startTime, isOAuth)
 			if err != nil {
 				return nil, err
 			}
@@ -2135,7 +2165,13 @@ func unwrapIfNeeded(isOAuth bool, raw []byte) []byte {
 }
 
 func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, error) {
+	collected, usage, _, err := collectGeminiSSEWithRaw(body, isOAuth)
+	return collected, usage, err
+}
+
+func collectGeminiSSEWithRaw(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, []byte, error) {
 	reader := bufio.NewReader(body)
+	var rawStream bytes.Buffer
 
 	var last map[string]any
 	var lastWithParts map[string]any
@@ -2145,13 +2181,14 @@ func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsag
 	for {
 		line, err := reader.ReadString('\n')
 		if len(line) > 0 {
+			rawStream.WriteString(line)
 			trimmed := strings.TrimRight(line, "\r\n")
 			if strings.HasPrefix(trimmed, "data:") {
 				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
 				switch payload {
 				case "", "[DONE]":
 					if payload == "[DONE]" {
-						return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, nil
+						return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, rawStream.Bytes(), nil
 					}
 				default:
 					var parsed map[string]any
@@ -2189,11 +2226,11 @@ func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsag
 			break
 		}
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, rawStream.Bytes(), err
 		}
 	}
 
-	return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, nil
+	return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, rawStream.Bytes(), nil
 }
 
 func pickGeminiCollectResult(last map[string]any, lastWithParts map[string]any) map[string]any {
@@ -2354,7 +2391,27 @@ type UpstreamHTTPResult struct {
 	Body       []byte
 }
 
-func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(c *gin.Context, resp *http.Response, isOAuth bool) (*ClaudeUsage, error) {
+func newGoogleIdentityPipeline(account *Account, clientModel, upstreamModel string) (*protocolconv.Pipeline, error) {
+	route := protocolconv.Route{
+		Source: protocolconv.ProtocolGoogleGenAI, IntendedTarget: protocolconv.ProtocolGoogleGenAI,
+		ClientModel: clientModel, UpstreamModel: upstreamModel,
+	}
+	if account != nil {
+		route.Provider = account.Platform
+		route.AccountID = account.ID
+	}
+	return protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+		Route: route, Options: protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossError},
+	})
+}
+
+func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(
+	c *gin.Context,
+	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
+	startTime time.Time,
+	isOAuth bool,
+) (*ClaudeUsage, error) {
 	if s.cfg != nil && s.cfg.Gateway.GeminiDebugResponseHeaders {
 		logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] ========== Response Headers ==========")
 		for key, values := range resp.Header {
@@ -2365,30 +2422,65 @@ func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(c *gin.Co
 		logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] ========================================")
 	}
 
-	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
+	rawUpstreamBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		return nil, err
 	}
-
+	googleBody := rawUpstreamBody
 	if isOAuth {
-		unwrappedBody, uwErr := unwrapGeminiResponse(respBody)
+		unwrappedBody, uwErr := unwrapGeminiResponse(rawUpstreamBody)
 		if uwErr == nil {
-			respBody = unwrappedBody
+			googleBody = unwrappedBody
 		}
 	}
+	return s.renderNativeGoogleResponse(c, resp, pipeline, googleBody, nil, startTime, rawUpstreamBody)
+}
 
-	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-
-	contentType := resp.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/json"
+func (s *GeminiMessagesCompatService) renderNativeGoogleResponse(
+	c *gin.Context,
+	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
+	googleBody []byte,
+	usageOverride *ClaudeUsage,
+	startTime time.Time,
+	rawUpstreamBody []byte,
+) (*ClaudeUsage, error) {
+	usage := usageOverride
+	if usage == nil {
+		usage = extractGeminiUsage(googleBody)
 	}
-	c.Data(resp.StatusCode, contentType, respBody)
-
-	if u := extractGeminiUsage(respBody); u != nil {
-		return u, nil
+	if usage == nil {
+		usage = &ClaudeUsage{}
 	}
-	return &ClaudeUsage{}, nil
+	structured := protocoltransport.Response{
+		StatusCode: resp.StatusCode, Headers: responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
+		Body: append([]byte(nil), googleBody...), ActualProtocol: protocolconv.ProtocolGoogleGenAI,
+		RequestID: resp.Header.Get("x-request-id"), ResponseID: gjson.GetBytes(googleBody, "responseId").String(),
+		Duration: time.Since(startTime),
+	}
+	if len(rawUpstreamBody) > 0 && !bytes.Equal(rawUpstreamBody, googleBody) {
+		structured.Metadata = map[string]any{"raw_upstream_body": append([]byte(nil), rawUpstreamBody...)}
+	}
+	if err := structured.Validate(); err != nil {
+		return nil, fmt.Errorf("collect native Google response: %w", err)
+	}
+	converted, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
+	if err != nil {
+		return nil, &UpstreamFailoverError{
+			StatusCode:             http.StatusBadGateway,
+			ResponseBody:           append([]byte(nil), structured.Body...),
+			ResponseHeaders:        structured.Headers,
+			RetryableOnSameAccount: true,
+		}
+	}
+	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolGoogleGenAI)
+	if err != nil {
+		return nil, err
+	}
+	if err := renderer.RenderJSON(c.Writer, structured.StatusCode, structured.Headers, converted.Body); err != nil {
+		return nil, fmt.Errorf("render native Google response: %w", err)
+	}
+	return usage, nil
 }
 
 func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, isOAuth bool) (*geminiNativeStreamResult, error) {
