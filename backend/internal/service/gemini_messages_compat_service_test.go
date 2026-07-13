@@ -475,6 +475,87 @@ func TestGeminiMessagesCompatServiceForwardNative_OAuthStreamAsUnaryUsesIdentity
 	require.NotContains(t, recorder.Body.String(), `"response":`)
 }
 
+func TestCollectGeminiSSEWithRaw_BoundedStructuredAggregation(t *testing.T) {
+	upstreamBody := strings.Join([]string{
+		": keepalive",
+		"",
+		"event: message",
+		`data: {"response":{"responseId":"aggregate-1",`,
+		`data: "candidates":[{"content":{"parts":[{"text":"hel"}]}}]}}`,
+		"",
+		`data: {"response":{"responseId":"aggregate-1","candidates":[{"content":{"parts":[{"text":"lo"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":6,"candidatesTokenCount":2},"vendorExtension":{"kept":true}}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	body := &nativeGeminiTrackingReadCloser{Reader: strings.NewReader(upstreamBody)}
+	svc := &GeminiMessagesCompatService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 1024}}}
+
+	collected, usage, raw, err := svc.collectGeminiSSEWithRaw(body, true)
+
+	require.NoError(t, err)
+	require.Equal(t, int32(1), body.closeCount.Load())
+	require.Equal(t, upstreamBody, string(raw))
+	require.Equal(t, 6, usage.InputTokens)
+	require.Equal(t, 2, usage.OutputTokens)
+	encoded, err := json.Marshal(collected)
+	require.NoError(t, err)
+	require.Equal(t, "hello", gjson.GetBytes(encoded, "candidates.0.content.parts.0.text").String())
+	require.True(t, gjson.GetBytes(encoded, "vendorExtension.kept").Bool())
+}
+
+func TestCollectGeminiSSEWithRaw_EOFWithoutDoneRemainsCompatible(t *testing.T) {
+	upstreamBody := `data: {"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1}}` + "\n\n"
+	body := &nativeGeminiTrackingReadCloser{Reader: strings.NewReader(upstreamBody)}
+	svc := &GeminiMessagesCompatService{cfg: &config.Config{}}
+
+	collected, usage, raw, err := svc.collectGeminiSSEWithRaw(body, false)
+
+	require.NoError(t, err)
+	require.Equal(t, int32(1), body.closeCount.Load())
+	require.Equal(t, upstreamBody, string(raw))
+	require.Equal(t, 2, usage.InputTokens)
+	require.Equal(t, 1, usage.OutputTokens)
+	require.Equal(t, "ok", collected["candidates"].([]any)[0].(map[string]any)["content"].(map[string]any)["parts"].([]any)[0].(map[string]any)["text"])
+}
+
+func TestCollectGeminiSSEWithRaw_RejectsMalformedAndOversizedInput(t *testing.T) {
+	t.Run("malformed JSON", func(t *testing.T) {
+		body := &nativeGeminiTrackingReadCloser{Reader: strings.NewReader("data: {not-json}\n\n")}
+		svc := &GeminiMessagesCompatService{cfg: &config.Config{}}
+
+		_, _, raw, err := svc.collectGeminiSSEWithRaw(body, false)
+
+		require.ErrorContains(t, err, "malformed SSE JSON")
+		require.Equal(t, "data: {not-json}\n\n", string(raw))
+		require.Equal(t, int32(1), body.closeCount.Load())
+	})
+
+	t.Run("record limit", func(t *testing.T) {
+		body := &nativeGeminiTrackingReadCloser{Reader: strings.NewReader(`data: {"value":"` + strings.Repeat("x", 128) + `"}` + "\n\n")}
+		svc := &GeminiMessagesCompatService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 64}}}
+
+		_, _, _, err := svc.collectGeminiSSEWithRaw(body, false)
+
+		var tooLarge *protocoltransport.SSERecordTooLargeError
+		require.ErrorAs(t, err, &tooLarge)
+		require.Equal(t, 64, tooLarge.MaxBytes)
+		require.Equal(t, int32(1), body.closeCount.Load())
+	})
+
+	t.Run("aggregate limit", func(t *testing.T) {
+		body := &nativeGeminiTrackingReadCloser{Reader: strings.NewReader(`data: {"value":"` + strings.Repeat("x", 128) + `"}` + "\n\n")}
+		svc := &GeminiMessagesCompatService{cfg: &config.Config{Gateway: config.GatewayConfig{
+			MaxLineSize: 1024, UpstreamResponseReadMaxBytes: 64,
+		}}}
+
+		_, _, _, err := svc.collectGeminiSSEWithRaw(body, false)
+
+		require.ErrorIs(t, err, ErrUpstreamResponseBodyTooLarge)
+		require.Equal(t, int32(1), body.closeCount.Load())
+	})
+}
+
 func TestGeminiHandleNativeStreamingResponse_RequiresCompletedRequestPipeline(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)

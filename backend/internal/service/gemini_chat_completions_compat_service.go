@@ -317,13 +317,12 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 		firstTokenMs = streamRes.firstTokenMs
 		clientDisconnected = streamRes.clientDisconnected
 	} else if useUpstreamStream {
-		defer func() { _ = resp.Body.Close() }()
-		collected, usageObj, err := collectGeminiSSE(resp.Body, account.Type == AccountTypeOAuth)
+		collected, usageObj, rawStreamBody, err := s.collectGeminiSSEWithRaw(resp.Body, account.Type == AccountTypeOAuth)
 		if err != nil {
 			return nil, writeError(http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
 		}
 		collectedBytes, _ := json.Marshal(collected)
-		usageObj2, err := s.renderGoogleProtocolResponse(c, resp, pipeline, input.Source, collectedBytes, usageObj, startTime, nil, writeError)
+		usageObj2, err := s.renderGoogleProtocolResponse(c, resp, pipeline, input.Source, collectedBytes, usageObj, startTime, rawStreamBody, writeError)
 		if err != nil {
 			return nil, err
 		}

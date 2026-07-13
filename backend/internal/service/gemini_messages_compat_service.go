@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -1061,18 +1060,18 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		firstTokenMs = streamRes.firstTokenMs
 		clientDisconnected = streamRes.clientDisconnected
 	} else {
-		defer func() { _ = resp.Body.Close() }()
 		if useUpstreamStream {
-			collected, usageObj, err := collectGeminiSSE(resp.Body, true)
+			collected, usageObj, rawStreamBody, err := s.collectGeminiSSEWithRaw(resp.Body, true)
 			if err != nil {
 				return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
 			}
 			collectedBytes, _ := json.Marshal(collected)
-			usage, err = s.renderGoogleAnthropicResponse(c, resp, pipeline, collectedBytes, usageObj, startTime, nil)
+			usage, err = s.renderGoogleAnthropicResponse(c, resp, pipeline, collectedBytes, usageObj, startTime, rawStreamBody)
 			if err != nil {
 				return nil, err
 			}
 		} else {
+			defer func() { _ = resp.Body.Close() }()
 			usage, err = s.handleNonStreamingResponse(c, resp, pipeline, startTime)
 			if err != nil {
 				return nil, err
@@ -1621,7 +1620,8 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		clientDisconnected = streamRes.clientDisconnected
 	} else {
 		if useUpstreamStream {
-			collected, usageObj, rawStreamBody, err := collectGeminiSSEWithRaw(resp.Body, isOAuth)
+			responseBodyOwned = false
+			collected, usageObj, rawStreamBody, err := s.collectGeminiSSEWithRaw(resp.Body, isOAuth)
 			if err != nil {
 				return nil, s.writeGoogleError(c, http.StatusBadGateway, "Failed to read upstream stream")
 			}
@@ -2174,73 +2174,79 @@ func unwrapIfNeeded(isOAuth bool, raw []byte) []byte {
 	return inner
 }
 
-func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, error) {
-	collected, usage, _, err := collectGeminiSSEWithRaw(body, isOAuth)
-	return collected, usage, err
-}
-
-func collectGeminiSSEWithRaw(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, []byte, error) {
-	reader := bufio.NewReader(body)
+func (s *GeminiMessagesCompatService) collectGeminiSSEWithRaw(body io.ReadCloser, isOAuth bool) (map[string]any, *ClaudeUsage, []byte, error) {
+	if body == nil {
+		return nil, nil, nil, errors.New("Gemini SSE response body is nil")
+	}
+	maxTotalBytes := resolveUpstreamResponseReadLimit(s.cfg)
+	limited := &io.LimitedReader{R: body, N: maxTotalBytes + 1}
 	var rawStream bytes.Buffer
+	recordedBody := &geminiSSERecordingReadCloser{Reader: io.TeeReader(limited, &rawStream), source: body}
+	maxRecordSize := protocoltransport.DefaultMaxSSERecordBytes
+	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
+		maxRecordSize = s.cfg.Gateway.MaxLineSize
+	}
+	parser := protocoltransport.NewSSEParser(recordedBody, maxRecordSize)
+	defer func() { _ = parser.Close() }()
 
 	var last map[string]any
 	var lastWithParts map[string]any
-	var collectedTextParts []string // Collect all text parts for aggregation
+	var collectedTextParts []string
 	usage := &ClaudeUsage{}
+	result := func() (map[string]any, *ClaudeUsage, []byte, error) {
+		return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, append([]byte(nil), rawStream.Bytes()...), nil
+	}
+	tooLarge := func() error {
+		return fmt.Errorf("%w: limit=%d", ErrUpstreamResponseBodyTooLarge, maxTotalBytes)
+	}
 
 	for {
-		line, err := reader.ReadString('\n')
-		if len(line) > 0 {
-			rawStream.WriteString(line)
-			trimmed := strings.TrimRight(line, "\r\n")
-			if strings.HasPrefix(trimmed, "data:") {
-				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
-				switch payload {
-				case "", "[DONE]":
-					if payload == "[DONE]" {
-						return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, rawStream.Bytes(), nil
-					}
-				default:
-					var parsed map[string]any
-					var rawBytes []byte
-					if isOAuth {
-						innerBytes, err := unwrapGeminiResponse([]byte(payload))
-						if err == nil {
-							rawBytes = innerBytes
-							_ = json.Unmarshal(innerBytes, &parsed)
-						}
-					} else {
-						rawBytes = []byte(payload)
-						_ = json.Unmarshal(rawBytes, &parsed)
-					}
-					if parsed != nil {
-						last = parsed
-						if u := extractGeminiUsage(rawBytes); u != nil {
-							usage = u
-						}
-						if parts := extractGeminiParts(parsed); len(parts) > 0 {
-							lastWithParts = parsed
-							// Collect text from each part for aggregation
-							for _, part := range parts {
-								if text, ok := part["text"].(string); ok && text != "" {
-									collectedTextParts = append(collectedTextParts, text)
-								}
-							}
-						}
-					}
+		record, err := parser.Next(context.Background())
+		if int64(rawStream.Len()) > maxTotalBytes {
+			return nil, nil, nil, tooLarge()
+		}
+		if errors.Is(err, io.EOF) || errors.Is(err, protocoltransport.ErrSSEDone) {
+			return result()
+		}
+		if err != nil {
+			return nil, nil, append([]byte(nil), rawStream.Bytes()...), err
+		}
+		payload := record.Data
+		if isOAuth {
+			payload, err = unwrapGeminiResponse(payload)
+			if err != nil {
+				return nil, nil, append([]byte(nil), rawStream.Bytes()...), err
+			}
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(payload, &parsed); err != nil {
+			return nil, nil, append([]byte(nil), rawStream.Bytes()...), err
+		}
+		last = parsed
+		if current := extractGeminiUsage(payload); current != nil {
+			usage = current
+		}
+		if parts := extractGeminiParts(parsed); len(parts) > 0 {
+			lastWithParts = parsed
+			for _, part := range parts {
+				if text, ok := part["text"].(string); ok && text != "" {
+					collectedTextParts = append(collectedTextParts, text)
 				}
 			}
 		}
-
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return nil, nil, rawStream.Bytes(), err
-		}
 	}
+}
 
-	return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, rawStream.Bytes(), nil
+type geminiSSERecordingReadCloser struct {
+	io.Reader
+	source io.Closer
+}
+
+func (r *geminiSSERecordingReadCloser) Close() error {
+	if r == nil || r.source == nil {
+		return nil
+	}
+	return r.source.Close()
 }
 
 func pickGeminiCollectResult(last map[string]any, lastWithParts map[string]any) map[string]any {
