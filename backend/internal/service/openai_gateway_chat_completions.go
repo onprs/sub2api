@@ -14,7 +14,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
-	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -415,10 +414,12 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 
-	finalResponse, terminalBody, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, "openai chat_completions buffered", requestID)
+	terminal, err := s.collectOpenAICompatBufferedTerminal(resp, "openai chat_completions buffered", startTime)
 	if err != nil {
 		return nil, err
 	}
+	finalResponse := terminal.Response
+	usage := terminal.Usage
 
 	if finalResponse == nil {
 		writeChatCompletionsError(c, http.StatusBadGateway, "api_error", "Upstream stream ended without a terminal response event")
@@ -465,15 +466,11 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 		return nil, fmt.Errorf("upstream response failed: %s", message)
 	}
 
-	upstreamBody, err := prepareOpenAICompatBufferedResponseBody(finalResponse, terminalBody, acc)
+	terminal.Upstream.Body, err = prepareOpenAICompatBufferedResponseBody(finalResponse, terminal.Upstream.Body, terminal.Accumulator)
 	if err != nil {
 		return nil, err
 	}
 
-	filteredHeaders := make(http.Header)
-	if s.responseHeaderFilter != nil {
-		filteredHeaders = responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
-	}
 	if pipeline == nil {
 		// Cursor may send a Responses-shaped body to /chat/completions. That
 		// compatibility short-circuit has no Chat request pipeline by design.
@@ -482,19 +479,10 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 		c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 		c.JSON(http.StatusOK, chatResp)
 	} else {
-		structured := protocoltransport.Response{
-			StatusCode:     http.StatusOK,
-			Headers:        filteredHeaders,
-			Body:           upstreamBody,
-			ActualProtocol: protocolconv.ProtocolOpenAIResponses,
-			RequestID:      requestID,
-			ResponseID:     finalResponse.ID,
-			Duration:       time.Since(startTime),
-		}
-		if err := structured.Validate(); err != nil {
+		if err := terminal.Upstream.Validate(); err != nil {
 			return nil, fmt.Errorf("validate buffered Responses result: %w", err)
 		}
-		converted, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
+		converted, err := pipeline.ConvertResponse(terminal.Upstream.Body, terminal.Upstream.ActualProtocol)
 		if err != nil {
 			return nil, fmt.Errorf("convert buffered Responses to Chat Completions: %w", err)
 		}
@@ -502,7 +490,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 		if err != nil {
 			return nil, err
 		}
-		if err := renderer.RenderJSON(c.Writer, structured.StatusCode, structured.Headers, converted.Body); err != nil {
+		if err := renderer.RenderJSON(c.Writer, terminal.Upstream.StatusCode, terminal.Upstream.Headers, converted.Body); err != nil {
 			return nil, fmt.Errorf("render buffered Chat Completions response: %w", err)
 		}
 	}

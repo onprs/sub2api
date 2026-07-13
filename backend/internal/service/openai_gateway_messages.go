@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -462,10 +463,12 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 
-	finalResponse, terminalBody, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, "openai messages buffered", requestID)
+	terminal, err := s.collectOpenAICompatBufferedTerminal(resp, "openai messages buffered", startTime)
 	if err != nil {
 		return nil, err
 	}
+	finalResponse := terminal.Response
+	usage := terminal.Usage
 
 	if finalResponse == nil {
 		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream stream ended without a terminal response event")
@@ -511,19 +514,14 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 		return nil, fmt.Errorf("upstream response failed: %s", message)
 	}
 
-	upstreamBody, err := prepareOpenAICompatBufferedResponseBody(finalResponse, terminalBody, acc)
+	terminal.Upstream.Body, err = prepareOpenAICompatBufferedResponseBody(finalResponse, terminal.Upstream.Body, terminal.Accumulator)
 	if err != nil {
 		return nil, err
 	}
-	structured := protocoltransport.Response{
-		StatusCode: http.StatusOK, Headers: responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
-		Body: upstreamBody, ActualProtocol: protocolconv.ProtocolOpenAIResponses,
-		RequestID: requestID, ResponseID: finalResponse.ID, Duration: time.Since(startTime),
-	}
-	if err := structured.Validate(); err != nil {
+	if err := terminal.Upstream.Validate(); err != nil {
 		return nil, fmt.Errorf("validate buffered Responses result: %w", err)
 	}
-	converted, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
+	converted, err := pipeline.ConvertResponse(terminal.Upstream.Body, terminal.Upstream.ActualProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("convert buffered Responses to Anthropic: %w", err)
 	}
@@ -531,7 +529,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	if err != nil {
 		return nil, err
 	}
-	if err := renderer.RenderJSON(c.Writer, structured.StatusCode, structured.Headers, converted.Body); err != nil {
+	if err := renderer.RenderJSON(c.Writer, terminal.Upstream.StatusCode, terminal.Upstream.Headers, converted.Body); err != nil {
 		return nil, fmt.Errorf("render Anthropic response: %w", err)
 	}
 
@@ -582,157 +580,141 @@ func isOpenAICompatDoneSentinelLine(line string) bool {
 	return ok && strings.TrimSpace(payload) == "[DONE]"
 }
 
-func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
+type openAICompatBufferedTerminal struct {
+	Upstream    protocoltransport.Response
+	Response    *apicompat.ResponsesResponse
+	Usage       OpenAIUsage
+	Accumulator *apicompat.BufferedResponseAccumulator
+}
+
+type openAICompatBufferedStreamEvent struct {
+	record protocoltransport.SSERecord
+	err    error
+}
+
+func (s *OpenAIGatewayService) collectOpenAICompatBufferedTerminal(
 	resp *http.Response,
 	logPrefix string,
-	requestID string,
-) (*apicompat.ResponsesResponse, []byte, OpenAIUsage, *apicompat.BufferedResponseAccumulator, error) {
+	startTime time.Time,
+) (*openAICompatBufferedTerminal, error) {
 	acc := apicompat.NewBufferedResponseAccumulator()
-	var usage OpenAIUsage
+	result := &openAICompatBufferedTerminal{Accumulator: acc}
 	if resp == nil || resp.Body == nil {
-		return nil, nil, usage, acc, errors.New("upstream response body is nil")
+		return result, errors.New("upstream response body is nil")
 	}
 
-	scanner := s.newUpstreamSSEScanner(resp.Body)
+	maxRecordSize := defaultMaxLineSize
+	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
+		maxRecordSize = s.cfg.Gateway.MaxLineSize
+	}
+	parser := protocoltransport.NewSSEParser(resp.Body, maxRecordSize)
+	stream := &protocoltransport.Stream{
+		StatusCode:     resp.StatusCode,
+		Headers:        responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
+		ActualProtocol: protocolconv.ProtocolOpenAIResponses,
+		RequestID:      resp.Header.Get("x-request-id"),
+		Duration:       time.Since(startTime),
+		Events:         parser,
+	}
+	if err := stream.Validate(); err != nil {
+		_ = stream.Close()
+		return result, fmt.Errorf("validate buffered Responses stream: %w", err)
+	}
+	defer func() { _ = stream.Close() }()
 
-	streamInterval := time.Duration(0)
-	if s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
-		streamInterval = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
-	}
-	var timeoutCh <-chan time.Time
-	var timeoutTimer *time.Timer
-	resetTimeout := func() {
-		if streamInterval <= 0 {
-			return
-		}
-		if timeoutTimer == nil {
-			timeoutTimer = time.NewTimer(streamInterval)
-			timeoutCh = timeoutTimer.C
-			return
-		}
-		if !timeoutTimer.Stop() {
-			select {
-			case <-timeoutTimer.C:
-			default:
-			}
-		}
-		timeoutTimer.Reset(streamInterval)
-	}
-	stopTimeout := func() {
-		if timeoutTimer == nil {
-			return
-		}
-		if !timeoutTimer.Stop() {
-			select {
-			case <-timeoutTimer.C:
-			default:
-			}
-		}
-	}
-	resetTimeout()
-	defer stopTimeout()
-
-	type scanEvent struct {
-		line string
-		err  error
-	}
-	events := make(chan scanEvent, 16)
+	events := make(chan openAICompatBufferedStreamEvent, 16)
 	done := make(chan struct{})
 	go func() {
 		defer close(events)
-		for scanner.Scan() {
+		for {
+			record, nextErr := stream.Events.Next(context.Background())
 			select {
-			case events <- scanEvent{line: scanner.Text()}:
+			case events <- openAICompatBufferedStreamEvent{record: record, err: nextErr}:
 			case <-done:
 				return
 			}
-		}
-		if err := scanner.Err(); err != nil {
-			select {
-			case events <- scanEvent{err: err}:
-			case <-done:
+			if nextErr != nil {
+				return
 			}
 		}
 	}()
 	defer close(done)
 
-	var parser openAICompatSSEFrameParser
+	streamInterval := time.Duration(0)
+	if s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
+		streamInterval = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
+	}
+	var intervalTicker *time.Ticker
+	if streamInterval > 0 {
+		intervalTicker = time.NewTicker(streamInterval)
+		defer intervalTicker.Stop()
+	}
+	var intervalCh <-chan time.Time
+	if intervalTicker != nil {
+		intervalCh = intervalTicker.C
+	}
+
 	for {
 		select {
-		case ev, ok := <-events:
+		case event, ok := <-events:
 			if !ok {
-				if frame, ok := parser.Finish(); ok {
-					payload := openAICompatPayloadWithEventType(frame.Data, frame.EventType)
-					var event apicompat.ResponsesStreamEvent
-					if err := json.Unmarshal([]byte(payload), &event); err == nil {
-						acc.ProcessEvent(&event)
-						if isOpenAICompatResponsesTerminalEvent(event.Type) && event.Response != nil {
-							if event.Usage != nil {
-								usage = copyOpenAIUsageFromResponsesUsage(event.Usage)
-								if event.Response.Usage == nil {
-									event.Response.Usage = event.Usage
-								}
-							}
-							if event.Response.Usage != nil {
-								usage = copyOpenAIUsageFromResponsesUsage(event.Response.Usage)
-							}
-							return event.Response, openAICompatTerminalResponseBody(payload), usage, acc, nil
-						}
-					}
-				}
-				return nil, nil, usage, acc, nil
+				return result, nil
 			}
-			resetTimeout()
-			if ev.err != nil {
-				if !errors.Is(ev.err, context.Canceled) && !errors.Is(ev.err, context.DeadlineExceeded) {
+			if event.err != nil {
+				if errors.Is(event.err, protocoltransport.ErrSSEDone) || errors.Is(event.err, io.EOF) {
+					return result, nil
+				}
+				if !errors.Is(event.err, context.Canceled) && !errors.Is(event.err, context.DeadlineExceeded) {
 					logger.L().Warn(logPrefix+": read error",
-						zap.Error(ev.err),
-						zap.String("request_id", requestID),
+						zap.Error(event.err),
+						zap.String("request_id", stream.RequestID),
 					)
 				}
-				return nil, nil, usage, acc, ev.err
+				return result, event.err
 			}
 
-			if isOpenAICompatDoneSentinelLine(ev.line) {
-				return nil, nil, usage, acc, nil
-			}
-			frame, ok := parser.AddLine(ev.line)
-			if !ok {
-				continue
-			}
-			payload := openAICompatPayloadWithEventType(frame.Data, frame.EventType)
-
-			var event apicompat.ResponsesStreamEvent
-			if err := json.Unmarshal([]byte(payload), &event); err != nil {
-				logger.L().Warn(logPrefix+": failed to parse event",
+			payload := openAICompatPayloadWithEventType(string(event.record.Data), event.record.Event)
+			var parsed apicompat.ResponsesStreamEvent
+			if err := json.Unmarshal([]byte(payload), &parsed); err != nil {
+				logger.L().Warn(logPrefix+": failed to decode event",
 					zap.Error(err),
-					zap.String("request_id", requestID),
+					zap.String("request_id", stream.RequestID),
 				)
 				continue
 			}
-
-			acc.ProcessEvent(&event)
-
-			if isOpenAICompatResponsesTerminalEvent(event.Type) && event.Response != nil {
-				if event.Usage != nil {
-					usage = copyOpenAIUsageFromResponsesUsage(event.Usage)
-					if event.Response.Usage == nil {
-						event.Response.Usage = event.Usage
-					}
-				}
-				if event.Response.Usage != nil {
-					usage = copyOpenAIUsageFromResponsesUsage(event.Response.Usage)
-				}
-				return event.Response, openAICompatTerminalResponseBody(payload), usage, acc, nil
+			acc.ProcessEvent(&parsed)
+			if !isOpenAICompatResponsesTerminalEvent(parsed.Type) || parsed.Response == nil {
+				continue
 			}
+			if parsed.Usage != nil {
+				result.Usage = copyOpenAIUsageFromResponsesUsage(parsed.Usage)
+				if parsed.Response.Usage == nil {
+					parsed.Response.Usage = parsed.Usage
+				}
+			}
+			if parsed.Response.Usage != nil {
+				result.Usage = copyOpenAIUsageFromResponsesUsage(parsed.Response.Usage)
+			}
+			result.Response = parsed.Response
+			result.Upstream = protocoltransport.Response{
+				StatusCode: stream.StatusCode, Headers: protocoltransport.CloneHeaders(stream.Headers),
+				Body: openAICompatTerminalResponseBody(payload), ActualProtocol: stream.ActualProtocol,
+				RequestID: stream.RequestID, ResponseID: parsed.Response.ID, Duration: time.Since(startTime),
+			}
+			if err := result.Upstream.Validate(); err != nil {
+				return result, fmt.Errorf("validate buffered Responses terminal: %w", err)
+			}
+			return result, nil
 
-		case <-timeoutCh:
-			_ = resp.Body.Close()
+		case <-intervalCh:
+			if time.Since(parser.Progress().LastReadAt) < streamInterval {
+				continue
+			}
 			logger.L().Warn(logPrefix+": data interval timeout",
-				zap.String("request_id", requestID),
+				zap.String("request_id", stream.RequestID),
 				zap.Duration("interval", streamInterval),
 			)
-			return nil, nil, usage, acc, fmt.Errorf("stream data interval timeout")
+			return result, fmt.Errorf("stream data interval timeout")
 		}
 	}
 }
