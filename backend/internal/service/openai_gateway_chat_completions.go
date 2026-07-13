@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -121,6 +122,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	var (
 		responsesReq  *apicompat.ResponsesRequest
 		responsesBody []byte
+		pipeline      *protocolconv.Pipeline
 		err           error
 	)
 	if isResponsesShape {
@@ -152,11 +154,28 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 			responsesReq.Reasoning = &apicompat.ResponsesReasoning{Effort: effort}
 		}
 	} else {
-		// Normal path: convert Chat Completions → Responses through the shared IR.
-		responsesBody, _, err = convertStandardRequest(body, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolOpenAIResponses, originalModel)
+		// Normal path: keep one request-scoped pipeline for request conversion and
+		// the non-stream response conversion. Streaming retains its characterized
+		// service policy loop until that transport boundary is structured.
+		pipeline, err = protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+			Route: protocolconv.Route{
+				Source:         protocolconv.ProtocolOpenAIChat,
+				IntendedTarget: protocolconv.ProtocolOpenAIResponses,
+				ClientModel:    originalModel,
+				UpstreamModel:  upstreamModel,
+				Provider:       account.Platform,
+				AccountID:      account.ID,
+			},
+			Options: protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossError},
+		})
 		if err != nil {
-			return nil, fmt.Errorf("convert chat completions to responses: %w", err)
+			return nil, fmt.Errorf("create chat responses pipeline: %w", err)
 		}
+		convertedRequest, convertErr := pipeline.ConvertRequest(body)
+		if convertErr != nil {
+			return nil, fmt.Errorf("convert chat completions to responses: %w", convertErr)
+		}
+		responsesBody = convertedRequest.Body
 		if err := json.Unmarshal(responsesBody, &responsesReq); err != nil {
 			return nil, fmt.Errorf("decode converted responses request: %w", err)
 		}
@@ -293,7 +312,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	if clientStream {
 		result, handleErr = s.handleChatStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime, len(body))
 	} else {
-		result, handleErr = s.handleChatBufferedStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime)
+		result, handleErr = s.handleChatBufferedStreamingResponse(resp, c, account, pipeline, originalModel, billingModel, upstreamModel, startTime)
 	}
 
 	// cyber_policy：标记已设、error 已按 Chat Completions 格式发给客户端。丢弃 result、
@@ -388,6 +407,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	resp *http.Response,
 	c *gin.Context,
 	account *Account,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
@@ -449,20 +469,50 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	// accumulated delta events so the client receives the full content.
 	acc.SupplementResponseOutput(finalResponse)
 
-	chatResp := apicompat.ResponsesToChatCompletions(finalResponse, originalModel)
-
+	filteredHeaders := make(http.Header)
 	if s.responseHeaderFilter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+		filteredHeaders = responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
 	}
-	// 非流式响应必须为标准 JSON。上游被强制流式，其响应头 Content-Type 为
-	// text/event-stream，会经 WriteFilteredHeaders 透传进来；而 c.JSON 走 Gin 的
-	// writeContentType 仅在头不存在时才设置，无法覆盖。这里显式 Set 强制改回 JSON，
-	// 否则下游"看头判流式"的中间层（如 new-api）会把本应聚合的 JSON 当成 SSE 处理。
-	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-	c.JSON(http.StatusOK, chatResp)
+	if pipeline == nil {
+		// Cursor may send a Responses-shaped body to /chat/completions. That
+		// compatibility short-circuit has no Chat request pipeline by design.
+		chatResp := apicompat.ResponsesToChatCompletions(finalResponse, originalModel)
+		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+		c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		c.JSON(http.StatusOK, chatResp)
+	} else {
+		upstreamBody, err := json.Marshal(finalResponse)
+		if err != nil {
+			return nil, fmt.Errorf("marshal buffered Responses terminal: %w", err)
+		}
+		structured := protocoltransport.Response{
+			StatusCode:     http.StatusOK,
+			Headers:        filteredHeaders,
+			Body:           upstreamBody,
+			ActualProtocol: protocolconv.ProtocolOpenAIResponses,
+			RequestID:      requestID,
+			ResponseID:     finalResponse.ID,
+			Duration:       time.Since(startTime),
+		}
+		if err := structured.Validate(); err != nil {
+			return nil, fmt.Errorf("validate buffered Responses result: %w", err)
+		}
+		converted, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
+		if err != nil {
+			return nil, fmt.Errorf("convert buffered Responses to Chat Completions: %w", err)
+		}
+		renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolOpenAIChat)
+		if err != nil {
+			return nil, err
+		}
+		if err := renderer.RenderJSON(c.Writer, structured.StatusCode, structured.Headers, converted.Body); err != nil {
+			return nil, fmt.Errorf("render buffered Chat Completions response: %w", err)
+		}
+	}
 
 	return &OpenAIForwardResult{
 		RequestID:     requestID,
+		ResponseID:    finalResponse.ID,
 		Usage:         usage,
 		Model:         originalModel,
 		BillingModel:  billingModel,
