@@ -31,7 +31,7 @@ The client format alone does not select the upstream format. The effective path 
 | `anthropic` | Messages, Chat Completions, Responses | Native Anthropic Messages; OpenAI formats use compatibility conversion before forwarding |
 | `openai` | Messages, Chat Completions, Responses | Responses or Chat Completions according to the OpenAI account path and compatibility fallback |
 | `grok` | Messages, Chat Completions, Responses | OpenAI-compatible wire formats with platform-specific policy |
-| `gemini` | Messages and native Gemini | Native Google GenAI; OAuth paths may use the Code Assist envelope, API-key paths use AI Studio semantics |
+| `gemini` | Messages, Chat Completions, Responses, and native Gemini | Compatibility formats use standard pipelines into Google GenAI; OAuth paths may use the Code Assist envelope, API-key paths use AI Studio semantics |
 | `antigravity` | Messages and native Gemini under dedicated routes; may participate in Gemini mixed scheduling | Antigravity `v1internal` envelope over `streamGenerateContent`; Claude-family and Gemini-family behavior is selected from the resolved account/model mapping |
 | `opencode_go` | Messages and Chat Completions; Responses is rejected | Protocol comes from account `credentials.model_protocols`, then built-in model protocol metadata/family fallback |
 
@@ -103,7 +103,7 @@ Integrated through the shared IR registry:
 
 - Anthropic-platform Chat Completions and Responses request conversion, complete responses, and streaming responses;
 - OpenAI Chat Completions to Responses request conversion on accounts that use the Responses upstream path;
-- Gemini Chat Completions and Anthropic Messages request conversion to Google GenAI;
+- Gemini compatibility Chat Completions, OpenAI Responses, and Anthropic Messages request/response/stream conversion to Google GenAI through one shared provider executor;
 - OpenCode Chat Completions and Messages cross-protocol requests, complete responses, and streams;
 - Antigravity Claude-family and Gemini-family request conversion through the vendor adapter, including identity, schema cleanup, signature rectification, and v1internal envelopes.
 
@@ -112,6 +112,6 @@ The Antigravity native Gemini stream-to-non-stream collector now preserves every
 Intentional retained compatibility bridges:
 
 - OpenAI Messages to Codex Responses still uses the existing Codex-specific bridge. It is not a plain standard conversion: it controls developer-input ordering, Claude Code todo guards, continuation replay trimming, default reasoning/text policy, and Codex call-ID normalization. Existing service tests lock this behavior.
-- Gemini response conversion and streaming retain the provider-specific bridge while upstream function calls may omit IDs and while grounding/image behavior remains vendor-owned. The standard Google converter does not fabricate IDs in strict mode.
+- Gemini native Google ingress and Antigravity response handling retain provider adapters for grounding, image, signature, and vendor-envelope behavior. Standard Chat, Responses, and Messages compatibility paths use the common pipeline; their Google stream decoder synthesizes deterministic request-scoped IDs only when an upstream standard function call omits one, so downstream tool-result correlation remains stable without global state.
 
 The old service-local Anthropic-to-Gemini request converter and its duplicate schema/tool mapping were removed. Google server-search tools are represented explicitly by the standard Google converter rather than being flattened into function declarations. Google requires `functionResponse.response` to be a protobuf Struct: object-valued IR tool results are preserved, while scalar or array results are wrapped as `{ "content": <value> }` without discarding the original value.

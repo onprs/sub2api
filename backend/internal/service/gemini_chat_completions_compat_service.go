@@ -39,11 +39,38 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 	}
 
-	originalModel := ccReq.Model
-	clientStream := ccReq.Stream
-	includeUsage := ccReq.StreamOptions != nil && ccReq.StreamOptions.IncludeUsage
+	return s.forwardAsChatCompletionsWithClientModel(ctx, c, account, body, ccReq.Model, startTime)
+}
 
-	return s.forwardGeminiBodyAsChatCompletions(ctx, c, account, originalModel, clientStream, includeUsage, startTime, body)
+// ForwardAsChatCompletionsWithClientModel preserves the inbound model when the
+// handler has already applied a channel-level model mapping to body.
+func (s *GeminiMessagesCompatService) ForwardAsChatCompletionsWithClientModel(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	clientModel string,
+) (*ForwardResult, error) {
+	return s.forwardAsChatCompletionsWithClientModel(ctx, c, account, body, clientModel, time.Now())
+}
+
+func (s *GeminiMessagesCompatService) forwardAsChatCompletionsWithClientModel(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	clientModel string,
+	startTime time.Time,
+) (*ForwardResult, error) {
+	var req apicompat.ChatCompletionsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+	}
+	if strings.TrimSpace(clientModel) == "" {
+		clientModel = req.Model
+	}
+	includeUsage := req.StreamOptions != nil && req.StreamOptions.IncludeUsage
+	return s.forwardGeminiBodyAsChatCompletions(ctx, c, account, clientModel, req.Stream, includeUsage, startTime, body)
 }
 
 func (s *GeminiMessagesCompatService) forwardGeminiBodyAsChatCompletions(
@@ -86,13 +113,64 @@ func (s *GeminiMessagesCompatService) forwardGeminiBodyAsChatCompletions(
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
 	geminiReq := ensureGeminiFunctionCallThoughtSignatures(convertedRequest.Body)
+	return s.forwardGoogleProtocolRequest(ctx, c, account, googleProtocolRequest{
+		Source: protocolconv.ProtocolOpenAIChat, Pipeline: pipeline, GoogleBody: geminiReq,
+		OriginalBody: originalChatBody, OriginalModel: originalModel, MappedModel: mappedModel,
+		ClientStream: clientStream, UpstreamStream: clientStream, IncludeUsage: includeUsage, StartTime: startTime,
+		WriteError: func(status int, errorType, message string) error {
+			return s.writeChatCompletionsError(c, status, errorType, message)
+		},
+		WriteMappedError: func(status int, requestID string, body []byte) error {
+			return s.writeGeminiChatCompletionsMappedError(c, account, status, requestID, body)
+		},
+	})
+}
+
+func extractGoogleCompatReasoningEffort(source protocolconv.Protocol, body []byte) *string {
+	if source == protocolconv.ProtocolOpenAIResponses {
+		return ExtractResponsesReasoningEffortFromBody(body)
+	}
+	return extractCCReasoningEffortFromBody(body)
+}
+
+type googleProtocolRequest struct {
+	Source           protocolconv.Protocol
+	Pipeline         *protocolconv.Pipeline
+	GoogleBody       []byte
+	OriginalBody     []byte
+	OriginalModel    string
+	MappedModel      string
+	ClientStream     bool
+	UpstreamStream   bool
+	IncludeUsage     bool
+	StartTime        time.Time
+	WriteError       func(status int, errorType, message string) error
+	WriteMappedError func(status int, requestID string, body []byte) error
+}
+
+func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	input googleProtocolRequest,
+) (*ForwardResult, error) {
+	originalModel := input.OriginalModel
+	mappedModel := input.MappedModel
+	clientStream := input.ClientStream
+	useUpstreamStream := input.UpstreamStream
+	pipeline := input.Pipeline
+	geminiReq := input.GoogleBody
+	startTime := input.StartTime
+	writeError := input.WriteError
+	if writeError == nil {
+		return nil, errors.New("Google protocol error writer is required")
+	}
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
 
-	useUpstreamStream := clientStream
 	if account.Type == AccountTypeOAuth && !clientStream && strings.TrimSpace(account.GetCredential("project_id")) != "" {
 		useUpstreamStream = true
 	}
@@ -112,7 +190,7 @@ func (s *GeminiMessagesCompatService) forwardGeminiBodyAsChatCompletions(
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
 			}
-			return nil, s.writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", err.Error())
+			return nil, writeError(http.StatusBadGateway, "upstream_error", err.Error())
 		}
 		requestIDHeader = idHeader
 
@@ -133,7 +211,7 @@ func (s *GeminiMessagesCompatService) forwardGeminiBodyAsChatCompletions(
 				continue
 			}
 			setOpsUpstreamError(c, 0, safeErr, "")
-			return nil, s.writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries: "+safeErr)
+			return nil, writeError(http.StatusBadGateway, "upstream_error", "Upstream request failed after retries: "+safeErr)
 		}
 
 		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp); matched {
@@ -196,10 +274,10 @@ func (s *GeminiMessagesCompatService) forwardGeminiBodyAsChatCompletions(
 		c.Header("x-request-id", requestID)
 	}
 
-	reasoningEffort := extractCCReasoningEffortFromBody(originalChatBody)
+	reasoningEffort := extractGoogleCompatReasoningEffort(input.Source, input.OriginalBody)
 	// 国产模型默认 effort 补充（本路径上游是 Gemini，不会命中 passback-required）。
 	// 保持与 OpenAI 网关路径调用模式一致，便于未来上游变异时语义一致。
-	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, originalChatBody, mappedModel)
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, input.OriginalBody, mappedModel)
 
 	if resp.StatusCode >= 400 {
 		defer func() { _ = resp.Body.Close() }()
@@ -221,33 +299,38 @@ func (s *GeminiMessagesCompatService) forwardGeminiBodyAsChatCompletions(
 			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: evBody}
 		}
 
-		return nil, s.writeGeminiChatCompletionsMappedError(c, account, resp.StatusCode, requestID, evBody)
+		if input.WriteMappedError == nil {
+			return nil, writeError(http.StatusBadGateway, "upstream_error", "Upstream request failed")
+		}
+		return nil, input.WriteMappedError(resp.StatusCode, requestID, evBody)
 	}
 
 	var usage *ClaudeUsage
 	var firstTokenMs *int
+	clientDisconnected := false
 	if clientStream {
-		streamRes, err := s.handleChatCompletionsStreamingResponseFromGemini(c, resp, pipeline, startTime, account.Type == AccountTypeOAuth, includeUsage)
+		streamRes, err := s.handleGoogleProtocolStreamingResponse(c, resp, pipeline, input.Source, startTime, account.Type == AccountTypeOAuth, input.IncludeUsage)
 		if err != nil {
 			return nil, err
 		}
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
+		clientDisconnected = streamRes.clientDisconnected
 	} else if useUpstreamStream {
 		defer func() { _ = resp.Body.Close() }()
 		collected, usageObj, err := collectGeminiSSE(resp.Body, account.Type == AccountTypeOAuth)
 		if err != nil {
-			return nil, s.writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
+			return nil, writeError(http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
 		}
 		collectedBytes, _ := json.Marshal(collected)
-		usageObj2, err := s.renderGoogleChatResponse(c, resp, pipeline, collectedBytes, usageObj, startTime, nil)
+		usageObj2, err := s.renderGoogleProtocolResponse(c, resp, pipeline, input.Source, collectedBytes, usageObj, startTime, nil, writeError)
 		if err != nil {
 			return nil, err
 		}
 		usage = usageObj2
 	} else {
 		defer func() { _ = resp.Body.Close() }()
-		usageResp, err := s.handleChatCompletionsNonStreamingResponseFromGemini(c, resp, pipeline, account.Type == AccountTypeOAuth, startTime)
+		usageResp, err := s.handleGoogleProtocolNonStreamingResponse(c, resp, pipeline, input.Source, account.Type == AccountTypeOAuth, startTime, writeError)
 		if err != nil {
 			return nil, err
 		}
@@ -277,7 +360,7 @@ func (s *GeminiMessagesCompatService) forwardGeminiBodyAsChatCompletions(
 		ImageCount:       imageCount,
 		ImageSize:        imageSize,
 		ImageInputSize:   imageInputSize,
-		ClientDisconnect: false,
+		ClientDisconnect: clientDisconnected,
 	}, nil
 }
 
@@ -424,12 +507,14 @@ func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestF
 	}
 }
 
-func (s *GeminiMessagesCompatService) handleChatCompletionsNonStreamingResponseFromGemini(
+func (s *GeminiMessagesCompatService) handleGoogleProtocolNonStreamingResponse(
 	c *gin.Context,
 	resp *http.Response,
 	pipeline *protocolconv.Pipeline,
+	source protocolconv.Protocol,
 	isOAuth bool,
 	startTime time.Time,
+	writeError func(status int, errorType, message string) error,
 ) (*ClaudeUsage, error) {
 	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
@@ -442,17 +527,19 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsNonStreamingResponseF
 		}
 	}
 
-	return s.renderGoogleChatResponse(c, resp, pipeline, respBody, nil, startTime, rawUpstreamBody)
+	return s.renderGoogleProtocolResponse(c, resp, pipeline, source, respBody, nil, startTime, rawUpstreamBody, writeError)
 }
 
-func (s *GeminiMessagesCompatService) renderGoogleChatResponse(
+func (s *GeminiMessagesCompatService) renderGoogleProtocolResponse(
 	c *gin.Context,
 	resp *http.Response,
 	pipeline *protocolconv.Pipeline,
+	source protocolconv.Protocol,
 	googleBody []byte,
 	usageOverride *ClaudeUsage,
 	startTime time.Time,
 	rawUpstreamBody []byte,
+	writeError func(status int, errorType, message string) error,
 ) (*ClaudeUsage, error) {
 	googleBody = withGoogleUsageOverride(googleBody, usageOverride)
 	usage := extractGeminiUsage(googleBody)
@@ -476,9 +563,9 @@ func (s *GeminiMessagesCompatService) renderGoogleChatResponse(
 	}
 	converted, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
 	if err != nil {
-		return nil, s.writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Failed to convert upstream response")
+		return nil, writeError(http.StatusBadGateway, "upstream_error", "Failed to convert upstream response")
 	}
-	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolOpenAIChat)
+	renderer, err := protocolconv.NewRenderer(source)
 	if err != nil {
 		return nil, err
 	}
@@ -509,10 +596,11 @@ func withGoogleUsageOverride(googleBody []byte, usage *ClaudeUsage) []byte {
 	return converted
 }
 
-func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFromGemini(
+func (s *GeminiMessagesCompatService) handleGoogleProtocolStreamingResponse(
 	c *gin.Context,
 	resp *http.Response,
 	pipeline *protocolconv.Pipeline,
+	source protocolconv.Protocol,
 	startTime time.Time,
 	isOAuth bool,
 	includeUsage bool,
@@ -546,17 +634,21 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	if err != nil {
 		return nil, err
 	}
-	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolOpenAIChat)
+	renderer, err := protocolconv.NewRenderer(source)
 	if err != nil {
 		return nil, err
 	}
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	headersWritten := false
+	clientDisconnected := false
 	writePayloads := func(payloads [][]byte) (bool, error) {
+		if clientDisconnected {
+			return true, nil
+		}
 		visible := payloads[:0]
 		for _, payload := range payloads {
-			if includeUsage || !isOpenAIChatUsageOnlyStreamChunk(string(payload)) {
+			if source != protocolconv.ProtocolOpenAIChat || includeUsage || !isOpenAIChatUsageOnlyStreamChunk(string(payload)) {
 				visible = append(visible, payload)
 			}
 		}
@@ -577,6 +669,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 				return false, err
 			}
 			if _, err := c.Writer.Write(framed); err != nil {
+				clientDisconnected = true
 				return true, nil
 			}
 			wrote = true
@@ -610,9 +703,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 		if err != nil {
 			return nil, err
 		}
-		if disconnected {
-			return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
-		}
+		_ = disconnected
 	}
 	finalPayloads, _, err := session.Finalize()
 	if err != nil {
@@ -622,8 +713,9 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	if err != nil {
 		return nil, err
 	}
-	if disconnected {
-		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+	_ = disconnected
+	if clientDisconnected {
+		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs, clientDisconnected: true}, nil
 	}
 	if !headersWritten {
 		if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
@@ -632,7 +724,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	}
 	_, _ = c.Writer.Write(renderer.StreamTerminal())
 	c.Writer.Flush()
-	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs, clientDisconnected: clientDisconnected}, nil
 }
 
 func (s *GeminiMessagesCompatService) writeGeminiChatCompletionsMappedError(

@@ -1051,6 +1051,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 	var usage *ClaudeUsage
 	var firstTokenMs *int
+	clientDisconnected := false
 	if req.Stream {
 		streamRes, err := s.handleStreamingResponse(c, resp, pipeline, startTime)
 		if err != nil {
@@ -1058,6 +1059,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		}
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
+		clientDisconnected = streamRes.clientDisconnected
 	} else {
 		defer func() { _ = resp.Body.Close() }()
 		if useUpstreamStream {
@@ -1087,16 +1089,17 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	}
 
 	return &ForwardResult{
-		RequestID:      requestID,
-		Usage:          *usage,
-		Model:          originalModel,
-		UpstreamModel:  mappedModel,
-		Stream:         req.Stream,
-		Duration:       time.Since(startTime),
-		FirstTokenMs:   firstTokenMs,
-		ImageCount:     imageCount,
-		ImageSize:      imageSize,
-		ImageInputSize: imageInputSize,
+		RequestID:        requestID,
+		Usage:            *usage,
+		Model:            originalModel,
+		UpstreamModel:    mappedModel,
+		Stream:           req.Stream,
+		Duration:         time.Since(startTime),
+		FirstTokenMs:     firstTokenMs,
+		ImageCount:       imageCount,
+		ImageSize:        imageSize,
+		ImageInputSize:   imageInputSize,
+		ClientDisconnect: clientDisconnected,
 	}, nil
 }
 
@@ -1938,8 +1941,9 @@ func mapGeminiStatusToClaudeErrorType(status string) string {
 }
 
 type geminiStreamResult struct {
-	usage        *ClaudeUsage
-	firstTokenMs *int
+	usage              *ClaudeUsage
+	firstTokenMs       *int
+	clientDisconnected bool
 }
 
 func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context, resp *http.Response, pipeline *protocolconv.Pipeline, startTime time.Time) (*ClaudeUsage, error) {
@@ -2033,7 +2037,11 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	headersWritten := false
+	clientDisconnected := false
 	writePayloads := func(payloads [][]byte) (bool, error) {
+		if clientDisconnected {
+			return true, nil
+		}
 		if len(payloads) == 0 {
 			return false, nil
 		}
@@ -2049,6 +2057,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 				return false, err
 			}
 			if _, err := c.Writer.Write(framed); err != nil {
+				clientDisconnected = true
 				return true, nil
 			}
 		}
@@ -2079,9 +2088,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		if err != nil {
 			return nil, err
 		}
-		if disconnected {
-			return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
-		}
+		_ = disconnected
 	}
 	finalPayloads, _, err := session.Finalize()
 	if err != nil {
@@ -2091,10 +2098,8 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	if err != nil {
 		return nil, err
 	}
-	if disconnected {
-		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
-	}
-	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+	_ = disconnected
+	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs, clientDisconnected: clientDisconnected}, nil
 }
 
 func (s *GeminiMessagesCompatService) writeClaudeError(c *gin.Context, status int, errType, message string) error {

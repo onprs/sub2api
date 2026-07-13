@@ -140,6 +140,27 @@ func TestGeminiForwardAsChatCompletions_RestoresClientModelAfterMappedGoogleResp
 	require.Contains(t, upstream.lastReq.URL.String(), "/models/upstream-gemini:generateContent")
 }
 
+func TestGeminiForwardAsChatCompletions_ChannelMappingRestoresInboundModel(t *testing.T) {
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{"responseId":"google-channel","modelVersion":"upstream-gemini","candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`)),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 104, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"api_key": "test-key", "model_mapping": map[string]any{"channel-target": "upstream-gemini"},
+	}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"channel-target","messages":[{"role":"user","content":"hi"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	result, err := svc.ForwardAsChatCompletionsWithClientModel(context.Background(), c, account, body, "client-alias")
+	require.NoError(t, err)
+	require.Equal(t, "client-alias", result.Model)
+	require.Equal(t, "upstream-gemini", result.UpstreamModel)
+	require.Equal(t, "client-alias", gjson.GetBytes(rec.Body.Bytes(), "model").String())
+}
+
 func TestGeminiForwardAsChatCompletions_StreamsOpenAIChunksFromGeminiSSE(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -356,6 +377,37 @@ func TestGeminiMessagesCompatServiceForward_StreamUsesPipelineAndAnthropicRender
 	require.Contains(t, out, `"stop_reason":"tool_use"`)
 	require.Contains(t, out, `event: message_stop`)
 	require.NotContains(t, out, "data: [DONE]")
+}
+
+func TestGeminiMessagesCompatServiceForward_ClientDisconnectDrainsTerminalUsage(t *testing.T) {
+	upstreamBody := strings.Join([]string{
+		`data: {"responseId":"google-msg","candidates":[{"content":{"parts":[{"text":"hello"}]}}]}`,
+		"",
+		`data: {"responseId":"google-msg","candidates":[{"content":{"parts":[]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":2,"totalTokenCount":10}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Writer = &failWriteResponseWriter{ResponseWriter: c.Writer}
+	body := []byte(`{"model":"claude-client","stream":true,"max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	result, err := svc.Forward(context.Background(), c, &Account{
+		ID: 3, Platform: PlatformGemini, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "test-key", "model_mapping": map[string]any{"claude-client": "gemini-upstream"}},
+	}, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.ClientDisconnect)
+	require.Equal(t, 8, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
 }
 
 func TestGeminiMessagesCompatServiceForward_NormalizesWebSearchToolForAIStudio(t *testing.T) {
