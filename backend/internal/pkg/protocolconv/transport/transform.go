@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"bytes"
 	"context"
 	"errors"
 )
@@ -35,12 +36,19 @@ func (s *TransformEventStream) Next(ctx context.Context) (SSERecord, error) {
 	if err != nil {
 		return SSERecord{}, err
 	}
+	rawData := append([]byte(nil), record.Data...)
 	data, err := s.transform(record.Data)
 	if err != nil {
 		return SSERecord{}, err
 	}
 	if len(data) == 0 {
 		return SSERecord{}, errors.New("event stream transform returned empty payload")
+	}
+	if !bytes.Equal(rawData, data) {
+		if record.Metadata == nil {
+			record.Metadata = make(map[string]any, 1)
+		}
+		record.Metadata["raw_upstream_data"] = rawData
 	}
 	record.Data = append([]byte(nil), data...)
 	return record, nil

@@ -29,6 +29,22 @@ func TestTransformEventStreamNormalizesPayloadAndPreservesMetadata(t *testing.T)
 	require.Equal(t, "message", record.Event)
 	require.Equal(t, "7", record.ID)
 	require.JSONEq(t, `{"value":1}`, string(record.Data))
+	raw, ok := record.Metadata["raw_upstream_data"].([]byte)
+	require.True(t, ok)
+	require.JSONEq(t, `{"response":{"value":1}}`, string(raw))
+	record.Data[0] = '['
+	require.Equal(t, byte('{'), raw[0])
+}
+
+func TestTransformEventStreamOmitsMetadataWhenPayloadIsUnchanged(t *testing.T) {
+	inner := NewSSEParser(io.NopCloser(strings.NewReader("data: {\"value\":1}\n\n")), 0)
+	stream, err := NewTransformEventStream(inner, func(body []byte) ([]byte, error) { return body, nil })
+	require.NoError(t, err)
+	defer stream.Close()
+
+	record, err := stream.Next(context.Background())
+	require.NoError(t, err)
+	require.Nil(t, record.Metadata)
 }
 
 func TestTransformEventStreamPropagatesTerminal(t *testing.T) {

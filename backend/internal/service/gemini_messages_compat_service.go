@@ -1425,7 +1425,12 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 		break
 	}
-	defer func() { _ = resp.Body.Close() }()
+	responseBodyOwned := true
+	defer func() {
+		if responseBodyOwned {
+			_ = resp.Body.Close()
+		}
+	}()
 
 	requestID := resp.Header.Get(requestIDHeader)
 	if requestID == "" {
@@ -1436,6 +1441,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	}
 
 	isOAuth := account.Type == AccountTypeOAuth
+	hasVendorEnvelope := isOAuth && strings.TrimSpace(account.GetCredential("project_id")) != "" && !forceAIStudio
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
@@ -1588,6 +1594,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 	var usage *ClaudeUsage
 	var firstTokenMs *int
+	clientDisconnected := false
 	if action == "countTokens" {
 		responseBody, readErr := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 		if readErr != nil {
@@ -1604,12 +1611,14 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	} else if requestPipeline == nil {
 		return nil, errors.New("gemini upstream response missing request pipeline")
 	} else if stream {
-		streamRes, err := s.handleNativeStreamingResponse(c, resp, startTime, isOAuth)
+		responseBodyOwned = false
+		streamRes, err := s.handleNativeStreamingResponse(c, resp, requestPipeline, startTime, hasVendorEnvelope)
 		if err != nil {
 			return nil, err
 		}
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
+		clientDisconnected = streamRes.clientDisconnected
 	} else {
 		if useUpstreamStream {
 			collected, usageObj, rawStreamBody, err := collectGeminiSSEWithRaw(resp.Body, isOAuth)
@@ -1646,16 +1655,17 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	}
 
 	return &ForwardResult{
-		RequestID:      requestID,
-		Usage:          *usage,
-		Model:          originalModel,
-		UpstreamModel:  mappedModel,
-		Stream:         stream,
-		Duration:       time.Since(startTime),
-		FirstTokenMs:   firstTokenMs,
-		ImageCount:     imageCount,
-		ImageSize:      imageSize,
-		ImageInputSize: imageInputSize,
+		RequestID:        requestID,
+		Usage:            *usage,
+		Model:            originalModel,
+		UpstreamModel:    mappedModel,
+		Stream:           stream,
+		Duration:         time.Since(startTime),
+		FirstTokenMs:     firstTokenMs,
+		ImageCount:       imageCount,
+		ImageSize:        imageSize,
+		ImageInputSize:   imageInputSize,
+		ClientDisconnect: clientDisconnected,
 	}, nil
 }
 
@@ -2321,8 +2331,9 @@ func mergeCollectedTextParts(response map[string]any, textParts []string) map[st
 }
 
 type geminiNativeStreamResult struct {
-	usage        *ClaudeUsage
-	firstTokenMs *int
+	usage              *ClaudeUsage
+	firstTokenMs       *int
+	clientDisconnected bool
 }
 
 func isGeminiInsufficientScope(headers http.Header, body []byte) bool {
@@ -2483,7 +2494,13 @@ func (s *GeminiMessagesCompatService) renderNativeGoogleResponse(
 	return usage, nil
 }
 
-func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, isOAuth bool) (*geminiNativeStreamResult, error) {
+func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
+	c *gin.Context,
+	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
+	startTime time.Time,
+	hasVendorEnvelope bool,
+) (*geminiNativeStreamResult, error) {
 	if s.cfg != nil && s.cfg.Gateway.GeminiDebugResponseHeaders {
 		logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] ========== Streaming Response Headers ==========")
 		for key, values := range resp.Header {
@@ -2494,88 +2511,126 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 		logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] ====================================================")
 	}
 
-	if s.responseHeaderFilter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	maxRecordSize := protocoltransport.DefaultMaxSSERecordBytes
+	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
+		maxRecordSize = s.cfg.Gateway.MaxLineSize
 	}
-
-	c.Status(resp.StatusCode)
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-
-	contentType := resp.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "text/event-stream; charset=utf-8"
-	}
-	c.Header("Content-Type", contentType)
-
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
-		return nil, errors.New("streaming not supported")
-	}
-
-	reader := bufio.NewReader(resp.Body)
-	usage := &ClaudeUsage{}
-	var firstTokenMs *int
-
-	for {
-		line, err := reader.ReadString('\n')
-		if len(line) > 0 {
-			trimmed := strings.TrimRight(line, "\r\n")
-			if strings.HasPrefix(trimmed, "data:") {
-				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
-				// Keepalive / done markers
-				if payload == "" || payload == "[DONE]" {
-					_, _ = io.WriteString(c.Writer, line)
-					flusher.Flush()
-				} else {
-					var rawToWrite string
-					rawToWrite = payload
-
-					var rawBytes []byte
-					if isOAuth {
-						innerBytes, err := unwrapGeminiResponse([]byte(payload))
-						if err == nil {
-							rawToWrite = string(innerBytes)
-							rawBytes = innerBytes
-						}
-					} else {
-						rawBytes = []byte(payload)
-					}
-
-					if u := extractGeminiUsage(rawBytes); u != nil {
-						usage = u
-					}
-
-					if firstTokenMs == nil {
-						ms := int(time.Since(startTime).Milliseconds())
-						firstTokenMs = &ms
-					}
-
-					if isOAuth {
-						// SSE format requires double newline (\n\n) to separate events
-						_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", rawToWrite)
-					} else {
-						// Pass-through for AI Studio responses.
-						_, _ = io.WriteString(c.Writer, line)
-					}
-					flusher.Flush()
-				}
-			} else {
-				_, _ = io.WriteString(c.Writer, line)
-				flusher.Flush()
-			}
-		}
-
-		if errors.Is(err, io.EOF) {
-			break
-		}
+	var events protocoltransport.EventStream = protocoltransport.NewSSEParser(resp.Body, maxRecordSize)
+	metadata := map[string]any(nil)
+	if hasVendorEnvelope {
+		transformed, err := protocoltransport.NewTransformEventStream(events, unwrapGeminiResponse)
 		if err != nil {
 			return nil, err
 		}
+		events = transformed
+		metadata = map[string]any{"vendor_envelope": "gemini_code_assist"}
+	}
+	stream := &protocoltransport.Stream{
+		StatusCode: resp.StatusCode, Headers: responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
+		ActualProtocol: protocolconv.ProtocolGoogleGenAI, RequestID: resp.Header.Get("x-request-id"),
+		Duration: time.Since(startTime), Metadata: metadata, Events: events,
+	}
+	if err := stream.Validate(); err != nil {
+		_ = stream.Close()
+		return nil, fmt.Errorf("collect native Google stream: %w", err)
+	}
+	defer func() { _ = stream.Close() }()
+	if _, ok := c.Writer.(http.Flusher); !ok {
+		return nil, errors.New("streaming not supported")
 	}
 
-	return &geminiNativeStreamResult{usage: usage, firstTokenMs: firstTokenMs}, nil
+	session, err := pipeline.NewStreamProcessor(stream.ActualProtocol)
+	if err != nil {
+		return nil, fmt.Errorf("create native Google stream processor: %w", err)
+	}
+	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolGoogleGenAI)
+	if err != nil {
+		return nil, err
+	}
+	usage := &ClaudeUsage{}
+	var firstTokenMs *int
+	headersWritten := false
+	clientDisconnected := false
+	result := func() *geminiNativeStreamResult {
+		return &geminiNativeStreamResult{
+			usage: usage, firstTokenMs: firstTokenMs, clientDisconnected: clientDisconnected,
+		}
+	}
+	writePayloads := func(payloads [][]byte) error {
+		if clientDisconnected || len(payloads) == 0 {
+			return nil
+		}
+		framedPayloads := make([][]byte, 0, len(payloads))
+		for _, payload := range payloads {
+			framed, err := renderer.FrameStreamEvent(payload)
+			if err != nil {
+				return err
+			}
+			framedPayloads = append(framedPayloads, framed)
+		}
+		if !headersWritten {
+			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
+				return err
+			}
+			headersWritten = true
+		}
+		for _, framed := range framedPayloads {
+			if _, err := c.Writer.Write(framed); err != nil {
+				clientDisconnected = true
+				logger.LegacyPrintf("service.gemini_messages_compat", "Client disconnected during native Gemini streaming, continuing to drain upstream for billing")
+				return nil
+			}
+		}
+		c.Writer.Flush()
+		return nil
+	}
+	failBeforeOutput := func(cause error) error {
+		if headersWritten || c.Writer.Written() || clientDisconnected {
+			return cause
+		}
+		return &UpstreamFailoverError{
+			StatusCode: http.StatusBadGateway, ResponseBody: []byte(`{"error":{"code":502,"message":"Invalid upstream Gemini stream","status":"INTERNAL"}}`),
+			ResponseHeaders: stream.Headers, RetryableOnSameAccount: true,
+		}
+	}
+
+	for {
+		record, nextErr := stream.Events.Next(context.Background())
+		if errors.Is(nextErr, io.EOF) || errors.Is(nextErr, protocoltransport.ErrSSEDone) {
+			break
+		}
+		if nextErr != nil {
+			return result(), failBeforeOutput(fmt.Errorf("read native Google stream: %w", nextErr))
+		}
+		if firstTokenMs == nil {
+			ms := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &ms
+		}
+		if current := extractGeminiUsage(record.Data); current != nil {
+			usage = current
+		}
+		payloads, _, err := session.Convert(record.Data)
+		if err != nil {
+			return result(), failBeforeOutput(fmt.Errorf("convert native Google stream event: %w", err))
+		}
+		if err := writePayloads(payloads); err != nil {
+			return result(), fmt.Errorf("render native Google stream event: %w", err)
+		}
+	}
+	payloads, _, err := session.Finalize()
+	if err != nil {
+		return result(), failBeforeOutput(fmt.Errorf("finalize native Google stream: %w", err))
+	}
+	if err := writePayloads(payloads); err != nil {
+		return result(), fmt.Errorf("render finalized native Google stream: %w", err)
+	}
+	if !clientDisconnected && !headersWritten {
+		if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
+			return result(), err
+		}
+		c.Writer.Flush()
+	}
+	return result(), nil
 }
 
 // ForwardAIStudioGET forwards a GET request to AI Studio (generativelanguage.googleapis.com) for

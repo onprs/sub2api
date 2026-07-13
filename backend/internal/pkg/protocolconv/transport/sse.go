@@ -34,10 +34,11 @@ func (e *SSERecordTooLargeError) Error() string {
 // SSERecord is one parsed SSE record. Data is the JSON payload formed by
 // joining multiple data fields with a newline, as required by the SSE spec.
 type SSERecord struct {
-	Event string
-	ID    string
-	Retry string
-	Data  []byte
+	Event    string
+	ID       string
+	Retry    string
+	Data     []byte
+	Metadata map[string]any
 }
 
 // SSEProgress is a transport-only snapshot for timeout and keepalive policy.
