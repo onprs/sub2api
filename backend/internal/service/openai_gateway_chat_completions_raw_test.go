@@ -499,11 +499,22 @@ func TestHandleChatStreamingResponse_SilentRefusalReasoningSummaryExempt(t *test
 		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
 	}
 	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig()}
+	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+		Route: protocolconv.Route{
+			Source: protocolconv.ProtocolOpenAIChat, IntendedTarget: protocolconv.ProtocolOpenAIResponses,
+			ClientModel: "gpt-5.5", UpstreamModel: "gpt-5.5", Provider: PlatformOpenAI, AccountID: 1,
+		},
+		Options: protocolconv.Options{SourceModel: "gpt-5.5", LossPolicy: protocolconv.LossError},
+	})
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"hi"}],"stream":true}`))
+	require.NoError(t, err)
 
 	result, err := svc.handleChatStreamingResponse(
 		resp,
 		c,
 		rawChatCompletionsTestAccount(),
+		pipeline,
 		"gpt-5.5",
 		"gpt-5.5",
 		"gpt-5.5",

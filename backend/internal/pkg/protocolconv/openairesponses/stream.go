@@ -3,6 +3,7 @@ package openairesponses
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
@@ -70,6 +71,28 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 		}
 		out = append(out, ir.StreamEvent{Type: ir.EventStreamStart, ResponseID: d.id, Model: d.model})
 	}
+	ensureBlock := func(index int, blockType ir.ContentType) {
+		if _, exists := d.blocks[index]; exists {
+			return
+		}
+		d.blocks[index] = blockType
+		out = append(out, ir.StreamEvent{Type: ir.EventContentBlockStart, BlockIndex: index, BlockType: blockType})
+	}
+	closeBlocks := func() {
+		indices := make([]int, 0, len(d.blocks))
+		for index := range d.blocks {
+			indices = append(indices, index)
+		}
+		sort.Ints(indices)
+		for _, index := range indices {
+			if d.blocks[index] == ir.ContentToolCall {
+				call := d.calls[index]
+				out = append(out, ir.StreamEvent{Type: ir.EventToolCallEnd, BlockIndex: index, ToolCallIndex: index, ToolCallID: call.id})
+			}
+			out = append(out, ir.StreamEvent{Type: ir.EventContentBlockEnd, BlockIndex: index})
+			delete(d.blocks, index)
+		}
+	}
 	switch event.Type {
 	case "response.created":
 		if d.started {
@@ -98,12 +121,22 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 		}
 	case "response.output_text.delta":
 		start(nil)
+		ensureBlock(event.OutputIndex, ir.ContentText)
 		out = append(out, ir.StreamEvent{Type: ir.EventTextDelta, BlockIndex: event.OutputIndex, ChoiceIndex: 0, Text: event.Delta})
 	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 		start(nil)
+		ensureBlock(event.OutputIndex, ir.ContentReasoning)
 		out = append(out, ir.StreamEvent{Type: ir.EventReasoningDelta, BlockIndex: event.OutputIndex, ChoiceIndex: 0, Reasoning: event.Delta})
 	case "response.function_call_arguments.delta":
 		start(nil)
+		if _, exists := d.blocks[event.OutputIndex]; !exists {
+			d.blocks[event.OutputIndex] = ir.ContentToolCall
+			d.calls[event.OutputIndex] = struct{ id, name string }{event.CallID, event.Name}
+			out = append(out,
+				ir.StreamEvent{Type: ir.EventContentBlockStart, BlockIndex: event.OutputIndex, BlockType: ir.ContentToolCall},
+				ir.StreamEvent{Type: ir.EventToolCallStart, BlockIndex: event.OutputIndex, ToolCallIndex: event.OutputIndex, ToolCallID: event.CallID, ToolName: event.Name},
+			)
+		}
 		call := d.calls[event.OutputIndex]
 		id := event.CallID
 		if id == "" {
@@ -121,12 +154,16 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 		}
 	case "response.completed", "response.done", "response.incomplete", "response.failed":
 		start(event.Response)
+		closeBlocks()
 		response := event.Response
 		reason := ir.FinishReason{Reason: "stop"}
 		var usage *ir.Usage
 		if response != nil {
 			reason.Reason = responsesFinishReason(response)
 			usage = decodeUsage(response.Usage)
+		}
+		if usage == nil {
+			usage = decodeUsage(event.Usage)
 		}
 		out = append(out, ir.StreamEvent{Type: ir.EventFinish, FinishReason: &reason})
 		if usage != nil {
