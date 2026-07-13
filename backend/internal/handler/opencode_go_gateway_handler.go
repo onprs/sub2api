@@ -13,6 +13,7 @@ import (
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -521,22 +522,11 @@ func (h *OpenCodeGoGatewayHandler) handleStreamingAwareError(c *gin.Context, sta
 }
 
 func (h *OpenCodeGoGatewayHandler) errorResponse(c *gin.Context, status int, format openCodeGoHandlerErrorFormat, errType string, message string) {
+	protocol := protocolconv.ProtocolOpenAIChat
 	if format == openCodeGoHandlerErrorAnthropic {
-		c.JSON(status, gin.H{
-			"type": "error",
-			"error": gin.H{
-				"type":    errType,
-				"message": message,
-			},
-		})
-		return
+		protocol = protocolconv.ProtocolAnthropic
 	}
-	c.JSON(status, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
-	})
+	writeProtocolError(c, protocol, status, errType, errType, message)
 }
 
 func (h *OpenCodeGoGatewayHandler) submitUsageRecordTask(parent context.Context, task service.UsageRecordTask) {

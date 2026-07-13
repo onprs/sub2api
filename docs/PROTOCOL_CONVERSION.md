@@ -97,7 +97,7 @@ Unresolved production behavior:
 
 ## Production Integration
 
-The production integration keeps transport and account policy outside the converter. Authentication, model mapping, OAuth transforms, retries, sticky sessions, failover, rate limits, response headers, usage accounting, billing, and error passthrough remain owned by their existing services.
+The production integration keeps transport and account policy outside the converter. Authentication, model mapping, OAuth transforms, retries, sticky sessions, failover, rate limits, response headers, usage accounting, billing, and error passthrough remain owned by their existing services. Local admission, validation, conversion, and synthesized fallback failures keep caller-owned status/message policy but use the source `protocolconv.Renderer` for non-stream JSON envelopes across Chat, Responses, Anthropic, Google, and OpenCode Go entrypoints. Raw upstream HTTP error bodies remain service-owned passthrough; errors after SSE commitment remain protocol-specific terminal events.
 
 Integrated through the shared IR registry:
 

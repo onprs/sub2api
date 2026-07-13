@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -1049,13 +1050,7 @@ func resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel 
 
 // anthropicErrorResponse writes an error in Anthropic Messages API format.
 func (h *OpenAIGatewayHandler) anthropicErrorResponse(c *gin.Context, status int, errType, message string) {
-	c.JSON(status, gin.H{
-		"type": "error",
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
-	})
+	writeProtocolError(c, protocolconv.ProtocolAnthropic, status, errType, errType, message)
 }
 
 // anthropicStreamingAwareError handles errors that may occur during streaming,
@@ -1753,12 +1748,7 @@ func (h *OpenAIGatewayHandler) ensureResponsesDependencies(c *gin.Context, reqLo
 	reqLog.Error("openai.handler_dependencies_missing", zap.Strings("missing_dependencies", missing))
 
 	if c != nil && c.Writer != nil && !c.Writer.Written() {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error": gin.H{
-				"type":    "api_error",
-				"message": "Service temporarily unavailable",
-			},
-		})
+		writeProtocolError(c, protocolconv.ProtocolOpenAIResponses, http.StatusServiceUnavailable, "api_error", "api_error", "Service temporarily unavailable")
 	}
 	return false
 }
@@ -2069,12 +2059,7 @@ func (h *OpenAIGatewayHandler) errorResponse(c *gin.Context, status int, errType
 			return
 		}
 	}
-	c.JSON(status, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
-	})
+	writeProtocolError(c, protocolconv.ProtocolOpenAIResponses, status, errType, errType, message)
 }
 
 // openAICompactKeepaliveInterval 复用流式 keepalive 配置作为 compact 下游
@@ -2358,19 +2343,13 @@ func (h *OpenAIGatewayHandler) rejectIfCyberSessionBlocked(c *gin.Context, apiKe
 			return true
 		}
 	}
-	switch format {
-	case cyberBlockFormatAnthropic:
-		c.JSON(http.StatusForbidden, gin.H{"type": "error", "error": gin.H{
-			"type":    "permission_error",
-			"message": cyberSessionBlockedClientMsg,
-		}})
-	default: // cyberBlockFormatResponses 与 cyberBlockFormatChat：同构的 OpenAI error envelope
-		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{
-			"type":    "permission_error",
-			"code":    "session_blocked_by_cyber_policy",
-			"message": cyberSessionBlockedClientMsg,
-		}})
+	protocol := protocolconv.ProtocolOpenAIResponses
+	if format == cyberBlockFormatAnthropic {
+		protocol = protocolconv.ProtocolAnthropic
+	} else if format == cyberBlockFormatChat {
+		protocol = protocolconv.ProtocolOpenAIChat
 	}
+	writeProtocolError(c, protocol, http.StatusForbidden, "permission_error", "session_blocked_by_cyber_policy", cyberSessionBlockedClientMsg)
 	h.enqueueCyberSessionBlockedOpsEntry(c, apiKey, model, key)
 	return true
 }

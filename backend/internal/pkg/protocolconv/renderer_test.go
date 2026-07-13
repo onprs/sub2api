@@ -93,6 +93,19 @@ func TestRendererBuildsSourceSpecificErrorEnvelopes(t *testing.T) {
 	}
 }
 
+func TestRendererGoogleErrorStatusMappingPreservesUnknownClientErrors(t *testing.T) {
+	renderer, err := NewRenderer(ProtocolGoogleGenAI)
+	require.NoError(t, err)
+
+	body, err := renderer.ErrorBody(http.StatusPaymentRequired, "api_error", "api_error", "payment required")
+	require.NoError(t, err)
+	require.JSONEq(t, `{"error":{"code":402,"message":"payment required","status":"UNKNOWN"}}`, string(body))
+
+	body, err = renderer.ErrorBody(http.StatusBadGateway, "api_error", "api_error", "upstream failed")
+	require.NoError(t, err)
+	require.JSONEq(t, `{"error":{"code":502,"message":"upstream failed","status":"INTERNAL"}}`, string(body))
+}
+
 func TestRendererWritesJSONAndSSEHeadersWithoutHopByHopHeaders(t *testing.T) {
 	renderer, err := NewRenderer(ProtocolAnthropic)
 	require.NoError(t, err)

@@ -239,6 +239,9 @@ func googleStatusName(status int) string {
 	case http.StatusGatewayTimeout:
 		return "DEADLINE_EXCEEDED"
 	default:
-		return "INTERNAL"
+		if normalizeHTTPStatus(status) >= http.StatusInternalServerError {
+			return "INTERNAL"
+		}
+		return "UNKNOWN"
 	}
 }
