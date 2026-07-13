@@ -3,6 +3,7 @@
 package transport
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -44,6 +45,12 @@ func (r Response) IsError() bool {
 	return r.StatusCode >= http.StatusBadRequest
 }
 
+// EventStream yields complete provider JSON payloads without SSE framing.
+type EventStream interface {
+	Next(context.Context) (SSERecord, error)
+	Close() error
+}
+
 // Stream exposes upstream status and protocol before downstream headers are
 // committed. Events yields complete provider JSON payloads without SSE framing.
 type Stream struct {
@@ -54,7 +61,7 @@ type Stream struct {
 	ResponseID     string
 	Duration       time.Duration
 	Metadata       map[string]any
-	Events         *SSEParser
+	Events         EventStream
 	ErrorBody      io.ReadCloser
 }
 

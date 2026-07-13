@@ -9,12 +9,13 @@ import (
 )
 
 type streamDecoder struct {
-	started   bool
-	ended     bool
-	id        string
-	model     string
-	nextBlock int
-	current   *googleBlock
+	started     bool
+	ended       bool
+	id          string
+	model       string
+	nextBlock   int
+	current     *googleBlock
+	sawToolCall bool
 }
 
 type googleBlock struct {
@@ -69,6 +70,7 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 	finishReason := ir.FinishReason{Reason: "stop"}
 	for candidateIndex, candidate := range wire.Candidates {
 		for partIndex, part := range candidate.Content.Parts {
+			part = ensureGoogleFunctionCallID(part, candidateIndex, partIndex)
 			partType := googlePartType(part)
 			identity := googlePartIdentity(part)
 			if d.current == nil || d.current.partType != partType || (partType == ir.ContentToolCall && d.current.toolCallID != identity) {
@@ -85,6 +87,7 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 
 			switch {
 			case part.FunctionCall != nil:
+				d.sawToolCall = true
 				args := string(part.FunctionCall.Args)
 				if args == "" {
 					args = "{}"
@@ -115,6 +118,9 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 	}
 
 	if finished {
+		if d.sawToolCall {
+			finishReason.Reason = "tool_calls"
+		}
 		out = append(out, d.closeCurrent()...)
 		out = append(out, ir.StreamEvent{Type: ir.EventFinish, FinishReason: &finishReason})
 		if usage := usageFromGoogle(wire.UsageMetadata); usage != nil {

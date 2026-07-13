@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type geminiCompatHTTPUpstreamStub struct {
@@ -117,6 +118,28 @@ func TestGeminiForwardAsChatCompletions_OAuthRoutesToGeminiAndReturnsChatFormat(
 	require.Equal(t, float64(10), usage["total_tokens"])
 }
 
+func TestGeminiForwardAsChatCompletions_RestoresClientModelAfterMappedGoogleResponse(t *testing.T) {
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"responseId":"google-1","modelVersion":"upstream-gemini","candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1,"totalTokenCount":4}}`)),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 103, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"api_key": "test-key", "model_mapping": map[string]any{"client-gemini": "upstream-gemini"},
+	}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"client-gemini","messages":[{"role":"user","content":"hi"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.Equal(t, "upstream-gemini", result.UpstreamModel)
+	require.Equal(t, "client-gemini", gjson.GetBytes(rec.Body.Bytes(), "model").String())
+	require.Contains(t, upstream.lastReq.URL.String(), "/models/upstream-gemini:generateContent")
+}
+
 func TestGeminiForwardAsChatCompletions_StreamsOpenAIChunksFromGeminiSSE(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -168,6 +191,71 @@ func TestGeminiForwardAsChatCompletions_StreamsOpenAIChunksFromGeminiSSE(t *test
 	require.Contains(t, out, `"content":"lo"`)
 	require.Contains(t, out, `"usage":{"prompt_tokens":2,"completion_tokens":2,"total_tokens":4}`)
 	require.Contains(t, out, "data: [DONE]")
+}
+
+func TestGeminiForwardAsChatCompletions_OAuthStreamUnwrapsGoogleEnvelope(t *testing.T) {
+	upstreamBody := `data: {"response":{"responseId":"google-oauth","modelVersion":"upstream-gemini","candidates":[{"content":{"parts":[{"text":"wrapped"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1,"totalTokenCount":3}}}` + "\n\n" +
+		"data: [DONE]\n\n"
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &GeminiMessagesCompatService{tokenProvider: &GeminiTokenProvider{}, httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 105, Platform: PlatformGemini, Type: AccountTypeOAuth, Credentials: map[string]any{
+		"access_token": "test-token", "project_id": "project-1",
+	}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"client-gemini","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Contains(t, rec.Body.String(), `"content":"wrapped"`)
+	require.Contains(t, rec.Body.String(), `"model":"client-gemini"`)
+	require.Equal(t, 1, strings.Count(rec.Body.String(), "data: [DONE]"))
+}
+
+func TestGeminiForwardAsChatCompletions_MalformedFirstStreamEventDoesNotCommitSuccess(t *testing.T) {
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader("data: {not-json}\n\n")),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 106, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-key"}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"client-gemini","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, rec.Body.String())
+}
+
+func TestGeminiForwardAsChatCompletions_StreamSynthesizesMissingGoogleToolCallID(t *testing.T) {
+	upstreamBody := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","args":{"q":"x"}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1,"totalTokenCount":3}}` + "\n\n" +
+		"data: [DONE]\n\n"
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 104, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-key"}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gemini-2.5-flash","stream":true,"messages":[{"role":"user","content":"lookup"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Contains(t, rec.Body.String(), `"id":"call_google_0_0"`)
+	require.Contains(t, rec.Body.String(), `"name":"lookup"`)
+	require.Equal(t, 1, strings.Count(rec.Body.String(), "data: [DONE]"))
 }
 
 // TestConvertClaudeToolsToGeminiTools_CustomType 测试custom类型工具转换

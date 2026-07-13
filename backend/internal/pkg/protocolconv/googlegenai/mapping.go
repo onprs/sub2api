@@ -3,11 +3,21 @@ package googlegenai
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/ir"
 )
+
+func ensureGoogleFunctionCallID(part partWire, candidateIndex, partIndex int) partWire {
+	if part.FunctionCall != nil && part.FunctionCall.ID == "" {
+		call := *part.FunctionCall
+		call.ID = fmt.Sprintf("call_google_%d_%d", candidateIndex, partIndex)
+		part.FunctionCall = &call
+	}
+	return part
+}
 
 func partFromGoogle(part partWire) ([]ir.ContentPart, error) {
 	switch {

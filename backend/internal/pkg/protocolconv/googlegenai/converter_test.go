@@ -32,6 +32,48 @@ func TestGoogleStreamEncoderRestoresRequestScopedResponseModel(t *testing.T) {
 	}
 }
 
+func TestDecodeResponseSynthesizesMissingFunctionCallIDs(t *testing.T) {
+	response, _, err := New().DecodeResponse([]byte(`{
+		"candidates":[{"content":{"role":"model","parts":[
+			{"functionCall":{"name":"first","args":{"x":1}}},
+			{"functionCall":{"name":"second","args":{"y":2}}}
+		]},"finishReason":"STOP"}]
+	}`), protocolconv.Options{SourceModel: "upstream-model"})
+	require.NoError(t, err)
+	require.Len(t, response.Choices, 1)
+	require.Len(t, response.Choices[0].Message.Content, 2)
+	require.Equal(t, "call_google_0_0", response.Choices[0].Message.Content[0].ToolCallID)
+	require.Equal(t, "call_google_0_1", response.Choices[0].Message.Content[1].ToolCallID)
+	require.Equal(t, "tool_calls", response.Choices[0].FinishReason.Reason)
+}
+
+func TestStreamDecoderSynthesizesMissingFunctionCallID(t *testing.T) {
+	decoder := New().NewStreamDecoder()
+	events, _, err := decoder.Decode([]byte(`{
+		"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"lookup","args":{"q":"x"}}}]},"finishReason":"STOP"}],
+		"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1}
+	}`))
+	require.NoError(t, err)
+	var startID, deltaID, endID, finishReason string
+	for _, event := range events {
+		switch event.Type {
+		case ir.EventToolCallStart:
+			startID = event.ToolCallID
+		case ir.EventToolCallDelta:
+			deltaID = event.ToolCallID
+		case ir.EventToolCallEnd:
+			endID = event.ToolCallID
+		case ir.EventFinish:
+			finishReason = event.FinishReason.Reason
+		}
+	}
+	require.Equal(t, "call_google_0_0", startID)
+	require.Equal(t, startID, deltaID)
+	require.Equal(t, startID, endID)
+	require.Equal(t, "tool_calls", finishReason)
+	require.NoError(t, func() error { _, _, err := decoder.Finalize(); return err }())
+}
+
 func TestEncodeRequestMapsServerSearchOutsideFunctionDeclarations(t *testing.T) {
 	maxTokens := 16
 	request := &ir.Request{
