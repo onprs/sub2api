@@ -17,7 +17,7 @@ type ToolRoute struct {
 }
 
 func buildToolRoutes(request *ir.Request, source, target Protocol) (map[string]ToolRoute, error) {
-	if request == nil || source != ProtocolOpenAIResponses || target != ProtocolOpenAIChat {
+	if request == nil || source != ProtocolOpenAIResponses || (target != ProtocolOpenAIChat && target != ProtocolAnthropic) {
 		return nil, nil
 	}
 	routes := make(map[string]ToolRoute)
@@ -33,6 +33,10 @@ func buildToolRoutes(request *ir.Request, source, target Protocol) (map[string]T
 	}
 	for _, tool := range request.Tools {
 		switch tool.ProviderType {
+		case "", "function":
+			if err := add(tool.Name, ToolRoute{SourceKind: "function_call", SourceName: tool.Name}); err != nil {
+				return nil, err
+			}
 		case "custom":
 			if err := add(tool.Name, ToolRoute{SourceKind: "custom_tool_call", SourceName: tool.Name}); err != nil {
 				return nil, err

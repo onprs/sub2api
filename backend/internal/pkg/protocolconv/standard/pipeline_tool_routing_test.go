@@ -115,6 +115,104 @@ func TestPipelineStreamRestoresResponsesExtendedToolsAndClientModel(t *testing.T
 	require.Contains(t, wire, `"name":"send"`)
 }
 
+func TestPipelineRestoresResponsesExtendedToolsAfterAnthropicRoute(t *testing.T) {
+	registry, err := NewRegistry()
+	require.NoError(t, err)
+	pipeline, err := protocolconv.NewPipeline(registry, protocolconv.PipelineConfig{Route: protocolconv.Route{
+		Source: protocolconv.ProtocolOpenAIResponses, IntendedTarget: protocolconv.ProtocolAnthropic,
+		ClientModel: "client-model", UpstreamModel: "upstream-model",
+	}})
+	require.NoError(t, err)
+	converted, err := pipeline.ConvertRequest([]byte(`{
+		"model":"client-model","input":"use tools",
+		"tools":[
+			{"type":"custom","name":"exec"},
+			{"type":"tool_search"},
+			{"type":"namespace","name":"gmail","tools":[{"type":"function","name":"send","parameters":{"type":"object"}}]}
+		],
+		"tool_choice":{"type":"tool_search"}
+	}`))
+	require.NoError(t, err)
+	require.Equal(t, "exec", gjson.GetBytes(converted.Body, "tools.0.name").String())
+	require.Equal(t, "tool_search", gjson.GetBytes(converted.Body, "tools.1.name").String())
+	require.Equal(t, "gmail__send", gjson.GetBytes(converted.Body, "tools.2.name").String())
+	require.Equal(t, "tool_search", gjson.GetBytes(converted.Body, "tool_choice.name").String())
+
+	response, err := pipeline.ConvertResponse([]byte(`{
+		"id":"msg-tools","type":"message","role":"assistant","model":"upstream-model",
+		"content":[
+			{"type":"tool_use","id":"custom-1","name":"exec","input":{"input":"dir /b"}},
+			{"type":"tool_use","id":"search-1","name":"tool_search","input":{"query":"gmail"}},
+			{"type":"tool_use","id":"ns-1","name":"gmail__send","input":{"to":"a@example.com"}}
+		],"stop_reason":"tool_use","usage":{"input_tokens":4,"output_tokens":2}
+	}`), protocolconv.ProtocolAnthropic)
+	require.NoError(t, err)
+	require.Equal(t, "custom_tool_call", gjson.GetBytes(response.Body, "output.0.type").String())
+	require.Equal(t, "dir /b", gjson.GetBytes(response.Body, "output.0.input").String())
+	require.Equal(t, "tool_search_call", gjson.GetBytes(response.Body, "output.1.type").String())
+	require.Equal(t, "gmail", gjson.GetBytes(response.Body, "output.2.namespace").String())
+	require.Equal(t, "send", gjson.GetBytes(response.Body, "output.2.name").String())
+	require.Equal(t, "client-model", gjson.GetBytes(response.Body, "model").String())
+}
+
+func TestPipelineStreamRestoresResponsesExtendedToolAfterAnthropicRoute(t *testing.T) {
+	registry, err := NewRegistry()
+	require.NoError(t, err)
+	pipeline, err := protocolconv.NewPipeline(registry, protocolconv.PipelineConfig{Route: protocolconv.Route{
+		Source: protocolconv.ProtocolOpenAIResponses, IntendedTarget: protocolconv.ProtocolAnthropic,
+		ClientModel: "client-model", UpstreamModel: "upstream-model",
+	}})
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{"model":"client-model","input":"use tool","stream":true,"tools":[{"type":"custom","name":"exec"}]}`))
+	require.NoError(t, err)
+	session, err := pipeline.NewStreamProcessor(protocolconv.ProtocolAnthropic)
+	require.NoError(t, err)
+	payloads := [][]byte{
+		[]byte(`{"type":"message_start","message":{"id":"msg-stream","type":"message","role":"assistant","model":"upstream-model","content":[],"usage":{"input_tokens":2}}}`),
+		[]byte(`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"custom-1","name":"exec","input":{}}}`),
+		[]byte(`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"input\":\"dir /b\"}"}}`),
+		[]byte(`{"type":"content_block_stop","index":0}`),
+		[]byte(`{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":1}}`),
+		[]byte(`{"type":"message_stop"}`),
+	}
+	var converted [][]byte
+	for _, payload := range payloads {
+		out, _, err := session.Convert(payload)
+		require.NoError(t, err)
+		converted = append(converted, out...)
+	}
+	final, _, err := session.Finalize()
+	require.NoError(t, err)
+	converted = append(converted, final...)
+	var wire string
+	for _, payload := range converted {
+		wire += string(payload) + "\n"
+	}
+	require.Contains(t, wire, `"model":"client-model"`)
+	require.Contains(t, wire, `"type":"custom_tool_call"`)
+	require.Contains(t, wire, `"type":"response.custom_tool_call_input.done"`)
+	require.Contains(t, wire, `"input":"dir /b"`)
+}
+
+func TestPipelineRejectsAmbiguousFlattenedToolRoute(t *testing.T) {
+	registry, err := NewRegistry()
+	require.NoError(t, err)
+	for _, target := range []protocolconv.Protocol{protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic} {
+		pipeline, err := protocolconv.NewPipeline(registry, protocolconv.PipelineConfig{Route: protocolconv.Route{
+			Source: protocolconv.ProtocolOpenAIResponses, IntendedTarget: target,
+		}})
+		require.NoError(t, err)
+		_, err = pipeline.ConvertRequest([]byte(`{
+			"model":"client-model","input":"use tools",
+			"tools":[
+				{"type":"function","name":"gmail__send","parameters":{"type":"object"}},
+				{"type":"namespace","name":"gmail","tools":[{"type":"function","name":"send","parameters":{"type":"object"}}]}
+			]
+		}`))
+		require.ErrorContains(t, err, `target tool name "gmail__send" has ambiguous source routes`)
+	}
+}
+
 func TestPipelineToolRoutesAreRequestScopedUnderConcurrency(t *testing.T) {
 	registry, err := NewRegistry()
 	require.NoError(t, err)
