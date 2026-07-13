@@ -511,30 +511,9 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 		return nil, fmt.Errorf("upstream response failed: %s", message)
 	}
 
-	// When the terminal event has an empty output array, reconstruct from
-	// accumulated delta events so the client receives the full content.
-	terminalHadOutput := len(finalResponse.Output) > 0
-	acc.SupplementResponseOutput(finalResponse)
-	upstreamBody := terminalBody
-	if len(upstreamBody) == 0 {
-		upstreamBody, err = json.Marshal(finalResponse)
-		if err != nil {
-			return nil, fmt.Errorf("marshal buffered Responses result: %w", err)
-		}
-	}
-	if !terminalHadOutput {
-		if output, marshalErr := json.Marshal(finalResponse.Output); marshalErr == nil {
-			if updated, setErr := sjson.SetRawBytes(upstreamBody, "output", output); setErr == nil {
-				upstreamBody = updated
-			}
-		}
-	}
-	if finalResponse.Usage != nil && !gjson.GetBytes(upstreamBody, "usage").Exists() {
-		if rawUsage, marshalErr := json.Marshal(finalResponse.Usage); marshalErr == nil {
-			if updated, setErr := sjson.SetRawBytes(upstreamBody, "usage", rawUsage); setErr == nil {
-				upstreamBody = updated
-			}
-		}
+	upstreamBody, err := prepareOpenAICompatBufferedResponseBody(finalResponse, terminalBody, acc)
+	if err != nil {
+		return nil, err
 	}
 	structured := protocoltransport.Response{
 		StatusCode: http.StatusOK, Headers: responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
@@ -764,6 +743,49 @@ func openAICompatTerminalResponseBody(payload string) []byte {
 		return nil
 	}
 	return append([]byte(nil), response.Raw...)
+}
+
+func prepareOpenAICompatBufferedResponseBody(
+	finalResponse *apicompat.ResponsesResponse,
+	terminalBody []byte,
+	acc *apicompat.BufferedResponseAccumulator,
+) ([]byte, error) {
+	if finalResponse == nil {
+		return nil, errors.New("buffered Responses terminal is nil")
+	}
+	terminalHadOutput := len(finalResponse.Output) > 0
+	if acc != nil {
+		acc.SupplementResponseOutput(finalResponse)
+	}
+	upstreamBody := append([]byte(nil), terminalBody...)
+	if len(upstreamBody) == 0 {
+		var err error
+		upstreamBody, err = json.Marshal(finalResponse)
+		if err != nil {
+			return nil, fmt.Errorf("marshal buffered Responses result: %w", err)
+		}
+	}
+	if !terminalHadOutput {
+		output, err := json.Marshal(finalResponse.Output)
+		if err != nil {
+			return nil, fmt.Errorf("marshal reconstructed Responses output: %w", err)
+		}
+		upstreamBody, err = sjson.SetRawBytes(upstreamBody, "output", output)
+		if err != nil {
+			return nil, fmt.Errorf("set reconstructed Responses output: %w", err)
+		}
+	}
+	if finalResponse.Usage != nil && !gjson.GetBytes(upstreamBody, "usage").Exists() {
+		rawUsage, err := json.Marshal(finalResponse.Usage)
+		if err != nil {
+			return nil, fmt.Errorf("marshal buffered Responses usage: %w", err)
+		}
+		upstreamBody, err = sjson.SetRawBytes(upstreamBody, "usage", rawUsage)
+		if err != nil {
+			return nil, fmt.Errorf("set buffered Responses usage: %w", err)
+		}
+	}
+	return upstreamBody, nil
 }
 
 // handleAnthropicStreamingResponse reads Responses SSE events from upstream,

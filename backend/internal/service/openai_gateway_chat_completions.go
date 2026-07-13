@@ -415,7 +415,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 
-	finalResponse, _, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, "openai chat_completions buffered", requestID)
+	finalResponse, terminalBody, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, "openai chat_completions buffered", requestID)
 	if err != nil {
 		return nil, err
 	}
@@ -465,9 +465,10 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 		return nil, fmt.Errorf("upstream response failed: %s", message)
 	}
 
-	// When the terminal event has an empty output array, reconstruct from
-	// accumulated delta events so the client receives the full content.
-	acc.SupplementResponseOutput(finalResponse)
+	upstreamBody, err := prepareOpenAICompatBufferedResponseBody(finalResponse, terminalBody, acc)
+	if err != nil {
+		return nil, err
+	}
 
 	filteredHeaders := make(http.Header)
 	if s.responseHeaderFilter != nil {
@@ -481,10 +482,6 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 		c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 		c.JSON(http.StatusOK, chatResp)
 	} else {
-		upstreamBody, err := json.Marshal(finalResponse)
-		if err != nil {
-			return nil, fmt.Errorf("marshal buffered Responses terminal: %w", err)
-		}
 		structured := protocoltransport.Response{
 			StatusCode:     http.StatusOK,
 			Headers:        filteredHeaders,

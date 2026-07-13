@@ -10,9 +10,11 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestReadOpenAICompatBufferedTerminalPreservesRawResponse(t *testing.T) {
@@ -26,6 +28,22 @@ func TestReadOpenAICompatBufferedTerminalPreservesRawResponse(t *testing.T) {
 	require.JSONEq(t, `{"id":"resp_raw","model":"upstream-model","status":"completed","output":[],"vendor_extension":{"opaque":true}}`, string(raw))
 	require.Equal(t, 4, usage.InputTokens)
 	require.Equal(t, 1, usage.OutputTokens)
+}
+
+func TestPrepareOpenAICompatBufferedResponseBodyPreservesRawAndSupplementsTerminal(t *testing.T) {
+	acc := apicompat.NewBufferedResponseAccumulator()
+	acc.ProcessEvent(&apicompat.ResponsesStreamEvent{Type: "response.output_text.delta", Delta: "restored"})
+	final := &apicompat.ResponsesResponse{
+		ID: "resp_raw", Object: "response", Model: "upstream-model", Status: "completed",
+		Usage: &apicompat.ResponsesUsage{InputTokens: 4, OutputTokens: 1, TotalTokens: 5},
+	}
+	raw := []byte(`{"id":"resp_raw","object":"response","model":"upstream-model","status":"completed","output":[],"vendor_extension":{"opaque":true}}`)
+
+	body, err := prepareOpenAICompatBufferedResponseBody(final, raw, acc)
+	require.NoError(t, err)
+	require.Equal(t, "restored", gjson.GetBytes(body, "output.0.content.0.text").String())
+	require.Equal(t, 4, int(gjson.GetBytes(body, "usage.input_tokens").Int()))
+	require.True(t, gjson.GetBytes(body, "vendor_extension.opaque").Bool())
 }
 
 func TestForwardAsAnthropic_ResponsesStreamUsesRequestPipeline(t *testing.T) {
