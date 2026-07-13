@@ -54,7 +54,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	startTime time.Time,
 	model string,
 ) (*streamingResult, error) {
-	pipeline, err := newAnthropicPassthroughPipeline(account, model, model)
+	pipeline, err := newAnthropicIdentityPipeline(account, model, model)
 	if err != nil {
 		return nil, err
 	}
@@ -1281,7 +1281,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StructuredStreamParsesMultili
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 	account := newAnthropicAPIKeyAccountForTest()
-	pipeline, err := newAnthropicPassthroughPipeline(account, "client-model", "upstream-model")
+	pipeline, err := newAnthropicIdentityPipeline(account, "client-model", "upstream-model")
 	require.NoError(t, err)
 	_, err = pipeline.ConvertRequest([]byte(`{"model":"upstream-model","stream":true,"messages":[{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)
@@ -1322,7 +1322,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StructuredStreamRejectsMalfor
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 	account := newAnthropicAPIKeyAccountForTest()
-	pipeline, err := newAnthropicPassthroughPipeline(account, "client-model", "upstream-model")
+	pipeline, err := newAnthropicIdentityPipeline(account, "client-model", "upstream-model")
 	require.NoError(t, err)
 	_, err = pipeline.ConvertRequest([]byte(`{"model":"upstream-model","stream":true,"messages":[]}`))
 	require.NoError(t, err)

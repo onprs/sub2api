@@ -101,7 +101,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		if err != nil {
 			return nil, err
 		}
-		attemptPipeline, err := newAnthropicPassthroughPipeline(account, input.OriginalModel, input.RequestModel)
+		attemptPipeline, err := newAnthropicIdentityPipeline(account, input.OriginalModel, input.RequestModel)
 		if err != nil {
 			return nil, err
 		}
@@ -306,7 +306,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	}, nil
 }
 
-func newAnthropicPassthroughPipeline(account *Account, clientModel, upstreamModel string) (*protocolconv.Pipeline, error) {
+func newAnthropicIdentityPipeline(account *Account, clientModel, upstreamModel string) (*protocolconv.Pipeline, error) {
 	route := protocolconv.Route{
 		Source: protocolconv.ProtocolAnthropic, IntendedTarget: protocolconv.ProtocolAnthropic,
 		ClientModel: clientModel, UpstreamModel: upstreamModel,

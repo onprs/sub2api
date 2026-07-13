@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -352,6 +353,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 
 	// 重试循环
 	var resp *http.Response
+	var requestPipeline *protocolconv.Pipeline
 	lastWireBody := body
 	retryStart := time.Now()
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
@@ -362,8 +364,17 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		if err != nil {
 			return nil, err
 		}
-		// 记录本次实际发送的 wire body；只有请求成功后才写回 ParsedRequest，避免 400 retry 基于已签名 CCH 再改写。
-		lastWireBody = wireBody
+		attemptPipeline, err := newAnthropicIdentityPipeline(account, originalModel, reqModel)
+		if err != nil {
+			return nil, err
+		}
+		convertedRequest, err := attemptPipeline.ConvertRequest(wireBody)
+		if err != nil {
+			return nil, fmt.Errorf("validate Anthropic request: %w", err)
+		}
+		// 记录本次实际发送的标准 Anthropic body；Vertex 等 vendor wrapper 仍由 transport 构造器持有。
+		lastWireBody = convertedRequest.Body
+		requestPipeline = attemptPipeline
 
 		// 发送请求
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
@@ -443,9 +454,22 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					retryCtx, releaseRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
 					retryReq, retryWireBody, buildErr := s.buildUpstreamRequest(retryCtx, c, account, filteredBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 					releaseRetryCtx()
+					var retryPipeline *protocolconv.Pipeline
+					if buildErr == nil {
+						retryPipeline, buildErr = newAnthropicIdentityPipeline(account, originalModel, reqModel)
+					}
+					if buildErr == nil {
+						convertedRetry, convertErr := retryPipeline.ConvertRequest(retryWireBody)
+						if convertErr != nil {
+							buildErr = fmt.Errorf("validate Anthropic signature retry request: %w", convertErr)
+						} else {
+							retryWireBody = convertedRetry.Body
+						}
+					}
 					if buildErr == nil {
 						retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
 						if retryErr == nil {
+							requestPipeline = retryPipeline
 							if retryResp.StatusCode < 400 {
 								// 重试请求被上游接受后同步 ParsedRequest，保证 usage/日志看到真实请求体。
 								lastWireBody = retryWireBody
@@ -484,9 +508,22 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 									retryCtx2, releaseRetryCtx2 := detachStreamUpstreamContext(ctx, reqStream)
 									retryReq2, retryWireBody2, buildErr2 := s.buildUpstreamRequest(retryCtx2, c, account, filteredBody2, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 									releaseRetryCtx2()
+									var retryPipeline2 *protocolconv.Pipeline
+									if buildErr2 == nil {
+										retryPipeline2, buildErr2 = newAnthropicIdentityPipeline(account, originalModel, reqModel)
+									}
+									if buildErr2 == nil {
+										convertedRetry2, convertErr := retryPipeline2.ConvertRequest(retryWireBody2)
+										if convertErr != nil {
+											buildErr2 = fmt.Errorf("validate Anthropic tool signature retry request: %w", convertErr)
+										} else {
+											retryWireBody2 = convertedRetry2.Body
+										}
+									}
 									if buildErr2 == nil {
 										retryResp2, retryErr2 := s.httpUpstream.DoWithTLS(retryReq2, proxyURL, account.ID, account.Concurrency, tlsProfile)
 										if retryErr2 == nil {
+											requestPipeline = retryPipeline2
 											if retryResp2.StatusCode < 400 {
 												// 二阶段工具块降级成功时也必须更新当前 body。
 												lastWireBody = retryWireBody2
@@ -563,9 +600,22 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						budgetRetryCtx, releaseBudgetRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
 						budgetRetryReq, budgetWireBody, buildErr := s.buildUpstreamRequest(budgetRetryCtx, c, account, rectifiedBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 						releaseBudgetRetryCtx()
+						var budgetRetryPipeline *protocolconv.Pipeline
+						if buildErr == nil {
+							budgetRetryPipeline, buildErr = newAnthropicIdentityPipeline(account, originalModel, reqModel)
+						}
+						if buildErr == nil {
+							convertedBudgetRetry, convertErr := budgetRetryPipeline.ConvertRequest(budgetWireBody)
+							if convertErr != nil {
+								buildErr = fmt.Errorf("validate Anthropic budget retry request: %w", convertErr)
+							} else {
+								budgetWireBody = convertedBudgetRetry.Body
+							}
+						}
 						if buildErr == nil {
 							budgetRetryResp, retryErr := s.httpUpstream.DoWithTLS(budgetRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
 							if retryErr == nil {
+								requestPipeline = budgetRetryPipeline
 								if budgetRetryResp.StatusCode < 400 {
 									// budget 修正请求成功后，ParsedRequest 也要描述被接受的修正版。
 									lastWireBody = budgetWireBody
@@ -649,6 +699,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	}
 	if resp == nil || resp.Body == nil {
 		return nil, errors.New("upstream request failed: empty response")
+	}
+	if requestPipeline == nil {
+		return nil, errors.New("upstream request failed: missing Anthropic request pipeline")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -836,7 +889,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		firstTokenMs = streamResult.firstTokenMs
 		clientDisconnect = streamResult.clientDisconnect
 	} else {
-		usage, err = s.handleNonStreamingResponse(ctx, resp, c, account, originalModel, reqModel)
+		usage, err = s.handleNonStreamingResponse(ctx, resp, c, account, requestPipeline, originalModel, reqModel)
 		if err != nil {
 			return nil, err
 		}

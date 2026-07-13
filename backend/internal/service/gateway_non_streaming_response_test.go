@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type nonJSONTempUnschedAccountRepo struct {
@@ -47,8 +48,10 @@ func TestHandleNonStreamingResponse_NonJSON2xxTriggersFailover(t *testing.T) {
 		cfg:              &config.Config{},
 		rateLimitService: &RateLimitService{},
 	}
+	account := &Account{ID: 1}
+	pipeline := newAnthropicPassthroughTestPipeline(t, account)
 
-	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, "claude-sonnet-4-6", "claude-sonnet-4-6")
+	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, account, pipeline, "claude-sonnet-4-6", "claude-sonnet-4-6")
 
 	require.Nil(t, usage)
 	var failoverErr *UpstreamFailoverError
@@ -75,8 +78,10 @@ func TestHandleNonStreamingResponse_ValidJSONUnchanged(t *testing.T) {
 		cfg:              &config.Config{},
 		rateLimitService: &RateLimitService{},
 	}
+	account := &Account{ID: 1}
+	pipeline := newAnthropicPassthroughTestPipeline(t, account)
 
-	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, "claude-sonnet-4-6", "claude-sonnet-4-6")
+	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, account, pipeline, "claude-sonnet-4-6", "claude-sonnet-4-6")
 
 	require.NoError(t, err)
 	require.NotNil(t, usage)
@@ -85,9 +90,66 @@ func TestHandleNonStreamingResponse_ValidJSONUnchanged(t *testing.T) {
 	require.JSONEq(t, string(body), rec.Body.String())
 }
 
+func TestHandleNonStreamingResponse_StructuredAnthropicOutputPreservesFieldsAndRestoresModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"id":"msg_structured","type":"message","model":"claude-upstream","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":4,"output_tokens":2},"vendor_extension":{"kept":true}}`)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":             []string{"application/vnd.anthropic+json"},
+			"X-Request-Id":             []string{"rid-structured"},
+			"X-RateLimit-Limit-Tokens": []string{"1000"},
+			"X-Internal-Upstream":      []string{"drop-me"},
+		},
+		Body: io.NopCloser(bytes.NewReader(body)),
+	}
+	account := &Account{ID: 7, Platform: PlatformAnthropic}
+	pipeline := newAnthropicPassthroughTestPipeline(t, account)
+	svc := &GatewayService{cfg: &config.Config{}, rateLimitService: &RateLimitService{}}
+
+	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, account, pipeline, "claude-client", "claude-upstream")
+
+	require.NoError(t, err)
+	require.Equal(t, 4, usage.InputTokens)
+	require.Equal(t, 2, usage.OutputTokens)
+	require.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	require.Equal(t, "rid-structured", rec.Header().Get("X-Request-Id"))
+	require.Equal(t, "1000", rec.Header().Get("X-RateLimit-Limit-Tokens"))
+	require.Empty(t, rec.Header().Get("X-Internal-Upstream"))
+	require.Equal(t, "claude-client", gjson.Get(rec.Body.String(), "model").String())
+	require.True(t, gjson.Get(rec.Body.String(), "vendor_extension.kept").Bool())
+}
+
+func TestHandleNonStreamingResponse_RequiresCompletedRequestPipeline(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	account := &Account{ID: 8, Platform: PlatformAnthropic}
+	pipeline, err := newAnthropicIdentityPipeline(account, "claude-client", "claude-upstream")
+	require.NoError(t, err)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewReader([]byte(`{"id":"msg_1","type":"message","usage":{"input_tokens":1,"output_tokens":1}}`))),
+	}
+	svc := &GatewayService{cfg: &config.Config{}, rateLimitService: &RateLimitService{}}
+
+	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, account, pipeline, "claude-client", "claude-upstream")
+
+	require.Nil(t, usage)
+	require.ErrorContains(t, err, "request conversion has not completed")
+	require.False(t, c.Writer.Written())
+}
+
 func newAnthropicPassthroughTestPipeline(t *testing.T, account *Account) *protocolconv.Pipeline {
 	t.Helper()
-	pipeline, err := newAnthropicPassthroughPipeline(account, "claude-client", "claude-upstream")
+	pipeline, err := newAnthropicIdentityPipeline(account, "claude-client", "claude-upstream")
 	require.NoError(t, err)
 	_, err = pipeline.ConvertRequest([]byte(`{"model":"claude-upstream","messages":[{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)
@@ -179,7 +241,8 @@ func TestHandleNonStreamingResponse_NonJSON2xxMatchesTempUnschedulableRule(t *te
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
 
-	_, err := svc.handleNonStreamingResponse(context.Background(), resp, c, account, "claude-sonnet-4-6", "claude-sonnet-4-6")
+	pipeline := newAnthropicPassthroughTestPipeline(t, account)
+	_, err := svc.handleNonStreamingResponse(context.Background(), resp, c, account, pipeline, "claude-sonnet-4-6", "claude-sonnet-4-6")
 
 	var failoverErr *UpstreamFailoverError
 	require.True(t, errors.As(err, &failoverErr))

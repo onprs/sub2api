@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -1328,7 +1330,14 @@ func (s *GatewayService) resolveCacheTTLUsageOverrideTarget(ctx context.Context,
 	return "", false
 }
 
-func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, originalModel, mappedModel string) (*ClaudeUsage, error) {
+func (s *GatewayService) handleNonStreamingResponse(
+	ctx context.Context,
+	resp *http.Response,
+	c *gin.Context,
+	account *Account,
+	pipeline *protocolconv.Pipeline,
+	originalModel, mappedModel string,
+) (*ClaudeUsage, error) {
 	// 更新5h窗口状态
 	s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 
@@ -1381,24 +1390,34 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 		}
 	}
 
-	// 如果有模型映射，替换响应中的model字段
+	// Provider usage policy runs before the standard identity response phase.
 	if originalModel != mappedModel {
 		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
 	}
 
-	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-
-	contentType := "application/json"
-	if s.cfg != nil && !s.cfg.Security.ResponseHeaders.Enabled {
-		if upstreamType := resp.Header.Get("Content-Type"); upstreamType != "" {
-			contentType = upstreamType
-		}
+	structured := protocoltransport.Response{
+		StatusCode:     resp.StatusCode,
+		Headers:        responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
+		Body:           append([]byte(nil), body...),
+		ActualProtocol: protocolconv.ProtocolAnthropic,
+		RequestID:      resp.Header.Get("x-request-id"),
+		ResponseID:     gjson.GetBytes(body, "id").String(),
 	}
-
-	body = reverseToolNamesIfPresent(c, body)
-
-	// 写入响应
-	c.Data(resp.StatusCode, contentType, body)
+	if err := structured.Validate(); err != nil {
+		return nil, err
+	}
+	converted, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
+	if err != nil {
+		return nil, fmt.Errorf("convert Anthropic response: %w", err)
+	}
+	convertedBody := reverseToolNamesIfPresent(c, converted.Body)
+	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolAnthropic)
+	if err != nil {
+		return nil, err
+	}
+	if err := renderer.RenderJSON(c.Writer, structured.StatusCode, structured.Headers, convertedBody); err != nil {
+		return nil, fmt.Errorf("render Anthropic response: %w", err)
+	}
 
 	return &response.Usage, nil
 }
