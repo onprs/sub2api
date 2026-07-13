@@ -135,6 +135,26 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		imageInputSize = imageCfg.InputSize
 	}
 
+	if output == nil && !isOpenAIResponsesCompactPath(c) {
+		upstreamModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+		if upstreamModel == "" {
+			upstreamModel = policyModel
+		}
+		pipeline, err := newOpenAIResponsesIdentityPipeline(account, reqModel, upstreamModel)
+		if err != nil {
+			return nil, err
+		}
+		converted, err := pipeline.ConvertRequest(body)
+		if err != nil {
+			return nil, fmt.Errorf("validate OpenAI Responses passthrough request: %w", err)
+		}
+		body = converted.Body
+		output, err = newNativeResponsesProtocolOutput(c.Writer, pipeline, reqModel, upstreamModel, reqStream)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	logger.LegacyPrintf("service.openai_gateway",
 		"[OpenAI 自动透传] 命中自动透传分支: account=%d name=%s type=%s model=%s stream=%v",
 		account.ID,
@@ -254,6 +274,9 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		OpenAIWSMode:    false,
 		Duration:        time.Since(startTime),
 		FirstTokenMs:    firstTokenMs,
+	}
+	if output != nil {
+		forwardResult.ClientDisconnect = output.ClientDisconnected()
 	}
 	if imageCount > 0 {
 		forwardResult.ImageCount = imageCount
@@ -855,8 +878,12 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithOutput(
 	mappedModel string,
 	output openAIProtocolOutput,
 ) (*openaiStreamingResultPassthrough, error) {
+	if nativeOutput, ok := output.(*nativeResponsesProtocolOutput); ok {
+		return s.handleNativeResponsesStreamingResponse(ctx, resp, c, account, startTime, nativeOutput)
+	}
 	if output != nil {
-		if err := output.WriteStreamHeaders(resp.StatusCode, responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter), protocolconv.ProtocolOpenAIResponses); err != nil {
+		filteredHeaders := responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
+		if err := output.WriteStreamHeaders(resp.StatusCode, filteredHeaders, protocolconv.ProtocolOpenAIResponses); err != nil {
 			return nil, err
 		}
 	} else {
@@ -1149,8 +1176,12 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthroughWithOutput(
 		imageOutputSizes: collectOpenAIResponseImageOutputSizesFromJSONBytes(body),
 	}
 	if output != nil {
+		filteredHeaders := responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
+		if isNativeResponsesProtocolOutput(output) {
+			filteredHeaders = filterOpenAIPassthroughResponseHeaders(resp.Header, s.responseHeaderFilter)
+		}
 		structured := protocoltransport.Response{
-			StatusCode: resp.StatusCode, Headers: responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
+			StatusCode: resp.StatusCode, Headers: filteredHeaders,
 			Body: append([]byte(nil), body...), ActualProtocol: protocolconv.ProtocolOpenAIResponses,
 			RequestID: resp.Header.Get("x-request-id"), ResponseID: result.responseID,
 		}
@@ -1238,8 +1269,12 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSONWithOutput(resp *http.R
 		if !ok {
 			return nil, errors.New("OpenAI passthrough SSE ended without a complete terminal response")
 		}
+		filteredHeaders := responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
+		if isNativeResponsesProtocolOutput(output) {
+			filteredHeaders = filterOpenAIPassthroughResponseHeaders(resp.Header, s.responseHeaderFilter)
+		}
 		structured := protocoltransport.Response{
-			StatusCode: resp.StatusCode, Headers: responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
+			StatusCode: resp.StatusCode, Headers: filteredHeaders,
 			Body: append([]byte(nil), body...), ActualProtocol: protocolconv.ProtocolOpenAIResponses,
 			RequestID: resp.Header.Get("x-request-id"), ResponseID: result.responseID,
 		}
@@ -1266,6 +1301,12 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSONWithOutput(resp *http.R
 	}
 
 	return result, nil
+}
+
+func filterOpenAIPassthroughResponseHeaders(src http.Header, filter *responseheaders.CompiledHeaderFilter) http.Header {
+	filtered := make(http.Header)
+	writeOpenAIPassthroughResponseHeaders(filtered, src, filter)
+	return filtered
 }
 
 func writeOpenAIPassthroughResponseHeaders(dst http.Header, src http.Header, filter *responseheaders.CompiledHeaderFilter) {

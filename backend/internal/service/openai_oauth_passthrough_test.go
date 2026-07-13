@@ -726,6 +726,49 @@ func TestOpenAIGatewayService_OAuthLegacy_CompositeCodexUAUsesCodexOriginator(t 
 	require.NotEqual(t, "opencode", upstream.lastReq.Header.Get("originator"))
 }
 
+func TestOpenAIGatewayService_APIKeyPassthrough_NonStreamingUsesIdentityPipeline(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	requestBody := []byte(`{"model":"gpt-5.2","stream":false,"store":true,"instructions":"local-test-instructions","input":[{"type":"text","text":"hi"}]}`)
+	responseBody := ` {"id":"resp_native","model":"gpt-5.2","output":[],"usage":{"input_tokens":5,"output_tokens":2},"vendor_extension":{"opaque":1.00}} `
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusCreated,
+		Header: http.Header{
+			"Content-Type":                        []string{"application/vnd.openai+json"},
+			"X-Request-Id":                        []string{"rid_native"},
+			"X-Codex-Primary-Used-Percent":        []string{"12"},
+			"X-Codex-Primary-Window-Minutes":      []string{"300"},
+			"X-Codex-Primary-Reset-After-Seconds": []string{"1"},
+		},
+		Body: io.NopCloser(strings.NewReader(responseBody)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID: 123, Name: "acc", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{"api_key": "api-key", "base_url": "https://api.example.com"},
+		Extra:       map[string]any{"openai_passthrough": true}, Status: StatusActive, Schedulable: true,
+		RateMultiplier: f64p(1),
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, requestBody)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusCreated, recorder.Code)
+	require.Equal(t, requestBody, upstream.lastBody)
+	require.True(t, gjson.GetBytes(upstream.lastBody, "store").Bool())
+	require.Equal(t, "local-test-instructions", gjson.GetBytes(upstream.lastBody, "instructions").String())
+	require.Contains(t, recorder.Body.String(), `"vendor_extension":{"opaque":1.00}`)
+	require.Equal(t, "12", recorder.Header().Get("X-Codex-Primary-Used-Percent"))
+	require.Equal(t, 5, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
+	require.Equal(t, "resp_native", result.ResponseID)
+}
+
 func TestOpenAIGatewayService_OAuthPassthrough_ResponseHeadersAllowXCodex(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
