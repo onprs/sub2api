@@ -388,6 +388,59 @@ func TestOpenCodeGoGatewayServiceForwardChatToMessagesPreparesConvertedBody(t *t
 	if got := countOpenCodeGoCacheControlBlocks(upstream.body); got != 4 {
 		t.Fatalf("expected exactly 4 cache_control blocks, got %d body=%s", got, upstream.body)
 	}
+	responseBody := rec.Recorder.Body.String()
+	if got := gjson.Get(responseBody, "object").String(); got != "chat.completion" {
+		t.Fatalf("expected Chat response, got %s", responseBody)
+	}
+	if got := gjson.Get(responseBody, "model").String(); got != "opencode-go/qwen" {
+		t.Fatalf("expected client model restoration, got %q body=%s", got, responseBody)
+	}
+	if got := gjson.Get(responseBody, "choices.0.message.content").String(); got != "ok" {
+		t.Fatalf("expected converted content, got %q body=%s", got, responseBody)
+	}
+}
+
+func TestOpenCodeGoGatewayServiceMessagesToChatRestoresClientModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl_ok","object":"chat.completion","model":"kimi-k2.7-code","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2}}`,
+		)),
+	}}
+	svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{
+		ID: 42, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key": "ocg-secret", "base_url": "https://opencode.ai/zen/go/v1",
+			"model_mapping":   map[string]any{"opencode-go/kimi": "kimi-k2.7-code"},
+			"model_protocols": map[string]any{"kimi-k2.7-code": OpenCodeGoProtocolChatCompletions},
+		},
+	}
+	body := `{"model":"opencode-go/kimi","messages":[{"role":"user","content":"hi"}],"max_tokens":32,"stream":false}`
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/messages", body)
+
+	result, err := svc.ForwardMessages(context.Background(), rec.Context, account, []byte(body))
+	if err != nil {
+		t.Fatalf("ForwardMessages error: %v", err)
+	}
+	if got := upstream.req.URL.String(); got != "https://opencode.ai/zen/go/v1/chat/completions" {
+		t.Fatalf("unexpected upstream URL: %s", got)
+	}
+	responseBody := rec.Recorder.Body.String()
+	if got := gjson.Get(responseBody, "type").String(); got != "message" {
+		t.Fatalf("expected Anthropic response, got %s", responseBody)
+	}
+	if got := gjson.Get(responseBody, "model").String(); got != "opencode-go/kimi" {
+		t.Fatalf("expected client model restoration, got %q body=%s", got, responseBody)
+	}
+	if got := gjson.Get(responseBody, "content.0.text").String(); got != "ok" {
+		t.Fatalf("expected converted content, got %q body=%s", got, responseBody)
+	}
+	if result == nil || result.Usage.InputTokens != 5 || result.Usage.OutputTokens != 2 {
+		t.Fatalf("unexpected usage result: %+v", result)
+	}
 }
 
 func TestOpenCodeGoGatewayServiceMessagesDirectUsesAnthropicAuthHeaders(t *testing.T) {

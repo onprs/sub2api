@@ -85,15 +85,15 @@ func (s *OpenCodeGoGatewayService) ForwardChatCompletions(
 				return nil, fmt.Errorf("enable chat stream usage: %w", err)
 			}
 		}
-		return s.forwardChatBody(ctx, c, account, upstreamBody, model, upstreamModel, openCodeGoResponseChat, protocol)
+		return s.forwardChatBody(ctx, c, account, upstreamBody, model, upstreamModel, openCodeGoResponseChat, protocol, nil)
 	case OpenCodeGoProtocolMessages:
-		converted, err := convertChatCompletionsBodyToAnthropicBody(upstreamBody)
+		pipeline, converted, err := newOpenCodeGoPipelineRequest(upstreamBody, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, account, model, upstreamModel)
 		if err != nil {
 			writeOpenCodeGoError(c, http.StatusBadRequest, openCodeGoErrorFormatChat, "invalid_request_error", "Failed to convert chat completions request to messages")
 			return nil, err
 		}
 		converted = prepareOpenCodeGoMessagesCacheBody(converted)
-		return s.forwardMessagesBody(ctx, c, account, converted, model, upstreamModel, openCodeGoResponseChat, protocol)
+		return s.forwardMessagesBody(ctx, c, account, converted, model, upstreamModel, openCodeGoResponseChat, protocol, pipeline)
 	default:
 		writeOpenCodeGoError(c, http.StatusBadRequest, openCodeGoErrorFormatChat, "invalid_request_error", "Unsupported model protocol")
 		return nil, fmt.Errorf("unsupported opencode go model protocol %q", protocol)
@@ -124,9 +124,9 @@ func (s *OpenCodeGoGatewayService) ForwardMessages(
 	switch protocol {
 	case OpenCodeGoProtocolMessages:
 		upstreamBody = prepareOpenCodeGoMessagesCacheBody(upstreamBody)
-		return s.forwardMessagesBody(ctx, c, account, upstreamBody, model, upstreamModel, openCodeGoResponseAnthropic, protocol)
+		return s.forwardMessagesBody(ctx, c, account, upstreamBody, model, upstreamModel, openCodeGoResponseAnthropic, protocol, nil)
 	case OpenCodeGoProtocolChatCompletions:
-		converted, err := convertAnthropicBodyToChatCompletionsBody(upstreamBody)
+		pipeline, converted, err := newOpenCodeGoPipelineRequest(upstreamBody, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, account, model, upstreamModel)
 		if err != nil {
 			writeOpenCodeGoError(c, http.StatusBadRequest, openCodeGoErrorFormatAnthropic, "invalid_request_error", "Failed to convert messages request to chat completions")
 			return nil, err
@@ -137,7 +137,7 @@ func (s *OpenCodeGoGatewayService) ForwardMessages(
 				return nil, fmt.Errorf("enable chat stream usage: %w", err)
 			}
 		}
-		return s.forwardChatBody(ctx, c, account, converted, model, upstreamModel, openCodeGoResponseAnthropic, protocol)
+		return s.forwardChatBody(ctx, c, account, converted, model, upstreamModel, openCodeGoResponseAnthropic, protocol, pipeline)
 	default:
 		writeOpenCodeGoError(c, http.StatusBadRequest, openCodeGoErrorFormatAnthropic, "invalid_request_error", "Unsupported model protocol")
 		return nil, fmt.Errorf("unsupported opencode go model protocol %q", protocol)
@@ -153,6 +153,7 @@ func (s *OpenCodeGoGatewayService) forwardChatBody(
 	upstreamModel string,
 	responseMode openCodeGoResponseMode,
 	protocol string,
+	pipeline *protocolconv.Pipeline,
 ) (*ForwardResult, error) {
 	targetURL, err := s.openCodeGoEndpointURL(account, "/v1/chat/completions")
 	if err != nil {
@@ -176,7 +177,7 @@ func (s *OpenCodeGoGatewayService) forwardChatBody(
 		return s.streamChatPassthrough(c, resp, originalModel, upstreamModel, startTime)
 	}
 	if responseMode == openCodeGoResponseAnthropic {
-		return s.bufferChatToAnthropic(c, resp, originalModel, upstreamModel, startTime)
+		return s.bufferChatToAnthropic(c, resp, pipeline, originalModel, upstreamModel, startTime)
 	}
 	return s.bufferChatPassthrough(c, resp, originalModel, upstreamModel, startTime, protocol)
 }
@@ -190,6 +191,7 @@ func (s *OpenCodeGoGatewayService) forwardMessagesBody(
 	upstreamModel string,
 	responseMode openCodeGoResponseMode,
 	protocol string,
+	pipeline *protocolconv.Pipeline,
 ) (*ForwardResult, error) {
 	targetURL, err := s.openCodeGoEndpointURL(account, "/v1/messages")
 	if err != nil {
@@ -213,7 +215,7 @@ func (s *OpenCodeGoGatewayService) forwardMessagesBody(
 		return s.streamAnthropicPassthrough(c, resp, originalModel, upstreamModel, startTime)
 	}
 	if responseMode == openCodeGoResponseChat {
-		return s.bufferAnthropicToChat(c, resp, originalModel, upstreamModel, startTime)
+		return s.bufferAnthropicToChat(c, resp, pipeline, originalModel, upstreamModel, startTime)
 	}
 	return s.bufferAnthropicPassthrough(c, resp, originalModel, upstreamModel, startTime, protocol)
 }
@@ -401,6 +403,7 @@ func (s *OpenCodeGoGatewayService) bufferAnthropicPassthrough(
 func (s *OpenCodeGoGatewayService) bufferAnthropicToChat(
 	c *gin.Context,
 	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	upstreamModel string,
 	startTime time.Time,
@@ -415,18 +418,19 @@ func (s *OpenCodeGoGatewayService) bufferAnthropicToChat(
 		return nil, err
 	}
 	usage := claudeUsageFromAnthropicUsage(anth.Usage)
-	out, _, err := convertStandardResponse(body, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, upstreamModel, originalModel)
+	converted, err := pipeline.ConvertResponse(body, protocolconv.ProtocolAnthropic)
 	if err != nil {
 		writeOpenCodeGoError(c, http.StatusBadGateway, openCodeGoErrorFormatChat, "upstream_error", "Failed to convert upstream messages response")
 		return nil, err
 	}
-	writeOpenCodeGoUpstreamResponse(c, resp, out, s.responseHeaderFilter, openCodeGoErrorFormatChat)
+	writeOpenCodeGoUpstreamResponse(c, resp, converted.Body, s.responseHeaderFilter, openCodeGoErrorFormatChat)
 	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, false, startTime), nil
 }
 
 func (s *OpenCodeGoGatewayService) bufferChatToAnthropic(
 	c *gin.Context,
 	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	upstreamModel string,
 	startTime time.Time,
@@ -441,12 +445,12 @@ func (s *OpenCodeGoGatewayService) bufferChatToAnthropic(
 		return nil, err
 	}
 	usage := claudeUsageFromChatUsage(cc.Usage)
-	out, _, err := convertStandardResponse(body, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, upstreamModel, originalModel)
+	converted, err := pipeline.ConvertResponse(body, protocolconv.ProtocolOpenAIChat)
 	if err != nil {
 		writeOpenCodeGoError(c, http.StatusBadGateway, openCodeGoErrorFormatAnthropic, "upstream_error", "Failed to convert upstream chat completions response")
 		return nil, err
 	}
-	writeOpenCodeGoUpstreamResponse(c, resp, out, s.responseHeaderFilter, openCodeGoErrorFormatAnthropic)
+	writeOpenCodeGoUpstreamResponse(c, resp, converted.Body, s.responseHeaderFilter, openCodeGoErrorFormatAnthropic)
 	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, false, startTime), nil
 }
 
@@ -836,15 +840,47 @@ func ensureOpenCodeGoSystemCacheAnchor(body []byte) []byte {
 	return body
 }
 
+func newOpenCodeGoPipelineRequest(
+	body []byte,
+	source protocolconv.Protocol,
+	target protocolconv.Protocol,
+	account *Account,
+	clientModel string,
+	upstreamModel string,
+) (*protocolconv.Pipeline, []byte, error) {
+	route := protocolconv.Route{
+		Source:         source,
+		IntendedTarget: target,
+		ClientModel:    clientModel,
+		UpstreamModel:  upstreamModel,
+	}
+	if account != nil {
+		route.Provider = account.Platform
+		route.AccountID = account.ID
+	}
+	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+		Route:   route,
+		Options: protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossError},
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	converted, err := pipeline.ConvertRequest(body)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pipeline, converted.Body, nil
+}
+
 func convertChatCompletionsBodyToAnthropicBody(body []byte) ([]byte, error) {
 	model := gjson.GetBytes(body, "model").String()
-	converted, _, err := convertStandardRequest(body, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, model)
+	_, converted, err := newOpenCodeGoPipelineRequest(body, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, nil, model, model)
 	return converted, err
 }
 
 func convertAnthropicBodyToChatCompletionsBody(body []byte) ([]byte, error) {
 	model := gjson.GetBytes(body, "model").String()
-	converted, _, err := convertStandardRequest(body, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, model)
+	_, converted, err := newOpenCodeGoPipelineRequest(body, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, nil, model, model)
 	return converted, err
 }
 
