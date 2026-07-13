@@ -10,10 +10,56 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestForwardGoogleGenAIDoesNotReplaceGinResponseWriter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	originalWriter := c.Writer
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/client-google-model:generateContent", bytes.NewReader(body))
+	upstream := &responseWriterInspectingUpstream{
+		context: c, expected: originalWriter,
+		response: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{
+				"id":"resp_writer","model":"gpt-5.4","status":"completed",
+				"output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],
+				"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}
+			}`)),
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+
+	_, err := svc.ForwardGoogleGenAI(context.Background(), c, googleIngressOpenAIAccount(), "client-google-model", "client-google-model", false, body)
+	require.NoError(t, err)
+	require.True(t, upstream.writerUnchanged)
+	require.Same(t, originalWriter, c.Writer)
+}
+
+type responseWriterInspectingUpstream struct {
+	HTTPUpstream
+	context         *gin.Context
+	expected        gin.ResponseWriter
+	response        *http.Response
+	writerUnchanged bool
+}
+
+func (u *responseWriterInspectingUpstream) Do(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	u.writerUnchanged = u.context != nil && u.context.Writer == u.expected
+	return u.response, nil
+}
+
+func (u *responseWriterInspectingUpstream) DoWithTLS(_ *http.Request, _ string, _ int64, _ int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	u.writerUnchanged = u.context != nil && u.context.Writer == u.expected
+	return u.response, nil
+}
 
 func TestForwardGoogleGenAINonStreamingUsesResponsesPipeline(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -142,6 +188,66 @@ func TestForwardGoogleGenAIStreamingUsesResponsesPipeline(t *testing.T) {
 	require.Contains(t, wire, `"candidatesTokenCount":2`)
 	require.NotContains(t, wire, "event:")
 	require.NotContains(t, wire, "[DONE]")
+}
+
+func TestForwardGoogleGenAINonStreamingPassthroughUsesStructuredResponses(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{
+			"id":"resp_passthrough","model":"gpt-5.4","status":"completed",
+			"output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"passthrough"}]}],
+			"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}
+		}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := googleIngressOpenAIAccount()
+	account.Extra["openai_passthrough"] = true
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/client-google-model:generateContent", bytes.NewReader(body))
+
+	result, err := svc.ForwardGoogleGenAI(context.Background(), c, account, "client-google-model", "client-google-model", false, body)
+	require.NoError(t, err)
+	require.Equal(t, "passthrough", gjson.GetBytes(recorder.Body.Bytes(), "candidates.0.content.parts.0.text").String())
+	require.Equal(t, "client-google-model", gjson.GetBytes(recorder.Body.Bytes(), "modelVersion").String())
+	require.Equal(t, 3, result.Usage.InputTokens)
+}
+
+func TestForwardGoogleGenAIStreamingRawChatFallbackUsesActualProtocol(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstreamBody := strings.Join([]string{
+		`data: {"id":"chatcmpl_google","object":"chat.completion.chunk","model":"gpt-5.4","choices":[{"index":0,"delta":{"role":"assistant","content":"chat"},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"chatcmpl_google","object":"chat.completion.chunk","model":"gpt-5.4","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := googleIngressOpenAIAccount()
+	account.Extra["openai_responses_supported"] = false
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/client-google-model:streamGenerateContent?alt=sse", bytes.NewReader(body))
+
+	result, err := svc.ForwardGoogleGenAI(context.Background(), c, account, "client-google-model", "client-google-model", true, body)
+	require.NoError(t, err)
+	wire := recorder.Body.String()
+	require.Contains(t, wire, `"text":"chat"`)
+	require.Contains(t, wire, `"modelVersion":"client-google-model"`)
+	require.Contains(t, wire, `"promptTokenCount":4`)
+	require.NotContains(t, wire, "[DONE]")
+	require.Equal(t, 4, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
 }
 
 func TestForwardGoogleGenAIPreservesPreOutputFailover(t *testing.T) {

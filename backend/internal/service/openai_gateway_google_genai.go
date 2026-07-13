@@ -1,23 +1,22 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/gin-gonic/gin"
 )
 
 // ForwardGoogleGenAI converts one Google generateContent request to OpenAI
 // Responses, runs the existing OpenAI/Codex provider core, and converts the
-// rendered Responses wire back to Google. Scheduling, failover, concurrency,
-// and billing remain owned by the handler and provider services.
+// structured actual upstream result back to Google. Scheduling, failover,
+// concurrency, and billing remain owned by the handler and provider services.
 func (s *OpenAIGatewayService) ForwardGoogleGenAI(
 	ctx context.Context,
 	c *gin.Context,
@@ -57,30 +56,19 @@ func (s *OpenAIGatewayService) ForwardGoogleGenAI(
 	if err != nil {
 		return nil, err
 	}
-
-	originalWriter := c.Writer
-	maxRecordSize := defaultMaxLineSize
-	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-		maxRecordSize = s.cfg.Gateway.MaxLineSize
-	}
-	adapter, err := newGoogleGenAIResponseAdapter(originalWriter, pipeline, stream, maxRecordSize)
+	output, err := newGoogleGenAIProtocolOutput(c.Writer, pipeline, stream)
 	if err != nil {
 		return nil, err
 	}
-	c.Writer = adapter
-	defer func() { c.Writer = originalWriter }()
 
-	result, forwardErr := s.Forward(ctx, c, account, convertedBody)
+	result, forwardErr := s.forwardWithProtocolOutput(ctx, c, account, convertedBody, output)
 	if forwardErr != nil {
 		return nil, forwardErr
-	}
-	if err := adapter.Complete(); err != nil {
-		return nil, fmt.Errorf("convert OpenAI Responses to Google GenAI: %w", err)
 	}
 	if result != nil {
 		result.Model = clientModel
 		result.Stream = stream
-		result.ClientDisconnect = adapter.clientDisconnected
+		result.ClientDisconnect = output.ClientDisconnected()
 	}
 	return result, nil
 }
@@ -104,233 +92,155 @@ func setOpenAIResponsesStream(body []byte, stream bool) ([]byte, error) {
 	return converted, nil
 }
 
-type googleGenAIResponseAdapter struct {
-	original gin.ResponseWriter
+type googleGenAIProtocolOutput struct {
+	writer   http.ResponseWriter
 	pipeline *protocolconv.Pipeline
 	renderer *protocolconv.Renderer
 	session  *protocolconv.StreamSession
 	stream   bool
 
-	header http.Header
-	status int
-	raw    bytes.Buffer
-	maxRaw int
-
 	headersWritten     bool
-	outputSize         int
+	pendingStatus      int
+	pendingHeaders     http.Header
+	outputStarted      bool
 	clientDisconnected bool
-	conversionErr      error
+	actualProtocol     protocolconv.Protocol
 }
 
-func newGoogleGenAIResponseAdapter(
-	original gin.ResponseWriter,
-	pipeline *protocolconv.Pipeline,
-	stream bool,
-	maxRecordSize int,
-) (*googleGenAIResponseAdapter, error) {
+func newGoogleGenAIProtocolOutput(writer http.ResponseWriter, pipeline *protocolconv.Pipeline, stream bool) (*googleGenAIProtocolOutput, error) {
 	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolGoogleGenAI)
 	if err != nil {
 		return nil, err
 	}
-	adapter := &googleGenAIResponseAdapter{
-		original:   original,
-		pipeline:   pipeline,
-		renderer:   renderer,
-		stream:     stream,
-		header:     make(http.Header),
-		status:     http.StatusOK,
-		maxRaw:     maxRecordSize,
-		outputSize: -1,
-	}
-	if stream {
-		adapter.session, err = pipeline.NewStreamProcessor(protocolconv.ProtocolOpenAIResponses)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return adapter, nil
+	return &googleGenAIProtocolOutput{writer: writer, pipeline: pipeline, renderer: renderer, stream: stream}, nil
 }
 
-func (w *googleGenAIResponseAdapter) Header() http.Header { return w.header }
-
-func (w *googleGenAIResponseAdapter) WriteHeader(status int) {
-	if status >= 100 && status <= 999 && !w.headersWritten {
-		w.status = status
+func (o *googleGenAIProtocolOutput) WriteResponse(response protocoltransport.Response) error {
+	if o.stream {
+		return errors.New("streaming Google output received a complete response")
 	}
-}
-
-func (w *googleGenAIResponseAdapter) Write(data []byte) (int, error) {
-	if w.conversionErr != nil {
-		return 0, w.conversionErr
+	if err := response.Validate(); err != nil {
+		return err
 	}
-	if !w.stream && w.raw.Len()+len(data) > w.maxRaw {
-		w.conversionErr = fmt.Errorf("buffered protocol output exceeds %d bytes", w.maxRaw)
-		return 0, w.conversionErr
-	}
-	_, _ = w.raw.Write(data)
-	if !w.stream && w.outputSize < 0 {
-		w.outputSize = 0
-	}
-	if w.stream {
-		w.consumeSSERecords(false)
-		if w.conversionErr != nil {
-			return 0, w.conversionErr
-		}
-		if w.raw.Len() > w.maxRaw {
-			w.conversionErr = fmt.Errorf("buffered SSE record exceeds %d bytes", w.maxRaw)
-			return 0, w.conversionErr
-		}
-	}
-	return len(data), nil
-}
-
-func (w *googleGenAIResponseAdapter) WriteString(value string) (int, error) {
-	return w.Write([]byte(value))
-}
-
-func (w *googleGenAIResponseAdapter) WriteHeaderNow() { w.WriteHeader(w.status) }
-func (w *googleGenAIResponseAdapter) Status() int     { return w.status }
-func (w *googleGenAIResponseAdapter) Size() int       { return w.outputSize }
-func (w *googleGenAIResponseAdapter) Written() bool   { return w.outputSize >= 0 }
-
-func (w *googleGenAIResponseAdapter) Flush() {
-	if w.stream {
-		w.consumeSSERecords(false)
-	}
-	if w.headersWritten && !w.clientDisconnected {
-		w.original.Flush()
-	}
-}
-
-func (w *googleGenAIResponseAdapter) CloseNotify() <-chan bool { return w.original.CloseNotify() }
-func (w *googleGenAIResponseAdapter) Pusher() http.Pusher      { return w.original.Pusher() }
-func (w *googleGenAIResponseAdapter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	return w.original.Hijack()
-}
-
-func (w *googleGenAIResponseAdapter) Complete() error {
-	if w.conversionErr != nil {
-		return w.conversionErr
-	}
-	if !w.stream {
-		converted, err := w.pipeline.ConvertResponse(w.raw.Bytes(), protocolconv.ProtocolOpenAIResponses)
-		if err != nil {
-			return err
-		}
-		return w.renderer.RenderJSON(w.original, w.status, w.header, converted.Body)
-	}
-
-	w.consumeSSERecords(true)
-	if w.conversionErr != nil {
-		return w.conversionErr
-	}
-	payloads, _, err := w.session.Finalize()
+	converted, err := o.pipeline.ConvertResponse(response.Body, response.ActualProtocol)
 	if err != nil {
 		return err
 	}
-	if err := w.writeConvertedPayloads(payloads); err != nil {
+	if err := o.renderer.RenderJSON(o.writer, response.StatusCode, response.Headers, converted.Body); err != nil {
+		o.clientDisconnected = true
 		return err
 	}
-	if !w.headersWritten {
-		if err := w.renderer.WriteStreamHeaders(w.original, w.status, w.header); err != nil {
-			return err
-		}
-		w.headersWritten = true
-		w.outputSize = 0
-	}
-	if !w.clientDisconnected {
-		w.original.Flush()
-	}
+	o.outputStarted = true
 	return nil
 }
 
-func (w *googleGenAIResponseAdapter) consumeSSERecords(final bool) {
-	for w.conversionErr == nil {
-		record, consumed, ok := nextBufferedSSERecord(w.raw.Bytes(), final)
-		if !ok {
-			return
-		}
-		w.raw.Next(consumed)
-		data := sseRecordData(record)
-		if len(data) == 0 || bytes.Equal(bytes.TrimSpace(data), []byte("[DONE]")) {
-			continue
-		}
-		if !json.Valid(data) {
-			w.conversionErr = errors.New("OpenAI Responses stream emitted malformed JSON")
-			return
-		}
-		payloads, _, err := w.session.Convert(data)
-		if err != nil {
-			w.conversionErr = err
-			return
-		}
-		if err := w.writeConvertedPayloads(payloads); err != nil {
-			w.conversionErr = err
-			return
-		}
+func (o *googleGenAIProtocolOutput) WriteStreamHeaders(status int, headers http.Header, actual protocolconv.Protocol) error {
+	if !o.stream {
+		return errors.New("non-streaming Google output received stream headers")
 	}
-}
-
-func (w *googleGenAIResponseAdapter) writeConvertedPayloads(payloads [][]byte) error {
-	if w.clientDisconnected || len(payloads) == 0 {
+	if o.headersWritten {
+		if actual != o.actualProtocol {
+			return fmt.Errorf("actual stream protocol changed from %s to %s", o.actualProtocol, actual)
+		}
 		return nil
 	}
-	if !w.headersWritten {
-		if err := w.renderer.WriteStreamHeaders(w.original, w.status, w.header); err != nil {
-			return err
-		}
-		w.headersWritten = true
-		w.outputSize = 0
+	if err := actual.Validate(); err != nil {
+		return err
 	}
-	for _, payload := range payloads {
-		framed, err := w.renderer.FrameStreamEvent(payload)
-		if err != nil {
-			return err
-		}
-		n, err := w.original.Write(framed)
-		w.outputSize += n
-		if err != nil {
-			w.clientDisconnected = true
-			return nil
-		}
+	session, err := o.pipeline.NewStreamProcessor(actual)
+	if err != nil {
+		return err
 	}
-	w.original.Flush()
+	o.session = session
+	o.actualProtocol = actual
+	o.pendingStatus = status
+	o.pendingHeaders = protocoltransport.CloneHeaders(headers)
 	return nil
 }
 
-func nextBufferedSSERecord(data []byte, final bool) ([]byte, int, bool) {
-	for index := 0; index < len(data); index++ {
-		if data[index] != '\n' {
-			continue
+func (o *googleGenAIProtocolOutput) WriteStreamEvent(actual protocolconv.Protocol, payload []byte) error {
+	if o.clientDisconnected {
+		return nil
+	}
+	if o.session == nil {
+		return errors.New("stream event received before structured stream initialization")
+	}
+	if actual != o.actualProtocol {
+		return fmt.Errorf("actual stream protocol changed from %s to %s", o.actualProtocol, actual)
+	}
+	payloads, _, err := o.session.Convert(payload)
+	if err != nil {
+		return err
+	}
+	for _, converted := range payloads {
+		if err := o.ensureStreamHeaders(); err != nil {
+			return err
 		}
-		if index+1 < len(data) && data[index+1] == '\n' {
-			return data[:index], index + 2, true
+		framed, err := o.renderer.FrameStreamEvent(converted)
+		if err != nil {
+			return err
 		}
-		if index > 0 && data[index-1] == '\r' && index+2 < len(data) && data[index+1] == '\r' && data[index+2] == '\n' {
-			return data[:index-1], index + 3, true
+		if _, err := o.writer.Write(framed); err != nil {
+			o.clientDisconnected = true
+			return nil
+		}
+		o.outputStarted = true
+	}
+	if len(payloads) > 0 {
+		if flusher, ok := o.writer.(http.Flusher); ok {
+			flusher.Flush()
 		}
 	}
-	if final && len(bytes.TrimSpace(data)) > 0 {
-		return data, len(data), true
-	}
-	return nil, 0, false
+	return nil
 }
 
-func sseRecordData(record []byte) []byte {
-	var lines [][]byte
-	for _, line := range bytes.Split(record, []byte("\n")) {
-		line = bytes.TrimSuffix(line, []byte("\r"))
-		if len(line) == 0 || line[0] == ':' {
-			continue
-		}
-		field, value, found := bytes.Cut(line, []byte(":"))
-		if !found || !bytes.Equal(field, []byte("data")) {
-			continue
-		}
-		value = bytes.TrimPrefix(value, []byte(" "))
-		lines = append(lines, value)
+func (o *googleGenAIProtocolOutput) FinalizeStream(actual protocolconv.Protocol) error {
+	if !o.stream || o.session == nil {
+		return errors.New("structured stream was not initialized")
 	}
-	return bytes.Join(lines, []byte("\n"))
+	if actual != o.actualProtocol {
+		return fmt.Errorf("actual stream protocol changed from %s to %s", o.actualProtocol, actual)
+	}
+	payloads, _, err := o.session.Finalize()
+	if err != nil {
+		return err
+	}
+	for _, converted := range payloads {
+		if err := o.ensureStreamHeaders(); err != nil {
+			return err
+		}
+		framed, err := o.renderer.FrameStreamEvent(converted)
+		if err != nil {
+			return err
+		}
+		if !o.clientDisconnected {
+			if _, err := o.writer.Write(framed); err != nil {
+				o.clientDisconnected = true
+				continue
+			}
+			o.outputStarted = true
+		}
+	}
+	if !o.clientDisconnected {
+		if flusher, ok := o.writer.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}
+	return nil
 }
 
-var _ gin.ResponseWriter = (*googleGenAIResponseAdapter)(nil)
+func (o *googleGenAIProtocolOutput) ensureStreamHeaders() error {
+	if o.headersWritten {
+		return nil
+	}
+	if err := o.renderer.WriteStreamHeaders(o.writer, o.pendingStatus, o.pendingHeaders); err != nil {
+		return err
+	}
+	o.headersWritten = true
+	return nil
+}
+
+func (o *googleGenAIProtocolOutput) ClientOutputStarted() bool { return o.outputStarted }
+func (o *googleGenAIProtocolOutput) ClientDisconnected() bool  { return o.clientDisconnected }
+
+var _ openAIProtocolOutput = (*googleGenAIProtocolOutput)(nil)
