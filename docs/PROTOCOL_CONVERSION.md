@@ -104,7 +104,7 @@ Integrated through the shared IR registry:
 - Anthropic-platform Chat Completions, Responses, and Google GenAI request conversion, complete responses, and streaming responses; Google ingress shares the OpenAI/Anthropic account loop while retaining each provider's auth, health, usage, and billing ownership;
 - OpenAI Chat Completions to Responses request conversion on accounts that use the Responses upstream path;
 - Gemini compatibility Chat Completions, OpenAI Responses, and Anthropic Messages request/response/stream conversion to Google GenAI through one shared provider executor;
-- OpenCode Chat Completions and Messages cross-protocol requests, complete responses, and streams;
+- OpenCode Chat Completions and Messages requests, complete responses, and streams for both cross-protocol and same-protocol routes. Same-protocol streams use a Pipeline-owned identity session that validates JSON while preserving exact event bytes; the service transport boundary still requires the protocol terminal before the source renderer writes its sentinel;
 - Antigravity Claude-family and Gemini-family request conversion through the vendor adapter, including identity, schema cleanup, signature rectification, and v1internal envelopes.
 
 The Antigravity native Gemini stream-to-non-stream collector now preserves every ordered part. This keeps early `functionCall`, thinking, `thoughtSignature`, image, and text parts when the terminal upstream chunk contains only finish and usage metadata.

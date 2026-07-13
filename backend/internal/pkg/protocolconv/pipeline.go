@@ -177,6 +177,9 @@ func (p *Pipeline) NewStreamProcessor(actualUpstream Protocol) (*StreamSession, 
 	if err := actualUpstream.Validate(); err != nil {
 		return nil, err
 	}
+	if actualUpstream == p.config.Route.Source {
+		return newIdentityStreamSession(actualUpstream), nil
+	}
 	return p.registry.NewStreamSessionWithOptions(actualUpstream, p.config.Route.Source, p.options())
 }
 

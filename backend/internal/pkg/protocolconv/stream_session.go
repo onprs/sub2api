@@ -1,6 +1,8 @@
 package protocolconv
 
 import (
+	"encoding/json"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/ir"
 	streamstate "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/stream"
 )
@@ -8,9 +10,14 @@ import (
 // StreamSession converts one source stream to one target stream. It owns all
 // state and must not be shared between requests.
 type StreamSession struct {
-	decoder StreamDecoder
-	encoder StreamEncoder
-	state   *streamstate.Context
+	decoder          StreamDecoder
+	encoder          StreamEncoder
+	state            *streamstate.Context
+	identityProtocol Protocol
+}
+
+func newIdentityStreamSession(protocol Protocol) *StreamSession {
+	return &StreamSession{identityProtocol: protocol}
 }
 
 // NewStreamSession creates isolated source and target state.
@@ -51,6 +58,12 @@ func (s *StreamSession) Convert(chunk []byte) ([][]byte, []Warning, error) {
 	if s == nil {
 		return nil, nil, &Error{Code: ErrorInvalidStream, Message: "nil stream session"}
 	}
+	if s.identityProtocol != "" {
+		if !json.Valid(chunk) {
+			return nil, nil, &Error{Code: ErrorInvalidJSON, Protocol: s.identityProtocol, Message: "invalid upstream stream event"}
+		}
+		return [][]byte{append([]byte(nil), chunk...)}, nil, nil
+	}
 	events, warnings, err := s.decoder.Decode(chunk)
 	if err != nil {
 		return nil, warnings, err
@@ -63,6 +76,9 @@ func (s *StreamSession) Convert(chunk []byte) ([][]byte, []Warning, error) {
 func (s *StreamSession) Finalize() ([][]byte, []Warning, error) {
 	if s == nil {
 		return nil, nil, &Error{Code: ErrorInvalidStream, Message: "nil stream session"}
+	}
+	if s.identityProtocol != "" {
+		return nil, nil, nil
 	}
 	events, warnings, err := s.decoder.Finalize()
 	if err != nil {

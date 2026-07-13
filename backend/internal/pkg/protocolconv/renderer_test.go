@@ -33,6 +33,29 @@ func TestRendererFramesAllStandardProtocols(t *testing.T) {
 	}
 }
 
+func TestRendererFramesMultilineJSONAsSSEDataFields(t *testing.T) {
+	tests := []struct {
+		protocol Protocol
+		body     string
+		want     string
+	}{
+		{ProtocolOpenAIChat, "{\n\"id\":\"chat-1\"\n}", "data: {\ndata: \"id\":\"chat-1\"\ndata: }\n\n"},
+		{ProtocolOpenAIResponses, "{\n\"type\":\"response.created\"\n}", "event: response.created\ndata: {\ndata: \"type\":\"response.created\"\ndata: }\n\n"},
+		{ProtocolAnthropic, "{\n\"type\":\"message_start\"\n}", "event: message_start\ndata: {\ndata: \"type\":\"message_start\"\ndata: }\n\n"},
+		{ProtocolGoogleGenAI, "{\n\"candidates\":[]\n}", "data: {\ndata: \"candidates\":[]\ndata: }\n\n"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.protocol.String(), func(t *testing.T) {
+			renderer, err := NewRenderer(test.protocol)
+			require.NoError(t, err)
+			got, err := renderer.FrameStreamEvent([]byte(test.body))
+			require.NoError(t, err)
+			require.Equal(t, test.want, string(got))
+		})
+	}
+}
+
 func TestRendererRejectsInvalidOrUntypedStreamEvents(t *testing.T) {
 	responses, err := NewRenderer(ProtocolOpenAIResponses)
 	require.NoError(t, err)

@@ -103,6 +103,47 @@ func TestPipelineIdentityResponsePreservesBytes(t *testing.T) {
 	require.Equal(t, responseBody, response.Body)
 }
 
+func TestPipelineIdentityStreamPreservesEventBytes(t *testing.T) {
+	registry := NewRegistry()
+	require.NoError(t, registry.Register(&stubConverter{protocol: ProtocolOpenAIChat}))
+	pipeline, err := NewPipeline(registry, PipelineConfig{Route: Route{Source: ProtocolOpenAIChat, IntendedTarget: ProtocolOpenAIChat}})
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{"model":"client"}`))
+	require.NoError(t, err)
+
+	session, err := pipeline.NewStreamProcessor(ProtocolOpenAIChat)
+	require.NoError(t, err)
+	chunk := []byte(" {\n \"type\": \"vendor.event\", \"unknown\": 1.00\n}\n")
+	payloads, warnings, err := session.Convert(chunk)
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, [][]byte{chunk}, payloads)
+	payloads[0][0] = 'x'
+	require.Equal(t, byte(' '), chunk[0])
+
+	final, warnings, err := session.Finalize()
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Empty(t, final)
+}
+
+func TestPipelineIdentityStreamRejectsInvalidJSON(t *testing.T) {
+	registry := NewRegistry()
+	require.NoError(t, registry.Register(&stubConverter{protocol: ProtocolAnthropic}))
+	pipeline, err := NewPipeline(registry, PipelineConfig{Route: Route{Source: ProtocolAnthropic, IntendedTarget: ProtocolAnthropic}})
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{"model":"client"}`))
+	require.NoError(t, err)
+
+	session, err := pipeline.NewStreamProcessor(ProtocolAnthropic)
+	require.NoError(t, err)
+	_, _, err = session.Convert([]byte(`{"type":`))
+	var conversionErr *Error
+	require.ErrorAs(t, err, &conversionErr)
+	require.Equal(t, ErrorInvalidJSON, conversionErr.Code)
+	require.Equal(t, ProtocolAnthropic, conversionErr.Protocol)
+}
+
 func TestPipelineCreatesIsolatedStreamProcessors(t *testing.T) {
 	registry := NewRegistry()
 	source := &stubConverter{protocol: ProtocolOpenAIChat, newStreamEncoder: func() StreamEncoder { return inertStreamEncoder{} }}
