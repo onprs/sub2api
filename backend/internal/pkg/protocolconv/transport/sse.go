@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 )
 
 const DefaultMaxSSERecordBytes = 4 << 20
@@ -27,6 +28,14 @@ type SSERecord struct {
 	Data  []byte
 }
 
+// SSEProgress is a transport-only snapshot for timeout and keepalive policy.
+// InRecord reports whether at least one non-empty SSE line has been read
+// without its terminating blank line.
+type SSEProgress struct {
+	LastReadAt time.Time
+	InRecord   bool
+}
+
 // SSEParser reads complete SSE records from one upstream body. It owns the
 // reader and must not be shared between requests.
 type SSEParser struct {
@@ -34,9 +43,11 @@ type SSEParser struct {
 	closer    io.Closer
 	maxRecord int
 
-	mu     sync.Mutex
-	closed bool
-	done   bool
+	mu         sync.Mutex
+	closed     bool
+	done       bool
+	lastReadAt time.Time
+	inRecord   bool
 }
 
 // NewSSEParser creates a bounded request-scoped parser. A non-positive maximum
@@ -46,10 +57,22 @@ func NewSSEParser(body io.ReadCloser, maxRecordBytes int) *SSEParser {
 		maxRecordBytes = DefaultMaxSSERecordBytes
 	}
 	return &SSEParser{
-		reader:    bufio.NewReaderSize(body, 64<<10),
-		closer:    body,
-		maxRecord: maxRecordBytes,
+		reader:     bufio.NewReaderSize(body, 64<<10),
+		closer:     body,
+		maxRecord:  maxRecordBytes,
+		lastReadAt: time.Now(),
 	}
+}
+
+// Progress returns a race-safe parser activity snapshot. It does not consume
+// input and is intended only for transport timeout and keepalive decisions.
+func (p *SSEParser) Progress() SSEProgress {
+	if p == nil {
+		return SSEProgress{}
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return SSEProgress{LastReadAt: p.lastReadAt, InRecord: p.inRecord}
 }
 
 // Next returns the next data-bearing record. Comments and field-only records
@@ -151,6 +174,9 @@ func (p *SSEParser) readRecord(ctx context.Context) (SSERecord, bool, error) {
 			return SSERecord{}, false, err
 		}
 		eof := errors.Is(err, io.EOF)
+		if len(line) > 0 || !eof {
+			p.recordReadProgress(len(line) > 0)
+		}
 		size += len(line) + 1
 		if size > p.maxRecord {
 			return SSERecord{}, false, fmt.Errorf("SSE record exceeds %d bytes", p.maxRecord)
@@ -187,6 +213,13 @@ func (p *SSEParser) readRecord(ctx context.Context) (SSERecord, bool, error) {
 			return record, true, nil
 		}
 	}
+}
+
+func (p *SSEParser) recordReadProgress(inRecord bool) {
+	p.mu.Lock()
+	p.lastReadAt = time.Now()
+	p.inRecord = inRecord
+	p.mu.Unlock()
 }
 
 func (p *SSEParser) readLine() ([]byte, error) {

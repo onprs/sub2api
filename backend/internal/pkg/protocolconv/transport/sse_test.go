@@ -57,6 +57,37 @@ func TestSSEParserHandlesSplitReads(t *testing.T) {
 	require.JSONEq(t, `{"type":"message_start"}`, string(record.Data))
 }
 
+func TestSSEParserProgressTracksPartialRecord(t *testing.T) {
+	reader, writer := io.Pipe()
+	parser := NewSSEParser(reader, 1024)
+	defer parser.Close()
+
+	type result struct {
+		record SSERecord
+		err    error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		record, err := parser.Next(context.Background())
+		resultCh <- result{record: record, err: err}
+	}()
+
+	_, err := io.WriteString(writer, `data: {"type":"message_start"}`+"\n")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		progress := parser.Progress()
+		return progress.InRecord && !progress.LastReadAt.IsZero()
+	}, time.Second, time.Millisecond)
+
+	_, err = io.WriteString(writer, "\n")
+	require.NoError(t, err)
+	parsed := <-resultCh
+	require.NoError(t, parsed.err)
+	require.JSONEq(t, `{"type":"message_start"}`, string(parsed.record.Data))
+	require.False(t, parser.Progress().InRecord)
+	require.NoError(t, writer.Close())
+}
+
 func TestSSEParserDoneSentinelIsTerminal(t *testing.T) {
 	parser := NewSSEParser(io.NopCloser(strings.NewReader("data: [DONE]\n\ndata: {}\n\n")), 1024)
 	defer parser.Close()

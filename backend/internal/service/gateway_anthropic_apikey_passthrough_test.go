@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -45,6 +44,28 @@ func newAnthropicAPIKeyAccountForTest() *Account {
 		Status:      StatusActive,
 		Schedulable: true,
 	}
+}
+
+func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
+	ctx context.Context,
+	resp *http.Response,
+	c *gin.Context,
+	account *Account,
+	startTime time.Time,
+	model string,
+) (*streamingResult, error) {
+	pipeline, err := newAnthropicPassthroughPipeline(account, model, model)
+	if err != nil {
+		return nil, err
+	}
+	request, err := json.Marshal(map[string]any{"model": model, "messages": []any{}})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := pipeline.ConvertRequest(request); err != nil {
+		return nil, err
+	}
+	return s.handleStructuredStreamingResponseAnthropicAPIKeyPassthrough(ctx, resp, c, account, pipeline, startTime, model)
 }
 
 func (u *anthropicHTTPUpstreamRecorder) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
@@ -1164,20 +1185,6 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_EmptyResponseBo
 	require.Contains(t, err.Error(), "empty response")
 }
 
-func TestExtractAnthropicSSEDataLine(t *testing.T) {
-	t.Run("valid data line with spaces", func(t *testing.T) {
-		data, ok := extractAnthropicSSEDataLine("data:   {\"type\":\"message_start\"}")
-		require.True(t, ok)
-		require.Equal(t, `{"type":"message_start"}`, data)
-	})
-
-	t.Run("non data line", func(t *testing.T) {
-		data, ok := extractAnthropicSSEDataLine("event: message_start")
-		require.False(t, ok)
-		require.Empty(t, data)
-	})
-}
-
 func TestGatewayService_ParseSSEUsagePassthrough_MessageStartFallbacks(t *testing.T) {
 	svc := &GatewayService{}
 	usage := &ClaudeUsage{}
@@ -1269,6 +1276,74 @@ func TestParseClaudeUsageFromResponseBody(t *testing.T) {
 	})
 }
 
+func TestGatewayService_AnthropicAPIKeyPassthrough_StructuredStreamParsesMultilineRecord(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	account := newAnthropicAPIKeyAccountForTest()
+	pipeline, err := newAnthropicPassthroughPipeline(account, "client-model", "upstream-model")
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{"model":"upstream-model","stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid_multiline"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			"event: message_start",
+			`data: {"type":"message_start",`,
+			`data: "message":{"id":"msg_multiline","usage":{"input_tokens":4}}}`,
+			"",
+			"event: message_delta",
+			`data: {"type":"message_delta","usage":{"output_tokens":2}}`,
+			"",
+			"event: message_stop",
+			`data: {"type":"message_stop"}`,
+			"",
+		}, "\n"))),
+	}
+	svc := &GatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 1024}}}
+
+	result, err := svc.handleStructuredStreamingResponseAnthropicAPIKeyPassthrough(
+		context.Background(), resp, c, account, pipeline, time.Now(), "upstream-model",
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, 4, result.usage.InputTokens)
+	require.Equal(t, 2, result.usage.OutputTokens)
+	require.Contains(t, recorder.Body.String(), "event: message_start")
+	require.Contains(t, recorder.Body.String(), `"id":"msg_multiline"`)
+	require.Contains(t, recorder.Body.String(), "event: message_stop")
+	require.NotContains(t, recorder.Body.String(), "[DONE]")
+	require.Equal(t, "rid_multiline", recorder.Header().Get("X-Request-Id"))
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_StructuredStreamRejectsMalformedBeforeCommit(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	account := newAnthropicAPIKeyAccountForTest()
+	pipeline, err := newAnthropicPassthroughPipeline(account, "client-model", "upstream-model")
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{"model":"upstream-model","stream":true,"messages":[]}`))
+	require.NoError(t, err)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader("data: {\"type\":\n\n")),
+	}
+	svc := &GatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 1024}}}
+
+	result, err := svc.handleStructuredStreamingResponseAnthropicAPIKeyPassthrough(
+		context.Background(), resp, c, account, pipeline, time.Now(), "upstream-model",
+	)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "malformed SSE JSON payload")
+	require.NotNil(t, result)
+	require.Empty(t, recorder.Body.String())
+	require.False(t, c.Writer.Written())
+}
+
 func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingErrTooLong(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -1283,8 +1358,8 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingErrTooLong(t *testin
 		},
 	}
 
-	// Scanner 初始缓冲为 64KB，构造更长单行触发 bufio.ErrTooLong。
-	longLine := "data: " + strings.Repeat("x", 80*1024)
+	// 构造超过配置上限的完整 SSE record，验证 bounded parser 拒绝。
+	longLine := "data: {\"type\":\"content_block_delta\",\"delta\":\"" + strings.Repeat("x", 80*1024) + "\"}\n\n"
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
@@ -1293,7 +1368,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingErrTooLong(t *testin
 
 	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 2}, time.Now(), "claude-3-7-sonnet-20250219")
 	require.Error(t, err)
-	require.ErrorIs(t, err, bufio.ErrTooLong)
+	require.Contains(t, err.Error(), "SSE record exceeds 32 bytes")
 	require.NotNil(t, result)
 }
 
@@ -1375,7 +1450,8 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingSendsKeepaliveDuring
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Contains(t, rec.Body.String(), "event: ping\ndata: {\"type\": \"ping\"}\n\n")
-	require.Contains(t, rec.Body.String(), "data: [DONE]")
+	require.Contains(t, rec.Body.String(), "event: message_start")
+	require.NotContains(t, rec.Body.String(), "data: [DONE]")
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingKeepaliveDoesNotInterleavePartialEvent(t *testing.T) {
@@ -1420,7 +1496,8 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingKeepaliveDoesNotInte
 	body := rec.Body.String()
 	require.NotContains(t, body, `data: {"type":"message_start","message":{"usage":{"input_tokens":4}}}`+"\n"+"event: ping")
 	require.NotContains(t, body, "event: ping")
-	require.Contains(t, body, "data: [DONE]")
+	require.Contains(t, body, "event: message_start")
+	require.NotContains(t, body, "data: [DONE]")
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingReadError(t *testing.T) {
@@ -1479,8 +1556,8 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingTimeoutAfterClientDi
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = pw.Write([]byte(`data: {"type":"message_start","message":{"usage":{"input_tokens":9}}}` + "\n"))
-		// 保持上游连接静默，触发数据间隔超时分支。
+		_, _ = pw.Write([]byte(`data: {"type":"message_start","message":{"usage":{"input_tokens":9}}}` + "\n\n"))
+		// 完整 record 写下游时触发断连，随后保持上游静默，验证继续 drain 到超时。
 		time.Sleep(1500 * time.Millisecond)
 		_ = pw.Close()
 	}()
