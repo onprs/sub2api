@@ -36,7 +36,7 @@ func TestForwardGoogleGenAINonStreamingUsesResponsesPipeline(t *testing.T) {
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/client-google-model:generateContent", bytes.NewReader(body))
 
-	result, err := svc.ForwardGoogleGenAI(context.Background(), c, account, "client-google-model", false, body)
+	result, err := svc.ForwardGoogleGenAI(context.Background(), c, account, "client-google-model", "client-google-model", false, body)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, "client-google-model", result.Model)
@@ -59,6 +59,33 @@ func TestForwardGoogleGenAINonStreamingUsesResponsesPipeline(t *testing.T) {
 	require.Equal(t, int64(7), gjson.GetBytes(responseBody, "usageMetadata.promptTokenCount").Int())
 	require.Equal(t, int64(3), gjson.GetBytes(responseBody, "usageMetadata.candidatesTokenCount").Int())
 	require.Equal(t, int64(2), gjson.GetBytes(responseBody, "usageMetadata.cachedContentTokenCount").Int())
+}
+
+func TestForwardGoogleGenAIRestoresClientModelAcrossRoutingAlias(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{
+			"id":"resp_alias","model":"gpt-5.4","status":"completed",
+			"output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],
+			"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}
+		}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := googleIngressOpenAIAccount()
+	account.Credentials["model_mapping"] = map[string]any{"channel-routed-model": "gpt-5.4"}
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/client-google-model:generateContent", bytes.NewReader(body))
+
+	result, err := svc.ForwardGoogleGenAI(context.Background(), c, account, "client-google-model", "channel-routed-model", false, body)
+	require.NoError(t, err)
+	require.Equal(t, "gpt-5.4", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "client-google-model", gjson.GetBytes(recorder.Body.Bytes(), "modelVersion").String())
+	require.Equal(t, "client-google-model", result.Model)
+	require.Equal(t, "gpt-5.4", result.UpstreamModel)
 }
 
 func TestForwardGoogleGenAIStreamingUsesResponsesPipeline(t *testing.T) {
@@ -98,7 +125,7 @@ func TestForwardGoogleGenAIStreamingUsesResponsesPipeline(t *testing.T) {
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/client-google-model:streamGenerateContent?alt=sse", bytes.NewReader(body))
 
-	result, err := svc.ForwardGoogleGenAI(context.Background(), c, account, "client-google-model", true, body)
+	result, err := svc.ForwardGoogleGenAI(context.Background(), c, account, "client-google-model", "client-google-model", true, body)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.True(t, result.Stream)
@@ -130,7 +157,7 @@ func TestForwardGoogleGenAIPreservesPreOutputFailover(t *testing.T) {
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/client-google-model:generateContent", bytes.NewReader(body))
 
-	result, err := svc.ForwardGoogleGenAI(context.Background(), c, googleIngressOpenAIAccount(), "client-google-model", false, body)
+	result, err := svc.ForwardGoogleGenAI(context.Background(), c, googleIngressOpenAIAccount(), "client-google-model", "client-google-model", false, body)
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Nil(t, result)
@@ -148,7 +175,7 @@ func TestForwardGoogleGenAIRejectsInvalidRequestBeforeUpstream(t *testing.T) {
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/client-google-model:generateContent", bytes.NewReader(body))
 
-	result, err := svc.ForwardGoogleGenAI(context.Background(), c, googleIngressOpenAIAccount(), "client-google-model", false, body)
+	result, err := svc.ForwardGoogleGenAI(context.Background(), c, googleIngressOpenAIAccount(), "client-google-model", "client-google-model", false, body)
 	require.Error(t, err)
 	require.Nil(t, result)
 	require.Nil(t, upstream.lastReq)

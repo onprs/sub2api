@@ -43,10 +43,15 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		googleError(c, http.StatusUnauthorized, "Invalid API key")
 		return
 	}
-	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini 分组
+	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求支持Google ingress的分组。
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
-	if !hasForcePlatform && (apiKey.Group == nil || apiKey.Group.Platform != service.PlatformGemini) {
-		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
+	if !hasForcePlatform && (apiKey.Group == nil || (apiKey.Group.Platform != service.PlatformGemini && apiKey.Group.Platform != service.PlatformOpenAI)) {
+		googleError(c, http.StatusBadRequest, "API key group platform does not support Gemini generation")
+		return
+	}
+
+	if !hasForcePlatform && apiKey.Group.Platform == service.PlatformOpenAI {
+		h.writeOpenAIGoogleIngressModels(c, apiKeyGroupIDFromContext(c))
 		return
 	}
 
@@ -80,6 +85,40 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 	writeUpstreamResponse(c, res)
+}
+
+func (h *GatewayHandler) writeOpenAIGoogleIngressModels(c *gin.Context, groupID *int64) {
+	modelIDs := h.openAIGoogleIngressModelIDs(c, groupID)
+	models := make([]antigravity.GeminiModel, 0, len(modelIDs))
+	for _, modelID := range modelIDs {
+		name := strings.TrimSpace(modelID)
+		if name == "" || strings.Contains(name, "*") {
+			continue
+		}
+		models = append(models, antigravity.GeminiModel{
+			Name:                       "models/" + strings.TrimPrefix(name, "models/"),
+			DisplayName:                strings.TrimPrefix(name, "models/"),
+			SupportedGenerationMethods: antigravityGeminiSupportedGenerationMethods,
+		})
+	}
+	c.JSON(http.StatusOK, antigravity.GeminiModelsListResponse{Models: models})
+}
+
+func (h *GatewayHandler) openAIGoogleIngressModelAvailable(c *gin.Context, groupID *int64, model string) bool {
+	model = strings.TrimPrefix(strings.TrimSpace(model), "models/")
+	for _, available := range h.openAIGoogleIngressModelIDs(c, groupID) {
+		if strings.TrimPrefix(strings.TrimSpace(available), "models/") == model {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *GatewayHandler) openAIGoogleIngressModelIDs(c *gin.Context, groupID *int64) []string {
+	if h == nil || h.gatewayService == nil {
+		return nil
+	}
+	return h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, service.PlatformOpenAI)
 }
 
 func (h *GatewayHandler) writeAntigravityGeminiMappedModels(c *gin.Context, groupID *int64) {
@@ -121,16 +160,25 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		googleError(c, http.StatusUnauthorized, "Invalid API key")
 		return
 	}
-	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini 分组
+	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求支持Google ingress的分组。
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
-	if !hasForcePlatform && (apiKey.Group == nil || apiKey.Group.Platform != service.PlatformGemini) {
-		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
+	if !hasForcePlatform && (apiKey.Group == nil || (apiKey.Group.Platform != service.PlatformGemini && apiKey.Group.Platform != service.PlatformOpenAI)) {
+		googleError(c, http.StatusBadRequest, "API key group platform does not support Gemini generation")
 		return
 	}
 
 	modelName := strings.TrimSpace(c.Param("model"))
 	if modelName == "" {
 		googleError(c, http.StatusBadRequest, "Missing model in URL")
+		return
+	}
+
+	if !hasForcePlatform && apiKey.Group.Platform == service.PlatformOpenAI {
+		if !h.openAIGoogleIngressModelAvailable(c, apiKeyGroupIDFromContext(c), modelName) {
+			googleError(c, http.StatusNotFound, "Model not found")
+			return
+		}
+		c.JSON(http.StatusOK, antigravity.FallbackGeminiModel(modelName))
 		return
 	}
 
@@ -190,8 +238,8 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 
 	// 检查平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则要求 gemini 分组
 	if !middleware.HasForcePlatform(c) {
-		if apiKey.Group == nil || apiKey.Group.Platform != service.PlatformGemini {
-			googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
+		if apiKey.Group == nil || (apiKey.Group.Platform != service.PlatformGemini && apiKey.Group.Platform != service.PlatformOpenAI) {
+			googleError(c, http.StatusBadRequest, "API key group platform does not support Gemini generation")
 			return
 		}
 	}
@@ -232,6 +280,11 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	reqModel := modelName // 保存映射前的原始模型名
 	if channelMapping.Mapped {
 		modelName = channelMapping.MappedModel
+	}
+
+	if shouldRouteGeminiIngressToOpenAI(middleware.HasForcePlatform(c), apiKey.Group) {
+		h.forwardGeminiIngressToOpenAI(c, reqLog, apiKey, authSubject.UserID, authSubject.Concurrency, reqModel, modelName, stream, body, channelMapping)
+		return
 	}
 
 	// Get subscription (may be nil)
@@ -596,6 +649,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	}
 }
 
+func shouldRouteGeminiIngressToOpenAI(hasForcePlatform bool, group *service.Group) bool {
+	return !hasForcePlatform && group != nil && group.Platform == service.PlatformOpenAI
+}
+
 func parseGeminiModelAction(rest string) (model string, action string, err error) {
 	rest = strings.TrimSpace(rest)
 	if rest == "" {
@@ -616,6 +673,10 @@ func parseGeminiModelAction(rest string) (model string, action string, err error
 }
 
 func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError) {
+	h.handleGeminiIngressFailoverExhausted(c, service.PlatformGemini, failoverErr)
+}
+
+func (h *GatewayHandler) handleGeminiIngressFailoverExhausted(c *gin.Context, platform string, failoverErr *service.UpstreamFailoverError) {
 	if failoverErr == nil {
 		googleError(c, http.StatusBadGateway, "Upstream request failed")
 		return
@@ -626,7 +687,7 @@ func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverE
 
 	// 先检查透传规则
 	if h.errorPassthroughService != nil && len(responseBody) > 0 {
-		if rule := h.errorPassthroughService.MatchRule(service.PlatformGemini, statusCode, responseBody); rule != nil {
+		if rule := h.errorPassthroughService.MatchRule(platform, statusCode, responseBody); rule != nil {
 			// 确定响应状态码
 			respCode := statusCode
 			if !rule.PassthroughCode && rule.ResponseCode != nil {

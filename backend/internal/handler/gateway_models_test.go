@@ -11,6 +11,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type gatewayModelsAccountRepoStub struct {
@@ -62,6 +63,55 @@ func newGatewayModelsHandlerForTest(repo service.AccountRepository) *GatewayHand
 			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		),
 	}
+}
+
+func TestGeminiV1BetaListModels_OpenAIGroupListsGenerationRoutableAliases(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(19)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{
+		groupID: {{
+			ID: 1, Platform: service.PlatformOpenAI,
+			Credentials: map[string]any{"model_mapping": map[string]any{
+				"google-client-model": "gpt-5.4",
+				"wildcard-*":          "gpt-5.4",
+			}},
+		}},
+	}})
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI}})
+
+	h.GeminiV1BetaListModels(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayGeminiModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Len(t, got.Models, 1)
+	require.Equal(t, "models/google-client-model", got.Models[0].Name)
+	require.Equal(t, []string{"generateContent", "streamGenerateContent"}, got.Models[0].SupportedGenerationMethods)
+	require.NotContains(t, rec.Body.String(), "gpt-5.4")
+}
+
+func TestGeminiV1BetaGetModel_OpenAIGroupRejectsUnroutableModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(18)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{
+		groupID: {{
+			ID: 1, Platform: service.PlatformOpenAI,
+			Credentials: map[string]any{"model_mapping": map[string]any{"google-client-model": "gpt-5.4"}},
+		}},
+	}})
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1beta/models/not-routable", nil)
+	c.Params = gin.Params{{Key: "model", Value: "not-routable"}}
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI}})
+
+	h.GeminiV1BetaGetModel(c)
+
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.Equal(t, "NOT_FOUND", gjson.GetBytes(rec.Body.Bytes(), "error.status").String())
 }
 
 func TestGatewayModels_GeminiGroupFallsBackToGeminiModels(t *testing.T) {

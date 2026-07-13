@@ -22,7 +22,8 @@ func (s *OpenAIGatewayService) ForwardGoogleGenAI(
 	ctx context.Context,
 	c *gin.Context,
 	account *Account,
-	model string,
+	clientModel string,
+	routingModel string,
 	stream bool,
 	body []byte,
 ) (*OpenAIForwardResult, error) {
@@ -33,12 +34,12 @@ func (s *OpenAIGatewayService) ForwardGoogleGenAI(
 		return nil, fmt.Errorf("Google GenAI OpenAI route requires an OpenAI account")
 	}
 
-	upstreamModel := account.GetMappedModel(model)
+	upstreamModel := account.GetMappedModel(routingModel)
 	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
 		Route: protocolconv.Route{
 			Source:         protocolconv.ProtocolGoogleGenAI,
 			IntendedTarget: protocolconv.ProtocolOpenAIResponses,
-			ClientModel:    model,
+			ClientModel:    clientModel,
 			UpstreamModel:  upstreamModel,
 			Provider:       account.Platform,
 			AccountID:      account.ID,
@@ -77,7 +78,7 @@ func (s *OpenAIGatewayService) ForwardGoogleGenAI(
 		return nil, fmt.Errorf("convert OpenAI Responses to Google GenAI: %w", err)
 	}
 	if result != nil {
-		result.Model = model
+		result.Model = clientModel
 		result.Stream = stream
 		result.ClientDisconnect = adapter.clientDisconnected
 	}
