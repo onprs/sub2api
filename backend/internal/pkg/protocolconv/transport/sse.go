@@ -19,6 +19,18 @@ const DefaultMaxSSERecordBytes = 4 << 20
 // [DONE] sentinel. Callers should stop reading and finalize protocol state.
 var ErrSSEDone = errors.New("SSE stream done")
 
+// SSERecordTooLargeError reports the configured record bound that was exceeded.
+type SSERecordTooLargeError struct {
+	MaxBytes int
+}
+
+func (e *SSERecordTooLargeError) Error() string {
+	if e == nil {
+		return "SSE record exceeds configured limit"
+	}
+	return fmt.Sprintf("SSE record exceeds %d bytes", e.MaxBytes)
+}
+
 // SSERecord is one parsed SSE record. Data is the JSON payload formed by
 // joining multiple data fields with a newline, as required by the SSE spec.
 type SSERecord struct {
@@ -78,6 +90,26 @@ func (p *SSEParser) Progress() SSEProgress {
 // Next returns the next data-bearing record. Comments and field-only records
 // are ignored. The payload must be valid JSON unless it is [DONE].
 func (p *SSEParser) Next(ctx context.Context) (SSERecord, error) {
+	for {
+		record, err := p.NextRecord(ctx)
+		if err != nil {
+			return SSERecord{}, err
+		}
+		if len(record.Data) == 0 {
+			continue
+		}
+		if !json.Valid(record.Data) {
+			return SSERecord{}, errors.New("malformed SSE JSON payload")
+		}
+		return record, nil
+	}
+}
+
+// NextRecord returns the next bounded SSE record without interpreting its data.
+// It preserves field-only error records and non-JSON payloads for service-owned
+// transport policy. The [DONE] sentinel remains a parser terminal except when
+// an explicit error event must be returned to service policy first.
+func (p *SSEParser) NextRecord(ctx context.Context) (SSERecord, error) {
 	if p == nil || p.reader == nil {
 		return SSERecord{}, errors.New("nil SSE parser")
 	}
@@ -121,20 +153,17 @@ func (p *SSEParser) Next(ctx context.Context) (SSERecord, error) {
 		if err != nil {
 			return SSERecord{}, err
 		}
-		if len(record.Data) == 0 {
+		if len(record.Data) == 0 && record.Event == "" && record.ID == "" && record.Retry == "" {
 			if eof {
 				return SSERecord{}, io.EOF
 			}
 			continue
 		}
-		if bytes.Equal(bytes.TrimSpace(record.Data), []byte("[DONE]")) {
+		if !strings.EqualFold(strings.TrimSpace(record.Event), "error") && bytes.Equal(bytes.TrimSpace(record.Data), []byte("[DONE]")) {
 			p.mu.Lock()
 			p.done = true
 			p.mu.Unlock()
 			return SSERecord{}, ErrSSEDone
-		}
-		if !json.Valid(record.Data) {
-			return SSERecord{}, errors.New("malformed SSE JSON payload")
 		}
 		return record, nil
 	}
@@ -179,7 +208,7 @@ func (p *SSEParser) readRecord(ctx context.Context) (SSERecord, bool, error) {
 		}
 		size += len(line) + 1
 		if size > p.maxRecord {
-			return SSERecord{}, false, fmt.Errorf("SSE record exceeds %d bytes", p.maxRecord)
+			return SSERecord{}, false, &SSERecordTooLargeError{MaxBytes: p.maxRecord}
 		}
 
 		if len(line) == 0 {
@@ -228,7 +257,7 @@ func (p *SSEParser) readLine() ([]byte, error) {
 		part, prefix, err := p.reader.ReadLine()
 		line = append(line, part...)
 		if len(line) > p.maxRecord {
-			return nil, fmt.Errorf("SSE record exceeds %d bytes", p.maxRecord)
+			return nil, &SSERecordTooLargeError{MaxBytes: p.maxRecord}
 		}
 		if err != nil {
 			return trimTrailingCR(line), err

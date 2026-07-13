@@ -98,6 +98,44 @@ func TestSSEParserDoneSentinelIsTerminal(t *testing.T) {
 	require.ErrorIs(t, err, ErrSSEDone)
 }
 
+func TestSSEParserNextRecordPreservesServicePolicyRecords(t *testing.T) {
+	parser := NewSSEParser(io.NopCloser(strings.NewReader(strings.Join([]string{
+		"event: error\n\n",
+		"event: error\ndata: not-json\n\n",
+		"event: error\ndata: [DONE]\n\n",
+		"data: [DONE]\n\n",
+	}, ""))), 1024)
+	defer parser.Close()
+
+	emptyError, err := parser.NextRecord(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "error", emptyError.Event)
+	require.Empty(t, emptyError.Data)
+
+	rawError, err := parser.NextRecord(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "error", rawError.Event)
+	require.Equal(t, "not-json", string(rawError.Data))
+
+	doneError, err := parser.NextRecord(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "error", doneError.Event)
+	require.Equal(t, "[DONE]", string(doneError.Data))
+
+	_, err = parser.NextRecord(context.Background())
+	require.ErrorIs(t, err, ErrSSEDone)
+	_, err = parser.NextRecord(context.Background())
+	require.ErrorIs(t, err, ErrSSEDone)
+}
+
+func TestSSEParserNextRemainsStrictAfterRawRecordSupport(t *testing.T) {
+	parser := NewSSEParser(io.NopCloser(strings.NewReader("event: error\ndata: not-json\n\n")), 1024)
+	defer parser.Close()
+
+	_, err := parser.Next(context.Background())
+	require.ErrorContains(t, err, "malformed SSE JSON")
+}
+
 func TestSSEParserRejectsMalformedJSONAndOversizedRecords(t *testing.T) {
 	t.Run("malformed JSON", func(t *testing.T) {
 		parser := NewSSEParser(io.NopCloser(strings.NewReader("data: {broken}\n\n")), 1024)
@@ -111,6 +149,9 @@ func TestSSEParserRejectsMalformedJSONAndOversizedRecords(t *testing.T) {
 		defer parser.Close()
 		_, err := parser.Next(context.Background())
 		require.ErrorContains(t, err, "exceeds 32 bytes")
+		var tooLarge *SSERecordTooLargeError
+		require.ErrorAs(t, err, &tooLarge)
+		require.Equal(t, 32, tooLarge.MaxBytes)
 	})
 }
 

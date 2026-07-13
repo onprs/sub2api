@@ -15,19 +15,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type anthropicPassthroughStreamEvent struct {
+type anthropicStreamReadResult struct {
 	record protocoltransport.SSERecord
 	err    error
 }
 
-func (s *GatewayService) collectAnthropicPassthroughStream(resp *http.Response, startTime time.Time) (*protocoltransport.Stream, *protocoltransport.SSEParser, error) {
+func (s *GatewayService) collectAnthropicIdentityStream(resp *http.Response, startTime time.Time) (*protocoltransport.Stream, *protocoltransport.SSEParser, error) {
 	if resp == nil || resp.Body == nil {
 		return nil, nil, errors.New("nil Anthropic passthrough stream")
 	}
-	maxRecordSize := defaultMaxLineSize
-	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-		maxRecordSize = s.cfg.Gateway.MaxLineSize
-	}
+	maxRecordSize := s.maxAnthropicSSERecordSize()
 	parser := protocoltransport.NewSSEParser(resp.Body, maxRecordSize)
 	stream := &protocoltransport.Stream{
 		StatusCode:     resp.StatusCode,
@@ -56,7 +53,7 @@ func (s *GatewayService) handleStructuredStreamingResponseAnthropicAPIKeyPassthr
 	if s.rateLimitService != nil {
 		s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 	}
-	stream, parser, err := s.collectAnthropicPassthroughStream(resp, startTime)
+	stream, parser, err := s.collectAnthropicIdentityStream(resp, startTime)
 	if err != nil {
 		return nil, err
 	}
@@ -122,14 +119,14 @@ func (s *GatewayService) handleStructuredStreamingResponseAnthropicAPIKeyPassthr
 		return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}
 	}
 
-	events := make(chan anthropicPassthroughStreamEvent, 16)
+	events := make(chan anthropicStreamReadResult, 16)
 	done := make(chan struct{})
 	go func() {
 		defer close(events)
 		for {
 			record, nextErr := stream.Events.Next(context.Background())
 			select {
-			case events <- anthropicPassthroughStreamEvent{record: record, err: nextErr}:
+			case events <- anthropicStreamReadResult{record: record, err: nextErr}:
 			case <-done:
 				return
 			}
