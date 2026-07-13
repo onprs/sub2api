@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
@@ -172,7 +173,7 @@ func (s *OpenCodeGoGatewayService) forwardChatBody(
 	}
 	if gjson.GetBytes(body, "stream").Bool() {
 		if responseMode == openCodeGoResponseAnthropic {
-			return s.streamChatToAnthropic(c, resp, originalModel, upstreamModel, startTime)
+			return s.streamChatToAnthropic(c, resp, pipeline, originalModel, upstreamModel, startTime)
 		}
 		return s.streamChatPassthrough(c, resp, originalModel, upstreamModel, startTime)
 	}
@@ -210,7 +211,7 @@ func (s *OpenCodeGoGatewayService) forwardMessagesBody(
 	}
 	if gjson.GetBytes(body, "stream").Bool() {
 		if responseMode == openCodeGoResponseChat {
-			return s.streamAnthropicToChat(c, resp, originalModel, upstreamModel, startTime)
+			return s.streamAnthropicToChat(c, resp, pipeline, originalModel, upstreamModel, startTime)
 		}
 		return s.streamAnthropicPassthrough(c, resp, originalModel, upstreamModel, startTime)
 	}
@@ -522,135 +523,169 @@ func (s *OpenCodeGoGatewayService) streamAnthropicPassthrough(
 func (s *OpenCodeGoGatewayService) streamAnthropicToChat(
 	c *gin.Context,
 	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	upstreamModel string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
-	requestID := resp.Header.Get("x-request-id")
-	s.writeStreamHeaders(c, resp, openCodeGoErrorFormatChat)
-	session, err := newStandardStreamSession(protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat)
-	if err != nil {
-		return nil, err
-	}
 	usage := ClaudeUsage{}
 	var firstTokenMs *int
-	clientDisconnected := false
-	var conversionErr error
-
-	writePayloads := func(payloads [][]byte) {
-		for _, payload := range payloads {
-			if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", payload); err != nil {
-				clientDisconnected = true
-				return
-			}
-		}
-		if len(payloads) > 0 {
-			c.Writer.Flush()
-		}
-	}
-	process := func(payload string) {
-		if conversionErr != nil {
-			return
-		}
+	observe := func(payload []byte) {
 		var event apicompat.AnthropicStreamEvent
-		if err := json.Unmarshal([]byte(payload), &event); err == nil {
-			if firstTokenMs == nil {
-				ms := int(time.Since(startTime).Milliseconds())
-				firstTokenMs = &ms
-			}
-			if event.Type == "message_start" && event.Message != nil {
-				mergeAnthropicUsage(&usage, event.Message.Usage)
-			}
-			if event.Type == "message_delta" && event.Usage != nil {
-				mergeAnthropicUsage(&usage, *event.Usage)
-			}
-		}
-		payloads, _, err := session.Convert([]byte(payload))
-		if err != nil {
-			conversionErr = err
+		if json.Unmarshal(payload, &event) != nil {
 			return
 		}
-		if !clientDisconnected {
-			writePayloads(payloads)
+		if firstTokenMs == nil && event.Type != "" {
+			ms := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &ms
+		}
+		if event.Type == "message_start" && event.Message != nil {
+			mergeAnthropicUsage(&usage, event.Message.Usage)
+		}
+		if event.Type == "message_delta" && event.Usage != nil {
+			mergeAnthropicUsage(&usage, *event.Usage)
 		}
 	}
-	s.scanSSE(resp, process)
-	if conversionErr == nil {
-		payloads, _, err := session.Finalize()
-		conversionErr = err
-		if !clientDisconnected {
-			writePayloads(payloads)
-			_, _ = fmt.Fprint(c.Writer, "data: [DONE]\n\n")
-			c.Writer.Flush()
-		}
-	}
-	return &ForwardResult{RequestID: requestID, Usage: usage, Model: originalModel, UpstreamModel: optionalUpstreamModel(originalModel, upstreamModel), Stream: true, Duration: time.Since(startTime), FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected}, conversionErr
+	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, observe)
+	return &ForwardResult{
+		RequestID: resp.Header.Get("x-request-id"), Usage: usage, Model: originalModel,
+		UpstreamModel: optionalUpstreamModel(originalModel, upstreamModel), Stream: true,
+		Duration: time.Since(startTime), FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected,
+	}, err
 }
 
 func (s *OpenCodeGoGatewayService) streamChatToAnthropic(
 	c *gin.Context,
 	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	upstreamModel string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
-	requestID := resp.Header.Get("x-request-id")
-	s.writeStreamHeaders(c, resp, openCodeGoErrorFormatAnthropic)
-	session, err := newStandardStreamSession(protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic)
-	if err != nil {
-		return nil, err
-	}
 	usage := ClaudeUsage{}
 	var firstTokenMs *int
-	clientDisconnected := false
-	var conversionErr error
-
-	writePayloads := func(payloads [][]byte) {
-		for _, payload := range payloads {
-			var event struct {
-				Type string `json:"type"`
-			}
-			if json.Unmarshal(payload, &event) != nil || event.Type == "" {
-				continue
-			}
-			if _, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event.Type, payload); err != nil {
-				clientDisconnected = true
-				return
-			}
+	observe := func(payload []byte) {
+		text := string(payload)
+		if u := extractCCStreamUsage(text); u != nil {
+			usage = normalizeOpenCodeGoChatUsage(ClaudeUsage{
+				InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CacheReadInputTokens: u.CacheReadInputTokens,
+			})
 		}
-		if len(payloads) > 0 {
-			c.Writer.Flush()
-		}
-	}
-	process := func(payload string) {
-		if conversionErr != nil || strings.TrimSpace(payload) == "[DONE]" {
-			return
-		}
-		if u := extractCCStreamUsage(payload); u != nil {
-			usage = normalizeOpenCodeGoChatUsage(ClaudeUsage{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CacheReadInputTokens: u.CacheReadInputTokens})
-		}
-		if firstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) {
+		if firstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(text) {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
-		payloads, _, err := session.Convert([]byte(payload))
+	}
+	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, observe)
+	return &ForwardResult{
+		RequestID: resp.Header.Get("x-request-id"), Usage: usage, Model: originalModel,
+		UpstreamModel: optionalUpstreamModel(originalModel, upstreamModel), Stream: true,
+		Duration: time.Since(startTime), FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected,
+	}, err
+}
+
+func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
+	c *gin.Context,
+	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
+	actualProtocol protocolconv.Protocol,
+	sourceProtocol protocolconv.Protocol,
+	observe func([]byte),
+) (bool, error) {
+	maxRecordSize := defaultMaxLineSize
+	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
+		maxRecordSize = s.cfg.Gateway.MaxLineSize
+	}
+	filteredHeaders := make(http.Header)
+	if s.responseHeaderFilter != nil {
+		filteredHeaders = responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
+	}
+	stream := &protocoltransport.Stream{
+		StatusCode: resp.StatusCode, Headers: filteredHeaders, ActualProtocol: actualProtocol,
+		RequestID: resp.Header.Get("x-request-id"), Events: protocoltransport.NewSSEParser(resp.Body, maxRecordSize),
+	}
+	if err := stream.Validate(); err != nil {
+		_ = stream.Close()
+		return false, err
+	}
+	defer func() { _ = stream.Close() }()
+	session, err := pipeline.NewStreamProcessor(stream.ActualProtocol)
+	if err != nil {
+		return false, err
+	}
+	renderer, err := protocolconv.NewRenderer(sourceProtocol)
+	if err != nil {
+		return false, err
+	}
+	headersWritten := false
+	clientDisconnected := false
+	writePayloads := func(payloads [][]byte) error {
+		if clientDisconnected || len(payloads) == 0 {
+			return nil
+		}
+		if !headersWritten {
+			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
+				return err
+			}
+			headersWritten = true
+		}
+		for _, payload := range payloads {
+			framed, err := renderer.FrameStreamEvent(payload)
+			if err != nil {
+				return err
+			}
+			if _, err := c.Writer.Write(framed); err != nil {
+				clientDisconnected = true
+				return nil
+			}
+		}
+		c.Writer.Flush()
+		return nil
+	}
+
+	for {
+		record, nextErr := stream.Events.Next(context.Background())
+		if errors.Is(nextErr, protocoltransport.ErrSSEDone) || errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			return clientDisconnected, nextErr
+		}
+		if observe != nil {
+			observe(record.Data)
+		}
+		payloads, _, err := session.Convert(record.Data)
 		if err != nil {
-			conversionErr = err
-			return
+			return clientDisconnected, err
 		}
-		if !clientDisconnected {
-			writePayloads(payloads)
-		}
-	}
-	s.scanSSE(resp, process)
-	if conversionErr == nil {
-		payloads, _, err := session.Finalize()
-		conversionErr = err
-		if !clientDisconnected {
-			writePayloads(payloads)
+		if err := writePayloads(payloads); err != nil {
+			return clientDisconnected, err
 		}
 	}
-	return &ForwardResult{RequestID: requestID, Usage: usage, Model: originalModel, UpstreamModel: optionalUpstreamModel(originalModel, upstreamModel), Stream: true, Duration: time.Since(startTime), FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected}, conversionErr
+	payloads, _, err := session.Finalize()
+	if err != nil {
+		return clientDisconnected, err
+	}
+	if err := writePayloads(payloads); err != nil {
+		return clientDisconnected, err
+	}
+	if !clientDisconnected {
+		if !headersWritten {
+			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
+				return false, err
+			}
+			headersWritten = true
+		}
+		if terminal := renderer.StreamTerminal(); len(terminal) > 0 {
+			if _, err := c.Writer.Write(terminal); err != nil {
+				clientDisconnected = true
+			}
+		}
+		if !clientDisconnected {
+			c.Writer.Flush()
+		}
+	}
+	return clientDisconnected, nil
 }
 
 type openCodeGoCopySSEResult struct {

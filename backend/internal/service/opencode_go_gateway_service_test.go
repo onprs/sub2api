@@ -725,6 +725,105 @@ func TestOpenCodeGoGatewayServiceNormalizesCachedTokensInChatCompletionsStreamUs
 	}
 }
 
+func TestOpenCodeGoGatewayServiceMessagesToChatStreamUsesPipeline(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstreamBody := strings.Join([]string{
+		`data: {"id":"chatcmpl_stream","object":"chat.completion.chunk","model":"kimi-k2.7-code","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"chatcmpl_stream","object":"chat.completion.chunk","model":"kimi-k2.7-code","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{
+		ID: 42, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key": "ocg-secret", "base_url": "https://opencode.ai/zen/go/v1",
+			"model_mapping":   map[string]any{"opencode-go/kimi": "kimi-k2.7-code"},
+			"model_protocols": map[string]any{"kimi-k2.7-code": OpenCodeGoProtocolChatCompletions},
+		},
+	}
+	body := `{"model":"opencode-go/kimi","messages":[{"role":"user","content":"hi"}],"max_tokens":32,"stream":true}`
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/messages", body)
+
+	result, err := svc.ForwardMessages(context.Background(), rec.Context, account, []byte(body))
+	if err != nil {
+		t.Fatalf("ForwardMessages error: %v", err)
+	}
+	wire := rec.Recorder.Body.String()
+	if !strings.Contains(wire, `event: message_start`) || !strings.Contains(wire, `"model":"opencode-go/kimi"`) {
+		t.Fatalf("expected client-model Anthropic stream, got %s", wire)
+	}
+	if !strings.Contains(wire, `"text":"ok"`) || !strings.Contains(wire, `event: message_stop`) {
+		t.Fatalf("expected completed Anthropic stream, got %s", wire)
+	}
+	if strings.Contains(wire, "data: [DONE]") {
+		t.Fatalf("Anthropic stream must not emit Chat terminal sentinel: %s", wire)
+	}
+	if result == nil || result.Usage.InputTokens != 5 || result.Usage.OutputTokens != 2 {
+		t.Fatalf("unexpected usage result: %+v", result)
+	}
+}
+
+func TestOpenCodeGoGatewayServiceChatToMessagesStreamUsesPipeline(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstreamBody := strings.Join([]string{
+		`event: message_start`,
+		`data: {"type":"message_start","message":{"id":"msg_stream","type":"message","role":"assistant","model":"qwen3.7-plus","content":[],"usage":{"input_tokens":4,"output_tokens":0}}}`,
+		"",
+		`event: content_block_start`,
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+		"",
+		`event: content_block_delta`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`,
+		"",
+		`event: content_block_stop`,
+		`data: {"type":"content_block_stop","index":0}`,
+		"",
+		`event: message_delta`,
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}`,
+		"",
+		`event: message_stop`,
+		`data: {"type":"message_stop"}`,
+		"",
+	}, "\n")
+	upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{
+		ID: 42, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key": "ocg-secret", "base_url": "https://opencode.ai/zen/go/v1",
+			"model_mapping":   map[string]any{"opencode-go/qwen": "qwen3.7-plus"},
+			"model_protocols": map[string]any{"qwen3.7-plus": OpenCodeGoProtocolMessages},
+		},
+	}
+	body := `{"model":"opencode-go/qwen","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", body)
+
+	result, err := svc.ForwardChatCompletions(context.Background(), rec.Context, account, []byte(body))
+	if err != nil {
+		t.Fatalf("ForwardChatCompletions error: %v", err)
+	}
+	wire := rec.Recorder.Body.String()
+	if !strings.Contains(wire, `"model":"opencode-go/qwen"`) || !strings.Contains(wire, `"content":"ok"`) {
+		t.Fatalf("expected client-model Chat stream, got %s", wire)
+	}
+	if !strings.Contains(wire, "data: [DONE]") {
+		t.Fatalf("Chat stream must emit terminal sentinel: %s", wire)
+	}
+	if result == nil || result.Usage.InputTokens != 4 || result.Usage.OutputTokens != 2 {
+		t.Fatalf("unexpected usage result: %+v", result)
+	}
+}
+
 func TestShouldFailoverOpenCodeGoResponse(t *testing.T) {
 	tests := []struct {
 		name   string
