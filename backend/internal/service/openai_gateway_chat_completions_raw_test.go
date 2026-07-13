@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -124,6 +125,128 @@ func TestCollectRawChatCompletionsJSONReturnsStructuredActualProtocol(t *testing
 	require.Equal(t, "priority", *result.ServiceTier)
 }
 
+func TestBufferRawChatCompletionsUsesIdentityPipelineAndRenderer(t *testing.T) {
+	svc := &OpenAIGatewayService{responseHeaderFilter: compileResponseHeaderFilter(rawChatCompletionsTestConfig())}
+	body := []byte(" {\n \"id\": \"chatcmpl_raw\", \"model\": \"upstream-model\", \"choices\": [], \"vendor_extension\": {\"opaque\": 1.00}\n}\n")
+	resp := &http.Response{
+		StatusCode: http.StatusCreated,
+		Header: http.Header{
+			"Content-Type":      []string{"application/vnd.openai+json"},
+			"X-Request-Id":      []string{"rid_raw_identity"},
+			"X-Internal-Secret": []string{"must-not-pass"},
+		},
+		Body: io.NopCloser(strings.NewReader(string(body))),
+	}
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", "")
+	pipeline := rawChatIdentityTestPipeline(t, "client-model", "upstream-model", false)
+
+	result, err := svc.bufferRawChatCompletions(
+		rec.Context, resp, pipeline, "client-model", "billing-model", "upstream-model", nil, nil, time.Now(),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusCreated, rec.Recorder.Code)
+	require.Equal(t, body, rec.Recorder.Body.Bytes())
+	require.Equal(t, "application/json", rec.Recorder.Header().Get("Content-Type"))
+	require.Equal(t, "rid_raw_identity", rec.Recorder.Header().Get("X-Request-Id"))
+	require.Empty(t, rec.Recorder.Header().Get("X-Internal-Secret"))
+	require.Equal(t, "chatcmpl_raw", result.ResponseID)
+}
+
+func TestStreamRawChatCompletionsUsesIdentityPipelineAndRenderer(t *testing.T) {
+	payload := `{"id":"chatcmpl_stream","object":"chat.completion.chunk","model":"upstream-model","choices":[{"index":0,"delta":{"content":"ok"}}],"vendor_extension":{"opaque":true}}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid_stream_identity"}},
+		Body:       io.NopCloser(strings.NewReader("data: " + payload + "\n\ndata: [DONE]\n\n")),
+	}
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", "")
+	pipeline := rawChatIdentityTestPipeline(t, "client-model", "upstream-model", true)
+
+	result, err := (&OpenAIGatewayService{}).streamRawChatCompletions(
+		rec.Context, resp, rawChatCompletionsTestAccount(), pipeline,
+		"client-model", "billing-model", "upstream-model", nil, nil, time.Now(), 0,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "chatcmpl_stream", result.ResponseID)
+	require.Equal(t, "data: "+payload+"\n\ndata: [DONE]\n\n", rec.Recorder.Body.String())
+}
+
+func TestStreamRawChatCompletionsRejectsMalformedJSONBeforeCommit(t *testing.T) {
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader("data: {\"id\":\n\n")),
+	}
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", "")
+	pipeline := rawChatIdentityTestPipeline(t, "client-model", "upstream-model", true)
+
+	result, err := (&OpenAIGatewayService{}).streamRawChatCompletions(
+		rec.Context, resp, rawChatCompletionsTestAccount(), pipeline,
+		"client-model", "billing-model", "upstream-model", nil, nil, time.Now(), 0,
+	)
+
+	require.Error(t, err)
+	require.NotNil(t, result)
+	require.False(t, rec.Context.Writer.Written())
+	require.Empty(t, rec.Recorder.Body.String())
+}
+
+func TestStreamRawChatCompletionsRejectsMissingDoneWithoutSyntheticTerminal(t *testing.T) {
+	payload := `{"id":"chatcmpl_partial","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"partial"}}]}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader("data: " + payload + "\n\n")),
+	}
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", "")
+	pipeline := rawChatIdentityTestPipeline(t, "client-model", "upstream-model", true)
+
+	result, err := (&OpenAIGatewayService{}).streamRawChatCompletions(
+		rec.Context, resp, rawChatCompletionsTestAccount(), pipeline,
+		"client-model", "billing-model", "upstream-model", nil, nil, time.Now(), 0,
+	)
+
+	require.ErrorContains(t, err, "missing [DONE] sentinel")
+	require.NotNil(t, result)
+	require.Contains(t, rec.Recorder.Body.String(), payload)
+	require.NotContains(t, rec.Recorder.Body.String(), "[DONE]")
+}
+
+func TestStreamRawChatCompletionsDrainsUsageAfterClientDisconnect(t *testing.T) {
+	upstreamBody := strings.Join([]string{
+		`data: {"id":"chatcmpl_disconnect","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"ok"}}]}`,
+		"",
+		`data: {"id":"chatcmpl_disconnect","object":"chat.completion.chunk","choices":[],"usage":{"prompt_tokens":17,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":6}}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", "")
+	rec.Context.Writer = &openAIChatFailingWriter{ResponseWriter: rec.Context.Writer, failAfter: 0}
+	pipeline := rawChatIdentityTestPipeline(t, "client-model", "upstream-model", true)
+
+	result, err := (&OpenAIGatewayService{}).streamRawChatCompletions(
+		rec.Context, resp, rawChatCompletionsTestAccount(), pipeline,
+		"client-model", "billing-model", "upstream-model", nil, nil, time.Now(), 0,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.ClientDisconnect)
+	require.Equal(t, 17, result.Usage.InputTokens)
+	require.Equal(t, 8, result.Usage.OutputTokens)
+	require.Equal(t, 6, result.Usage.CacheReadInputTokens)
+}
+
 func TestBufferRawChatCompletionsPreservesEmptySuccessResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -135,8 +258,9 @@ func TestBufferRawChatCompletionsPreservesEmptySuccessResponse(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader("")),
 	}
 
+	pipeline := rawChatIdentityTestPipeline(t, "client-model", "upstream-model", false)
 	result, err := (&OpenAIGatewayService{}).bufferRawChatCompletions(
-		c, resp, "client-model", "billing-model", "upstream-model", nil, nil, time.Now(),
+		c, resp, pipeline, "client-model", "billing-model", "upstream-model", nil, nil, time.Now(),
 	)
 
 	require.NoError(t, err)
@@ -717,10 +841,21 @@ func TestBufferRawChatCompletions_RejectsOversizedResponse(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig()}
 	svc.cfg.Gateway.UpstreamResponseReadMaxBytes = 3
 
-	result, err := svc.bufferRawChatCompletions(c, resp, "gpt-5.4", "gpt-5.4", "gpt-5.4", nil, nil, time.Now())
+	pipeline := rawChatIdentityTestPipeline(t, "gpt-5.4", "gpt-5.4", false)
+	result, err := svc.bufferRawChatCompletions(c, resp, pipeline, "gpt-5.4", "gpt-5.4", "gpt-5.4", nil, nil, time.Now())
 	require.ErrorIs(t, err, ErrUpstreamResponseBodyTooLarge)
 	require.Nil(t, result)
 	require.Equal(t, http.StatusBadGateway, rec.Code)
+}
+
+func rawChatIdentityTestPipeline(t *testing.T, clientModel, upstreamModel string, stream bool) *protocolconv.Pipeline {
+	t.Helper()
+	pipeline, err := newRawChatCompletionsPipeline(rawChatCompletionsTestAccount(), clientModel, upstreamModel)
+	require.NoError(t, err)
+	body := []byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],"stream":%t}`, clientModel, stream))
+	_, err = pipeline.ConvertRequest(body)
+	require.NoError(t, err)
+	return pipeline
 }
 
 func rawChatCompletionsTestConfig() *config.Config {
