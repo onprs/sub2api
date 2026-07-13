@@ -1,6 +1,7 @@
 package googlegenai
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
@@ -8,6 +9,28 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestGoogleStreamEncoderRestoresRequestScopedResponseModel(t *testing.T) {
+	encoder := New().NewStreamEncoderWithOptions(protocolconv.Options{ResponseModel: "client-model"})
+	events := []ir.StreamEvent{
+		{Type: ir.EventStreamStart, ResponseID: "resp_1", Model: "upstream-model"},
+		{Type: ir.EventTextDelta, ChoiceIndex: 0, Text: "ok"},
+		{Type: ir.EventFinish, FinishReason: &ir.FinishReason{Reason: "stop"}},
+		{Type: ir.EventStreamEnd},
+	}
+	var payloads [][]byte
+	for _, event := range events {
+		out, _, err := encoder.Encode(event)
+		require.NoError(t, err)
+		payloads = append(payloads, out...)
+	}
+	require.Len(t, payloads, 2)
+	for _, payload := range payloads {
+		var wire responseWire
+		require.NoError(t, json.Unmarshal(payload, &wire))
+		require.Equal(t, "client-model", wire.ModelVersion)
+	}
+}
 
 func TestEncodeRequestMapsServerSearchOutsideFunctionDeclarations(t *testing.T) {
 	maxTokens := 16

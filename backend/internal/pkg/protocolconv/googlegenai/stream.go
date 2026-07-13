@@ -38,7 +38,14 @@ type streamEncoder struct {
 
 func newStreamDecoder() *streamDecoder { return &streamDecoder{} }
 func newStreamEncoder() *streamEncoder {
-	return &streamEncoder{calls: make(map[string]*functionCallWire), callArgs: make(map[string]string)}
+	return newStreamEncoderWithOptions(protocolconv.Options{})
+}
+func newStreamEncoderWithOptions(options protocolconv.Options) *streamEncoder {
+	return &streamEncoder{
+		model:    options.ResponseModel,
+		calls:    make(map[string]*functionCallWire),
+		callArgs: make(map[string]string),
+	}
 }
 
 func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.Warning, error) {
@@ -145,7 +152,9 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 	switch event.Type {
 	case ir.EventStreamStart:
 		e.id = event.ResponseID
-		e.model = event.Model
+		if e.model == "" {
+			e.model = event.Model
+		}
 	case ir.EventTextDelta:
 		wire.Candidates = []candidateWire{{Index: event.ChoiceIndex, Content: contentWire{Role: "model", Parts: []partWire{{Text: event.Text}}}}}
 		emit = true
@@ -223,3 +232,9 @@ func cumulativeDelta(seen, incoming string) string {
 
 func (*Converter) NewStreamDecoder() protocolconv.StreamDecoder { return newStreamDecoder() }
 func (*Converter) NewStreamEncoder() protocolconv.StreamEncoder { return newStreamEncoder() }
+func (*Converter) NewStreamDecoderWithOptions(protocolconv.Options) protocolconv.StreamDecoder {
+	return newStreamDecoder()
+}
+func (*Converter) NewStreamEncoderWithOptions(options protocolconv.Options) protocolconv.StreamEncoder {
+	return newStreamEncoderWithOptions(options)
+}
