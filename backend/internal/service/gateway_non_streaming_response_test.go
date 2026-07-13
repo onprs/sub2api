@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -84,6 +85,15 @@ func TestHandleNonStreamingResponse_ValidJSONUnchanged(t *testing.T) {
 	require.JSONEq(t, string(body), rec.Body.String())
 }
 
+func newAnthropicPassthroughTestPipeline(t *testing.T, account *Account) *protocolconv.Pipeline {
+	t.Helper()
+	pipeline, err := newAnthropicPassthroughPipeline(account, "claude-client", "claude-upstream")
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{"model":"claude-upstream","messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	return pipeline
+}
+
 func TestHandleNonStreamingResponseAnthropicAPIKeyPassthrough_NonJSON2xxTriggersFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -97,8 +107,10 @@ func TestHandleNonStreamingResponseAnthropicAPIKeyPassthrough_NonJSON2xxTriggers
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
 	svc := &GatewayService{cfg: &config.Config{}}
+	account := &Account{ID: 2, Platform: PlatformAnthropic}
+	pipeline := newAnthropicPassthroughTestPipeline(t, account)
 
-	usage, err := svc.handleNonStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 2})
+	usage, err := svc.handleNonStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, account, pipeline)
 
 	require.Nil(t, usage)
 	var failoverErr *UpstreamFailoverError
@@ -121,8 +133,10 @@ func TestHandleNonStreamingResponseAnthropicAPIKeyPassthrough_ValidJSONUnchanged
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
 	svc := &GatewayService{cfg: &config.Config{}}
+	account := &Account{ID: 2, Platform: PlatformAnthropic}
+	pipeline := newAnthropicPassthroughTestPipeline(t, account)
 
-	usage, err := svc.handleNonStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 2})
+	usage, err := svc.handleNonStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, account, pipeline)
 
 	require.NoError(t, err)
 	require.NotNil(t, usage)

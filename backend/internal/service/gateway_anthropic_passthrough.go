@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
 
@@ -92,6 +94,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	}
 
 	var resp *http.Response
+	var requestPipeline *protocolconv.Pipeline
 	retryStart := time.Now()
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
 		upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, input.RequestStream)
@@ -100,6 +103,16 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		if err != nil {
 			return nil, err
 		}
+		attemptPipeline, err := newAnthropicPassthroughPipeline(account, input.OriginalModel, input.RequestModel)
+		if err != nil {
+			return nil, err
+		}
+		convertedRequest, err := attemptPipeline.ConvertRequest(wireBody)
+		if err != nil {
+			return nil, fmt.Errorf("validate Anthropic passthrough request: %w", err)
+		}
+		wireBody = convertedRequest.Body
+		requestPipeline = attemptPipeline
 		if input.Parsed != nil && !bytes.Equal(wireBody, input.Body) {
 			// build 阶段会按 beta 能力清理 body，发送前同步到 ParsedRequest 当前视图。
 			if err := input.Parsed.ReplaceBody(wireBody); err != nil {
@@ -186,6 +199,9 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	if resp == nil || resp.Body == nil {
 		return nil, errors.New("upstream request failed: empty response")
 	}
+	if requestPipeline == nil {
+		return nil, errors.New("upstream request failed: missing Anthropic request pipeline")
+	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {
@@ -271,7 +287,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		firstTokenMs = streamResult.firstTokenMs
 		clientDisconnect = streamResult.clientDisconnect
 	} else {
-		usage, err = s.handleNonStreamingResponseAnthropicAPIKeyPassthrough(ctx, resp, c, account)
+		usage, err = s.handleNonStreamingResponseAnthropicAPIKeyPassthrough(ctx, resp, c, account, requestPipeline)
 		if err != nil {
 			return nil, err
 		}
@@ -290,6 +306,20 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		FirstTokenMs:     firstTokenMs,
 		ClientDisconnect: clientDisconnect,
 	}, nil
+}
+
+func newAnthropicPassthroughPipeline(account *Account, clientModel, upstreamModel string) (*protocolconv.Pipeline, error) {
+	route := protocolconv.Route{
+		Source: protocolconv.ProtocolAnthropic, IntendedTarget: protocolconv.ProtocolAnthropic,
+		ClientModel: clientModel, UpstreamModel: upstreamModel,
+	}
+	if account != nil {
+		route.Provider = account.Platform
+		route.AccountID = account.ID
+	}
+	return protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+		Route: route, Options: protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossError},
+	})
 }
 
 func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
@@ -764,6 +794,7 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	resp *http.Response,
 	c *gin.Context,
 	account *Account,
+	pipeline *protocolconv.Pipeline,
 ) (*ClaudeUsage, error) {
 	if s.rateLimitService != nil {
 		s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
@@ -782,15 +813,34 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	}
 
 	usage := parseClaudeUsageFromResponseBody(body)
-
-	writeAnthropicPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
-	if contentType == "" {
-		contentType = "application/json"
+	filteredHeaders := filterAnthropicPassthroughResponseHeaders(resp.Header, s.responseHeaderFilter)
+	structured := protocoltransport.Response{
+		StatusCode: resp.StatusCode, Headers: filteredHeaders,
+		Body: append([]byte(nil), body...), ActualProtocol: protocolconv.ProtocolAnthropic,
+		RequestID: resp.Header.Get("x-request-id"), ResponseID: gjson.GetBytes(body, "id").String(),
 	}
-	body = reverseToolNamesIfPresent(c, body)
-	c.Data(resp.StatusCode, contentType, body)
+	if err := structured.Validate(); err != nil {
+		return nil, err
+	}
+	converted, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
+	if err != nil {
+		return nil, fmt.Errorf("convert Anthropic passthrough response: %w", err)
+	}
+	convertedBody := reverseToolNamesIfPresent(c, converted.Body)
+	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolAnthropic)
+	if err != nil {
+		return nil, err
+	}
+	if err := renderer.RenderJSON(c.Writer, structured.StatusCode, structured.Headers, convertedBody); err != nil {
+		return nil, fmt.Errorf("render Anthropic passthrough response: %w", err)
+	}
 	return usage, nil
+}
+
+func filterAnthropicPassthroughResponseHeaders(src http.Header, filter *responseheaders.CompiledHeaderFilter) http.Header {
+	filtered := make(http.Header)
+	writeAnthropicPassthroughResponseHeaders(filtered, src, filter)
+	return filtered
 }
 
 func writeAnthropicPassthroughResponseHeaders(dst http.Header, src http.Header, filter *responseheaders.CompiledHeaderFilter) {

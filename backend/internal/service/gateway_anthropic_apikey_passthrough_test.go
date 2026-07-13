@@ -1035,8 +1035,8 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_NonStreamingSuc
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 
-	body := []byte(`{"model":"claude-3-5-sonnet-latest","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
-	upstreamJSON := `{"id":"msg_1","type":"message","usage":{"input_tokens":12,"output_tokens":7,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":3},"cached_tokens":4}}`
+	body := []byte(`{"model":"claude-3-5-sonnet-latest","context_management":{"edits":[{"type":"clear_thinking_20251015"}]},"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+	upstreamJSON := " {\n \"id\":\"msg_1\",\"type\":\"message\",\"usage\":{\"input_tokens\":12,\"output_tokens\":7,\"cache_creation\":{\"ephemeral_5m_input_tokens\":2,\"ephemeral_1h_input_tokens\":3},\"cached_tokens\":4},\"vendor_extension\":{\"opaque\":1.00}\n} "
 	upstream := &anthropicHTTPUpstreamRecorder{
 		resp: &http.Response{
 			StatusCode: http.StatusOK,
@@ -1060,7 +1060,31 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_NonStreamingSuc
 	require.Equal(t, 7, result.Usage.OutputTokens)
 	require.Equal(t, 5, result.Usage.CacheCreationInputTokens)
 	require.Equal(t, 4, result.Usage.CacheReadInputTokens)
+	require.False(t, gjson.GetBytes(upstream.lastBody, "context_management").Exists())
+	require.True(t, gjson.ValidBytes(upstream.lastBody))
 	require.Equal(t, upstreamJSON, rec.Body.String())
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_InvalidJSONRejectedBeforeUpstream(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	upstream := &anthropicHTTPUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(`{"id":"unexpected"}`)),
+	}}
+	svc := &GatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+
+	result, err := svc.forwardAnthropicAPIKeyPassthrough(
+		context.Background(), c, newAnthropicAPIKeyAccountForTest(), []byte(`{"model":`),
+		"claude-3-5-sonnet-latest", "claude-3-5-sonnet-latest", false, time.Now(),
+	)
+
+	require.Nil(t, result)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "validate Anthropic passthrough request")
+	require.Nil(t, upstream.lastReq)
+	require.Empty(t, recorder.Body.String())
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_InvalidTokenType(t *testing.T) {
