@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
@@ -37,14 +36,9 @@ func (s *GatewayService) ForwardGoogleGenAI(
 		return nil, errors.New("Google GenAI Anthropic route requires an Anthropic account")
 	}
 	startTime := time.Now()
-	mappedModel := routedModel
-	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
-		mappedModel = account.GetMappedModel(routedModel)
-	}
-	if mappedModel == routedModel && account.Platform == PlatformAnthropic && account.Type == AccountTypeServiceAccount {
-		mappedModel = normalizeVertexAnthropicModelID(claude.NormalizeModelID(routedModel))
-	} else if mappedModel == routedModel && account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
-		mappedModel = claude.NormalizeModelID(routedModel)
+	mappedModel, err := resolveStandardAnthropicTargetModel(account, routedModel)
+	if err != nil {
+		return nil, err
 	}
 
 	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
@@ -86,10 +80,16 @@ func (s *GatewayService) ForwardGoogleGenAI(
 		return nil, err
 	}
 
+	var result *ForwardResult
 	if clientStream {
-		return s.handleGoogleStreamingFromAnthropic(resp, c, pipeline, clientModel, mappedModel, startTime)
+		result, err = s.handleGoogleStreamingFromAnthropic(resp, c, pipeline, clientModel, mappedModel, startTime)
+	} else {
+		result, err = s.handleGoogleBufferedFromAnthropic(resp, c, pipeline, clientModel, mappedModel, startTime)
 	}
-	return s.handleGoogleBufferedFromAnthropic(resp, c, pipeline, clientModel, mappedModel, startTime)
+	if account.IsBedrock() {
+		return s.handleStandardBedrockStreamError(ctx, c, account, mappedModel, result, err)
+	}
+	return result, err
 }
 
 func (s *GatewayService) handleGoogleBufferedFromAnthropic(

@@ -181,6 +181,41 @@ func TestHandleCCStreamingFromAnthropic_PreservesMessageStartCacheUsageAndReason
 	require.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
 }
 
+func TestHandleCCStreamingFromAnthropic_DrainsAfterClientDisconnect(t *testing.T) {
+	t.Parallel()
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Writer = &failingGinWriter{ResponseWriter: c.Writer, failAfter: 0}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"x-request-id": []string{"rid_cc_disconnect"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`event: message_start`,
+			`data: {"type":"message_start","message":{"id":"msg_disconnect","type":"message","role":"assistant","content":[],"model":"upstream-model","usage":{"input_tokens":3}}}`,
+			``,
+			`event: content_block_start`,
+			`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+			``,
+			`event: content_block_delta`,
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ignored"}}`,
+			``,
+			`event: message_delta`,
+			`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}`,
+			``,
+			`event: message_stop`,
+			`data: {"type":"message_stop"}`,
+			``,
+		}, "\n"))),
+	}
+
+	result, err := (&GatewayService{}).handleCCStreamingFromAnthropic(resp, c, chatAnthropicTestPipeline(t, true, true), "client-model", "upstream-model", nil, time.Now(), true)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.ClientDisconnect)
+	require.Equal(t, 3, result.Usage.InputTokens)
+	require.Equal(t, 5, result.Usage.OutputTokens)
+}
+
 func TestHandleCCStreamingFromAnthropic_OmitsUsageWhenNotRequested(t *testing.T) {
 	t.Parallel()
 	rec := httptest.NewRecorder()

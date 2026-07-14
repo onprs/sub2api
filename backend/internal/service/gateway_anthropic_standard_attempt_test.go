@@ -25,6 +25,49 @@ func (b *standardAnthropicErrorCloseTrackingBody) Close() error {
 	return nil
 }
 
+func TestResolveStandardAnthropicTargetModel(t *testing.T) {
+	tests := []struct {
+		name      string
+		account   *Account
+		requested string
+		want      string
+		wantErr   string
+	}{
+		{
+			name: "bedrock alias and region", requested: "client-model", want: "eu.anthropic.claude-sonnet-4-6-v1",
+			account: &Account{Platform: PlatformAnthropic, Type: AccountTypeBedrock, Credentials: map[string]any{
+				"aws_region": "eu-west-1", "model_mapping": map[string]any{"client-model": "us.anthropic.claude-sonnet-4-6-v1"},
+			}},
+		},
+		{
+			name: "api key mapping", requested: "client-model", want: "provider-model",
+			account: &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Credentials: map[string]any{
+				"model_mapping": map[string]any{"client-model": "provider-model"},
+			}},
+		},
+		{
+			name: "vertex normalization", requested: "claude-sonnet-4-5", want: "claude-sonnet-4-5@20250929",
+			account: &Account{Platform: PlatformAnthropic, Type: AccountTypeServiceAccount},
+		},
+		{
+			name: "oauth normalization", requested: "claude-sonnet-4-6", want: "claude-sonnet-4-6",
+			account: &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth},
+		},
+		{name: "nil account", requested: "model", wantErr: "nil account"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := resolveStandardAnthropicTargetModel(test.account, test.requested)
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.want, got)
+		})
+	}
+}
+
 func TestCollectGatewayStructuredUpstreamErrorPreservesProtocolAndOwnership(t *testing.T) {
 	for _, streamRequested := range []bool{false, true} {
 		t.Run(map[bool]string{false: "buffered", true: "stream"}[streamRequested], func(t *testing.T) {

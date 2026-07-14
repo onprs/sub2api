@@ -114,7 +114,9 @@ func (s *GatewayService) forwardBedrock(
 	}
 
 	// 执行上游请求（含重试）
-	resp, err := s.executeBedrockUpstream(ctx, c, account, bedrockBody, mappedModel, region, reqStream, signer, bedrockAPIKey, proxyURL)
+	resp, err := s.executeBedrockUpstream(ctx, c, account, bedrockBody, mappedModel, region, reqStream, signer, bedrockAPIKey, proxyURL, func(statusCode int, errorType, message string) {
+		writeAnthropicError(c, statusCode, errorType, message)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -183,6 +185,7 @@ func (s *GatewayService) executeBedrockUpstream(
 	signer *BedrockSigner,
 	apiKey string,
 	proxyURL string,
+	writeError standardProtocolErrorWriter,
 ) (*http.Response, error) {
 	var resp *http.Response
 	var err error
@@ -214,13 +217,9 @@ func (s *GatewayService) executeBedrockUpstream(
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
-			c.JSON(http.StatusBadGateway, gin.H{
-				"type": "error",
-				"error": gin.H{
-					"type":    "upstream_error",
-					"message": "Upstream request failed",
-				},
-			})
+			if writeError != nil {
+				writeError(http.StatusBadGateway, "upstream_error", "Upstream request failed")
+			}
 			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 		}
 

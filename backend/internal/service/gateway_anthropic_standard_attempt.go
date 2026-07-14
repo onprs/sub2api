@@ -7,12 +7,41 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/gin-gonic/gin"
 )
 
 type standardProtocolErrorWriter func(statusCode int, errorType, message string)
+
+func resolveStandardAnthropicTargetModel(account *Account, requestedModel string) (string, error) {
+	if account == nil {
+		return "", errors.New("resolve Anthropic target model: nil account")
+	}
+	if account.IsBedrock() {
+		modelID, ok := ResolveBedrockModelID(account, requestedModel)
+		if !ok {
+			return "", fmt.Errorf("unsupported bedrock model: %s", requestedModel)
+		}
+		return modelID, nil
+	}
+
+	mappedModel := requestedModel
+	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
+		mappedModel = account.GetMappedModel(requestedModel)
+	}
+	if mappedModel != requestedModel || account.Platform != PlatformAnthropic {
+		return mappedModel, nil
+	}
+	if account.Type == AccountTypeServiceAccount {
+		return normalizeVertexAnthropicModelID(claude.NormalizeModelID(requestedModel)), nil
+	}
+	if account.Type != AccountTypeAPIKey {
+		return claude.NormalizeModelID(requestedModel), nil
+	}
+	return mappedModel, nil
+}
 
 // forwardStandardProtocolToAnthropic executes one already-converted Anthropic
 // Messages attempt. Account selection/failover, billing, and source wire
@@ -26,6 +55,10 @@ func (s *GatewayService) forwardStandardProtocolToAnthropic(
 	mappedModel string,
 	writeError standardProtocolErrorWriter,
 ) (*http.Response, error) {
+	if account.IsBedrock() {
+		return s.forwardStandardProtocolToBedrock(ctx, c, account, anthropicBody, mappedModel, writeError)
+	}
+
 	shouldMimicClaudeCode := account.IsOAuth()
 	if shouldMimicClaudeCode {
 		anthropicBody = s.applyClaudeCodeOAuthMimicryToBody(ctx, c, account, anthropicBody, system, mappedModel)

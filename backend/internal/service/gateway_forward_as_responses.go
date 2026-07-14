@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
@@ -47,21 +46,10 @@ func (s *GatewayService) ForwardAsResponses(
 	clientStream := responsesReq.Stream
 
 	// 2. Resolve the upstream model before creating the request-scoped route.
-	mappedModel := originalModel
 	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body)
-	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
-		mappedModel = account.GetMappedModel(originalModel)
-	}
-	if mappedModel == originalModel && account.Platform == PlatformAnthropic && account.Type == AccountTypeServiceAccount {
-		normalized := normalizeVertexAnthropicModelID(claude.NormalizeModelID(originalModel))
-		if normalized != originalModel {
-			mappedModel = normalized
-		}
-	} else if mappedModel == originalModel && account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
-		normalized := claude.NormalizeModelID(originalModel)
-		if normalized != originalModel {
-			mappedModel = normalized
-		}
+	mappedModel, err := resolveStandardAnthropicTargetModel(account, originalModel)
+	if err != nil {
+		return nil, err
 	}
 	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 mapping 完成之后。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
@@ -121,7 +109,9 @@ func (s *GatewayService) ForwardAsResponses(
 	} else {
 		result, handleErr = s.handleResponsesBufferedStreamingResponse(resp, c, pipeline, originalModel, mappedModel, reasoningEffort, startTime)
 	}
-
+	if account.IsBedrock() {
+		return s.handleStandardBedrockStreamError(ctx, c, account, mappedModel, result, handleErr)
+	}
 	return result, handleErr
 }
 
@@ -272,27 +262,29 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	headersWritten := false
+	clientDisconnected := false
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
-			RequestID:       requestID,
-			ActualProtocol:  stream.ActualProtocol,
-			Usage:           usage,
-			Model:           originalModel,
-			UpstreamModel:   mappedModel,
-			ReasoningEffort: reasoningEffort,
-			Stream:          true,
-			Duration:        time.Since(startTime),
-			FirstTokenMs:    firstTokenMs,
+			RequestID:        requestID,
+			ActualProtocol:   stream.ActualProtocol,
+			Usage:            usage,
+			Model:            originalModel,
+			UpstreamModel:    mappedModel,
+			ReasoningEffort:  reasoningEffort,
+			Stream:           true,
+			Duration:         time.Since(startTime),
+			FirstTokenMs:     firstTokenMs,
+			ClientDisconnect: clientDisconnected,
 		}
 	}
-	writePayloads := func(payloads [][]byte) (bool, error) {
-		if len(payloads) == 0 {
-			return false, nil
+	writePayloads := func(payloads [][]byte) error {
+		if len(payloads) == 0 || clientDisconnected {
+			return nil
 		}
 		if !headersWritten {
 			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
-				return false, err
+				return err
 			}
 			headersWritten = true
 		}
@@ -300,15 +292,16 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			body = reverseToolNamesIfPresent(c, body)
 			framed, err := renderer.FrameStreamEvent(body)
 			if err != nil {
-				return false, err
+				return err
 			}
 			if _, err := c.Writer.Write(framed); err != nil {
-				logger.L().Info("forward_as_responses stream: client disconnected", zap.String("request_id", requestID))
-				return true, nil
+				clientDisconnected = true
+				logger.L().Info("forward_as_responses stream: client disconnected, continuing to drain upstream for billing", zap.String("request_id", requestID))
+				return nil
 			}
 		}
 		c.Writer.Flush()
-		return false, nil
+		return nil
 	}
 
 	for {
@@ -337,12 +330,8 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		if err != nil {
 			return resultWithUsage(), fmt.Errorf("convert anthropic stream event: %w", err)
 		}
-		disconnected, err := writePayloads(converted)
-		if err != nil {
+		if err := writePayloads(converted); err != nil {
 			return resultWithUsage(), err
-		}
-		if disconnected {
-			return resultWithUsage(), nil
 		}
 		if event.Type == "message_stop" {
 			break
@@ -353,19 +342,20 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	if err != nil {
 		return resultWithUsage(), err
 	}
-	disconnected, err := writePayloads(converted)
-	if err != nil || disconnected {
+	if err := writePayloads(converted); err != nil {
 		return resultWithUsage(), err
 	}
-	if !headersWritten {
+	if !headersWritten && !clientDisconnected {
 		if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
 			return resultWithUsage(), err
 		}
 	}
-	if terminal := renderer.StreamTerminal(); len(terminal) > 0 {
-		_, _ = c.Writer.Write(terminal)
+	if !clientDisconnected {
+		if terminal := renderer.StreamTerminal(); len(terminal) > 0 {
+			_, _ = c.Writer.Write(terminal)
+		}
+		c.Writer.Flush()
 	}
-	c.Writer.Flush()
 	return resultWithUsage(), nil
 }
 
