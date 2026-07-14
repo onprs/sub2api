@@ -125,6 +125,58 @@ func TestEncodeRequestWrapsScalarFunctionResponseInStruct(t *testing.T) {
 	require.Equal(t, "demo content", gjson.GetBytes(body, "contents.0.parts.0.functionResponse.response.content").String())
 }
 
+func TestRequestRoundTripPreservesMultimodalFunctionResponse(t *testing.T) {
+	request := &ir.Request{
+		Model: "gemini-test",
+		Messages: []ir.Message{{Role: ir.RoleTool, Content: []ir.ContentPart{{
+			Type:       ir.ContentToolResult,
+			ToolCallID: "call-image",
+			ToolName:   "inspect",
+			ToolResultContent: []ir.ContentPart{
+				{Type: ir.ContentText, Text: "chart"},
+				{Type: ir.ContentImage, MediaType: "image/png", Data: "AAAA"},
+			},
+		}}}},
+	}
+	converter := New()
+	body, warnings, err := converter.EncodeRequest(request, protocolconv.Options{LossPolicy: protocolconv.LossError})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, "chart", gjson.GetBytes(body, "contents.0.parts.0.functionResponse.response.content.0.text").String())
+	require.Equal(t, "image", gjson.GetBytes(body, "contents.0.parts.0.functionResponse.response.content.1.type").String())
+	require.Equal(t, "image/png", gjson.GetBytes(body, "contents.0.parts.1.inlineData.mimeType").String())
+	require.Equal(t, "AAAA", gjson.GetBytes(body, "contents.0.parts.1.inlineData.data").String())
+
+	restored, warnings, err := converter.DecodeRequest(body, protocolconv.Options{SourceModel: "gemini-test", LossPolicy: protocolconv.LossError})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Len(t, restored.Messages, 1)
+	require.Len(t, restored.Messages[0].Content, 1)
+	result := restored.Messages[0].Content[0]
+	require.Empty(t, result.ToolResult)
+	require.Len(t, result.ToolResultContent, 2)
+	require.Equal(t, "chart", result.ToolResultContent[0].Text)
+	require.Equal(t, "image/png", result.ToolResultContent[1].MediaType)
+	require.Equal(t, "AAAA", result.ToolResultContent[1].Data)
+}
+
+func TestDecodeRequestPreservesFunctionResponseError(t *testing.T) {
+	request, warnings, err := New().DecodeRequest([]byte(`{
+		"contents":[{"role":"user","parts":[{"functionResponse":{"id":"call-1","name":"lookup","response":{"error":"failed"}}}]}]
+	}`), protocolconv.Options{SourceModel: "gemini-test"})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Len(t, request.Messages, 1)
+	result := request.Messages[0].Content[0]
+	require.True(t, result.IsError)
+	require.JSONEq(t, `"failed"`, string(result.ToolResult))
+
+	body, warnings, err := New().EncodeRequest(request, protocolconv.Options{})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, "failed", gjson.GetBytes(body, "contents.0.parts.0.functionResponse.response.error").String())
+}
+
 func TestEncodeRequestPreservesObjectFunctionResponse(t *testing.T) {
 	request := &ir.Request{
 		Model: "gemini-test",

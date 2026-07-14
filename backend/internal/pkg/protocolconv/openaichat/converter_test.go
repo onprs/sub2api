@@ -6,6 +6,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/ir"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestEncodeRequestRejectsSignatureInStrictMode(t *testing.T) {
@@ -15,6 +16,44 @@ func TestEncodeRequestRejectsSignatureInStrictMode(t *testing.T) {
 	require.ErrorAs(t, err, &conversionErr)
 	require.Equal(t, protocolconv.ErrorUnsupportedCapability, conversionErr.Code)
 	require.Equal(t, protocolconv.CapabilitySignature, conversionErr.Capability)
+}
+
+func TestRequestRoundTripPreservesMultimodalToolResult(t *testing.T) {
+	request := &ir.Request{
+		Model: "model",
+		Messages: []ir.Message{
+			{Role: ir.RoleAssistant, Content: []ir.ContentPart{{Type: ir.ContentToolCall, ToolCallID: "call-image", ToolName: "inspect", ToolInput: []byte(`{}`)}}},
+			{Role: ir.RoleTool, Content: []ir.ContentPart{{
+				Type:       ir.ContentToolResult,
+				ToolCallID: "call-image",
+				ToolResultContent: []ir.ContentPart{
+					{Type: ir.ContentText, Text: "chart"},
+					{Type: ir.ContentImage, MediaType: "image/png", Data: "AAAA"},
+				},
+			}}},
+		},
+	}
+	converter := New()
+	body, warnings, err := converter.EncodeRequest(request, protocolconv.Options{LossPolicy: protocolconv.LossError})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, int64(3), gjson.GetBytes(body, "messages.#").Int())
+	require.Equal(t, "tool", gjson.GetBytes(body, "messages.1.role").String())
+	require.Equal(t, "user", gjson.GetBytes(body, "messages.2.role").String())
+	require.Equal(t, `<tool-content call-id="call-image">`, gjson.GetBytes(body, "messages.2.content.0.text").String())
+	require.Equal(t, "image_url", gjson.GetBytes(body, "messages.2.content.2.type").String())
+	require.Equal(t, "data:image/png;base64,AAAA", gjson.GetBytes(body, "messages.2.content.2.image_url.url").String())
+
+	restored, warnings, err := converter.DecodeRequest(body, protocolconv.Options{LossPolicy: protocolconv.LossError})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Len(t, restored.Messages, 2)
+	result := restored.Messages[1].Content[0]
+	require.Empty(t, result.ToolResult)
+	require.Len(t, result.ToolResultContent, 2)
+	require.Equal(t, "chart", result.ToolResultContent[0].Text)
+	require.Equal(t, "image/png", result.ToolResultContent[1].MediaType)
+	require.Equal(t, "AAAA", result.ToolResultContent[1].Data)
 }
 
 func TestDecodeRequestSeparatesReasoningFromVisibleText(t *testing.T) {

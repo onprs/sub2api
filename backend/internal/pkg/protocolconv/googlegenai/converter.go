@@ -55,12 +55,15 @@ func (c *Converter) DecodeRequest(body []byte, options protocolconv.Options) (*i
 	}
 	for _, content := range wire.Contents {
 		message := ir.Message{Role: roleFromGoogle(content.Role)}
-		for _, part := range content.Parts {
-			converted, err := partFromGoogle(part)
+		for i := 0; i < len(content.Parts); i++ {
+			converted, err := partFromGoogle(content.Parts[i])
 			if err != nil {
 				return nil, nil, err
 			}
 			message.Content = append(message.Content, converted...)
+			if len(converted) == 1 && converted[0].Type == ir.ContentToolResult && len(converted[0].ToolResultContent) > 0 {
+				i += googleToolResultDuplicateNativePrefix(converted[0].ToolResultContent, content.Parts[i+1:])
+			}
 		}
 		out.Messages = append(out.Messages, message)
 	}

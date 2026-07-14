@@ -28,11 +28,18 @@ func partFromGoogle(part partWire) ([]ir.ContentPart, error) {
 		}
 		return []ir.ContentPart{{Type: ir.ContentToolCall, ToolCallID: part.FunctionCall.ID, ToolName: part.FunctionCall.Name, ToolInput: args, Signature: part.ThoughtSignature}}, nil
 	case part.FunctionResponse != nil:
-		result := cloneRaw(part.FunctionResponse.Response)
-		if len(result) == 0 {
-			result = json.RawMessage(`{}`)
+		result, content, isError, err := googleToolResultFromResponse(part.FunctionResponse.Response)
+		if err != nil {
+			return nil, err
 		}
-		return []ir.ContentPart{{Type: ir.ContentToolResult, ToolCallID: part.FunctionResponse.ID, ToolName: part.FunctionResponse.Name, ToolResult: result}}, nil
+		return []ir.ContentPart{{
+			Type:              ir.ContentToolResult,
+			ToolCallID:        part.FunctionResponse.ID,
+			ToolName:          part.FunctionResponse.Name,
+			ToolResult:        result,
+			ToolResultContent: content,
+			IsError:           isError,
+		}}, nil
 	case part.InlineData != nil:
 		kind := ir.ContentImage
 		if strings.HasPrefix(part.InlineData.MIMEType, "audio/") {
@@ -67,7 +74,7 @@ func partToGoogle(part ir.ContentPart, target protocolconv.Protocol, options pro
 	case ir.ContentToolCall:
 		return []partWire{{FunctionCall: &functionCallWire{ID: part.ToolCallID, Name: part.ToolName, Args: cloneRaw(part.ToolInput)}, ThoughtSignature: part.Signature}}, nil, nil
 	case ir.ContentToolResult:
-		return []partWire{{FunctionResponse: &functionResponseWire{ID: part.ToolCallID, Name: part.ToolName, Response: googleFunctionResponse(part.ToolResult)}}}, nil, nil
+		return googleToolResultToParts(part, target, options)
 	case ir.ContentRefusal:
 		return []partWire{{Text: part.Refusal}}, []protocolconv.Warning{{Code: protocolconv.WarningNormalizedField, Protocol: target, Capability: protocolconv.CapabilityRefusal, Message: "refusal normalized to text"}}, nil
 	default:
