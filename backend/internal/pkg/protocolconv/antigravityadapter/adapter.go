@@ -65,6 +65,10 @@ func ConvertRequest(body []byte, source protocolconv.Protocol, options Options) 
 			transform = vendor.DefaultTransformOptions()
 		}
 		converted, err := vendor.TransformClaudeToGeminiWithOptions(&request, options.ProjectID, options.MappedModel, transform)
+		if err != nil || source != protocolconv.ProtocolGoogleGenAI || options.RectifySignatures {
+			return converted, warnings, err
+		}
+		converted, err = restoreGoogleToolCallSignatures(body, converted)
 		return converted, warnings, err
 	case FamilyGemini:
 		standardBody, warnings, err := registry.ConvertRequest(body, source, protocolconv.ProtocolGoogleGenAI, protocolconv.Options{SourceModel: options.MappedModel, LossPolicy: protocolconv.LossError})
@@ -76,6 +80,52 @@ func ConvertRequest(body []byte, source protocolconv.Protocol, options Options) 
 	default:
 		return nil, nil, fmt.Errorf("unsupported Antigravity family %q", options.Family)
 	}
+}
+
+func restoreGoogleToolCallSignatures(sourceBody, vendorBody []byte) ([]byte, error) {
+	var source map[string]any
+	if err := json.Unmarshal(sourceBody, &source); err != nil {
+		return nil, fmt.Errorf("decode standard Google request for signature restoration: %w", err)
+	}
+	signatures := make(map[string]string)
+	for _, rawContent := range anySlice(source["contents"]) {
+		content, _ := rawContent.(map[string]any)
+		for _, rawPart := range anySlice(content["parts"]) {
+			part, _ := rawPart.(map[string]any)
+			call, _ := part["functionCall"].(map[string]any)
+			id, _ := call["id"].(string)
+			signature, _ := part["thoughtSignature"].(string)
+			if id != "" && signature != "" {
+				signatures[id] = signature
+			}
+		}
+	}
+	if len(signatures) == 0 {
+		return vendorBody, nil
+	}
+
+	var envelope map[string]any
+	if err := json.Unmarshal(vendorBody, &envelope); err != nil {
+		return nil, fmt.Errorf("decode Antigravity vendor request for signature restoration: %w", err)
+	}
+	request, _ := envelope["request"].(map[string]any)
+	for _, rawContent := range anySlice(request["contents"]) {
+		content, _ := rawContent.(map[string]any)
+		for _, rawPart := range anySlice(content["parts"]) {
+			part, _ := rawPart.(map[string]any)
+			call, _ := part["functionCall"].(map[string]any)
+			id, _ := call["id"].(string)
+			if signature := signatures[id]; signature != "" {
+				part["thoughtSignature"] = signature
+			}
+		}
+	}
+	return json.Marshal(envelope)
+}
+
+func anySlice(value any) []any {
+	items, _ := value.([]any)
+	return items
 }
 
 func validateOptions(options Options) error {

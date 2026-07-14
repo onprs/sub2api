@@ -18,6 +18,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/gin-gonic/gin"
 )
 
@@ -39,11 +40,49 @@ type antigravityRetryLoopParams struct {
 	isStickySession bool   // 是否为粘性会话（用于账号切换时的缓存计费判断）
 	groupID         int64  // 用于模型级限流时清除粘性会话
 	sessionHash     string // 用于模型级限流时清除粘性会话
+
+	firstAttempt   *antigravityRetryAttempt
+	bodyFactory    func() (*antigravityRetryAttempt, error)
+	creditsEnabled bool
+}
+
+type antigravityRetryAttempt struct {
+	body     []byte
+	pipeline *protocolconv.Pipeline
+}
+
+func (p *antigravityRetryLoopParams) newAttempt() (*antigravityRetryAttempt, error) {
+	attempt := p.firstAttempt
+	usedFirstAttempt := attempt != nil
+	p.firstAttempt = nil
+	if attempt == nil {
+		attempt = &antigravityRetryAttempt{body: p.body}
+	}
+	if p.bodyFactory != nil && !usedFirstAttempt {
+		var err error
+		attempt, err = p.bodyFactory()
+		if err != nil {
+			return nil, err
+		}
+		if attempt == nil || len(attempt.body) == 0 {
+			return nil, errors.New("antigravity attempt body factory returned an empty body")
+		}
+	}
+	if attempt == nil || len(attempt.body) == 0 {
+		return nil, errors.New("antigravity attempt body is empty")
+	}
+	if p.creditsEnabled {
+		if creditsBody := injectEnabledCreditTypes(attempt.body); creditsBody != nil {
+			attempt.body = creditsBody
+		}
+	}
+	return attempt, nil
 }
 
 // antigravityRetryLoopResult 重试循环的结果
 type antigravityRetryLoopResult struct {
-	resp *http.Response
+	resp     *http.Response
+	pipeline *protocolconv.Pipeline
 }
 
 // resolveAntigravityForwardBaseURL 解析转发用 base URL。
@@ -83,6 +122,7 @@ const (
 type smartRetryResult struct {
 	action      smartRetryAction
 	resp        *http.Response
+	pipeline    *protocolconv.Pipeline
 	err         error
 	switchError *AntigravityAccountSwitchError // 模型限流时返回账号切换信号
 }
@@ -113,8 +153,9 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 		result := s.attemptCreditsOveragesRetry(p, baseURL, modelName, waitDuration, resp.StatusCode, respBody)
 		if result.handled && result.resp != nil {
 			return &smartRetryResult{
-				action: smartRetryActionBreakWithResp,
-				resp:   result.resp,
+				action:   smartRetryActionBreakWithResp,
+				resp:     result.resp,
+				pipeline: result.pipeline,
 			}
 		}
 	}
@@ -197,8 +238,13 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 			case <-timer.C:
 			}
 
-			// 智能重试：创建新请求
-			retryReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, p.body)
+			// 智能重试：为本次实际 HTTP attempt 重建请求体和转换状态。
+			retryAttempt, err := p.newAttempt()
+			if err != nil {
+				logger.LegacyPrintf("service.antigravity_gateway", "%s status=smart_retry_attempt_build_failed error=%v", p.prefix, err)
+				return &smartRetryResult{action: smartRetryActionBreakWithResp, err: err}
+			}
+			retryReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, retryAttempt.body)
 			if err != nil {
 				logger.LegacyPrintf("service.antigravity_gateway", "%s status=smart_retry_request_build_failed error=%v", p.prefix, err)
 				p.handleError(p.ctx, p.prefix, p.account, resp.StatusCode, resp.Header, respBody, p.requestedModel, p.groupID, p.sessionHash, p.isStickySession)
@@ -221,7 +267,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 					delete(modelCapacityExhaustedUntil, modelName)
 					modelCapacityExhaustedMu.Unlock()
 				}
-				return &smartRetryResult{action: smartRetryActionBreakWithResp, resp: retryResp}
+				return &smartRetryResult{action: smartRetryActionBreakWithResp, resp: retryResp, pipeline: retryAttempt.pipeline}
 			}
 
 			// 网络错误时，继续重试
@@ -380,8 +426,13 @@ func (s *AntigravityGatewayService) handleSingleAccountRetryInPlace(
 		}
 		totalWaited += waitDuration
 
-		// 创建新请求
-		retryReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, p.body)
+		// 为本次实际 HTTP attempt 重建请求体和转换状态。
+		retryAttempt, err := p.newAttempt()
+		if err != nil {
+			logger.LegacyPrintf("service.antigravity_gateway", "%s single_account_503_retry: attempt_build_failed error=%v", p.prefix, err)
+			return &smartRetryResult{action: smartRetryActionBreakWithResp, err: err}
+		}
+		retryReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, retryAttempt.body)
 		if err != nil {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s single_account_503_retry: request_build_failed error=%v", p.prefix, err)
 			break
@@ -395,7 +446,7 @@ func (s *AntigravityGatewayService) handleSingleAccountRetryInPlace(
 			if lastRetryResp != nil {
 				_ = lastRetryResp.Body.Close()
 			}
-			return &smartRetryResult{action: smartRetryActionBreakWithResp, resp: retryResp}
+			return &smartRetryResult{action: smartRetryActionBreakWithResp, resp: retryResp, pipeline: retryAttempt.pipeline}
 		}
 
 		// 网络错误时继续重试
@@ -455,7 +506,7 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 		p.account.IsOveragesEnabled() && !p.account.isCreditsExhausted() &&
 		p.account.isModelRateLimitedWithContext(p.ctx, p.requestedModel) {
 		if creditsBody := injectEnabledCreditTypes(p.body); creditsBody != nil {
-			p.body = creditsBody
+			p.creditsEnabled = true
 			overagesInjected = true
 			logger.LegacyPrintf("service.antigravity_gateway", "%s pre_check: model_rate_limited_credits_inject model=%s account=%d (injecting enabledCreditTypes)",
 				p.prefix, p.requestedModel, p.account.ID)
@@ -495,6 +546,7 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 	availableURLs := []string{baseURL}
 
 	var resp *http.Response
+	var successfulPipeline *protocolconv.Pipeline
 	var usedBaseURL string
 	logBody := p.settingService != nil && p.settingService.cfg != nil && p.settingService.cfg.Gateway.LogUpstreamErrorBody
 	maxBytes := 2048
@@ -520,7 +572,11 @@ urlFallbackLoop:
 			default:
 			}
 
-			upstreamReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, p.body)
+			requestAttempt, err := p.newAttempt()
+			if err != nil {
+				return nil, err
+			}
+			upstreamReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, requestAttempt.body)
 			if err != nil {
 				return nil, err
 			}
@@ -600,6 +656,7 @@ urlFallbackLoop:
 							return nil, smartResult.switchError
 						}
 						resp = smartResult.resp
+						successfulPipeline = smartResult.pipeline
 						break urlFallbackLoop
 					}
 					// smartRetryActionContinue: 继续默认重试逻辑
@@ -682,6 +739,7 @@ urlFallbackLoop:
 			}
 
 			// 成功响应（< 400）
+			successfulPipeline = requestAttempt.pipeline
 			break urlFallbackLoop
 		}
 	}
@@ -695,7 +753,7 @@ urlFallbackLoop:
 		s.resetInternal500Counter(p.ctx, p.prefix, p.account.ID)
 	}
 
-	return &antigravityRetryLoopResult{resp: resp}, nil
+	return &antigravityRetryLoopResult{resp: resp, pipeline: successfulPipeline}, nil
 }
 
 // shouldRetryAntigravityError 判断是否应该重试

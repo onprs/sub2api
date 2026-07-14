@@ -15,6 +15,8 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocolmetadata "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/metadata"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 )
@@ -121,14 +123,15 @@ func (e *PromptTooLongError) Error() string {
 
 // AntigravityGatewayService 处理 Antigravity 平台的 API 转发
 type AntigravityGatewayService struct {
-	accountRepo       AccountRepository
-	tokenProvider     *AntigravityTokenProvider
-	rateLimitService  *RateLimitService
-	httpUpstream      HTTPUpstream
-	settingService    *SettingService
-	cache             GatewayCache // 用于模型级限流时清除粘性会话绑定
-	schedulerSnapshot *SchedulerSnapshotService
-	internal500Cache  Internal500CounterCache // INTERNAL 500 渐进惩罚计数器
+	accountRepo           AccountRepository
+	tokenProvider         *AntigravityTokenProvider
+	rateLimitService      *RateLimitService
+	httpUpstream          HTTPUpstream
+	settingService        *SettingService
+	cache                 GatewayCache // 用于模型级限流时清除粘性会话绑定
+	schedulerSnapshot     *SchedulerSnapshotService
+	internal500Cache      Internal500CounterCache // INTERNAL 500 渐进惩罚计数器
+	providerMetadataStore protocolconv.MetadataStore
 }
 
 func (s *AntigravityGatewayService) upstreamErrorBodyReadLimit() int64 {
@@ -158,14 +161,15 @@ func NewAntigravityGatewayService(
 	internal500Cache Internal500CounterCache,
 ) *AntigravityGatewayService {
 	return &AntigravityGatewayService{
-		accountRepo:       accountRepo,
-		tokenProvider:     tokenProvider,
-		rateLimitService:  rateLimitService,
-		httpUpstream:      httpUpstream,
-		settingService:    settingService,
-		cache:             cache,
-		schedulerSnapshot: schedulerSnapshot,
-		internal500Cache:  internal500Cache,
+		accountRepo:           accountRepo,
+		tokenProvider:         tokenProvider,
+		rateLimitService:      rateLimitService,
+		httpUpstream:          httpUpstream,
+		settingService:        settingService,
+		cache:                 cache,
+		schedulerSnapshot:     schedulerSnapshot,
+		internal500Cache:      internal500Cache,
+		providerMetadataStore: protocolmetadata.NewStore(protocolmetadata.DefaultTTL, protocolmetadata.DefaultMaxSize),
 	}
 }
 

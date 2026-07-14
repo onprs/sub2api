@@ -32,14 +32,32 @@ import (
 type ForwardGeminiOption func(*forwardGeminiOptions)
 
 type forwardGeminiOptions struct {
-	groupID     int64
-	sessionHash string
+	groupID         int64
+	sessionHash     string
+	source          protocolconv.Protocol
+	pipelineFactory func(mappedModel string) (*protocolconv.Pipeline, []byte, error)
+	includeUsage    bool
 }
 
 func WithForwardGeminiSession(groupID int64, sessionHash string) ForwardGeminiOption {
 	return func(opts *forwardGeminiOptions) {
 		opts.groupID = groupID
 		opts.sessionHash = sessionHash
+	}
+}
+
+// WithForwardGeminiProtocol renders the standard Google result back to the
+// explicit client protocol. Vendor authentication, envelopes, and retries stay
+// in AntigravityGatewayService.
+func WithForwardGeminiProtocol(
+	source protocolconv.Protocol,
+	pipelineFactory func(mappedModel string) (*protocolconv.Pipeline, []byte, error),
+	includeUsage bool,
+) ForwardGeminiOption {
+	return func(opts *forwardGeminiOptions) {
+		opts.source = source
+		opts.pipelineFactory = pipelineFactory
+		opts.includeUsage = includeUsage
 	}
 }
 
@@ -56,13 +74,13 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 	prefix := logPrefix(sessionID, account.Name)
 
 	if strings.TrimSpace(originalModel) == "" {
-		return nil, s.writeGoogleError(c, http.StatusBadRequest, "Missing model in URL")
+		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusBadRequest, "Missing model in URL")
 	}
 	if strings.TrimSpace(action) == "" {
-		return nil, s.writeGoogleError(c, http.StatusBadRequest, "Missing action in URL")
+		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusBadRequest, "Missing action in URL")
 	}
 	if len(body) == 0 {
-		return nil, s.writeGoogleError(c, http.StatusBadRequest, "Request body is empty")
+		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusBadRequest, "Request body is empty")
 	}
 
 	// 解析请求以获取 image_size（用于图片计费）
@@ -84,19 +102,19 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			FirstTokenMs: nil,
 		}, nil
 	default:
-		return nil, s.writeGoogleError(c, http.StatusNotFound, "Unsupported action: "+action)
+		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusNotFound, "Unsupported action: "+action)
 	}
 
 	mappedModel := s.getMappedModel(account, originalModel)
 	if mappedModel == "" {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
-		return nil, s.writeGoogleError(c, http.StatusForbidden, fmt.Sprintf("model %s not in whitelist", originalModel))
+		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusForbidden, fmt.Sprintf("model %s not in whitelist", originalModel))
 	}
 	billingModel := mappedModel
 
 	// 获取 access_token
 	if s.tokenProvider == nil {
-		return nil, s.writeGoogleError(c, http.StatusBadGateway, "Antigravity token provider not configured")
+		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusBadGateway, "Antigravity token provider not configured")
 	}
 	accessToken, err := s.tokenProvider.GetAccessToken(ctx, account)
 	if err != nil {
@@ -108,7 +126,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 
 	projectID, err := resolveAntigravityProjectID(account)
 	if err != nil {
-		_ = s.writeGoogleError(c, http.StatusBadRequest, err.Error())
+		_ = s.writeForwardGeminiError(c, forwardOpts, http.StatusBadRequest, err.Error())
 		return nil, err
 	}
 
@@ -118,13 +136,36 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		proxyURL = account.Proxy.URL()
 	}
 
-	// Standard Google semantics are converted first; identity, schema cleanup,
-	// signatures, and the v1internal envelope remain vendor-adapter policy.
-	wrappedBody, _, err := antigravityadapter.ConvertRequest(body, protocolconv.ProtocolGoogleGenAI, antigravityadapter.Options{
-		Family: antigravityadapter.FamilyGemini, ProjectID: projectID, MappedModel: mappedModel, UserAgent: "antigravity",
-	})
+	// Each actual HTTP attempt receives fresh conversion state. Identity,
+	// schema cleanup, signatures, and the v1internal envelope remain vendor policy.
+	newAttemptFactory := func(attemptModel string, rectifySignatures bool) func() (*antigravityRetryAttempt, error) {
+		return func() (*antigravityRetryAttempt, error) {
+			googleBody := body
+			var pipeline *protocolconv.Pipeline
+			if forwardOpts.pipelineFactory != nil {
+				var convertErr error
+				pipeline, googleBody, convertErr = forwardOpts.pipelineFactory(attemptModel)
+				if convertErr != nil {
+					return nil, convertErr
+				}
+			}
+			adapterOptions := s.forwardGeminiAdapterOptions(ctx, forwardOpts, projectID, attemptModel)
+			adapterOptions.RectifySignatures = rectifySignatures
+			wrappedBody, _, convertErr := antigravityadapter.ConvertRequest(googleBody, protocolconv.ProtocolGoogleGenAI, adapterOptions)
+			if convertErr != nil {
+				return nil, convertErr
+			}
+			return &antigravityRetryAttempt{body: wrappedBody, pipeline: pipeline}, nil
+		}
+	}
+	initialBodyFactory := newAttemptFactory(mappedModel, false)
+	initialAttempt, err := initialBodyFactory()
 	if err != nil {
-		return nil, s.writeGoogleError(c, http.StatusBadRequest, "Invalid request body")
+		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusBadRequest, "Invalid request body")
+	}
+	var retryBodyFactory func() (*antigravityRetryAttempt, error)
+	if forwardOpts.pipelineFactory != nil {
+		retryBodyFactory = initialBodyFactory
 	}
 
 	// Antigravity 上游只支持流式请求，统一使用 streamGenerateContent
@@ -139,7 +180,9 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		proxyURL:        proxyURL,
 		accessToken:     accessToken,
 		action:          upstreamAction,
-		body:            wrappedBody,
+		body:            initialAttempt.body,
+		firstAttempt:    initialAttempt,
+		bodyFactory:     retryBodyFactory,
 		c:               c,
 		httpUpstream:    s.httpUpstream,
 		settingService:  s.settingService,
@@ -160,11 +203,12 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		}
 		// 区分客户端取消和真正的上游失败，返回更准确的错误消息
 		if c.Request.Context().Err() != nil {
-			return nil, s.writeGoogleError(c, http.StatusBadGateway, "Client disconnected before upstream response")
+			return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusBadGateway, "Client disconnected before upstream response")
 		}
-		return nil, s.writeGoogleError(c, http.StatusBadGateway, "Upstream request failed after retries")
+		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusBadGateway, "Upstream request failed after retries")
 	}
 	resp := result.resp
+	successfulPipeline := result.pipeline
 	defer func() {
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
@@ -186,16 +230,17 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			if fallbackModel != "" && fallbackModel != mappedModel {
 				logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Model not found (%s), retrying with fallback model %s (account: %s)", mappedModel, fallbackModel, account.Name)
 
-				fallbackWrapped, _, err := antigravityadapter.ConvertRequest(body, protocolconv.ProtocolGoogleGenAI, antigravityadapter.Options{
-					Family: antigravityadapter.FamilyGemini, ProjectID: projectID, MappedModel: fallbackModel, UserAgent: "antigravity",
-				})
+				fallbackFactory := newAttemptFactory(fallbackModel, false)
+				fallbackAttempt, err := fallbackFactory()
 				if err == nil {
-					fallbackReq, err := antigravity.NewAPIRequest(ctx, upstreamAction, accessToken, fallbackWrapped)
+					fallbackReq, err := antigravity.NewAPIRequest(ctx, upstreamAction, accessToken, fallbackAttempt.body)
 					if err == nil {
 						fallbackResp, err := s.httpUpstream.Do(fallbackReq, proxyURL, account.ID, account.Concurrency)
 						if err == nil && fallbackResp.StatusCode < 400 {
 							_ = resp.Body.Close()
 							resp = fallbackResp
+							billingModel = fallbackModel
+							successfulPipeline = fallbackAttempt.pipeline
 						} else if fallbackResp != nil {
 							_ = fallbackResp.Body.Close()
 						}
@@ -230,10 +275,13 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 
 			logger.LegacyPrintf("service.antigravity_gateway", "Antigravity Gemini account %d: detected signature-related 400, retrying with cleaned thought signatures", account.ID)
 
-			retryWrappedBody, _, wrapErr := antigravityadapter.ConvertRequest(body, protocolconv.ProtocolGoogleGenAI, antigravityadapter.Options{
-				Family: antigravityadapter.FamilyGemini, ProjectID: projectID, MappedModel: mappedModel, UserAgent: "antigravity", RectifySignatures: true,
-			})
+			retryFactory := newAttemptFactory(mappedModel, true)
+			retryAttempt, wrapErr := retryFactory()
 			if wrapErr == nil {
+				var signatureRetryBodyFactory func() (*antigravityRetryAttempt, error)
+				if forwardOpts.pipelineFactory != nil {
+					signatureRetryBodyFactory = retryFactory
+				}
 				retryResult, retryErr := s.antigravityRetryLoop(antigravityRetryLoopParams{
 					ctx:             ctx,
 					prefix:          prefix,
@@ -241,7 +289,8 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 					proxyURL:        proxyURL,
 					accessToken:     accessToken,
 					action:          upstreamAction,
-					body:            retryWrappedBody,
+					body:            retryAttempt.body,
+					bodyFactory:     signatureRetryBodyFactory,
 					c:               c,
 					httpUpstream:    s.httpUpstream,
 					settingService:  s.settingService,
@@ -256,6 +305,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 					retryResp := retryResult.resp
 					if retryResp.StatusCode < 400 {
 						resp = retryResp
+						successfulPipeline = retryResult.pipeline
 					} else {
 						retryRespBody := s.readUpstreamErrorBody(retryResp)
 						_ = retryResp.Body.Close()
@@ -377,6 +427,9 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			Detail:             upstreamDetail,
 		})
 		logger.LegacyPrintf("service.antigravity_gateway", "[antigravity-Forward] upstream error status=%d body=%s", resp.StatusCode, truncateForLog(unwrappedForOps, 500))
+		if forwardOpts.pipelineFactory != nil {
+			return nil, s.writeForwardGeminiError(c, forwardOpts, resp.StatusCode, upstreamMsg)
+		}
 		MarkResponseCommitted(c)
 		c.Data(resp.StatusCode, contentType, unwrappedForOps)
 		return nil, fmt.Errorf("antigravity upstream error: %d", resp.StatusCode)
@@ -392,7 +445,19 @@ handleSuccess:
 	var firstTokenMs *int
 	var clientDisconnect bool
 
-	if stream {
+	if forwardOpts.pipelineFactory != nil {
+		if successfulPipeline == nil {
+			return nil, fmt.Errorf("successful Antigravity standard attempt has no pipeline")
+		}
+		streamRes, err := s.handleStandardGeminiResponse(c, resp, successfulPipeline, forwardOpts.source, stream, forwardOpts.includeUsage, startTime)
+		if err != nil {
+			logger.LegacyPrintf("service.antigravity_gateway", "%s status=standard_protocol_error source=%s error=%v", prefix, forwardOpts.source, err)
+			return nil, err
+		}
+		usage = streamRes.usage
+		firstTokenMs = streamRes.firstTokenMs
+		clientDisconnect = streamRes.clientDisconnect
+	} else if stream {
 		// 客户端要求流式，直接透传
 		streamRes, err := s.handleGeminiStreamingResponse(c, resp, startTime)
 		if err != nil {
@@ -426,6 +491,7 @@ handleSuccess:
 
 	return &ForwardResult{
 		RequestID:        requestID,
+		ActualProtocol:   protocolconv.ProtocolGoogleGenAI,
 		Usage:            *usage,
 		Model:            originalModel,
 		UpstreamModel:    billingModel,

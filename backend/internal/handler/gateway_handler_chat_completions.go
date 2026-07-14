@@ -232,7 +232,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
 		var result *service.ForwardResult
-		if account.Platform == service.PlatformGemini {
+		switch {
+		case account.Platform == service.PlatformGemini:
 			if h.geminiCompatService == nil {
 				h.chatCompletionsErrorResponse(c, http.StatusBadGateway, "upstream_error", "Gemini compatibility service is not configured")
 				if accountReleaseFunc != nil {
@@ -241,7 +242,16 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				return
 			}
 			result, err = h.geminiCompatService.ForwardAsChatCompletionsWithClientModel(c.Request.Context(), c, account, forwardBody, reqModel)
-		} else {
+		case shouldUseAntigravityStandardBridge(account):
+			if h.antigravityGatewayService == nil {
+				h.chatCompletionsErrorResponse(c, http.StatusBadGateway, "upstream_error", "Antigravity gateway service is not configured")
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				return
+			}
+			result, err = h.antigravityGatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, reqModel, false)
+		default:
 			result, err = h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
 		}
 
@@ -313,6 +323,13 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		})
 		return
 	}
+}
+
+func shouldUseAntigravityStandardBridge(account *service.Account) bool {
+	if account == nil || account.Platform != service.PlatformAntigravity {
+		return false
+	}
+	return account.Type != service.AccountTypeAPIKey && account.Type != service.AccountTypeUpstream
 }
 
 // chatCompletionsErrorResponse writes an error in OpenAI Chat Completions format.

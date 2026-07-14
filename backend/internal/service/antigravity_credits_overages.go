@@ -10,6 +10,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 )
 
 const (
@@ -164,8 +165,9 @@ func shouldMarkCreditsExhausted(resp *http.Response, respBody []byte, reqErr err
 }
 
 type creditsOveragesRetryResult struct {
-	handled bool
-	resp    *http.Response
+	handled  bool
+	resp     *http.Response
+	pipeline *protocolconv.Pipeline
 }
 
 // attemptCreditsOveragesRetry 在确认免费配额耗尽后，尝试注入 AI Credits 继续请求。
@@ -177,15 +179,18 @@ func (s *AntigravityGatewayService) attemptCreditsOveragesRetry(
 	originalStatusCode int,
 	respBody []byte,
 ) *creditsOveragesRetryResult {
-	creditsBody := injectEnabledCreditTypes(p.body)
-	if creditsBody == nil {
-		return &creditsOveragesRetryResult{handled: false}
+	creditsParams := p
+	creditsParams.creditsEnabled = true
+	attempt, err := creditsParams.newAttempt()
+	if err != nil {
+		logger.LegacyPrintf("service.antigravity_gateway", "%s credit_overages_failed account=%d build_attempt_err=%v", p.prefix, p.account.ID, err)
+		return &creditsOveragesRetryResult{handled: true}
 	}
 	modelKey := resolveCreditsOveragesModelKey(p.ctx, p.account, modelName, p.requestedModel)
 	logger.LegacyPrintf("service.antigravity_gateway", "%s status=429 credit_overages_retry model=%s account=%d (injecting enabledCreditTypes)",
 		p.prefix, modelKey, p.account.ID)
 
-	creditsReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, creditsBody)
+	creditsReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, attempt.body)
 	if err != nil {
 		logger.LegacyPrintf("service.antigravity_gateway", "%s credit_overages_failed model=%s account=%d build_request_err=%v",
 			p.prefix, modelKey, p.account.ID, err)
@@ -197,7 +202,7 @@ func (s *AntigravityGatewayService) attemptCreditsOveragesRetry(
 		s.clearCreditsExhausted(p.ctx, p.account)
 		logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d credit_overages_success model=%s account=%d",
 			p.prefix, creditsResp.StatusCode, modelKey, p.account.ID)
-		return &creditsOveragesRetryResult{handled: true, resp: creditsResp}
+		return &creditsOveragesRetryResult{handled: true, resp: creditsResp, pipeline: attempt.pipeline}
 	}
 
 	s.handleCreditsRetryFailure(p.ctx, p.prefix, modelKey, p.account, creditsResp, err)

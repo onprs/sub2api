@@ -240,7 +240,8 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
 		var result *service.ForwardResult
-		if account.Platform == service.PlatformGemini {
+		switch {
+		case account.Platform == service.PlatformGemini:
 			if h.geminiCompatService == nil {
 				h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", "Gemini compatibility service is not configured")
 				if accountReleaseFunc != nil {
@@ -249,7 +250,16 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				return
 			}
 			result, err = h.geminiCompatService.ForwardAsResponsesWithClientModel(requestCtx, c, account, forwardBody, reqModel)
-		} else {
+		case shouldUseAntigravityStandardBridge(account):
+			if h.antigravityGatewayService == nil {
+				h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", "Antigravity gateway service is not configured")
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				return
+			}
+			result, err = h.antigravityGatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, reqModel, false)
+		default:
 			result, err = h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
 		}
 

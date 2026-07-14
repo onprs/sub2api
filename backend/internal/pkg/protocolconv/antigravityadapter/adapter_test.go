@@ -31,6 +31,36 @@ func TestConvertClaudeFamilyUsesVendorTransformer(t *testing.T) {
 	require.Contains(t, gjson.GetBytes(converted, "request.systemInstruction.parts.0.text").String(), "<identity>")
 }
 
+func TestConvertClaudeFamilyRestoresGoogleToolSignaturesByID(t *testing.T) {
+	body := []byte(`{
+		"contents":[
+			{"role":"model","parts":[
+				{"functionCall":{"id":"call-a","name":"lookup","args":{"q":"a"}},"thoughtSignature":"signature-a"},
+				{"functionCall":{"id":"call-b","name":"lookup","args":{"q":"b"}},"thoughtSignature":"signature-b"}
+			]},
+			{"role":"user","parts":[
+				{"functionResponse":{"id":"call-a","name":"lookup","response":{"result":"a"}}},
+				{"functionResponse":{"id":"call-b","name":"lookup","response":{"result":"b"}}}
+			]}
+		]
+	}`)
+	converted, warnings, err := ConvertRequest(body, protocolconv.ProtocolGoogleGenAI, Options{
+		Family: FamilyClaude, ProjectID: "project-1", MappedModel: "claude-sonnet-4-6",
+	})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, "signature-a", gjson.GetBytes(converted, "request.contents.0.parts.0.thoughtSignature").String())
+	require.Equal(t, "signature-b", gjson.GetBytes(converted, "request.contents.0.parts.1.thoughtSignature").String())
+
+	converted, warnings, err = ConvertRequest(body, protocolconv.ProtocolGoogleGenAI, Options{
+		Family: FamilyClaude, ProjectID: "project-1", MappedModel: "claude-sonnet-4-6", RectifySignatures: true,
+	})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Empty(t, gjson.GetBytes(converted, "request.contents.0.parts.0.thoughtSignature").String())
+	require.Empty(t, gjson.GetBytes(converted, "request.contents.0.parts.1.thoughtSignature").String())
+}
+
 func TestConvertGeminiFamilyAppliesVendorPolicyOnlyInAdapter(t *testing.T) {
 	body := []byte(`{
 		"contents":[
