@@ -1041,6 +1041,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 	return &ForwardResult{
 		RequestID:        requestID,
+		ActualProtocol:   protocolconv.ProtocolGoogleGenAI,
 		Usage:            *usage,
 		Model:            originalModel,
 		UpstreamModel:    mappedModel,
@@ -1547,6 +1548,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 	return &ForwardResult{
 		RequestID:        requestID,
+		ActualProtocol:   protocolconv.ProtocolGoogleGenAI,
 		Usage:            *usage,
 		Model:            originalModel,
 		UpstreamModel:    mappedModel,

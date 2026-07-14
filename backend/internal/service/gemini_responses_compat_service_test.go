@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -32,6 +33,7 @@ func TestGeminiForwardAsResponses_NonStreamingUsesGooglePipeline(t *testing.T) {
 	result, err := svc.ForwardAsResponses(context.Background(), c, account, body)
 	require.NoError(t, err)
 	require.NotNil(t, result)
+	require.Equal(t, protocolconv.ProtocolGoogleGenAI, result.ActualProtocol)
 	require.Equal(t, "responses-client", result.Model)
 	require.Equal(t, "gemini-upstream", result.UpstreamModel)
 	require.Equal(t, 5, result.Usage.InputTokens)

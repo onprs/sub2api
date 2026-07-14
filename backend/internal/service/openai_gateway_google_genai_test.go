@@ -98,6 +98,7 @@ func TestForwardGoogleGenAINonStreamingUsesResponsesPipeline(t *testing.T) {
 	result, err := svc.ForwardGoogleGenAI(context.Background(), c, account, "client-google-model", "client-google-model", false, body)
 	require.NoError(t, err)
 	require.NotNil(t, result)
+	require.Equal(t, protocolconv.ProtocolOpenAIResponses, result.ActualProtocol)
 	require.Equal(t, "client-google-model", result.Model)
 	require.Equal(t, "gpt-5.4", result.UpstreamModel)
 	require.Equal(t, 7, result.Usage.InputTokens)
@@ -396,6 +397,7 @@ func TestForwardGoogleGenAIStreamingRawChatFallbackUsesActualProtocol(t *testing
 
 	result, err := svc.ForwardGoogleGenAI(context.Background(), c, account, "client-google-model", "client-google-model", true, body)
 	require.NoError(t, err)
+	require.Equal(t, protocolconv.ProtocolOpenAIChat, result.ActualProtocol)
 	wire := recorder.Body.String()
 	require.Contains(t, wire, `"text":"chat"`)
 	require.Contains(t, wire, `"modelVersion":"client-google-model"`)

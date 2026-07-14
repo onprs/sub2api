@@ -360,7 +360,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				)
 			}
 			return &OpenAIForwardResult{
-				RequestID: requestID, ResponseID: responseID, Usage: usage, Model: originalModel,
+				RequestID: requestID, ResponseID: responseID, ActualProtocol: stream.ActualProtocol,
+				Usage: usage, Model: originalModel,
 				BillingModel: billingModel, UpstreamModel: upstreamModel, ReasoningEffort: reasoningEffort,
 				ServiceTier: serviceTier, Stream: true, Duration: time.Since(startTime),
 				FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected,
@@ -392,7 +393,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	}
 
 	result := &OpenAIForwardResult{
-		RequestID: requestID, ResponseID: responseID, Usage: usage, Model: originalModel,
+		RequestID: requestID, ResponseID: responseID, ActualProtocol: stream.ActualProtocol,
+		Usage: usage, Model: originalModel,
 		BillingModel: billingModel, UpstreamModel: upstreamModel, ReasoningEffort: reasoningEffort,
 		ServiceTier: serviceTier, Stream: true, Duration: time.Since(startTime),
 		FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected,
@@ -506,6 +508,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		c.Writer.WriteHeader(http.StatusOK)
 		return &OpenAIForwardResult{
 			RequestID:       resp.Header.Get("x-request-id"),
+			ActualProtocol:  protocolconv.ProtocolOpenAIChat,
 			Model:           originalModel,
 			BillingModel:    billingModel,
 			UpstreamModel:   upstreamModel,
@@ -582,6 +585,7 @@ func (s *OpenAIGatewayService) collectRawChatCompletionsJSON(
 	result := &OpenAIForwardResult{
 		RequestID:       structured.RequestID,
 		ResponseID:      structured.ResponseID,
+		ActualProtocol:  structured.ActualProtocol,
 		Usage:           usage,
 		Model:           originalModel,
 		BillingModel:    billingModel,

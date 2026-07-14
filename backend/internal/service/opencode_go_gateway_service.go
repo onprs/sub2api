@@ -395,7 +395,7 @@ func (s *OpenCodeGoGatewayService) bufferChatPassthrough(
 		writeOpenCodeGoError(c, http.StatusBadGateway, openCodeGoErrorFormatChat, "upstream_error", "Failed to validate upstream chat completions response")
 		return nil, err
 	}
-	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, false, startTime), nil
+	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolOpenAIChat, false, startTime), nil
 }
 
 func (s *OpenCodeGoGatewayService) bufferAnthropicPassthrough(
@@ -418,7 +418,7 @@ func (s *OpenCodeGoGatewayService) bufferAnthropicPassthrough(
 		writeOpenCodeGoError(c, http.StatusBadGateway, openCodeGoErrorFormatAnthropic, "upstream_error", "Failed to validate upstream messages response")
 		return nil, err
 	}
-	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, false, startTime), nil
+	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolAnthropic, false, startTime), nil
 }
 
 func (s *OpenCodeGoGatewayService) renderOpenCodeGoResponse(
@@ -474,7 +474,7 @@ func (s *OpenCodeGoGatewayService) bufferAnthropicToChat(
 		writeOpenCodeGoError(c, http.StatusBadGateway, openCodeGoErrorFormatChat, "upstream_error", "Failed to convert upstream messages response")
 		return nil, err
 	}
-	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, false, startTime), nil
+	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolAnthropic, false, startTime), nil
 }
 
 func (s *OpenCodeGoGatewayService) bufferChatToAnthropic(
@@ -499,7 +499,7 @@ func (s *OpenCodeGoGatewayService) bufferChatToAnthropic(
 		writeOpenCodeGoError(c, http.StatusBadGateway, openCodeGoErrorFormatAnthropic, "upstream_error", "Failed to convert upstream chat completions response")
 		return nil, err
 	}
-	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, false, startTime), nil
+	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolOpenAIChat, false, startTime), nil
 }
 
 func (s *OpenCodeGoGatewayService) streamChatPassthrough(
@@ -530,7 +530,7 @@ func (s *OpenCodeGoGatewayService) streamChatPassthrough(
 		}
 	}
 	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolOpenAIChat, observe)
-	out := openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, true, startTime)
+	out := openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolOpenAIChat, true, startTime)
 	out.ClientDisconnect = clientDisconnected
 	out.FirstTokenMs = firstTokenMs
 	return out, err
@@ -563,7 +563,7 @@ func (s *OpenCodeGoGatewayService) streamAnthropicPassthrough(
 		}
 	}
 	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolAnthropic, protocolconv.ProtocolAnthropic, observe)
-	out := openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, true, startTime)
+	out := openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolAnthropic, true, startTime)
 	out.ClientDisconnect = clientDisconnected
 	out.FirstTokenMs = firstTokenMs
 	return out, err
@@ -597,7 +597,8 @@ func (s *OpenCodeGoGatewayService) streamAnthropicToChat(
 	}
 	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, observe)
 	return &ForwardResult{
-		RequestID: resp.Header.Get("x-request-id"), Usage: usage, Model: originalModel,
+		RequestID: resp.Header.Get("x-request-id"), ActualProtocol: protocolconv.ProtocolAnthropic,
+		Usage: usage, Model: originalModel,
 		UpstreamModel: optionalUpstreamModel(originalModel, upstreamModel), Stream: true,
 		Duration: time.Since(startTime), FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected,
 	}, err
@@ -627,7 +628,8 @@ func (s *OpenCodeGoGatewayService) streamChatToAnthropic(
 	}
 	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, observe)
 	return &ForwardResult{
-		RequestID: resp.Header.Get("x-request-id"), Usage: usage, Model: originalModel,
+		RequestID: resp.Header.Get("x-request-id"), ActualProtocol: protocolconv.ProtocolOpenAIChat,
+		Usage: usage, Model: originalModel,
 		UpstreamModel: optionalUpstreamModel(originalModel, upstreamModel), Stream: true,
 		Duration: time.Since(startTime), FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected,
 	}, err
@@ -971,14 +973,15 @@ func claudeUsageFromAnthropicUsage(usage apicompat.AnthropicUsage) ClaudeUsage {
 	}
 }
 
-func openCodeGoForwardResult(resp *http.Response, usage ClaudeUsage, model string, upstreamModel string, stream bool, startTime time.Time) *ForwardResult {
+func openCodeGoForwardResult(resp *http.Response, usage ClaudeUsage, model string, upstreamModel string, actualProtocol protocolconv.Protocol, stream bool, startTime time.Time) *ForwardResult {
 	return &ForwardResult{
-		RequestID:     resp.Header.Get("x-request-id"),
-		Usage:         usage,
-		Model:         model,
-		UpstreamModel: optionalUpstreamModel(model, upstreamModel),
-		Stream:        stream,
-		Duration:      time.Since(startTime),
+		RequestID:      resp.Header.Get("x-request-id"),
+		ActualProtocol: actualProtocol,
+		Usage:          usage,
+		Model:          model,
+		UpstreamModel:  optionalUpstreamModel(model, upstreamModel),
+		Stream:         stream,
+		Duration:       time.Since(startTime),
 	}
 }
 

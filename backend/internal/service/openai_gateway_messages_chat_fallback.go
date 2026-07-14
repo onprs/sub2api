@@ -169,6 +169,9 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(
 		return nil, err
 	}
 	convertedResponse, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
+	if result != nil {
+		result.ActualProtocol = structured.ActualProtocol
+	}
 	if err != nil {
 		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Failed to convert upstream response")
 		return nil, fmt.Errorf("convert anthropic chat fallback response: %w", err)
@@ -245,6 +248,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	result := &OpenAIForwardResult{
 		RequestID:        requestID,
 		ResponseID:       scan.ResponseID,
+		ActualProtocol:   stream.ActualProtocol,
 		Usage:            scan.Usage,
 		Model:            originalModel,
 		BillingModel:     billingModel,

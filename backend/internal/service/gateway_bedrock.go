@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -159,6 +160,7 @@ func (s *GatewayService) forwardBedrock(
 
 	return &ForwardResult{
 		RequestID:        resp.Header.Get("x-amzn-requestid"),
+		ActualProtocol:   protocolconv.ProtocolAnthropic,
 		Usage:            *usage,
 		Model:            reqModel,
 		UpstreamModel:    mappedModel,

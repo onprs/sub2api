@@ -835,6 +835,7 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 		forwardResult := &OpenAIForwardResult{
 			RequestID:       resp.Header.Get("x-request-id"),
 			ResponseID:      responseID,
+			ActualProtocol:  protocolconv.ProtocolOpenAIResponses,
 			Usage:           *usage,
 			Model:           originalModel,
 			BillingModel:    billingModel,

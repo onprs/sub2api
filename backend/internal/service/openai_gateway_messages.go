@@ -535,14 +535,15 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	}
 
 	return &OpenAIForwardResult{
-		RequestID:     requestID,
-		ResponseID:    finalResponse.ID,
-		Usage:         usage,
-		Model:         originalModel,
-		BillingModel:  billingModel,
-		UpstreamModel: upstreamModel,
-		Stream:        false,
-		Duration:      time.Since(startTime),
+		RequestID:      requestID,
+		ResponseID:     finalResponse.ID,
+		ActualProtocol: terminal.Upstream.ActualProtocol,
+		Usage:          usage,
+		Model:          originalModel,
+		BillingModel:   billingModel,
+		UpstreamModel:  upstreamModel,
+		Stream:         false,
+		Duration:       time.Since(startTime),
 	}, nil
 }
 
@@ -850,6 +851,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		return &OpenAIForwardResult{
 			RequestID:        requestID,
 			ResponseID:       responseID,
+			ActualProtocol:   stream.ActualProtocol,
 			Usage:            usage,
 			Model:            originalModel,
 			BillingModel:     billingModel,

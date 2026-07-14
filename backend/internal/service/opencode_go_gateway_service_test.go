@@ -228,7 +228,7 @@ func TestOpenCodeGoGatewayServiceIdentityBufferedResponsePreservesRawJSON(t *tes
 	if got := rec.Recorder.Body.Bytes(); string(got) != string(body) {
 		t.Fatalf("response bytes changed:\n got: %q\nwant: %q", got, body)
 	}
-	if result == nil || result.RequestID != "rid_raw" {
+	if result == nil || result.RequestID != "rid_raw" || result.ActualProtocol != protocolconv.ProtocolOpenAIChat {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }
@@ -339,7 +339,7 @@ func TestOpenCodeGoGatewayServiceIdentityAnthropicStreamPreservesVendorPayload(t
 	if strings.Contains(rec.Recorder.Body.String(), "[DONE]") {
 		t.Fatalf("Anthropic stream must not receive a terminal sentinel: %q", rec.Recorder.Body.String())
 	}
-	if result == nil || result.Usage.InputTokens != 10 || result.Usage.CacheReadInputTokens != 6 || result.Usage.OutputTokens != 3 {
+	if result == nil || result.ActualProtocol != protocolconv.ProtocolAnthropic || result.Usage.InputTokens != 10 || result.Usage.CacheReadInputTokens != 6 || result.Usage.OutputTokens != 3 {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }

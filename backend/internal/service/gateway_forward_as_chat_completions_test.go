@@ -73,6 +73,7 @@ func TestHandleCCBufferedFromAnthropic_PreservesMessageStartCacheUsageAndReasoni
 	result, err := svc.handleCCBufferedFromAnthropic(resp, c, pipeline, "gpt-5", "claude-sonnet-4.5", &reasoningEffort, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
+	require.Equal(t, protocolconv.ProtocolAnthropic, result.ActualProtocol)
 	require.Equal(t, 12, result.Usage.InputTokens)
 	require.Equal(t, 7, result.Usage.OutputTokens)
 	require.Equal(t, 9, result.Usage.CacheReadInputTokens)

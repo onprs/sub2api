@@ -500,14 +500,15 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	}
 
 	return &OpenAIForwardResult{
-		RequestID:     requestID,
-		ResponseID:    finalResponse.ID,
-		Usage:         usage,
-		Model:         originalModel,
-		BillingModel:  billingModel,
-		UpstreamModel: upstreamModel,
-		Stream:        false,
-		Duration:      time.Since(startTime),
+		RequestID:      requestID,
+		ResponseID:     finalResponse.ID,
+		ActualProtocol: terminal.Upstream.ActualProtocol,
+		Usage:          usage,
+		Model:          originalModel,
+		BillingModel:   billingModel,
+		UpstreamModel:  upstreamModel,
+		Stream:         false,
+		Duration:       time.Since(startTime),
 	}, nil
 }
 
@@ -578,14 +579,15 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 
 	resultWithUsage := func() *OpenAIForwardResult {
 		return &OpenAIForwardResult{
-			RequestID:     requestID,
-			Usage:         usage,
-			Model:         originalModel,
-			BillingModel:  billingModel,
-			UpstreamModel: upstreamModel,
-			Stream:        true,
-			Duration:      time.Since(startTime),
-			FirstTokenMs:  firstTokenMs,
+			RequestID:      requestID,
+			ActualProtocol: stream.ActualProtocol,
+			Usage:          usage,
+			Model:          originalModel,
+			BillingModel:   billingModel,
+			UpstreamModel:  upstreamModel,
+			Stream:         true,
+			Duration:       time.Since(startTime),
+			FirstTokenMs:   firstTokenMs,
 		}
 	}
 

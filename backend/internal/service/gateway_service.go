@@ -22,6 +22,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/cespare/xxhash/v2"
 	gocache "github.com/patrickmn/go-cache"
@@ -540,9 +541,10 @@ type ClaudeUsage struct {
 
 // ForwardResult 转发结果
 type ForwardResult struct {
-	RequestID string
-	Usage     ClaudeUsage
-	Model     string
+	RequestID      string
+	ActualProtocol protocolconv.Protocol
+	Usage          ClaudeUsage
+	Model          string
 	// UpstreamModel is the actual upstream model after mapping.
 	// Prefer empty when it is identical to Model; persistence normalizes equal values away as no-op mappings.
 	UpstreamModel    string

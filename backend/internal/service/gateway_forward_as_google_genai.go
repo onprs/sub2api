@@ -126,7 +126,8 @@ func (s *GatewayService) handleGoogleBufferedFromAnthropic(
 		return nil, fmt.Errorf("render Google response: %w", err)
 	}
 	return &ForwardResult{
-		RequestID: stream.RequestID, Usage: usage, Model: clientModel, UpstreamModel: mappedModel,
+		RequestID: stream.RequestID, ActualProtocol: stream.ActualProtocol,
+		Usage: usage, Model: clientModel, UpstreamModel: mappedModel,
 		Stream: false, Duration: time.Since(startTime),
 	}, nil
 }
@@ -159,7 +160,8 @@ func (s *GatewayService) handleGoogleStreamingFromAnthropic(
 	terminalSeen := false
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
-			RequestID: stream.RequestID, Usage: usage, Model: clientModel, UpstreamModel: mappedModel,
+			RequestID: stream.RequestID, ActualProtocol: stream.ActualProtocol,
+			Usage: usage, Model: clientModel, UpstreamModel: mappedModel,
 			Stream: true, Duration: time.Since(startTime), FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected,
 		}
 	}

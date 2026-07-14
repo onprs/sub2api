@@ -220,6 +220,7 @@ func TestBufferRawChatCompletionsUsesIdentityPipelineAndRenderer(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
+	require.Equal(t, protocolconv.ProtocolOpenAIChat, result.ActualProtocol)
 	require.Equal(t, http.StatusCreated, rec.Recorder.Code)
 	require.Equal(t, body, rec.Recorder.Body.Bytes())
 	require.Equal(t, "application/json", rec.Recorder.Header().Get("Content-Type"))

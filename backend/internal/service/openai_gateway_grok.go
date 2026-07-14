@@ -130,6 +130,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 	return &OpenAIForwardResult{
 		RequestID:       firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id")),
 		ResponseID:      responseID,
+		ActualProtocol:  protocolconv.ProtocolOpenAIResponses,
 		Usage:           *usage,
 		Model:           originalModel,
 		UpstreamModel:   upstreamModel,

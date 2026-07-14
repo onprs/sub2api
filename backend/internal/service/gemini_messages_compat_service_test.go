@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
@@ -437,6 +438,7 @@ func TestGeminiMessagesCompatServiceForwardNative_APIKeyUsesIdentityPipeline(t *
 	result, err := svc.ForwardNative(context.Background(), c, account, "gemini-client", "generateContent", false, body)
 
 	require.NoError(t, err)
+	require.Equal(t, protocolconv.ProtocolGoogleGenAI, result.ActualProtocol)
 	require.Equal(t, "gemini-client", result.Model)
 	require.Equal(t, "gemini-upstream", result.UpstreamModel)
 	require.Equal(t, 4, result.Usage.InputTokens)

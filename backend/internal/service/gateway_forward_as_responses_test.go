@@ -165,6 +165,7 @@ func TestHandleResponsesStreamingResponse_PreservesMessageStartCacheUsage(t *tes
 	result, err := svc.handleResponsesStreamingResponse(resp, c, pipeline, "claude-sonnet-4.5", "claude-sonnet-4.5", nil, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
+	require.Equal(t, protocolconv.ProtocolAnthropic, result.ActualProtocol)
 	require.Equal(t, 20, result.Usage.InputTokens)
 	require.Equal(t, 8, result.Usage.OutputTokens)
 	require.Equal(t, 11, result.Usage.CacheReadInputTokens)
