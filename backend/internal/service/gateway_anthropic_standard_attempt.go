@@ -1,14 +1,14 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/gin-gonic/gin"
 )
 
@@ -73,23 +73,60 @@ func (s *GatewayService) forwardStandardProtocolToAnthropic(
 		return resp, nil
 	}
 
-	respBody, _ := s.readUpstreamErrorBody(resp)
-	_ = resp.Body.Close()
-	resp.Body = io.NopCloser(bytes.NewReader(respBody))
-	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
-	if s.shouldFailoverUpstreamError(resp.StatusCode) {
+	upstream, collectErr := s.collectStandardAnthropicStreamError(resp)
+	if collectErr != nil {
+		return nil, collectErr
+	}
+	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(upstream.Body)))
+	if s.shouldFailoverUpstreamError(upstream.StatusCode) {
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
-			UpstreamStatusCode: resp.StatusCode, UpstreamRequestID: resp.Header.Get("x-request-id"),
+			UpstreamStatusCode: upstream.StatusCode, UpstreamRequestID: upstream.RequestID,
 			Kind: "failover", Message: upstreamMsg,
 		})
 		if s.rateLimitService != nil {
-			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
+			s.rateLimitService.HandleUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, mappedModel)
 		}
-		return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody}
+		return nil, &UpstreamFailoverError{
+			StatusCode:      upstream.StatusCode,
+			ResponseBody:    upstream.Body,
+			ResponseHeaders: protocoltransport.CloneHeaders(upstream.Headers),
+		}
 	}
 	if writeError != nil {
-		writeError(mapUpstreamStatusCode(resp.StatusCode), "server_error", upstreamMsg)
+		writeError(mapUpstreamStatusCode(upstream.StatusCode), "server_error", upstreamMsg)
 	}
-	return nil, fmt.Errorf("upstream error: %d %s", resp.StatusCode, upstreamMsg)
+	return nil, fmt.Errorf("upstream error: %d %s", upstream.StatusCode, upstreamMsg)
+}
+
+func (s *GatewayService) collectStandardAnthropicStreamError(resp *http.Response) (protocoltransport.Response, error) {
+	if resp == nil || resp.Body == nil {
+		return protocoltransport.Response{}, errors.New("collect Anthropic stream error: empty response")
+	}
+	stream := &protocoltransport.Stream{
+		StatusCode:     resp.StatusCode,
+		Headers:        protocoltransport.CloneHeaders(resp.Header),
+		ActualProtocol: protocolconv.ProtocolAnthropic,
+		RequestID:      resp.Header.Get("x-request-id"),
+		ErrorBody:      resp.Body,
+	}
+	resp.Body = http.NoBody
+	if err := stream.Validate(); err != nil {
+		_ = stream.Close()
+		return protocoltransport.Response{}, fmt.Errorf("validate Anthropic upstream error stream: %w", err)
+	}
+	body, _ := s.readUpstreamErrorBody(&http.Response{Body: stream.ErrorBody})
+	_ = stream.Close()
+
+	upstream := protocoltransport.Response{
+		StatusCode:     stream.StatusCode,
+		Headers:        stream.Headers,
+		Body:           body,
+		ActualProtocol: stream.ActualProtocol,
+		RequestID:      stream.RequestID,
+	}
+	if err := upstream.Validate(); err != nil {
+		return protocoltransport.Response{}, fmt.Errorf("validate Anthropic upstream error response: %w", err)
+	}
+	return upstream, nil
 }
