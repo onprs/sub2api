@@ -142,15 +142,16 @@ func TestOpenAIHandleStreamingAwareError_ResponsesStreamingJSONEscaping(t *testi
 	}
 }
 
-// OpenAI handler: /v1/chat/completions streaming keeps the legacy event: error format
-// (out of scope for this fix; covered to prevent regression of unrelated paths).
-func TestOpenAIHandleStreamingAwareError_ChatCompletionsStreamingKeepsLegacy(t *testing.T) {
+// OpenAI Chat uses data-only SSE framing for synthesized stream errors.
+func TestOpenAIHandleStreamingAwareError_ChatCompletionsUsesRenderer(t *testing.T) {
 	c, w := newGinContextForEndpoint(t, EndpointChatCompletions)
 	h := &OpenAIGatewayHandler{}
 	h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "boom", true)
 
 	body := w.Body.String()
-	assert.True(t, strings.HasPrefix(body, "event: error\n"), "got: %q", body)
+	assert.True(t, strings.HasPrefix(body, "data: "), "got: %q", body)
+	assert.NotContains(t, body, "event: error")
+	assert.Contains(t, body, `"code":"upstream_error"`)
 }
 
 // Gateway (Anthropic-backed) handler: /v1/responses path also must emit response.failed.
@@ -164,21 +165,43 @@ func TestGatewayHandleStreamingAwareError_ResponsesStreamingEmitsResponseFailed(
 	assert.Equal(t, "upstream gone", errObj["message"])
 }
 
-// Gateway handler: /v1/messages preserves the legacy data:{type:error,...} format
-// (Anthropic spec accepts a type:"error" stream event).
-func TestGatewayHandleStreamingAwareError_MessagesStreamingKeepsLegacy(t *testing.T) {
+// Anthropic Messages uses event+data framing from the source renderer.
+func TestGatewayHandleStreamingAwareError_MessagesStreamingUsesRenderer(t *testing.T) {
 	c, w := newGinContextForEndpoint(t, EndpointMessages)
 	h := &GatewayHandler{}
 	h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "boom", true)
 
 	body := w.Body.String()
-	assert.True(t, strings.HasPrefix(body, `data: {"type":"error"`), "got: %q", body)
+	assert.True(t, strings.HasPrefix(body, "event: error\n"), "got: %q", body)
+	assert.Contains(t, body, `data: {"error":{"message":"boom","type":"upstream_error"},"type":"error"}`)
 }
 
 // 项目里 /responses 注册在多组路由：/v1/responses（gateway）、裸 /responses（top-level）、
 // /backend-api/codex/responses（codex direct）。我们 fix 必须覆盖全部，
 // 否则一些客户端走的路径就不会发 response.failed，照样报 stream closed。
 // 这是生产 2026-05-24 ~11:05 UTC user 16 实际命中的 bug。
+func TestOpenCodeGoStreamingErrorsUseSourceRenderer(t *testing.T) {
+	tests := []struct {
+		name   string
+		format openCodeGoHandlerErrorFormat
+		want   string
+	}{
+		{name: "chat", format: openCodeGoHandlerErrorChat, want: "data: "},
+		{name: "anthropic", format: openCodeGoHandlerErrorAnthropic, want: "event: error\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			c, w := newGinContextForEndpoint(t, EndpointMessages)
+			h := &OpenCodeGoGatewayHandler{}
+
+			h.handleStreamingAwareError(c, http.StatusBadGateway, test.format, "upstream_error", "boom", true)
+
+			assert.True(t, strings.HasPrefix(w.Body.String(), test.want), "got: %q", w.Body.String())
+			assert.Contains(t, w.Body.String(), `"message":"boom"`)
+		})
+	}
+}
+
 func TestInboundIsResponses_CoversAllRoutes(t *testing.T) {
 	cases := []struct {
 		route string

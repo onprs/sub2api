@@ -1716,16 +1716,7 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 				return
 			}
 		}
-		// Stream already started, send error as SSE event then close
-		flusher, ok := c.Writer.(http.Flusher)
-		if ok {
-			// SSE 错误事件固定 schema，使用 Quote 直拼可避免额外 Marshal 分配。
-			errorEvent := `data: {"type":"error","error":{"type":` + strconv.Quote(errType) + `,"message":` + strconv.Quote(message) + `}}` + "\n\n"
-			if _, err := fmt.Fprint(c.Writer, errorEvent); err != nil {
-				_ = c.Error(err)
-			}
-			flusher.Flush()
-		}
+		writeProtocolStreamError(c, protocolForInboundEndpoint(c), status, errType, errType, message)
 		return
 	}
 

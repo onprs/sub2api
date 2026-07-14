@@ -56,6 +56,28 @@ func TestWriteProtocolErrorUsesSourceRenderer(t *testing.T) {
 	}
 }
 
+func TestWriteProtocolStreamErrorUsesSourceRenderer(t *testing.T) {
+	tests := []struct {
+		name     string
+		protocol protocolconv.Protocol
+		want     string
+	}{
+		{name: "chat", protocol: protocolconv.ProtocolOpenAIChat, want: "data: {\"error\":{\"code\":\"upstream_error\",\"message\":\"boom\",\"type\":\"upstream_error\"}}\n\n"},
+		{name: "anthropic", protocol: protocolconv.ProtocolAnthropic, want: "event: error\ndata: {\"error\":{\"message\":\"boom\",\"type\":\"upstream_error\"},\"type\":\"error\"}\n\n"},
+		{name: "google", protocol: protocolconv.ProtocolGoogleGenAI, want: "data: {\"error\":{\"code\":502,\"message\":\"boom\",\"status\":\"INTERNAL\"}}\n\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+
+			require.True(t, writeProtocolStreamError(c, test.protocol, http.StatusBadGateway, "upstream_error", "upstream_error", "boom"))
+
+			require.Equal(t, test.want, recorder.Body.String())
+		})
+	}
+}
+
 func TestProductionErrorHelpersUseProtocolRenderer(t *testing.T) {
 	tests := []struct {
 		name   string
