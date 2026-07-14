@@ -687,6 +687,14 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 		return nil, wsErr
 	}
 
+	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
+	// 国产模型默认 effort 补充：此处 reqModel 已被 mapping 重写为 billingModel。
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, reqModel)
+	reasoningEffortValue := ""
+	if reasoningEffort != nil {
+		reasoningEffortValue = *reasoningEffort
+	}
+
 	httpInvalidEncryptedContentRetryTried := false
 	httpAttempt := 0
 	for {
@@ -718,12 +726,28 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 				return nil, pipelineErr
 			}
 		}
+		firstOutputTimeout := time.Duration(0)
+		if reqStream && account.Platform == PlatformOpenAI && (attemptOutput == nil || isNativeResponsesProtocolOutput(attemptOutput)) {
+			firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffortValue)
+		}
 
-		// Build upstream request
+		// Build upstream request. The first-output budget starts at the original
+		// request start and includes the response-header wait.
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+		var headerGuard *openAIFirstOutputHeaderGuard
+		if firstOutputTimeout > 0 {
+			upstreamCtx, headerGuard = newOpenAIFirstOutputHeaderGuard(
+				upstreamCtx, releaseUpstreamCtx, startTime.Add(firstOutputTimeout),
+			)
+		}
 		upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, attemptBody, token, reqStream, promptCacheKey, isCodexCLI)
-		releaseUpstreamCtx()
+		if headerGuard == nil {
+			releaseUpstreamCtx()
+		}
 		if err != nil {
+			if headerGuard != nil {
+				headerGuard.close()
+			}
 			return nil, err
 		}
 
@@ -737,11 +761,30 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 		upstreamStart := time.Now()
 		resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
+		if headerGuard != nil && headerGuard.stopHeaderWait() {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			headerGuard.close()
+			return nil, s.newOpenAIFirstOutputTimeoutError(
+				ctx, c, account, startTime, originalModel, reasoningEffortValue,
+				firstOutputTimeout, "response_headers", nil,
+			)
+		}
 		if err != nil {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			if headerGuard != nil {
+				headerGuard.close()
+			}
 			// Transport-level failure (proxy/DNS/TCP/TLS — no HTTP response). Convert to
 			// a failover so the handler switches to a healthy account, and temporarily
 			// unschedule the account on durable faults (e.g. rejected proxy credentials).
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+		}
+		if headerGuard != nil {
+			resp.Body = &openAIRequestContextReadCloser{ReadCloser: resp.Body, cleanup: headerGuard.close}
 		}
 
 		// Handle error response
@@ -781,10 +824,6 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 			}
 		}()
 
-		reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
-		// 国产模型默认 effort 补充：此处 reqModel 已被 mapping 重写为 billingModel（见
-		// line 2510-2515 的 GetMappedModel + reqModel 赋值），可直接作为 mappedModel。
-		reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, reqModel)
 		serviceTier := extractOpenAIServiceTierFromBody(body)
 		// 上游接受后只保留计费需要的标量，避免响应处理期间继续保活完整 input/tools map。
 		reqBody = nil
@@ -799,7 +838,9 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 			if attemptOutput != nil {
 				responseBodyOwned = false
 			}
-			streamResult, err := s.handleStreamingResponseWithOutput(ctx, resp, c, account, startTime, originalModel, upstreamModel, attemptOutput)
+			streamResult, err := s.handleStreamingResponseWithOutputAndReasoning(
+				ctx, resp, c, account, startTime, originalModel, upstreamModel, attemptOutput, reasoningEffortValue,
+			)
 			if err != nil {
 				return nil, err
 			}

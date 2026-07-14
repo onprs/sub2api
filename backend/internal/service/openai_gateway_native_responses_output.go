@@ -48,14 +48,16 @@ type nativeResponsesProtocolOutput struct {
 	mappedModel   string
 	stream        bool
 
-	session            *protocolconv.StreamSession
-	actualProtocol     protocolconv.Protocol
-	pendingStatus      int
-	pendingHeaders     http.Header
-	headersWritten     bool
-	outputStarted      bool
-	clientDisconnected bool
-	pendingPayloads    [][]byte
+	session             *protocolconv.StreamSession
+	actualProtocol      protocolconv.Protocol
+	pendingStatus       int
+	pendingHeaders      http.Header
+	headersWritten      bool
+	outputStarted       bool
+	clientDisconnected  bool
+	pendingPayloads     [][]byte
+	pendingPayloadBytes int64
+	pendingPayloadLimit int64
 }
 
 func newNativeResponsesProtocolOutput(
@@ -136,13 +138,21 @@ func (o *nativeResponsesProtocolOutput) WriteStreamEvent(actual protocolconv.Pro
 	for _, converted := range payloads {
 		converted = o.restoreModel(converted)
 		if !o.outputStarted && openAIStreamEventIsPreamble(gjson.GetBytes(converted, "type").String()) {
+			if o.pendingPayloadLimit > 0 && int64(len(converted)) > o.pendingPayloadLimit-o.pendingPayloadBytes {
+				return fmt.Errorf("%w: buffered=%d incoming=%d limit=%d", errOpenAIFirstOutputStageLimit, o.pendingPayloadBytes, len(converted), o.pendingPayloadLimit)
+			}
 			o.pendingPayloads = append(o.pendingPayloads, append([]byte(nil), converted...))
+			o.pendingPayloadBytes += int64(len(converted))
 			continue
+		}
+		if !o.outputStarted && o.pendingPayloadLimit > 0 && int64(len(converted)) > o.pendingPayloadLimit-o.pendingPayloadBytes {
+			return fmt.Errorf("%w: buffered=%d incoming=%d limit=%d", errOpenAIFirstOutputStageLimit, o.pendingPayloadBytes, len(converted), o.pendingPayloadLimit)
 		}
 		toWrite := make([][]byte, 0, len(o.pendingPayloads)+1)
 		toWrite = append(toWrite, o.pendingPayloads...)
 		toWrite = append(toWrite, converted)
 		o.pendingPayloads = nil
+		o.pendingPayloadBytes = 0
 		if err := o.writeStreamPayloads(toWrite); err != nil {
 			return err
 		}
@@ -241,6 +251,14 @@ func (o *nativeResponsesProtocolOutput) ensureStreamHeaders() error {
 	if o.headersWritten {
 		return nil
 	}
+	if state, ok := o.writer.(interface{ Written() bool }); ok && state.Written() {
+		// A stable gateway keepalive may have committed the downstream response
+		// before this attempt won. Do not append attempt-local headers or emit a
+		// duplicate WriteHeader when semantic output eventually arrives.
+		o.pendingHeaders = nil
+		o.headersWritten = true
+		return nil
+	}
 	if err := o.renderer.WriteStreamHeaders(o.writer, o.pendingStatus, o.pendingHeaders); err != nil {
 		return err
 	}
@@ -265,11 +283,19 @@ func (o *nativeResponsesProtocolOutput) restoreModel(body []byte) []byte {
 func (o *nativeResponsesProtocolOutput) ClientOutputStarted() bool { return o.outputStarted }
 func (o *nativeResponsesProtocolOutput) ClientDisconnected() bool  { return o.clientDisconnected }
 
+func (o *nativeResponsesProtocolOutput) enableFirstOutputGuard(limit int64) {
+	if o == nil || limit <= 0 {
+		return
+	}
+	o.pendingPayloadLimit = limit
+}
+
 func (s *OpenAIGatewayService) collectStructuredResponsesStream(
 	resp *http.Response,
 	startTime time.Time,
 	output openAIProtocolOutput,
 	passthrough bool,
+	guardFirstOutput bool,
 ) (*protocoltransport.Stream, error) {
 	if resp == nil || resp.Body == nil {
 		return nil, errors.New("nil OpenAI Responses upstream stream")
@@ -277,6 +303,12 @@ func (s *OpenAIGatewayService) collectStructuredResponsesStream(
 	maxRecordSize := defaultMaxLineSize
 	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
 		maxRecordSize = s.cfg.Gateway.MaxLineSize
+	}
+	if guardFirstOutput {
+		guardLimit := openAIFirstOutputStageMaxBytes + openAIFirstOutputScannerFramingAllowance
+		if maxRecordSize <= 0 || maxRecordSize > guardLimit {
+			maxRecordSize = guardLimit
+		}
 	}
 	filteredHeaders := responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
 	if passthrough && isNativeResponsesProtocolOutput(output) {
@@ -306,7 +338,29 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStream(
 	originalModel string,
 	output openAIProtocolOutput,
 ) (*openaiStreamingResult, error) {
-	stream, err := s.collectStructuredResponsesStream(resp, startTime, output, false)
+	return s.handleStructuredResponsesStreamWithReasoning(ctx, resp, c, account, startTime, originalModel, output, "")
+}
+
+func (s *OpenAIGatewayService) handleStructuredResponsesStreamWithReasoning(
+	ctx context.Context,
+	resp *http.Response,
+	c *gin.Context,
+	account *Account,
+	startTime time.Time,
+	originalModel string,
+	output openAIProtocolOutput,
+	reasoningEffort string,
+) (*openaiStreamingResult, error) {
+	firstOutputTimeout := time.Duration(0)
+	guardFirstOutput := account != nil && account.Platform == PlatformOpenAI && isNativeResponsesProtocolOutput(output)
+	if guardFirstOutput {
+		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffort)
+		guardFirstOutput = firstOutputTimeout > 0
+	}
+	if guardFirstOutput {
+		output.(*nativeResponsesProtocolOutput).enableFirstOutputGuard(openAIFirstOutputStageMaxBytes)
+	}
+	stream, err := s.collectStructuredResponsesStream(resp, startTime, output, false, guardFirstOutput)
 	if err != nil {
 		return nil, err
 	}
@@ -341,16 +395,44 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStream(
 	clientOutputStarted := func() bool {
 		return openAIStreamClientOutputStarted(c, output.ClientOutputStarted())
 	}
+	var firstOutputTimer *time.Timer
+	var firstOutputCh <-chan time.Time
+	if guardFirstOutput {
+		remaining := time.Until(startTime.Add(firstOutputTimeout))
+		if remaining <= 0 {
+			remaining = time.Nanosecond
+		}
+		firstOutputTimer = time.NewTimer(remaining)
+		firstOutputCh = firstOutputTimer.C
+		defer firstOutputTimer.Stop()
+	}
+	stopFirstOutputTimer := func() {
+		if firstOutputTimer == nil {
+			return
+		}
+		if !firstOutputTimer.Stop() {
+			select {
+			case <-firstOutputTimer.C:
+			default:
+			}
+		}
+		firstOutputTimer = nil
+		firstOutputCh = nil
+	}
 	finalize := func() (*openaiStreamingResult, error) {
 		if sawFailedEvent {
 			return resultWithUsage(), fmt.Errorf("upstream response failed: %s", failedMessage)
 		}
 		if !sawDone && !sawTerminalEvent {
 			if !clientOutputStarted() {
-				return resultWithUsage(), s.newOpenAIStreamFailoverError(
+				failoverErr := s.newOpenAIStreamFailoverError(
 					c, account, false, upstreamRequestID, nil,
 					"OpenAI stream ended before a terminal event",
 				)
+				if guardFirstOutput {
+					failoverErr.SafeToFailoverAfterWrite = true
+				}
+				return resultWithUsage(), failoverErr
 			}
 			return resultWithUsage(), errors.New("stream usage incomplete: missing terminal event")
 		}
@@ -379,7 +461,11 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStream(
 			if errText := strings.TrimSpace(readErr.Error()); errText != "" {
 				message += ": " + errText
 			}
-			return resultWithUsage(), s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, nil, message), true
+			failoverErr := s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, nil, message)
+			if guardFirstOutput {
+				failoverErr.SafeToFailoverAfterWrite = true
+			}
+			return resultWithUsage(), failoverErr, true
 		}
 		if output.ClientDisconnected() {
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete after disconnect: %w", readErr), true
@@ -419,7 +505,11 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStream(
 				}
 				if openAIStreamFailedEventShouldFailover(dataBytes, failedMessage) {
 					sawFailedEvent = true
-					return s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, dataBytes, failedMessage)
+					failoverErr := s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, dataBytes, failedMessage)
+					if guardFirstOutput {
+						failoverErr.SafeToFailoverAfterWrite = true
+					}
+					return failoverErr
 				}
 			}
 			forceFailedOutput = true
@@ -448,14 +538,23 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStream(
 			dataBytes = sanitizedData
 		}
 		startsOutput := forceFailedOutput || openAIStreamDataStartsClientOutput(string(dataBytes), eventType)
-		if firstTokenMs == nil && startsOutput {
-			ms := int(time.Since(startTime).Milliseconds())
-			firstTokenMs = &ms
-		}
 		s.parseSSEUsageBytes(dataBytes, usage)
 		wasStarted := output.ClientOutputStarted()
 		if err := output.WriteStreamEvent(stream.ActualProtocol, dataBytes); err != nil {
+			if guardFirstOutput && errors.Is(err, errOpenAIFirstOutputStageLimit) {
+				failoverErr := s.newOpenAIStreamFailoverError(
+					c, account, false, upstreamRequestID, nil,
+					"OpenAI first-output staging limit exceeded",
+				)
+				failoverErr.SafeToFailoverAfterWrite = true
+				return failoverErr
+			}
 			return err
+		}
+		if firstTokenMs == nil && startsOutput {
+			ms := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &ms
+			stopFirstOutputTimer()
 		}
 		if !output.ClientDisconnected() && (output.ClientOutputStarted() || wasStarted) {
 			lastDownstreamWriteAt = time.Now()
@@ -473,7 +572,7 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStream(
 			keepaliveInterval = time.Duration(s.cfg.Gateway.StreamKeepaliveInterval) * time.Second
 		}
 	}
-	if streamInterval <= 0 && keepaliveInterval <= 0 {
+	if streamInterval <= 0 && keepaliveInterval <= 0 && firstOutputTimeout <= 0 {
 		for {
 			record, nextErr := stream.Events.Next(context.Background())
 			if errors.Is(nextErr, protocoltransport.ErrSSEDone) {
@@ -494,18 +593,41 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStream(
 	}
 
 	type streamEvent struct {
-		record protocoltransport.SSERecord
-		err    error
+		record    protocoltransport.SSERecord
+		err       error
+		processed chan struct{}
 	}
-	events := make(chan streamEvent, 16)
+	events := make(chan streamEvent, openAIFirstOutputEventQueueSize(guardFirstOutput))
 	done := make(chan struct{})
+	sendEvent := func(event streamEvent) bool {
+		if guardFirstOutput {
+			event.processed = make(chan struct{})
+		}
+		select {
+		case events <- event:
+		case <-done:
+			return false
+		}
+		if event.processed == nil {
+			return true
+		}
+		select {
+		case <-event.processed:
+			return true
+		case <-done:
+			return false
+		}
+	}
+	markEventProcessed := func(event streamEvent) {
+		if event.processed != nil {
+			close(event.processed)
+		}
+	}
 	go func() {
 		defer close(events)
 		for {
 			record, nextErr := stream.Events.Next(context.Background())
-			select {
-			case events <- streamEvent{record: record, err: nextErr}:
-			case <-done:
+			if !sendEvent(streamEvent{record: record, err: nextErr}) {
 				return
 			}
 			if nextErr != nil {
@@ -542,17 +664,22 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStream(
 			}
 			if errors.Is(event.err, protocoltransport.ErrSSEDone) {
 				sawDone = true
+				markEventProcessed(event)
 				return finalize()
 			}
 			if errors.Is(event.err, io.EOF) {
+				markEventProcessed(event)
 				return finalize()
 			}
 			if result, readErr, handled := handleReadError(event.err); handled {
+				markEventProcessed(event)
 				return result, readErr
 			}
 			if err := processRecord(event.record); err != nil {
+				markEventProcessed(event)
 				return resultWithUsage(), err
 			}
+			markEventProcessed(event)
 
 		case <-intervalCh:
 			if time.Since(parser.Progress().LastReadAt) < streamInterval {
@@ -565,14 +692,56 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStream(
 			if s.rateLimitService != nil {
 				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 			}
+			if guardFirstOutput && firstTokenMs == nil {
+				_ = stream.Close()
+				for event := range events {
+					markEventProcessed(event)
+				}
+				failoverErr := s.newOpenAIStreamFailoverError(
+					c, account, false, upstreamRequestID, nil,
+					"OpenAI stream data interval timeout before first output",
+				)
+				failoverErr.SafeToFailoverAfterWrite = true
+				return resultWithUsage(), failoverErr
+			}
 			if isNativeResponsesProtocolOutput(output) {
 				payload := []byte(`{"type":"error","sequence_number":0,"error":{"type":"upstream_error","message":"stream_timeout","code":"stream_timeout"}}`)
 				_ = output.WriteStreamEvent(stream.ActualProtocol, payload)
 			}
 			return resultWithUsage(), errors.New("stream data interval timeout")
 
+		case <-firstOutputCh:
+			if firstTokenMs != nil {
+				stopFirstOutputTimer()
+				continue
+			}
+			_ = stream.Close()
+			for event := range events {
+				markEventProcessed(event)
+			}
+			return resultWithUsage(), s.newOpenAIFirstOutputTimeoutError(
+				ctx, c, account, startTime, originalModel, reasoningEffort,
+				firstOutputTimeout, "semantic_output", resp.Header,
+			)
+
 		case <-keepaliveCh:
-			if output.ClientDisconnected() || time.Since(lastDownstreamWriteAt) < keepaliveInterval {
+			if output.ClientDisconnected() || parser.Progress().InRecord || time.Since(lastDownstreamWriteAt) < keepaliveInterval {
+				continue
+			}
+			if guardFirstOutput && firstTokenMs == nil {
+				// Keep the downstream connection alive without committing attempt-local
+				// headers or buffered preamble events.
+				c.Header("Content-Type", "text/event-stream")
+				c.Header("Cache-Control", "no-cache")
+				c.Header("Connection", "keep-alive")
+				c.Header("X-Accel-Buffering", "no")
+				if _, err := c.Writer.Write([]byte(":\n\n")); err != nil {
+					return resultWithUsage(), err
+				}
+				if flusher, ok := c.Writer.(http.Flusher); ok {
+					flusher.Flush()
+				}
+				lastDownstreamWriteAt = time.Now()
 				continue
 			}
 			if err := output.WriteStreamKeepalive(); err != nil {
@@ -593,7 +762,7 @@ func (s *OpenAIGatewayService) handleStructuredResponsesPassthroughStream(
 	startTime time.Time,
 	output openAIProtocolOutput,
 ) (*openaiStreamingResultPassthrough, error) {
-	stream, err := s.collectStructuredResponsesStream(resp, startTime, output, true)
+	stream, err := s.collectStructuredResponsesStream(resp, startTime, output, true, false)
 	if err != nil {
 		return nil, err
 	}
