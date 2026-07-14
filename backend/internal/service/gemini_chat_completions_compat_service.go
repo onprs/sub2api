@@ -186,6 +186,7 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 	)
 
 	var resp *http.Response
+	var lastError *protocoltransport.Response
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
 		upstreamReq, idHeader, err := buildReq(ctx)
 		if err != nil {
@@ -216,61 +217,54 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 			return nil, writeError(http.StatusBadGateway, "upstream_error", "Upstream request failed after retries: "+safeErr)
 		}
 
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp); matched {
-			resp = rebuilt
-			break
-		} else {
-			resp = rebuilt
-		}
-
-		if resp.StatusCode >= 400 && s.shouldRetryGeminiUpstreamError(account, resp.StatusCode) {
-			respBody := s.readUpstreamErrorBody(resp)
-			_ = resp.Body.Close()
-			if resp.StatusCode == http.StatusForbidden && isGeminiInsufficientScope(resp.Header, respBody) {
-				resp = &http.Response{
-					StatusCode: resp.StatusCode,
-					Header:     resp.Header.Clone(),
-					Body:       io.NopCloser(bytes.NewReader(respBody)),
-				}
+		if resp.StatusCode >= http.StatusBadRequest {
+			upstream, collectErr := s.collectGeminiStructuredUpstreamError(resp, useUpstreamStream, requestIDHeader)
+			if collectErr != nil {
+				return nil, writeError(http.StatusBadGateway, "upstream_error", "Failed to read upstream error")
+			}
+			lastError = &upstream
+			if s.checkStructuredErrorPolicyInLoop(ctx, account, upstream) {
 				break
 			}
-			if resp.StatusCode == http.StatusTooManyRequests {
-				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-			}
-			if attempt < geminiMaxRetries {
-				upstreamReqID := resp.Header.Get(requestIDHeader)
-				if upstreamReqID == "" {
-					upstreamReqID = resp.Header.Get("x-goog-request-id")
+			if s.shouldRetryGeminiUpstreamError(account, upstream.StatusCode) {
+				if upstream.StatusCode == http.StatusForbidden && isGeminiInsufficientScope(upstream.Headers, upstream.Body) {
+					break
 				}
-				upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
-				upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-					Platform:           account.Platform,
-					AccountID:          account.ID,
-					AccountName:        account.Name,
-					UpstreamStatusCode: resp.StatusCode,
-					UpstreamRequestID:  upstreamReqID,
-					Kind:               "retry",
-					Message:            upstreamMsg,
-				})
-				logger.LegacyPrintf("service.gemini_chat_completions", "Gemini account %d: upstream status %d, retry %d/%d", account.ID, resp.StatusCode, attempt, geminiMaxRetries)
-				sleepGeminiBackoff(attempt)
-				continue
-			}
-			resp = &http.Response{
-				StatusCode: resp.StatusCode,
-				Header:     resp.Header.Clone(),
-				Body:       io.NopCloser(bytes.NewReader(respBody)),
+				if upstream.StatusCode == http.StatusTooManyRequests {
+					s.handleGeminiUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body)
+				}
+				if attempt < geminiMaxRetries {
+					upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(upstream.Body)))
+					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+						Platform:           account.Platform,
+						AccountID:          account.ID,
+						AccountName:        account.Name,
+						UpstreamStatusCode: upstream.StatusCode,
+						UpstreamRequestID:  upstream.RequestID,
+						Kind:               "retry",
+						Message:            upstreamMsg,
+					})
+					logger.LegacyPrintf("service.gemini_chat_completions", "Gemini account %d: upstream status %d, retry %d/%d", account.ID, upstream.StatusCode, attempt, geminiMaxRetries)
+					lastError = nil
+					sleepGeminiBackoff(attempt)
+					continue
+				}
 			}
 			break
 		}
 
+		lastError = nil
 		break
 	}
 
-	requestID := resp.Header.Get(requestIDHeader)
-	if requestID == "" {
-		requestID = resp.Header.Get("x-goog-request-id")
+	requestID := ""
+	if lastError != nil {
+		requestID = lastError.RequestID
+	} else if resp != nil {
+		requestID = resp.Header.Get(requestIDHeader)
+		if requestID == "" {
+			requestID = resp.Header.Get("x-goog-request-id")
+		}
 	}
 	if requestID != "" {
 		c.Header("x-request-id", requestID)
@@ -281,30 +275,31 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 	// 保持与 OpenAI 网关路径调用模式一致，便于未来上游变异时语义一致。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, input.OriginalBody, mappedModel)
 
-	if resp.StatusCode >= 400 {
-		defer func() { _ = resp.Body.Close() }()
-		respBody := s.readUpstreamErrorBody(resp)
-		s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-		evBody := unwrapIfNeeded(account.Type == AccountTypeOAuth, respBody)
+	if lastError != nil {
+		s.handleGeminiUpstreamError(ctx, account, lastError.StatusCode, lastError.Headers, lastError.Body)
+		evBody := unwrapIfNeeded(account.Type == AccountTypeOAuth, lastError.Body)
 
-		if s.shouldFailoverGeminiUpstreamError(resp.StatusCode) {
+		if s.shouldFailoverGeminiUpstreamError(lastError.StatusCode) {
 			upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(evBody)))
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,
 				AccountName:        account.Name,
-				UpstreamStatusCode: resp.StatusCode,
+				UpstreamStatusCode: lastError.StatusCode,
 				UpstreamRequestID:  requestID,
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
-			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: evBody}
+			return nil, &UpstreamFailoverError{
+				StatusCode: lastError.StatusCode, ResponseBody: evBody,
+				ResponseHeaders: protocoltransport.CloneHeaders(lastError.Headers),
+			}
 		}
 
 		if input.WriteMappedError == nil {
 			return nil, writeError(http.StatusBadGateway, "upstream_error", "Upstream request failed")
 		}
-		return nil, input.WriteMappedError(resp.StatusCode, requestID, evBody)
+		return nil, input.WriteMappedError(lastError.StatusCode, requestID, evBody)
 	}
 
 	var usage *ClaudeUsage
