@@ -97,3 +97,123 @@ func TestForwardStandardProtocolToAnthropicImmediateErrorsBeforeStreamCommit(t *
 		})
 	}
 }
+
+func TestGatewayService_AnthropicGenericImmediateStream400BeforeSSECommit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	responseBody := &standardAnthropicErrorCloseTrackingBody{Reader: strings.NewReader(`{"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}`)}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"rid-generic-stream-400"}},
+		Body:       responseBody,
+	}}
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{},
+	}
+	account := &Account{
+		ID: 2, Name: "anthropic-oauth", Platform: PlatformAnthropic, Type: AccountTypeOAuth, Concurrency: 1,
+		Credentials: map[string]any{"access_token": "test-token"},
+	}
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef([]byte(`{"model":"claude-3-5-sonnet-latest","messages":[{"role":"user","content":"hi"}],"stream":true}`)), PlatformAnthropic)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	require.JSONEq(t, `{"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}`, recorder.Body.String())
+	require.NotContains(t, recorder.Body.String(), "event:")
+	require.NotContains(t, recorder.Body.String(), "data:")
+	require.Equal(t, 1, responseBody.closeCount)
+	require.Equal(t, http.NoBody, upstream.resp.Body)
+}
+
+func TestGatewayService_AnthropicGenericRetryUsesFinalStructuredError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	firstBody := &standardAnthropicErrorCloseTrackingBody{Reader: strings.NewReader(`{"type":"error","error":{"type":"permission_error","message":"retry me"}}`)}
+	finalBody := &standardAnthropicErrorCloseTrackingBody{Reader: strings.NewReader(`{"type":"error","error":{"type":"invalid_request_error","message":"final bad request"}}`)}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusForbidden,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"rid-first-retry"}},
+			Body:       firstBody,
+		},
+		{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"rid-final-error"}},
+			Body:       finalBody,
+		},
+	}}
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{},
+	}
+	account := &Account{
+		ID: 3, Name: "anthropic-oauth-retry", Platform: PlatformAnthropic, Type: AccountTypeOAuth, Concurrency: 1,
+		Credentials: map[string]any{"access_token": "test-token"},
+	}
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef([]byte(`{"model":"claude-3-5-sonnet-latest","messages":[{"role":"user","content":"hi"}]}`)), PlatformAnthropic)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, 1, firstBody.closeCount)
+	require.Equal(t, 1, finalBody.closeCount)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	require.JSONEq(t, `{"type":"error","error":{"type":"invalid_request_error","message":"final bad request"}}`, recorder.Body.String())
+	require.NotContains(t, recorder.Body.String(), "retry me")
+}
+
+func TestGatewayService_AnthropicGenericFailoverPreservesDetachedError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	responseBody := &standardAnthropicErrorCloseTrackingBody{Reader: strings.NewReader(`{"type":"error","error":{"type":"api_error","message":"temporary outage"}}`)}
+	responseHeader := http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"rid-generic-failover"}, "X-Vendor-Detail": []string{"preserved"}}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusInternalServerError,
+		Header:     responseHeader,
+		Body:       responseBody,
+	}}
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{},
+	}
+	account := &Account{
+		ID: 4, Name: "anthropic-oauth-failover", Platform: PlatformAnthropic, Type: AccountTypeOAuth, Concurrency: 1,
+		Credentials: map[string]any{"access_token": "test-token"},
+	}
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef([]byte(`{"model":"claude-3-5-sonnet-latest","messages":[{"role":"user","content":"hi"}]}`)), PlatformAnthropic)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.False(t, c.Writer.Written())
+	require.Equal(t, 1, responseBody.closeCount)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusInternalServerError, failoverErr.StatusCode)
+	require.JSONEq(t, `{"type":"error","error":{"type":"api_error","message":"temporary outage"}}`, string(failoverErr.ResponseBody))
+	require.Equal(t, "rid-generic-failover", failoverErr.ResponseHeaders.Get("X-Request-Id"))
+	require.Equal(t, "preserved", failoverErr.ResponseHeaders.Get("X-Vendor-Detail"))
+
+	responseHeader.Set("X-Vendor-Detail", "mutated")
+	require.Equal(t, "preserved", failoverErr.ResponseHeaders.Get("X-Vendor-Detail"))
+}
