@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -92,6 +91,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	}
 
 	var resp *http.Response
+	var lastError *protocoltransport.Response
 	var requestPipeline *protocolconv.Pipeline
 	retryStart := time.Now()
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
@@ -146,8 +146,17 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 		}
 
+		lastError = nil
+		if resp.StatusCode >= 400 {
+			structured, collectErr := s.collectGatewayStructuredUpstreamError(resp, protocolconv.ProtocolAnthropic, input.RequestStream)
+			if collectErr != nil {
+				return nil, collectErr
+			}
+			lastError = &structured
+		}
+
 		// 透传分支禁止 400 请求体降级重试（该重试会改写请求体）
-		if resp.StatusCode >= 400 && resp.StatusCode != 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {
+		if lastError != nil && lastError.StatusCode != 400 && s.shouldRetryUpstreamError(account, lastError.StatusCode) {
 			if attempt < maxRetryAttempts {
 				elapsed := time.Since(retryStart)
 				if elapsed >= maxRetryElapsed {
@@ -163,27 +172,25 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 					break
 				}
 
-				respBody, _ := s.readUpstreamErrorBody(resp)
-				_ = resp.Body.Close()
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 					Platform:           account.Platform,
 					AccountID:          account.ID,
 					AccountName:        account.Name,
-					UpstreamStatusCode: resp.StatusCode,
-					UpstreamRequestID:  resp.Header.Get("x-request-id"),
+					UpstreamStatusCode: lastError.StatusCode,
+					UpstreamRequestID:  lastError.RequestID,
 					UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 					Passthrough:        true,
 					Kind:               "retry",
-					Message:            extractUpstreamErrorMessage(respBody),
+					Message:            extractUpstreamErrorMessage(lastError.Body),
 					Detail: func() string {
 						if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-							return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
+							return truncateString(string(lastError.Body), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
 						}
 						return ""
 					}(),
 				})
 				logger.LegacyPrintf("service.gateway", "Anthropic passthrough account %d: upstream error %d, retry %d/%d after %v (elapsed=%v/%v)",
-					account.ID, resp.StatusCode, attempt, maxRetryAttempts, delay, elapsed, maxRetryElapsed)
+					account.ID, lastError.StatusCode, attempt, maxRetryAttempts, delay, elapsed, maxRetryElapsed)
 				if err := sleepWithContext(ctx, delay); err != nil {
 					return nil, err
 				}
@@ -202,75 +209,69 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode >= 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {
-		if s.shouldFailoverUpstreamError(resp.StatusCode) {
-			respBody, _ := s.readUpstreamErrorBody(resp)
-			_ = resp.Body.Close()
-			resp.Body = io.NopCloser(bytes.NewReader(respBody))
-
+	if lastError != nil && s.shouldRetryUpstreamError(account, lastError.StatusCode) {
+		if s.shouldFailoverUpstreamError(lastError.StatusCode) {
 			logger.LegacyPrintf("service.gateway", "[Anthropic Passthrough] Upstream error (retry exhausted, failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
-				account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
+				account.ID, account.Name, lastError.StatusCode, lastError.RequestID, truncateString(string(lastError.Body), 1000))
 
-			s.handleRetryExhaustedSideEffects(ctx, resp, account)
+			s.handleRetryExhaustedStructuredSideEffects(ctx, *lastError, account)
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,
 				AccountName:        account.Name,
-				UpstreamStatusCode: resp.StatusCode,
-				UpstreamRequestID:  resp.Header.Get("x-request-id"),
+				UpstreamStatusCode: lastError.StatusCode,
+				UpstreamRequestID:  lastError.RequestID,
 				Passthrough:        true,
 				Kind:               "retry_exhausted_failover",
-				Message:            extractUpstreamErrorMessage(respBody),
+				Message:            extractUpstreamErrorMessage(lastError.Body),
 				Detail: func() string {
 					if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-						return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
+						return truncateString(string(lastError.Body), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
 					}
 					return ""
 				}(),
 			})
 			return nil, &UpstreamFailoverError{
-				StatusCode:             resp.StatusCode,
-				ResponseBody:           respBody,
-				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+				StatusCode:             lastError.StatusCode,
+				ResponseBody:           lastError.Body,
+				ResponseHeaders:        protocoltransport.CloneHeaders(lastError.Headers),
+				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(lastError.StatusCode),
 			}
 		}
-		return s.handleRetryExhaustedError(ctx, resp, c, account)
+		return s.handleRetryExhaustedStructuredError(ctx, *lastError, c, account)
 	}
 
-	if resp.StatusCode >= 400 && s.shouldFailoverUpstreamError(resp.StatusCode) {
-		respBody, _ := s.readUpstreamErrorBody(resp)
-		_ = resp.Body.Close()
-		resp.Body = io.NopCloser(bytes.NewReader(respBody))
-
+	if lastError != nil && s.shouldFailoverUpstreamError(lastError.StatusCode) {
 		logger.LegacyPrintf("service.gateway", "[Anthropic Passthrough] Upstream error (failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
-			account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
+			account.ID, account.Name, lastError.StatusCode, lastError.RequestID, truncateString(string(lastError.Body), 1000))
 
-		s.handleFailoverSideEffects(ctx, resp, account, input.RequestModel)
+		s.handleStructuredFailoverSideEffects(ctx, *lastError, account, input.RequestModel)
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform:           account.Platform,
 			AccountID:          account.ID,
 			AccountName:        account.Name,
-			UpstreamStatusCode: resp.StatusCode,
-			UpstreamRequestID:  resp.Header.Get("x-request-id"),
+			UpstreamStatusCode: lastError.StatusCode,
+			UpstreamRequestID:  lastError.RequestID,
 			Passthrough:        true,
 			Kind:               "failover",
-			Message:            extractUpstreamErrorMessage(respBody),
+			Message:            extractUpstreamErrorMessage(lastError.Body),
 			Detail: func() string {
 				if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-					return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
+					return truncateString(string(lastError.Body), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
 				}
 				return ""
 			}(),
 		})
 		return nil, &UpstreamFailoverError{
-			StatusCode:             resp.StatusCode,
-			ResponseBody:           respBody,
-			RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+			StatusCode:             lastError.StatusCode,
+			ResponseBody:           lastError.Body,
+			ResponseHeaders:        protocoltransport.CloneHeaders(lastError.Headers),
+			RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(lastError.StatusCode),
 		}
 	}
 
-	if resp.StatusCode >= 400 {
-		return s.handleErrorResponse(ctx, resp, c, account, input.RequestModel)
+	if lastError != nil {
+		return s.handleGatewayStructuredErrorResponse(ctx, *lastError, c, account, input.RequestModel)
 	}
 
 	var usage *ClaudeUsage

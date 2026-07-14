@@ -25,26 +25,30 @@ func (b *standardAnthropicErrorCloseTrackingBody) Close() error {
 	return nil
 }
 
-func TestCollectStandardAnthropicStreamErrorPreservesProtocolAndOwnership(t *testing.T) {
-	body := &standardAnthropicErrorCloseTrackingBody{Reader: strings.NewReader(`{"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}`)}
-	resp := &http.Response{
-		StatusCode: http.StatusBadRequest,
-		Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"rid-anthropic-error"}},
-		Body:       body,
+func TestCollectGatewayStructuredUpstreamErrorPreservesProtocolAndOwnership(t *testing.T) {
+	for _, streamRequested := range []bool{false, true} {
+		t.Run(map[bool]string{false: "buffered", true: "stream"}[streamRequested], func(t *testing.T) {
+			body := &standardAnthropicErrorCloseTrackingBody{Reader: strings.NewReader(`{"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}`)}
+			resp := &http.Response{
+				StatusCode: http.StatusBadRequest,
+				Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"rid-anthropic-error"}},
+				Body:       body,
+			}
+			svc := &GatewayService{}
+
+			upstream, err := svc.collectGatewayStructuredUpstreamError(resp, protocolconv.ProtocolAnthropic, streamRequested)
+			require.NoError(t, err)
+			require.Equal(t, protocolconv.ProtocolAnthropic, upstream.ActualProtocol)
+			require.Equal(t, http.StatusBadRequest, upstream.StatusCode)
+			require.Equal(t, "rid-anthropic-error", upstream.RequestID)
+			require.JSONEq(t, `{"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}`, string(upstream.Body))
+			require.Equal(t, 1, body.closeCount)
+			require.Equal(t, http.NoBody, resp.Body)
+
+			resp.Header.Set("X-Request-Id", "mutated")
+			require.Equal(t, "rid-anthropic-error", upstream.Headers.Get("X-Request-Id"))
+		})
 	}
-	svc := &GatewayService{}
-
-	upstream, err := svc.collectStandardAnthropicStreamError(resp)
-	require.NoError(t, err)
-	require.Equal(t, protocolconv.ProtocolAnthropic, upstream.ActualProtocol)
-	require.Equal(t, http.StatusBadRequest, upstream.StatusCode)
-	require.Equal(t, "rid-anthropic-error", upstream.RequestID)
-	require.JSONEq(t, `{"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}`, string(upstream.Body))
-	require.Equal(t, 1, body.closeCount)
-	require.Equal(t, http.NoBody, resp.Body)
-
-	resp.Header.Set("X-Request-Id", "mutated")
-	require.Equal(t, "rid-anthropic-error", upstream.Headers.Get("X-Request-Id"))
 }
 
 func TestForwardStandardProtocolToAnthropicImmediateErrorsBeforeStreamCommit(t *testing.T) {

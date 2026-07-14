@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -357,6 +356,13 @@ func (s *GatewayService) readUpstreamErrorBody(resp *http.Response) ([]byte, err
 	return io.ReadAll(io.LimitReader(resp.Body, limit))
 }
 
+type gatewayCollectedUpstreamError struct {
+	StatusCode int
+	Headers    http.Header
+	Body       []byte
+	RequestID  string
+}
+
 func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, requestedModel ...string) (*ForwardResult, error) {
 	body, readErr := s.readUpstreamErrorBody(resp)
 	if readErr != nil {
@@ -364,6 +370,50 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		// 避免静默吞掉导致误判。
 		logger.LegacyPrintf("service.gateway", "[Forward] Failed to fully read upstream error body: Account=%d(%s) Status=%d err=%v",
 			account.ID, account.Name, resp.StatusCode, readErr)
+	}
+	return s.handleGatewayCollectedErrorResponse(ctx, gatewayCollectedUpstreamError{
+		StatusCode: resp.StatusCode,
+		Headers:    resp.Header,
+		Body:       body,
+		RequestID:  resp.Header.Get("x-request-id"),
+	}, c, account, requestedModel...)
+}
+
+func (s *GatewayService) handleGatewayStructuredErrorResponse(
+	ctx context.Context,
+	upstream protocoltransport.Response,
+	c *gin.Context,
+	account *Account,
+	requestedModel ...string,
+) (*ForwardResult, error) {
+	if err := upstream.Validate(); err != nil {
+		return nil, fmt.Errorf("validate gateway error policy input: %w", err)
+	}
+	if !upstream.IsError() {
+		return nil, fmt.Errorf("gateway error policy received status %d", upstream.StatusCode)
+	}
+	return s.handleGatewayCollectedErrorResponse(ctx, gatewayCollectedUpstreamError{
+		StatusCode: upstream.StatusCode,
+		Headers:    protocoltransport.CloneHeaders(upstream.Headers),
+		Body:       append([]byte(nil), upstream.Body...),
+		RequestID:  upstream.RequestID,
+	}, c, account, requestedModel...)
+}
+
+func (s *GatewayService) handleGatewayCollectedErrorResponse(
+	ctx context.Context,
+	upstream gatewayCollectedUpstreamError,
+	c *gin.Context,
+	account *Account,
+	requestedModel ...string,
+) (*ForwardResult, error) {
+	body := upstream.Body
+	resp := &http.Response{StatusCode: upstream.StatusCode, Header: upstream.Headers}
+	if resp.Header == nil {
+		resp.Header = make(http.Header)
+	}
+	if resp.Header.Get("x-request-id") == "" && upstream.RequestID != "" {
+		resp.Header.Set("x-request-id", upstream.RequestID)
 	}
 
 	// 调试日志：打印上游错误响应
@@ -520,11 +570,18 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 
 func (s *GatewayService) handleRetryExhaustedSideEffects(ctx context.Context, resp *http.Response, account *Account) {
 	body, _ := s.readUpstreamErrorBody(resp)
-	statusCode := resp.StatusCode
+	s.handleRetryExhaustedStructuredSideEffects(ctx, protocoltransport.Response{
+		StatusCode: resp.StatusCode, Headers: protocoltransport.CloneHeaders(resp.Header), Body: body,
+		ActualProtocol: protocolconv.ProtocolAnthropic, RequestID: resp.Header.Get("x-request-id"),
+	}, account)
+}
+
+func (s *GatewayService) handleRetryExhaustedStructuredSideEffects(ctx context.Context, upstream protocoltransport.Response, account *Account) {
+	statusCode := upstream.StatusCode
 
 	// OAuth/Setup Token 账号的 403：标记账号异常
 	if account.IsOAuth() && statusCode == 403 {
-		s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, resp.Header, body)
+		s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, upstream.Headers, upstream.Body)
 		logger.LegacyPrintf("service.gateway", "Account %d: marked as error after %d retries for status %d", account.ID, maxRetryAttempts, statusCode)
 	} else {
 		// API Key 未配置错误码：不标记账号状态
@@ -534,25 +591,43 @@ func (s *GatewayService) handleRetryExhaustedSideEffects(ctx context.Context, re
 
 func (s *GatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, requestedModel ...string) {
 	body, _ := s.readUpstreamErrorBody(resp)
+	s.handleStructuredFailoverSideEffects(ctx, protocoltransport.Response{
+		StatusCode: resp.StatusCode, Headers: protocoltransport.CloneHeaders(resp.Header), Body: body,
+		ActualProtocol: protocolconv.ProtocolAnthropic, RequestID: resp.Header.Get("x-request-id"),
+	}, account, requestedModel...)
+}
+
+func (s *GatewayService) handleStructuredFailoverSideEffects(ctx context.Context, upstream protocoltransport.Response, account *Account, requestedModel ...string) {
 	if len(requestedModel) > 0 {
-		s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, requestedModel[0])
+		s.rateLimitService.HandleUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, requestedModel[0])
 		return
 	}
-	s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)
+	s.rateLimitService.HandleUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body)
 }
 
 // handleRetryExhaustedError 处理重试耗尽后的错误
 // OAuth 403：标记账号异常
 // API Key 未配置错误码：仅返回错误，不标记账号
 func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *http.Response, c *gin.Context, account *Account) (*ForwardResult, error) {
-	MarkResponseCommitted(c)
-	// Capture upstream error body before side-effects consume the stream.
 	respBody, _ := s.readUpstreamErrorBody(resp)
-	_ = resp.Body.Close()
-	resp.Body = io.NopCloser(bytes.NewReader(respBody))
+	return s.handleRetryExhaustedStructuredError(ctx, protocoltransport.Response{
+		StatusCode: resp.StatusCode, Headers: protocoltransport.CloneHeaders(resp.Header), Body: respBody,
+		ActualProtocol: protocolconv.ProtocolAnthropic, RequestID: resp.Header.Get("x-request-id"),
+	}, c, account)
+}
 
-	s.handleRetryExhaustedSideEffects(ctx, resp, account)
+func (s *GatewayService) handleRetryExhaustedStructuredError(ctx context.Context, upstream protocoltransport.Response, c *gin.Context, account *Account) (*ForwardResult, error) {
+	MarkResponseCommitted(c)
+	s.handleRetryExhaustedStructuredSideEffects(ctx, upstream, account)
 
+	respBody := upstream.Body
+	resp := &http.Response{StatusCode: upstream.StatusCode, Header: upstream.Headers}
+	if resp.Header == nil {
+		resp.Header = make(http.Header)
+	}
+	if resp.Header.Get("x-request-id") == "" && upstream.RequestID != "" {
+		resp.Header.Set("x-request-id", upstream.RequestID)
+	}
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 

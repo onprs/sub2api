@@ -73,7 +73,7 @@ func (s *GatewayService) forwardStandardProtocolToAnthropic(
 		return resp, nil
 	}
 
-	upstream, collectErr := s.collectStandardAnthropicStreamError(resp)
+	upstream, collectErr := s.collectGatewayStructuredUpstreamError(resp, protocolconv.ProtocolAnthropic, true)
 	if collectErr != nil {
 		return nil, collectErr
 	}
@@ -99,34 +99,48 @@ func (s *GatewayService) forwardStandardProtocolToAnthropic(
 	return nil, fmt.Errorf("upstream error: %d %s", upstream.StatusCode, upstreamMsg)
 }
 
-func (s *GatewayService) collectStandardAnthropicStreamError(resp *http.Response) (protocoltransport.Response, error) {
+func (s *GatewayService) collectGatewayStructuredUpstreamError(
+	resp *http.Response,
+	actualProtocol protocolconv.Protocol,
+	streamRequested bool,
+) (protocoltransport.Response, error) {
 	if resp == nil || resp.Body == nil {
-		return protocoltransport.Response{}, errors.New("collect Anthropic stream error: empty response")
+		return protocoltransport.Response{}, errors.New("collect structured upstream error: empty response")
 	}
-	stream := &protocoltransport.Stream{
-		StatusCode:     resp.StatusCode,
-		Headers:        protocoltransport.CloneHeaders(resp.Header),
-		ActualProtocol: protocolconv.ProtocolAnthropic,
-		RequestID:      resp.Header.Get("x-request-id"),
-		ErrorBody:      resp.Body,
-	}
+	headers := protocoltransport.CloneHeaders(resp.Header)
+	requestID := resp.Header.Get("x-request-id")
+	statusCode := resp.StatusCode
+	bodyReader := resp.Body
+	closeBody := bodyReader.Close
 	resp.Body = http.NoBody
-	if err := stream.Validate(); err != nil {
-		_ = stream.Close()
-		return protocoltransport.Response{}, fmt.Errorf("validate Anthropic upstream error stream: %w", err)
-	}
-	body, _ := s.readUpstreamErrorBody(&http.Response{Body: stream.ErrorBody})
-	_ = stream.Close()
 
+	if streamRequested {
+		stream := &protocoltransport.Stream{
+			StatusCode:     statusCode,
+			Headers:        headers,
+			ActualProtocol: actualProtocol,
+			RequestID:      requestID,
+			ErrorBody:      bodyReader,
+		}
+		if err := stream.Validate(); err != nil {
+			_ = stream.Close()
+			return protocoltransport.Response{}, fmt.Errorf("validate upstream error stream: %w", err)
+		}
+		bodyReader = stream.ErrorBody
+		closeBody = stream.Close
+	}
+
+	body, _ := s.readUpstreamErrorBody(&http.Response{Body: bodyReader})
+	_ = closeBody()
 	upstream := protocoltransport.Response{
-		StatusCode:     stream.StatusCode,
-		Headers:        stream.Headers,
+		StatusCode:     statusCode,
+		Headers:        headers,
 		Body:           body,
-		ActualProtocol: stream.ActualProtocol,
-		RequestID:      stream.RequestID,
+		ActualProtocol: actualProtocol,
+		RequestID:      requestID,
 	}
 	if err := upstream.Validate(); err != nil {
-		return protocoltransport.Response{}, fmt.Errorf("validate Anthropic upstream error response: %w", err)
+		return protocoltransport.Response{}, fmt.Errorf("validate structured upstream error response: %w", err)
 	}
 	return upstream, nil
 }

@@ -106,6 +106,16 @@ func (r *streamReadCloser) Read(p []byte) (int, error) {
 
 func (r *streamReadCloser) Close() error { return nil }
 
+type anthropicPassthroughErrorCloseTrackingBody struct {
+	io.Reader
+	closeCount int
+}
+
+func (b *anthropicPassthroughErrorCloseTrackingBody) Close() error {
+	b.closeCount++
+	return nil
+}
+
 type failWriteResponseWriter struct {
 	gin.ResponseWriter
 }
@@ -1048,6 +1058,36 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_MissingTerminalEventReturnsEr
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "missing terminal event")
 	require.NotNil(t, result)
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_ImmediateStream400BeforeSSECommit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"claude-3-5-sonnet-latest","stream":true,"messages":[{"role":"user","content":"hello"}]}`)
+	errorBody := `{"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}`
+	upstreamBody := &anthropicPassthroughErrorCloseTrackingBody{Reader: strings.NewReader(errorBody)}
+	upstream := &anthropicHTTPUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-anthropic-400"}},
+		Body:       upstreamBody,
+	}}
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{},
+	}
+
+	result, err := svc.forwardAnthropicAPIKeyPassthrough(context.Background(), c, newAnthropicAPIKeyAccountForTest(), body, "claude-3-5-sonnet-latest", "claude-3-5-sonnet-latest", true, time.Now())
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	require.JSONEq(t, errorBody, recorder.Body.String())
+	require.NotContains(t, recorder.Body.String(), "event:")
+	require.NotContains(t, recorder.Body.String(), "data:")
+	require.Equal(t, 1, upstreamBody.closeCount)
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_NonStreamingSuccess(t *testing.T) {
