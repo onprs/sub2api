@@ -14,6 +14,7 @@ import (
 
 // Response is a complete upstream HTTP result. ActualProtocol identifies the
 // wire schema in Body independently of account platform or requested endpoint.
+// Successful results require a body; HTTP errors may legitimately be empty.
 type Response struct {
 	StatusCode     int
 	Headers        http.Header
@@ -34,8 +35,8 @@ func (r Response) Validate() error {
 	if err := r.ActualProtocol.Validate(); err != nil {
 		return err
 	}
-	if len(r.Body) == 0 {
-		return fmt.Errorf("upstream response body is empty")
+	if len(r.Body) == 0 && !r.IsError() {
+		return fmt.Errorf("successful upstream response body is empty")
 	}
 	return nil
 }

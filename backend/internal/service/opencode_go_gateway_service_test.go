@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -22,6 +23,16 @@ type openCodeGoHTTPUpstreamStub struct {
 	resp  *http.Response
 	err   error
 	delay time.Duration
+}
+
+type openCodeGoCloseTrackingBody struct {
+	io.Reader
+	closeCount int
+}
+
+func (b *openCodeGoCloseTrackingBody) Close() error {
+	b.closeCount++
+	return nil
 }
 
 func (s *openCodeGoHTTPUpstreamStub) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
@@ -1065,6 +1076,104 @@ func TestOpenCodeGoGatewayServiceChatToMessagesStreamUsesPipeline(t *testing.T) 
 	}
 	if result == nil || result.Usage.InputTokens != 4 || result.Usage.OutputTokens != 2 {
 		t.Fatalf("unexpected usage result: %+v", result)
+	}
+}
+
+func TestCollectOpenCodeGoErrorResponsePreservesStructuredTransport(t *testing.T) {
+	body := &openCodeGoCloseTrackingBody{Reader: strings.NewReader(`{"error":{"message":"bad input"}}`)}
+	resp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header: http.Header{
+			"Content-Type": []string{"application/json"},
+			"X-Request-Id": []string{"req-structured"},
+		},
+		Body: body,
+	}
+
+	upstream, err := collectOpenCodeGoErrorResponse(resp, protocolconv.ProtocolOpenAIChat, false)
+	if err != nil {
+		t.Fatalf("collectOpenCodeGoErrorResponse error: %v", err)
+	}
+	if upstream.StatusCode != http.StatusBadRequest || upstream.ActualProtocol != protocolconv.ProtocolOpenAIChat {
+		t.Fatalf("unexpected structured error: %+v", upstream)
+	}
+	if upstream.RequestID != "req-structured" || string(upstream.Body) != `{"error":{"message":"bad input"}}` {
+		t.Fatalf("structured error lost metadata or body: %+v", upstream)
+	}
+	resp.Header.Set("X-Request-Id", "mutated")
+	if upstream.Headers.Get("X-Request-Id") != "req-structured" {
+		t.Fatalf("structured headers must be detached: %v", upstream.Headers)
+	}
+	if body.closeCount != 0 {
+		t.Fatalf("non-stream collector must not close caller-owned body, got %d closes", body.closeCount)
+	}
+}
+
+func TestCollectOpenCodeGoErrorStreamOwnsAndClosesBody(t *testing.T) {
+	body := &openCodeGoCloseTrackingBody{Reader: strings.NewReader(`{"error":{"message":"bad stream"}}`)}
+	resp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"X-Request-Id": []string{"req-stream-error"}},
+		Body:       body,
+	}
+
+	upstream, err := collectOpenCodeGoErrorResponse(resp, protocolconv.ProtocolAnthropic, true)
+	if err != nil {
+		t.Fatalf("collectOpenCodeGoErrorResponse error: %v", err)
+	}
+	if upstream.ActualProtocol != protocolconv.ProtocolAnthropic || string(upstream.Body) != `{"error":{"message":"bad stream"}}` {
+		t.Fatalf("unexpected structured stream error: %+v", upstream)
+	}
+	if body.closeCount != 1 {
+		t.Fatalf("structured stream must close transferred error body exactly once, got %d", body.closeCount)
+	}
+	if resp.Body != http.NoBody {
+		t.Fatalf("response body ownership must transfer to structured stream")
+	}
+}
+
+func TestOpenCodeGoGatewayServiceImmediateCrossProtocolErrorStaysBeforeSSECommit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	errorBody := `{"error":{"type":"invalid_request_error","message":"max_tokens must be greater than zero"}}`
+	responseBody := &openCodeGoCloseTrackingBody{Reader: strings.NewReader(errorBody)}
+	upstream := &openCodeGoHTTPUpstreamStub{
+		resp: &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Header: http.Header{
+				"Content-Type": []string{"application/json"},
+				"X-Request-Id": []string{"req-immediate"},
+			},
+			Body: responseBody,
+		},
+	}
+	svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{
+		ID: 42, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key": "ocg-secret",
+			"model_protocols": map[string]any{
+				"kimi-k2.7-code": OpenCodeGoProtocolChatCompletions,
+			},
+		},
+	}
+	requestBody := `{"model":"kimi-k2.7-code","messages":[{"role":"user","content":"hi"}],"max_tokens":0,"stream":true}`
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/messages", requestBody)
+
+	_, err := svc.ForwardMessages(context.Background(), rec.Context, account, []byte(requestBody))
+	if err == nil {
+		t.Fatal("expected immediate upstream error")
+	}
+	if rec.Recorder.Code != http.StatusBadRequest {
+		t.Fatalf("immediate stream error must retain upstream status before SSE commitment: code=%d body=%s", rec.Recorder.Code, rec.Recorder.Body.String())
+	}
+	if rec.Recorder.Body.String() != errorBody {
+		t.Fatalf("immediate error body must remain raw passthrough: %s", rec.Recorder.Body.String())
+	}
+	if strings.Contains(rec.Recorder.Body.String(), "data:") || strings.Contains(rec.Recorder.Body.String(), "event:") {
+		t.Fatalf("immediate error must not be buried in SSE: %s", rec.Recorder.Body.String())
+	}
+	if responseBody.closeCount != 1 {
+		t.Fatalf("upstream error body must close exactly once, got %d", responseBody.closeCount)
 	}
 }
 

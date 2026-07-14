@@ -176,7 +176,7 @@ func (s *OpenCodeGoGatewayService) forwardChatBody(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if err := s.handleUpstreamError(ctx, c, account, resp, responseMode.errorFormat()); err != nil {
+	if err := s.handleUpstreamError(ctx, c, account, resp, protocolconv.ProtocolOpenAIChat, responseMode.errorFormat(), gjson.GetBytes(body, "stream").Bool()); err != nil {
 		return nil, err
 	}
 	if gjson.GetBytes(body, "stream").Bool() {
@@ -214,7 +214,7 @@ func (s *OpenCodeGoGatewayService) forwardMessagesBody(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if err := s.handleUpstreamError(ctx, c, account, resp, responseMode.errorFormat()); err != nil {
+	if err := s.handleUpstreamError(ctx, c, account, resp, protocolconv.ProtocolAnthropic, responseMode.errorFormat(), gjson.GetBytes(body, "stream").Bool()); err != nil {
 		return nil, err
 	}
 	if gjson.GetBytes(body, "stream").Bool() {
@@ -309,15 +309,21 @@ func (s *OpenCodeGoGatewayService) handleUpstreamError(
 	c *gin.Context,
 	account *Account,
 	resp *http.Response,
+	actualProtocol protocolconv.Protocol,
 	format openCodeGoErrorFormat,
+	streamRequested bool,
 ) error {
 	if resp.StatusCode < 400 {
 		return nil
 	}
-	body := readOpenCodeGoErrorBody(resp.Body)
+	upstream, err := collectOpenCodeGoErrorResponse(resp, actualProtocol, streamRequested)
+	if err != nil {
+		return err
+	}
+	body := upstream.Body
 	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(body)))
 	if upstreamMsg == "" {
-		upstreamMsg = http.StatusText(resp.StatusCode)
+		upstreamMsg = http.StatusText(upstream.StatusCode)
 	}
 	detail := ""
 	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
@@ -327,24 +333,24 @@ func (s *OpenCodeGoGatewayService) handleUpstreamError(
 		}
 		detail = truncateString(string(body), maxBytes)
 	}
-	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, detail)
+	setOpsUpstreamError(c, upstream.StatusCode, upstreamMsg, detail)
 
-	if shouldFailoverOpenCodeGoResponse(resp.StatusCode, body) {
-		s.applyOpenCodeGoFailureSideEffects(ctx, account, resp.StatusCode, resp.Header, body)
+	if shouldFailoverOpenCodeGoResponse(upstream.StatusCode, body) {
+		s.applyOpenCodeGoFailureSideEffects(ctx, account, upstream.StatusCode, upstream.Headers, body)
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform:           account.Platform,
 			AccountID:          account.ID,
 			AccountName:        account.Name,
-			UpstreamStatusCode: resp.StatusCode,
-			UpstreamRequestID:  resp.Header.Get("x-request-id"),
+			UpstreamStatusCode: upstream.StatusCode,
+			UpstreamRequestID:  upstream.RequestID,
 			Kind:               "failover",
 			Message:            upstreamMsg,
 			Detail:             detail,
 		})
 		return &UpstreamFailoverError{
-			StatusCode:      resp.StatusCode,
+			StatusCode:      upstream.StatusCode,
 			ResponseBody:    body,
-			ResponseHeaders: resp.Header.Clone(),
+			ResponseHeaders: protocoltransport.CloneHeaders(upstream.Headers),
 		}
 	}
 
@@ -352,14 +358,14 @@ func (s *OpenCodeGoGatewayService) handleUpstreamError(
 		Platform:           account.Platform,
 		AccountID:          account.ID,
 		AccountName:        account.Name,
-		UpstreamStatusCode: resp.StatusCode,
-		UpstreamRequestID:  resp.Header.Get("x-request-id"),
+		UpstreamStatusCode: upstream.StatusCode,
+		UpstreamRequestID:  upstream.RequestID,
 		Kind:               "passthrough",
 		Message:            upstreamMsg,
 		Detail:             detail,
 	})
-	writeOpenCodeGoUpstreamResponse(c, resp, body, s.responseHeaderFilter, format)
-	return fmt.Errorf("opencode go upstream returned status %d", resp.StatusCode)
+	writeOpenCodeGoUpstreamResponse(c, upstream, s.responseHeaderFilter, format)
+	return fmt.Errorf("opencode go upstream returned status %d", upstream.StatusCode)
 }
 
 func (s *OpenCodeGoGatewayService) applyOpenCodeGoFailureSideEffects(ctx context.Context, account *Account, statusCode int, headers http.Header, body []byte) {
@@ -983,19 +989,59 @@ func optionalUpstreamModel(model string, upstreamModel string) string {
 	return upstreamModel
 }
 
-func writeOpenCodeGoUpstreamResponse(c *gin.Context, resp *http.Response, body []byte, filter *responseheaders.CompiledHeaderFilter, format openCodeGoErrorFormat) {
-	if filter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, filter)
+func collectOpenCodeGoErrorResponse(resp *http.Response, actualProtocol protocolconv.Protocol, streamRequested bool) (protocoltransport.Response, error) {
+	if resp == nil {
+		return protocoltransport.Response{}, fmt.Errorf("collect OpenCode Go error response: nil response")
 	}
-	if ct := resp.Header.Get("Content-Type"); ct != "" {
+	headers := protocoltransport.CloneHeaders(resp.Header)
+	requestID := resp.Header.Get("x-request-id")
+	var body []byte
+	if streamRequested {
+		stream := &protocoltransport.Stream{
+			StatusCode:     resp.StatusCode,
+			Headers:        headers,
+			ActualProtocol: actualProtocol,
+			RequestID:      requestID,
+			ErrorBody:      resp.Body,
+		}
+		if err := stream.Validate(); err != nil {
+			return protocoltransport.Response{}, fmt.Errorf("validate OpenCode Go error stream: %w", err)
+		}
+		resp.Body = http.NoBody
+		body = readOpenCodeGoErrorBody(stream.ErrorBody)
+		_ = stream.Close()
+	} else {
+		body = readOpenCodeGoErrorBody(resp.Body)
+	}
+	upstream := protocoltransport.Response{
+		StatusCode:     resp.StatusCode,
+		Headers:        headers,
+		Body:           body,
+		ActualProtocol: actualProtocol,
+		RequestID:      requestID,
+	}
+	if err := upstream.Validate(); err != nil {
+		return protocoltransport.Response{}, fmt.Errorf("validate OpenCode Go error response: %w", err)
+	}
+	if !upstream.IsError() {
+		return protocoltransport.Response{}, fmt.Errorf("collect OpenCode Go error response: status %d is not an error", upstream.StatusCode)
+	}
+	return upstream, nil
+}
+
+func writeOpenCodeGoUpstreamResponse(c *gin.Context, upstream protocoltransport.Response, filter *responseheaders.CompiledHeaderFilter, format openCodeGoErrorFormat) {
+	if filter != nil {
+		responseheaders.WriteFilteredHeaders(c.Writer.Header(), upstream.Headers, filter)
+	}
+	if ct := upstream.Headers.Get("Content-Type"); ct != "" {
 		c.Writer.Header().Set("Content-Type", ct)
 	} else if format == openCodeGoErrorFormatAnthropic {
 		c.Writer.Header().Set("Content-Type", "application/json")
 	} else {
 		c.Writer.Header().Set("Content-Type", "application/json")
 	}
-	c.Writer.WriteHeader(resp.StatusCode)
-	_, _ = c.Writer.Write(body)
+	c.Writer.WriteHeader(upstream.StatusCode)
+	_, _ = c.Writer.Write(upstream.Body)
 }
 
 func readOpenCodeGoErrorBody(body io.Reader) []byte {

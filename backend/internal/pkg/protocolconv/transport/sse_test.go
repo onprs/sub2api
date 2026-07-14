@@ -205,7 +205,8 @@ func TestStructuredResultsExposeStatusProtocolAndDeterministicClose(t *testing.T
 
 func TestStructuredResultsRejectMissingActualProtocolAndBodyShape(t *testing.T) {
 	require.Error(t, (Response{StatusCode: http.StatusOK, Body: []byte(`{}`)}).Validate())
-	require.Error(t, (Response{StatusCode: http.StatusOK, ActualProtocol: protocolconv.ProtocolOpenAIChat}).Validate())
+	require.ErrorContains(t, (Response{StatusCode: http.StatusOK, ActualProtocol: protocolconv.ProtocolOpenAIChat}).Validate(), "successful upstream response body is empty")
+	require.NoError(t, (Response{StatusCode: http.StatusBadRequest, ActualProtocol: protocolconv.ProtocolOpenAIChat}).Validate())
 
 	success := &Stream{StatusCode: http.StatusOK, ActualProtocol: protocolconv.ProtocolOpenAIChat}
 	require.ErrorContains(t, success.Validate(), "no SSE parser")
