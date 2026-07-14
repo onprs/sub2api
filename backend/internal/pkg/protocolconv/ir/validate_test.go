@@ -51,6 +51,23 @@ func TestValidateRequestRejectsInvalidRolePartCombination(t *testing.T) {
 	require.Equal(t, "messages[0].content[0]", validationErr.Path)
 }
 
+func TestValidateRequestRejectsAmbiguousToolResultContent(t *testing.T) {
+	request := &Request{
+		Model: "test-model",
+		Messages: []Message{{
+			Role: RoleTool,
+			Content: []ContentPart{{
+				Type:              ContentToolResult,
+				ToolCallID:        "call-1",
+				ToolResult:        json.RawMessage(`"text"`),
+				ToolResultContent: []ContentPart{{Type: ContentText, Text: "text"}},
+			}},
+		}},
+	}
+
+	require.ErrorContains(t, ValidateRequest(request), "mutually exclusive")
+}
+
 func TestLinkToolResultsFillsNameFromPrecedingCall(t *testing.T) {
 	request := &Request{Messages: []Message{
 		{Role: RoleAssistant, Content: []ContentPart{{Type: ContentToolCall, ToolCallID: "call-1", ToolName: "read_file"}}},

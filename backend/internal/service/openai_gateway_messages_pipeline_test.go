@@ -367,6 +367,65 @@ func TestHandleAnthropicStreamingResponseRejectsMalformedBeforeCommit(t *testing
 	require.Empty(t, recorder.Body.String())
 }
 
+func TestForwardAsAnthropic_RequestUsesPipelineMultimodalToolResult(t *testing.T) {
+	body := []byte(`{
+		"model":"client-model",
+		"max_tokens":32,
+		"stream":false,
+		"messages":[
+			{"role":"assistant","content":[{"type":"tool_use","id":"call-image","name":"inspect","input":{}}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"call-image","content":[
+				{"type":"text","text":"chart"},
+				{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAAA"}}
+			]}]}
+		],
+		"tools":[{"name":"inspect","input_schema":{"type":"object"}}]
+	}`)
+	upstreamBody := strings.Join([]string{
+		`data: {"type":"response.completed","response":{"id":"resp_multimodal","object":"response","model":"upstream-model","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":8,"output_tokens":2,"total_tokens":10}}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &OpenAIGatewayService{
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		}},
+	}
+	account := &Account{
+		ID: 73, Name: "responses-multimodal", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "test-key", "base_url": "https://api.openai.com/v1",
+			"model_mapping": map[string]any{"client-model": "upstream-model"},
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesMode:      string(openai_compat.ResponsesSupportModeAuto),
+			openai_compat.ExtraKeyResponsesSupported: true,
+		},
+	}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, protocolconv.ProtocolOpenAIResponses, result.ActualProtocol)
+	require.Equal(t, "function_call", gjson.GetBytes(upstream.lastBody, "input.0.type").String())
+	require.Equal(t, "call-image", gjson.GetBytes(upstream.lastBody, "input.0.call_id").String())
+	require.Equal(t, "function_call_output", gjson.GetBytes(upstream.lastBody, "input.1.type").String())
+	require.Equal(t, "input_text", gjson.GetBytes(upstream.lastBody, "input.1.output.0.type").String())
+	require.Equal(t, "chart", gjson.GetBytes(upstream.lastBody, "input.1.output.0.text").String())
+	require.Equal(t, "input_image", gjson.GetBytes(upstream.lastBody, "input.1.output.1.type").String())
+	require.Equal(t, "data:image/png;base64,AAAA", gjson.GetBytes(upstream.lastBody, "input.1.output.1.image_url").String())
+}
+
 func TestForwardAsAnthropic_ResponsesStreamUsesRequestPipeline(t *testing.T) {
 	body := []byte(`{"model":"client-model","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"lookup"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`)
 	upstreamBody := strings.Join([]string{

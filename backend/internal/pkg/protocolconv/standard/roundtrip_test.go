@@ -9,6 +9,45 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAnthropicToResponsesPreservesMultimodalToolResult(t *testing.T) {
+	registry, err := NewRegistry()
+	require.NoError(t, err)
+	body := []byte(`{
+		"model":"claude-test",
+		"max_tokens":64,
+		"messages":[
+			{"role":"assistant","content":[{"type":"tool_use","id":"call-image","name":"inspect","input":{}}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"call-image","content":[
+				{"type":"text","text":"chart"},
+				{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAAA"}}
+			]}]}
+		]
+	}`)
+
+	converted, warnings, err := registry.ConvertRequest(body, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIResponses, protocolconv.Options{LossPolicy: protocolconv.LossError})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+
+	var wire struct {
+		Input []struct {
+			Type   string `json:"type"`
+			CallID string `json:"call_id"`
+			Output []struct {
+				Type     string `json:"type"`
+				Text     string `json:"text"`
+				ImageURL string `json:"image_url"`
+			} `json:"output"`
+		} `json:"input"`
+	}
+	require.NoError(t, json.Unmarshal(converted, &wire))
+	require.Len(t, wire.Input, 2)
+	require.Equal(t, "function_call_output", wire.Input[1].Type)
+	require.Equal(t, "call-image", wire.Input[1].CallID)
+	require.Len(t, wire.Input[1].Output, 2)
+	require.Equal(t, "chart", wire.Input[1].Output[0].Text)
+	require.Equal(t, "data:image/png;base64,AAAA", wire.Input[1].Output[1].ImageURL)
+}
+
 func TestRoundTripDoesNotInflateHistory(t *testing.T) {
 	registry, err := NewRegistry()
 	require.NoError(t, err)

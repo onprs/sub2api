@@ -69,13 +69,14 @@ type ContentPart struct {
 	Name      string
 	Detail    string
 
-	ToolCallID    string
-	ToolName      string
-	ToolKind      string
-	ToolNamespace string
-	ToolInput     json.RawMessage
-	ToolResult    json.RawMessage
-	IsError       bool
+	ToolCallID        string
+	ToolName          string
+	ToolKind          string
+	ToolNamespace     string
+	ToolInput         json.RawMessage
+	ToolResult        json.RawMessage
+	ToolResultContent []ContentPart
+	IsError           bool
 
 	Reasoning string
 	Signature string

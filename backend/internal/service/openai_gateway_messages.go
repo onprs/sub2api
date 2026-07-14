@@ -98,8 +98,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		compatReplayTrimmed = applyAnthropicCompatFullReplayGuard(&anthropicReq)
 	}
 
-	// Establish the standard request lifecycle and request-scoped tool/model
-	// metadata before applying the retained Codex request policy below.
+	// Establish the standard request lifecycle from the source request after
+	// source-owned normalization/replay policy. This exact Pipeline is retained
+	// for the successful Responses reply and its request-scoped tool metadata.
 	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
 		Route: protocolconv.Route{
 			Source: protocolconv.ProtocolAnthropic, IntendedTarget: protocolconv.ProtocolOpenAIResponses,
@@ -110,35 +111,45 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if err != nil {
 		return nil, fmt.Errorf("create Anthropic Responses pipeline: %w", err)
 	}
-	if _, err := pipeline.ConvertRequest(body); err != nil {
+	normalizedSourceBody, err := json.Marshal(&anthropicReq)
+	if err != nil {
+		return nil, fmt.Errorf("marshal normalized Anthropic request: %w", err)
+	}
+	convertedRequest, err := pipeline.ConvertRequest(normalizedSourceBody)
+	if err != nil {
 		return nil, fmt.Errorf("convert Anthropic request through standard pipeline: %w", err)
 	}
 
-	// Keep the Codex-specific request transform here. Beyond wire conversion it
-	// preserves developer-input ordering, provider defaults, continuation
-	// trimming, and call-ID normalization.
-	responsesReq, err := apicompat.AnthropicToResponses(&anthropicReq)
+	// Codex policy runs only after standard conversion. It adds provider
+	// defaults, moves source system text into developer input, and preserves the
+	// historical continuation/cache shape without rebuilding message semantics.
+	responsesBody, err := applyOpenAICodexMessagesRequestPolicy(convertedRequest.Body, anthropicReq.System, upstreamModel)
 	if err != nil {
-		return nil, fmt.Errorf("convert anthropic to responses: %w", err)
+		return nil, err
+	}
+	var responsesPolicyBody map[string]any
+	if err := json.Unmarshal(responsesBody, &responsesPolicyBody); err != nil {
+		return nil, fmt.Errorf("decode Codex Messages policy body: %w", err)
 	}
 
 	// Upstream always uses streaming (upstream may not support sync mode).
 	// The client's original preference determines the response format.
-	responsesReq.Stream = true
 	isStream := true
 
 	// 3b. Handle BetaFastMode → service_tier: "priority"
 	if containsBetaToken(c.GetHeader("anthropic-beta"), claude.BetaFastMode) {
-		responsesReq.ServiceTier = "priority"
+		responsesPolicyBody["service_tier"] = "priority"
 	}
-
-	responsesReq.Model = upstreamModel
 	if previousResponseID != "" {
-		responsesReq.PreviousResponseID = previousResponseID
-		trimAnthropicCompatResponsesInputToLatestTurn(responsesReq)
+		responsesPolicyBody["previous_response_id"] = previousResponseID
+		trimOpenAICompatResponsesBodyToLatestTurn(responsesPolicyBody)
 	}
 	if compatReplayGuardEnabled && account.Type != AccountTypeOAuth {
-		appendOpenAICompatClaudeCodeTodoGuard(responsesReq)
+		appendOpenAICompatClaudeCodeTodoGuardToRequestBody(responsesPolicyBody)
+	}
+	responsesBody, err = json.Marshal(responsesPolicyBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal Codex Messages policy body: %w", err)
 	}
 
 	logFields := []zap.Field{
@@ -172,12 +183,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 	logger.L().Debug("openai messages: model mapping applied", logFields...)
 
-	// 4. Marshal Responses request body, then apply OAuth codex transform
-	responsesBody, err := json.Marshal(responsesReq)
-	if err != nil {
-		return nil, fmt.Errorf("marshal responses request: %w", err)
-	}
-
+	// 4. Apply OAuth Codex transport policy to the standard converted body.
 	if account.Type == AccountTypeOAuth && account.Platform != PlatformGrok {
 		var reqBody map[string]any
 		if err := json.Unmarshal(responsesBody, &reqBody); err != nil {
@@ -399,14 +405,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		if promptCacheKey != "" && anthropicDigestChain != "" {
 			s.bindOpenAICompatAnthropicDigestPromptCacheKey(account, apiKeyID, anthropicDigestChain, promptCacheKey, anthropicMatchedDigestChain)
 		}
-		if responsesReq.ServiceTier != "" {
-			st := responsesReq.ServiceTier
-			result.ServiceTier = &st
-		}
-		if responsesReq.Reasoning != nil && responsesReq.Reasoning.Effort != "" {
-			re := responsesReq.Reasoning.Effort
-			result.ReasoningEffort = &re
-		}
+		result.ServiceTier = extractOpenAIServiceTierFromBody(responsesBody)
+		result.ReasoningEffort = extractOpenAIReasoningEffortFromBody(responsesBody, upstreamModel)
 	}
 
 	// Extract and save Codex usage snapshot from response headers (for OAuth accounts).

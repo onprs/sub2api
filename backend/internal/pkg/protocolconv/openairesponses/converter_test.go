@@ -62,6 +62,58 @@ func TestRequestRoundTripPreservesExtendedToolSemantics(t *testing.T) {
 	require.Equal(t, "send", gjson.GetBytes(encoded, "tools.2.tools.0.name").String())
 }
 
+func TestRequestRoundTripPreservesMultimodalToolResult(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-5.4",
+		"input":[
+			{"type":"function_call","call_id":"call-image","name":"inspect","arguments":"{}"},
+			{"type":"function_call_output","call_id":"call-image","output":[
+				{"type":"input_text","text":"chart"},
+				{"type":"input_image","image_url":"data:image/png;base64,AAAA"}
+			]}
+		]
+	}`)
+	converter := New()
+	options := protocolconv.Options{LossPolicy: protocolconv.LossError}
+
+	request, warnings, err := converter.DecodeRequest(body, options)
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Len(t, request.Messages, 2)
+	result := request.Messages[1].Content[0]
+	require.Empty(t, result.ToolResult)
+	require.Len(t, result.ToolResultContent, 2)
+	require.Equal(t, "chart", result.ToolResultContent[0].Text)
+	require.Equal(t, "image/png", result.ToolResultContent[1].MediaType)
+	require.Equal(t, "AAAA", result.ToolResultContent[1].Data)
+
+	encoded, warnings, err := converter.EncodeRequest(request, options)
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, "input_text", gjson.GetBytes(encoded, "input.1.output.0.type").String())
+	require.Equal(t, "chart", gjson.GetBytes(encoded, "input.1.output.0.text").String())
+	require.Equal(t, "data:image/png;base64,AAAA", gjson.GetBytes(encoded, "input.1.output.1.image_url").String())
+}
+
+func TestToolChoiceAnyUsesResponsesRequiredWireValue(t *testing.T) {
+	converter := New()
+	options := protocolconv.Options{LossPolicy: protocolconv.LossError}
+	request, warnings, err := converter.DecodeRequest([]byte(`{
+		"model":"gpt-5.4",
+		"input":"hello",
+		"tool_choice":"required"
+	}`), options)
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.NotNil(t, request.ToolChoice)
+	require.Equal(t, "any", request.ToolChoice.Mode)
+
+	encoded, warnings, err := converter.EncodeRequest(request, options)
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, "required", gjson.GetBytes(encoded, "tool_choice").String())
+}
+
 func TestResponseRoundTripPreservesExtendedToolCalls(t *testing.T) {
 	body := []byte(`{
 		"id":"resp-tools",

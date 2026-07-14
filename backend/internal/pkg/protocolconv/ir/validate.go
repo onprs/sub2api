@@ -133,10 +133,36 @@ func validateContentPart(role Role, part *ContentPart, path string) error {
 		if len(part.ToolResult) > 0 && !json.Valid(part.ToolResult) {
 			return &ValidationError{Path: path + ".tool_result", Message: "tool result must be valid JSON"}
 		}
+		if len(part.ToolResult) > 0 && len(part.ToolResultContent) > 0 {
+			return &ValidationError{Path: path, Message: "tool result scalar and multipart content are mutually exclusive"}
+		}
+		for i := range part.ToolResultContent {
+			contentPath := fmt.Sprintf("%s.tool_result_content[%d]", path, i)
+			if err := validateToolResultContentPart(&part.ToolResultContent[i], contentPath); err != nil {
+				return err
+			}
+		}
 	case ContentReasoning, ContentRefusal, ContentCitation, ContentAudio:
 		return nil
 	default:
 		return &ValidationError{Path: path + ".type", Message: fmt.Sprintf("unsupported content type %q", part.Type)}
 	}
 	return nil
+}
+
+func validateToolResultContentPart(part *ContentPart, path string) error {
+	if part == nil {
+		return &ValidationError{Path: path, Message: "tool result content part is nil"}
+	}
+	switch part.Type {
+	case ContentText:
+		return nil
+	case ContentImage, ContentFile, ContentAudio:
+		if part.URL == "" && part.Data == "" {
+			return &ValidationError{Path: path, Message: fmt.Sprintf("%s requires URL or data", part.Type)}
+		}
+		return nil
+	default:
+		return &ValidationError{Path: path + ".type", Message: fmt.Sprintf("unsupported tool result content type %q", part.Type)}
+	}
 }

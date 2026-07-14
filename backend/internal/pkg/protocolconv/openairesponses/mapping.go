@@ -3,6 +3,7 @@ package openairesponses
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
@@ -74,18 +75,16 @@ func decodeInput(raw json.RawMessage, messages *[]ir.Message) error {
 				ToolInput:     args,
 			}}})
 		case "function_call_output", "custom_tool_call_output", "tool_search_output":
-			result := item.Output
-			if len(result) == 0 {
-				result = json.RawMessage(`""`)
-			}
-			if !json.Valid(result) {
-				result, _ = json.Marshal(string(result))
+			result, content, err := decodeToolResultValue(item.Output)
+			if err != nil {
+				return err
 			}
 			*messages = append(*messages, ir.Message{Role: ir.RoleTool, Content: []ir.ContentPart{{
-				Type:       ir.ContentToolResult,
-				ToolCallID: item.CallID,
-				ToolKind:   toolCallKindFromOutput(item.Type),
-				ToolResult: result,
+				Type:              ir.ContentToolResult,
+				ToolCallID:        item.CallID,
+				ToolKind:          toolCallKindFromOutput(item.Type),
+				ToolResult:        result,
+				ToolResultContent: content,
 			}}})
 		case "reasoning":
 			var text strings.Builder
@@ -173,7 +172,12 @@ func encodeInput(messages []ir.Message, capabilities protocolconv.CapabilitySet,
 				items = append(items, encodeInputToolCall(part))
 			case ir.ContentToolResult:
 				flush()
-				items = append(items, map[string]any{"type": toolOutputKind(part.ToolKind), "call_id": part.ToolCallID, "output": toolResultValue(part.ToolKind, part.ToolResult)})
+				output, outputWarnings, err := encodeToolResultValue(part, capabilities, options, fmt.Sprintf("messages[%d].content[%d]", i, j))
+				warnings = append(warnings, outputWarnings...)
+				if err != nil {
+					return nil, warnings, err
+				}
+				items = append(items, map[string]any{"type": toolOutputKind(part.ToolKind), "call_id": part.ToolCallID, "output": output})
 			default:
 				warning, err := unsupported(protocolconv.ProtocolOpenAIResponses, capabilityForPart(part.Type), path, options)
 				warnings = append(warnings, warning...)
@@ -238,18 +242,90 @@ func toolOutputKind(kind string) string {
 	}
 }
 
-func toolResultValue(kind string, result json.RawMessage) any {
-	if kind != "tool_search_call" {
-		return toolResultString(result)
+func decodeToolResultValue(raw json.RawMessage) (json.RawMessage, []ir.ContentPart, error) {
+	if len(raw) == 0 {
+		return json.RawMessage(`""`), nil, nil
 	}
-	if len(result) == 0 {
-		return ""
+	if bytes.HasPrefix(bytes.TrimSpace(raw), []byte("[")) {
+		var parts []map[string]json.RawMessage
+		if json.Unmarshal(raw, &parts) == nil && len(parts) > 0 {
+			for _, part := range parts {
+				var kind string
+				_ = json.Unmarshal(part["type"], &kind)
+				if kind != "input_text" && kind != "text" && kind != "input_image" {
+					return cloneRaw(raw), nil, nil
+				}
+			}
+			content, err := decodeMessageContent(raw, ir.RoleTool)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, content, nil
+		}
 	}
-	var value any
-	if json.Unmarshal(result, &value) == nil {
-		return value
+	if !json.Valid(raw) {
+		encoded, _ := json.Marshal(string(raw))
+		return encoded, nil, nil
 	}
-	return string(result)
+	return cloneRaw(raw), nil, nil
+}
+
+func encodeToolResultValue(part ir.ContentPart, capabilities protocolconv.CapabilitySet, options protocolconv.Options, path string) (any, []protocolconv.Warning, error) {
+	if len(part.ToolResultContent) == 0 {
+		if part.ToolKind != "tool_search_call" {
+			return toolResultString(part.ToolResult), nil, nil
+		}
+		if len(part.ToolResult) == 0 {
+			return "", nil, nil
+		}
+		var value any
+		if json.Unmarshal(part.ToolResult, &value) == nil {
+			return value, nil, nil
+		}
+		return string(part.ToolResult), nil, nil
+	}
+
+	content := make([]map[string]any, 0, len(part.ToolResultContent))
+	var warnings []protocolconv.Warning
+	for i, resultPart := range part.ToolResultContent {
+		partPath := fmt.Sprintf("%s.tool_result_content[%d]", path, i)
+		switch resultPart.Type {
+		case ir.ContentText:
+			content = append(content, map[string]any{"type": "input_text", "text": resultPart.Text})
+		case ir.ContentImage:
+			capability := protocolconv.CapabilityImageURL
+			if resultPart.Data != "" {
+				capability = protocolconv.CapabilityImageData
+			}
+			capabilityWarnings, err := checkContentCapability(capabilities, capability, partPath, options)
+			warnings = append(warnings, capabilityWarnings...)
+			if err != nil {
+				return nil, warnings, err
+			}
+			content = append(content, map[string]any{"type": "input_image", "image_url": imagePartURL(resultPart)})
+		default:
+			capability := protocolconv.CapabilityFile
+			if resultPart.Type == ir.ContentAudio {
+				capability = protocolconv.CapabilityAudio
+			}
+			capabilityWarnings, err := unsupported(protocolconv.ProtocolOpenAIResponses, capability, partPath, options)
+			warnings = append(warnings, capabilityWarnings...)
+			if err != nil {
+				return nil, warnings, err
+			}
+		}
+	}
+	return content, warnings, nil
+}
+
+func checkContentCapability(capabilities protocolconv.CapabilitySet, capability protocolconv.Capability, path string, options protocolconv.Options) ([]protocolconv.Warning, error) {
+	if capabilities.Support(capability) != protocolconv.SupportNone {
+		return nil, nil
+	}
+	if options.LossPolicy == protocolconv.LossWarn {
+		return []protocolconv.Warning{{Code: protocolconv.WarningUnsupportedCapability, Protocol: protocolconv.ProtocolOpenAIResponses, Capability: capability, Path: path, Message: "content dropped from tool result"}}, nil
+	}
+	return nil, &protocolconv.Error{Code: protocolconv.ErrorUnsupportedCapability, Protocol: protocolconv.ProtocolOpenAIResponses, Capability: capability, Path: path}
 }
 
 func decodeTools(tools []apicompat.ResponsesTool) []ir.ToolDefinition {
@@ -296,6 +372,9 @@ func decodeToolChoice(raw json.RawMessage) *ir.ToolChoice {
 	}
 	var mode string
 	if json.Unmarshal(raw, &mode) == nil {
+		if mode == "required" {
+			mode = "any"
+		}
 		return &ir.ToolChoice{Mode: mode}
 	}
 	var value struct {
@@ -331,7 +410,11 @@ func encodeToolChoice(choice *ir.ToolChoice) json.RawMessage {
 		body, _ := json.Marshal(value)
 		return body
 	}
-	body, _ := json.Marshal(choice.Mode)
+	mode := choice.Mode
+	if mode == "any" {
+		mode = "required"
+	}
+	body, _ := json.Marshal(mode)
 	return body
 }
 
