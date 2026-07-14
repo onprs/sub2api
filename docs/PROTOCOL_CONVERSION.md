@@ -54,7 +54,7 @@ The Antigravity adapter remains responsible for:
 | Text and ordered parts | Yes | Yes | Yes | Yes | Required |
 | System/developer instruction | Yes | Yes | Yes | Yes | Developer role may normalize to system where no distinct role exists |
 | Base64/URL image input | Yes | Yes | Base64 standard form | Yes | Unsupported source variants produce a typed warning/error |
-| Function tools, calls, results | Yes | Yes | Yes | Yes | IDs are preserved when representable; Anthropic and Responses preserve scalar/object/array plus multipart text/image tool results; no fabricated IDs in strict mode |
+| Function tools, calls, results | Yes | Yes | Yes | Yes | IDs are preserved when representable; scalar/object/array and multipart text/image tool results round-trip through all four protocols; no fabricated IDs in strict mode |
 | Parallel tool calls | Yes | Yes | Via tool choice control | Yes | Target capability warning when control is not expressible |
 | Reasoning/thinking text | Compatible extension | Yes | Yes | Yes | Opaque signatures remain metadata and are never invented by standard converters |
 | Stop reason | Yes | Yes | Yes | Yes | Normalized IR reason plus original provider value in metadata |
@@ -83,11 +83,11 @@ Commits `15c253d8` and `e35ec276` were reverted by `4df353d9` and `2a7dc9d8`. Th
 - The probes were Python scripts and did not exercise the exact Go conversion implementation required for production.
 - Coverage emphasized current model names and selected text/tool fixtures rather than malformed streams, capability loss, per-request state isolation, fuzzing, and round-trip inflation.
 
-The replacement is therefore implemented as a production-disconnected Go core first. Gateway integration is a separate branch and merge boundary after protocol and live probe gates pass.
+The replacement was therefore built as a production-disconnected Go core first, then integrated provider by provider behind characterization tests. The branch remains a separate merge boundary until final automated and live-probe gates pass.
 
 ## Live Probe Findings
 
-A Stage 2 probe was run against the existing production endpoints on 2026-07-12 with separate test-only keys for the Codex, Antigravity, and OpenCode groups. The keys are not recorded in this repository.
+A historical Stage 2 probe was run against the existing production endpoints on 2026-07-12 with separate test-only keys for the Codex, Antigravity, and OpenCode groups. The keys are not recorded in this repository.
 
 Confirmed behavior:
 
@@ -97,11 +97,21 @@ Confirmed behavior:
 - OpenCode Chat and Messages paths support text, streaming, and tool round trips when a model implementing that protocol capability is selected. Model behavior is not interchangeable: `glm-5` passed Chat tools and `minimax-m2.7` passed Messages tools, while a `deepseek-v4-flash` tool request returned an upstream 502.
 - A valid OpenAI Responses stream may emit `response.in_progress` after `response.created`. It updates lifecycle state and must not be treated as a duplicate stream start.
 
-Unresolved production behavior:
+Stage 2 findings that drove later integration:
 
-- Antigravity Gemini-family non-streaming tool forcing returned HTTP 200 with no `functionCall` and no non-empty text for `gemini-2.5-flash`, `gemini-3-flash`, and `gemini-3.1-pro-high`. A direct streaming diagnostic showed the upstream first SSE chunk does contain `functionCall` plus `thoughtSignature`; the terminal chunk contains only an empty text part. The native Gemini stream-to-non-stream collector currently accumulates only text and images, so it drops the earlier function call. This is a production aggregation defect to fix in the integration branch by preserving all ordered parts. Standard Google semantics must not be weakened to hide it.
+- Antigravity Gemini-family non-streaming tool forcing originally dropped an early `functionCall` when a later terminal chunk contained only finish and usage metadata. The production collector was fixed before this branch to preserve all ordered parts.
 - Antigravity Gemini function calls observed on the wire did not include an ID. Standard IR strict mode does not invent one. The retained Gemini vendor response bridge generates the client-facing tool ID; on the next request the shared decoder links that ID back to the function name, and the vendor transport strips non-portable Google IDs after encoding. This keeps correlation policy outside the standard converter.
-- A structurally invalid Codex Responses input reached the upstream path and returned 502 instead of a client-facing 400. OpenCode malformed Chat/Messages requests returned 400 with an empty body. Production integration should preserve intentional compatibility but classify local conversion/validation failures before upstream dispatch.
+- A structurally invalid Codex Responses input reached the upstream path and returned 502 instead of a client-facing 400. The integration branch now validates standard generation JSON before dispatch and classifies invalid 2xx generation JSON as a retryable upstream failure before response commitment. Raw provider HTTP error compatibility remains service-owned.
+
+### Final Branch Probe
+
+On 2026-07-14, both Go probe binaries were rebuilt from `feature/llm-rosetta-go-rewrite@25eeeef2`. The text matrix exercised six actual upstream wire paths: Codex Responses and Chat, Antigravity Anthropic and Google, and OpenCode Go Chat and Anthropic. Each path received all four source protocols in buffered and streaming modes, for 48 cases. All 48 completed with HTTP 200 and zero conversion warnings; two concurrent requests that initially ended before an HTTP status was available passed when retried sequentially.
+
+All six actual wire paths also passed a two-request forced-tool flow with HTTP 200/200, preserved call/result correlation, final text, terminal usage, and zero conversion warnings. Buffered calls and Responses, Anthropic, and Google streams exposed usage directly. The tested Chat-wire streams did not all expose terminal usage to the probe, while production tests independently verify forced `include_usage`, terminal usage conversion, disconnect draining, and billing collection.
+
+An anonymous production observation window covering these probes contained 61 matching model/route usage rows. Every row had tokens, positive actual cost, and one billing-dedup row. The extra candidate row is consistent with a request that reached the gateway although its concurrent probe process did not receive an HTTP status; the aggregate deliberately does not expose API-key, user, or request identifiers.
+
+The production gateway remained on `main@dc6ae080` throughout. These results validate the branch-built Go converters against real provider wire formats and the existing provider billing loop; they do not claim that branch service handlers were deployed. Production handler integration is instead covered by the 4x4 service, routing, authentication, failover, usage, and billing test suites. Deployment remains a separate release phase after merge.
 
 ## Production Integration
 
@@ -128,4 +138,4 @@ Intentional retained compatibility bridges:
 - OpenAI Messages to Codex Responses runs the standard Anthropic-to-Responses request lifecycle first, then applies the retained Codex request transform to the Pipeline-produced Responses body. The transform controls developer-input placement, billing-header filtering, Claude Code todo guards, continuation replay trimming, minimum output budget, provider reasoning/text defaults, schema normalization, and OAuth transport policy. Standard messages, tools, call IDs, and scalar/object/array/multipart tool results remain Pipeline-owned. Both buffered and streaming Messages clients consume the internally streaming Responses upstream through `transport.Stream` and the bounded parser, then return through the request Pipeline and Anthropic renderer. Timeout, keepalive, partial-record protection, `response.failed` policy, usage, and disconnect draining remain service-owned; existing service tests lock the provider policy.
 - Gemini native Google ingress and Antigravity response handling retain provider adapters for grounding, image, signature, and vendor-envelope behavior. Standard Google ingress to OpenAI and Anthropic targets, plus Chat, Responses, and Messages compatibility paths to Google targets, use request-scoped pipelines and the Google renderer. The Google stream decoder synthesizes deterministic request-scoped IDs only when an upstream standard function call omits one, so downstream tool-result correlation remains stable without global state.
 
-The old service-local Anthropic-to-Gemini request converter and its duplicate schema/tool mapping were removed. Google server-search tools are represented explicitly by the standard Google converter rather than being flattened into function declarations. Google requires `functionResponse.response` to be a protobuf Struct: object-valued IR tool results are preserved, while scalar or array results are wrapped as `{ "content": <value> }` without discarding the original value.
+The old service-local Anthropic-to-Gemini request converter and its duplicate schema/tool mapping were removed. Google server-search tools are represented explicitly by the standard Google converter rather than being flattened into function declarations. Google requires `functionResponse.response` to be a protobuf Struct: object-valued IR tool results are preserved, while scalar or array results are wrapped as `{ "content": <value> }` without discarding the original value. Multipart text/image tool results use typed Struct metadata plus native media parts and decode with deduplication. Chat Completions uses the Rosetta-compatible dual representation: the ordinary tool message retains a text fallback and a tagged synthetic user multimodal message preserves ordered text/image parts for reversible cross-protocol conversion. Responses and Anthropic use their native multipart representations. Strict conversion tests cover Anthropic multipart tool results through every target without silent loss.
