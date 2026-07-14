@@ -18,21 +18,10 @@ const (
 	DefaultMaxSize = 10_000
 )
 
-// Scope prevents provider metadata from crossing tenant, group, account, or
-// protocol boundaries.
-type Scope struct {
-	TenantID  int64
-	APIKeyID  int64
-	GroupID   int64
-	AccountID int64
-	Protocol  protocolconv.Protocol
-}
-
-// Key identifies metadata for one tool call in one isolated scope.
-type Key struct {
-	Scope      Scope
-	ToolCallID string
-}
+// Scope and Key alias the root package contract so Store can satisfy the
+// Pipeline's narrow metadata interface without creating an import cycle.
+type Scope = protocolconv.MetadataScope
+type Key = protocolconv.MetadataKey
 
 // Clock allows deterministic expiration tests.
 type Clock func() time.Time
@@ -174,19 +163,7 @@ func (s *Store) removeElementLocked(element *list.Element) {
 }
 
 func validateKey(key Key) error {
-	if key.Scope.TenantID <= 0 {
-		return errors.New("metadata scope tenant ID is required")
-	}
-	if key.Scope.APIKeyID <= 0 {
-		return errors.New("metadata scope API key ID is required")
-	}
-	if key.Scope.GroupID <= 0 {
-		return errors.New("metadata scope group ID is required")
-	}
-	if key.Scope.AccountID <= 0 {
-		return errors.New("metadata scope account ID is required")
-	}
-	if err := key.Scope.Protocol.Validate(); err != nil {
+	if err := key.Scope.Validate(); err != nil {
 		return err
 	}
 	if key.ToolCallID == "" {

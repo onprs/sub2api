@@ -11,6 +11,11 @@ import (
 type PipelineConfig struct {
 	Route   Route
 	Options Options
+
+	// MetadataStore and MetadataScope are optional. When configured together,
+	// they bridge provider replay metadata only across this fully isolated scope.
+	MetadataStore MetadataStore
+	MetadataScope MetadataScope
 }
 
 // ConvertedRequest is the target-protocol body and route metadata produced for
@@ -46,6 +51,7 @@ type Pipeline struct {
 	requestConverted bool
 	toolRoutes       map[string]ToolRoute
 	warnings         []Warning
+	metadataBridge   *providerMetadataBridge
 }
 
 // NewPipeline validates an explicit route and creates a request-scoped
@@ -63,7 +69,11 @@ func NewPipeline(registry *Registry, config PipelineConfig) (*Pipeline, error) {
 	if _, err := registry.Converter(config.Route.IntendedTarget); err != nil {
 		return nil, err
 	}
-	return &Pipeline{registry: registry, config: config}, nil
+	metadataBridge, err := newProviderMetadataBridge(config.MetadataStore, config.MetadataScope, config.Route)
+	if err != nil {
+		return nil, err
+	}
+	return &Pipeline{registry: registry, config: config, metadataBridge: metadataBridge}, nil
 }
 
 // ConvertRequest converts the client request once. A failed conversion still
@@ -95,6 +105,7 @@ func (p *Pipeline) ConvertRequest(body []byte) (ConvertedRequest, error) {
 		request, decodeWarnings, err = p.registry.DecodeRequest(body, p.config.Route.Source, options)
 		warnings = append(warnings, decodeWarnings...)
 		if err == nil {
+			p.metadataBridge.injectRequest(request)
 			routes, err = buildToolRoutes(request, p.config.Route.Source, p.config.Route.IntendedTarget)
 		}
 		if err == nil {
@@ -149,11 +160,16 @@ func (p *Pipeline) ConvertResponse(body []byte, actualUpstream Protocol) (Conver
 		if decodeErr != nil {
 			err = decodeErr
 		} else {
-			if p.config.Route.ClientModel != "" {
+			if p.metadataBridge != nil && actualUpstream == p.config.MetadataScope.Protocol {
+				err = p.metadataBridge.cacheResponse(response)
+			}
+			if err == nil && p.config.Route.ClientModel != "" {
 				response.Model = p.config.Route.ClientModel
 			}
-			converted, responseWarnings, err = p.registry.EncodeResponse(response, p.config.Route.Source, options)
-			warnings = append(warnings, responseWarnings...)
+			if err == nil {
+				converted, responseWarnings, err = p.registry.EncodeResponse(response, p.config.Route.Source, options)
+				warnings = append(warnings, responseWarnings...)
+			}
 		}
 	}
 	p.appendWarnings(warnings)
@@ -180,7 +196,14 @@ func (p *Pipeline) NewStreamProcessor(actualUpstream Protocol) (*StreamSession, 
 	if actualUpstream == p.config.Route.Source {
 		return newIdentityStreamSession(actualUpstream), nil
 	}
-	return p.registry.NewStreamSessionWithOptions(actualUpstream, p.config.Route.Source, p.options())
+	session, err := p.registry.NewStreamSessionWithOptions(actualUpstream, p.config.Route.Source, p.options())
+	if err != nil {
+		return nil, err
+	}
+	if p.metadataBridge != nil && actualUpstream == p.config.MetadataScope.Protocol {
+		session.metadataBridge = p.metadataBridge
+	}
+	return session, nil
 }
 
 // Warnings returns a snapshot of warnings accumulated across completed phases.

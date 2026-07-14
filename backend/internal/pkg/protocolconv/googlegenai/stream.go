@@ -25,16 +25,18 @@ type googleBlock struct {
 	toolIndex   int
 	toolCallID  string
 	toolName    string
+	signature   string
 	seen        string
 }
 
 type streamEncoder struct {
-	id           string
-	model        string
-	usage        *ir.Usage
-	finishReason ir.FinishReason
-	calls        map[string]*functionCallWire
-	callArgs     map[string]string
+	id             string
+	model          string
+	usage          *ir.Usage
+	finishReason   ir.FinishReason
+	calls          map[string]*functionCallWire
+	callArgs       map[string]string
+	callSignatures map[string]string
 }
 
 func newStreamDecoder() *streamDecoder { return &streamDecoder{} }
@@ -43,9 +45,10 @@ func newStreamEncoder() *streamEncoder {
 }
 func newStreamEncoderWithOptions(options protocolconv.Options) *streamEncoder {
 	return &streamEncoder{
-		model:    options.ResponseModel,
-		calls:    make(map[string]*functionCallWire),
-		callArgs: make(map[string]string),
+		model:          options.ResponseModel,
+		calls:          make(map[string]*functionCallWire),
+		callArgs:       make(map[string]string),
+		callSignatures: make(map[string]string),
 	}
 }
 
@@ -81,13 +84,17 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 				if part.FunctionCall != nil {
 					d.current.toolCallID = part.FunctionCall.ID
 					d.current.toolName = part.FunctionCall.Name
-					out = append(out, ir.StreamEvent{Type: ir.EventToolCallStart, BlockIndex: d.current.index, ChoiceIndex: candidateIndex, ToolCallIndex: partIndex, ToolCallID: part.FunctionCall.ID, ToolName: part.FunctionCall.Name})
+					d.current.signature = part.ThoughtSignature
+					out = append(out, ir.StreamEvent{Type: ir.EventToolCallStart, BlockIndex: d.current.index, ChoiceIndex: candidateIndex, ToolCallIndex: partIndex, ToolCallID: part.FunctionCall.ID, ToolName: part.FunctionCall.Name, Signature: part.ThoughtSignature})
 				}
 			}
 
 			switch {
 			case part.FunctionCall != nil:
 				d.sawToolCall = true
+				if part.ThoughtSignature != "" {
+					d.current.signature = part.ThoughtSignature
+				}
 				args := string(part.FunctionCall.Args)
 				if args == "" {
 					args = "{}"
@@ -140,7 +147,7 @@ func (d *streamDecoder) closeCurrent() []ir.StreamEvent {
 	d.current = nil
 	out := make([]ir.StreamEvent, 0, 2)
 	if block.partType == ir.ContentToolCall {
-		out = append(out, ir.StreamEvent{Type: ir.EventToolCallEnd, BlockIndex: block.index, ChoiceIndex: block.choiceIndex, ToolCallIndex: block.toolIndex, ToolCallID: block.toolCallID})
+		out = append(out, ir.StreamEvent{Type: ir.EventToolCallEnd, BlockIndex: block.index, ChoiceIndex: block.choiceIndex, ToolCallIndex: block.toolIndex, ToolCallID: block.toolCallID, Signature: block.signature})
 	}
 	return append(out, ir.StreamEvent{Type: ir.EventContentBlockEnd, BlockIndex: block.index, ChoiceIndex: block.choiceIndex})
 }
@@ -169,9 +176,15 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 		emit = true
 	case ir.EventToolCallStart:
 		e.calls[event.ToolCallID] = &functionCallWire{ID: event.ToolCallID, Name: event.ToolName}
+		if event.Signature != "" {
+			e.callSignatures[event.ToolCallID] = event.Signature
+		}
 	case ir.EventToolCallDelta:
 		e.callArgs[event.ToolCallID] += event.ArgumentsDelta
 	case ir.EventToolCallEnd:
+		if event.Signature != "" {
+			e.callSignatures[event.ToolCallID] = event.Signature
+		}
 		call := e.calls[event.ToolCallID]
 		if call == nil {
 			return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidStream, Protocol: protocolconv.ProtocolGoogleGenAI, Message: "tool call ended before start"}
@@ -181,7 +194,7 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 			return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidStream, Protocol: protocolconv.ProtocolGoogleGenAI, Message: "tool call arguments are not complete JSON"}
 		}
 		call.Args = json.RawMessage(args)
-		wire.Candidates = []candidateWire{{Index: event.ChoiceIndex, Content: contentWire{Role: "model", Parts: []partWire{{FunctionCall: call}}}}}
+		wire.Candidates = []candidateWire{{Index: event.ChoiceIndex, Content: contentWire{Role: "model", Parts: []partWire{{FunctionCall: call, ThoughtSignature: e.callSignatures[event.ToolCallID]}}}}}
 		emit = true
 	case ir.EventUsage:
 		e.usage = event.Usage

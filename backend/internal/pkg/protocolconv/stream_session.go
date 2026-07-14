@@ -14,6 +14,7 @@ type StreamSession struct {
 	encoder          StreamEncoder
 	state            *streamstate.Context
 	identityProtocol Protocol
+	metadataBridge   *providerMetadataBridge
 }
 
 func newIdentityStreamSession(protocol Protocol) *StreamSession {
@@ -105,6 +106,9 @@ func (s *StreamSession) encode(events []ir.StreamEvent, warnings []Warning) ([][
 	for _, event := range events {
 		if err := s.state.Apply(event); err != nil {
 			return nil, warnings, &Error{Code: ErrorInvalidStream, Message: "invalid IR stream lifecycle", Cause: err}
+		}
+		if err := s.metadataBridge.cacheStreamEvent(event); err != nil {
+			return nil, warnings, &Error{Code: ErrorConversion, Message: "cache provider stream metadata", Cause: err}
 		}
 		encoded, eventWarnings, err := s.encoder.Encode(event)
 		warnings = append(warnings, eventWarnings...)
