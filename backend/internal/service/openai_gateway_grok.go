@@ -5,12 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -70,31 +71,34 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
-		respBody := s.readUpstreamErrorBody(resp)
-		resp.Body = io.NopCloser(bytes.NewReader(respBody))
-		s.updateGrokUsageSnapshot(ctx, account.ID, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
-		upstreamMsg := sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(respBody))
+		upstream, upstreamMsg, collectErr := s.collectOpenAIStructuredUpstreamError(resp, protocolconv.ProtocolOpenAIResponses, reqStream)
+		if collectErr != nil {
+			return nil, collectErr
+		}
+		upstream.RequestID = firstNonEmpty(upstream.RequestID, upstream.Headers.Get("xai-request-id"))
+		s.updateGrokUsageSnapshot(ctx, account.ID, xai.ParseQuotaHeaders(upstream.Headers, upstream.StatusCode))
 		if upstreamMsg == "" {
-			upstreamMsg = fmt.Sprintf("xAI upstream returned status %d", resp.StatusCode)
+			upstreamMsg = fmt.Sprintf("xAI upstream returned status %d", upstream.StatusCode)
 		}
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform:           account.Platform,
 			AccountID:          account.ID,
 			AccountName:        account.Name,
-			UpstreamStatusCode: resp.StatusCode,
-			UpstreamRequestID:  firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id")),
+			UpstreamStatusCode: upstream.StatusCode,
+			UpstreamRequestID:  upstream.RequestID,
 			Kind:               "failover",
 			Message:            upstreamMsg,
 		})
-		s.handleGrokAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-		if s.shouldFailoverUpstreamError(resp.StatusCode) {
+		s.handleGrokAccountUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body)
+		if s.shouldFailoverUpstreamError(upstream.StatusCode) {
 			return nil, &UpstreamFailoverError{
-				StatusCode:             resp.StatusCode,
-				ResponseBody:           respBody,
-				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+				StatusCode:             upstream.StatusCode,
+				ResponseBody:           upstream.Body,
+				ResponseHeaders:        protocoltransport.CloneHeaders(upstream.Headers),
+				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstream.StatusCode),
 			}
 		}
-		return s.handleErrorResponse(ctx, resp, c, account, patchedBody, upstreamModel)
+		return s.handleStructuredErrorResponse(ctx, upstream, c, account, patchedBody, upstreamModel)
 	}
 
 	s.updateGrokUsageSnapshot(ctx, account.ID, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
