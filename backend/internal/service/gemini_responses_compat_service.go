@@ -63,13 +63,15 @@ func (s *GeminiMessagesCompatService) forwardAsResponsesWithClientModel(
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(req.Model)
 	}
-	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+	pipelineConfig := protocolconv.PipelineConfig{
 		Route: protocolconv.Route{
 			Source: protocolconv.ProtocolOpenAIResponses, IntendedTarget: protocolconv.ProtocolGoogleGenAI,
 			ClientModel: originalModel, UpstreamModel: mappedModel, Provider: account.Platform, AccountID: account.ID,
 		},
 		Options: protocolconv.Options{SourceModel: mappedModel, LossPolicy: protocolconv.LossError},
-	})
+	}
+	s.configureGoogleMetadataBridge(ctx, account, &pipelineConfig)
+	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, pipelineConfig)
 	if err != nil {
 		return nil, fmt.Errorf("create responses Google pipeline: %w", err)
 	}

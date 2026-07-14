@@ -119,6 +119,14 @@ func NewGatewayHandler(
 	}
 }
 
+func bindProtocolMetadataIdentity(c *gin.Context, apiKey *service.APIKey, tenantID int64) {
+	if c == nil || c.Request == nil || apiKey == nil || apiKey.GroupID == nil {
+		return
+	}
+	ctx := service.WithProtocolMetadataIdentity(c.Request.Context(), tenantID, apiKey.ID, *apiKey.GroupID)
+	c.Request = c.Request.WithContext(ctx)
+}
+
 // Messages handles Claude API compatible messages endpoint
 // POST /v1/messages
 func (h *GatewayHandler) Messages(c *gin.Context) {
@@ -134,6 +142,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
 		return
 	}
+	bindProtocolMetadataIdentity(c, apiKey, subject.UserID)
 	reqLog := requestLogger(
 		c,
 		"handler.gateway.messages",

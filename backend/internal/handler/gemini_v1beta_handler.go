@@ -236,6 +236,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		googleError(c, http.StatusInternalServerError, "User context not found")
 		return
 	}
+	bindProtocolMetadataIdentity(c, apiKey, authSubject.UserID)
 	reqLog := requestLogger(
 		c,
 		"handler.gemini_v1beta.models",

@@ -21,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocolmetadata "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/metadata"
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
@@ -53,6 +54,7 @@ type GeminiMessagesCompatService struct {
 	antigravityGatewayService *AntigravityGatewayService
 	cfg                       *config.Config
 	responseHeaderFilter      *responseheaders.CompiledHeaderFilter
+	providerMetadataStore     protocolconv.MetadataStore
 }
 
 func (s *GeminiMessagesCompatService) readUpstreamErrorBody(resp *http.Response) []byte {
@@ -89,6 +91,32 @@ func NewGeminiMessagesCompatService(
 		antigravityGatewayService: antigravityGatewayService,
 		cfg:                       cfg,
 		responseHeaderFilter:      compileResponseHeaderFilter(cfg),
+		providerMetadataStore:     protocolmetadata.NewStore(protocolmetadata.DefaultTTL, protocolmetadata.DefaultMaxSize),
+	}
+}
+
+func (s *GeminiMessagesCompatService) configureGoogleMetadataBridge(
+	ctx context.Context,
+	account *Account,
+	pipelineConfig *protocolconv.PipelineConfig,
+) {
+	if s == nil || s.providerMetadataStore == nil || account == nil || pipelineConfig == nil ||
+		pipelineConfig.Route.IntendedTarget != protocolconv.ProtocolGoogleGenAI {
+		return
+	}
+	switch pipelineConfig.Route.Source {
+	case protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolOpenAIResponses:
+	default:
+		return
+	}
+	identity, ok := ProtocolMetadataIdentityFromContext(ctx)
+	if !ok {
+		return
+	}
+	pipelineConfig.MetadataStore = s.providerMetadataStore
+	pipelineConfig.MetadataScope = protocolconv.MetadataScope{
+		TenantID: identity.TenantID, APIKeyID: identity.APIKeyID, GroupID: identity.GroupID,
+		AccountID: account.ID, Protocol: protocolconv.ProtocolGoogleGenAI,
 	}
 }
 
@@ -598,7 +626,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		mappedModel = account.GetMappedModel(req.Model)
 	}
 
-	pipeline, geminiReq, err := newClaudeMessagesGooglePipeline(account, body, originalModel, mappedModel)
+	pipeline, geminiReq, err := s.newClaudeMessagesGooglePipeline(ctx, account, body, originalModel, mappedModel)
 	if err != nil {
 		return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
@@ -845,7 +873,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 					stageName = "thinking+tools"
 					signatureRetryStage = 2
 				}
-				retryPipeline, retryGeminiReq, txErr := newClaudeMessagesGooglePipeline(account, strippedClaudeBody, originalModel, mappedModel)
+				retryPipeline, retryGeminiReq, txErr := s.newClaudeMessagesGooglePipeline(ctx, account, strippedClaudeBody, originalModel, mappedModel)
 				if txErr == nil {
 					logger.LegacyPrintf("service.gemini_messages_compat", "Gemini account %d: detected signature-related 400, retrying with downgraded Claude blocks (%s)", account.ID, stageName)
 					pipeline = retryPipeline
@@ -2942,7 +2970,27 @@ func convertClaudeMessagesToGeminiGenerateContent(body []byte) ([]byte, error) {
 	return converted, err
 }
 
+func (s *GeminiMessagesCompatService) newClaudeMessagesGooglePipeline(
+	ctx context.Context,
+	account *Account,
+	body []byte,
+	originalModel, mappedModel string,
+) (*protocolconv.Pipeline, []byte, error) {
+	return newClaudeMessagesGooglePipelineConfigured(account, body, originalModel, mappedModel, func(config *protocolconv.PipelineConfig) {
+		s.configureGoogleMetadataBridge(ctx, account, config)
+	})
+}
+
 func newClaudeMessagesGooglePipeline(account *Account, body []byte, originalModel, mappedModel string) (*protocolconv.Pipeline, []byte, error) {
+	return newClaudeMessagesGooglePipelineConfigured(account, body, originalModel, mappedModel, nil)
+}
+
+func newClaudeMessagesGooglePipelineConfigured(
+	account *Account,
+	body []byte,
+	originalModel, mappedModel string,
+	configure func(*protocolconv.PipelineConfig),
+) (*protocolconv.Pipeline, []byte, error) {
 	route := protocolconv.Route{
 		Source: protocolconv.ProtocolAnthropic, IntendedTarget: protocolconv.ProtocolGoogleGenAI,
 		ClientModel: originalModel, UpstreamModel: mappedModel,
@@ -2951,9 +2999,13 @@ func newClaudeMessagesGooglePipeline(account *Account, body []byte, originalMode
 		route.Provider = account.Platform
 		route.AccountID = account.ID
 	}
-	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+	pipelineConfig := protocolconv.PipelineConfig{
 		Route: route, Options: protocolconv.Options{SourceModel: mappedModel, LossPolicy: protocolconv.LossError},
-	})
+	}
+	if configure != nil {
+		configure(&pipelineConfig)
+	}
+	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, pipelineConfig)
 	if err != nil {
 		return nil, nil, err
 	}

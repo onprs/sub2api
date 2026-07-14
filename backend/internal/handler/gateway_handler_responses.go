@@ -35,6 +35,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		h.responsesErrorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
 		return
 	}
+	bindProtocolMetadataIdentity(c, apiKey, subject.UserID)
 	reqLog := requestLogger(
 		c,
 		"handler.gateway.responses",

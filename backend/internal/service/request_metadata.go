@@ -11,6 +11,16 @@ type requestMetadataContextKey struct{}
 
 var requestMetadataKey = requestMetadataContextKey{}
 
+type ProtocolMetadataIdentity struct {
+	TenantID int64
+	APIKeyID int64
+	GroupID  int64
+}
+
+func (i ProtocolMetadataIdentity) Valid() bool {
+	return i.TenantID > 0 && i.APIKeyID > 0 && i.GroupID > 0
+}
+
 type RequestMetadata struct {
 	IsMaxTokensOneHaikuRequest *bool
 	ThinkingEnabled            *bool
@@ -18,6 +28,7 @@ type RequestMetadata struct {
 	PrefetchedStickyGroupID    *int64
 	SingleAccountRetry         *bool
 	AccountSwitchCount         *int
+	ProtocolMetadataIdentity   *ProtocolMetadataIdentity
 }
 
 var (
@@ -114,6 +125,27 @@ func WithAccountSwitchCount(ctx context.Context, value int, bridgeOldKeys bool) 
 	}, func(base context.Context) context.Context {
 		return context.WithValue(base, ctxkey.AccountSwitchCount, value)
 	})
+}
+
+// WithProtocolMetadataIdentity records the authenticated ownership dimensions
+// needed to isolate provider replay metadata. Invalid or incomplete identities
+// intentionally leave the bridge disabled.
+func WithProtocolMetadataIdentity(ctx context.Context, tenantID, apiKeyID, groupID int64) context.Context {
+	identity := ProtocolMetadataIdentity{TenantID: tenantID, APIKeyID: apiKeyID, GroupID: groupID}
+	if ctx == nil || !identity.Valid() {
+		return ctx
+	}
+	return updateRequestMetadata(ctx, false, func(md *RequestMetadata) {
+		value := identity
+		md.ProtocolMetadataIdentity = &value
+	}, nil)
+}
+
+func ProtocolMetadataIdentityFromContext(ctx context.Context) (ProtocolMetadataIdentity, bool) {
+	if md := metadataFromContext(ctx); md != nil && md.ProtocolMetadataIdentity != nil && md.ProtocolMetadataIdentity.Valid() {
+		return *md.ProtocolMetadataIdentity, true
+	}
+	return ProtocolMetadataIdentity{}, false
 }
 
 func IsMaxTokensOneHaikuRequestFromContext(ctx context.Context) (bool, bool) {
