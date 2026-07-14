@@ -2,11 +2,11 @@ package handler
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -77,7 +77,15 @@ func writeResponsesFailedSSE(c *gin.Context, errType, message string) bool {
 		return true
 	}
 
-	if _, err := fmt.Fprintf(c.Writer, "event: response.failed\ndata: %s\n\n", payload); err != nil {
+	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolOpenAIResponses)
+	if err == nil {
+		var framed []byte
+		framed, err = renderer.FrameStreamEvent(payload)
+		if err == nil {
+			_, err = c.Writer.Write(framed)
+		}
+	}
+	if err != nil {
 		_ = c.Error(err)
 		return true
 	}

@@ -3,11 +3,21 @@ package googlegenai
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/ir"
 )
+
+func ensureGoogleFunctionCallID(part partWire, candidateIndex, partIndex int) partWire {
+	if part.FunctionCall != nil && part.FunctionCall.ID == "" {
+		call := *part.FunctionCall
+		call.ID = fmt.Sprintf("call_google_%d_%d", candidateIndex, partIndex)
+		part.FunctionCall = &call
+	}
+	return part
+}
 
 func partFromGoogle(part partWire) ([]ir.ContentPart, error) {
 	switch {
@@ -18,11 +28,18 @@ func partFromGoogle(part partWire) ([]ir.ContentPart, error) {
 		}
 		return []ir.ContentPart{{Type: ir.ContentToolCall, ToolCallID: part.FunctionCall.ID, ToolName: part.FunctionCall.Name, ToolInput: args, Signature: part.ThoughtSignature}}, nil
 	case part.FunctionResponse != nil:
-		result := cloneRaw(part.FunctionResponse.Response)
-		if len(result) == 0 {
-			result = json.RawMessage(`{}`)
+		result, content, isError, err := googleToolResultFromResponse(part.FunctionResponse.Response)
+		if err != nil {
+			return nil, err
 		}
-		return []ir.ContentPart{{Type: ir.ContentToolResult, ToolCallID: part.FunctionResponse.ID, ToolName: part.FunctionResponse.Name, ToolResult: result}}, nil
+		return []ir.ContentPart{{
+			Type:              ir.ContentToolResult,
+			ToolCallID:        part.FunctionResponse.ID,
+			ToolName:          part.FunctionResponse.Name,
+			ToolResult:        result,
+			ToolResultContent: content,
+			IsError:           isError,
+		}}, nil
 	case part.InlineData != nil:
 		kind := ir.ContentImage
 		if strings.HasPrefix(part.InlineData.MIMEType, "audio/") {
@@ -57,7 +74,7 @@ func partToGoogle(part ir.ContentPart, target protocolconv.Protocol, options pro
 	case ir.ContentToolCall:
 		return []partWire{{FunctionCall: &functionCallWire{ID: part.ToolCallID, Name: part.ToolName, Args: cloneRaw(part.ToolInput)}, ThoughtSignature: part.Signature}}, nil, nil
 	case ir.ContentToolResult:
-		return []partWire{{FunctionResponse: &functionResponseWire{ID: part.ToolCallID, Name: part.ToolName, Response: googleFunctionResponse(part.ToolResult)}}}, nil, nil
+		return googleToolResultToParts(part, target, options)
 	case ir.ContentRefusal:
 		return []partWire{{Text: part.Refusal}}, []protocolconv.Warning{{Code: protocolconv.WarningNormalizedField, Protocol: target, Capability: protocolconv.CapabilityRefusal, Message: "refusal normalized to text"}}, nil
 	default:
@@ -175,8 +192,8 @@ func finishFromGoogle(reason string) ir.FinishReason {
 	}
 }
 func finishToGoogle(reason ir.FinishReason) string {
-	if reason.ProviderReason != "" {
-		return reason.ProviderReason
+	if providerReason := strings.ToUpper(strings.TrimSpace(reason.ProviderReason)); isGoogleFinishReason(providerReason) {
+		return providerReason
 	}
 	switch reason.Reason {
 	case "length":
@@ -187,6 +204,15 @@ func finishToGoogle(reason ir.FinishReason) string {
 		return "OTHER"
 	default:
 		return "STOP"
+	}
+}
+
+func isGoogleFinishReason(reason string) bool {
+	switch reason {
+	case "STOP", "MAX_TOKENS", "SAFETY", "RECITATION", "LANGUAGE", "OTHER", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "MALFORMED_FUNCTION_CALL", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_OTHER", "NO_IMAGE", "IMAGE_RECITATION", "UNEXPECTED_TOOL_CALL", "TOO_MANY_TOOL_CALLS":
+		return true
+	default:
+		return false
 	}
 }
 

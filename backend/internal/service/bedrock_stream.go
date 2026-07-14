@@ -237,6 +237,8 @@ func transformBedrockInvocationMetrics(data []byte) []byte {
 //	[headers: variable]
 //	[payload: variable]
 //	[message_crc: 4 bytes]
+const bedrockMaxEventStreamFrameBytes uint32 = 32 << 20
+
 type bedrockEventStreamDecoder struct {
 	reader *bufio.Reader
 }
@@ -267,6 +269,12 @@ func (d *bedrockEventStreamDecoder) Decode() ([]byte, error) {
 
 		if totalLength < 16 { // minimum: 12 prelude + 4 message_crc
 			return nil, fmt.Errorf("invalid eventstream frame: total_length=%d", totalLength)
+		}
+		if totalLength > bedrockMaxEventStreamFrameBytes {
+			return nil, fmt.Errorf("eventstream frame exceeds %d bytes: total_length=%d", bedrockMaxEventStreamFrameBytes, totalLength)
+		}
+		if headersLength > totalLength-16 {
+			return nil, fmt.Errorf("invalid eventstream frame: headers_length=%d total_length=%d", headersLength, totalLength)
 		}
 
 		// 读取 headers + payload + message_crc

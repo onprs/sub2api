@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	openaiwsv2 "github.com/Wei-Shaw/sub2api/internal/service/openai_ws_v2"
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
@@ -523,7 +524,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			OnTurnComplete: func(turn openaiwsv2.RelayTurnResult) {
 				turnNo := int(completedTurns.Add(1))
 				turnResult := &OpenAIForwardResult{
-					RequestID: turn.RequestID,
+					RequestID:      turn.RequestID,
+					ActualProtocol: protocolconv.ProtocolOpenAIResponses,
 					Usage: OpenAIUsage{
 						InputTokens:              turn.Usage.InputTokens,
 						OutputTokens:             turn.Usage.OutputTokens,
@@ -600,7 +602,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	})
 
 	result := &OpenAIForwardResult{
-		RequestID: relayResult.RequestID,
+		RequestID:      relayResult.RequestID,
+		ActualProtocol: protocolconv.ProtocolOpenAIResponses,
 		Usage: OpenAIUsage{
 			InputTokens:              relayResult.Usage.InputTokens,
 			OutputTokens:             relayResult.Usage.OutputTokens,

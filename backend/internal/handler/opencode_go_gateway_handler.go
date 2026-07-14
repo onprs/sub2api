@@ -2,9 +2,7 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -13,6 +11,7 @@ import (
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -505,38 +504,22 @@ func (h *OpenCodeGoGatewayHandler) ensureForwardErrorResponse(c *gin.Context, fo
 
 func (h *OpenCodeGoGatewayHandler) handleStreamingAwareError(c *gin.Context, status int, format openCodeGoHandlerErrorFormat, errType string, message string, streamStarted bool) {
 	if streamStarted || (c != nil && c.Writer != nil && c.Writer.Written()) {
-		if flusher, ok := c.Writer.(http.Flusher); ok {
-			if format == openCodeGoHandlerErrorAnthropic {
-				payload, _ := json.Marshal(gin.H{"type": "error", "error": gin.H{"type": errType, "message": message}})
-				_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", payload)
-			} else {
-				payload, _ := json.Marshal(gin.H{"error": gin.H{"type": errType, "message": message}})
-				_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", payload)
-			}
-			flusher.Flush()
+		protocol := protocolconv.ProtocolOpenAIChat
+		if format == openCodeGoHandlerErrorAnthropic {
+			protocol = protocolconv.ProtocolAnthropic
 		}
+		writeProtocolStreamError(c, protocol, status, errType, errType, message)
 		return
 	}
 	h.errorResponse(c, status, format, errType, message)
 }
 
 func (h *OpenCodeGoGatewayHandler) errorResponse(c *gin.Context, status int, format openCodeGoHandlerErrorFormat, errType string, message string) {
+	protocol := protocolconv.ProtocolOpenAIChat
 	if format == openCodeGoHandlerErrorAnthropic {
-		c.JSON(status, gin.H{
-			"type": "error",
-			"error": gin.H{
-				"type":    errType,
-				"message": message,
-			},
-		})
-		return
+		protocol = protocolconv.ProtocolAnthropic
 	}
-	c.JSON(status, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
-	})
+	writeProtocolError(c, protocol, status, errType, errType, message)
 }
 
 func (h *OpenCodeGoGatewayHandler) submitUsageRecordTask(parent context.Context, task service.UsageRecordTask) {

@@ -28,11 +28,16 @@ func newStreamDecoder() *streamDecoder {
 }
 
 func newStreamEncoder() *streamEncoder {
+	return newStreamEncoderWithOptions(protocolconv.Options{})
+}
+
+func newStreamEncoderWithOptions(options protocolconv.Options) *streamEncoder {
 	bridge := apicompat.NewResponsesEventToChatState()
 	bridge.IncludeUsage = true
+	bridge.Model = options.ResponseModel
 	return &streamEncoder{
 		bridge: bridge,
-		inner:  openairesponses.NewStreamEncoder(),
+		inner:  openairesponses.NewStreamEncoderWithOptions(options),
 	}
 }
 
@@ -117,3 +122,9 @@ func (e *streamEncoder) Finalize() ([][]byte, []protocolconv.Warning, error) {
 
 func (*Converter) NewStreamDecoder() protocolconv.StreamDecoder { return newStreamDecoder() }
 func (*Converter) NewStreamEncoder() protocolconv.StreamEncoder { return newStreamEncoder() }
+func (*Converter) NewStreamDecoderWithOptions(protocolconv.Options) protocolconv.StreamDecoder {
+	return newStreamDecoder()
+}
+func (*Converter) NewStreamEncoderWithOptions(options protocolconv.Options) protocolconv.StreamEncoder {
+	return newStreamEncoderWithOptions(options)
+}

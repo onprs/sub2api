@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -15,10 +16,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// Responses handles OpenAI Responses API endpoint for Anthropic platform groups.
-// POST /v1/responses
-// This converts Responses API requests to Anthropic format, forwards to Anthropic
-// upstream, and converts responses back to Responses format.
+// Responses handles OpenAI Responses API requests for standard provider groups.
+// The selected account determines whether the actual upstream is Anthropic or
+// Google; provider policy remains in the corresponding service.
 func (h *GatewayHandler) Responses(c *gin.Context) {
 	streamStarted := false
 
@@ -35,6 +35,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		h.responsesErrorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
 		return
 	}
+	bindProtocolMetadataIdentity(c, apiKey, subject.UserID)
 	reqLog := requestLogger(
 		c,
 		"handler.gateway.responses",
@@ -152,15 +153,26 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		APIKeyID:  apiKey.ID,
 	}
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+	groupPlatform := service.PlatformAnthropic
+	if apiKey.Group != nil {
+		groupPlatform = apiKey.Group.Platform
+	}
+	selectionSessionHash := sessionHash
+	if groupPlatform == service.PlatformGemini && selectionSessionHash != "" {
+		selectionSessionHash = "gemini:" + selectionSessionHash
+	}
 
 	// 3. Account selection + failover loop
 	fs := NewFailoverState(h.maxAccountSwitches, false)
+	if groupPlatform == service.PlatformGemini {
+		fs = NewFailoverState(h.maxAccountSwitchesGemini, false)
+	}
 
 	for {
-		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(requestCtx, apiKey.GroupID, sessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
+		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(requestCtx, apiKey.GroupID, selectionSessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
-				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, service.PlatformAnthropic)
+				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, groupPlatform)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
@@ -213,13 +225,33 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		}
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
+		if groupPlatform == service.PlatformGemini && account.Platform != service.PlatformGemini {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			fs.FailedAccountIDs[account.ID] = struct{}{}
+			continue
+		}
+
 		// 5. Forward request
 		writerSizeBeforeForward := c.Writer.Size()
 		forwardBody := body
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
-		result, err := h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+		var result *service.ForwardResult
+		if account.Platform == service.PlatformGemini {
+			if h.geminiCompatService == nil {
+				h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", "Gemini compatibility service is not configured")
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				return
+			}
+			result, err = h.geminiCompatService.ForwardAsResponsesWithClientModel(requestCtx, c, account, forwardBody, reqModel)
+		} else {
+			result, err = h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+		}
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
@@ -294,12 +326,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 // responsesErrorResponse writes an error in OpenAI Responses API format.
 func (h *GatewayHandler) responsesErrorResponse(c *gin.Context, status int, code, message string) {
-	c.JSON(status, gin.H{
-		"error": gin.H{
-			"code":    code,
-			"message": message,
-		},
-	})
+	writeProtocolError(c, protocolconv.ProtocolOpenAIResponses, status, code, code, message)
 }
 
 // handleResponsesFailoverExhausted writes a failover-exhausted error in Responses format.

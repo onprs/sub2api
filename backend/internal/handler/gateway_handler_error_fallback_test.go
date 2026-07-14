@@ -36,7 +36,7 @@ func TestGatewayEnsureForwardErrorResponse_WritesFallbackWhenNotWritten(t *testi
 }
 
 // Writer 已写后 ensureForwardErrorResponse 必须把错误以 SSE 形式追加，
-// 而不是 silent EOF。非 /responses 路径走 legacy data:{"type":"error"} 分支。
+// 而不是 silent EOF。Messages source uses Anthropic event+data framing.
 func TestGatewayEnsureForwardErrorResponse_AppendsSSEAfterWritten(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
@@ -50,7 +50,8 @@ func TestGatewayEnsureForwardErrorResponse_AppendsSSEAfterWritten(t *testing.T) 
 	require.True(t, wrote)
 	require.Equal(t, http.StatusTeapot, w.Code)
 	assert.Contains(t, w.Body.String(), "already written")
-	assert.Contains(t, w.Body.String(), `data: {"type":"error"`)
+	assert.Contains(t, w.Body.String(), "event: error\n")
+	assert.Contains(t, w.Body.String(), `"type":"error"`)
 }
 
 // case B 回归：Anthropic-backed /responses，Writer 已被写过时

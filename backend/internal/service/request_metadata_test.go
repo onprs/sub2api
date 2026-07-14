@@ -15,6 +15,7 @@ func TestRequestMetadataWriteAndRead_NoBridge(t *testing.T) {
 	ctx = WithPrefetchedStickySession(ctx, 123, 456, false)
 	ctx = WithSingleAccountRetry(ctx, true, false)
 	ctx = WithAccountSwitchCount(ctx, 2, false)
+	ctx = WithProtocolMetadataIdentity(ctx, 10, 20, 30)
 
 	isHaiku, ok := IsMaxTokensOneHaikuRequestFromContext(ctx)
 	require.True(t, ok)
@@ -39,6 +40,10 @@ func TestRequestMetadataWriteAndRead_NoBridge(t *testing.T) {
 	switchCount, ok := AccountSwitchCountFromContext(ctx)
 	require.True(t, ok)
 	require.Equal(t, 2, switchCount)
+
+	identity, ok := ProtocolMetadataIdentityFromContext(ctx)
+	require.True(t, ok)
+	require.Equal(t, ProtocolMetadataIdentity{TenantID: 10, APIKeyID: 20, GroupID: 30}, identity)
 
 	require.Nil(t, ctx.Value(ctxkey.IsMaxTokensOneHaikuRequest))
 	require.Nil(t, ctx.Value(ctxkey.ThinkingEnabled))
@@ -116,4 +121,19 @@ func TestRequestMetadataRead_PreferMetadataOverLegacy(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, thinking)
 	require.Equal(t, false, ctx.Value(ctxkey.ThinkingEnabled))
+}
+
+func TestProtocolMetadataIdentityRejectsIncompleteScope(t *testing.T) {
+	ctx := context.Background()
+	for _, identity := range []ProtocolMetadataIdentity{
+		{},
+		{TenantID: 1, APIKeyID: 2},
+		{TenantID: 1, GroupID: 3},
+		{APIKeyID: 2, GroupID: 3},
+	} {
+		got := WithProtocolMetadataIdentity(ctx, identity.TenantID, identity.APIKeyID, identity.GroupID)
+		require.Equal(t, ctx, got)
+		_, ok := ProtocolMetadataIdentityFromContext(got)
+		require.False(t, ok)
+	}
 }

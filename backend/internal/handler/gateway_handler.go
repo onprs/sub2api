@@ -23,6 +23,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -44,6 +45,7 @@ type GatewayHandler struct {
 	gatewayService            *service.GatewayService
 	geminiCompatService       *service.GeminiMessagesCompatService
 	antigravityGatewayService *service.AntigravityGatewayService
+	openAIGatewayService      *service.OpenAIGatewayService
 	userService               *service.UserService
 	billingCacheService       *service.BillingCacheService
 	usageService              *service.UsageService
@@ -64,6 +66,7 @@ func NewGatewayHandler(
 	gatewayService *service.GatewayService,
 	geminiCompatService *service.GeminiMessagesCompatService,
 	antigravityGatewayService *service.AntigravityGatewayService,
+	openAIGatewayService *service.OpenAIGatewayService,
 	userService *service.UserService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
@@ -99,6 +102,7 @@ func NewGatewayHandler(
 		gatewayService:            gatewayService,
 		geminiCompatService:       geminiCompatService,
 		antigravityGatewayService: antigravityGatewayService,
+		openAIGatewayService:      openAIGatewayService,
 		userService:               userService,
 		billingCacheService:       billingCacheService,
 		usageService:              usageService,
@@ -113,6 +117,14 @@ func NewGatewayHandler(
 		cfg:                       cfg,
 		settingService:            settingService,
 	}
+}
+
+func bindProtocolMetadataIdentity(c *gin.Context, apiKey *service.APIKey, tenantID int64) {
+	if c == nil || c.Request == nil || apiKey == nil || apiKey.GroupID == nil {
+		return
+	}
+	ctx := service.WithProtocolMetadataIdentity(c.Request.Context(), tenantID, apiKey.ID, *apiKey.GroupID)
+	c.Request = c.Request.WithContext(ctx)
 }
 
 // Messages handles Claude API compatible messages endpoint
@@ -130,6 +142,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
 		return
 	}
+	bindProtocolMetadataIdentity(c, apiKey, subject.UserID)
 	reqLog := requestLogger(
 		c,
 		"handler.gateway.messages",
@@ -1712,16 +1725,7 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 				return
 			}
 		}
-		// Stream already started, send error as SSE event then close
-		flusher, ok := c.Writer.(http.Flusher)
-		if ok {
-			// SSE 错误事件固定 schema，使用 Quote 直拼可避免额外 Marshal 分配。
-			errorEvent := `data: {"type":"error","error":{"type":` + strconv.Quote(errType) + `,"message":` + strconv.Quote(message) + `}}` + "\n\n"
-			if _, err := fmt.Fprint(c.Writer, errorEvent); err != nil {
-				_ = c.Error(err)
-			}
-			flusher.Flush()
-		}
+		writeProtocolStreamError(c, protocolForInboundEndpoint(c), status, errType, errType, message)
 		return
 	}
 
@@ -1816,15 +1820,9 @@ func (h *GatewayHandler) checkClaudeCodeVersion(c *gin.Context) bool {
 	return true
 }
 
-// errorResponse 返回Claude API格式的错误响应
+// errorResponse returns an Anthropic Messages error envelope.
 func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
-	c.JSON(status, gin.H{
-		"type": "error",
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
-	})
+	writeProtocolError(c, protocolconv.ProtocolAnthropic, status, errType, errType, message)
 }
 
 // CountTokens handles token counting endpoint

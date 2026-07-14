@@ -1,12 +1,12 @@
 package apicompat
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/toolrouting"
 )
 
 // ResponsesToChatCompletionsRequest converts a Responses API request into a
@@ -691,27 +691,10 @@ func namespaceChildrenToChatTools(tool ResponsesTool, topLevel map[string]bool, 
 	return out, nil
 }
 
-// chatToolNameMaxLen 是 Chat Completions function 工具名的通用长度上限。
-const chatToolNameMaxLen = 64
-
-// flattenNamespaceToolName 生成 namespace 子工具的摊平名；超长时截断并追加
-// sha256 短哈希保证唯一性。
+// flattenNamespaceToolName keeps the bridge API local while delegating the
+// naming contract to the protocol-neutral request-scoped routing package.
 func flattenNamespaceToolName(namespace, name string) string {
-	full := namespace + "__" + name
-	if len(full) <= chatToolNameMaxLen {
-		return full
-	}
-	sum := sha256.Sum256([]byte(full))
-	suffix := "__" + hex.EncodeToString(sum[:4])
-	prefixLen := chatToolNameMaxLen - len(suffix)
-	var prefix strings.Builder
-	for _, ch := range full {
-		if prefix.Len()+len(string(ch)) > prefixLen {
-			break
-		}
-		_, _ = prefix.WriteRune(ch)
-	}
-	return prefix.String() + suffix
+	return toolrouting.FlattenNamespaceName(namespace, name)
 }
 
 // responsesToolChoiceToChatToolChoice 把 Responses 的 tool_choice 转为 chat 形态。

@@ -21,6 +21,16 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+type grokResponsesErrorCloseTrackingBody struct {
+	io.Reader
+	closeCount int
+}
+
+func (b *grokResponsesErrorCloseTrackingBody) Close() error {
+	b.closeCount++
+	return nil
+}
+
 func TestPatchGrokResponsesBodySetsMappedModelAndDropsUnsupportedFields(t *testing.T) {
 	t.Parallel()
 
@@ -660,6 +670,67 @@ func TestForwardAsChatCompletionsForGrokUsesXAIChatCompletionsAndSnapshots(t *te
 	require.Equal(t, 2, result.Usage.OutputTokens)
 	require.NotNil(t, repo.updates[51][grokQuotaSnapshotExtraKey])
 	require.Equal(t, http.StatusOK, recorder.Code)
+}
+
+func TestForwardGrokResponsesHTTPErrorUsesStructuredBoundary(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, stream := range []bool{false, true} {
+		t.Run(map[bool]string{false: "buffered", true: "stream"}[stream], func(t *testing.T) {
+			body := []byte(`{"model":"grok","input":"hi","stream":` + map[bool]string{false: "false", true: "true"}[stream] + `}`)
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			account := &Account{
+				ID:          54,
+				Name:        "grok",
+				Platform:    PlatformGrok,
+				Type:        AccountTypeOAuth,
+				Concurrency: 1,
+				Credentials: map[string]any{
+					"access_token": "access-token",
+					"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+					"base_url":     xai.DefaultCLIBaseURL,
+				},
+			}
+			repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{accountsByID: map[int64]*Account{54: account}}}
+			responseBody := &grokResponsesErrorCloseTrackingBody{Reader: strings.NewReader(`{"error":{"type":"invalid_request_error","message":"bad request"}}`)}
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusBadRequest,
+				Header: http.Header{
+					"Content-Type":                   []string{"application/json"},
+					"Xai-Request-Id":                 []string{"xai-error-req"},
+					"X-Ratelimit-Limit-Requests":     []string{"10"},
+					"X-Ratelimit-Remaining-Requests": []string{"9"},
+				},
+				Body: responseBody,
+			}}
+			svc := &OpenAIGatewayService{
+				httpUpstream:      upstream,
+				grokTokenProvider: NewGrokTokenProvider(repo, nil),
+				accountRepo:       repo,
+			}
+
+			result, err := svc.forwardGrokResponses(context.Background(), c, account, body, "grok", stream, time.Now())
+			require.Error(t, err)
+			require.Nil(t, result)
+			require.Equal(t, http.StatusBadGateway, recorder.Code)
+			require.Equal(t, "upstream_error", gjson.Get(recorder.Body.String(), "error.type").String())
+			require.NotContains(t, recorder.Body.String(), "event:")
+			require.NotContains(t, recorder.Body.String(), "data:")
+			require.Equal(t, 1, responseBody.closeCount)
+			require.NotNil(t, repo.updates[54][grokQuotaSnapshotExtraKey])
+
+			value, ok := c.Get(OpsUpstreamErrorsKey)
+			require.True(t, ok)
+			events, ok := value.([]*OpsUpstreamErrorEvent)
+			require.True(t, ok)
+			require.NotEmpty(t, events)
+			require.Equal(t, "xai-error-req", events[0].UpstreamRequestID)
+		})
+	}
 }
 
 func TestForwardGrokResponsesStreamingUsesXAIResponsesAndSnapshots(t *testing.T) {

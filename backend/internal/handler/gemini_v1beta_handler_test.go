@@ -12,6 +12,26 @@ import (
 
 // TestGeminiV1BetaHandler_PlatformRoutingInvariant 文档化并验证 Handler 层的平台路由逻辑不变量
 // 该测试确保 gemini 和 antigravity 平台的路由逻辑符合预期
+func TestShouldRouteGeminiIngressToStandardProvider(t *testing.T) {
+	tests := []struct {
+		name             string
+		hasForcePlatform bool
+		group            *service.Group
+		want             bool
+	}{
+		{name: "OpenAI group", group: &service.Group{Platform: service.PlatformOpenAI}, want: true},
+		{name: "Anthropic group", group: &service.Group{Platform: service.PlatformAnthropic}, want: true},
+		{name: "Gemini group", group: &service.Group{Platform: service.PlatformGemini}},
+		{name: "forced Antigravity route", hasForcePlatform: true, group: &service.Group{Platform: service.PlatformOpenAI}},
+		{name: "missing group"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, shouldRouteGeminiIngressToStandardProvider(tt.hasForcePlatform, tt.group))
+		})
+	}
+}
+
 func TestGeminiV1BetaHandler_PlatformRoutingInvariant(t *testing.T) {
 	tests := []struct {
 		name            string

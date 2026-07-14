@@ -68,27 +68,18 @@ func TestOpenAIHandleStreamingAwareError_JSONEscaping(t *testing.T) {
 			h.handleStreamingAwareError(c, http.StatusBadGateway, tt.errType, tt.message, true)
 
 			body := w.Body.String()
-
-			// 验证 SSE 格式：event: error\ndata: {JSON}\n\n
-			assert.True(t, strings.HasPrefix(body, "event: error\n"), "应以 'event: error\\n' 开头")
+			assert.True(t, strings.HasPrefix(body, "data: "), "Chat source must use data-only SSE framing")
 			assert.True(t, strings.HasSuffix(body, "\n\n"), "应以 '\\n\\n' 结尾")
 
-			// 提取 data 部分
-			lines := strings.Split(strings.TrimSuffix(body, "\n\n"), "\n")
-			require.Len(t, lines, 2, "应有 event 行和 data 行")
-			dataLine := lines[1]
-			require.True(t, strings.HasPrefix(dataLine, "data: "), "第二行应以 'data: ' 开头")
-			jsonStr := strings.TrimPrefix(dataLine, "data: ")
-
-			// 验证 JSON 合法性
+			jsonStr := strings.TrimSuffix(strings.TrimPrefix(body, "data: "), "\n\n")
 			var parsed map[string]any
 			err := json.Unmarshal([]byte(jsonStr), &parsed)
 			require.NoError(t, err, "JSON 应能被成功解析，原始 JSON: %s", jsonStr)
 
-			// 验证结构
 			errorObj, ok := parsed["error"].(map[string]any)
 			require.True(t, ok, "应包含 error 对象")
 			assert.Equal(t, tt.errType, errorObj["type"])
+			assert.Equal(t, tt.errType, errorObj["code"])
 			assert.Equal(t, tt.message, errorObj["message"])
 		})
 	}
@@ -193,8 +184,9 @@ func TestOpenAIEnsureForwardErrorResponse_AppendsSSEAfterWritten(t *testing.T) {
 	// 状态码改不了（headers 已 flush），但 body 应该追加 SSE 错误事件。
 	require.Equal(t, http.StatusTeapot, w.Code)
 	assert.Contains(t, w.Body.String(), "already written")
-	// 非 /responses 路径走 legacy event: error 分支。
-	assert.Contains(t, w.Body.String(), "event: error\n")
+	// 非 /responses 路径按 OpenAI Chat source 使用 data-only SSE framing。
+	assert.Contains(t, w.Body.String(), "data: ")
+	assert.NotContains(t, w.Body.String(), "event: error\n")
 }
 
 // case B 回归测试：/responses 路径，Writer 已被写过（模拟 ping flushed），

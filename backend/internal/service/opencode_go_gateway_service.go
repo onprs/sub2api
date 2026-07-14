@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -14,15 +13,14 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
-	"go.uber.org/zap"
 )
 
 var openCodeGoAllowedHeaders = map[string]bool{
@@ -79,21 +77,27 @@ func (s *OpenCodeGoGatewayService) ForwardChatCompletions(
 
 	switch protocol {
 	case OpenCodeGoProtocolChatCompletions:
+		pipeline, converted, err := newOpenCodeGoPipelineRequest(upstreamBody, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolOpenAIChat, account, model, upstreamModel)
+		if err != nil {
+			writeOpenCodeGoError(c, http.StatusBadRequest, openCodeGoErrorFormatChat, "invalid_request_error", "Failed to validate chat completions request")
+			return nil, err
+		}
+		upstreamBody = converted
 		if gjson.GetBytes(upstreamBody, "stream").Bool() {
 			upstreamBody, err = ensureOpenAIChatStreamUsage(upstreamBody)
 			if err != nil {
 				return nil, fmt.Errorf("enable chat stream usage: %w", err)
 			}
 		}
-		return s.forwardChatBody(ctx, c, account, upstreamBody, model, upstreamModel, openCodeGoResponseChat, protocol)
+		return s.forwardChatBody(ctx, c, account, upstreamBody, model, upstreamModel, openCodeGoResponseChat, protocol, pipeline)
 	case OpenCodeGoProtocolMessages:
-		converted, err := convertChatCompletionsBodyToAnthropicBody(upstreamBody)
+		pipeline, converted, err := newOpenCodeGoPipelineRequest(upstreamBody, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, account, model, upstreamModel)
 		if err != nil {
 			writeOpenCodeGoError(c, http.StatusBadRequest, openCodeGoErrorFormatChat, "invalid_request_error", "Failed to convert chat completions request to messages")
 			return nil, err
 		}
 		converted = prepareOpenCodeGoMessagesCacheBody(converted)
-		return s.forwardMessagesBody(ctx, c, account, converted, model, upstreamModel, openCodeGoResponseChat, protocol)
+		return s.forwardMessagesBody(ctx, c, account, converted, model, upstreamModel, openCodeGoResponseChat, protocol, pipeline)
 	default:
 		writeOpenCodeGoError(c, http.StatusBadRequest, openCodeGoErrorFormatChat, "invalid_request_error", "Unsupported model protocol")
 		return nil, fmt.Errorf("unsupported opencode go model protocol %q", protocol)
@@ -123,10 +127,15 @@ func (s *OpenCodeGoGatewayService) ForwardMessages(
 
 	switch protocol {
 	case OpenCodeGoProtocolMessages:
-		upstreamBody = prepareOpenCodeGoMessagesCacheBody(upstreamBody)
-		return s.forwardMessagesBody(ctx, c, account, upstreamBody, model, upstreamModel, openCodeGoResponseAnthropic, protocol)
+		pipeline, converted, err := newOpenCodeGoPipelineRequest(upstreamBody, protocolconv.ProtocolAnthropic, protocolconv.ProtocolAnthropic, account, model, upstreamModel)
+		if err != nil {
+			writeOpenCodeGoError(c, http.StatusBadRequest, openCodeGoErrorFormatAnthropic, "invalid_request_error", "Failed to validate messages request")
+			return nil, err
+		}
+		upstreamBody = prepareOpenCodeGoMessagesCacheBody(converted)
+		return s.forwardMessagesBody(ctx, c, account, upstreamBody, model, upstreamModel, openCodeGoResponseAnthropic, protocol, pipeline)
 	case OpenCodeGoProtocolChatCompletions:
-		converted, err := convertAnthropicBodyToChatCompletionsBody(upstreamBody)
+		pipeline, converted, err := newOpenCodeGoPipelineRequest(upstreamBody, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, account, model, upstreamModel)
 		if err != nil {
 			writeOpenCodeGoError(c, http.StatusBadRequest, openCodeGoErrorFormatAnthropic, "invalid_request_error", "Failed to convert messages request to chat completions")
 			return nil, err
@@ -137,7 +146,7 @@ func (s *OpenCodeGoGatewayService) ForwardMessages(
 				return nil, fmt.Errorf("enable chat stream usage: %w", err)
 			}
 		}
-		return s.forwardChatBody(ctx, c, account, converted, model, upstreamModel, openCodeGoResponseAnthropic, protocol)
+		return s.forwardChatBody(ctx, c, account, converted, model, upstreamModel, openCodeGoResponseAnthropic, protocol, pipeline)
 	default:
 		writeOpenCodeGoError(c, http.StatusBadRequest, openCodeGoErrorFormatAnthropic, "invalid_request_error", "Unsupported model protocol")
 		return nil, fmt.Errorf("unsupported opencode go model protocol %q", protocol)
@@ -153,6 +162,7 @@ func (s *OpenCodeGoGatewayService) forwardChatBody(
 	upstreamModel string,
 	responseMode openCodeGoResponseMode,
 	protocol string,
+	pipeline *protocolconv.Pipeline,
 ) (*ForwardResult, error) {
 	targetURL, err := s.openCodeGoEndpointURL(account, "/v1/chat/completions")
 	if err != nil {
@@ -166,19 +176,19 @@ func (s *OpenCodeGoGatewayService) forwardChatBody(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if err := s.handleUpstreamError(ctx, c, account, resp, responseMode.errorFormat()); err != nil {
+	if err := s.handleUpstreamError(ctx, c, account, resp, protocolconv.ProtocolOpenAIChat, responseMode.errorFormat(), gjson.GetBytes(body, "stream").Bool()); err != nil {
 		return nil, err
 	}
 	if gjson.GetBytes(body, "stream").Bool() {
 		if responseMode == openCodeGoResponseAnthropic {
-			return s.streamChatToAnthropic(c, resp, originalModel, upstreamModel, startTime)
+			return s.streamChatToAnthropic(c, resp, pipeline, originalModel, upstreamModel, startTime)
 		}
-		return s.streamChatPassthrough(c, resp, originalModel, upstreamModel, startTime)
+		return s.streamChatPassthrough(c, resp, pipeline, originalModel, upstreamModel, startTime)
 	}
 	if responseMode == openCodeGoResponseAnthropic {
-		return s.bufferChatToAnthropic(c, resp, originalModel, upstreamModel, startTime)
+		return s.bufferChatToAnthropic(c, resp, pipeline, originalModel, upstreamModel, startTime)
 	}
-	return s.bufferChatPassthrough(c, resp, originalModel, upstreamModel, startTime, protocol)
+	return s.bufferChatPassthrough(c, resp, pipeline, originalModel, upstreamModel, startTime)
 }
 
 func (s *OpenCodeGoGatewayService) forwardMessagesBody(
@@ -190,6 +200,7 @@ func (s *OpenCodeGoGatewayService) forwardMessagesBody(
 	upstreamModel string,
 	responseMode openCodeGoResponseMode,
 	protocol string,
+	pipeline *protocolconv.Pipeline,
 ) (*ForwardResult, error) {
 	targetURL, err := s.openCodeGoEndpointURL(account, "/v1/messages")
 	if err != nil {
@@ -203,19 +214,19 @@ func (s *OpenCodeGoGatewayService) forwardMessagesBody(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if err := s.handleUpstreamError(ctx, c, account, resp, responseMode.errorFormat()); err != nil {
+	if err := s.handleUpstreamError(ctx, c, account, resp, protocolconv.ProtocolAnthropic, responseMode.errorFormat(), gjson.GetBytes(body, "stream").Bool()); err != nil {
 		return nil, err
 	}
 	if gjson.GetBytes(body, "stream").Bool() {
 		if responseMode == openCodeGoResponseChat {
-			return s.streamAnthropicToChat(c, resp, originalModel, upstreamModel, startTime)
+			return s.streamAnthropicToChat(c, resp, pipeline, originalModel, upstreamModel, startTime)
 		}
-		return s.streamAnthropicPassthrough(c, resp, originalModel, upstreamModel, startTime)
+		return s.streamAnthropicPassthrough(c, resp, pipeline, originalModel, upstreamModel, startTime)
 	}
 	if responseMode == openCodeGoResponseChat {
-		return s.bufferAnthropicToChat(c, resp, originalModel, upstreamModel, startTime)
+		return s.bufferAnthropicToChat(c, resp, pipeline, originalModel, upstreamModel, startTime)
 	}
-	return s.bufferAnthropicPassthrough(c, resp, originalModel, upstreamModel, startTime, protocol)
+	return s.bufferAnthropicPassthrough(c, resp, pipeline, originalModel, upstreamModel, startTime)
 }
 
 func (s *OpenCodeGoGatewayService) sendUpstream(
@@ -298,15 +309,21 @@ func (s *OpenCodeGoGatewayService) handleUpstreamError(
 	c *gin.Context,
 	account *Account,
 	resp *http.Response,
+	actualProtocol protocolconv.Protocol,
 	format openCodeGoErrorFormat,
+	streamRequested bool,
 ) error {
 	if resp.StatusCode < 400 {
 		return nil
 	}
-	body := readOpenCodeGoErrorBody(resp.Body)
+	upstream, err := collectOpenCodeGoErrorResponse(resp, actualProtocol, streamRequested)
+	if err != nil {
+		return err
+	}
+	body := upstream.Body
 	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(body)))
 	if upstreamMsg == "" {
-		upstreamMsg = http.StatusText(resp.StatusCode)
+		upstreamMsg = http.StatusText(upstream.StatusCode)
 	}
 	detail := ""
 	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
@@ -316,24 +333,24 @@ func (s *OpenCodeGoGatewayService) handleUpstreamError(
 		}
 		detail = truncateString(string(body), maxBytes)
 	}
-	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, detail)
+	setOpsUpstreamError(c, upstream.StatusCode, upstreamMsg, detail)
 
-	if shouldFailoverOpenCodeGoResponse(resp.StatusCode, body) {
-		s.applyOpenCodeGoFailureSideEffects(ctx, account, resp.StatusCode, resp.Header, body)
+	if shouldFailoverOpenCodeGoResponse(upstream.StatusCode, body) {
+		s.applyOpenCodeGoFailureSideEffects(ctx, account, upstream.StatusCode, upstream.Headers, body)
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform:           account.Platform,
 			AccountID:          account.ID,
 			AccountName:        account.Name,
-			UpstreamStatusCode: resp.StatusCode,
-			UpstreamRequestID:  resp.Header.Get("x-request-id"),
+			UpstreamStatusCode: upstream.StatusCode,
+			UpstreamRequestID:  upstream.RequestID,
 			Kind:               "failover",
 			Message:            upstreamMsg,
 			Detail:             detail,
 		})
 		return &UpstreamFailoverError{
-			StatusCode:      resp.StatusCode,
+			StatusCode:      upstream.StatusCode,
 			ResponseBody:    body,
-			ResponseHeaders: resp.Header.Clone(),
+			ResponseHeaders: protocoltransport.CloneHeaders(upstream.Headers),
 		}
 	}
 
@@ -341,14 +358,14 @@ func (s *OpenCodeGoGatewayService) handleUpstreamError(
 		Platform:           account.Platform,
 		AccountID:          account.ID,
 		AccountName:        account.Name,
-		UpstreamStatusCode: resp.StatusCode,
-		UpstreamRequestID:  resp.Header.Get("x-request-id"),
+		UpstreamStatusCode: upstream.StatusCode,
+		UpstreamRequestID:  upstream.RequestID,
 		Kind:               "passthrough",
 		Message:            upstreamMsg,
 		Detail:             detail,
 	})
-	writeOpenCodeGoUpstreamResponse(c, resp, body, s.responseHeaderFilter, format)
-	return fmt.Errorf("opencode go upstream returned status %d", resp.StatusCode)
+	writeOpenCodeGoUpstreamResponse(c, upstream, s.responseHeaderFilter, format)
+	return fmt.Errorf("opencode go upstream returned status %d", upstream.StatusCode)
 }
 
 func (s *OpenCodeGoGatewayService) applyOpenCodeGoFailureSideEffects(ctx context.Context, account *Account, statusCode int, headers http.Header, body []byte) {
@@ -361,10 +378,10 @@ func (s *OpenCodeGoGatewayService) applyOpenCodeGoFailureSideEffects(ctx context
 func (s *OpenCodeGoGatewayService) bufferChatPassthrough(
 	c *gin.Context,
 	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	upstreamModel string,
 	startTime time.Time,
-	protocol string,
 ) (*ForwardResult, error) {
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
@@ -374,17 +391,20 @@ func (s *OpenCodeGoGatewayService) bufferChatPassthrough(
 		return nil, err
 	}
 	usage := claudeUsageFromChatBody(body)
-	writeOpenCodeGoUpstreamResponse(c, resp, body, s.responseHeaderFilter, openCodeGoErrorFormatChat)
-	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, false, startTime), nil
+	if err := s.renderOpenCodeGoResponse(c, resp, pipeline, protocolconv.ProtocolOpenAIChat, body, startTime); err != nil {
+		writeOpenCodeGoError(c, http.StatusBadGateway, openCodeGoErrorFormatChat, "upstream_error", "Failed to validate upstream chat completions response")
+		return nil, err
+	}
+	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolOpenAIChat, false, startTime), nil
 }
 
 func (s *OpenCodeGoGatewayService) bufferAnthropicPassthrough(
 	c *gin.Context,
 	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	upstreamModel string,
 	startTime time.Time,
-	protocol string,
 ) (*ForwardResult, error) {
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, anthropicTooLargeError)
 	if err != nil {
@@ -394,13 +414,48 @@ func (s *OpenCodeGoGatewayService) bufferAnthropicPassthrough(
 		return nil, err
 	}
 	usage := claudeUsageFromAnthropicBody(body)
-	writeOpenCodeGoUpstreamResponse(c, resp, body, s.responseHeaderFilter, openCodeGoErrorFormatAnthropic)
-	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, false, startTime), nil
+	if err := s.renderOpenCodeGoResponse(c, resp, pipeline, protocolconv.ProtocolAnthropic, body, startTime); err != nil {
+		writeOpenCodeGoError(c, http.StatusBadGateway, openCodeGoErrorFormatAnthropic, "upstream_error", "Failed to validate upstream messages response")
+		return nil, err
+	}
+	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolAnthropic, false, startTime), nil
+}
+
+func (s *OpenCodeGoGatewayService) renderOpenCodeGoResponse(
+	c *gin.Context,
+	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
+	actualProtocol protocolconv.Protocol,
+	body []byte,
+	startTime time.Time,
+) error {
+	structured := protocoltransport.Response{
+		StatusCode:     resp.StatusCode,
+		Headers:        responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
+		Body:           append([]byte(nil), body...),
+		ActualProtocol: actualProtocol,
+		RequestID:      resp.Header.Get("x-request-id"),
+		ResponseID:     extractOpenAIResponseIDFromJSONBytes(body),
+		Duration:       time.Since(startTime),
+	}
+	if err := structured.Validate(); err != nil {
+		return fmt.Errorf("validate OpenCode Go response: %w", err)
+	}
+	converted, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
+	if err != nil {
+		return fmt.Errorf("convert OpenCode Go response: %w", err)
+	}
+	renderer, err := protocolconv.NewRenderer(converted.Source)
+	if err != nil {
+		return err
+	}
+	return renderer.RenderJSON(c.Writer, structured.StatusCode, structured.Headers, converted.Body)
 }
 
 func (s *OpenCodeGoGatewayService) bufferAnthropicToChat(
 	c *gin.Context,
 	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	upstreamModel string,
 	startTime time.Time,
@@ -415,18 +470,17 @@ func (s *OpenCodeGoGatewayService) bufferAnthropicToChat(
 		return nil, err
 	}
 	usage := claudeUsageFromAnthropicUsage(anth.Usage)
-	out, _, err := convertStandardResponse(body, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, upstreamModel, originalModel)
-	if err != nil {
+	if err := s.renderOpenCodeGoResponse(c, resp, pipeline, protocolconv.ProtocolAnthropic, body, startTime); err != nil {
 		writeOpenCodeGoError(c, http.StatusBadGateway, openCodeGoErrorFormatChat, "upstream_error", "Failed to convert upstream messages response")
 		return nil, err
 	}
-	writeOpenCodeGoUpstreamResponse(c, resp, out, s.responseHeaderFilter, openCodeGoErrorFormatChat)
-	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, false, startTime), nil
+	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolAnthropic, false, startTime), nil
 }
 
 func (s *OpenCodeGoGatewayService) bufferChatToAnthropic(
 	c *gin.Context,
 	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	upstreamModel string,
 	startTime time.Time,
@@ -441,30 +495,27 @@ func (s *OpenCodeGoGatewayService) bufferChatToAnthropic(
 		return nil, err
 	}
 	usage := claudeUsageFromChatUsage(cc.Usage)
-	out, _, err := convertStandardResponse(body, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, upstreamModel, originalModel)
-	if err != nil {
+	if err := s.renderOpenCodeGoResponse(c, resp, pipeline, protocolconv.ProtocolOpenAIChat, body, startTime); err != nil {
 		writeOpenCodeGoError(c, http.StatusBadGateway, openCodeGoErrorFormatAnthropic, "upstream_error", "Failed to convert upstream chat completions response")
 		return nil, err
 	}
-	writeOpenCodeGoUpstreamResponse(c, resp, out, s.responseHeaderFilter, openCodeGoErrorFormatAnthropic)
-	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, false, startTime), nil
+	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolOpenAIChat, false, startTime), nil
 }
 
 func (s *OpenCodeGoGatewayService) streamChatPassthrough(
 	c *gin.Context,
 	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	upstreamModel string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
 	usage := ClaudeUsage{}
-	firstTokenMs := (*int)(nil)
-	result := s.copySSE(c, resp, openCodeGoErrorFormatChat, func(payload string) {
-		if strings.TrimSpace(payload) == "[DONE]" {
-			return
-		}
-		usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payload)
-		if u := extractCCStreamUsage(payload); u != nil {
+	var firstTokenMs *int
+	observe := func(payload []byte) {
+		text := string(payload)
+		usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(text)
+		if u := extractCCStreamUsage(text); u != nil {
 			usage = normalizeOpenCodeGoChatUsage(ClaudeUsage{
 				InputTokens:              u.InputTokens,
 				OutputTokens:             u.OutputTokens,
@@ -477,25 +528,27 @@ func (s *OpenCodeGoGatewayService) streamChatPassthrough(
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
-	})
-	out := openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, true, startTime)
-	out.ClientDisconnect = result.clientDisconnected
+	}
+	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolOpenAIChat, observe)
+	out := openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolOpenAIChat, true, startTime)
+	out.ClientDisconnect = clientDisconnected
 	out.FirstTokenMs = firstTokenMs
-	return out, result.err
+	return out, err
 }
 
 func (s *OpenCodeGoGatewayService) streamAnthropicPassthrough(
 	c *gin.Context,
 	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	upstreamModel string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
 	usage := ClaudeUsage{}
-	firstTokenMs := (*int)(nil)
-	result := s.copySSE(c, resp, openCodeGoErrorFormatAnthropic, func(payload string) {
+	var firstTokenMs *int
+	observe := func(payload []byte) {
 		var event apicompat.AnthropicStreamEvent
-		if err := json.Unmarshal([]byte(payload), &event); err != nil {
+		if err := json.Unmarshal(payload, &event); err != nil {
 			return
 		}
 		if firstTokenMs == nil && event.Type != "" {
@@ -508,212 +561,200 @@ func (s *OpenCodeGoGatewayService) streamAnthropicPassthrough(
 		if event.Type == "message_delta" && event.Usage != nil {
 			mergeAnthropicUsage(&usage, *event.Usage)
 		}
-	})
-	out := openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, true, startTime)
-	out.ClientDisconnect = result.clientDisconnected
+	}
+	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolAnthropic, protocolconv.ProtocolAnthropic, observe)
+	out := openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolAnthropic, true, startTime)
+	out.ClientDisconnect = clientDisconnected
 	out.FirstTokenMs = firstTokenMs
-	return out, result.err
+	return out, err
 }
 
 func (s *OpenCodeGoGatewayService) streamAnthropicToChat(
 	c *gin.Context,
 	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	upstreamModel string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
-	requestID := resp.Header.Get("x-request-id")
-	s.writeStreamHeaders(c, resp, openCodeGoErrorFormatChat)
-	session, err := newStandardStreamSession(protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat)
-	if err != nil {
-		return nil, err
-	}
 	usage := ClaudeUsage{}
 	var firstTokenMs *int
-	clientDisconnected := false
-	var conversionErr error
-
-	writePayloads := func(payloads [][]byte) {
-		for _, payload := range payloads {
-			if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", payload); err != nil {
-				clientDisconnected = true
-				return
-			}
-		}
-		if len(payloads) > 0 {
-			c.Writer.Flush()
-		}
-	}
-	process := func(payload string) {
-		if conversionErr != nil {
-			return
-		}
+	observe := func(payload []byte) {
 		var event apicompat.AnthropicStreamEvent
-		if err := json.Unmarshal([]byte(payload), &event); err == nil {
-			if firstTokenMs == nil {
-				ms := int(time.Since(startTime).Milliseconds())
-				firstTokenMs = &ms
-			}
-			if event.Type == "message_start" && event.Message != nil {
-				mergeAnthropicUsage(&usage, event.Message.Usage)
-			}
-			if event.Type == "message_delta" && event.Usage != nil {
-				mergeAnthropicUsage(&usage, *event.Usage)
-			}
-		}
-		payloads, _, err := session.Convert([]byte(payload))
-		if err != nil {
-			conversionErr = err
+		if json.Unmarshal(payload, &event) != nil {
 			return
 		}
-		if !clientDisconnected {
-			writePayloads(payloads)
+		if firstTokenMs == nil && event.Type != "" {
+			ms := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &ms
+		}
+		if event.Type == "message_start" && event.Message != nil {
+			mergeAnthropicUsage(&usage, event.Message.Usage)
+		}
+		if event.Type == "message_delta" && event.Usage != nil {
+			mergeAnthropicUsage(&usage, *event.Usage)
 		}
 	}
-	s.scanSSE(resp, process)
-	if conversionErr == nil {
-		payloads, _, err := session.Finalize()
-		conversionErr = err
-		if !clientDisconnected {
-			writePayloads(payloads)
-			_, _ = fmt.Fprint(c.Writer, "data: [DONE]\n\n")
-			c.Writer.Flush()
-		}
-	}
-	return &ForwardResult{RequestID: requestID, Usage: usage, Model: originalModel, UpstreamModel: optionalUpstreamModel(originalModel, upstreamModel), Stream: true, Duration: time.Since(startTime), FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected}, conversionErr
+	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, observe)
+	return &ForwardResult{
+		RequestID: resp.Header.Get("x-request-id"), ActualProtocol: protocolconv.ProtocolAnthropic,
+		Usage: usage, Model: originalModel,
+		UpstreamModel: optionalUpstreamModel(originalModel, upstreamModel), Stream: true,
+		Duration: time.Since(startTime), FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected,
+	}, err
 }
 
 func (s *OpenCodeGoGatewayService) streamChatToAnthropic(
 	c *gin.Context,
 	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	upstreamModel string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
-	requestID := resp.Header.Get("x-request-id")
-	s.writeStreamHeaders(c, resp, openCodeGoErrorFormatAnthropic)
-	session, err := newStandardStreamSession(protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic)
-	if err != nil {
-		return nil, err
-	}
 	usage := ClaudeUsage{}
 	var firstTokenMs *int
-	clientDisconnected := false
-	var conversionErr error
-
-	writePayloads := func(payloads [][]byte) {
-		for _, payload := range payloads {
-			var event struct {
-				Type string `json:"type"`
-			}
-			if json.Unmarshal(payload, &event) != nil || event.Type == "" {
-				continue
-			}
-			if _, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event.Type, payload); err != nil {
-				clientDisconnected = true
-				return
-			}
+	observe := func(payload []byte) {
+		text := string(payload)
+		if u := extractCCStreamUsage(text); u != nil {
+			usage = normalizeOpenCodeGoChatUsage(ClaudeUsage{
+				InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CacheReadInputTokens: u.CacheReadInputTokens,
+			})
 		}
-		if len(payloads) > 0 {
-			c.Writer.Flush()
-		}
-	}
-	process := func(payload string) {
-		if conversionErr != nil || strings.TrimSpace(payload) == "[DONE]" {
-			return
-		}
-		if u := extractCCStreamUsage(payload); u != nil {
-			usage = normalizeOpenCodeGoChatUsage(ClaudeUsage{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CacheReadInputTokens: u.CacheReadInputTokens})
-		}
-		if firstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) {
+		if firstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(text) {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
-		payloads, _, err := session.Convert([]byte(payload))
-		if err != nil {
-			conversionErr = err
-			return
-		}
-		if !clientDisconnected {
-			writePayloads(payloads)
-		}
 	}
-	s.scanSSE(resp, process)
-	if conversionErr == nil {
-		payloads, _, err := session.Finalize()
-		conversionErr = err
-		if !clientDisconnected {
-			writePayloads(payloads)
-		}
-	}
-	return &ForwardResult{RequestID: requestID, Usage: usage, Model: originalModel, UpstreamModel: optionalUpstreamModel(originalModel, upstreamModel), Stream: true, Duration: time.Since(startTime), FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected}, conversionErr
+	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, observe)
+	return &ForwardResult{
+		RequestID: resp.Header.Get("x-request-id"), ActualProtocol: protocolconv.ProtocolOpenAIChat,
+		Usage: usage, Model: originalModel,
+		UpstreamModel: optionalUpstreamModel(originalModel, upstreamModel), Stream: true,
+		Duration: time.Since(startTime), FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected,
+	}, err
 }
 
-type openCodeGoCopySSEResult struct {
-	clientDisconnected bool
-	err                error
-}
-
-func (s *OpenCodeGoGatewayService) copySSE(c *gin.Context, resp *http.Response, format openCodeGoErrorFormat, observe func(payload string)) openCodeGoCopySSEResult {
-	s.writeStreamHeaders(c, resp, format)
-	scanner := s.newSSEScanner(resp.Body)
+func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
+	c *gin.Context,
+	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
+	actualProtocol protocolconv.Protocol,
+	sourceProtocol protocolconv.Protocol,
+	observe func([]byte),
+) (bool, error) {
+	maxRecordSize := defaultMaxLineSize
+	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
+		maxRecordSize = s.cfg.Gateway.MaxLineSize
+	}
+	filteredHeaders := make(http.Header)
+	if s.responseHeaderFilter != nil {
+		filteredHeaders = responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
+	}
+	stream := &protocoltransport.Stream{
+		StatusCode: resp.StatusCode, Headers: filteredHeaders, ActualProtocol: actualProtocol,
+		RequestID: resp.Header.Get("x-request-id"), Events: protocoltransport.NewSSEParser(resp.Body, maxRecordSize),
+	}
+	if err := stream.Validate(); err != nil {
+		_ = stream.Close()
+		return false, err
+	}
+	defer func() { _ = stream.Close() }()
+	session, err := pipeline.NewStreamProcessor(stream.ActualProtocol)
+	if err != nil {
+		return false, err
+	}
+	renderer, err := protocolconv.NewRenderer(sourceProtocol)
+	if err != nil {
+		return false, err
+	}
+	headersWritten := false
 	clientDisconnected := false
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "data:") && observe != nil {
-			observe(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+	writePayloads := func(payloads [][]byte) error {
+		if clientDisconnected || len(payloads) == 0 {
+			return nil
 		}
-		if !clientDisconnected {
-			if _, err := c.Writer.WriteString(line + "\n"); err != nil {
+		framedPayloads := make([][]byte, 0, len(payloads))
+		for _, payload := range payloads {
+			framed, err := renderer.FrameStreamEvent(payload)
+			if err != nil {
+				return err
+			}
+			framedPayloads = append(framedPayloads, framed)
+		}
+		if !headersWritten {
+			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
+				return err
+			}
+			headersWritten = true
+		}
+		for _, framed := range framedPayloads {
+			if _, err := c.Writer.Write(framed); err != nil {
 				clientDisconnected = true
-			}
-			if line == "" {
-				c.Writer.Flush()
+				return nil
 			}
 		}
+		c.Writer.Flush()
+		return nil
+	}
+
+	identityStream := actualProtocol == sourceProtocol
+	identityTerminal := false
+	for {
+		record, nextErr := stream.Events.Next(context.Background())
+		if errors.Is(nextErr, protocoltransport.ErrSSEDone) {
+			if identityStream && actualProtocol == protocolconv.ProtocolOpenAIChat {
+				identityTerminal = true
+			}
+			break
+		}
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			return clientDisconnected, nextErr
+		}
+		if identityStream && actualProtocol == protocolconv.ProtocolAnthropic && gjson.GetBytes(record.Data, "type").String() == "message_stop" {
+			identityTerminal = true
+		}
+		if observe != nil {
+			observe(record.Data)
+		}
+		payloads, _, err := session.Convert(record.Data)
+		if err != nil {
+			return clientDisconnected, err
+		}
+		if err := writePayloads(payloads); err != nil {
+			return clientDisconnected, err
+		}
+	}
+	if identityStream && !identityTerminal {
+		return clientDisconnected, fmt.Errorf("OpenCode Go %s stream ended without terminal event", actualProtocol)
+	}
+	payloads, _, err := session.Finalize()
+	if err != nil {
+		return clientDisconnected, err
+	}
+	if err := writePayloads(payloads); err != nil {
+		return clientDisconnected, err
 	}
 	if !clientDisconnected {
-		c.Writer.Flush()
-	}
-	err := scanner.Err()
-	if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
-		err = nil
-	}
-	return openCodeGoCopySSEResult{clientDisconnected: clientDisconnected, err: err}
-}
-
-func (s *OpenCodeGoGatewayService) scanSSE(resp *http.Response, process func(payload string)) {
-	scanner := s.newSSEScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "data:") && process != nil {
-			process(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+		if !headersWritten {
+			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
+				return false, err
+			}
+			headersWritten = true
+		}
+		if terminal := renderer.StreamTerminal(); len(terminal) > 0 {
+			if _, err := c.Writer.Write(terminal); err != nil {
+				clientDisconnected = true
+			}
+		}
+		if !clientDisconnected {
+			c.Writer.Flush()
 		}
 	}
-	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-		logger.L().Warn("opencode go stream: read error", zap.Error(err), zap.String("request_id", resp.Header.Get("x-request-id")))
-	}
-}
-
-func (s *OpenCodeGoGatewayService) newSSEScanner(r io.Reader) *bufio.Scanner {
-	scanner := bufio.NewScanner(r)
-	maxLineSize := defaultMaxLineSize
-	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-		maxLineSize = s.cfg.Gateway.MaxLineSize
-	}
-	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
-	return scanner
-}
-
-func (s *OpenCodeGoGatewayService) writeStreamHeaders(c *gin.Context, resp *http.Response, format openCodeGoErrorFormat) {
-	if s.responseHeaderFilter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-	}
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Header().Set("X-Accel-Buffering", "no")
-	c.Writer.WriteHeader(http.StatusOK)
+	return clientDisconnected, nil
 }
 
 func (s *OpenCodeGoGatewayService) openCodeGoEndpointURL(account *Account, endpoint string) (string, error) {
@@ -836,15 +877,47 @@ func ensureOpenCodeGoSystemCacheAnchor(body []byte) []byte {
 	return body
 }
 
+func newOpenCodeGoPipelineRequest(
+	body []byte,
+	source protocolconv.Protocol,
+	target protocolconv.Protocol,
+	account *Account,
+	clientModel string,
+	upstreamModel string,
+) (*protocolconv.Pipeline, []byte, error) {
+	route := protocolconv.Route{
+		Source:         source,
+		IntendedTarget: target,
+		ClientModel:    clientModel,
+		UpstreamModel:  upstreamModel,
+	}
+	if account != nil {
+		route.Provider = account.Platform
+		route.AccountID = account.ID
+	}
+	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+		Route:   route,
+		Options: protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossError},
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	converted, err := pipeline.ConvertRequest(body)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pipeline, converted.Body, nil
+}
+
 func convertChatCompletionsBodyToAnthropicBody(body []byte) ([]byte, error) {
 	model := gjson.GetBytes(body, "model").String()
-	converted, _, err := convertStandardRequest(body, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, model)
+	_, converted, err := newOpenCodeGoPipelineRequest(body, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, nil, model, model)
 	return converted, err
 }
 
 func convertAnthropicBodyToChatCompletionsBody(body []byte) ([]byte, error) {
 	model := gjson.GetBytes(body, "model").String()
-	converted, _, err := convertStandardRequest(body, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, model)
+	_, converted, err := newOpenCodeGoPipelineRequest(body, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, nil, model, model)
 	return converted, err
 }
 
@@ -900,14 +973,15 @@ func claudeUsageFromAnthropicUsage(usage apicompat.AnthropicUsage) ClaudeUsage {
 	}
 }
 
-func openCodeGoForwardResult(resp *http.Response, usage ClaudeUsage, model string, upstreamModel string, stream bool, startTime time.Time) *ForwardResult {
+func openCodeGoForwardResult(resp *http.Response, usage ClaudeUsage, model string, upstreamModel string, actualProtocol protocolconv.Protocol, stream bool, startTime time.Time) *ForwardResult {
 	return &ForwardResult{
-		RequestID:     resp.Header.Get("x-request-id"),
-		Usage:         usage,
-		Model:         model,
-		UpstreamModel: optionalUpstreamModel(model, upstreamModel),
-		Stream:        stream,
-		Duration:      time.Since(startTime),
+		RequestID:      resp.Header.Get("x-request-id"),
+		ActualProtocol: actualProtocol,
+		Usage:          usage,
+		Model:          model,
+		UpstreamModel:  optionalUpstreamModel(model, upstreamModel),
+		Stream:         stream,
+		Duration:       time.Since(startTime),
 	}
 }
 
@@ -918,19 +992,59 @@ func optionalUpstreamModel(model string, upstreamModel string) string {
 	return upstreamModel
 }
 
-func writeOpenCodeGoUpstreamResponse(c *gin.Context, resp *http.Response, body []byte, filter *responseheaders.CompiledHeaderFilter, format openCodeGoErrorFormat) {
-	if filter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, filter)
+func collectOpenCodeGoErrorResponse(resp *http.Response, actualProtocol protocolconv.Protocol, streamRequested bool) (protocoltransport.Response, error) {
+	if resp == nil {
+		return protocoltransport.Response{}, fmt.Errorf("collect OpenCode Go error response: nil response")
 	}
-	if ct := resp.Header.Get("Content-Type"); ct != "" {
+	headers := protocoltransport.CloneHeaders(resp.Header)
+	requestID := resp.Header.Get("x-request-id")
+	var body []byte
+	if streamRequested {
+		stream := &protocoltransport.Stream{
+			StatusCode:     resp.StatusCode,
+			Headers:        headers,
+			ActualProtocol: actualProtocol,
+			RequestID:      requestID,
+			ErrorBody:      resp.Body,
+		}
+		if err := stream.Validate(); err != nil {
+			return protocoltransport.Response{}, fmt.Errorf("validate OpenCode Go error stream: %w", err)
+		}
+		resp.Body = http.NoBody
+		body = readOpenCodeGoErrorBody(stream.ErrorBody)
+		_ = stream.Close()
+	} else {
+		body = readOpenCodeGoErrorBody(resp.Body)
+	}
+	upstream := protocoltransport.Response{
+		StatusCode:     resp.StatusCode,
+		Headers:        headers,
+		Body:           body,
+		ActualProtocol: actualProtocol,
+		RequestID:      requestID,
+	}
+	if err := upstream.Validate(); err != nil {
+		return protocoltransport.Response{}, fmt.Errorf("validate OpenCode Go error response: %w", err)
+	}
+	if !upstream.IsError() {
+		return protocoltransport.Response{}, fmt.Errorf("collect OpenCode Go error response: status %d is not an error", upstream.StatusCode)
+	}
+	return upstream, nil
+}
+
+func writeOpenCodeGoUpstreamResponse(c *gin.Context, upstream protocoltransport.Response, filter *responseheaders.CompiledHeaderFilter, format openCodeGoErrorFormat) {
+	if filter != nil {
+		responseheaders.WriteFilteredHeaders(c.Writer.Header(), upstream.Headers, filter)
+	}
+	if ct := upstream.Headers.Get("Content-Type"); ct != "" {
 		c.Writer.Header().Set("Content-Type", ct)
 	} else if format == openCodeGoErrorFormatAnthropic {
 		c.Writer.Header().Set("Content-Type", "application/json")
 	} else {
 		c.Writer.Header().Set("Content-Type", "application/json")
 	}
-	c.Writer.WriteHeader(resp.StatusCode)
-	_, _ = c.Writer.Write(body)
+	c.Writer.WriteHeader(upstream.StatusCode)
+	_, _ = c.Writer.Write(upstream.Body)
 }
 
 func readOpenCodeGoErrorBody(body io.Reader) []byte {

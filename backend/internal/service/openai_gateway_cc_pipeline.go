@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -14,6 +13,8 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -30,17 +31,6 @@ import (
 // 所有 helper 都是对既有内联代码的等价提取，不改变任何行为；各路径的差异
 // （GLM effort 归一化、fast policy、Grok 分支、ClientDisconnect 语义等）仍留在
 // 调用方，属于有意保留的行为差异，不在此强行统一。
-
-// newUpstreamSSEScanner 构造读取上游 SSE 流的行扫描器，按配置放大单行上限。
-func (s *OpenAIGatewayService) newUpstreamSSEScanner(r io.Reader) *bufio.Scanner {
-	scanner := bufio.NewScanner(r)
-	maxLineSize := defaultMaxLineSize
-	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-		maxLineSize = s.cfg.Gateway.MaxLineSize
-	}
-	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
-	return scanner
-}
 
 // newStreamHeaderWriter 返回幂等的 SSE 响应头写入闭包：首次调用时透传过滤后的
 // 上游响应头并写入标准 SSE 头 + 200 状态码，后续调用为 no-op。延迟到首个事件
@@ -63,32 +53,67 @@ func (s *OpenAIGatewayService) newStreamHeaderWriter(c *gin.Context, upstream ht
 	}
 }
 
-// readOpenAIUpstreamError 读取上游错误体并把 resp.Body 回卷为可重读的副本
-// （下游 handleXxxErrorResponse 需要再次读取），返回原始错误体与脱敏后的
-// 上游错误消息。
-func (s *OpenAIGatewayService) readOpenAIUpstreamError(resp *http.Response) ([]byte, string) {
-	respBody := s.readUpstreamErrorBody(resp)
-	_ = resp.Body.Close()
-	resp.Body = io.NopCloser(bytes.NewReader(respBody))
-
-	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
+// collectOpenAIStructuredUpstreamError captures a bounded Chat or Responses
+// HTTP error before source-protocol policy runs. Streaming requests transfer
+// body ownership through transport.Stream.ErrorBody; buffered requests retain
+// the caller's deferred close.
+func (s *OpenAIGatewayService) collectOpenAIStructuredUpstreamError(
+	resp *http.Response,
+	actualProtocol protocolconv.Protocol,
+	streamRequested bool,
+) (protocoltransport.Response, string, error) {
+	if resp == nil {
+		return protocoltransport.Response{}, "", fmt.Errorf("collect OpenAI structured upstream error: nil response")
+	}
+	headers := protocoltransport.CloneHeaders(resp.Header)
+	requestID := resp.Header.Get("x-request-id")
+	var body []byte
+	if streamRequested {
+		stream := &protocoltransport.Stream{
+			StatusCode:     resp.StatusCode,
+			Headers:        headers,
+			ActualProtocol: actualProtocol,
+			RequestID:      requestID,
+			ErrorBody:      resp.Body,
+		}
+		if err := stream.Validate(); err != nil {
+			return protocoltransport.Response{}, "", fmt.Errorf("validate OpenAI structured upstream error stream: %w", err)
+		}
+		resp.Body = http.NoBody
+		body = s.readUpstreamErrorReader(stream.ErrorBody)
+		_ = stream.Close()
+	} else {
+		body = s.readUpstreamErrorBody(resp)
+	}
+	upstream := protocoltransport.Response{
+		StatusCode:     resp.StatusCode,
+		Headers:        headers,
+		Body:           body,
+		ActualProtocol: actualProtocol,
+		RequestID:      requestID,
+	}
+	if err := upstream.Validate(); err != nil {
+		return protocoltransport.Response{}, "", fmt.Errorf("validate OpenAI structured upstream error response: %w", err)
+	}
+	if !upstream.IsError() {
+		return protocoltransport.Response{}, "", fmt.Errorf("collect OpenAI structured upstream error: status %d is not an error", upstream.StatusCode)
+	}
+	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(body))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-	return respBody, upstreamMsg
+	return upstream, upstreamMsg, nil
 }
 
-// failoverOpenAIUpstreamHTTPError 对 >=400 的上游响应做 failover 判定：命中时
-// 记录 ops 事件、执行账号级错误处置并返回 *UpstreamFailoverError；未命中返回
-// nil，调用方继续走各自端点格式的非 failover 错误处理链。
-func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
+// failoverOpenAIStructuredUpstreamError applies the existing account and retry
+// policy to a validated structured error without touching downstream.
+func (s *OpenAIGatewayService) failoverOpenAIStructuredUpstreamError(
 	ctx context.Context,
 	c *gin.Context,
 	account *Account,
-	resp *http.Response,
-	respBody []byte,
+	upstream protocoltransport.Response,
 	upstreamMsg string,
 	upstreamModel string,
 ) *UpstreamFailoverError {
-	if !s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {
+	if !s.shouldFailoverOpenAIUpstreamResponse(upstream.StatusCode, upstreamMsg, upstream.Body) {
 		return nil
 	}
 	upstreamDetail := ""
@@ -97,23 +122,24 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 		if maxBytes <= 0 {
 			maxBytes = 2048
 		}
-		upstreamDetail = truncateString(string(respBody), maxBytes)
+		upstreamDetail = truncateString(string(upstream.Body), maxBytes)
 	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		Platform:           account.Platform,
 		AccountID:          account.ID,
 		AccountName:        account.Name,
-		UpstreamStatusCode: resp.StatusCode,
-		UpstreamRequestID:  resp.Header.Get("x-request-id"),
+		UpstreamStatusCode: upstream.StatusCode,
+		UpstreamRequestID:  upstream.RequestID,
 		Kind:               "failover",
 		Message:            upstreamMsg,
 		Detail:             upstreamDetail,
 	})
-	s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
+	s.handleOpenAIAccountUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, upstreamModel)
 	return &UpstreamFailoverError{
-		StatusCode:             resp.StatusCode,
-		ResponseBody:           respBody,
-		RetryableOnSameAccount: account.IsPoolMode() && (account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody)),
+		StatusCode:             upstream.StatusCode,
+		ResponseBody:           upstream.Body,
+		ResponseHeaders:        protocoltransport.CloneHeaders(upstream.Headers),
+		RetryableOnSameAccount: account.IsPoolMode() && (account.IsPoolModeRetryableStatus(upstream.StatusCode) || isOpenAITransientProcessingError(upstream.StatusCode, upstreamMsg, upstream.Body)),
 	}
 }
 
@@ -211,6 +237,8 @@ type ccStreamScanState struct {
 	FirstTokenMs *int
 	// SawDone 表示上游发出了 [DONE] 哨兵。
 	SawDone bool
+	// ResponseID 为流中首个可识别的 Chat Completions 响应 ID。
+	ResponseID string
 	// Err 为 scanner 读错误（客户端 context 取消不属于此类，会原样带出）。
 	// 非 nil 时调用方必须跳过 finalize 并返回 usage-incomplete 错误，避免
 	// 把上游截断伪装成正常收尾。
@@ -221,58 +249,91 @@ type ccStreamScanState struct {
 // 哨兵处停止、保留最新 usage、记录首 token 时延，并把每个解析成功的 chunk 交给
 // emit 回调做各自的协议转换与写出。读错误按既有约定过滤 context 取消类噪声后
 // 记入 Warn 日志。
+func (s *OpenAIGatewayService) collectCCUpstreamStream(resp *http.Response, startTime time.Time) (*protocoltransport.Stream, error) {
+	if resp == nil || resp.Body == nil {
+		return nil, fmt.Errorf("nil Chat Completions upstream stream")
+	}
+	maxRecordSize := defaultMaxLineSize
+	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
+		maxRecordSize = s.cfg.Gateway.MaxLineSize
+	}
+	filteredHeaders := make(http.Header)
+	if s.responseHeaderFilter != nil {
+		filteredHeaders = responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
+	}
+	stream := &protocoltransport.Stream{
+		StatusCode:     resp.StatusCode,
+		Headers:        filteredHeaders,
+		ActualProtocol: protocolconv.ProtocolOpenAIChat,
+		RequestID:      resp.Header.Get("x-request-id"),
+		Duration:       time.Since(startTime),
+		Events:         protocoltransport.NewSSEParser(resp.Body, maxRecordSize),
+	}
+	if err := stream.Validate(); err != nil {
+		_ = stream.Close()
+		return nil, fmt.Errorf("validate Chat Completions stream: %w", err)
+	}
+	return stream, nil
+}
+
 func (s *OpenAIGatewayService) scanCCStream(
-	resp *http.Response,
+	stream *protocoltransport.Stream,
 	logPrefix string,
-	requestID string,
 	startTime time.Time,
-	emit func(*apicompat.ChatCompletionsChunk),
+	emit func([]byte, *apicompat.ChatCompletionsChunk) error,
 ) ccStreamScanState {
 	var st ccStreamScanState
+	if stream == nil || stream.Events == nil {
+		st.Err = fmt.Errorf("nil Chat Completions stream parser")
+		return st
+	}
+	requestID := stream.RequestID
 
-	scanner := s.newUpstreamSSEScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
-		payload, ok := extractOpenAISSEDataLine(line)
-		if !ok {
-			continue
-		}
-		payload = strings.TrimSpace(payload)
-		if payload == "" {
-			continue
-		}
-		if payload == "[DONE]" {
+	for {
+		record, err := stream.Events.Next(context.Background())
+		if errors.Is(err, protocoltransport.ErrSSEDone) {
 			st.SawDone = true
 			break
 		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				logger.L().Warn(logPrefix+": stream read error",
+					zap.Error(err),
+					zap.String("request_id", requestID),
+				)
+			}
+			st.Err = err
+			break
+		}
 
+		payload := strings.TrimSpace(string(record.Data))
 		if u := extractCCStreamUsage(payload); u != nil {
 			st.Usage = *u
 		}
 
 		var chunk apicompat.ChatCompletionsChunk
-		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+		if err := json.Unmarshal(record.Data, &chunk); err != nil {
 			logger.L().Warn(logPrefix+": failed to parse chat stream chunk",
 				zap.Error(err),
 				zap.String("request_id", requestID),
 			)
 			continue
 		}
+		if st.ResponseID == "" {
+			st.ResponseID = strings.TrimSpace(chunk.ID)
+			stream.ResponseID = st.ResponseID
+		}
 		if st.FirstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk) {
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
 		}
-		emit(&chunk)
-	}
-
-	if err := scanner.Err(); err != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			logger.L().Warn(logPrefix+": stream read error",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-			)
+		if err := emit(record.Data, &chunk); err != nil {
+			st.Err = err
+			break
 		}
-		st.Err = err
 	}
 	return st
 }
@@ -291,25 +352,34 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 	resp *http.Response,
 	writeError compatErrorWriter,
 ) (*apicompat.ChatCompletionsResponse, OpenAIUsage, error) {
+	parsed, usage, _, err := s.readCCUpstreamJSONResult(c, resp, writeError)
+	return parsed, usage, err
+}
+
+func (s *OpenAIGatewayService) readCCUpstreamJSONResult(
+	c *gin.Context,
+	resp *http.Response,
+	writeError compatErrorWriter,
+) (*apicompat.ChatCompletionsResponse, OpenAIUsage, []byte, error) {
 	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		if !errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
 			writeError(c, http.StatusBadGateway, "api_error", "Failed to read upstream response")
 		}
-		return nil, OpenAIUsage{}, fmt.Errorf("read upstream body: %w", err)
+		return nil, OpenAIUsage{}, nil, fmt.Errorf("read upstream body: %w", err)
 	}
 
 	var ccResp apicompat.ChatCompletionsResponse
 	if err := json.Unmarshal(respBody, &ccResp); err != nil {
 		writeError(c, http.StatusBadGateway, "api_error", "Failed to parse upstream response")
-		return nil, OpenAIUsage{}, fmt.Errorf("parse chat completions response: %w", err)
+		return nil, OpenAIUsage{}, nil, fmt.Errorf("parse chat completions response: %w", err)
 	}
 
 	usage := OpenAIUsage{}
 	if parsed, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage = parsed
 	}
-	return &ccResp, usage, nil
+	return &ccResp, usage, respBody, nil
 }
 
 // writeOpenAIResponsesFallbackError 以 /v1/responses 回退路径的既有错误格式回写

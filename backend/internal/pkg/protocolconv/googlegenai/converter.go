@@ -55,12 +55,15 @@ func (c *Converter) DecodeRequest(body []byte, options protocolconv.Options) (*i
 	}
 	for _, content := range wire.Contents {
 		message := ir.Message{Role: roleFromGoogle(content.Role)}
-		for _, part := range content.Parts {
-			converted, err := partFromGoogle(part)
+		for i := 0; i < len(content.Parts); i++ {
+			converted, err := partFromGoogle(content.Parts[i])
 			if err != nil {
 				return nil, nil, err
 			}
 			message.Content = append(message.Content, converted...)
+			if len(converted) == 1 && converted[0].Type == ir.ContentToolResult && len(converted[0].ToolResultContent) > 0 {
+				i += googleToolResultDuplicateNativePrefix(converted[0].ToolResultContent, content.Parts[i+1:])
+			}
 		}
 		out.Messages = append(out.Messages, message)
 	}
@@ -179,9 +182,10 @@ func (c *Converter) DecodeResponse(body []byte, options protocolconv.Options) (*
 		model = options.SourceModel
 	}
 	out := &ir.Response{ID: wire.ResponseID, Model: model, Created: time.Now().Unix(), Status: "completed", Usage: usageFromGoogle(wire.UsageMetadata)}
-	for _, candidate := range wire.Candidates {
+	for candidateIndex, candidate := range wire.Candidates {
 		message := ir.Message{Role: ir.RoleAssistant}
-		for _, part := range candidate.Content.Parts {
+		for partIndex, part := range candidate.Content.Parts {
+			part = ensureGoogleFunctionCallID(part, candidateIndex, partIndex)
 			converted, err := partFromGoogle(part)
 			if err != nil {
 				return nil, nil, err
@@ -190,6 +194,12 @@ func (c *Converter) DecodeResponse(body []byte, options protocolconv.Options) (*
 		}
 		finish := finishFromGoogle(candidate.FinishReason)
 		finish.ProviderReason = candidate.FinishReason
+		for _, part := range message.Content {
+			if part.Type == ir.ContentToolCall {
+				finish.Reason = "tool_calls"
+				break
+			}
+		}
 		out.Choices = append(out.Choices, ir.Choice{Index: candidate.Index, Message: message, FinishReason: finish})
 	}
 	if err := ir.ValidateResponse(out); err != nil {

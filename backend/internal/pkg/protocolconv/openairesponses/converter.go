@@ -61,14 +61,40 @@ type requestWire struct {
 	Include            []string                      `json:"include,omitempty"`
 }
 
+type responseWire struct {
+	ID                string                                `json:"id"`
+	Model             string                                `json:"model"`
+	Status            string                                `json:"status"`
+	Output            []responseOutputWire                  `json:"output"`
+	Usage             *apicompat.ResponsesUsage             `json:"usage,omitempty"`
+	IncompleteDetails *apicompat.ResponsesIncompleteDetails `json:"incomplete_details,omitempty"`
+	Error             *apicompat.ResponsesError             `json:"error,omitempty"`
+}
+
+type responseOutputWire struct {
+	Type             string                           `json:"type"`
+	Role             string                           `json:"role,omitempty"`
+	Content          []apicompat.ResponsesContentPart `json:"content,omitempty"`
+	Status           string                           `json:"status,omitempty"`
+	EncryptedContent string                           `json:"encrypted_content,omitempty"`
+	Summary          []apicompat.ResponsesSummary     `json:"summary,omitempty"`
+	CallID           string                           `json:"call_id,omitempty"`
+	Name             string                           `json:"name,omitempty"`
+	Arguments        json.RawMessage                  `json:"arguments,omitempty"`
+	Namespace        string                           `json:"namespace,omitempty"`
+	Input            string                           `json:"input,omitempty"`
+}
+
 type inputItemWire struct {
 	Type             string                       `json:"type,omitempty"`
 	Role             string                       `json:"role,omitempty"`
 	Content          json.RawMessage              `json:"content,omitempty"`
 	CallID           string                       `json:"call_id,omitempty"`
 	Name             string                       `json:"name,omitempty"`
-	Arguments        string                       `json:"arguments,omitempty"`
+	Arguments        json.RawMessage              `json:"arguments,omitempty"`
+	Input            string                       `json:"input,omitempty"`
 	Output           json.RawMessage              `json:"output,omitempty"`
+	Namespace        string                       `json:"namespace,omitempty"`
 	ID               string                       `json:"id,omitempty"`
 	Summary          []apicompat.ResponsesSummary `json:"summary,omitempty"`
 	EncryptedContent string                       `json:"encrypted_content,omitempty"`
@@ -165,13 +191,13 @@ func (c *Converter) EncodeRequest(request *ir.Request, options protocolconv.Opti
 }
 
 func (*Converter) DecodeResponse(body []byte, _ protocolconv.Options) (*ir.Response, []protocolconv.Warning, error) {
-	var wire apicompat.ResponsesResponse
+	var wire responseWire
 	if err := decodeJSON(body, &wire); err != nil {
 		return nil, nil, err
 	}
 	out := &ir.Response{ID: wire.ID, Model: wire.Model, Status: wire.Status, Created: time.Now().Unix()}
 	message := ir.Message{Role: ir.RoleAssistant}
-	finish := ir.FinishReason{Reason: responsesFinishReason(&wire)}
+	finish := ir.FinishReason{Reason: responseWireFinishReason(&wire)}
 	for _, item := range wire.Output {
 		switch item.Type {
 		case "message":
@@ -189,12 +215,16 @@ func (*Converter) DecodeResponse(body []byte, _ protocolconv.Options) (*ir.Respo
 				text.WriteString(summary.Text)
 			}
 			message.Content = append(message.Content, ir.ContentPart{Type: ir.ContentReasoning, Reasoning: text.String(), Signature: item.EncryptedContent, Status: item.Status})
-		case "function_call":
-			args := json.RawMessage(item.Arguments)
-			if !json.Valid(args) {
-				args = json.RawMessage(`{}`)
-			}
-			message.Content = append(message.Content, ir.ContentPart{Type: ir.ContentToolCall, ToolCallID: item.CallID, ToolName: item.Name, ToolInput: args})
+		case "function_call", "custom_tool_call", "tool_search_call":
+			args := decodeToolArguments(item.Type, item.Arguments, item.Input)
+			message.Content = append(message.Content, ir.ContentPart{
+				Type:          ir.ContentToolCall,
+				ToolCallID:    item.CallID,
+				ToolName:      item.Name,
+				ToolKind:      item.Type,
+				ToolNamespace: item.Namespace,
+				ToolInput:     args,
+			})
 			finish.Reason = "tool_calls"
 		}
 	}
@@ -223,7 +253,8 @@ func (c *Converter) EncodeResponse(response *ir.Response, options protocolconv.O
 			case ir.ContentReasoning:
 				wire.Output = append(wire.Output, apicompat.ResponsesOutput{Type: "reasoning", Status: part.Status, EncryptedContent: part.Signature, Summary: []apicompat.ResponsesSummary{{Type: "summary_text", Text: part.Reasoning}}})
 			case ir.ContentToolCall:
-				wire.Output = append(wire.Output, apicompat.ResponsesOutput{Type: "function_call", CallID: part.ToolCallID, Name: part.ToolName, Arguments: rawJSONString(part.ToolInput), Status: "completed"})
+				part = restoreResponseToolRoute(part, options.ToolRoutes)
+				wire.Output = append(wire.Output, encodeResponseToolCall(part))
 			case ir.ContentRefusal:
 				wire.Output = append(wire.Output, apicompat.ResponsesOutput{Type: "message", Role: "assistant", Status: "completed", Content: []apicompat.ResponsesContentPart{{Type: "refusal", Text: part.Refusal}}})
 			default:
@@ -261,6 +292,102 @@ func decodeJSON(body []byte, value any) error {
 
 func fieldError(path string, err error) error {
 	return &protocolconv.Error{Code: protocolconv.ErrorConversion, Protocol: protocolconv.ProtocolOpenAIResponses, Path: path, Cause: err}
+}
+
+func responseWireFinishReason(response *responseWire) string {
+	if response == nil {
+		return "stop"
+	}
+	if response.Status == "failed" {
+		return "error"
+	}
+	if response.Status == "incomplete" && response.IncompleteDetails != nil {
+		switch response.IncompleteDetails.Reason {
+		case "content_filter":
+			return "content_filter"
+		case "max_output_tokens":
+			return "length"
+		}
+	}
+	for _, item := range response.Output {
+		switch item.Type {
+		case "function_call", "custom_tool_call", "tool_search_call":
+			return "tool_calls"
+		}
+	}
+	return "stop"
+}
+
+func decodeToolArguments(kind string, arguments json.RawMessage, input string) json.RawMessage {
+	if kind == "custom_tool_call" {
+		body, _ := json.Marshal(input)
+		return body
+	}
+	var encoded string
+	if json.Unmarshal(arguments, &encoded) == nil {
+		args := json.RawMessage(encoded)
+		if json.Valid(args) {
+			return args
+		}
+	}
+	if json.Valid(arguments) {
+		return append(json.RawMessage(nil), arguments...)
+	}
+	return json.RawMessage(`{}`)
+}
+
+func restoreResponseToolRoute(part ir.ContentPart, routes map[string]protocolconv.ToolRoute) ir.ContentPart {
+	route, ok := routes[part.ToolName]
+	if !ok {
+		return part
+	}
+	part.ToolKind = route.SourceKind
+	part.ToolName = route.SourceName
+	part.ToolNamespace = route.Namespace
+	if route.SourceKind == "custom_tool_call" {
+		part.ToolInput = restoreCustomToolInput(part.ToolInput)
+	}
+	return part
+}
+
+func restoreCustomToolInput(arguments json.RawMessage) json.RawMessage {
+	var value struct {
+		Input *string `json:"input"`
+	}
+	if json.Unmarshal(arguments, &value) == nil && value.Input != nil {
+		body, _ := json.Marshal(*value.Input)
+		return body
+	}
+	var text string
+	if json.Unmarshal(arguments, &text) == nil {
+		body, _ := json.Marshal(text)
+		return body
+	}
+	body, _ := json.Marshal(string(arguments))
+	return body
+}
+
+func encodeResponseToolCall(part ir.ContentPart) apicompat.ResponsesOutput {
+	kind := part.ToolKind
+	if kind == "" {
+		kind = "function_call"
+	}
+	output := apicompat.ResponsesOutput{
+		Type:      kind,
+		CallID:    part.ToolCallID,
+		Name:      part.ToolName,
+		Namespace: part.ToolNamespace,
+		Status:    "completed",
+	}
+	switch kind {
+	case "custom_tool_call":
+		if json.Unmarshal(part.ToolInput, &output.Input) != nil {
+			output.Input = string(part.ToolInput)
+		}
+	default:
+		output.Arguments = rawJSONString(part.ToolInput)
+	}
+	return output
 }
 
 func boolPointer(value bool) *bool { return &value }

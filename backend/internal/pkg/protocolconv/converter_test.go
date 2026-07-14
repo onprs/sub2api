@@ -129,11 +129,13 @@ func TestCheckCapabilityStrictAndWarningPolicies(t *testing.T) {
 }
 
 type stubConverter struct {
-	protocol       Protocol
-	decodeRequest  func([]byte) (*ir.Request, []Warning, error)
-	encodeRequest  func(*ir.Request, Options) ([]byte, []Warning, error)
-	decodeResponse func([]byte) (*ir.Response, []Warning, error)
-	encodeResponse func(*ir.Response, Options) ([]byte, []Warning, error)
+	protocol         Protocol
+	decodeRequest    func([]byte) (*ir.Request, []Warning, error)
+	encodeRequest    func(*ir.Request, Options) ([]byte, []Warning, error)
+	decodeResponse   func([]byte) (*ir.Response, []Warning, error)
+	encodeResponse   func(*ir.Response, Options) ([]byte, []Warning, error)
+	newStreamDecoder func() StreamDecoder
+	newStreamEncoder func() StreamEncoder
 }
 
 func (s *stubConverter) Protocol() Protocol          { return s.protocol }
@@ -172,5 +174,15 @@ func (s *stubConverter) EncodeResponse(response *ir.Response, options Options) (
 	body, err := json.Marshal(response)
 	return body, nil, err
 }
-func (s *stubConverter) NewStreamDecoder() StreamDecoder { return nil }
-func (s *stubConverter) NewStreamEncoder() StreamEncoder { return nil }
+func (s *stubConverter) NewStreamDecoder() StreamDecoder {
+	if s.newStreamDecoder != nil {
+		return s.newStreamDecoder()
+	}
+	return nil
+}
+func (s *stubConverter) NewStreamEncoder() StreamEncoder {
+	if s.newStreamEncoder != nil {
+		return s.newStreamEncoder()
+	}
+	return nil
+}

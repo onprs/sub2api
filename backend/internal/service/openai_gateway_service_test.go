@@ -16,6 +16,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/model"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -2157,6 +2159,40 @@ func TestOpenAIStreamingTooLong(t *testing.T) {
 	}
 }
 
+func TestCollectOpenAIResponsesJSONReturnsStructuredActualProtocol(t *testing.T) {
+	cfg := &config.Config{}
+	svc := &OpenAIGatewayService{responseHeaderFilter: compileResponseHeaderFilter(cfg)}
+	body := []byte(`{"id":"resp_structured","object":"response","model":"gpt-5.4","output":[{"type":"image_generation_call","result":"aGVsbG8="}],"usage":{"input_tokens":7,"output_tokens":3,"input_tokens_details":{"cached_tokens":2},"output_tokens_details":{"image_tokens":1}},"vendor_extension":{"trace":"preserved"}}`)
+	originalBody := append([]byte(nil), body...)
+
+	structured, result, err := svc.collectOpenAIResponsesJSON(
+		http.StatusCreated,
+		http.Header{
+			"Content-Type":      []string{"application/vnd.openai+json"},
+			"X-Request-Id":      []string{"req-structured"},
+			"X-Internal-Secret": []string{"must-not-pass"},
+		},
+		body,
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, protocolconv.ProtocolOpenAIResponses, structured.ActualProtocol)
+	require.Equal(t, http.StatusCreated, structured.StatusCode)
+	require.Equal(t, "req-structured", structured.RequestID)
+	require.Equal(t, "resp_structured", structured.ResponseID)
+	require.Equal(t, "application/vnd.openai+json", structured.Headers.Get("Content-Type"))
+	require.Empty(t, structured.Headers.Get("X-Internal-Secret"))
+	require.Equal(t, "preserved", gjson.GetBytes(structured.Body, "vendor_extension.trace").String())
+	body[0] = 'x'
+	require.Equal(t, originalBody, structured.Body)
+	require.Equal(t, 7, result.InputTokens)
+	require.Equal(t, 3, result.OutputTokens)
+	require.Equal(t, 2, result.CacheReadInputTokens)
+	require.Equal(t, 1, result.ImageOutputTokens)
+	require.Equal(t, "resp_structured", result.responseID)
+	require.Equal(t, 1, result.imageCount)
+}
+
 func TestOpenAINonStreamingContentTypePassThrough(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{
@@ -3120,32 +3156,6 @@ func TestHandleSSEToJSON_ResponseFailedReturnsProtocolError(t *testing.T) {
 	require.Contains(t, rec.Header().Get("Content-Type"), "application/json")
 }
 
-func TestOpenAICompatSSEFrameParserResetsEventTypeAtFrameBoundary(t *testing.T) {
-	var parser openAICompatSSEFrameParser
-
-	frame, ok := parser.AddLine("event: response.created")
-	require.False(t, ok)
-	require.Empty(t, frame)
-
-	frame, ok = parser.AddLine(`data: {"response":{"id":"resp_1"}}`)
-	require.False(t, ok)
-	require.Empty(t, frame)
-
-	frame, ok = parser.AddLine("")
-	require.True(t, ok)
-	require.Equal(t, "response.created", frame.EventType)
-	require.JSONEq(t, `{"response":{"id":"resp_1"}}`, frame.Data)
-
-	frame, ok = parser.AddLine(`data: {"delta":"ok"}`)
-	require.False(t, ok)
-	require.Empty(t, frame.EventType)
-
-	frame, ok = parser.AddLine("")
-	require.True(t, ok)
-	require.Empty(t, frame.EventType)
-	require.JSONEq(t, `{"delta":"ok"}`, frame.Data)
-}
-
 func TestStreamingPassthroughCyberPolicyMarksAndPassesThrough(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}
@@ -3232,10 +3242,11 @@ func TestHandleCompatErrorResponseCyberPolicyEarlyReturn(t *testing.T) {
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
 	cyberBody := `{"error":{"code":"cyber_policy","message":"flagged for cyber policy"}}`
-	resp := &http.Response{
-		StatusCode: http.StatusBadRequest,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(cyberBody)),
+	upstream := protocoltransport.Response{
+		StatusCode:     http.StatusBadRequest,
+		Headers:        http.Header{"Content-Type": []string{"application/json"}},
+		Body:           []byte(cyberBody),
+		ActualProtocol: protocolconv.ProtocolOpenAIResponses,
 	}
 	var gotStatus int
 	var gotType, gotMsg string
@@ -3243,7 +3254,7 @@ func TestHandleCompatErrorResponseCyberPolicyEarlyReturn(t *testing.T) {
 		gotStatus, gotType, gotMsg = statusCode, errType, message
 	}
 	// cyber 命中应早返回(写兼容错误 + 不冷却账号)，而非落到通用 "Upstream request failed"。
-	_, err := svc.handleCompatErrorResponse(resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "a"}, writeError)
+	_, err := svc.handleCompatErrorResponse(upstream, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "a"}, writeError)
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadRequest, gotStatus)
 	require.Equal(t, "invalid_request_error", gotType)

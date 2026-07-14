@@ -209,6 +209,30 @@ func TestBedrockEventStreamDecoder(t *testing.T) {
 		assert.Contains(t, err.Error(), "message CRC mismatch")
 	})
 
+	t.Run("oversized frame is rejected before allocation", func(t *testing.T) {
+		var prelude bytes.Buffer
+		require.NoError(t, binary.Write(&prelude, binary.BigEndian, bedrockMaxEventStreamFrameBytes+1))
+		require.NoError(t, binary.Write(&prelude, binary.BigEndian, uint32(0)))
+		preludeBytes := prelude.Bytes()
+		require.NoError(t, binary.Write(&prelude, binary.BigEndian, crc32.ChecksumIEEE(preludeBytes)))
+
+		decoder := newBedrockEventStreamDecoder(bytes.NewReader(prelude.Bytes()))
+		_, err := decoder.Decode()
+		require.ErrorContains(t, err, "eventstream frame exceeds")
+	})
+
+	t.Run("headers cannot exceed frame payload", func(t *testing.T) {
+		var prelude bytes.Buffer
+		require.NoError(t, binary.Write(&prelude, binary.BigEndian, uint32(16)))
+		require.NoError(t, binary.Write(&prelude, binary.BigEndian, uint32(1)))
+		preludeBytes := prelude.Bytes()
+		require.NoError(t, binary.Write(&prelude, binary.BigEndian, crc32.ChecksumIEEE(preludeBytes)))
+
+		decoder := newBedrockEventStreamDecoder(bytes.NewReader(prelude.Bytes()))
+		_, err := decoder.Decode()
+		require.ErrorContains(t, err, "headers_length=1 total_length=16")
+	})
+
 	t.Run("castagnoli encoded frame is rejected", func(t *testing.T) {
 		castagnoliTab := crc32.MakeTable(crc32.Castagnoli)
 		payload := []byte(`{"bytes":"dGVzdA=="}`)

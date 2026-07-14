@@ -37,6 +37,13 @@ type StreamEncoder interface {
 	Finalize() ([][]byte, []Warning, error)
 }
 
+// StreamFactoryWithOptions is an optional converter extension for request-
+// scoped stream metadata. Stateless converters can keep the base factories.
+type StreamFactoryWithOptions interface {
+	NewStreamDecoderWithOptions(options Options) StreamDecoder
+	NewStreamEncoderWithOptions(options Options) StreamEncoder
+}
+
 // Registry stores standard converters. It is safe for concurrent conversion;
 // converter implementations must not store per-request state themselves.
 type Registry struct {

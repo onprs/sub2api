@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -13,9 +12,9 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -46,40 +45,41 @@ func (s *GatewayService) ForwardAsResponses(
 	originalModel := responsesReq.Model
 	clientStream := responsesReq.Stream
 
-	// 2. Convert Responses → Anthropic through the shared IR.
-	anthropicBody, _, err := convertStandardRequest(body, protocolconv.ProtocolOpenAIResponses, protocolconv.ProtocolAnthropic, originalModel)
+	// 2. Resolve the upstream model before creating the request-scoped route.
+	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body)
+	mappedModel, err := resolveStandardAnthropicTargetModel(account, originalModel)
+	if err != nil {
+		return nil, err
+	}
+	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 mapping 完成之后。
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
+
+	// 3. Convert Responses → Anthropic with one pipeline retained for the
+	// successful response or stream from this upstream attempt.
+	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+		Route: protocolconv.Route{
+			Source:         protocolconv.ProtocolOpenAIResponses,
+			IntendedTarget: protocolconv.ProtocolAnthropic,
+			ClientModel:    originalModel,
+			UpstreamModel:  mappedModel,
+			Provider:       account.Platform,
+			AccountID:      account.ID,
+		},
+		Options: protocolconv.Options{SourceModel: mappedModel, LossPolicy: protocolconv.LossError},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create responses anthropic pipeline: %w", err)
+	}
+	convertedRequest, err := pipeline.ConvertRequest(body)
 	if err != nil {
 		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
 	}
 	var anthropicReq apicompat.AnthropicRequest
-	if err := json.Unmarshal(anthropicBody, &anthropicReq); err != nil {
+	if err := json.Unmarshal(convertedRequest.Body, &anthropicReq); err != nil {
 		return nil, fmt.Errorf("decode converted anthropic request: %w", err)
 	}
-
-	// 3. Force upstream streaming (Anthropic works best with streaming)
-	anthropicReq.Stream = true
-	reqStream := true
-
-	// 4. Model mapping
-	mappedModel := originalModel
-	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body)
-	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
-		mappedModel = account.GetMappedModel(originalModel)
-	}
-	if mappedModel == originalModel && account.Platform == PlatformAnthropic && account.Type == AccountTypeServiceAccount {
-		normalized := normalizeVertexAnthropicModelID(claude.NormalizeModelID(originalModel))
-		if normalized != originalModel {
-			mappedModel = normalized
-		}
-	} else if mappedModel == originalModel && account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
-		normalized := claude.NormalizeModelID(originalModel)
-		if normalized != originalModel {
-			mappedModel = normalized
-		}
-	}
-	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 mapping 完成之后。
-	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
 	anthropicReq.Model = mappedModel
+	anthropicReq.Stream = true
 
 	logger.L().Debug("gateway forward_as_responses: model mapping applied",
 		zap.Int64("account_id", account.ID),
@@ -88,110 +88,30 @@ func (s *GatewayService) ForwardAsResponses(
 		zap.Bool("client_stream", clientStream),
 	)
 
-	// 5. Marshal mapped Anthropic request body
-	anthropicBody, err = json.Marshal(anthropicReq)
+	// 4. Marshal mapped Anthropic request body
+	anthropicBody, err := json.Marshal(anthropicReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal anthropic request: %w", err)
 	}
 
-	// 6. Apply Claude Code mimicry for OAuth accounts (non-Claude-Code endpoints).
-	// OpenAI Responses 协议进来的请求永远不是 Claude Code 客户端，所以对 OAuth 账号
-	// 必须完整执行 /v1/messages 主路径上的伪装链路（system 重写 + normalize + metadata 注入），
-	// 否则会被 Anthropic 判为第三方应用并扣 extra usage。
-	// 见 applyClaudeCodeOAuthMimicryToBody 的 godoc。
-	isClaudeCode := false
-	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
-
-	if shouldMimicClaudeCode {
-		anthropicBody = s.applyClaudeCodeOAuthMimicryToBody(ctx, c, account, anthropicBody, anthropicReq.System, mappedModel)
-	}
-
-	// 7. Enforce cache_control block limit
-	anthropicBody = enforceCacheControlLimit(anthropicBody)
-
-	// 8. Get access token
-	token, tokenType, err := s.GetAccessToken(ctx, account)
+	resp, err := s.forwardStandardProtocolToAnthropic(ctx, c, account, anthropicBody, anthropicReq.System, mappedModel, func(statusCode int, errorType, message string) {
+		writeResponsesError(c, statusCode, errorType, message)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("get access token: %w", err)
-	}
-
-	// 9. Get proxy URL
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
-	}
-
-	// 10. Build upstream request
-	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
-	upstreamReq, _, err := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
-	releaseUpstreamCtx()
-	if err != nil {
-		return nil, fmt.Errorf("build upstream request: %w", err)
-	}
-
-	// 11. Send request
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
-	if err != nil {
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
-		}
-		safeErr := sanitizeUpstreamErrorMessage(err.Error())
-		setOpsUpstreamError(c, 0, safeErr, "")
-		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			Platform:           account.Platform,
-			AccountID:          account.ID,
-			AccountName:        account.Name,
-			UpstreamStatusCode: 0,
-			Kind:               "request_error",
-			Message:            safeErr,
-		})
-		writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
-		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	// 12. Handle error response with failover
-	if resp.StatusCode >= 400 {
-		respBody, _ := s.readUpstreamErrorBody(resp)
-		_ = resp.Body.Close()
-		resp.Body = io.NopCloser(bytes.NewReader(respBody))
-
-		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
-		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-
-		if s.shouldFailoverUpstreamError(resp.StatusCode) {
-			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-				Platform:           account.Platform,
-				AccountID:          account.ID,
-				AccountName:        account.Name,
-				UpstreamStatusCode: resp.StatusCode,
-				UpstreamRequestID:  resp.Header.Get("x-request-id"),
-				Kind:               "failover",
-				Message:            upstreamMsg,
-			})
-			if s.rateLimitService != nil {
-				s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
-			}
-			return nil, &UpstreamFailoverError{
-				StatusCode:   resp.StatusCode,
-				ResponseBody: respBody,
-			}
-		}
-
-		// Non-failover error: return Responses-formatted error to client
-		writeResponsesError(c, mapUpstreamStatusCode(resp.StatusCode), "server_error", upstreamMsg)
-		return nil, fmt.Errorf("upstream error: %d %s", resp.StatusCode, upstreamMsg)
+		return nil, err
 	}
 
 	// 13. Handle normal response (convert Anthropic → Responses)
 	var result *ForwardResult
 	var handleErr error
 	if clientStream {
-		result, handleErr = s.handleResponsesStreamingResponse(resp, c, originalModel, mappedModel, reasoningEffort, startTime)
+		result, handleErr = s.handleResponsesStreamingResponse(resp, c, pipeline, originalModel, mappedModel, reasoningEffort, startTime)
 	} else {
-		result, handleErr = s.handleResponsesBufferedStreamingResponse(resp, c, originalModel, mappedModel, reasoningEffort, startTime)
+		result, handleErr = s.handleResponsesBufferedStreamingResponse(resp, c, pipeline, originalModel, mappedModel, reasoningEffort, startTime)
 	}
-
+	if account.IsBedrock() {
+		return s.handleStandardBedrockStreamError(ctx, c, account, mappedModel, result, handleErr)
+	}
 	return result, handleErr
 }
 
@@ -233,134 +153,77 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	resp *http.Response,
 	c *gin.Context,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	mappedModel string,
 	reasoningEffort *string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
-	requestID := resp.Header.Get("x-request-id")
-
-	scanner := bufio.NewScanner(resp.Body)
-	maxLineSize := defaultMaxLineSize
-	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-		maxLineSize = s.cfg.Gateway.MaxLineSize
+	stream, err := s.collectAnthropicProtocolStream(resp, startTime)
+	if err != nil {
+		return nil, err
 	}
-	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
-
-	// Accumulate the final Anthropic response from streaming events
-	var finalResp *apicompat.AnthropicResponse
+	defer func() { _ = stream.Close() }()
+	requestID := stream.RequestID
+	session, err := pipeline.NewStreamProcessor(stream.ActualProtocol)
+	if err != nil {
+		return nil, fmt.Errorf("create buffered responses stream processor: %w", err)
+	}
 	var usage ClaudeUsage
+	var finalBody []byte
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "event: ") {
-			continue
-		}
-		eventType := strings.TrimPrefix(line, "event: ")
-
-		// Read the data line
-		if !scanner.Scan() {
+	for {
+		record, nextErr := stream.Events.Next(context.Background())
+		if errors.Is(nextErr, io.EOF) || errors.Is(nextErr, protocoltransport.ErrSSEDone) {
 			break
 		}
-		dataLine := scanner.Text()
-		if !strings.HasPrefix(dataLine, "data: ") {
-			continue
+		if nextErr != nil {
+			return nil, fmt.Errorf("read anthropic stream: %w", nextErr)
 		}
-		payload := dataLine[6:]
-
 		var event apicompat.AnthropicStreamEvent
-		if err := json.Unmarshal([]byte(payload), &event); err != nil {
-			logger.L().Warn("forward_as_responses buffered: failed to parse event",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-				zap.String("event_type", eventType),
-			)
-			continue
+		if err := json.Unmarshal(record.Data, &event); err != nil {
+			return nil, fmt.Errorf("decode anthropic stream event: %w", err)
 		}
-
-		// message_start carries the initial response structure
 		if event.Type == "message_start" && event.Message != nil {
-			finalResp = event.Message
 			mergeAnthropicUsage(&usage, event.Message.Usage)
 		}
-
-		// message_delta carries final usage and stop_reason
-		if event.Type == "message_delta" {
-			if event.Usage != nil {
-				mergeAnthropicUsage(&usage, *event.Usage)
-			}
-			if event.Delta != nil && event.Delta.StopReason != "" && finalResp != nil {
-				finalResp.StopReason = event.Delta.StopReason
-			}
+		if event.Type == "message_delta" && event.Usage != nil {
+			mergeAnthropicUsage(&usage, *event.Usage)
 		}
-
-		// Accumulate content blocks
-		if event.Type == "content_block_start" && event.ContentBlock != nil && finalResp != nil {
-			finalResp.Content = append(finalResp.Content, *event.ContentBlock)
+		converted, _, err := session.Convert(record.Data)
+		if err != nil {
+			return nil, fmt.Errorf("convert anthropic stream event: %w", err)
 		}
-		if event.Type == "content_block_delta" && event.Delta != nil && finalResp != nil && event.Index != nil {
-			idx := *event.Index
-			if idx < len(finalResp.Content) {
-				switch event.Delta.Type {
-				case "text_delta":
-					finalResp.Content[idx].Text += event.Delta.Text
-				case "thinking_delta":
-					finalResp.Content[idx].Thinking += event.Delta.Thinking
-				case "input_json_delta":
-					finalResp.Content[idx].Input = appendRawJSON(finalResp.Content[idx].Input, event.Delta.PartialJSON)
-				}
-			}
+		if terminal := responsesTerminalBody(converted); len(terminal) > 0 {
+			finalBody = terminal
+		}
+		if event.Type == "message_stop" {
+			break
 		}
 	}
-
-	if err := scanner.Err(); err != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			logger.L().Warn("forward_as_responses buffered: read error",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-			)
-		}
+	converted, _, err := session.Finalize()
+	if err != nil {
+		return nil, fmt.Errorf("finalize anthropic stream: %w", err)
 	}
-
-	if finalResp == nil {
+	if terminal := responsesTerminalBody(converted); len(terminal) > 0 {
+		finalBody = terminal
+	}
+	if len(finalBody) == 0 {
 		writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream stream ended without a response")
 		return nil, fmt.Errorf("upstream stream ended without response")
 	}
-
-	// Update usage from accumulated delta
-	if usage.InputTokens > 0 || usage.OutputTokens > 0 {
-		finalResp.Usage = apicompat.AnthropicUsage{
-			InputTokens:              usage.InputTokens,
-			OutputTokens:             usage.OutputTokens,
-			CacheCreationInputTokens: usage.CacheCreationInputTokens,
-			CacheReadInputTokens:     usage.CacheReadInputTokens,
-		}
-	}
-
-	// Convert the assembled Anthropic response through the shared IR.
-	anthropicResponseBody, err := json.Marshal(finalResp)
+	finalBody = reverseToolNamesIfPresent(c, finalBody)
+	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolOpenAIResponses)
 	if err != nil {
-		return nil, fmt.Errorf("marshal anthropic response: %w", err)
+		return nil, err
 	}
-	responsesBody, _, err := convertStandardResponse(anthropicResponseBody, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIResponses, mappedModel, originalModel)
-	if err != nil {
-		return nil, fmt.Errorf("convert anthropic response to responses: %w", err)
+	if err := renderer.RenderJSON(c.Writer, stream.StatusCode, stream.Headers, finalBody); err != nil {
+		return nil, fmt.Errorf("render responses response: %w", err)
 	}
-	responsesBody = reverseToolNamesIfPresent(c, responsesBody)
-
-	if s.responseHeaderFilter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-	}
-	// 非流式响应必须是 application/json。上游被强制流式后会返回
-	// Content-Type: text/event-stream，经 WriteFilteredHeaders 透传后会污染
-	// 响应头；而 c.Data/c.JSON 走 Gin 的 writeContentType（仅当头不存在时才设置），
-	// 无法覆盖已存在的 SSE 头。这里显式 Set 强制改回 JSON，避免下游中间层
-	// （如 new-api）按 Content-Type 误判为流式。
-	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-	c.Data(http.StatusOK, "application/json; charset=utf-8", responsesBody)
 
 	return &ForwardResult{
 		RequestID:       requestID,
+		ActualProtocol:  stream.ActualProtocol,
 		Usage:           usage,
 		Model:           originalModel,
 		UpstreamModel:   mappedModel,
@@ -375,168 +238,171 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 func (s *GatewayService) handleResponsesStreamingResponse(
 	resp *http.Response,
 	c *gin.Context,
+	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	mappedModel string,
 	reasoningEffort *string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
-	requestID := resp.Header.Get("x-request-id")
-
-	if s.responseHeaderFilter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	stream, err := s.collectAnthropicProtocolStream(resp, startTime)
+	if err != nil {
+		return nil, err
 	}
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Header().Set("X-Accel-Buffering", "no")
-	c.Writer.WriteHeader(http.StatusOK)
+	requestID := stream.RequestID
+	defer func() { _ = stream.Close() }()
 
-	session, err := newStandardStreamSession(protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIResponses)
+	session, err := pipeline.NewStreamProcessor(stream.ActualProtocol)
+	if err != nil {
+		return nil, err
+	}
+	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolOpenAIResponses)
 	if err != nil {
 		return nil, err
 	}
 	var usage ClaudeUsage
 	var firstTokenMs *int
-	var streamErr error
-	firstChunk := true
-
-	scanner := bufio.NewScanner(resp.Body)
-	maxLineSize := defaultMaxLineSize
-	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-		maxLineSize = s.cfg.Gateway.MaxLineSize
-	}
-	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
+	headersWritten := false
+	clientDisconnected := false
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
-			RequestID:       requestID,
-			Usage:           usage,
-			Model:           originalModel,
-			UpstreamModel:   mappedModel,
-			ReasoningEffort: reasoningEffort,
-			Stream:          true,
-			Duration:        time.Since(startTime),
-			FirstTokenMs:    firstTokenMs,
+			RequestID:        requestID,
+			ActualProtocol:   stream.ActualProtocol,
+			Usage:            usage,
+			Model:            originalModel,
+			UpstreamModel:    mappedModel,
+			ReasoningEffort:  reasoningEffort,
+			Stream:           true,
+			Duration:         time.Since(startTime),
+			FirstTokenMs:     firstTokenMs,
+			ClientDisconnect: clientDisconnected,
 		}
 	}
+	writePayloads := func(payloads [][]byte) error {
+		if len(payloads) == 0 || clientDisconnected {
+			return nil
+		}
+		if !headersWritten {
+			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
+				return err
+			}
+			headersWritten = true
+		}
+		for _, body := range payloads {
+			body = reverseToolNamesIfPresent(c, body)
+			framed, err := renderer.FrameStreamEvent(body)
+			if err != nil {
+				return err
+			}
+			if _, err := c.Writer.Write(framed); err != nil {
+				clientDisconnected = true
+				logger.L().Info("forward_as_responses stream: client disconnected, continuing to drain upstream for billing", zap.String("request_id", requestID))
+				return nil
+			}
+		}
+		c.Writer.Flush()
+		return nil
+	}
 
-	// processEvent handles a single parsed Anthropic SSE event.
-	processEvent := func(event *apicompat.AnthropicStreamEvent) bool {
-		if firstChunk {
-			firstChunk = false
+	for {
+		record, err := stream.Events.Next(context.Background())
+		if errors.Is(err, io.EOF) || errors.Is(err, protocoltransport.ErrSSEDone) {
+			break
+		}
+		if err != nil {
+			return resultWithUsage(), fmt.Errorf("read anthropic stream: %w", err)
+		}
+		var event apicompat.AnthropicStreamEvent
+		if err := json.Unmarshal(record.Data, &event); err != nil {
+			return resultWithUsage(), fmt.Errorf("decode anthropic stream event: %w", err)
+		}
+		if firstTokenMs == nil {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
-
-		// Extract usage from message_delta
 		if event.Type == "message_delta" && event.Usage != nil {
 			mergeAnthropicUsage(&usage, *event.Usage)
 		}
-		// Also capture usage from message_start
 		if event.Type == "message_start" && event.Message != nil {
 			mergeAnthropicUsage(&usage, event.Message.Usage)
 		}
-
-		if event.Type == "message_start" && event.Message != nil {
-			event.Message.Model = originalModel
-		}
-		payload, err := json.Marshal(event)
+		converted, _, err := session.Convert(record.Data)
 		if err != nil {
-			return false
+			return resultWithUsage(), fmt.Errorf("convert anthropic stream event: %w", err)
 		}
-		converted, _, err := session.Convert(payload)
-		if err != nil {
-			streamErr = err
-			logger.L().Warn("forward_as_responses stream: conversion failed", zap.Error(err), zap.String("request_id", requestID))
-			return true
-		}
-		for _, body := range converted {
-			body = reverseToolNamesIfPresent(c, body)
-			var frame struct {
-				Type string `json:"type"`
-			}
-			if json.Unmarshal(body, &frame) != nil || frame.Type == "" {
-				continue
-			}
-			if _, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", frame.Type, body); err != nil {
-				logger.L().Info("forward_as_responses stream: client disconnected", zap.String("request_id", requestID))
-				return true
-			}
-		}
-		if len(converted) > 0 {
-			c.Writer.Flush()
-		}
-		return false
-	}
-
-	finalizeStream := func() (*ForwardResult, error) {
-		converted, _, err := session.Finalize()
-		if err != nil {
+		if err := writePayloads(converted); err != nil {
 			return resultWithUsage(), err
 		}
-		for _, body := range converted {
-			body = reverseToolNamesIfPresent(c, body)
-			var frame struct {
-				Type string `json:"type"`
-			}
-			if json.Unmarshal(body, &frame) == nil && frame.Type != "" {
-				_, _ = fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", frame.Type, body)
-			}
-		}
-		if len(converted) > 0 {
-			c.Writer.Flush()
-		}
-		return resultWithUsage(), nil
-	}
-
-	// Read Anthropic SSE events
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "event: ") {
-			continue
-		}
-		eventType := strings.TrimPrefix(line, "event: ")
-
-		// Read data line
-		if !scanner.Scan() {
+		if event.Type == "message_stop" {
 			break
 		}
-		dataLine := scanner.Text()
-		if !strings.HasPrefix(dataLine, "data: ") {
-			continue
-		}
-		payload := dataLine[6:]
-
-		var event apicompat.AnthropicStreamEvent
-		if err := json.Unmarshal([]byte(payload), &event); err != nil {
-			logger.L().Warn("forward_as_responses stream: failed to parse event",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-				zap.String("event_type", eventType),
-			)
-			continue
-		}
-
-		if processEvent(&event) {
-			return resultWithUsage(), streamErr
-		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			logger.L().Warn("forward_as_responses stream: read error",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-			)
+	converted, _, err := session.Finalize()
+	if err != nil {
+		return resultWithUsage(), err
+	}
+	if err := writePayloads(converted); err != nil {
+		return resultWithUsage(), err
+	}
+	if !headersWritten && !clientDisconnected {
+		if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
+			return resultWithUsage(), err
 		}
 	}
+	if !clientDisconnected {
+		if terminal := renderer.StreamTerminal(); len(terminal) > 0 {
+			_, _ = c.Writer.Write(terminal)
+		}
+		c.Writer.Flush()
+	}
+	return resultWithUsage(), nil
+}
 
-	return finalizeStream()
+func (s *GatewayService) collectAnthropicProtocolStream(resp *http.Response, startTime time.Time) (*protocoltransport.Stream, error) {
+	if resp == nil || resp.Body == nil {
+		return nil, errors.New("nil anthropic upstream response")
+	}
+	maxRecordSize := defaultMaxLineSize
+	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
+		maxRecordSize = s.cfg.Gateway.MaxLineSize
+	}
+	stream := &protocoltransport.Stream{
+		StatusCode:     resp.StatusCode,
+		Headers:        responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
+		ActualProtocol: protocolconv.ProtocolAnthropic,
+		RequestID:      resp.Header.Get("x-request-id"),
+		Duration:       time.Since(startTime),
+		Events:         protocoltransport.NewSSEParser(resp.Body, maxRecordSize),
+	}
+	if err := stream.Validate(); err != nil {
+		_ = stream.Close()
+		return nil, fmt.Errorf("collect anthropic stream: %w", err)
+	}
+	return stream, nil
+}
+
+func responsesTerminalBody(payloads [][]byte) []byte {
+	for index := len(payloads) - 1; index >= 0; index-- {
+		var event apicompat.ResponsesStreamEvent
+		if json.Unmarshal(payloads[index], &event) != nil || event.Response == nil {
+			continue
+		}
+		if event.Type != "response.completed" && event.Type != "response.done" {
+			continue
+		}
+		body, err := json.Marshal(event.Response)
+		if err == nil {
+			return body
+		}
+	}
+	return nil
 }
 
 // appendRawJSON appends a JSON fragment string to existing raw JSON.
 func appendRawJSON(existing json.RawMessage, fragment string) json.RawMessage {
-	if len(existing) == 0 {
+	trimmed := bytes.TrimSpace(existing)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte(`{}`)) {
 		return json.RawMessage(fragment)
 	}
 	return json.RawMessage(string(existing) + fragment)

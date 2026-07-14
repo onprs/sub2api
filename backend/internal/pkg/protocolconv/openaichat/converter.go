@@ -50,6 +50,8 @@ func (c *Converter) DecodeRequest(body []byte, options protocolconv.Options) (*i
 	if err := decode(body, &wire); err != nil {
 		return nil, nil, err
 	}
+	toolResultContent, cleanMessages := extractChatToolResultContent(wire.Messages)
+	wire.Messages = cleanMessages
 	responses, err := apicompat.ChatCompletionsToResponses(&wire)
 	if err != nil {
 		return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorConversion, Protocol: c.Protocol(), Cause: err}
@@ -65,6 +67,7 @@ func (c *Converter) DecodeRequest(body []byte, options protocolconv.Options) (*i
 	}
 	request.Stream.IncludeUsage = wire.StreamOptions != nil && wire.StreamOptions.IncludeUsage
 	ir.NormalizeSystemInstruction(request)
+	restoreChatToolResultContent(request, toolResultContent)
 	injectChatReasoning(request, wire.Messages)
 	return request, warnings, nil
 }
@@ -86,6 +89,7 @@ func (c *Converter) EncodeRequest(request *ir.Request, options protocolconv.Opti
 	if request.Stream.IncludeUsage {
 		wire.StreamOptions = &apicompat.ChatStreamOptions{IncludeUsage: true}
 	}
+	wire.Messages = injectChatToolResultContent(wire.Messages, request)
 	signatureWarnings, err := checkSignatures(request.Messages, options)
 	warnings = append(warnings, signatureWarnings...)
 	if err != nil {

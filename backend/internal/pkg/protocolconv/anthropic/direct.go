@@ -2,10 +2,12 @@ package anthropic
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/ir"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/toolrouting"
 )
 
 func decodeDirectRequest(body []byte, options protocolconv.Options) (*ir.Request, []protocolconv.Warning, error) {
@@ -88,10 +90,8 @@ func encodeDirectRequest(request *ir.Request, options protocolconv.Options) ([]b
 		}
 		wire.Messages = append(wire.Messages, messageWire{Role: role, Content: content})
 	}
-	for _, tool := range request.Tools {
-		wire.Tools = append(wire.Tools, toolWire{Type: tool.ProviderType, Name: tool.Name, Description: tool.Description, InputSchema: cloneRaw(tool.Parameters), CacheControl: cloneRaw(tool.CacheHint)})
-	}
-	wire.ToolChoice = encodeChoice(request.ToolChoice)
+	wire.Tools = encodeRequestTools(request.Tools)
+	wire.ToolChoice = encodeRequestChoice(request.ToolChoice)
 	if request.Reasoning != nil {
 		wire.Thinking = &thinkingWire{Type: request.Reasoning.Mode}
 		if wire.Thinking.Type == "" {
@@ -172,11 +172,17 @@ func decodeBlocksFromSlice(blocks []blockWire) ([]ir.ContentPart, error) {
 			}
 			out = append(out, ir.ContentPart{Type: ir.ContentToolCall, ToolCallID: b.ID, ToolName: b.Name, ToolInput: input})
 		case "tool_result":
-			result := cloneRaw(b.Content)
-			if len(result) == 0 {
-				result = json.RawMessage(`""`)
+			result, content, err := decodeToolResultContent(b.Content)
+			if err != nil {
+				return nil, err
 			}
-			out = append(out, ir.ContentPart{Type: ir.ContentToolResult, ToolCallID: b.ToolUseID, ToolResult: result, IsError: b.IsError})
+			out = append(out, ir.ContentPart{
+				Type:              ir.ContentToolResult,
+				ToolCallID:        b.ToolUseID,
+				ToolResult:        result,
+				ToolResultContent: content,
+				IsError:           b.IsError,
+			})
 		}
 	}
 	return out, nil
@@ -202,7 +208,12 @@ func encodeBlocks(parts []ir.ContentPart, options protocolconv.Options) ([]block
 		case ir.ContentToolCall:
 			out = append(out, blockWire{Type: "tool_use", ID: p.ToolCallID, Name: p.ToolName, Input: cloneRaw(p.ToolInput)})
 		case ir.ContentToolResult:
-			out = append(out, blockWire{Type: "tool_result", ToolUseID: p.ToolCallID, Content: cloneRaw(p.ToolResult), IsError: p.IsError})
+			content, contentWarnings, err := encodeToolResultContent(p, options)
+			warnings = append(warnings, contentWarnings...)
+			if err != nil {
+				return nil, warnings, err
+			}
+			out = append(out, blockWire{Type: "tool_result", ToolUseID: p.ToolCallID, Content: content, IsError: p.IsError})
 		case ir.ContentRefusal:
 			out = append(out, blockWire{Type: "text", Text: p.Refusal})
 		default:
@@ -215,6 +226,69 @@ func encodeBlocks(parts []ir.ContentPart, options protocolconv.Options) ([]block
 	}
 	return out, warnings, nil
 }
+func decodeToolResultContent(raw json.RawMessage) (json.RawMessage, []ir.ContentPart, error) {
+	if len(raw) == 0 {
+		return json.RawMessage(`""`), nil, nil
+	}
+	var blocks []blockWire
+	if json.Unmarshal(raw, &blocks) != nil || len(blocks) == 0 {
+		return cloneRaw(raw), nil, nil
+	}
+	for _, block := range blocks {
+		if block.Type != "text" && block.Type != "image" {
+			return cloneRaw(raw), nil, nil
+		}
+		if block.Type == "image" && block.Source == nil {
+			return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidIR, Protocol: protocolconv.ProtocolAnthropic, Message: "tool result image is missing source"}
+		}
+	}
+	content, err := decodeBlocksFromSlice(blocks)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, content, nil
+}
+
+func encodeToolResultContent(part ir.ContentPart, options protocolconv.Options) (json.RawMessage, []protocolconv.Warning, error) {
+	if len(part.ToolResultContent) == 0 {
+		if len(part.ToolResult) == 0 {
+			return json.RawMessage(`""`), nil, nil
+		}
+		return cloneRaw(part.ToolResult), nil, nil
+	}
+	blocks := make([]blockWire, 0, len(part.ToolResultContent))
+	var warnings []protocolconv.Warning
+	for i, content := range part.ToolResultContent {
+		switch content.Type {
+		case ir.ContentText:
+			blocks = append(blocks, blockWire{Type: "text", Text: content.Text, CacheControl: cloneRaw(content.CacheHint)})
+		case ir.ContentImage:
+			if content.Data == "" {
+				path := fmt.Sprintf("tool_result_content[%d]", i)
+				if options.LossPolicy == protocolconv.LossWarn {
+					warnings = append(warnings, protocolconv.Warning{Code: protocolconv.WarningUnsupportedCapability, Protocol: protocolconv.ProtocolAnthropic, Capability: protocolconv.CapabilityImageURL, Path: path, Message: "URL image dropped from tool result"})
+					continue
+				}
+				return nil, warnings, &protocolconv.Error{Code: protocolconv.ErrorUnsupportedCapability, Protocol: protocolconv.ProtocolAnthropic, Capability: protocolconv.CapabilityImageURL, Path: path}
+			}
+			blocks = append(blocks, blockWire{Type: "image", Source: &imageWire{Type: "base64", MediaType: content.MediaType, Data: content.Data}})
+		default:
+			capability := protocolconv.CapabilityFile
+			if content.Type == ir.ContentAudio {
+				capability = protocolconv.CapabilityAudio
+			}
+			path := fmt.Sprintf("tool_result_content[%d]", i)
+			if options.LossPolicy == protocolconv.LossWarn {
+				warnings = append(warnings, protocolconv.Warning{Code: protocolconv.WarningUnsupportedCapability, Protocol: protocolconv.ProtocolAnthropic, Capability: capability, Path: path, Message: "content dropped from tool result"})
+				continue
+			}
+			return nil, warnings, &protocolconv.Error{Code: protocolconv.ErrorUnsupportedCapability, Protocol: protocolconv.ProtocolAnthropic, Capability: capability, Path: path}
+		}
+	}
+	body, err := json.Marshal(blocks)
+	return body, warnings, err
+}
+
 func allToolResults(parts []ir.ContentPart) bool {
 	if len(parts) == 0 {
 		return false
@@ -226,6 +300,54 @@ func allToolResults(parts []ir.ContentPart) bool {
 	}
 	return true
 }
+func encodeRequestTools(tools []ir.ToolDefinition) []toolWire {
+	var out []toolWire
+	for _, tool := range tools {
+		switch tool.ProviderType {
+		case "namespace":
+			for _, child := range tool.Children {
+				out = append(out, toolWire{
+					Name:         toolrouting.FlattenNamespaceName(tool.Name, child.Name),
+					Description:  child.Description,
+					InputSchema:  functionToolSchema(child.Parameters),
+					CacheControl: cloneRaw(child.CacheHint),
+				})
+			}
+		case "tool_search":
+			out = append(out, toolWire{Name: "tool_search", Description: tool.Description, InputSchema: functionToolSchema(tool.Parameters), CacheControl: cloneRaw(tool.CacheHint)})
+		case "custom":
+			out = append(out, toolWire{Name: tool.Name, Description: tool.Description, InputSchema: customToolSchema(), CacheControl: cloneRaw(tool.CacheHint)})
+		default:
+			out = append(out, toolWire{Type: tool.ProviderType, Name: tool.Name, Description: tool.Description, InputSchema: cloneRaw(tool.Parameters), CacheControl: cloneRaw(tool.CacheHint)})
+		}
+	}
+	return out
+}
+
+func functionToolSchema(schema json.RawMessage) json.RawMessage {
+	if len(schema) > 0 && json.Valid(schema) && strings.TrimSpace(string(schema)) != "null" {
+		return cloneRaw(schema)
+	}
+	return json.RawMessage(`{"type":"object"}`)
+}
+
+func customToolSchema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"input":{"type":"string"}},"required":["input"]}`)
+}
+
+func encodeRequestChoice(choice *ir.ToolChoice) json.RawMessage {
+	if choice == nil {
+		return nil
+	}
+	if choice.Kind == "tool_search" && choice.Name == "" {
+		copy := *choice
+		copy.Name = "tool_search"
+		copy.Mode = "tool"
+		return encodeChoice(&copy)
+	}
+	return encodeChoice(choice)
+}
+
 func decodeChoice(raw json.RawMessage) *ir.ToolChoice {
 	if len(raw) == 0 {
 		return nil

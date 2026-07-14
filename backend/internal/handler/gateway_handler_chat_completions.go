@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -35,6 +36,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		h.chatCompletionsErrorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
 		return
 	}
+	bindProtocolMetadataIdentity(c, apiKey, subject.UserID)
 	reqLog := requestLogger(
 		c,
 		"handler.gateway.chat_completions",
@@ -238,7 +240,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				}
 				return
 			}
-			result, err = h.geminiCompatService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody)
+			result, err = h.geminiCompatService.ForwardAsChatCompletionsWithClientModel(c.Request.Context(), c, account, forwardBody, reqModel)
 		} else {
 			result, err = h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
 		}
@@ -315,12 +317,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 
 // chatCompletionsErrorResponse writes an error in OpenAI Chat Completions format.
 func (h *GatewayHandler) chatCompletionsErrorResponse(c *gin.Context, status int, errType, message string) {
-	c.JSON(status, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
-	})
+	writeProtocolError(c, protocolconv.ProtocolOpenAIChat, status, errType, errType, message)
 }
 
 // handleCCFailoverExhausted writes a failover-exhausted error in CC format.

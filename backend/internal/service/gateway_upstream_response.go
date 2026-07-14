@@ -1,8 +1,6 @@
 package service
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,11 +10,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"syscall"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -73,12 +71,15 @@ func claudeCodeKeepaliveFieldForDeltaType(deltaType string) string {
 	}
 }
 
-func buildClaudeCodeNoopDeltaKeepalive(index int, deltaType string) (string, bool) {
+func buildClaudeCodeNoopDeltaKeepalive(index int, deltaType string) ([]byte, bool) {
 	fieldName := claudeCodeKeepaliveFieldForDeltaType(deltaType)
 	if fieldName == "" {
-		return "", false
+		return nil, false
 	}
-	return fmt.Sprintf("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":%d,\"delta\":{\"type\":\"%s\",\"%s\":\"\"}}\n\n", index, deltaType, fieldName), true
+	return []byte(fmt.Sprintf(
+		`{"type":"content_block_delta","index":%d,"delta":{"type":"%s","%s":""}}`,
+		index, deltaType, fieldName,
+	)), true
 }
 
 func sseEventIndex(event map[string]any) (int, bool) {
@@ -355,6 +356,13 @@ func (s *GatewayService) readUpstreamErrorBody(resp *http.Response) ([]byte, err
 	return io.ReadAll(io.LimitReader(resp.Body, limit))
 }
 
+type gatewayCollectedUpstreamError struct {
+	StatusCode int
+	Headers    http.Header
+	Body       []byte
+	RequestID  string
+}
+
 func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, requestedModel ...string) (*ForwardResult, error) {
 	body, readErr := s.readUpstreamErrorBody(resp)
 	if readErr != nil {
@@ -362,6 +370,50 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		// 避免静默吞掉导致误判。
 		logger.LegacyPrintf("service.gateway", "[Forward] Failed to fully read upstream error body: Account=%d(%s) Status=%d err=%v",
 			account.ID, account.Name, resp.StatusCode, readErr)
+	}
+	return s.handleGatewayCollectedErrorResponse(ctx, gatewayCollectedUpstreamError{
+		StatusCode: resp.StatusCode,
+		Headers:    resp.Header,
+		Body:       body,
+		RequestID:  resp.Header.Get("x-request-id"),
+	}, c, account, requestedModel...)
+}
+
+func (s *GatewayService) handleGatewayStructuredErrorResponse(
+	ctx context.Context,
+	upstream protocoltransport.Response,
+	c *gin.Context,
+	account *Account,
+	requestedModel ...string,
+) (*ForwardResult, error) {
+	if err := upstream.Validate(); err != nil {
+		return nil, fmt.Errorf("validate gateway error policy input: %w", err)
+	}
+	if !upstream.IsError() {
+		return nil, fmt.Errorf("gateway error policy received status %d", upstream.StatusCode)
+	}
+	return s.handleGatewayCollectedErrorResponse(ctx, gatewayCollectedUpstreamError{
+		StatusCode: upstream.StatusCode,
+		Headers:    protocoltransport.CloneHeaders(upstream.Headers),
+		Body:       append([]byte(nil), upstream.Body...),
+		RequestID:  upstream.RequestID,
+	}, c, account, requestedModel...)
+}
+
+func (s *GatewayService) handleGatewayCollectedErrorResponse(
+	ctx context.Context,
+	upstream gatewayCollectedUpstreamError,
+	c *gin.Context,
+	account *Account,
+	requestedModel ...string,
+) (*ForwardResult, error) {
+	body := upstream.Body
+	resp := &http.Response{StatusCode: upstream.StatusCode, Header: upstream.Headers}
+	if resp.Header == nil {
+		resp.Header = make(http.Header)
+	}
+	if resp.Header.Get("x-request-id") == "" && upstream.RequestID != "" {
+		resp.Header.Set("x-request-id", upstream.RequestID)
 	}
 
 	// 调试日志：打印上游错误响应
@@ -518,11 +570,18 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 
 func (s *GatewayService) handleRetryExhaustedSideEffects(ctx context.Context, resp *http.Response, account *Account) {
 	body, _ := s.readUpstreamErrorBody(resp)
-	statusCode := resp.StatusCode
+	s.handleRetryExhaustedStructuredSideEffects(ctx, protocoltransport.Response{
+		StatusCode: resp.StatusCode, Headers: protocoltransport.CloneHeaders(resp.Header), Body: body,
+		ActualProtocol: protocolconv.ProtocolAnthropic, RequestID: resp.Header.Get("x-request-id"),
+	}, account)
+}
+
+func (s *GatewayService) handleRetryExhaustedStructuredSideEffects(ctx context.Context, upstream protocoltransport.Response, account *Account) {
+	statusCode := upstream.StatusCode
 
 	// OAuth/Setup Token 账号的 403：标记账号异常
 	if account.IsOAuth() && statusCode == 403 {
-		s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, resp.Header, body)
+		s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, upstream.Headers, upstream.Body)
 		logger.LegacyPrintf("service.gateway", "Account %d: marked as error after %d retries for status %d", account.ID, maxRetryAttempts, statusCode)
 	} else {
 		// API Key 未配置错误码：不标记账号状态
@@ -532,25 +591,43 @@ func (s *GatewayService) handleRetryExhaustedSideEffects(ctx context.Context, re
 
 func (s *GatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, requestedModel ...string) {
 	body, _ := s.readUpstreamErrorBody(resp)
+	s.handleStructuredFailoverSideEffects(ctx, protocoltransport.Response{
+		StatusCode: resp.StatusCode, Headers: protocoltransport.CloneHeaders(resp.Header), Body: body,
+		ActualProtocol: protocolconv.ProtocolAnthropic, RequestID: resp.Header.Get("x-request-id"),
+	}, account, requestedModel...)
+}
+
+func (s *GatewayService) handleStructuredFailoverSideEffects(ctx context.Context, upstream protocoltransport.Response, account *Account, requestedModel ...string) {
 	if len(requestedModel) > 0 {
-		s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, requestedModel[0])
+		s.rateLimitService.HandleUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, requestedModel[0])
 		return
 	}
-	s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)
+	s.rateLimitService.HandleUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body)
 }
 
 // handleRetryExhaustedError 处理重试耗尽后的错误
 // OAuth 403：标记账号异常
 // API Key 未配置错误码：仅返回错误，不标记账号
 func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *http.Response, c *gin.Context, account *Account) (*ForwardResult, error) {
-	MarkResponseCommitted(c)
-	// Capture upstream error body before side-effects consume the stream.
 	respBody, _ := s.readUpstreamErrorBody(resp)
-	_ = resp.Body.Close()
-	resp.Body = io.NopCloser(bytes.NewReader(respBody))
+	return s.handleRetryExhaustedStructuredError(ctx, protocoltransport.Response{
+		StatusCode: resp.StatusCode, Headers: protocoltransport.CloneHeaders(resp.Header), Body: respBody,
+		ActualProtocol: protocolconv.ProtocolAnthropic, RequestID: resp.Header.Get("x-request-id"),
+	}, c, account)
+}
 
-	s.handleRetryExhaustedSideEffects(ctx, resp, account)
+func (s *GatewayService) handleRetryExhaustedStructuredError(ctx context.Context, upstream protocoltransport.Response, c *gin.Context, account *Account) (*ForwardResult, error) {
+	MarkResponseCommitted(c)
+	s.handleRetryExhaustedStructuredSideEffects(ctx, upstream, account)
 
+	respBody := upstream.Body
+	resp := &http.Response{StatusCode: upstream.StatusCode, Header: upstream.Headers}
+	if resp.Header == nil {
+		resp.Header = make(http.Header)
+	}
+	if resp.Header.Get("x-request-id") == "" && upstream.RequestID != "" {
+		resp.Header.Set("x-request-id", upstream.RequestID)
+	}
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 
@@ -643,457 +720,6 @@ type streamingResult struct {
 	usage            *ClaudeUsage
 	firstTokenMs     *int
 	clientDisconnect bool // 客户端是否在流式传输过程中断开
-}
-
-func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string, mimicClaudeCode bool) (*streamingResult, error) {
-	// 更新5h窗口状态
-	s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
-
-	if s.responseHeaderFilter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-	}
-
-	// 设置SSE响应头
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-
-	// 透传其他响应头
-	if v := resp.Header.Get("x-request-id"); v != "" {
-		c.Header("x-request-id", v)
-	}
-
-	w := c.Writer
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		return nil, errors.New("streaming not supported")
-	}
-
-	usage := &ClaudeUsage{}
-	var firstTokenMs *int
-	scanner := bufio.NewScanner(resp.Body)
-	// 设置更大的buffer以处理长行
-	maxLineSize := defaultMaxLineSize
-	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-		maxLineSize = s.cfg.Gateway.MaxLineSize
-	}
-	scanBuf := getSSEScannerBuf64K()
-	scanner.Buffer(scanBuf[:0], maxLineSize)
-
-	type scanEvent struct {
-		line string
-		err  error
-	}
-	// 独立 goroutine 读取上游，避免读取阻塞导致超时/keepalive无法处理
-	events := make(chan scanEvent, 16)
-	done := make(chan struct{})
-	sendEvent := func(ev scanEvent) bool {
-		select {
-		case events <- ev:
-			return true
-		case <-done:
-			return false
-		}
-	}
-	var lastReadAt int64
-	atomic.StoreInt64(&lastReadAt, time.Now().UnixNano())
-	go func(scanBuf *sseScannerBuf64K) {
-		defer putSSEScannerBuf64K(scanBuf)
-		defer close(events)
-		for scanner.Scan() {
-			atomic.StoreInt64(&lastReadAt, time.Now().UnixNano())
-			if !sendEvent(scanEvent{line: scanner.Text()}) {
-				return
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			_ = sendEvent(scanEvent{err: err})
-		}
-	}(scanBuf)
-	defer close(done)
-
-	streamInterval := time.Duration(0)
-	if s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
-		streamInterval = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
-	}
-	// 仅监控上游数据间隔超时，避免下游写入阻塞导致误判
-	var intervalTicker *time.Ticker
-	if streamInterval > 0 {
-		intervalTicker = time.NewTicker(streamInterval)
-		defer intervalTicker.Stop()
-	}
-	var intervalCh <-chan time.Time
-	if intervalTicker != nil {
-		intervalCh = intervalTicker.C
-	}
-
-	// 下游 keepalive：防止代理/Cloudflare Tunnel 因连接空闲而断开
-	keepaliveInterval := time.Duration(0)
-	if s.cfg != nil && s.cfg.Gateway.StreamKeepaliveInterval > 0 {
-		keepaliveInterval = time.Duration(s.cfg.Gateway.StreamKeepaliveInterval) * time.Second
-	}
-	var keepaliveTimer *time.Timer
-	if keepaliveInterval > 0 {
-		keepaliveTimer = time.NewTimer(keepaliveInterval)
-		defer keepaliveTimer.Stop()
-	}
-	var keepaliveCh <-chan time.Time
-	if keepaliveTimer != nil {
-		keepaliveCh = keepaliveTimer.C
-	}
-	lastDataAt := time.Now()
-	resetKeepaliveTimer := func() {
-		if keepaliveTimer == nil {
-			return
-		}
-		if !keepaliveTimer.Stop() {
-			select {
-			case <-keepaliveTimer.C:
-			default:
-			}
-		}
-		keepaliveTimer.Reset(keepaliveInterval)
-	}
-
-	// 仅发送一次错误事件，避免多次写入导致协议混乱（写失败时尽力通知客户端）。
-	// 事件格式遵循 Anthropic SSE 标准：{"type":"error","error":{"type":<reason>,"message":<message>}}
-	// 这样 Anthropic SDK / Claude Code 等客户端能按标准 error 类型解析，UI 能显示具体错误文案，
-	// 服务端 ExtractUpstreamErrorMessage 也能从透传的 body 中提取 message。
-	errorEventSent := false
-	sendErrorEvent := func(reason, message string) {
-		if errorEventSent {
-			return
-		}
-		errorEventSent = true
-		if message == "" {
-			message = reason
-		}
-		body, err := json.Marshal(map[string]any{
-			"type": "error",
-			"error": map[string]string{
-				"type":    reason,
-				"message": message,
-			},
-		})
-		if err != nil {
-			// json.Marshal 不可能在已知 string-only 输入上失败，保守 fallback
-			body = []byte(fmt.Sprintf(`{"type":"error","error":{"type":%q,"message":%q}}`, reason, message))
-		}
-		_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", body)
-		flusher.Flush()
-	}
-
-	needModelReplace := originalModel != mappedModel
-	clientDisconnected := false // 客户端断开标志，断开后继续读取上游以获取完整usage
-	sawTerminalEvent := false
-	useNoopDeltaKeepalive := c != nil && c.Request != nil && shouldUseClaudeCodeNoopDeltaKeepalive(c.GetHeader("User-Agent"))
-	noopDeltaKeepaliveBlockIndex := -1
-	noopDeltaKeepaliveDeltaType := ""
-
-	pendingEventLines := make([]string, 0, 4)
-
-	processSSEEvent := func(lines []string) ([]string, string, *sseUsagePatch, error) {
-		if len(lines) == 0 {
-			return nil, "", nil, nil
-		}
-
-		eventName := ""
-		dataLine := ""
-		for _, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "event:") {
-				eventName = strings.TrimSpace(strings.TrimPrefix(trimmed, "event:"))
-				continue
-			}
-			if dataLine == "" && sseDataRe.MatchString(trimmed) {
-				dataLine = sseDataRe.ReplaceAllString(trimmed, "")
-			}
-		}
-
-		if eventName == "error" {
-			return nil, dataLine, nil, &sseStreamErrorEventError{RawData: dataLine}
-		}
-
-		if dataLine == "" {
-			return []string{strings.Join(lines, "\n") + "\n\n"}, "", nil, nil
-		}
-
-		if dataLine == "[DONE]" {
-			sawTerminalEvent = true
-			block := ""
-			if eventName != "" {
-				block = "event: " + eventName + "\n"
-			}
-			block += "data: " + dataLine + "\n\n"
-			return []string{block}, dataLine, nil, nil
-		}
-
-		var event map[string]any
-		if err := json.Unmarshal([]byte(dataLine), &event); err != nil {
-			// JSON 解析失败，直接透传原始数据
-			block := ""
-			if eventName != "" {
-				block = "event: " + eventName + "\n"
-			}
-			block += "data: " + dataLine + "\n\n"
-			return []string{block}, dataLine, nil, nil
-		}
-
-		eventType, _ := event["type"].(string)
-		if eventName == "" {
-			eventName = eventType
-		}
-		eventChanged := false
-
-		if useNoopDeltaKeepalive {
-			switch eventType {
-			case "content_block_start":
-				if idx, ok := sseEventIndex(event); ok {
-					noopDeltaKeepaliveBlockIndex = -1
-					noopDeltaKeepaliveDeltaType = ""
-					if contentBlock, ok := event["content_block"].(map[string]any); ok {
-						blockType, _ := contentBlock["type"].(string)
-						if deltaType := claudeCodeKeepaliveDeltaTypeForContentBlock(blockType); deltaType != "" {
-							noopDeltaKeepaliveBlockIndex = idx
-							noopDeltaKeepaliveDeltaType = deltaType
-						}
-					}
-				}
-			case "content_block_delta":
-				if idx, ok := sseEventIndex(event); ok {
-					if delta, ok := event["delta"].(map[string]any); ok {
-						deltaType, _ := delta["type"].(string)
-						if claudeCodeKeepaliveFieldForDeltaType(deltaType) != "" {
-							noopDeltaKeepaliveBlockIndex = idx
-							noopDeltaKeepaliveDeltaType = deltaType
-						}
-					}
-				}
-			case "content_block_stop":
-				if idx, ok := sseEventIndex(event); ok && idx == noopDeltaKeepaliveBlockIndex {
-					noopDeltaKeepaliveBlockIndex = -1
-					noopDeltaKeepaliveDeltaType = ""
-				}
-			case "message_stop":
-				noopDeltaKeepaliveBlockIndex = -1
-				noopDeltaKeepaliveDeltaType = ""
-			}
-		}
-
-		// 兼容 Kimi cached_tokens → cache_read_input_tokens
-		if eventType == "message_start" {
-			if msg, ok := event["message"].(map[string]any); ok {
-				if u, ok := msg["usage"].(map[string]any); ok {
-					eventChanged = reconcileCachedTokens(u) || eventChanged
-				}
-			}
-		}
-		if eventType == "message_delta" {
-			if u, ok := event["usage"].(map[string]any); ok {
-				eventChanged = reconcileCachedTokens(u) || eventChanged
-			}
-		}
-
-		// Cache TTL Override: 重写 SSE 事件中的 cache_creation 分类。
-		// 账号级设置优先；全局 1h 请求注入开启时，默认把 usage 计费归回 5m。
-		if overrideTarget, ok := s.resolveCacheTTLUsageOverrideTarget(ctx, account); ok {
-			if eventType == "message_start" {
-				if msg, ok := event["message"].(map[string]any); ok {
-					if u, ok := msg["usage"].(map[string]any); ok {
-						eventChanged = rewriteCacheCreationJSON(u, overrideTarget) || eventChanged
-					}
-				}
-			}
-			if eventType == "message_delta" {
-				if u, ok := event["usage"].(map[string]any); ok {
-					eventChanged = rewriteCacheCreationJSON(u, overrideTarget) || eventChanged
-				}
-			}
-		}
-
-		if needModelReplace {
-			if msg, ok := event["message"].(map[string]any); ok {
-				if model, ok := msg["model"].(string); ok && model == mappedModel {
-					msg["model"] = originalModel
-					eventChanged = true
-				}
-			}
-		}
-
-		usagePatch := s.extractSSEUsagePatch(event)
-		if anthropicStreamEventIsTerminal(eventName, dataLine) {
-			sawTerminalEvent = true
-		}
-		if !eventChanged {
-			block := ""
-			if eventName != "" {
-				block = "event: " + eventName + "\n"
-			}
-			block += "data: " + dataLine + "\n\n"
-			return []string{block}, dataLine, usagePatch, nil
-		}
-
-		newData, err := json.Marshal(event)
-		if err != nil {
-			// 序列化失败，直接透传原始数据
-			block := ""
-			if eventName != "" {
-				block = "event: " + eventName + "\n"
-			}
-			block += "data: " + dataLine + "\n\n"
-			return []string{block}, dataLine, usagePatch, nil
-		}
-
-		block := ""
-		if eventName != "" {
-			block = "event: " + eventName + "\n"
-		}
-		block += "data: " + string(newData) + "\n\n"
-		return []string{block}, string(newData), usagePatch, nil
-	}
-
-	for {
-		select {
-		case ev, ok := <-events:
-			if !ok {
-				// 上游完成，返回结果
-				if !sawTerminalEvent {
-					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, fmt.Errorf("stream usage incomplete: missing terminal event")
-				}
-				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
-			}
-			if ev.err != nil {
-				if sawTerminalEvent {
-					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
-				}
-				// 检测 context 取消（客户端断开会导致 context 取消，进而影响上游读取）
-				if errors.Is(ev.err, context.Canceled) || errors.Is(ev.err, context.DeadlineExceeded) {
-					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, fmt.Errorf("stream usage incomplete: %w", ev.err)
-				}
-				// 客户端已通过写入失败检测到断开，上游也出错了，返回已收集的 usage
-				if clientDisconnected {
-					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, fmt.Errorf("stream usage incomplete after disconnect: %w", ev.err)
-				}
-				// 客户端未断开，正常的错误处理
-				if errors.Is(ev.err, bufio.ErrTooLong) {
-					logger.LegacyPrintf("service.gateway", "SSE line too long: account=%d max_size=%d error=%v", account.ID, maxLineSize, ev.err)
-					sendErrorEvent("response_too_large", fmt.Sprintf("upstream SSE line exceeded %d bytes", maxLineSize))
-					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, ev.err
-				}
-				// 上游中途读错误（unexpected EOF / connection reset 等，常见于 HTTP/2 GOAWAY）：
-				// 若尚未向客户端写过任何字节，包成 UpstreamFailoverError 让 handler 层走 failover/重试。
-				// 已经开始写流时 SSE 协议无 resume，只能透传错误事件给客户端。
-				// 注意:面向客户端的 disconnectMsg 必须用 sanitizeStreamError 剥离地址,
-				// 默认 *net.OpError 的 Error() 会泄露内部 IP/端口和上游地址。完整 ev.err
-				// 仅在下方 LegacyPrintf 内部日志中保留供运维诊断。
-				disconnectMsg := "upstream stream disconnected: " + sanitizeStreamError(ev.err)
-				if !c.Writer.Written() {
-					logger.LegacyPrintf("service.gateway", "Upstream stream read error before any client output (account=%d), failing over: %v", account.ID, ev.err)
-					body, _ := json.Marshal(map[string]any{
-						"type": "error",
-						"error": map[string]string{
-							"type":    "upstream_disconnected",
-							"message": disconnectMsg,
-						},
-					})
-					return nil, &UpstreamFailoverError{
-						StatusCode:             http.StatusBadGateway,
-						ResponseBody:           body,
-						RetryableOnSameAccount: true,
-					}
-				}
-				sendErrorEvent("stream_read_error", disconnectMsg)
-				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream read error: %w", ev.err)
-			}
-			line := ev.line
-			trimmed := strings.TrimSpace(line)
-
-			if trimmed == "" {
-				if len(pendingEventLines) == 0 {
-					continue
-				}
-
-				outputBlocks, data, usagePatch, err := processSSEEvent(pendingEventLines)
-				pendingEventLines = pendingEventLines[:0]
-				if err != nil {
-					if clientDisconnected {
-						return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, nil
-					}
-					return nil, err
-				}
-
-				for _, block := range outputBlocks {
-					if !clientDisconnected {
-						restored := reverseToolNamesIfPresent(c, []byte(block))
-						if _, werr := fmt.Fprint(w, string(restored)); werr != nil {
-							clientDisconnected = true
-							logger.LegacyPrintf("service.gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
-							// 不 break：客户端断开后仍需继续合并本事件及后续事件的 usage，
-							// 否则会漏计当前事件携带的 usage 导致少计费。后续写入由
-							// clientDisconnected 守卫跳过。
-						} else {
-							flusher.Flush()
-							lastDataAt = time.Now()
-							resetKeepaliveTimer()
-						}
-					}
-					if data != "" {
-						if firstTokenMs == nil && data != "[DONE]" {
-							ms := int(time.Since(startTime).Milliseconds())
-							firstTokenMs = &ms
-						}
-						if usagePatch != nil {
-							mergeSSEUsagePatch(usage, usagePatch)
-						}
-					}
-				}
-				continue
-			}
-
-			pendingEventLines = append(pendingEventLines, line)
-
-		case <-intervalCh:
-			lastRead := time.Unix(0, atomic.LoadInt64(&lastReadAt))
-			if time.Since(lastRead) < streamInterval {
-				continue
-			}
-			if clientDisconnected {
-				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, fmt.Errorf("stream usage incomplete after timeout")
-			}
-			logger.LegacyPrintf("service.gateway", "Stream data interval timeout: account=%d model=%s interval=%s", account.ID, originalModel, streamInterval)
-			// 处理流超时，可能标记账户为临时不可调度或错误状态
-			if s.rateLimitService != nil {
-				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
-			}
-			sendErrorEvent("stream_timeout", fmt.Sprintf("upstream stream idle for %s", streamInterval))
-			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
-
-		case <-keepaliveCh:
-			if clientDisconnected {
-				continue
-			}
-			if time.Since(lastDataAt) < keepaliveInterval {
-				resetKeepaliveTimer()
-				continue
-			}
-			keepaliveBlock := "event: ping\ndata: {\"type\": \"ping\"}\n\n"
-			if useNoopDeltaKeepalive && noopDeltaKeepaliveBlockIndex >= 0 {
-				if block, ok := buildClaudeCodeNoopDeltaKeepalive(noopDeltaKeepaliveBlockIndex, noopDeltaKeepaliveDeltaType); ok {
-					keepaliveBlock = block
-				}
-			}
-			if _, werr := fmt.Fprint(w, keepaliveBlock); werr != nil {
-				clientDisconnected = true
-				logger.LegacyPrintf("service.gateway", "Client disconnected during keepalive ping, continuing to drain upstream for billing")
-				continue
-			}
-			flusher.Flush()
-			lastDataAt = time.Now()
-			resetKeepaliveTimer()
-		}
-	}
-
 }
 
 func (s *GatewayService) parseSSEUsage(data string, usage *ClaudeUsage) {
@@ -1328,7 +954,14 @@ func (s *GatewayService) resolveCacheTTLUsageOverrideTarget(ctx context.Context,
 	return "", false
 }
 
-func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, originalModel, mappedModel string) (*ClaudeUsage, error) {
+func (s *GatewayService) handleNonStreamingResponse(
+	ctx context.Context,
+	resp *http.Response,
+	c *gin.Context,
+	account *Account,
+	pipeline *protocolconv.Pipeline,
+	originalModel, mappedModel string,
+) (*ClaudeUsage, error) {
 	// 更新5h窗口状态
 	s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 
@@ -1381,24 +1014,34 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 		}
 	}
 
-	// 如果有模型映射，替换响应中的model字段
+	// Provider usage policy runs before the standard identity response phase.
 	if originalModel != mappedModel {
 		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
 	}
 
-	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-
-	contentType := "application/json"
-	if s.cfg != nil && !s.cfg.Security.ResponseHeaders.Enabled {
-		if upstreamType := resp.Header.Get("Content-Type"); upstreamType != "" {
-			contentType = upstreamType
-		}
+	structured := protocoltransport.Response{
+		StatusCode:     resp.StatusCode,
+		Headers:        responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
+		Body:           append([]byte(nil), body...),
+		ActualProtocol: protocolconv.ProtocolAnthropic,
+		RequestID:      resp.Header.Get("x-request-id"),
+		ResponseID:     gjson.GetBytes(body, "id").String(),
 	}
-
-	body = reverseToolNamesIfPresent(c, body)
-
-	// 写入响应
-	c.Data(resp.StatusCode, contentType, body)
+	if err := structured.Validate(); err != nil {
+		return nil, err
+	}
+	converted, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
+	if err != nil {
+		return nil, fmt.Errorf("convert Anthropic response: %w", err)
+	}
+	convertedBody := reverseToolNamesIfPresent(c, converted.Body)
+	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolAnthropic)
+	if err != nil {
+		return nil, err
+	}
+	if err := renderer.RenderJSON(c.Writer, structured.StatusCode, structured.Headers, convertedBody); err != nil {
+		return nil, fmt.Errorf("render Anthropic response: %w", err)
+	}
 
 	return &response.Usage, nil
 }

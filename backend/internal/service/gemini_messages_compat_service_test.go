@@ -4,19 +4,34 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
+
+type nativeGeminiTrackingReadCloser struct {
+	io.Reader
+	closeCount atomic.Int32
+}
+
+func (r *nativeGeminiTrackingReadCloser) Close() error {
+	r.closeCount.Add(1)
+	return nil
+}
 
 type geminiCompatHTTPUpstreamStub struct {
 	response *http.Response
@@ -117,6 +132,49 @@ func TestGeminiForwardAsChatCompletions_OAuthRoutesToGeminiAndReturnsChatFormat(
 	require.Equal(t, float64(10), usage["total_tokens"])
 }
 
+func TestGeminiForwardAsChatCompletions_RestoresClientModelAfterMappedGoogleResponse(t *testing.T) {
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"responseId":"google-1","modelVersion":"upstream-gemini","candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1,"totalTokenCount":4}}`)),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 103, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"api_key": "test-key", "model_mapping": map[string]any{"client-gemini": "upstream-gemini"},
+	}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"client-gemini","messages":[{"role":"user","content":"hi"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.Equal(t, "upstream-gemini", result.UpstreamModel)
+	require.Equal(t, "client-gemini", gjson.GetBytes(rec.Body.Bytes(), "model").String())
+	require.Contains(t, upstream.lastReq.URL.String(), "/models/upstream-gemini:generateContent")
+}
+
+func TestGeminiForwardAsChatCompletions_ChannelMappingRestoresInboundModel(t *testing.T) {
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{"responseId":"google-channel","modelVersion":"upstream-gemini","candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`)),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 104, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"api_key": "test-key", "model_mapping": map[string]any{"channel-target": "upstream-gemini"},
+	}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"channel-target","messages":[{"role":"user","content":"hi"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	result, err := svc.ForwardAsChatCompletionsWithClientModel(context.Background(), c, account, body, "client-alias")
+	require.NoError(t, err)
+	require.Equal(t, "client-alias", result.Model)
+	require.Equal(t, "upstream-gemini", result.UpstreamModel)
+	require.Equal(t, "client-alias", gjson.GetBytes(rec.Body.Bytes(), "model").String())
+}
+
 func TestGeminiForwardAsChatCompletions_StreamsOpenAIChunksFromGeminiSSE(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -170,6 +228,71 @@ func TestGeminiForwardAsChatCompletions_StreamsOpenAIChunksFromGeminiSSE(t *test
 	require.Contains(t, out, "data: [DONE]")
 }
 
+func TestGeminiForwardAsChatCompletions_OAuthStreamUnwrapsGoogleEnvelope(t *testing.T) {
+	upstreamBody := `data: {"response":{"responseId":"google-oauth","modelVersion":"upstream-gemini","candidates":[{"content":{"parts":[{"text":"wrapped"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1,"totalTokenCount":3}}}` + "\n\n" +
+		"data: [DONE]\n\n"
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &GeminiMessagesCompatService{tokenProvider: &GeminiTokenProvider{}, httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 105, Platform: PlatformGemini, Type: AccountTypeOAuth, Credentials: map[string]any{
+		"access_token": "test-token", "project_id": "project-1",
+	}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"client-gemini","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Contains(t, rec.Body.String(), `"content":"wrapped"`)
+	require.Contains(t, rec.Body.String(), `"model":"client-gemini"`)
+	require.Equal(t, 1, strings.Count(rec.Body.String(), "data: [DONE]"))
+}
+
+func TestGeminiForwardAsChatCompletions_MalformedFirstStreamEventDoesNotCommitSuccess(t *testing.T) {
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader("data: {not-json}\n\n")),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 106, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-key"}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"client-gemini","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, rec.Body.String())
+}
+
+func TestGeminiForwardAsChatCompletions_StreamSynthesizesMissingGoogleToolCallID(t *testing.T) {
+	upstreamBody := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","args":{"q":"x"}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1,"totalTokenCount":3}}` + "\n\n" +
+		"data: [DONE]\n\n"
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 104, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-key"}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gemini-2.5-flash","stream":true,"messages":[{"role":"user","content":"lookup"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Contains(t, rec.Body.String(), `"id":"call_google_0_0"`)
+	require.Contains(t, rec.Body.String(), `"name":"lookup"`)
+	require.Equal(t, 1, strings.Count(rec.Body.String(), "data: [DONE]"))
+}
+
 // TestConvertClaudeToolsToGeminiTools_CustomType 测试custom类型工具转换
 func TestGeminiHandleNativeNonStreamingResponse_DebugDisabledDoesNotEmitHeaderLogs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -197,10 +320,512 @@ func TestGeminiHandleNativeNonStreamingResponse_DebugDisabledDoesNotEmitHeaderLo
 		Body: io.NopCloser(strings.NewReader(`{"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2}}`)),
 	}
 
-	usage, err := svc.handleNativeNonStreamingResponse(c, resp, false)
+	pipeline, err := newGoogleIdentityPipeline(&Account{ID: 1, Platform: PlatformGemini}, "gemini-client", "gemini-upstream")
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`))
+	require.NoError(t, err)
+	usage, err := svc.handleNativeNonStreamingResponse(c, resp, pipeline, time.Now(), false)
 	require.NoError(t, err)
 	require.NotNil(t, usage)
 	require.False(t, logSink.ContainsMessage("[GeminiAPI]"), "debug 关闭时不应输出 Gemini 响应头日志")
+}
+
+func TestGeminiHandleNativeNonStreamingResponse_StructuredGoogleOutputPreservesFieldsAndHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-client:generateContent", nil)
+	account := &Account{ID: 201, Platform: PlatformGemini}
+	pipeline, err := newGoogleIdentityPipeline(account, "gemini-client", "gemini-upstream")
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`))
+	require.NoError(t, err)
+	body := []byte(`{"responseId":"google-native","candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":6,"candidatesTokenCount":2},"vendorExtension":{"kept":true}}`)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":             []string{"application/vnd.google+json"},
+			"X-Request-Id":             []string{"rid-native"},
+			"X-RateLimit-Limit-Tokens": []string{"60"},
+			"X-Internal-Upstream":      []string{"drop-me"},
+		},
+		Body: io.NopCloser(bytes.NewReader(body)),
+	}
+	svc := &GeminiMessagesCompatService{cfg: &config.Config{}}
+
+	usage, err := svc.handleNativeNonStreamingResponse(c, resp, pipeline, time.Now(), false)
+
+	require.NoError(t, err)
+	require.Equal(t, 6, usage.InputTokens)
+	require.Equal(t, 2, usage.OutputTokens)
+	require.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
+	require.Equal(t, "rid-native", recorder.Header().Get("X-Request-Id"))
+	require.Equal(t, "60", recorder.Header().Get("X-RateLimit-Limit-Tokens"))
+	require.Empty(t, recorder.Header().Get("X-Internal-Upstream"))
+	require.JSONEq(t, string(body), recorder.Body.String())
+}
+
+func TestGeminiHandleNativeNonStreamingResponse_InvalidJSONTriggersFailoverBeforeCommit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-client:generateContent", nil)
+	account := &Account{ID: 202, Platform: PlatformGemini}
+	pipeline, err := newGoogleIdentityPipeline(account, "gemini-client", "gemini-upstream")
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`))
+	require.NoError(t, err)
+	body := []byte("not-json")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"X-Request-Id": []string{"rid-invalid"}},
+		Body:       io.NopCloser(bytes.NewReader(body)),
+	}
+	svc := &GeminiMessagesCompatService{cfg: &config.Config{}}
+
+	usage, err := svc.handleNativeNonStreamingResponse(c, resp, pipeline, time.Now(), false)
+
+	require.Nil(t, usage)
+	var failoverErr *UpstreamFailoverError
+	require.True(t, errors.As(err, &failoverErr))
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.Equal(t, body, failoverErr.ResponseBody)
+	require.Equal(t, "rid-invalid", failoverErr.ResponseHeaders.Get("X-Request-Id"))
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.False(t, c.Writer.Written())
+}
+
+func TestGeminiHandleNativeNonStreamingResponse_RequiresCompletedRequestPipeline(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-client:generateContent", nil)
+	account := &Account{ID: 202, Platform: PlatformGemini}
+	pipeline, err := newGoogleIdentityPipeline(account, "gemini-client", "gemini-upstream")
+	require.NoError(t, err)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(`{"candidates":[]}`)),
+	}
+	svc := &GeminiMessagesCompatService{cfg: &config.Config{}}
+
+	usage, err := svc.handleNativeNonStreamingResponse(c, resp, pipeline, time.Now(), false)
+
+	require.Nil(t, usage)
+	var failoverErr *UpstreamFailoverError
+	require.True(t, errors.As(err, &failoverErr))
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.False(t, c.Writer.Written())
+}
+
+func TestGeminiMessagesCompatServiceForwardNative_APIKeyUsesIdentityPipeline(t *testing.T) {
+	upstreamBody := `{"responseId":"native-api-key","candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":1},"vendorExtension":{"kept":true}}`
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"rid-api-key"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 203, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"api_key": "test-key", "model_mapping": map[string]any{"gemini-client": "gemini-upstream"},
+	}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-client:generateContent", bytes.NewReader(body))
+
+	result, err := svc.ForwardNative(context.Background(), c, account, "gemini-client", "generateContent", false, body)
+
+	require.NoError(t, err)
+	require.Equal(t, protocolconv.ProtocolGoogleGenAI, result.ActualProtocol)
+	require.Equal(t, "gemini-client", result.Model)
+	require.Equal(t, "gemini-upstream", result.UpstreamModel)
+	require.Equal(t, 4, result.Usage.InputTokens)
+	require.Equal(t, 1, result.Usage.OutputTokens)
+	require.Contains(t, upstream.lastReq.URL.String(), "/models/gemini-upstream:generateContent")
+	require.JSONEq(t, string(body), string(readRequestBodyForTest(t, upstream.lastReq)))
+	require.JSONEq(t, upstreamBody, recorder.Body.String())
+}
+
+func TestGeminiMessagesCompatServiceForwardNative_OAuthStreamAsUnaryUsesIdentityPipeline(t *testing.T) {
+	inner := `{"responseId":"native-oauth","candidates":[{"content":{"role":"model","parts":[{"text":"wrapped"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":2},"vendorExtension":{"kept":true}}`
+	upstreamSSE := "data: {\"response\":" + inner + "}\n\ndata: [DONE]\n\n"
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid-oauth"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamSSE)),
+	}}
+	svc := &GeminiMessagesCompatService{tokenProvider: &GeminiTokenProvider{}, httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 204, Platform: PlatformGemini, Type: AccountTypeOAuth, Credentials: map[string]any{
+		"access_token": "test-token", "project_id": "project-1",
+	}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-client:generateContent", bytes.NewReader(body))
+
+	result, err := svc.ForwardNative(context.Background(), c, account, "gemini-client", "generateContent", false, body)
+
+	require.NoError(t, err)
+	require.Equal(t, 5, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
+	require.Contains(t, upstream.lastReq.URL.String(), "/v1internal:streamGenerateContent?alt=sse")
+	sent := readRequestBodyForTest(t, upstream.lastReq)
+	require.JSONEq(t, string(body), gjson.GetBytes(sent, "request").Raw)
+	require.JSONEq(t, inner, recorder.Body.String())
+	require.NotContains(t, recorder.Body.String(), `"response":`)
+}
+
+func TestCollectGeminiSSEWithRaw_BoundedStructuredAggregation(t *testing.T) {
+	upstreamBody := strings.Join([]string{
+		": keepalive",
+		"",
+		"event: message",
+		`data: {"response":{"responseId":"aggregate-1",`,
+		`data: "candidates":[{"content":{"parts":[{"text":"hel"}]}}]}}`,
+		"",
+		`data: {"response":{"responseId":"aggregate-1","candidates":[{"content":{"parts":[{"text":"lo"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":6,"candidatesTokenCount":2},"vendorExtension":{"kept":true}}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	body := &nativeGeminiTrackingReadCloser{Reader: strings.NewReader(upstreamBody)}
+	svc := &GeminiMessagesCompatService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 1024}}}
+
+	collected, usage, raw, err := svc.collectGeminiSSEWithRaw(body, true)
+
+	require.NoError(t, err)
+	require.Equal(t, int32(1), body.closeCount.Load())
+	require.Equal(t, upstreamBody, string(raw))
+	require.Equal(t, 6, usage.InputTokens)
+	require.Equal(t, 2, usage.OutputTokens)
+	encoded, err := json.Marshal(collected)
+	require.NoError(t, err)
+	require.Equal(t, "hello", gjson.GetBytes(encoded, "candidates.0.content.parts.0.text").String())
+	require.True(t, gjson.GetBytes(encoded, "vendorExtension.kept").Bool())
+}
+
+func TestCollectGeminiSSEWithRaw_EOFWithoutDoneRemainsCompatible(t *testing.T) {
+	upstreamBody := `data: {"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1}}` + "\n\n"
+	body := &nativeGeminiTrackingReadCloser{Reader: strings.NewReader(upstreamBody)}
+	svc := &GeminiMessagesCompatService{cfg: &config.Config{}}
+
+	collected, usage, raw, err := svc.collectGeminiSSEWithRaw(body, false)
+
+	require.NoError(t, err)
+	require.Equal(t, int32(1), body.closeCount.Load())
+	require.Equal(t, upstreamBody, string(raw))
+	require.Equal(t, 2, usage.InputTokens)
+	require.Equal(t, 1, usage.OutputTokens)
+	require.Equal(t, "ok", collected["candidates"].([]any)[0].(map[string]any)["content"].(map[string]any)["parts"].([]any)[0].(map[string]any)["text"])
+}
+
+func TestCollectGeminiSSEWithRaw_RejectsMalformedAndOversizedInput(t *testing.T) {
+	t.Run("malformed JSON", func(t *testing.T) {
+		body := &nativeGeminiTrackingReadCloser{Reader: strings.NewReader("data: {not-json}\n\n")}
+		svc := &GeminiMessagesCompatService{cfg: &config.Config{}}
+
+		_, _, raw, err := svc.collectGeminiSSEWithRaw(body, false)
+
+		require.ErrorContains(t, err, "malformed SSE JSON")
+		require.Equal(t, "data: {not-json}\n\n", string(raw))
+		require.Equal(t, int32(1), body.closeCount.Load())
+	})
+
+	t.Run("record limit", func(t *testing.T) {
+		body := &nativeGeminiTrackingReadCloser{Reader: strings.NewReader(`data: {"value":"` + strings.Repeat("x", 128) + `"}` + "\n\n")}
+		svc := &GeminiMessagesCompatService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 64}}}
+
+		_, _, _, err := svc.collectGeminiSSEWithRaw(body, false)
+
+		var tooLarge *protocoltransport.SSERecordTooLargeError
+		require.ErrorAs(t, err, &tooLarge)
+		require.Equal(t, 64, tooLarge.MaxBytes)
+		require.Equal(t, int32(1), body.closeCount.Load())
+	})
+
+	t.Run("aggregate limit", func(t *testing.T) {
+		body := &nativeGeminiTrackingReadCloser{Reader: strings.NewReader(`data: {"value":"` + strings.Repeat("x", 128) + `"}` + "\n\n")}
+		svc := &GeminiMessagesCompatService{cfg: &config.Config{Gateway: config.GatewayConfig{
+			MaxLineSize: 1024, UpstreamResponseReadMaxBytes: 64,
+		}}}
+
+		_, _, _, err := svc.collectGeminiSSEWithRaw(body, false)
+
+		require.ErrorIs(t, err, ErrUpstreamResponseBodyTooLarge)
+		require.Equal(t, int32(1), body.closeCount.Load())
+	})
+}
+
+func TestGeminiHandleNativeStreamingResponse_RequiresCompletedRequestPipeline(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-client:streamGenerateContent?alt=sse", nil)
+	pipeline, err := newGoogleIdentityPipeline(&Account{ID: 204, Platform: PlatformGemini}, "gemini-client", "gemini-upstream")
+	require.NoError(t, err)
+	body := &nativeGeminiTrackingReadCloser{Reader: strings.NewReader(`data: {"candidates":[]}` + "\n\n")}
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: body}
+	svc := &GeminiMessagesCompatService{cfg: &config.Config{}}
+
+	result, err := svc.handleNativeStreamingResponse(c, resp, pipeline, time.Now(), false)
+
+	require.Nil(t, result)
+	require.ErrorContains(t, err, "request conversion has not completed")
+	require.False(t, c.Writer.Written())
+	require.Equal(t, int32(1), body.closeCount.Load())
+}
+
+func TestGeminiMessagesCompatServiceForwardNative_StreamUsesStructuredIdentityPipeline(t *testing.T) {
+	upstreamBody := strings.Join([]string{
+		": keepalive",
+		"",
+		"event: message",
+		"id: event-1",
+		`data: {"responseId":"native-stream",`,
+		`data: "candidates":[{"content":{"role":"model","parts":[{"text":"hello"}]},"finishReason":"STOP"}],`,
+		`data: "usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":3},`,
+		`data: "vendorExtension":{"kept":true}}`,
+		"",
+	}, "\n")
+	upstreamBodyReader := &nativeGeminiTrackingReadCloser{Reader: strings.NewReader(upstreamBody)}
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":             []string{"text/event-stream; charset=utf-8"},
+			"X-Request-Id":             []string{"rid-native-stream"},
+			"X-RateLimit-Limit-Tokens": []string{"80"},
+			"X-Internal-Upstream":      []string{"drop-me"},
+		},
+		Body: upstreamBodyReader,
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 205, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"api_key": "test-key", "model_mapping": map[string]any{"gemini-client": "gemini-upstream"},
+	}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-client:streamGenerateContent?alt=sse", bytes.NewReader(body))
+
+	result, err := svc.ForwardNative(context.Background(), c, account, "gemini-client", "streamGenerateContent", true, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+	require.False(t, result.ClientDisconnect)
+	require.NotNil(t, result.FirstTokenMs)
+	require.Equal(t, 7, result.Usage.InputTokens)
+	require.Equal(t, 3, result.Usage.OutputTokens)
+	require.Equal(t, int32(1), upstreamBodyReader.closeCount.Load())
+	require.Contains(t, upstream.lastReq.URL.String(), "/models/gemini-upstream:streamGenerateContent?alt=sse")
+	require.Equal(t, "text/event-stream", recorder.Header().Get("Content-Type"))
+	require.Equal(t, "rid-native-stream", recorder.Header().Get("X-Request-Id"))
+	require.Equal(t, "80", recorder.Header().Get("X-RateLimit-Limit-Tokens"))
+	require.Empty(t, recorder.Header().Get("X-Internal-Upstream"))
+	require.NotContains(t, recorder.Body.String(), ": keepalive")
+	require.NotContains(t, recorder.Body.String(), "event: message")
+	require.NotContains(t, recorder.Body.String(), "data: [DONE]")
+
+	parser := protocoltransport.NewSSEParser(io.NopCloser(bytes.NewReader(recorder.Body.Bytes())), 0)
+	defer parser.Close()
+	record, err := parser.Next(context.Background())
+	require.NoError(t, err)
+	require.JSONEq(t, `{"responseId":"native-stream","candidates":[{"content":{"role":"model","parts":[{"text":"hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":3},"vendorExtension":{"kept":true}}`, string(record.Data))
+	_, err = parser.Next(context.Background())
+	require.ErrorIs(t, err, io.EOF)
+}
+
+func TestGeminiMessagesCompatServiceForwardNative_OAuthStreamUnwrapsEnvelope(t *testing.T) {
+	inner := `{"responseId":"native-oauth-stream","candidates":[{"content":{"role":"model","parts":[{"text":"wrapped"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":2},"vendorExtension":{"kept":true}}`
+	upstreamBody := "data: {\"response\":" + inner + ",\"trace\":\"vendor-only\"}\n\ndata: [DONE]\n\n"
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid-oauth-stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &GeminiMessagesCompatService{tokenProvider: &GeminiTokenProvider{}, httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 206, Platform: PlatformGemini, Type: AccountTypeOAuth, Credentials: map[string]any{
+		"access_token": "test-token", "project_id": "project-1",
+	}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-client:streamGenerateContent?alt=sse", bytes.NewReader(body))
+
+	result, err := svc.ForwardNative(context.Background(), c, account, "gemini-client", "streamGenerateContent", true, body)
+
+	require.NoError(t, err)
+	require.Equal(t, 5, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
+	require.Contains(t, upstream.lastReq.URL.String(), "/v1internal:streamGenerateContent?alt=sse")
+	parser := protocoltransport.NewSSEParser(io.NopCloser(bytes.NewReader(recorder.Body.Bytes())), 0)
+	defer parser.Close()
+	record, err := parser.Next(context.Background())
+	require.NoError(t, err)
+	require.JSONEq(t, inner, string(record.Data))
+	require.NotContains(t, recorder.Body.String(), `"response":`)
+	require.NotContains(t, recorder.Body.String(), "vendor-only")
+	_, err = parser.Next(context.Background())
+	require.ErrorIs(t, err, io.EOF)
+}
+
+func TestGeminiMessagesCompatServiceForwardNative_OAuthAIStudioStreamDoesNotUnwrapDirectPayload(t *testing.T) {
+	payload := `{"responseId":"oauth-ai-studio","response":{"vendorField":"ordinary-google-field"},"candidates":[{"content":{"parts":[{"text":"direct"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1}}`
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader("data: " + payload + "\n\n")),
+	}}
+	svc := &GeminiMessagesCompatService{tokenProvider: &GeminiTokenProvider{}, httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 211, Platform: PlatformGemini, Type: AccountTypeOAuth, Credentials: map[string]any{"access_token": "test-token"}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-client:streamGenerateContent?alt=sse", bytes.NewReader(body))
+
+	result, err := svc.ForwardNative(context.Background(), c, account, "gemini-client", "streamGenerateContent", true, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Contains(t, upstream.lastReq.URL.String(), "/v1beta/models/gemini-client:streamGenerateContent?alt=sse")
+	parser := protocoltransport.NewSSEParser(io.NopCloser(bytes.NewReader(recorder.Body.Bytes())), 0)
+	defer parser.Close()
+	record, err := parser.Next(context.Background())
+	require.NoError(t, err)
+	require.JSONEq(t, payload, string(record.Data))
+}
+
+func TestGeminiMessagesCompatServiceForwardNative_StreamEOFWithoutDoneRemainsCompatible(t *testing.T) {
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(
+			`data: {"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1}}` + "\n\n",
+		)),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 207, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-key"}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-client:streamGenerateContent?alt=sse", bytes.NewReader(body))
+
+	result, err := svc.ForwardNative(context.Background(), c, account, "gemini-client", "streamGenerateContent", true, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 2, result.Usage.InputTokens)
+	require.Equal(t, 1, result.Usage.OutputTokens)
+	require.Contains(t, recorder.Body.String(), `"text":"ok"`)
+	require.NotContains(t, recorder.Body.String(), "[DONE]")
+}
+
+func TestGeminiMessagesCompatServiceForwardNative_MalformedFirstStreamRecordFailsOverBeforeCommit(t *testing.T) {
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid-malformed-stream"}},
+		Body:       io.NopCloser(strings.NewReader("data: {not-json}\n\n")),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 208, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-key"}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-client:streamGenerateContent?alt=sse", bytes.NewReader(body))
+
+	result, err := svc.ForwardNative(context.Background(), c, account, "gemini-client", "streamGenerateContent", true, body)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.True(t, errors.As(err, &failoverErr))
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.Equal(t, "rid-malformed-stream", failoverErr.ResponseHeaders.Get("X-Request-Id"))
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, recorder.Body.String())
+}
+
+func TestGeminiMessagesCompatServiceForwardNative_MalformedStreamRecordAfterOutputDoesNotFailOver(t *testing.T) {
+	upstreamBody := strings.Join([]string{
+		`data: {"responseId":"native-partial","candidates":[{"content":{"parts":[{"text":"hello"}]}}],"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":1}}`,
+		"",
+		"data: {not-json}",
+		"",
+	}, "\n")
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 212, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-key"}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-client:streamGenerateContent?alt=sse", bytes.NewReader(body))
+
+	result, err := svc.ForwardNative(context.Background(), c, account, "gemini-client", "streamGenerateContent", true, body)
+
+	require.Nil(t, result)
+	require.ErrorContains(t, err, "read native Google stream")
+	var failoverErr *UpstreamFailoverError
+	require.False(t, errors.As(err, &failoverErr))
+	require.True(t, c.Writer.Written())
+	require.Contains(t, recorder.Body.String(), `"text":"hello"`)
+}
+
+func TestGeminiMessagesCompatServiceForwardNative_OversizedFirstStreamRecordFailsOverBeforeCommit(t *testing.T) {
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(`data: {"value":"` + strings.Repeat("x", 128) + `"}` + "\n\n")),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 64}}}
+	account := &Account{ID: 209, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-key"}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-client:streamGenerateContent?alt=sse", bytes.NewReader(body))
+
+	result, err := svc.ForwardNative(context.Background(), c, account, "gemini-client", "streamGenerateContent", true, body)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.True(t, errors.As(err, &failoverErr))
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.False(t, c.Writer.Written())
+}
+
+func TestGeminiMessagesCompatServiceForwardNative_ClientDisconnectDrainsTerminalUsage(t *testing.T) {
+	upstreamBody := strings.Join([]string{
+		`data: {"responseId":"native-disconnect","candidates":[{"content":{"parts":[{"text":"hello"}]}}]}`,
+		"",
+		`data: {"responseId":"native-disconnect","candidates":[{"content":{"parts":[]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":4}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 210, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-key"}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Writer = &failWriteResponseWriter{ResponseWriter: c.Writer}
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-client:streamGenerateContent?alt=sse", bytes.NewReader(body))
+
+	result, err := svc.ForwardNative(context.Background(), c, account, "gemini-client", "streamGenerateContent", true, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.ClientDisconnect)
+	require.Equal(t, 9, result.Usage.InputTokens)
+	require.Equal(t, 4, result.Usage.OutputTokens)
 }
 
 func TestGeminiMessagesCompatServiceForward_PreservesRequestedModelAndMappedUpstreamModel(t *testing.T) {
@@ -237,6 +862,68 @@ func TestGeminiMessagesCompatServiceForward_PreservesRequestedModelAndMappedUpst
 	require.Equal(t, 1, httpStub.calls)
 	require.NotNil(t, httpStub.lastReq)
 	require.Contains(t, httpStub.lastReq.URL.String(), "/models/claude-sonnet-4-20250514:")
+	require.Equal(t, "claude-sonnet-4", gjson.GetBytes(w.Body.Bytes(), "model").String())
+	require.Equal(t, "message", gjson.GetBytes(w.Body.Bytes(), "type").String())
+}
+
+func TestGeminiMessagesCompatServiceForward_StreamUsesPipelineAndAnthropicRenderer(t *testing.T) {
+	upstreamBody := `data: {"responseId":"google-msg","modelVersion":"gemini-upstream","candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","args":{"q":"x"}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1,"totalTokenCount":4}}` + "\n\n" +
+		"data: [DONE]\n\n"
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 2, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"api_key": "test-key", "model_mapping": map[string]any{"claude-client": "gemini-upstream"},
+	}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"claude-client","stream":true,"max_tokens":16,"messages":[{"role":"user","content":"lookup"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "gemini-upstream", result.UpstreamModel)
+	out := rec.Body.String()
+	require.Contains(t, out, `event: message_start`)
+	require.Contains(t, out, `"model":"claude-client"`)
+	require.Contains(t, out, `"id":"call_google_0_0"`)
+	require.Contains(t, out, `"stop_reason":"tool_use"`)
+	require.Contains(t, out, `event: message_stop`)
+	require.NotContains(t, out, "data: [DONE]")
+}
+
+func TestGeminiMessagesCompatServiceForward_ClientDisconnectDrainsTerminalUsage(t *testing.T) {
+	upstreamBody := strings.Join([]string{
+		`data: {"responseId":"google-msg","candidates":[{"content":{"parts":[{"text":"hello"}]}}]}`,
+		"",
+		`data: {"responseId":"google-msg","candidates":[{"content":{"parts":[]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":2,"totalTokenCount":10}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Writer = &failWriteResponseWriter{ResponseWriter: c.Writer}
+	body := []byte(`{"model":"claude-client","stream":true,"max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	result, err := svc.Forward(context.Background(), c, &Account{
+		ID: 3, Platform: PlatformGemini, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "test-key", "model_mapping": map[string]any{"claude-client": "gemini-upstream"}},
+	}, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.ClientDisconnect)
+	require.Equal(t, 8, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
 }
 
 func TestGeminiMessagesCompatServiceForward_NormalizesWebSearchToolForAIStudio(t *testing.T) {
@@ -705,7 +1392,9 @@ func TestGeminiMessagesHandleStreamingResponse_ClosesToolBlockBeforeText(t *test
 	c, _ := gin.CreateTestContext(rec)
 
 	svc := &GeminiMessagesCompatService{}
-	result, err := svc.handleStreamingResponse(c, resp, time.Now(), "claude-3-5-sonnet")
+	pipeline, _, err := newClaudeMessagesGooglePipeline(nil, []byte(`{"model":"claude-3-5-sonnet","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`), "claude-3-5-sonnet", "gemini-test")
+	require.NoError(t, err)
+	result, err := svc.handleStreamingResponse(c, resp, pipeline, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
