@@ -217,14 +217,14 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	}()
 
 	if resp.StatusCode >= 400 {
-		// Passthrough keeps ordinary errors intact. Capacity errors and explicit
-		// account-model capability errors must fail over before committing a
-		// client response; readOpenAIUpstreamError rewinds the body for handlers.
-		respBody, _ := s.readOpenAIUpstreamError(resp)
-		if shouldFailoverOpenAIPassthroughResponse(resp.StatusCode, respBody) {
-			return nil, s.handleFailoverErrorResponsePassthrough(ctx, resp, c, account, body)
+		upstream, _, collectErr := s.collectOpenAIStructuredUpstreamError(resp, protocolconv.ProtocolOpenAIResponses, reqStream)
+		if collectErr != nil {
+			return nil, collectErr
 		}
-		return nil, s.handleErrorResponsePassthrough(ctx, resp, c, account, body)
+		if shouldFailoverOpenAIPassthroughResponse(upstream.StatusCode, upstream.Body) {
+			return nil, s.handleFailoverErrorResponsePassthrough(ctx, upstream, c, account, body)
+		}
+		return nil, s.handleErrorResponsePassthrough(ctx, upstream, c, account, body)
 	}
 
 	serviceTier := extractOpenAIServiceTierFromBody(body)
@@ -467,12 +467,12 @@ func shouldFailoverOpenAIPassthroughResponse(statusCode int, responseBody []byte
 
 func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 	ctx context.Context,
-	resp *http.Response,
+	upstream protocoltransport.Response,
 	c *gin.Context,
 	account *Account,
 	requestBody []byte,
 ) error {
-	body := s.readUpstreamErrorBody(resp)
+	body := upstream.Body
 
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(body))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -484,16 +484,16 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 		}
 		upstreamDetail = truncateString(string(body), maxBytes)
 	}
-	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
-	logOpenAIInstructionsRequiredDebug(ctx, c, account, resp.StatusCode, upstreamMsg, requestBody, body)
+	setOpsUpstreamError(c, upstream.StatusCode, upstreamMsg, upstreamDetail)
+	logOpenAIInstructionsRequiredDebug(ctx, c, account, upstream.StatusCode, upstreamMsg, requestBody, body)
 	reqModel, _, _ := extractOpenAIRequestMetaFromBody(requestBody)
-	_ = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, reqModel)
+	_ = s.handleOpenAIAccountUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, body, reqModel)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		Platform:             account.Platform,
 		AccountID:            account.ID,
 		AccountName:          account.Name,
-		UpstreamStatusCode:   resp.StatusCode,
-		UpstreamRequestID:    resp.Header.Get("x-request-id"),
+		UpstreamStatusCode:   upstream.StatusCode,
+		UpstreamRequestID:    upstream.RequestID,
 		Passthrough:          true,
 		Kind:                 "failover",
 		Message:              upstreamMsg,
@@ -501,21 +501,21 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 		UpstreamResponseBody: upstreamDetail,
 	})
 	return &UpstreamFailoverError{
-		StatusCode:      resp.StatusCode,
+		StatusCode:      upstream.StatusCode,
 		ResponseBody:    body,
-		ResponseHeaders: resp.Header.Clone(),
+		ResponseHeaders: protocoltransport.CloneHeaders(upstream.Headers),
 	}
 }
 
 func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 	ctx context.Context,
-	resp *http.Response,
+	upstream protocoltransport.Response,
 	c *gin.Context,
 	account *Account,
 	requestBody []byte,
 ) error {
 	MarkResponseCommitted(c)
-	body := s.readUpstreamErrorBody(resp)
+	body := upstream.Body
 
 	// cyber_policy：透传账号本就把原始 body 回给客户端（下方 c.Data），此处仅打标记，
 	// 供 handler 事后写风控/邮件。cyber 是上游网络安全策略拦截，不冷却账号，
@@ -526,7 +526,7 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 			Code:           cyberCode,
 			Message:        cyberMsg,
 			Body:           truncateString(string(body), 4096),
-			UpstreamStatus: resp.StatusCode,
+			UpstreamStatus: upstream.StatusCode,
 		})
 	}
 
@@ -540,20 +540,18 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 		}
 		upstreamDetail = truncateString(string(body), maxBytes)
 	}
-	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
-	logOpenAIInstructionsRequiredDebug(ctx, c, account, resp.StatusCode, upstreamMsg, requestBody, body)
-	// 透传模式保留原始上游错误响应，但运行态账号状态仍需更新，
-	// 避免粘性路由继续复用刚被限流的账号。cyber 例外：不冷却账号。
+	setOpsUpstreamError(c, upstream.StatusCode, upstreamMsg, upstreamDetail)
+	logOpenAIInstructionsRequiredDebug(ctx, c, account, upstream.StatusCode, upstreamMsg, requestBody, body)
 	if !cyberHit {
 		reqModel, _, _ := extractOpenAIRequestMetaFromBody(requestBody)
-		_ = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, reqModel)
+		_ = s.handleOpenAIAccountUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, body, reqModel)
 	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		Platform:             account.Platform,
 		AccountID:            account.ID,
 		AccountName:          account.Name,
-		UpstreamStatusCode:   resp.StatusCode,
-		UpstreamRequestID:    resp.Header.Get("x-request-id"),
+		UpstreamStatusCode:   upstream.StatusCode,
+		UpstreamRequestID:    upstream.RequestID,
 		Passthrough:          true,
 		Kind:                 "http_error",
 		Message:              upstreamMsg,
@@ -561,17 +559,17 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 		UpstreamResponseBody: upstreamDetail,
 	})
 
-	writeOpenAIPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-	contentType := resp.Header.Get("Content-Type")
+	writeOpenAIPassthroughResponseHeaders(c.Writer.Header(), upstream.Headers, s.responseHeaderFilter)
+	contentType := upstream.Headers.Get("Content-Type")
 	if contentType == "" {
 		contentType = "application/json"
 	}
-	c.Data(resp.StatusCode, contentType, body)
+	c.Data(upstream.StatusCode, contentType, body)
 
 	if upstreamMsg == "" {
-		return fmt.Errorf("upstream error: %d", resp.StatusCode)
+		return fmt.Errorf("upstream error: %d", upstream.StatusCode)
 	}
-	return fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
+	return fmt.Errorf("upstream error: %d message=%s", upstream.StatusCode, upstreamMsg)
 }
 
 func isOpenAIPassthroughAllowedRequestHeader(lowerKey string, allowTimeoutHeaders bool) bool {

@@ -119,11 +119,14 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletionsWithOutput(
 	}
 	if resp.StatusCode >= 400 {
 		defer func() { _ = resp.Body.Close() }()
-		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
-		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
+		upstream, upstreamMsg, collectErr := s.collectOpenAIStructuredUpstreamError(resp, protocolconv.ProtocolOpenAIChat, clientStream)
+		if collectErr != nil {
+			return nil, collectErr
+		}
+		if foErr := s.failoverOpenAIStructuredUpstreamError(ctx, c, account, upstream, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
-		return s.handleErrorResponse(ctx, resp, c, account, chatBody, billingModel)
+		return s.handleStructuredErrorResponse(ctx, upstream, c, account, chatBody, billingModel)
 	}
 
 	if clientStream {

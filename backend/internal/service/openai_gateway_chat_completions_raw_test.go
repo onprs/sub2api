@@ -31,7 +31,7 @@ func (b *openAICompatCloseTrackingBody) Close() error {
 	return nil
 }
 
-func TestCollectOpenAICompatUpstreamErrorPreservesProtocolAndOwnership(t *testing.T) {
+func TestCollectOpenAIStructuredUpstreamErrorPreservesProtocolAndOwnership(t *testing.T) {
 	tests := []struct {
 		name             string
 		actualProtocol   protocolconv.Protocol
@@ -51,7 +51,7 @@ func TestCollectOpenAICompatUpstreamErrorPreservesProtocolAndOwnership(t *testin
 			}
 			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig()}
 
-			upstream, message, err := svc.collectOpenAICompatUpstreamError(resp, test.actualProtocol, test.streamRequested)
+			upstream, message, err := svc.collectOpenAIStructuredUpstreamError(resp, test.actualProtocol, test.streamRequested)
 			require.NoError(t, err)
 			require.Equal(t, test.actualProtocol, upstream.ActualProtocol)
 			require.Equal(t, "req-compat-error", upstream.RequestID)

@@ -337,7 +337,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 
 	// 8. Handle error response with failover
 	if resp.StatusCode >= 400 {
-		upstream, upstreamMsg, collectErr := s.collectOpenAICompatUpstreamError(resp, protocolconv.ProtocolOpenAIResponses, isStream)
+		upstream, upstreamMsg, collectErr := s.collectOpenAIStructuredUpstreamError(resp, protocolconv.ProtocolOpenAIResponses, isStream)
 		if collectErr != nil {
 			return nil, collectErr
 		}
@@ -359,7 +359,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			)
 			return s.ForwardAsAnthropic(ctx, c, account, body, promptCacheKey, defaultMappedModel)
 		}
-		if foErr := s.failoverOpenAICompatUpstreamError(ctx, c, account, upstream, upstreamMsg, upstreamModel); foErr != nil {
+		if foErr := s.failoverOpenAIStructuredUpstreamError(ctx, c, account, upstream, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
 		return s.handleAnthropicErrorResponse(upstream, c, account, upstreamModel)

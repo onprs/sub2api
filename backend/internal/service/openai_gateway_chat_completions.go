@@ -289,7 +289,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 
 	// 8. Handle error response with failover
 	if resp.StatusCode >= 400 {
-		upstream, upstreamMsg, collectErr := s.collectOpenAICompatUpstreamError(resp, protocolconv.ProtocolOpenAIResponses, true)
+		upstream, upstreamMsg, collectErr := s.collectOpenAIStructuredUpstreamError(resp, protocolconv.ProtocolOpenAIResponses, true)
 		if collectErr != nil {
 			return nil, collectErr
 		}
@@ -303,7 +303,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 			)
 			return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 		}
-		if foErr := s.failoverOpenAICompatUpstreamError(ctx, c, account, upstream, upstreamMsg, upstreamModel); foErr != nil {
+		if foErr := s.failoverOpenAIStructuredUpstreamError(ctx, c, account, upstream, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
 		return s.handleChatCompletionsErrorResponse(upstream, c, account, upstreamModel)

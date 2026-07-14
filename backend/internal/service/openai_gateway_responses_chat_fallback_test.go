@@ -321,6 +321,34 @@ func TestForwardResponses_ForceChatCompletionsRoutesStreamingToChatCompletions(t
 	require.NotNil(t, result.FirstTokenMs)
 }
 
+func TestForwardResponses_ChatFallbackImmediateStream400BeforeSSECommit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","input":"hello","stream":true}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstreamBody := &openAICompatCloseTrackingBody{Reader: strings.NewReader(`{"error":{"message":"invalid input","type":"invalid_request_error"}}`)}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_resp_chat_400"}},
+		Body:       upstreamBody,
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.Equal(t, "upstream_error", gjson.Get(rec.Body.String(), "error.type").String())
+	require.Equal(t, "Upstream request failed", gjson.Get(rec.Body.String(), "error.message").String())
+	require.NotContains(t, rec.Body.String(), "event:")
+	require.NotContains(t, rec.Body.String(), "data:")
+	require.Equal(t, 1, upstreamBody.closeCount)
+}
+
 func TestForwardResponses_ChatFallbackMalformedStreamDoesNotFinalize(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

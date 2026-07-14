@@ -830,6 +830,16 @@ func TestOpenAIGatewayService_OAuthPassthrough_ResponseHeadersAllowXCodex(t *tes
 	require.Equal(t, "34", rec.Header().Get("x-codex-secondary-used-percent"))
 }
 
+type openAIPassthroughCloseTrackingBody struct {
+	io.Reader
+	closeCount int
+}
+
+func (b *openAIPassthroughCloseTrackingBody) Close() error {
+	b.closeCount++
+	return nil
+}
+
 func TestOpenAIGatewayService_OAuthPassthrough_UpstreamErrorIncludesPassthroughFlag(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -838,12 +848,13 @@ func TestOpenAIGatewayService_OAuthPassthrough_UpstreamErrorIncludesPassthroughF
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
 	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.1.0")
 
-	originalBody := []byte(`{"model":"gpt-5.2","stream":false,"input":[{"type":"text","text":"hi"}]}`)
+	originalBody := []byte(`{"model":"gpt-5.2","stream":true,"input":[{"type":"text","text":"hi"}]}`)
+	responseBody := &openAIPassthroughCloseTrackingBody{Reader: strings.NewReader(`{"error":{"message":"bad"}}`)}
 
 	resp := &http.Response{
 		StatusCode: http.StatusBadRequest,
 		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid"}},
-		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"bad"}}`)),
+		Body:       responseBody,
 	}
 	upstream := &httpUpstreamRecorder{resp: resp}
 
@@ -869,6 +880,10 @@ func TestOpenAIGatewayService_OAuthPassthrough_UpstreamErrorIncludesPassthroughF
 	require.Error(t, err)
 	require.True(t, c.Writer.Written(), "非 429/529 的 passthrough 错误应继续原样写回客户端")
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.JSONEq(t, `{"error":{"message":"bad"}}`, rec.Body.String())
+	require.NotContains(t, rec.Body.String(), "event:")
+	require.NotContains(t, rec.Body.String(), "data:")
+	require.Equal(t, 1, responseBody.closeCount)
 
 	// should append an upstream error event with passthrough=true
 	v, ok := c.Get(OpsUpstreamErrorsKey)
