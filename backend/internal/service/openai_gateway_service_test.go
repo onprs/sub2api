@@ -17,6 +17,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/model"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -3241,10 +3242,11 @@ func TestHandleCompatErrorResponseCyberPolicyEarlyReturn(t *testing.T) {
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
 	cyberBody := `{"error":{"code":"cyber_policy","message":"flagged for cyber policy"}}`
-	resp := &http.Response{
-		StatusCode: http.StatusBadRequest,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(cyberBody)),
+	upstream := protocoltransport.Response{
+		StatusCode:     http.StatusBadRequest,
+		Headers:        http.Header{"Content-Type": []string{"application/json"}},
+		Body:           []byte(cyberBody),
+		ActualProtocol: protocolconv.ProtocolOpenAIResponses,
 	}
 	var gotStatus int
 	var gotType, gotMsg string
@@ -3252,7 +3254,7 @@ func TestHandleCompatErrorResponseCyberPolicyEarlyReturn(t *testing.T) {
 		gotStatus, gotType, gotMsg = statusCode, errType, message
 	}
 	// cyber 命中应早返回(写兼容错误 + 不冷却账号)，而非落到通用 "Upstream request failed"。
-	_, err := svc.handleCompatErrorResponse(resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "a"}, writeError)
+	_, err := svc.handleCompatErrorResponse(upstream, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "a"}, writeError)
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadRequest, gotStatus)
 	require.Equal(t, "invalid_request_error", gotType)

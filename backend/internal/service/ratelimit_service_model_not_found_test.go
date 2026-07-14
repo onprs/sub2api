@@ -5,13 +5,13 @@ package service
 import (
 	"context"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -107,13 +107,15 @@ func TestOpenAICompatErrorResponse_ChatGPTCodexUnsupportedTriggersFailover(t *te
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	resp := &http.Response{
-		StatusCode: http.StatusBadRequest,
-		Header:     http.Header{"x-request-id": []string{"rid-codex-model"}},
-		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"Model \"gpt-5.6-sol\" is not supported when using Codex with a ChatGPT account."}}`)),
+	upstream := protocoltransport.Response{
+		StatusCode:     http.StatusBadRequest,
+		Headers:        http.Header{"x-request-id": []string{"rid-codex-model"}},
+		Body:           []byte(`{"error":{"message":"Model \"gpt-5.6-sol\" is not supported when using Codex with a ChatGPT account."}}`),
+		ActualProtocol: protocolconv.ProtocolOpenAIChat,
+		RequestID:      "rid-codex-model",
 	}
 
-	_, err := svc.handleChatCompletionsErrorResponse(resp, c, account, "gpt-5.6-sol")
+	_, err := svc.handleChatCompletionsErrorResponse(upstream, c, account, "gpt-5.6-sol")
 
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)

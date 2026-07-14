@@ -289,21 +289,24 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 
 	// 8. Handle error response with failover
 	if resp.StatusCode >= 400 {
-		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
+		upstream, upstreamMsg, collectErr := s.collectOpenAICompatUpstreamError(resp, protocolconv.ProtocolOpenAIResponses, true)
+		if collectErr != nil {
+			return nil, collectErr
+		}
 		if account.Type == AccountTypeAPIKey &&
 			openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportUnknown &&
-			!isResponsesEndpointSupportedByStatus(resp.StatusCode) {
+			!isResponsesEndpointSupportedByStatus(upstream.StatusCode) {
 			logger.L().Info("openai chat_completions: /responses unsupported, falling back to raw chat completions",
 				zap.Int64("account_id", account.ID),
-				zap.Int("upstream_status", resp.StatusCode),
+				zap.Int("upstream_status", upstream.StatusCode),
 				zap.String("upstream_message", upstreamMsg),
 			)
 			return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 		}
-		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
+		if foErr := s.failoverOpenAICompatUpstreamError(ctx, c, account, upstream, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
-		return s.handleChatCompletionsErrorResponse(resp, c, account, upstreamModel)
+		return s.handleChatCompletionsErrorResponse(upstream, c, account, upstreamModel)
 	}
 
 	// 9. Handle normal response
@@ -389,15 +392,15 @@ func openAICompatFailedResponseMessage(resp *apicompat.ResponsesResponse) string
 	return strings.TrimSpace(resp.Error.Message)
 }
 
-// handleChatCompletionsErrorResponse reads an upstream error and returns it in
-// OpenAI Chat Completions error format.
+// handleChatCompletionsErrorResponse applies Chat source policy to a structured
+// upstream error.
 func (s *OpenAIGatewayService) handleChatCompletionsErrorResponse(
-	resp *http.Response,
+	upstream protocoltransport.Response,
 	c *gin.Context,
 	account *Account,
 	requestedModel ...string,
 ) (*OpenAIForwardResult, error) {
-	return s.handleCompatErrorResponse(resp, c, account, writeChatCompletionsError, requestedModel...)
+	return s.handleCompatErrorResponse(upstream, c, account, writeChatCompletionsError, requestedModel...)
 }
 
 // handleChatBufferedStreamingResponse reads all Responses SSE events from the

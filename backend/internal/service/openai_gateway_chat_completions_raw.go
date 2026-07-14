@@ -175,32 +175,36 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 
 	// 7. Handle error response with failover
 	if resp.StatusCode >= 400 {
-		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
+		upstream, upstreamMsg, collectErr := s.collectOpenAICompatUpstreamError(resp, protocolconv.ProtocolOpenAIChat, clientStream)
+		if collectErr != nil {
+			return nil, collectErr
+		}
 		if account.Platform == PlatformGrok {
-			s.updateGrokUsageSnapshot(ctx, account.ID, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
+			s.updateGrokUsageSnapshot(ctx, account.ID, xai.ParseQuotaHeaders(upstream.Headers, upstream.StatusCode))
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,
 				AccountName:        account.Name,
-				UpstreamStatusCode: resp.StatusCode,
-				UpstreamRequestID:  firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id")),
+				UpstreamStatusCode: upstream.StatusCode,
+				UpstreamRequestID:  firstNonEmpty(upstream.RequestID, upstream.Headers.Get("xai-request-id")),
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
-			s.handleGrokAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-			if s.shouldFailoverUpstreamError(resp.StatusCode) {
+			s.handleGrokAccountUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body)
+			if s.shouldFailoverUpstreamError(upstream.StatusCode) {
 				return nil, &UpstreamFailoverError{
-					StatusCode:             resp.StatusCode,
-					ResponseBody:           respBody,
-					RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+					StatusCode:             upstream.StatusCode,
+					ResponseBody:           upstream.Body,
+					ResponseHeaders:        protocoltransport.CloneHeaders(upstream.Headers),
+					RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstream.StatusCode),
 				}
 			}
-			return s.handleChatCompletionsErrorResponse(resp, c, account, billingModel)
+			return s.handleChatCompletionsErrorResponse(upstream, c, account, billingModel)
 		}
-		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
+		if foErr := s.failoverOpenAICompatUpstreamError(ctx, c, account, upstream, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
-		return s.handleChatCompletionsErrorResponse(resp, c, account, upstreamModel)
+		return s.handleChatCompletionsErrorResponse(upstream, c, account, upstreamModel)
 	}
 
 	if account.Platform == PlatformGrok {

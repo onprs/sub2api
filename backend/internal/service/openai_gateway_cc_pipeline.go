@@ -66,9 +66,98 @@ func (s *OpenAIGatewayService) readOpenAIUpstreamError(resp *http.Response) ([]b
 	return respBody, upstreamMsg
 }
 
-// failoverOpenAIUpstreamHTTPError 对 >=400 的上游响应做 failover 判定：命中时
-// 记录 ops 事件、执行账号级错误处置并返回 *UpstreamFailoverError；未命中返回
-// nil，调用方继续走各自端点格式的非 failover 错误处理链。
+// collectOpenAICompatUpstreamError captures a bounded Chat or Responses HTTP
+// error before source-protocol policy runs. Streaming requests transfer body
+// ownership through transport.Stream.ErrorBody; buffered requests retain the
+// caller's deferred close.
+func (s *OpenAIGatewayService) collectOpenAICompatUpstreamError(
+	resp *http.Response,
+	actualProtocol protocolconv.Protocol,
+	streamRequested bool,
+) (protocoltransport.Response, string, error) {
+	if resp == nil {
+		return protocoltransport.Response{}, "", fmt.Errorf("collect OpenAI compat upstream error: nil response")
+	}
+	headers := protocoltransport.CloneHeaders(resp.Header)
+	requestID := resp.Header.Get("x-request-id")
+	var body []byte
+	if streamRequested {
+		stream := &protocoltransport.Stream{
+			StatusCode:     resp.StatusCode,
+			Headers:        headers,
+			ActualProtocol: actualProtocol,
+			RequestID:      requestID,
+			ErrorBody:      resp.Body,
+		}
+		if err := stream.Validate(); err != nil {
+			return protocoltransport.Response{}, "", fmt.Errorf("validate OpenAI compat upstream error stream: %w", err)
+		}
+		resp.Body = http.NoBody
+		body = s.readUpstreamErrorReader(stream.ErrorBody)
+		_ = stream.Close()
+	} else {
+		body = s.readUpstreamErrorBody(resp)
+	}
+	upstream := protocoltransport.Response{
+		StatusCode:     resp.StatusCode,
+		Headers:        headers,
+		Body:           body,
+		ActualProtocol: actualProtocol,
+		RequestID:      requestID,
+	}
+	if err := upstream.Validate(); err != nil {
+		return protocoltransport.Response{}, "", fmt.Errorf("validate OpenAI compat upstream error response: %w", err)
+	}
+	if !upstream.IsError() {
+		return protocoltransport.Response{}, "", fmt.Errorf("collect OpenAI compat upstream error: status %d is not an error", upstream.StatusCode)
+	}
+	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(body))
+	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
+	return upstream, upstreamMsg, nil
+}
+
+// failoverOpenAICompatUpstreamError applies the existing account and retry
+// policy to a validated structured compat error without touching downstream.
+func (s *OpenAIGatewayService) failoverOpenAICompatUpstreamError(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	upstream protocoltransport.Response,
+	upstreamMsg string,
+	upstreamModel string,
+) *UpstreamFailoverError {
+	if !s.shouldFailoverOpenAIUpstreamResponse(upstream.StatusCode, upstreamMsg, upstream.Body) {
+		return nil
+	}
+	upstreamDetail := ""
+	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+		maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
+		if maxBytes <= 0 {
+			maxBytes = 2048
+		}
+		upstreamDetail = truncateString(string(upstream.Body), maxBytes)
+	}
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Platform:           account.Platform,
+		AccountID:          account.ID,
+		AccountName:        account.Name,
+		UpstreamStatusCode: upstream.StatusCode,
+		UpstreamRequestID:  upstream.RequestID,
+		Kind:               "failover",
+		Message:            upstreamMsg,
+		Detail:             upstreamDetail,
+	})
+	s.handleOpenAIAccountUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, upstreamModel)
+	return &UpstreamFailoverError{
+		StatusCode:             upstream.StatusCode,
+		ResponseBody:           upstream.Body,
+		ResponseHeaders:        protocoltransport.CloneHeaders(upstream.Headers),
+		RetryableOnSameAccount: account.IsPoolMode() && (account.IsPoolModeRetryableStatus(upstream.StatusCode) || isOpenAITransientProcessingError(upstream.StatusCode, upstreamMsg, upstream.Body)),
+	}
+}
+
+// failoverOpenAIUpstreamHTTPError retains the legacy http.Response boundary
+// for Responses-source paths that have not yet moved to structured errors.
 func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	ctx context.Context,
 	c *gin.Context,

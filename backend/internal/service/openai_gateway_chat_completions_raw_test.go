@@ -21,6 +21,80 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+type openAICompatCloseTrackingBody struct {
+	io.Reader
+	closeCount int
+}
+
+func (b *openAICompatCloseTrackingBody) Close() error {
+	b.closeCount++
+	return nil
+}
+
+func TestCollectOpenAICompatUpstreamErrorPreservesProtocolAndOwnership(t *testing.T) {
+	tests := []struct {
+		name             string
+		actualProtocol   protocolconv.Protocol
+		streamRequested  bool
+		wantCollectorEnd int
+	}{
+		{name: "buffered Chat", actualProtocol: protocolconv.ProtocolOpenAIChat},
+		{name: "streaming Responses", actualProtocol: protocolconv.ProtocolOpenAIResponses, streamRequested: true, wantCollectorEnd: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := &openAICompatCloseTrackingBody{Reader: strings.NewReader(`{"error":{"message":"bad input"}}`)}
+			resp := &http.Response{
+				StatusCode: http.StatusBadRequest,
+				Header:     http.Header{"X-Request-Id": []string{"req-compat-error"}},
+				Body:       body,
+			}
+			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig()}
+
+			upstream, message, err := svc.collectOpenAICompatUpstreamError(resp, test.actualProtocol, test.streamRequested)
+			require.NoError(t, err)
+			require.Equal(t, test.actualProtocol, upstream.ActualProtocol)
+			require.Equal(t, "req-compat-error", upstream.RequestID)
+			require.Equal(t, "bad input", message)
+			require.JSONEq(t, `{"error":{"message":"bad input"}}`, string(upstream.Body))
+			require.Equal(t, test.wantCollectorEnd, body.closeCount)
+			if test.streamRequested {
+				require.Equal(t, http.NoBody, resp.Body)
+			} else {
+				require.Same(t, body, resp.Body)
+				resp.Header.Set("X-Request-Id", "mutated")
+				require.Equal(t, "req-compat-error", upstream.Headers.Get("X-Request-Id"))
+			}
+		})
+	}
+}
+
+func TestForwardAsRawChatCompletionsImmediateStreamErrorBeforeSSECommit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	requestBody := []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	errorBody := `{"error":{"message":"max_tokens must be greater than zero"}}`
+	upstreamBody := &openAICompatCloseTrackingBody{Reader: strings.NewReader(errorBody)}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"req-raw-error"}},
+		Body:       upstreamBody,
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(requestBody))
+
+	_, err := svc.forwardAsRawChatCompletions(context.Background(), c, rawChatCompletionsTestAccount(), requestBody, "")
+	require.Error(t, err)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Header().Get("Content-Type"), "application/json")
+	require.NotContains(t, rec.Body.String(), "data:")
+	require.NotContains(t, rec.Body.String(), "event:")
+	require.Equal(t, "invalid_request_error", gjson.Get(rec.Body.String(), "error.type").String())
+	require.Equal(t, "max_tokens must be greater than zero", gjson.Get(rec.Body.String(), "error.message").String())
+	require.Equal(t, 1, upstreamBody.closeCount)
+}
+
 func TestBuildOpenAIChatCompletionsURL(t *testing.T) {
 	t.Parallel()
 
