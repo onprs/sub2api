@@ -94,6 +94,17 @@ func TestGatewayRoutesOpenCodeGoGoogleGenerationUsesOpenCodeGoHandler(t *testing
 	require.NotContains(t, w.Body.String(), "does not support Gemini generation")
 }
 
+func TestGatewayRoutesGoogleV1GenerationPathIsRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformAntigravity)
+	req := httptest.NewRequest(http.MethodPost, "/v1/models/gemini-3.1-pro-high:generateContent", strings.NewReader(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.Contains(t, w.Body.String(), `"status":"UNAUTHENTICATED"`)
+}
+
 func TestGatewayRoutesOpenCodeGoResponsesSubpathsRemainSpecialized(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformOpenCodeGo)
 	for _, path := range []string{"/v1/responses/compact", "/responses/compact", "/backend-api/codex/responses/compact"} {

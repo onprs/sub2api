@@ -186,7 +186,13 @@ func (h *GatewayHandler) forwardGeminiIngressToStandardProvider(
 		clientIP := ip.GetClientIP(c)
 		requestPayloadHash := service.HashUsageRequestPayload(body)
 		inboundEndpoint := GetInboundEndpoint(c)
-		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
+		actualProtocol := protocolconv.Protocol("")
+		if openAIResult != nil {
+			actualProtocol = openAIResult.ActualProtocol
+		} else {
+			actualProtocol = anthropicResult.ActualProtocol
+		}
+		upstreamEndpoint := GetUpstreamEndpointForActualProtocol(c, account.Platform, actualProtocol)
 		if openAIResult != nil {
 			h.openAIGatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, openAIResult.FirstTokenMs)
 			cyberBlocked := service.GetOpsCyberPolicy(c) != nil

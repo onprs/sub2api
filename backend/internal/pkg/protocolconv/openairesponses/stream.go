@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
@@ -11,13 +12,16 @@ import (
 )
 
 type streamDecoder struct {
-	started    bool
-	ended      bool
-	model      string
-	id         string
-	blocks     map[int]ir.ContentType
-	calls      map[int]struct{ id, name string }
-	signatures map[int]string
+	started       bool
+	ended         bool
+	model         string
+	id            string
+	blocks        map[int]ir.ContentType
+	calls         map[int]struct{ id, name string }
+	signatures    map[int]string
+	text          map[int]string
+	reasoning     map[int]string
+	toolArguments map[int]string
 }
 
 type streamEncoder struct {
@@ -41,9 +45,12 @@ type streamToolState struct {
 
 func newStreamDecoder() *streamDecoder {
 	return &streamDecoder{
-		blocks:     map[int]ir.ContentType{},
-		calls:      map[int]struct{ id, name string }{},
-		signatures: map[int]string{},
+		blocks:        map[int]ir.ContentType{},
+		calls:         map[int]struct{ id, name string }{},
+		signatures:    map[int]string{},
+		text:          map[int]string{},
+		reasoning:     map[int]string{},
+		toolArguments: map[int]string{},
 	}
 }
 func newStreamEncoder() *streamEncoder {
@@ -132,12 +139,28 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 	case "response.output_text.delta":
 		start(nil)
 		ensureBlock(event.OutputIndex, ir.ContentText)
+		d.text[event.OutputIndex] += event.Delta
 		out = append(out, ir.StreamEvent{Type: ir.EventTextDelta, BlockIndex: event.OutputIndex, ChoiceIndex: 0, Text: event.Delta})
+	case "response.output_text.done":
+		start(nil)
+		ensureBlock(event.OutputIndex, ir.ContentText)
+		if delta := finalStreamValueDelta(d.text[event.OutputIndex], event.Text); delta != "" {
+			d.text[event.OutputIndex] += delta
+			out = append(out, ir.StreamEvent{Type: ir.EventTextDelta, BlockIndex: event.OutputIndex, ChoiceIndex: 0, Text: delta})
+		}
 	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 		start(nil)
 		ensureBlock(event.OutputIndex, ir.ContentReasoning)
+		d.reasoning[event.OutputIndex] += event.Delta
 		out = append(out, ir.StreamEvent{Type: ir.EventReasoningDelta, BlockIndex: event.OutputIndex, ChoiceIndex: 0, Reasoning: event.Delta})
-	case "response.function_call_arguments.delta":
+	case "response.reasoning_summary_text.done", "response.reasoning_text.done":
+		start(nil)
+		ensureBlock(event.OutputIndex, ir.ContentReasoning)
+		if delta := finalStreamValueDelta(d.reasoning[event.OutputIndex], event.Text); delta != "" {
+			d.reasoning[event.OutputIndex] += delta
+			out = append(out, ir.StreamEvent{Type: ir.EventReasoningDelta, BlockIndex: event.OutputIndex, ChoiceIndex: 0, Reasoning: delta})
+		}
+	case "response.function_call_arguments.delta", "response.function_call_arguments.done":
 		start(nil)
 		if _, exists := d.blocks[event.OutputIndex]; !exists {
 			d.blocks[event.OutputIndex] = ir.ContentToolCall
@@ -152,14 +175,39 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 		if id == "" {
 			id = call.id
 		}
-		out = append(out, ir.StreamEvent{Type: ir.EventToolCallDelta, BlockIndex: event.OutputIndex, ToolCallIndex: event.OutputIndex, ToolCallID: id, ArgumentsDelta: event.Delta})
+		delta := event.Delta
+		if event.Type == "response.function_call_arguments.done" {
+			delta = finalStreamValueDelta(d.toolArguments[event.OutputIndex], event.Arguments)
+		}
+		if delta != "" {
+			d.toolArguments[event.OutputIndex] += delta
+			out = append(out, ir.StreamEvent{Type: ir.EventToolCallDelta, BlockIndex: event.OutputIndex, ToolCallIndex: event.OutputIndex, ToolCallID: id, ArgumentsDelta: delta})
+		}
 	case "response.output_item.done":
 		if blockType, ok := d.blocks[event.OutputIndex]; ok {
+			if blockType == ir.ContentText && event.Item != nil && len(event.Item.Content) > 0 {
+				if delta := finalStreamValueDelta(d.text[event.OutputIndex], event.Item.Content[0].Text); delta != "" {
+					d.text[event.OutputIndex] += delta
+					out = append(out, ir.StreamEvent{Type: ir.EventTextDelta, BlockIndex: event.OutputIndex, ChoiceIndex: 0, Text: delta})
+				}
+			}
 			if blockType == ir.ContentToolCall {
 				call := d.calls[event.OutputIndex]
+				if event.Item != nil {
+					if delta := finalStreamValueDelta(d.toolArguments[event.OutputIndex], event.Item.Arguments); delta != "" {
+						d.toolArguments[event.OutputIndex] += delta
+						out = append(out, ir.StreamEvent{Type: ir.EventToolCallDelta, BlockIndex: event.OutputIndex, ToolCallIndex: event.OutputIndex, ToolCallID: call.id, ArgumentsDelta: delta})
+					}
+				}
 				out = append(out, ir.StreamEvent{Type: ir.EventToolCallEnd, BlockIndex: event.OutputIndex, ToolCallID: call.id})
 			}
 			if blockType == ir.ContentReasoning {
+				if event.Item != nil && len(event.Item.Summary) > 0 {
+					if delta := finalStreamValueDelta(d.reasoning[event.OutputIndex], event.Item.Summary[0].Text); delta != "" {
+						d.reasoning[event.OutputIndex] += delta
+						out = append(out, ir.StreamEvent{Type: ir.EventReasoningDelta, BlockIndex: event.OutputIndex, Reasoning: delta})
+					}
+				}
 				signature := d.signatures[event.OutputIndex]
 				if event.Item != nil && event.Item.EncryptedContent != "" {
 					signature = event.Item.EncryptedContent
@@ -171,6 +219,9 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 			}
 			out = append(out, ir.StreamEvent{Type: ir.EventContentBlockEnd, BlockIndex: event.OutputIndex})
 			delete(d.blocks, event.OutputIndex)
+			delete(d.text, event.OutputIndex)
+			delete(d.reasoning, event.OutputIndex)
+			delete(d.toolArguments, event.OutputIndex)
 		}
 	case "response.completed", "response.done", "response.incomplete", "response.failed":
 		start(event.Response)
@@ -204,6 +255,16 @@ func (d *streamDecoder) Finalize() ([]ir.StreamEvent, []protocolconv.Warning, er
 	return nil, nil, nil
 }
 
+func finalStreamValueDelta(seen, final string) string {
+	if seen == "" {
+		return final
+	}
+	if strings.HasPrefix(final, seen) {
+		return strings.TrimPrefix(final, seen)
+	}
+	return ""
+}
+
 func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.Warning, error) {
 	makeEvent := func(kind string) *apicompat.ResponsesStreamEvent {
 		e.sequence++
@@ -217,7 +278,10 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 		if e.options.ResponseModel != "" {
 			e.model = e.options.ResponseModel
 		}
-		e.response = &apicompat.ResponsesResponse{ID: e.id, Object: "response", Model: e.model, Status: "in_progress"}
+		e.response = &apicompat.ResponsesResponse{
+			ID: e.id, Object: "response", Model: e.model, Status: "in_progress",
+			Output: []apicompat.ResponsesOutput{},
+		}
 		x := makeEvent("response.created")
 		x.Response = e.response
 		events = append(events, x)
@@ -234,10 +298,26 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 			return nil, nil, nil
 		}
 		e.items[event.BlockIndex] = item
-		x := makeEvent("response.output_item.added")
-		x.OutputIndex = event.BlockIndex
-		x.Item = item
-		events = append(events, x)
+		added := makeEvent("response.output_item.added")
+		added.OutputIndex = event.BlockIndex
+		added.Item = item
+		events = append(events, added)
+		switch event.BlockType {
+		case ir.ContentText:
+			part := makeEvent("response.content_part.added")
+			part.OutputIndex = event.BlockIndex
+			part.ContentIndex = 0
+			part.ItemID = item.ID
+			part.Part = &apicompat.ResponsesContentPart{Type: "output_text"}
+			events = append(events, part)
+		case ir.ContentReasoning:
+			part := makeEvent("response.reasoning_summary_part.added")
+			part.OutputIndex = event.BlockIndex
+			part.SummaryIndex = 0
+			part.ItemID = item.ID
+			part.Part = &apicompat.ResponsesContentPart{Type: "summary_text"}
+			events = append(events, part)
+		}
 	case ir.EventToolCallStart:
 		kind, name, namespace := event.ToolKind, event.ToolName, event.ToolNamespace
 		if route, ok := e.options.ToolRoutes[event.ToolName]; ok {
@@ -254,7 +334,8 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 		x.Item = item
 		events = append(events, x)
 	case ir.EventTextDelta:
-		if item := e.items[event.BlockIndex]; item != nil {
+		item := e.items[event.BlockIndex]
+		if item != nil {
 			if len(item.Content) == 0 {
 				item.Content = []apicompat.ResponsesContentPart{{Type: "output_text"}}
 			}
@@ -262,21 +343,32 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 		}
 		x := makeEvent("response.output_text.delta")
 		x.OutputIndex = event.BlockIndex
+		x.ContentIndex = 0
+		if item != nil {
+			x.ItemID = item.ID
+		}
 		x.Delta = event.Text
 		events = append(events, x)
 	case ir.EventReasoningDelta:
-		if item := e.items[event.BlockIndex]; item != nil {
+		item := e.items[event.BlockIndex]
+		if item != nil {
 			if event.Reasoning != "" {
 				if len(item.Summary) == 0 {
 					item.Summary = []apicompat.ResponsesSummary{{Type: "summary_text"}}
 				}
 				item.Summary[0].Text += event.Reasoning
 			}
-			item.EncryptedContent += event.Signature
+			if event.Signature != "" {
+				item.EncryptedContent = event.Signature
+			}
 		}
 		if event.Reasoning != "" {
 			x := makeEvent("response.reasoning_summary_text.delta")
 			x.OutputIndex = event.BlockIndex
+			x.SummaryIndex = 0
+			if item != nil {
+				x.ItemID = item.ID
+			}
 			x.Delta = event.Reasoning
 			events = append(events, x)
 		}
@@ -288,6 +380,9 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 		if tool == nil || tool.kind == "function_call" {
 			x := makeEvent("response.function_call_arguments.delta")
 			x.OutputIndex = event.BlockIndex
+			if item := e.items[event.BlockIndex]; item != nil {
+				x.ItemID = item.ID
+			}
 			x.CallID = event.ToolCallID
 			x.Delta = event.ArgumentsDelta
 			events = append(events, x)
@@ -297,10 +392,15 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 		if tool == nil {
 			break
 		}
+		itemID := ""
+		if item := e.items[event.BlockIndex]; item != nil {
+			itemID = item.ID
+		}
 		switch tool.kind {
 		case "function_call":
 			done := makeEvent("response.function_call_arguments.done")
 			done.OutputIndex = event.BlockIndex
+			done.ItemID = itemID
 			done.CallID = tool.callID
 			done.Name = tool.name
 			done.Arguments = tool.arguments
@@ -310,6 +410,7 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 			if input != "" {
 				delta := makeEvent("response.custom_tool_call_input.delta")
 				delta.OutputIndex = event.BlockIndex
+				delta.ItemID = itemID
 				delta.CallID = tool.callID
 				delta.Name = tool.name
 				delta.Delta = input
@@ -317,28 +418,65 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 			}
 			done := makeEvent("response.custom_tool_call_input.done")
 			done.OutputIndex = event.BlockIndex
+			done.ItemID = itemID
 			done.CallID = tool.callID
 			done.Name = tool.name
 			done.Input = input
 			events = append(events, done)
 		}
 	case ir.EventContentBlockEnd:
-		x := makeEvent("response.output_item.done")
-		x.OutputIndex = event.BlockIndex
 		item := e.items[event.BlockIndex]
+		if item != nil {
+			switch e.blocks[event.BlockIndex] {
+			case ir.ContentText:
+				text := ""
+				if len(item.Content) > 0 {
+					text = item.Content[0].Text
+				}
+				textDone := makeEvent("response.output_text.done")
+				textDone.OutputIndex = event.BlockIndex
+				textDone.ContentIndex = 0
+				textDone.ItemID = item.ID
+				textDone.Text = text
+				partDone := makeEvent("response.content_part.done")
+				partDone.OutputIndex = event.BlockIndex
+				partDone.ContentIndex = 0
+				partDone.ItemID = item.ID
+				partDone.Part = &apicompat.ResponsesContentPart{Type: "output_text", Text: text}
+				events = append(events, textDone, partDone)
+			case ir.ContentReasoning:
+				reasoning := ""
+				if len(item.Summary) > 0 {
+					reasoning = item.Summary[0].Text
+				}
+				textDone := makeEvent("response.reasoning_summary_text.done")
+				textDone.OutputIndex = event.BlockIndex
+				textDone.SummaryIndex = 0
+				textDone.ItemID = item.ID
+				textDone.Text = reasoning
+				partDone := makeEvent("response.reasoning_summary_part.done")
+				partDone.OutputIndex = event.BlockIndex
+				partDone.SummaryIndex = 0
+				partDone.ItemID = item.ID
+				partDone.Part = &apicompat.ResponsesContentPart{Type: "summary_text", Text: reasoning}
+				events = append(events, textDone, partDone)
+			}
+		}
+		done := makeEvent("response.output_item.done")
+		done.OutputIndex = event.BlockIndex
 		if tool := e.tools[event.BlockIndex]; tool != nil {
 			item = completedStreamToolItem(event.BlockIndex, tool)
 			delete(e.tools, event.BlockIndex)
 		} else if item != nil {
 			item.Status = "completed"
 		}
-		x.Item = item
+		done.Item = item
 		if item != nil && e.response != nil {
 			e.response.Output = append(e.response.Output, *item)
 		}
 		delete(e.items, event.BlockIndex)
 		delete(e.blocks, event.BlockIndex)
-		events = append(events, x)
+		events = append(events, done)
 	case ir.EventFinish:
 		if e.response == nil {
 			e.response = &apicompat.ResponsesResponse{ID: e.id, Object: "response", Model: e.model}
