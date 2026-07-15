@@ -3,6 +3,7 @@ package openairesponses
 import (
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/ir"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -58,11 +59,71 @@ func TestStreamEncoderPreservesSignatureOnlyReasoningDelta(t *testing.T) {
 		require.Empty(t, warnings)
 		payloads = append(payloads, out...)
 	}
-	require.NotEmpty(t, payloads)
+	require.Equal(t, []string{
+		"response.created",
+		"response.output_item.added",
+		"response.reasoning_summary_part.added",
+		"response.reasoning_summary_text.delta",
+		"response.reasoning_summary_text.done",
+		"response.reasoning_summary_part.done",
+		"response.output_item.done",
+	}, responseStreamPayloadTypes(payloads))
 	last := payloads[len(payloads)-1]
-	require.Equal(t, "response.output_item.done", gjson.GetBytes(last, "type").String())
 	require.Equal(t, "sig-1", gjson.GetBytes(last, "item.encrypted_content").String())
 	require.Equal(t, "plan", gjson.GetBytes(last, "item.summary.0.text").String())
+}
+
+func TestStreamEncoderEmitsCompleteTextLifecycle(t *testing.T) {
+	encoder := newStreamEncoderWithOptions(protocolconv.Options{ResponseModel: "client-model"})
+	sequence := []ir.StreamEvent{
+		{Type: ir.EventStreamStart, ResponseID: "resp-text", Model: "upstream-model"},
+		{Type: ir.EventContentBlockStart, BlockIndex: 0, BlockType: ir.ContentText},
+		{Type: ir.EventTextDelta, BlockIndex: 0, Text: "hello"},
+		{Type: ir.EventContentBlockEnd, BlockIndex: 0},
+		{Type: ir.EventFinish, FinishReason: &ir.FinishReason{Reason: "stop"}},
+		{Type: ir.EventUsage, Usage: &ir.Usage{InputTokens: 3, OutputTokens: 2, TotalTokens: 5}},
+		{Type: ir.EventStreamEnd},
+	}
+	var payloads [][]byte
+	for _, event := range sequence {
+		out, warnings, err := encoder.Encode(event)
+		require.NoError(t, err)
+		require.Empty(t, warnings)
+		payloads = append(payloads, out...)
+	}
+
+	require.Equal(t, []string{
+		"response.created",
+		"response.output_item.added",
+		"response.content_part.added",
+		"response.output_text.delta",
+		"response.output_text.done",
+		"response.content_part.done",
+		"response.output_item.done",
+		"response.completed",
+	}, responseStreamPayloadTypes(payloads))
+
+	created := payloads[0]
+	require.Equal(t, "client-model", gjson.GetBytes(created, "response.model").String())
+	require.True(t, gjson.GetBytes(created, "response.output").IsArray())
+	require.Equal(t, int64(0), gjson.GetBytes(payloads[1], "output_index").Int())
+	require.Equal(t, "item_0", gjson.GetBytes(payloads[2], "item_id").String())
+	require.Equal(t, int64(0), gjson.GetBytes(payloads[2], "content_index").Int())
+	require.Equal(t, "hello", gjson.GetBytes(payloads[3], "delta").String())
+	require.Equal(t, "hello", gjson.GetBytes(payloads[4], "text").String())
+	require.Equal(t, "hello", gjson.GetBytes(payloads[5], "part.text").String())
+	require.Equal(t, "hello", gjson.GetBytes(payloads[6], "item.content.0.text").String())
+	require.Equal(t, "hello", gjson.GetBytes(payloads[7], "response.output.0.content.0.text").String())
+	require.Equal(t, int64(3), gjson.GetBytes(payloads[7], "response.usage.input_tokens").Int())
+	require.Equal(t, int64(2), gjson.GetBytes(payloads[7], "response.usage.output_tokens").Int())
+}
+
+func responseStreamPayloadTypes(payloads [][]byte) []string {
+	types := make([]string, 0, len(payloads))
+	for _, payload := range payloads {
+		types = append(types, gjson.GetBytes(payload, "type").String())
+	}
+	return types
 }
 
 func TestStreamDecoderSynthesizesSparseTextLifecycleAndTopLevelUsage(t *testing.T) {
@@ -85,6 +146,50 @@ func TestStreamDecoderSynthesizesSparseTextLifecycleAndTopLevelUsage(t *testing.
 	require.NotNil(t, events[5].Usage)
 	require.Equal(t, 4, events[5].Usage.InputTokens)
 	require.NoError(t, func() error { _, _, err := decoder.Finalize(); return err }())
+}
+
+func TestStreamDecoderRecoversTextFromDoneOnlyLifecycle(t *testing.T) {
+	decoder := newStreamDecoder()
+	payloads := [][]byte{
+		[]byte(`{"type":"response.created","response":{"id":"resp-1","model":"upstream","status":"in_progress"}}`),
+		[]byte(`{"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg-1","role":"assistant"}}`),
+		[]byte(`{"type":"response.output_text.done","output_index":0,"item_id":"msg-1","content_index":0,"text":"done-only text"}`),
+		[]byte(`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg-1","role":"assistant","content":[{"type":"output_text","text":"done-only text"}]}}`),
+	}
+	var events []ir.StreamEvent
+	for _, payload := range payloads {
+		out, _, err := decoder.Decode(payload)
+		require.NoError(t, err)
+		events = append(events, out...)
+	}
+	require.Equal(t, []ir.StreamEventType{
+		ir.EventStreamStart, ir.EventContentBlockStart, ir.EventTextDelta, ir.EventContentBlockEnd,
+	}, streamEventTypes(events))
+	require.Equal(t, "done-only text", events[2].Text)
+}
+
+func TestStreamDecoderRecoversReasoningAndToolArgumentsFromDoneOnlyLifecycle(t *testing.T) {
+	decoder := newStreamDecoder()
+	payloads := [][]byte{
+		[]byte(`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"reasoning-1"}}`),
+		[]byte(`{"type":"response.reasoning_summary_text.done","output_index":0,"item_id":"reasoning-1","summary_index":0,"text":"reasoning"}`),
+		[]byte(`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"reasoning-1","summary":[{"type":"summary_text","text":"reasoning"}]}}`),
+		[]byte(`{"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","id":"tool-1","call_id":"call-1","name":"lookup"}}`),
+		[]byte(`{"type":"response.function_call_arguments.done","output_index":1,"item_id":"tool-1","call_id":"call-1","name":"lookup","arguments":"{\"q\":\"x\"}"}`),
+		[]byte(`{"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","id":"tool-1","call_id":"call-1","name":"lookup","arguments":"{\"q\":\"x\"}"}}`),
+	}
+	var events []ir.StreamEvent
+	for _, payload := range payloads {
+		out, _, err := decoder.Decode(payload)
+		require.NoError(t, err)
+		events = append(events, out...)
+	}
+	require.Equal(t, []ir.StreamEventType{
+		ir.EventStreamStart, ir.EventContentBlockStart, ir.EventReasoningDelta, ir.EventContentBlockEnd,
+		ir.EventContentBlockStart, ir.EventToolCallStart, ir.EventToolCallDelta, ir.EventToolCallEnd, ir.EventContentBlockEnd,
+	}, streamEventTypes(events))
+	require.Equal(t, "reasoning", events[2].Reasoning)
+	require.Equal(t, `{"q":"x"}`, events[6].ArgumentsDelta)
 }
 
 func TestStreamDecoderSynthesizesSparseToolLifecycle(t *testing.T) {

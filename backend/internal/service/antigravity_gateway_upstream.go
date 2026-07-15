@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/gin-gonic/gin"
 )
 
@@ -100,7 +101,8 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 		_, _ = c.Writer.Write(respBody)
 
 		return &ForwardResult{
-			Model: originalModel,
+			ActualProtocol: protocolconv.ProtocolAnthropic,
+			Model:          originalModel,
 		}, nil
 	}
 
@@ -141,6 +143,7 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 	logger.LegacyPrintf("service.antigravity_gateway", "%s status=success duration_ms=%d", prefix, duration.Milliseconds())
 
 	return &ForwardResult{
+		ActualProtocol:   protocolconv.ProtocolAnthropic,
 		Model:            originalModel,
 		Stream:           claudeReq.Stream,
 		Duration:         duration,

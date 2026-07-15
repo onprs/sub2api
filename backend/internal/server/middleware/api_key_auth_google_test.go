@@ -377,6 +377,14 @@ func TestApiKeyAuthWithSubscriptionGoogleSetsGroupContext(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
+func TestAllowGoogleQueryKeyGenerationPaths(t *testing.T) {
+	require.True(t, allowGoogleQueryKey("/v1beta/models/gemini:generateContent"))
+	require.True(t, allowGoogleQueryKey("/v1/models/gemini:generateContent"))
+	require.True(t, allowGoogleQueryKey("/antigravity/v1beta/models/gemini:generateContent"))
+	require.False(t, allowGoogleQueryKey("/v1/models"))
+	require.False(t, allowGoogleQueryKey("/v1/responses"))
+}
+
 func TestApiKeyAuthWithSubscriptionGoogle_QueryKeyAllowedOnV1Beta(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

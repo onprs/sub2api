@@ -509,7 +509,7 @@ const comment = (value: string) => wrapToken('text-slate-500', value)
 const currentFiles = computed((): FileConfig[] => {
   const baseUrl = props.baseUrl || window.location.origin
   const apiKey = props.apiKey
-  const baseRoot = baseUrl.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
+  const baseRoot = baseUrl.replace(/\/v1(?:beta)?\/?$/, '').replace(/\/+$/, '')
   const ensureV1 = (value: string) => {
     const trimmed = value.replace(/\/+$/, '')
     return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`
@@ -551,20 +551,20 @@ const currentFiles = computed((): FileConfig[] => {
         return generateAnthropicFiles(baseUrl, apiKey)
       }
       if (activeClientTab.value === 'gemini') {
-        return [generateGeminiCliContent(baseUrl, apiKey)]
+        return [generateGeminiCliContent(baseRoot, apiKey)]
       }
       if (activeClientTab.value === 'codex-ws') {
         return generateOpenAIWsFiles(baseUrl, apiKey)
       }
       return generateOpenAIFiles(baseUrl, apiKey)
     case 'gemini':
-      return [generateGeminiCliContent(baseUrl, apiKey)]
+      return [generateGeminiCliContent(baseRoot, apiKey)]
     case 'antigravity':
       if (activeClientTab.value === 'codex') {
         return generateOpenAIFiles(baseUrl, apiKey)
       }
       if (activeClientTab.value === 'gemini') {
-        return [generateGeminiCliContent(baseUrl, apiKey)]
+        return [generateGeminiCliContent(baseRoot, apiKey)]
       }
       return generateAnthropicFiles(baseUrl, apiKey)
     case 'opencode_go':
@@ -575,7 +575,7 @@ const currentFiles = computed((): FileConfig[] => {
         return generateAnthropicFiles(baseUrl, apiKey)
       }
       if (activeClientTab.value === 'gemini') {
-        return [generateGeminiCliContent(baseUrl, apiKey)]
+        return [generateGeminiCliContent(baseRoot, apiKey)]
       }
       return [generateOpenCodeConfig('opencode-go', apiBase, apiKey)]
     default:

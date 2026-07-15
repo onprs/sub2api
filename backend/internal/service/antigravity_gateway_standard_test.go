@@ -140,6 +140,88 @@ func TestAntigravityForwardAsResponsesStreamsToolCall(t *testing.T) {
 	require.True(t, strings.HasSuffix(wire, "data: [DONE]\n\n"))
 }
 
+func TestAntigravityForwardAsResponsesStreamsCompleteTextLifecycle(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstreamBody := strings.Join([]string{
+		`data: {"response":{"responseId":"ag-response-text","modelVersion":"gemini-pro-agent","candidates":[{"content":{"role":"model","parts":[{"text":"hello "}]}}]}}`,
+		"",
+		`data: {"response":{"responseId":"ag-response-text","modelVersion":"gemini-pro-agent","candidates":[{"content":{"role":"model","parts":[{"text":"world"}]}}]}}`,
+		"",
+		`data: {"response":{"responseId":"ag-response-text","modelVersion":"gemini-pro-agent","candidates":[{"content":{"role":"model","parts":[]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":2,"totalTokenCount":10}}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid-ag-response-text"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}}
+	svc := newAntigravityStandardTestService(upstream)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"model":"gemini-3.1-pro-high","stream":true,"input":"hello"}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+	result, err := svc.ForwardAsResponses(context.Background(), c, antigravityStandardTestAccount(), body, "gemini-3.1-pro-high", false)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, protocolconv.ProtocolGoogleGenAI, result.ActualProtocol)
+	require.Equal(t, 8, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
+	require.Equal(t, "gemini-pro-agent", gjson.GetBytes(upstream.requestBodies[0], "model").String())
+	require.Equal(t, "hello", gjson.GetBytes(upstream.requestBodies[0], "request.contents.0.parts.0.text").String())
+
+	wire := recorder.Body.String()
+	orderedEvents := []string{
+		"event: response.created\n",
+		"event: response.output_item.added\n",
+		"event: response.content_part.added\n",
+		"event: response.output_text.delta\n",
+		"event: response.output_text.done\n",
+		"event: response.content_part.done\n",
+		"event: response.output_item.done\n",
+		"event: response.completed\n",
+	}
+	previous := -1
+	for _, event := range orderedEvents {
+		index := strings.Index(wire, event)
+		require.Greater(t, index, previous, "event order for %s", event)
+		previous = index
+	}
+	require.Contains(t, wire, `"delta":"hello "`)
+	require.Contains(t, wire, `"delta":"world"`)
+	require.Contains(t, wire, `"text":"hello world"`)
+	require.Contains(t, wire, `"model":"gemini-3.1-pro-high"`)
+	require.True(t, strings.HasSuffix(wire, "data: [DONE]\n\n"))
+}
+
+func TestAntigravityForwardAsResponsesBuffersText(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstreamBody := strings.Join([]string{
+		`data: {"response":{"responseId":"ag-response-buffered","modelVersion":"gemini-pro-agent","candidates":[{"content":{"role":"model","parts":[{"text":"buffered text"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":2,"totalTokenCount":6}}}`,
+		"", "data: [DONE]", "",
+	}, "\n")
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}}
+	svc := newAntigravityStandardTestService(upstream)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"model":"gemini-3.1-pro-high","stream":false,"input":"hello"}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+	result, err := svc.ForwardAsResponses(context.Background(), c, antigravityStandardTestAccount(), body, "gemini-3.1-pro-high", false)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "buffered text", gjson.GetBytes(recorder.Body.Bytes(), "output.0.content.0.text").String())
+	require.Equal(t, "gemini-3.1-pro-high", gjson.GetBytes(recorder.Body.Bytes(), "model").String())
+	require.Equal(t, int64(4), gjson.GetBytes(recorder.Body.Bytes(), "usage.input_tokens").Int())
+	require.Equal(t, int64(2), gjson.GetBytes(recorder.Body.Bytes(), "usage.output_tokens").Int())
+}
+
 func TestAntigravityForwardAsResponsesDrainsUsageAfterClientDisconnect(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstreamBody := strings.Join([]string{
@@ -296,7 +378,8 @@ func antigravityStandardTestAccount() *Account {
 			"access_token": "antigravity-token",
 			"project_id":   "project-1",
 			"model_mapping": map[string]any{
-				"claude-sonnet-4-6": "claude-sonnet-4-6",
+				"claude-sonnet-4-6":   "claude-sonnet-4-6",
+				"gemini-3.1-pro-high": "gemini-pro-agent",
 			},
 		},
 	}

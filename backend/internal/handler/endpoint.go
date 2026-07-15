@@ -3,6 +3,7 @@ package handler
 import (
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -25,6 +26,9 @@ const (
 	EndpointVideosGenerations = "/v1/videos/generations"
 	EndpointVideos            = "/v1/videos"
 	EndpointGeminiModels      = "/v1beta/models"
+	EndpointGeminiV1Models    = "/v1/models"
+
+	EndpointAntigravityStreamGenerateContent = "/v1internal:streamGenerateContent"
 )
 
 // gin.Context keys used by the middleware and helpers below.
@@ -93,6 +97,8 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointResponses
 	case strings.Contains(path, EndpointGeminiModels):
 		return EndpointGeminiModels
+	case isGoogleV1ModelActionPath(path):
+		return EndpointGeminiV1Models
 	default:
 		return path
 	}
@@ -149,6 +155,11 @@ func isResponsesRootAliasPath(path string) bool {
 // nested under some other unrelated prefix.
 func isBareOrSubpathOf(path, root string) bool {
 	return path == root || strings.HasPrefix(path, root+"/")
+}
+
+func isGoogleV1ModelActionPath(path string) bool {
+	trimmed := strings.TrimSpace(path)
+	return strings.HasPrefix(trimmed, EndpointGeminiV1Models+"/") && strings.Contains(trimmed, ":")
 }
 
 // DeriveUpstreamEndpoint determines the upstream endpoint from the
@@ -296,4 +307,38 @@ func GetUpstreamEndpoint(c *gin.Context, platform string) string {
 		rawPath = c.Request.URL.Path
 	}
 	return DeriveUpstreamEndpoint(inbound, rawPath, platform)
+}
+
+// GetUpstreamEndpointForResult resolves the endpoint from the protocol that the
+// successful attempt actually used. Platform-based derivation remains a
+// fallback for legacy and non-generation results that do not carry protocol
+// metadata.
+func GetUpstreamEndpointForResult(c *gin.Context, account *service.Account, result *service.ForwardResult) string {
+	platform := ""
+	if account != nil {
+		platform = account.Platform
+	}
+	if result == nil {
+		return GetUpstreamEndpoint(c, platform)
+	}
+	if result.ActualProtocol == protocolconv.ProtocolGoogleGenAI &&
+		account != nil && account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
+		return EndpointAntigravityStreamGenerateContent
+	}
+	return GetUpstreamEndpointForActualProtocol(c, platform, result.ActualProtocol)
+}
+
+func GetUpstreamEndpointForActualProtocol(c *gin.Context, platform string, actual protocolconv.Protocol) string {
+	switch actual {
+	case protocolconv.ProtocolOpenAIChat:
+		return EndpointChatCompletions
+	case protocolconv.ProtocolOpenAIResponses:
+		return EndpointResponses
+	case protocolconv.ProtocolAnthropic:
+		return EndpointMessages
+	case protocolconv.ProtocolGoogleGenAI:
+		return EndpointGeminiModels
+	default:
+		return GetUpstreamEndpoint(c, platform)
+	}
 }

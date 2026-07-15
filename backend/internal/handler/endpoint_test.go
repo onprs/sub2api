@@ -34,6 +34,8 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 		{"/v1/videos/generations", EndpointVideosGenerations},
 		{"/v1/videos/req_123", EndpointVideos},
 		{"/v1beta/models", EndpointGeminiModels},
+		{"/v1/models/gemini-3.1-pro:generateContent", EndpointGeminiV1Models},
+		{"/v1/models/gemini-3.1-pro:streamGenerateContent", EndpointGeminiV1Models},
 
 		// Prefixed paths (antigravity, openai) — root Responses.
 		{"/antigravity/v1/messages", EndpointMessages},
@@ -85,6 +87,32 @@ func TestOpenCodeGoActualUpstreamEndpoint(t *testing.T) {
 	require.Equal(t, "", openCodeGoActualUpstreamEndpoint(&service.ForwardResult{}))
 	require.Equal(t, EndpointChatCompletions, openCodeGoActualUpstreamEndpoint(&service.ForwardResult{ActualProtocol: protocolconv.ProtocolOpenAIChat}))
 	require.Equal(t, EndpointMessages, openCodeGoActualUpstreamEndpoint(&service.ForwardResult{ActualProtocol: protocolconv.ProtocolAnthropic}))
+}
+
+func TestGetUpstreamEndpointForResultUsesActualProtocol(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	tests := []struct {
+		name    string
+		account *service.Account
+		result  *service.ForwardResult
+		want    string
+	}{
+		{name: "legacy fallback", account: &service.Account{Platform: service.PlatformAnthropic}, result: &service.ForwardResult{}, want: EndpointMessages},
+		{name: "actual chat fallback", account: &service.Account{Platform: service.PlatformOpenAI}, result: &service.ForwardResult{ActualProtocol: protocolconv.ProtocolOpenAIChat}, want: EndpointChatCompletions},
+		{name: "actual responses", account: &service.Account{Platform: service.PlatformOpenAI}, result: &service.ForwardResult{ActualProtocol: protocolconv.ProtocolOpenAIResponses}, want: EndpointResponses},
+		{name: "actual anthropic", account: &service.Account{Platform: service.PlatformOpenCodeGo}, result: &service.ForwardResult{ActualProtocol: protocolconv.ProtocolAnthropic}, want: EndpointMessages},
+		{name: "actual google", account: &service.Account{Platform: service.PlatformGemini}, result: &service.ForwardResult{ActualProtocol: protocolconv.ProtocolGoogleGenAI}, want: EndpointGeminiModels},
+		{name: "antigravity vendor google", account: &service.Account{Platform: service.PlatformAntigravity, Type: service.AccountTypeOAuth}, result: &service.ForwardResult{ActualProtocol: protocolconv.ProtocolGoogleGenAI}, want: EndpointAntigravityStreamGenerateContent},
+		{name: "antigravity api key google", account: &service.Account{Platform: service.PlatformAntigravity, Type: service.AccountTypeAPIKey}, result: &service.ForwardResult{ActualProtocol: protocolconv.ProtocolGoogleGenAI}, want: EndpointGeminiModels},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, GetUpstreamEndpointForResult(c, tt.account, tt.result))
+		})
+	}
 }
 
 func TestDeriveUpstreamEndpoint(t *testing.T) {

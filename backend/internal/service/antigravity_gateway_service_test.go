@@ -15,6 +15,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -804,6 +805,7 @@ func TestAntigravityGatewayService_Forward_BillsWithMappedModel(t *testing.T) {
 	result, err := svc.Forward(context.Background(), c, account, body, false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
+	require.Equal(t, protocolconv.ProtocolGoogleGenAI, result.ActualProtocol)
 	require.Equal(t, "claude-sonnet-4-5", result.Model)
 	require.Equal(t, mappedModel, result.UpstreamModel)
 }

@@ -786,12 +786,22 @@ func TestStreamingReasoning(t *testing.T) {
 	assert.Equal(t, "thinking_delta", events[0].Delta.Type)
 	assert.Equal(t, "Let me think...", events[0].Delta.Thinking)
 
-	// reasoning done
+	// The text-done event does not close reasoning because its signature is
+	// carried by the following completed output item.
 	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type: "response.reasoning_summary_text.done",
 	}, state)
-	require.Len(t, events, 1)
-	assert.Equal(t, "content_block_stop", events[0].Type)
+	require.Empty(t, events)
+
+	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:        "response.output_item.done",
+		OutputIndex: 0,
+		Item:        &ResponsesOutput{Type: "reasoning", EncryptedContent: "sig-1"},
+	}, state)
+	require.Len(t, events, 2)
+	assert.Equal(t, "signature_delta", events[0].Delta.Type)
+	assert.Equal(t, "sig-1", events[0].Delta.Signature)
+	assert.Equal(t, "content_block_stop", events[1].Type)
 }
 
 func TestStreamingIncomplete(t *testing.T) {

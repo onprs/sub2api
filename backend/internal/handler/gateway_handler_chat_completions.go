@@ -217,7 +217,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
-		if groupPlatform == service.PlatformGemini && account.Platform != service.PlatformGemini {
+		if groupPlatform == service.PlatformGemini && !supportsGeminiStandardGenerationAccount(account) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
@@ -296,7 +296,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		clientIP := ip.GetClientIP(c)
 		requestPayloadHash := service.HashUsageRequestPayload(body)
 		inboundEndpoint := GetInboundEndpoint(c)
-		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
+		upstreamEndpoint := GetUpstreamEndpointForResult(c, account, result)
 
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
@@ -330,6 +330,22 @@ func shouldUseAntigravityStandardBridge(account *service.Account) bool {
 		return false
 	}
 	return account.Type != service.AccountTypeAPIKey && account.Type != service.AccountTypeUpstream
+}
+
+func supportsGeminiStandardGenerationAccount(account *service.Account) bool {
+	if account == nil || account.Type == service.AccountTypeUpstream {
+		return false
+	}
+	switch account.Platform {
+	case service.PlatformAntigravity:
+		return true
+	case service.PlatformGemini:
+		return account.Type == service.AccountTypeAPIKey ||
+			account.Type == service.AccountTypeOAuth ||
+			account.Type == service.AccountTypeServiceAccount
+	default:
+		return false
+	}
 }
 
 // chatCompletionsErrorResponse writes an error in OpenAI Chat Completions format.

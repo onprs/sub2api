@@ -84,6 +84,13 @@ func RegisterGatewayRoutes(
 			},
 		})
 	}
+	googleGenerationHandler := func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+			h.OpenCodeGo.GoogleGenAI(c)
+			return
+		}
+		h.Gateway.GeminiV1BetaModels(c)
+	}
 	// API网关（Claude API兼容）
 	gateway := r.Group("/v1")
 	gateway.Use(bodyLimit)
@@ -224,14 +231,21 @@ func RegisterGatewayRoutes(
 		gemini.GET("/models", h.Gateway.GeminiV1BetaListModels)
 		gemini.GET("/models/:model", h.Gateway.GeminiV1BetaGetModel)
 		// Gin treats ":" as a param marker, but Gemini uses "{model}:{action}" in the same segment.
-		gemini.POST("/models/*modelAction", func(c *gin.Context) {
-			if getGroupPlatform(c) == service.PlatformOpenCodeGo {
-				h.OpenCodeGo.GoogleGenAI(c)
-				return
-			}
-			h.Gateway.GeminiV1BetaModels(c)
-		})
+		gemini.POST("/models/*modelAction", googleGenerationHandler)
 	}
+
+	// Google also exposes stable generation methods below /v1. Keep the
+	// existing GET /v1/models OpenAI-compatible discovery route unchanged.
+	r.POST(
+		"/v1/models/*modelAction",
+		bodyLimit,
+		clientRequestID,
+		opsErrorLogger,
+		endpointNorm,
+		middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg),
+		requireGroupGoogle,
+		googleGenerationHandler,
+	)
 
 	// OpenAI Responses API（不带v1前缀的别名）— auto-route based on group platform
 	responsesHandler := func(c *gin.Context) {

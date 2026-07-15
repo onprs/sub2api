@@ -300,8 +300,32 @@ describe('UseKeyModal', () => {
 
     await geminiTab!.trigger('click')
     await nextTick()
-    expect(wrapper.text()).toContain('GOOGLE_GEMINI_BASE_URL="https://example.com/v1"')
+    expect(wrapper.text()).toContain('GOOGLE_GEMINI_BASE_URL="https://example.com"')
     expect(wrapper.text()).not.toContain('https://example.com/v1/antigravity')
+  })
+
+  it('uses the origin for Gemini CLI when the public base URL ends in v1beta', () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1beta',
+        platform: 'gemini'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('GOOGLE_GEMINI_BASE_URL="https://example.com"')
+    expect(wrapper.text()).not.toContain('GOOGLE_GEMINI_BASE_URL="https://example.com/v1beta"')
   })
 
   it('renders Claude Fable 5 OpenCode config with adaptive thinking', async () => {
