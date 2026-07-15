@@ -451,6 +451,7 @@ export default {
       leaveEmptyToKeep: '留空则保持原密码不变',
       generatePassword: '生成随机密码',
       copyPassword: '复制密码',
+      passwordCopied: '密码已复制',
       creating: '创建中...',
       updating: '更新中...',
       columns: {
@@ -469,6 +470,7 @@ export default {
         usageOpenAI: '用量 (OpenAI)',
         usageGemini: '用量 (Gemini)',
         usageAntigravity: '用量 (Antigravity)',
+        usageOpenCodeGo: '用量 (OpenCode Go)',
         concurrency: '并发数',
         status: '状态',
         lastActive: '最后活跃时间',

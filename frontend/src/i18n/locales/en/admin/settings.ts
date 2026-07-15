@@ -30,6 +30,13 @@ export default {
           enabled: 'Enable Available Channels',
           enabledHint: 'When off, the sidebar entry is hidden and the endpoint returns an empty list.',
         },
+        modelPricing: {
+          title: 'Model Pricing',
+          description: 'Expose model prices and billing rules to signed-in users.',
+          configureLink: 'Configure model pricing in Channel Management > Channel Pricing',
+          enabled: 'Enable Model Pricing',
+          enabledHint: 'When off, users cannot open the model pricing view.'
+        },
         riskControl: {
           title: 'Risk Control',
           description: 'Enable the content moderation menu and gateway audit entry point. Disabled by default.',
@@ -1024,6 +1031,11 @@ export default {
         scopeOAuth: 'OAuth only',
         scopeAPIKey: 'API Key only',
         scopeBedrock: 'Bedrock only',
+        userIds: 'Specific user IDs',
+        userIdsHint: 'Leave empty to apply to all Sub2API users. Specified users match requests from their API keys and take precedence over global rules.',
+        userIdPlaceholder: 'e.g., 1001',
+        addUserId: 'Add user ID',
+        removeUserId: 'Remove user ID',
         errorMessage: 'Error message',
         errorMessagePlaceholder: 'Custom error message when blocked',
         errorMessageHint: 'Leave empty for the default message.',

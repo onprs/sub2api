@@ -13,7 +13,7 @@
         <div v-for="key in apiKeys" :key="key.id" class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-600 dark:bg-dark-800">
           <div class="flex items-start justify-between">
             <div class="min-w-0 flex-1">
-              <div class="mb-1 flex items-center gap-2"><span class="font-medium text-gray-900 dark:text-white">{{ key.name }}</span><span :class="['badge text-xs', key.status === 'active' ? 'badge-success' : 'badge-danger']">{{ key.status }}</span></div>
+              <div class="mb-1 flex items-center gap-2"><span class="font-medium text-gray-900 dark:text-white">{{ key.name }}</span><span :class="['badge text-xs', key.status === 'active' ? 'badge-success' : 'badge-danger']">{{ apiKeyStatusLabel(key.status) }}</span></div>
               <p class="truncate font-mono text-sm text-gray-500">{{ key.key.substring(0, 20) }}...{{ key.key.substring(key.key.length - 8) }}</p>
             </div>
           </div>
@@ -112,6 +112,7 @@ import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import { formatDateTime } from '@/utils/format'
 import type { AdminUser, AdminGroup, ApiKey } from '@/types'
+import { getApiKeyStatusLabelKey } from '@/utils/i18nLabels'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
@@ -120,6 +121,7 @@ const props = defineProps<{ show: boolean; user: AdminUser | null }>()
 const emit = defineEmits(['close'])
 const { t } = useI18n()
 const appStore = useAppStore()
+const apiKeyStatusLabel = (value: string) => t(getApiKeyStatusLabelKey(value), { value })
 
 const apiKeys = ref<ApiKey[]>([])
 const allGroups = ref<AdminGroup[]>([])

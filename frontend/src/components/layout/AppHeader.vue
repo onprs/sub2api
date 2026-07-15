@@ -112,7 +112,7 @@
                 {{ displayName }}
               </div>
               <div class="text-xs capitalize text-gray-500 dark:text-dark-400">
-                {{ user.role }}
+                {{ userRoleLabel }}
               </div>
             </div>
             <Icon name="chevronDown" size="sm" class="hidden text-gray-400 md:block" />
@@ -250,6 +250,7 @@ import SubscriptionProgressMini from '@/components/common/SubscriptionProgressMi
 import AnnouncementBell from '@/components/common/AnnouncementBell.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { sanitizeUrl } from '@/utils/url'
+import { getUserRoleLabelKey } from '@/utils/i18nLabels'
 
 const router = useRouter()
 const route = useRoute()
@@ -295,6 +296,11 @@ const userInitials = computed(() => {
 const displayName = computed(() => {
   if (!user.value) return ''
   return user.value.username || user.value.email?.split('@')[0] || ''
+})
+
+const userRoleLabel = computed(() => {
+  const role = user.value?.role
+  return role ? t(getUserRoleLabelKey(role), { value: role }) : ''
 })
 
 const pageTitle = computed(() => {

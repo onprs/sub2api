@@ -100,7 +100,7 @@
           <div class="max-h-48 space-y-2 overflow-y-auto">
             <div v-for="log in orderAuditLogs" :key="log.id" class="rounded-lg border border-gray-100 bg-gray-50 p-2.5 dark:border-dark-600 dark:bg-dark-800">
               <div class="flex items-center justify-between">
-                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ log.action }}</span>
+                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ paymentAuditActionLabel(log.action) }}</span>
                 <span class="text-xs text-gray-400">{{ formatDateTime(log.created_at) }}</span>
               </div>
               <div v-if="log.detail" class="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">{{ log.detail }}</div>
@@ -121,6 +121,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminPaymentAPI } from '@/api/admin/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
+import { getPaymentAuditActionLabelKey } from '@/utils/i18nLabels'
 import { formatOrderDateTime } from '@/components/payment/orderUtils'
 import type { PaymentOrder } from '@/types/payment'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -156,6 +157,10 @@ const refundSubmitting = ref(false)
 const refundQueryingIds = ref(new Set<number>())
 const orderAuditLogs = ref<AuditLog[]>([])
 const creditedAmountSymbol = currencySymbol('USD')
+
+function paymentAuditActionLabel(value: string): string {
+  return t(getPaymentAuditActionLabelKey(value), { value })
+}
 
 function paymentAmountSymbol(order: PaymentOrder | null | undefined): string {
   return currencySymbol(order?.currency)

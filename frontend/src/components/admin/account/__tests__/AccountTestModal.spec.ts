@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AccountTestModal from '../AccountTestModal.vue'
+import { testLocale } from '@/i18n/__tests__/testTranslator'
 
 const { getAvailableModels, copyToClipboard } = vi.hoisted(() => ({
   getAvailableModels: vi.fn(),
@@ -23,19 +24,10 @@ vi.mock('@/composables/useClipboard', () => ({
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
-  const messages: Record<string, string> = {
-    'admin.accounts.imagePromptDefault': 'Generate a cute orange cat astronaut sticker on a clean pastel background.'
-  }
+  const { translateLocaleMessage } = await import('@/i18n/__tests__/testTranslator')
   return {
     ...actual,
-    useI18n: () => ({
-      t: (key: string, params?: Record<string, string | number>) => {
-        if (key === 'admin.accounts.imageReceived' && params?.count) {
-          return `received-${params.count}`
-        }
-        return messages[key] || key
-      }
-    })
+    useI18n: () => ({ t: translateLocaleMessage })
   }
 })
 
@@ -88,6 +80,7 @@ function mountModal(account: Record<string, unknown> = {
 
 describe('AccountTestModal', () => {
   beforeEach(() => {
+    testLocale.value = 'en'
     getAvailableModels.mockResolvedValue([
       { id: 'gemini-2.0-flash', display_name: 'Gemini 2.0 Flash' },
       { id: 'gemini-2.5-flash-image', display_name: 'Gemini 2.5 Flash Image' },
@@ -116,6 +109,33 @@ describe('AccountTestModal', () => {
     vi.restoreAllMocks()
   })
 
+  it('renders account type and status labels from the active locale', () => {
+    const english = mountModal({
+      id: 7,
+      name: 'English Account',
+      platform: 'anthropic',
+      type: 'setup-token',
+      status: 'error'
+    })
+
+    expect(english.text()).toContain('Setup Token')
+    expect(english.text()).toContain('Error')
+    expect(english.text()).not.toContain('setup-token')
+
+    testLocale.value = 'zh'
+    const chinese = mountModal({
+      id: 8,
+      name: 'Chinese Account',
+      platform: 'gemini',
+      type: 'service_account',
+      status: 'inactive'
+    })
+
+    expect(chinese.text()).toContain('服务账号')
+    expect(chinese.text()).toContain('停用')
+    expect(chinese.text()).not.toContain('service_account')
+  })
+
   it('gemini 图片模型测试会携带提示词并渲染图片预览', async () => {
     const wrapper = mountModal()
     await wrapper.setProps({ show: true })
@@ -126,7 +146,7 @@ describe('AccountTestModal', () => {
     await promptInput.setValue('draw a tiny orange cat astronaut')
 
     const buttons = wrapper.findAll('button')
-    const startButton = buttons.find((button) => button.text().includes('admin.accounts.startTest'))
+    const startButton = buttons.at(-1)
     expect(startButton).toBeTruthy()
 
     await startButton!.trigger('click')
@@ -169,7 +189,7 @@ describe('AccountTestModal', () => {
     await flushPromises()
 
     const buttons = wrapper.findAll('button')
-    const startButton = buttons.find((button) => button.text().includes('admin.accounts.startTest'))
+    const startButton = buttons.at(-1)
     expect(startButton).toBeTruthy()
 
     await startButton!.trigger('click')

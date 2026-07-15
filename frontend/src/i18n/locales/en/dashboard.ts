@@ -135,6 +135,25 @@ export default {
       note: 'These environment variables will be active in the current terminal session. For permanent configuration, add them to ~/.bashrc, ~/.zshrc, or the appropriate configuration file.',
       noGroupTitle: 'Please assign a group first',
       noGroupDescription: 'This API key has not been assigned to a group. Please click the group column in the key list to assign one before viewing the configuration.',
+      cliImport: {
+        keyName: 'API Key',
+        group: 'Group',
+        endpoint: 'Endpoint',
+        defaultModel: 'Default Model',
+        downloadWindows: 'Download for Windows',
+        downloadLinux: 'Download for macOS/Linux',
+        unknownKey: 'Unknown key',
+        noGroup: 'No group',
+        notConfigured: 'Not configured',
+        disabled: {
+          noKey: 'API key data is unavailable',
+          noGroup: 'Assign a group before downloading the import script',
+          expired: 'This API key has expired',
+          quotaExhausted: 'This API key quota is exhausted',
+          inactive: 'This API key is inactive'
+        },
+        downloadFailed: 'Failed to download the import script'
+      },
       openai: {
         description: 'Add the following configuration files to your Codex CLI config directory.',
         configTomlHint: 'Make sure the following content is at the beginning of the config.toml file',
@@ -164,6 +183,9 @@ export default {
         title: 'OpenCode Example',
         subtitle: 'opencode.json',
         hint: 'Config path: ~/.config/opencode/opencode.json (or opencode.jsonc), create if not exists. Use default providers (openai/anthropic/google) or custom provider_id. API Key can be configured directly or via /connect command. This is an example, adjust models and options as needed.',
+      },
+      opencodeGo: {
+        description: 'Import this API key into OpenCode for an OpenCode Go group.'
       },
     },
     customKeyLabel: 'Custom Key',

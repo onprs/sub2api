@@ -32,7 +32,7 @@
               : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
           ]"
         >
-          {{ account.status }}
+          {{ accountStatusLabel(account.status) }}
         </span>
       </div>
 
@@ -469,6 +469,7 @@ import EndpointDistributionChart from '@/components/charts/EndpointDistributionC
 import Icon from '@/components/icons/Icon.vue'
 import { adminAPI } from '@/api/admin'
 import type { Account, AccountUsageStatsResponse } from '@/types'
+import { getAccountStatusLabelKey } from '@/utils/i18nLabels'
 
 ChartJS.register(
   CategoryScale,
@@ -482,6 +483,7 @@ ChartJS.register(
 )
 
 const { t } = useI18n()
+const accountStatusLabel = (value: string) => t(getAccountStatusLabelKey(value), { value })
 
 const props = defineProps<{
   show: boolean

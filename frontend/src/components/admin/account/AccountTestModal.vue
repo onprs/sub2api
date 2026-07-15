@@ -23,7 +23,7 @@
               <span
                 class="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium uppercase dark:bg-dark-500"
               >
-                {{ account.type }}
+                {{ accountTypeLabel(account.type) }}
               </span>
               <span>{{ t('admin.accounts.account') }}</span>
             </div>
@@ -37,7 +37,7 @@
               : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
           ]"
         >
-          {{ account.status }}
+          {{ accountStatusLabel(account.status) }}
         </span>
       </div>
 
@@ -252,9 +252,13 @@ import { useClipboard } from '@/composables/useClipboard'
 import { buildApiUrl } from '@/api/client'
 import { adminAPI } from '@/api/admin'
 import type { Account, ClaudeModel } from '@/types'
+import { getAccountStatusLabelKey, getAccountTypeLabelKey } from '@/utils/i18nLabels'
 
 const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
+
+const accountTypeLabel = (value: string) => t(getAccountTypeLabelKey(value), { value })
+const accountStatusLabel = (value: string) => t(getAccountStatusLabelKey(value), { value })
 
 interface OutputLine {
   text: string
@@ -410,7 +414,7 @@ const startTest = async () => {
   resetState()
   status.value = 'connecting'
   addLine(t('admin.accounts.startingTestForAccount', { name: props.account.name }), 'text-blue-400')
-  addLine(t('admin.accounts.testAccountTypeLabel', { type: props.account.type }), 'text-gray-400')
+  addLine(t('admin.accounts.testAccountTypeLabel', { type: accountTypeLabel(props.account.type) }), 'text-gray-400')
   addLine('', 'text-gray-300')
 
   abortStream()

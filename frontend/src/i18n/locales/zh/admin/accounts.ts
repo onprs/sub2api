@@ -77,9 +77,6 @@ export default {
       crsBack: '返回',
       editAccount: '编辑账号',
       deleteAccount: '删除账号',
-      deleteConfirmMessage: "确定要删除账号 '{name}' 吗？",
-      refreshCookie: '刷新 Cookie',
-      testAccount: '测试账号',
       searchAccounts: '搜索账号...',
       notes: '备注',
       notesPlaceholder: '请输入备注',
@@ -227,6 +224,11 @@ export default {
       },
       types: {
         oauth: 'OAuth',
+        'setup-token': 'Setup Token',
+        apikey: 'API Key',
+        upstream: '对接上游',
+        bedrock: 'AWS Bedrock',
+        service_account: '服务账号',
         chatgptOauth: 'ChatGPT OAuth',
         responsesApi: 'Responses API',
         googleOauth: 'Google OAuth',
@@ -234,10 +236,7 @@ export default {
         antigravityOauth: 'Antigravity OAuth',
         grokOauth: 'Grok OAuth',
         antigravityApikey: '通过 Base URL + API Key 连接',
-        upstream: '对接上游',
-        upstreamDesc: '通过 Base URL + API Key 连接上游',
-        api_key: 'API Key',
-        cookie: 'Cookie'
+        upstreamDesc: '通过 Base URL + API Key 连接上游'
       },
       antigravityProjectIdLabel: 'GCP Project ID（可选）',
       antigravityProjectIdPlaceholder: 'your-gcp-project-id',
@@ -329,7 +328,8 @@ export default {
         grokLastProbe: '探测 {time}',
         grokLastHeadersSeen: '响应头 {time}',
         passiveSampled: '被动采样',
-        activeQuery: '查询'
+        activeQuery: '查询',
+        estimatedData: '根据当前可用的上游用量数据估算'
       },
       openaiQuotaReset: {
         count: '次数',
@@ -371,37 +371,7 @@ export default {
       needsReauth: '需要重新授权',
       rateLimited: '限流中',
       usageError: '获取失败',
-      form: {
-        nameLabel: '账号名称',
-        namePlaceholder: '请输入账号名称',
-        platformLabel: '平台',
-        selectPlatform: '选择平台',
-        typeLabel: '类型',
-        selectType: '选择类型',
-        credentialsLabel: '凭证',
-        credentialsPlaceholder: '请输入 Cookie 或 API Key',
-        priorityLabel: '优先级',
-        priorityHint: '数值越小优先级越高',
-        weightLabel: '权重',
-        weightHint: '用于负载均衡的权重值',
-        statusLabel: '状态'
-      },
-      filters: {
-        platform: '平台',
-        allPlatforms: '全部平台',
-        type: '类型',
-        allTypes: '全部类型',
-        status: '状态',
-        allStatuses: '全部状态'
-      },
-      saving: '保存中...',
-      refreshing: '刷新中...',
       testing: '测试中...',
-      noAccounts: '暂无账号',
-      noAccountsDescription: '添加 AI 平台账号以开始使用 API 网关。',
-      accountCreatedSuccess: '账号添加成功',
-      accountUpdatedSuccess: '账号更新成功',
-      accountDeletedSuccess: '账号删除成功',
       bulkSchedulableEnabled: '成功启用 {count} 个账号的调度',
       bulkSchedulableDisabled: '成功停止 {count} 个账号的调度',
       bulkSchedulablePartial: '部分调度更新成功：成功 {success} 个，失败 {failed} 个',
@@ -416,6 +386,7 @@ export default {
         disableScheduling: '批量停止调度',
         resetStatus: '批量重置状态',
         refreshToken: '批量刷新令牌',
+        copyModelMapping: '复制模型映射',
         resetStatusSuccess: '已成功重置 {count} 个账号状态',
         refreshTokenSuccess: '已成功刷新 {count} 个账号令牌',
         partialSuccess: '操作部分完成：{success} 成功，{failed} 失败'
@@ -433,6 +404,24 @@ export default {
         noSelection: '请选择要编辑的账号',
         noFieldsSelected: '请至少选择一个要更新的字段',
         mixedPlatformWarning: '所选账号跨越多个平台（{platforms}）。显示的模型映射预设为合并结果——请确保映射对每个平台都适用。'
+      },
+      copyModelMapping: {
+        title: '复制模型映射',
+        warning: '所选目标账号的现有模型映射将被替换。',
+        targetCount: '{count} 个目标账号',
+        sourceAccount: '源账号',
+        sourcePlaceholder: '选择要复制的源账号',
+        noSourceAccounts: '没有可用的同平台源账号',
+        mappingCount: '{count} 条映射',
+        copying: '复制中...',
+        submit: '复制映射',
+        loadFailed: '加载源账号失败',
+        emptySourceError: '所选源账号没有模型映射',
+        noSelection: '请至少选择一个目标账号',
+        mixedPlatformError: '所选账号必须属于同一平台',
+        success: '已复制模型映射到 {count} 个账号',
+        partialSuccess: '部分复制成功：成功 {success} 个，失败 {failed} 个',
+        failed: '复制模型映射失败'
       },
       bulkDeleteTitle: '批量删除账号',
       bulkDeleteConfirm: '确定要删除选中的 {count} 个账号吗？此操作无法撤销。',
@@ -455,11 +444,8 @@ export default {
       resetStatus: '重置状态',
       statusReset: '账号状态已重置',
       failedToResetStatus: '重置账号状态失败',
-      cookieRefreshedSuccess: 'Cookie 刷新成功',
-      testSuccess: '账号测试通过',
       testFailed: '账号测试失败',
       failedToLoad: '加载账号列表失败',
-      failedToSave: '保存账号失败',
       failedToDelete: '删除账号失败',
       failedToRefresh: '刷新 Cookie 失败',
       // Create/Edit Account Modal
@@ -593,6 +579,10 @@ export default {
         baseUrlHint: 'Grok OAuth 账号会转发到官方 xAI API Base URL。',
         apiKeyHint: 'Grok 订阅支持使用 OAuth refresh token；API Key 账号不在本次范围内。'
       },
+      opencodeGo: {
+        baseUrlHint: '除非部署使用兼容中继，否则请保留 OpenCode Go 官方 API Root。',
+        apiKeyHint: '请输入 OpenCode Go 签发的 API Key。'
+      },
       anthropic: {
         apiKeyPassthrough: '自动透传（仅替换认证）',
         apiKeyPassthroughDesc:
@@ -617,6 +607,8 @@ export default {
       supportsAllModels: '（支持所有模型）',
       requestModel: '请求模型',
       actualModel: '实际模型',
+      fromModel: '源模型',
+      toModel: '目标模型',
       addMapping: '添加映射',
       mappingExists: '模型 {model} 的映射已存在',
       wildcardOnlyAtEnd: '通配符 * 只能放在末尾',
@@ -794,6 +786,9 @@ export default {
       creating: '创建中...',
       updating: '更新中...',
       accountCreated: '账号创建成功',
+      messages: {
+        accountCreated: '账号创建成功'
+      },
       accountUpdated: '账号更新成功',
       failedToCreate: '创建账号失败',
       failedToUpdate: '更新账号失败',
@@ -904,6 +899,8 @@ export default {
               '未设置代理，当前服务器无法直连 OpenAI，导致 OpenAI OAuth 请求失败。请先选择可访问 OpenAI 的代理后重试；如果授权码已失效，请重新生成授权链接。'
           },
           // Refresh Token auth
+          mobileRefreshTokenAuth: '移动端 Refresh Token',
+          accessTokenAuth: 'Access Token',
           refreshTokenAuth: '手动输入 RT',
           refreshTokenDesc: '输入您已有的 OpenAI Refresh Token，支持批量输入（每行一个），系统将自动验证并创建账号。',
           refreshTokenPlaceholder: '粘贴您的 OpenAI Refresh Token...\n支持多个，每行一个',
