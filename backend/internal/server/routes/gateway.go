@@ -144,7 +144,7 @@ func RegisterGatewayRoutes(
 		// OpenAI Responses API: auto-route based on group platform
 		gateway.POST("/responses", func(c *gin.Context) {
 			if getGroupPlatform(c) == service.PlatformOpenCodeGo {
-				writeOpenCodeGoResponsesUnsupported(c)
+				h.OpenCodeGo.Responses(c)
 				return
 			}
 			if isOpenAIResponsesCompatibleGatewayPlatform(c) {
@@ -155,7 +155,7 @@ func RegisterGatewayRoutes(
 		})
 		gateway.POST("/responses/*subpath", func(c *gin.Context) {
 			if getGroupPlatform(c) == service.PlatformOpenCodeGo {
-				writeOpenCodeGoResponsesUnsupported(c)
+				writeOpenCodeGoResponsesSubpathUnsupported(c)
 				return
 			}
 			if isOpenAIResponsesCompatibleGatewayPlatform(c) {
@@ -166,7 +166,7 @@ func RegisterGatewayRoutes(
 		})
 		gateway.GET("/responses", func(c *gin.Context) {
 			if getGroupPlatform(c) == service.PlatformOpenCodeGo {
-				writeOpenCodeGoResponsesUnsupported(c)
+				writeOpenCodeGoResponsesWebSocketUnsupported(c)
 				return
 			}
 			h.OpenAIGateway.ResponsesWebSocket(c)
@@ -224,13 +224,19 @@ func RegisterGatewayRoutes(
 		gemini.GET("/models", h.Gateway.GeminiV1BetaListModels)
 		gemini.GET("/models/:model", h.Gateway.GeminiV1BetaGetModel)
 		// Gin treats ":" as a param marker, but Gemini uses "{model}:{action}" in the same segment.
-		gemini.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
+		gemini.POST("/models/*modelAction", func(c *gin.Context) {
+			if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+				h.OpenCodeGo.GoogleGenAI(c)
+				return
+			}
+			h.Gateway.GeminiV1BetaModels(c)
+		})
 	}
 
 	// OpenAI Responses API（不带v1前缀的别名）— auto-route based on group platform
 	responsesHandler := func(c *gin.Context) {
 		if getGroupPlatform(c) == service.PlatformOpenCodeGo {
-			writeOpenCodeGoResponsesUnsupported(c)
+			h.OpenCodeGo.Responses(c)
 			return
 		}
 		if isOpenAIResponsesCompatibleGatewayPlatform(c) {
@@ -240,10 +246,16 @@ func RegisterGatewayRoutes(
 		h.Gateway.Responses(c)
 	}
 	r.POST("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, responsesHandler)
-	r.POST("/responses/*subpath", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, responsesHandler)
+	r.POST("/responses/*subpath", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+			writeOpenCodeGoResponsesSubpathUnsupported(c)
+			return
+		}
+		responsesHandler(c)
+	})
 	r.GET("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
 		if getGroupPlatform(c) == service.PlatformOpenCodeGo {
-			writeOpenCodeGoResponsesUnsupported(c)
+			writeOpenCodeGoResponsesWebSocketUnsupported(c)
 			return
 		}
 		h.OpenAIGateway.ResponsesWebSocket(c)
@@ -252,10 +264,16 @@ func RegisterGatewayRoutes(
 	codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
 	{
 		codexDirect.POST("/responses", responsesHandler)
-		codexDirect.POST("/responses/*subpath", responsesHandler)
+		codexDirect.POST("/responses/*subpath", func(c *gin.Context) {
+			if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+				writeOpenCodeGoResponsesSubpathUnsupported(c)
+				return
+			}
+			responsesHandler(c)
+		})
 		codexDirect.GET("/responses", func(c *gin.Context) {
 			if getGroupPlatform(c) == service.PlatformOpenCodeGo {
-				writeOpenCodeGoResponsesUnsupported(c)
+				writeOpenCodeGoResponsesWebSocketUnsupported(c)
 				return
 			}
 			h.OpenAIGateway.ResponsesWebSocket(c)
@@ -336,12 +354,22 @@ func getGroupPlatform(c *gin.Context) string {
 	return apiKey.Group.Platform
 }
 
-func writeOpenCodeGoResponsesUnsupported(c *gin.Context) {
+func writeOpenCodeGoResponsesWebSocketUnsupported(c *gin.Context) {
 	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 	c.JSON(http.StatusNotFound, gin.H{
 		"error": gin.H{
 			"type":    "not_found_error",
-			"message": "Responses API is not supported for this platform",
+			"message": "Responses WebSocket is not supported for this platform",
+		},
+	})
+}
+
+func writeOpenCodeGoResponsesSubpathUnsupported(c *gin.Context) {
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+	c.JSON(http.StatusNotFound, gin.H{
+		"error": gin.H{
+			"type":    "not_found_error",
+			"message": "This Responses subpath is not supported for this platform",
 		},
 	})
 }

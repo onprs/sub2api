@@ -958,9 +958,8 @@ export default {
         noFallback: '不降级（直接拒绝）'
       },
       openaiMessages: {
-        title: 'OpenAI Messages 调度配置',
-        allowDispatch: '允许 /v1/messages 调度',
-        allowDispatchHint: '启用后，此 OpenAI 分组的 API Key 可以通过 /v1/messages 端点调度请求',
+        title: 'OpenAI Messages 模型映射',
+        alwaysAvailableHint: 'OpenAI 分组始终接受 /v1/messages 生成与 token 计数请求；这里只配置 Claude 模型到上游模型的映射。',
         familyMappingTitle: '系列默认映射',
         familyMappingHint: '当请求命中 Opus、Sonnet、Haiku 系列时，会优先使用这里配置的目标模型。',
         opusModel: 'Opus 映射模型',

@@ -51,7 +51,11 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 
-	if !hasForcePlatform && isStandardGeminiIngressProvider(apiKey.Group.Platform) {
+	if !hasForcePlatform && apiKey.Group.Platform == service.PlatformAntigravity {
+		h.writeAntigravityGeminiMappedModels(c, apiKeyGroupIDFromContext(c))
+		return
+	}
+	if !hasForcePlatform && (isStandardGeminiIngressProvider(apiKey.Group.Platform) || apiKey.Group.Platform == service.PlatformOpenCodeGo) {
 		h.writeStandardGoogleIngressModels(c, apiKeyGroupIDFromContext(c), apiKey.Group.Platform)
 		return
 	}
@@ -181,7 +185,24 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		return
 	}
 
-	if !hasForcePlatform && isStandardGeminiIngressProvider(apiKey.Group.Platform) {
+	if !hasForcePlatform && apiKey.Group.Platform == service.PlatformAntigravity {
+		available := false
+		if h != nil && h.gatewayService != nil {
+			for _, model := range h.gatewayService.GetAntigravityMappedModels(c.Request.Context(), apiKeyGroupIDFromContext(c), service.AntigravityModelsProtocolGemini) {
+				if strings.TrimPrefix(strings.TrimSpace(model), "models/") == strings.TrimPrefix(modelName, "models/") {
+					available = true
+					break
+				}
+			}
+		}
+		if !available {
+			googleError(c, http.StatusNotFound, "Model not found")
+			return
+		}
+		c.JSON(http.StatusOK, antigravity.FallbackGeminiModel(modelName))
+		return
+	}
+	if !hasForcePlatform && (isStandardGeminiIngressProvider(apiKey.Group.Platform) || apiKey.Group.Platform == service.PlatformOpenCodeGo) {
 		if !h.standardGoogleIngressModelAvailable(c, apiKeyGroupIDFromContext(c), apiKey.Group.Platform, modelName) {
 			googleError(c, http.StatusNotFound, "Model not found")
 			return
@@ -659,7 +680,12 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 }
 
 func supportsStandardGeminiIngress(platform string) bool {
-	return platform == service.PlatformGemini || isStandardGeminiIngressProvider(platform)
+	switch platform {
+	case service.PlatformGemini, service.PlatformOpenAI, service.PlatformAnthropic, service.PlatformAntigravity, service.PlatformOpenCodeGo:
+		return true
+	default:
+		return false
+	}
 }
 
 func isStandardGeminiIngressProvider(platform string) bool {

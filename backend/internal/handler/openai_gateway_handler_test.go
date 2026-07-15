@@ -447,58 +447,68 @@ func TestResolveOpenAIMessagesDispatchMappedModel(t *testing.T) {
 	})
 }
 
-func TestOpenAIGatewayMessagesDispatchGateAllowsGrokGroups(t *testing.T) {
+func TestOpenAIGatewayMessagesIgnoresLegacyDispatchGate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	t.Run("openai_group_without_dispatch_flag_is_rejected", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(rec)
-		c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}]}`))
-		groupID := int64(4101)
-		c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
-			ID:      5101,
-			GroupID: &groupID,
-			User:    &service.User{ID: 6101},
-			Group: &service.Group{
-				ID:                    groupID,
-				Platform:              service.PlatformOpenAI,
-				AllowMessagesDispatch: false,
-			},
+	for _, tc := range []struct {
+		name     string
+		platform string
+		model    string
+	}{
+		{name: "openai", platform: service.PlatformOpenAI, model: "gpt-5.4"},
+		{name: "grok", platform: service.PlatformGrok, model: "grok-4.3"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"`+tc.model+`","messages":[{"role":"user","content":"hi"}]}`))
+			groupID := int64(4101)
+			c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+				ID:      5101,
+				GroupID: &groupID,
+				User:    &service.User{ID: 6101},
+				Group: &service.Group{
+					ID:                    groupID,
+					Platform:              tc.platform,
+					AllowMessagesDispatch: false,
+				},
+			})
+			c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 6101, Concurrency: 1})
+
+			h := &OpenAIGatewayHandler{}
+			h.Messages(c)
+
+			require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+			require.Equal(t, "api_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+			require.NotContains(t, rec.Body.String(), "This group does not allow /v1/messages dispatch")
 		})
-		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 6101, Concurrency: 1})
+	}
+}
 
-		h := &OpenAIGatewayHandler{}
-		h.Messages(c)
-
-		require.Equal(t, http.StatusForbidden, rec.Code)
-		require.Equal(t, "permission_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
-		require.Contains(t, rec.Body.String(), "This group does not allow /v1/messages dispatch")
+func TestOpenAIGatewayCountTokensIgnoresLegacyDispatchGate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}]}`))
+	groupID := int64(4102)
+	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+		ID:      5102,
+		GroupID: &groupID,
+		User:    &service.User{ID: 6102},
+		Group: &service.Group{
+			ID:                    groupID,
+			Platform:              service.PlatformOpenAI,
+			AllowMessagesDispatch: false,
+		},
 	})
+	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 6102, Concurrency: 1})
 
-	t.Run("grok_group_without_dispatch_flag_reaches_gateway_dependencies", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(rec)
-		c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"grok-4.3","messages":[{"role":"user","content":"hi"}]}`))
-		groupID := int64(4102)
-		c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
-			ID:      5102,
-			GroupID: &groupID,
-			User:    &service.User{ID: 6102},
-			Group: &service.Group{
-				ID:                    groupID,
-				Platform:              service.PlatformGrok,
-				AllowMessagesDispatch: false,
-			},
-		})
-		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 6102, Concurrency: 1})
+	h := &OpenAIGatewayHandler{}
+	h.CountTokens(c)
 
-		h := &OpenAIGatewayHandler{}
-		h.Messages(c)
-
-		require.Equal(t, http.StatusServiceUnavailable, rec.Code)
-		require.Equal(t, "api_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
-		require.NotContains(t, rec.Body.String(), "This group does not allow /v1/messages dispatch")
-	})
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	require.Equal(t, "api_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+	require.NotContains(t, rec.Body.String(), "This group does not allow /v1/messages dispatch")
 }
 
 func TestOpenAIModelMappedBody(t *testing.T) {
