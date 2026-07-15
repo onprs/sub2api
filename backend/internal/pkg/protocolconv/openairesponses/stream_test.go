@@ -5,6 +5,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/ir"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestStreamDecoderAllowsInProgressAfterCreated(t *testing.T) {
@@ -17,6 +18,51 @@ func TestStreamDecoderAllowsInProgressAfterCreated(t *testing.T) {
 	events, _, err = decoder.Decode([]byte(`{"type":"response.in_progress","response":{"id":"resp-1","object":"response","model":"model","status":"in_progress","output":[]}}`))
 	require.NoError(t, err)
 	require.Empty(t, events)
+}
+
+func TestStreamDecoderPreservesReasoningSignatureFromCompletedItem(t *testing.T) {
+	decoder := newStreamDecoder()
+	payloads := [][]byte{
+		[]byte(`{"type":"response.created","response":{"id":"resp-1","model":"model","status":"in_progress"}}`),
+		[]byte(`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"reasoning-1","encrypted_content":"sig-added"}}`),
+		[]byte(`{"type":"response.reasoning_summary_text.delta","output_index":0,"delta":"plan"}`),
+		[]byte(`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"reasoning-1","encrypted_content":"sig-done","summary":[{"type":"summary_text","text":"plan"}]}}`),
+	}
+	var events []ir.StreamEvent
+	for _, payload := range payloads {
+		out, _, err := decoder.Decode(payload)
+		require.NoError(t, err)
+		events = append(events, out...)
+	}
+	require.Equal(t, []ir.StreamEventType{
+		ir.EventStreamStart, ir.EventContentBlockStart, ir.EventReasoningDelta,
+		ir.EventReasoningDelta, ir.EventContentBlockEnd,
+	}, streamEventTypes(events))
+	require.Equal(t, "plan", events[2].Reasoning)
+	require.Equal(t, "sig-done", events[3].Signature)
+}
+
+func TestStreamEncoderPreservesSignatureOnlyReasoningDelta(t *testing.T) {
+	encoder := newStreamEncoder()
+	sequence := []ir.StreamEvent{
+		{Type: ir.EventStreamStart, ResponseID: "resp-1", Model: "model"},
+		{Type: ir.EventContentBlockStart, BlockIndex: 0, BlockType: ir.ContentReasoning},
+		{Type: ir.EventReasoningDelta, BlockIndex: 0, Reasoning: "plan"},
+		{Type: ir.EventReasoningDelta, BlockIndex: 0, Signature: "sig-1"},
+		{Type: ir.EventContentBlockEnd, BlockIndex: 0},
+	}
+	var payloads [][]byte
+	for _, event := range sequence {
+		out, warnings, err := encoder.Encode(event)
+		require.NoError(t, err)
+		require.Empty(t, warnings)
+		payloads = append(payloads, out...)
+	}
+	require.NotEmpty(t, payloads)
+	last := payloads[len(payloads)-1]
+	require.Equal(t, "response.output_item.done", gjson.GetBytes(last, "type").String())
+	require.Equal(t, "sig-1", gjson.GetBytes(last, "item.encrypted_content").String())
+	require.Equal(t, "plan", gjson.GetBytes(last, "item.summary.0.text").String())
 }
 
 func TestStreamDecoderSynthesizesSparseTextLifecycleAndTopLevelUsage(t *testing.T) {

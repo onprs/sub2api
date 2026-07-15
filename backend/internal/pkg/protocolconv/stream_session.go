@@ -15,6 +15,7 @@ type StreamSession struct {
 	state            *streamstate.Context
 	identityProtocol Protocol
 	metadataBridge   *providerMetadataBridge
+	warningSink      func([]Warning)
 }
 
 func newIdentityStreamSession(protocol Protocol) *StreamSession {
@@ -67,9 +68,12 @@ func (s *StreamSession) Convert(chunk []byte) ([][]byte, []Warning, error) {
 	}
 	events, warnings, err := s.decoder.Decode(chunk)
 	if err != nil {
+		s.recordWarnings(warnings)
 		return nil, warnings, err
 	}
-	return s.encode(events, warnings)
+	payloads, warnings, err := s.encode(events, warnings)
+	s.recordWarnings(warnings)
+	return payloads, warnings, err
 }
 
 // Finalize flushes source and target state. It does not invent a finish reason;
@@ -83,22 +87,33 @@ func (s *StreamSession) Finalize() ([][]byte, []Warning, error) {
 	}
 	events, warnings, err := s.decoder.Finalize()
 	if err != nil {
+		s.recordWarnings(warnings)
 		return nil, warnings, err
 	}
 	payloads, warnings, err := s.encode(events, warnings)
 	if err != nil {
+		s.recordWarnings(warnings)
 		return nil, warnings, err
 	}
 	final, finalWarnings, err := s.encoder.Finalize()
 	warnings = append(warnings, finalWarnings...)
 	payloads = append(payloads, final...)
 	if err != nil {
+		s.recordWarnings(warnings)
 		return nil, warnings, err
 	}
 	if !s.state.Ended() {
+		s.recordWarnings(warnings)
 		return nil, warnings, &Error{Code: ErrorInvalidStream, Message: "stream finalized without stream_end"}
 	}
+	s.recordWarnings(warnings)
 	return payloads, warnings, nil
+}
+
+func (s *StreamSession) recordWarnings(warnings []Warning) {
+	if s != nil && s.warningSink != nil && len(warnings) > 0 {
+		s.warningSink(warnings)
+	}
 }
 
 func (s *StreamSession) encode(events []ir.StreamEvent, warnings []Warning) ([][]byte, []Warning, error) {

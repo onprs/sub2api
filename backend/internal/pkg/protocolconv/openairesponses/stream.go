@@ -11,12 +11,13 @@ import (
 )
 
 type streamDecoder struct {
-	started bool
-	ended   bool
-	model   string
-	id      string
-	blocks  map[int]ir.ContentType
-	calls   map[int]struct{ id, name string }
+	started    bool
+	ended      bool
+	model      string
+	id         string
+	blocks     map[int]ir.ContentType
+	calls      map[int]struct{ id, name string }
+	signatures map[int]string
 }
 
 type streamEncoder struct {
@@ -39,7 +40,11 @@ type streamToolState struct {
 }
 
 func newStreamDecoder() *streamDecoder {
-	return &streamDecoder{blocks: map[int]ir.ContentType{}, calls: map[int]struct{ id, name string }{}}
+	return &streamDecoder{
+		blocks:     map[int]ir.ContentType{},
+		calls:      map[int]struct{ id, name string }{},
+		signatures: map[int]string{},
+	}
 }
 func newStreamEncoder() *streamEncoder {
 	return newStreamEncoderWithOptions(protocolconv.Options{})
@@ -89,6 +94,10 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 				call := d.calls[index]
 				out = append(out, ir.StreamEvent{Type: ir.EventToolCallEnd, BlockIndex: index, ToolCallIndex: index, ToolCallID: call.id})
 			}
+			if d.blocks[index] == ir.ContentReasoning && d.signatures[index] != "" {
+				out = append(out, ir.StreamEvent{Type: ir.EventReasoningDelta, BlockIndex: index, Signature: d.signatures[index]})
+				delete(d.signatures, index)
+			}
 			out = append(out, ir.StreamEvent{Type: ir.EventContentBlockEnd, BlockIndex: index})
 			delete(d.blocks, index)
 		}
@@ -113,6 +122,7 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 			out = append(out, ir.StreamEvent{Type: ir.EventContentBlockStart, BlockIndex: index, BlockType: ir.ContentText})
 		case "reasoning":
 			d.blocks[index] = ir.ContentReasoning
+			d.signatures[index] = event.Item.EncryptedContent
 			out = append(out, ir.StreamEvent{Type: ir.EventContentBlockStart, BlockIndex: index, BlockType: ir.ContentReasoning})
 		case "function_call":
 			d.blocks[index] = ir.ContentToolCall
@@ -144,10 +154,20 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 		}
 		out = append(out, ir.StreamEvent{Type: ir.EventToolCallDelta, BlockIndex: event.OutputIndex, ToolCallIndex: event.OutputIndex, ToolCallID: id, ArgumentsDelta: event.Delta})
 	case "response.output_item.done":
-		if _, ok := d.blocks[event.OutputIndex]; ok {
-			if d.blocks[event.OutputIndex] == ir.ContentToolCall {
+		if blockType, ok := d.blocks[event.OutputIndex]; ok {
+			if blockType == ir.ContentToolCall {
 				call := d.calls[event.OutputIndex]
 				out = append(out, ir.StreamEvent{Type: ir.EventToolCallEnd, BlockIndex: event.OutputIndex, ToolCallID: call.id})
+			}
+			if blockType == ir.ContentReasoning {
+				signature := d.signatures[event.OutputIndex]
+				if event.Item != nil && event.Item.EncryptedContent != "" {
+					signature = event.Item.EncryptedContent
+				}
+				if signature != "" {
+					out = append(out, ir.StreamEvent{Type: ir.EventReasoningDelta, BlockIndex: event.OutputIndex, Signature: signature})
+				}
+				delete(d.signatures, event.OutputIndex)
 			}
 			out = append(out, ir.StreamEvent{Type: ir.EventContentBlockEnd, BlockIndex: event.OutputIndex})
 			delete(d.blocks, event.OutputIndex)
@@ -246,15 +266,20 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 		events = append(events, x)
 	case ir.EventReasoningDelta:
 		if item := e.items[event.BlockIndex]; item != nil {
-			if len(item.Summary) == 0 {
-				item.Summary = []apicompat.ResponsesSummary{{Type: "summary_text"}}
+			if event.Reasoning != "" {
+				if len(item.Summary) == 0 {
+					item.Summary = []apicompat.ResponsesSummary{{Type: "summary_text"}}
+				}
+				item.Summary[0].Text += event.Reasoning
 			}
-			item.Summary[0].Text += event.Reasoning
+			item.EncryptedContent += event.Signature
 		}
-		x := makeEvent("response.reasoning_summary_text.delta")
-		x.OutputIndex = event.BlockIndex
-		x.Delta = event.Reasoning
-		events = append(events, x)
+		if event.Reasoning != "" {
+			x := makeEvent("response.reasoning_summary_text.delta")
+			x.OutputIndex = event.BlockIndex
+			x.Delta = event.Reasoning
+			events = append(events, x)
+		}
 	case ir.EventToolCallDelta:
 		tool := e.tools[event.BlockIndex]
 		if tool != nil {

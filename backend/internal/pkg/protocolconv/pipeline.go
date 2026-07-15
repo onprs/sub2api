@@ -12,6 +12,10 @@ type PipelineConfig struct {
 	Route   Route
 	Options Options
 
+	// ResponseOptions optionally overrides Options for buffered and streaming
+	// response conversion. Nil preserves the historical shared policy.
+	ResponseOptions *Options
+
 	// MetadataStore and MetadataScope are optional. When configured together,
 	// they bridge provider replay metadata only across this fully isolated scope.
 	MetadataStore MetadataStore
@@ -72,6 +76,10 @@ func NewPipeline(registry *Registry, config PipelineConfig) (*Pipeline, error) {
 	metadataBridge, err := newProviderMetadataBridge(config.MetadataStore, config.MetadataScope, config.Route)
 	if err != nil {
 		return nil, err
+	}
+	if config.ResponseOptions != nil {
+		responseOptions := *config.ResponseOptions
+		config.ResponseOptions = &responseOptions
 	}
 	return &Pipeline{registry: registry, config: config, metadataBridge: metadataBridge}, nil
 }
@@ -147,7 +155,7 @@ func (p *Pipeline) ConvertResponse(body []byte, actualUpstream Protocol) (Conver
 		return ConvertedResponse{}, err
 	}
 
-	options := p.options()
+	options := p.responseOptions()
 	var converted []byte
 	var warnings []Warning
 	var err error
@@ -196,13 +204,14 @@ func (p *Pipeline) NewStreamProcessor(actualUpstream Protocol) (*StreamSession, 
 	if actualUpstream == p.config.Route.Source {
 		return newIdentityStreamSession(actualUpstream), nil
 	}
-	session, err := p.registry.NewStreamSessionWithOptions(actualUpstream, p.config.Route.Source, p.options())
+	session, err := p.registry.NewStreamSessionWithOptions(actualUpstream, p.config.Route.Source, p.responseOptions())
 	if err != nil {
 		return nil, err
 	}
 	if p.metadataBridge != nil && actualUpstream == p.config.MetadataScope.Protocol {
 		session.metadataBridge = p.metadataBridge
 	}
+	session.warningSink = p.appendWarnings
 	return session, nil
 }
 
@@ -217,7 +226,17 @@ func (p *Pipeline) Warnings() []Warning {
 }
 
 func (p *Pipeline) options() Options {
-	options := p.config.Options
+	return p.optionsWithBase(p.config.Options)
+}
+
+func (p *Pipeline) responseOptions() Options {
+	if p.config.ResponseOptions == nil {
+		return p.options()
+	}
+	return p.optionsWithBase(*p.config.ResponseOptions)
+}
+
+func (p *Pipeline) optionsWithBase(options Options) Options {
 	if options.SourceModel == "" {
 		options.SourceModel = p.config.Route.UpstreamModel
 	}

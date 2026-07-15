@@ -896,8 +896,9 @@ func newOpenCodeGoPipelineRequest(
 		route.AccountID = account.ID
 	}
 	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
-		Route:   route,
-		Options: protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossError},
+		Route:           route,
+		Options:         protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossError},
+		ResponseOptions: &protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossWarn},
 	})
 	if err != nil {
 		return nil, nil, err

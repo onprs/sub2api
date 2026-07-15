@@ -10,9 +10,12 @@ import (
 )
 
 type streamDecoder struct {
-	bridge *apicompat.AnthropicEventToResponsesState
-	inner  protocolconv.StreamDecoder
-	ended  bool
+	bridge             *apicompat.AnthropicEventToResponsesState
+	inner              protocolconv.StreamDecoder
+	ended              bool
+	reasoningBlock     int
+	reasoningOutput    int
+	reasoningSignature string
 }
 
 type streamEncoder struct {
@@ -21,7 +24,12 @@ type streamEncoder struct {
 }
 
 func newStreamDecoder() *streamDecoder {
-	return &streamDecoder{bridge: apicompat.NewAnthropicEventToResponsesState(), inner: openairesponses.NewStreamDecoder()}
+	return &streamDecoder{
+		bridge:          apicompat.NewAnthropicEventToResponsesState(),
+		inner:           openairesponses.NewStreamDecoder(),
+		reasoningBlock:  -1,
+		reasoningOutput: -1,
+	}
 }
 
 func newStreamEncoder() *streamEncoder {
@@ -38,6 +46,28 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 	var wire apicompat.AnthropicStreamEvent
 	if err := json.Unmarshal(chunk, &wire); err != nil {
 		return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolAnthropic, Cause: err}
+	}
+	if wire.Type == "content_block_delta" && wire.Delta != nil && wire.Delta.Type == "signature_delta" {
+		if d.reasoningBlock >= 0 && wire.Index != nil && *wire.Index == d.reasoningBlock {
+			d.reasoningSignature += wire.Delta.Signature
+		}
+		return nil, nil, nil
+	}
+	if wire.Type == "content_block_start" && wire.ContentBlock != nil && wire.ContentBlock.Type == "thinking" && wire.Index != nil {
+		d.reasoningBlock = *wire.Index
+		d.reasoningOutput = d.bridge.OutputIndex
+		d.reasoningSignature = ""
+	}
+	if wire.Type == "content_block_stop" && d.reasoningBlock >= 0 && wire.Index != nil && *wire.Index == d.reasoningBlock {
+		var events []ir.StreamEvent
+		if d.reasoningSignature != "" {
+			events = append(events, ir.StreamEvent{Type: ir.EventReasoningDelta, BlockIndex: d.reasoningOutput, Signature: d.reasoningSignature})
+		}
+		converted, warnings, err := d.decodeResponses(apicompat.AnthropicEventToResponsesEvents(&wire, d.bridge))
+		d.reasoningBlock = -1
+		d.reasoningOutput = -1
+		d.reasoningSignature = ""
+		return append(events, converted...), warnings, err
 	}
 	return d.decodeResponses(apicompat.AnthropicEventToResponsesEvents(&wire, d.bridge))
 }

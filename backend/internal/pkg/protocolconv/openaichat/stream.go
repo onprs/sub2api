@@ -16,8 +16,9 @@ type streamDecoder struct {
 }
 
 type streamEncoder struct {
-	bridge *apicompat.ResponsesEventToChatState
-	inner  protocolconv.StreamEncoder
+	bridge  *apicompat.ResponsesEventToChatState
+	inner   protocolconv.StreamEncoder
+	options protocolconv.Options
 }
 
 func newStreamDecoder() *streamDecoder {
@@ -36,8 +37,9 @@ func newStreamEncoderWithOptions(options protocolconv.Options) *streamEncoder {
 	bridge.IncludeUsage = true
 	bridge.Model = options.ResponseModel
 	return &streamEncoder{
-		bridge: bridge,
-		inner:  openairesponses.NewStreamEncoderWithOptions(options),
+		bridge:  bridge,
+		inner:   openairesponses.NewStreamEncoderWithOptions(options),
+		options: options,
 	}
 }
 
@@ -86,7 +88,17 @@ func (d *streamDecoder) decodeResponses(responses []apicompat.ResponsesStreamEve
 }
 
 func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.Warning, error) {
+	var signatureWarnings []protocolconv.Warning
+	if event.Type == ir.EventReasoningDelta && event.Signature != "" {
+		path := "stream.reasoning.signature"
+		if e.options.LossPolicy == protocolconv.LossError {
+			return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorUnsupportedCapability, Protocol: protocolconv.ProtocolOpenAIChat, Capability: protocolconv.CapabilitySignature, Path: path, Message: "Chat Completions has no standard reasoning signature field"}
+		}
+		signatureWarnings = append(signatureWarnings, protocolconv.Warning{Code: protocolconv.WarningDroppedField, Protocol: protocolconv.ProtocolOpenAIChat, Capability: protocolconv.CapabilitySignature, Path: path, Message: "Chat Completions has no standard reasoning signature field"})
+		event.Signature = ""
+	}
 	responses, warnings, err := e.inner.Encode(event)
+	warnings = append(signatureWarnings, warnings...)
 	if err != nil {
 		return nil, warnings, err
 	}

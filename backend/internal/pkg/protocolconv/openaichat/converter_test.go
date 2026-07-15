@@ -18,6 +18,34 @@ func TestEncodeRequestRejectsSignatureInStrictMode(t *testing.T) {
 	require.Equal(t, protocolconv.CapabilitySignature, conversionErr.Capability)
 }
 
+func TestStreamEncoderRejectsReasoningSignatureInStrictMode(t *testing.T) {
+	encoder := newStreamEncoderWithOptions(protocolconv.Options{LossPolicy: protocolconv.LossError})
+	_, warnings, err := encoder.Encode(ir.StreamEvent{
+		Type: ir.EventReasoningDelta, BlockIndex: 0, Reasoning: "plan", Signature: "sig",
+	})
+	var conversionErr *protocolconv.Error
+	require.ErrorAs(t, err, &conversionErr)
+	require.Empty(t, warnings)
+	require.Equal(t, protocolconv.ErrorUnsupportedCapability, conversionErr.Code)
+	require.Equal(t, protocolconv.CapabilitySignature, conversionErr.Capability)
+	require.Equal(t, "stream.reasoning.signature", conversionErr.Path)
+}
+
+func TestStreamEncoderWarnsAndDropsReasoningSignature(t *testing.T) {
+	encoder := newStreamEncoderWithOptions(protocolconv.Options{LossPolicy: protocolconv.LossWarn})
+	payloads, warnings, err := encoder.Encode(ir.StreamEvent{
+		Type: ir.EventReasoningDelta, BlockIndex: 0, Reasoning: "plan", Signature: "sig",
+	})
+	require.NoError(t, err)
+	require.Len(t, warnings, 1)
+	require.Equal(t, protocolconv.WarningDroppedField, warnings[0].Code)
+	require.Equal(t, protocolconv.CapabilitySignature, warnings[0].Capability)
+	require.Len(t, payloads, 1)
+	require.Equal(t, "plan", gjson.GetBytes(payloads[0], "choices.0.delta.reasoning_content").String())
+	require.NotContains(t, string(payloads[0]), "sig")
+	require.NotContains(t, string(payloads[0]), "signature")
+}
+
 func TestRequestRoundTripPreservesMultimodalToolResult(t *testing.T) {
 	request := &ir.Request{
 		Model: "model",

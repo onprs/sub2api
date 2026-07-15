@@ -58,6 +58,80 @@ func TestPipelineBindsExplicitRouteAndRestoresClientModel(t *testing.T) {
 	require.Len(t, pipeline.Warnings(), 1)
 }
 
+func TestPipelineResponseOptionsOverrideRequestLossPolicy(t *testing.T) {
+	registry := NewRegistry()
+	source := &stubConverter{
+		protocol: ProtocolOpenAIChat,
+		decodeRequest: func([]byte) (*ir.Request, []Warning, error) {
+			return &ir.Request{Model: "client-model"}, nil, nil
+		},
+		encodeResponse: func(response *ir.Response, options Options) ([]byte, []Warning, error) {
+			require.Equal(t, LossWarn, options.LossPolicy)
+			require.Equal(t, "client-model", options.ResponseModel)
+			body, err := json.Marshal(response)
+			return body, []Warning{{Code: WarningDroppedField, Capability: CapabilitySignature}}, err
+		},
+	}
+	target := &stubConverter{
+		protocol: ProtocolAnthropic,
+		encodeRequest: func(_ *ir.Request, options Options) ([]byte, []Warning, error) {
+			require.Equal(t, LossError, options.LossPolicy)
+			return []byte(`{"model":"upstream-model"}`), nil, nil
+		},
+		decodeResponse: func([]byte) (*ir.Response, []Warning, error) {
+			return &ir.Response{Model: "upstream-model"}, nil, nil
+		},
+	}
+	require.NoError(t, registry.Register(source))
+	require.NoError(t, registry.Register(target))
+
+	responseOptions := Options{LossPolicy: LossWarn}
+	pipeline, err := NewPipeline(registry, PipelineConfig{
+		Route: Route{
+			Source:         ProtocolOpenAIChat,
+			IntendedTarget: ProtocolAnthropic,
+			ClientModel:    "client-model",
+			UpstreamModel:  "upstream-model",
+		},
+		Options:         Options{LossPolicy: LossError},
+		ResponseOptions: &responseOptions,
+	})
+	require.NoError(t, err)
+	responseOptions.LossPolicy = LossError
+	_, err = pipeline.ConvertRequest([]byte(`{"model":"client-model"}`))
+	require.NoError(t, err)
+
+	converted, err := pipeline.ConvertResponse([]byte(`{"model":"upstream-model"}`), ProtocolAnthropic)
+	require.NoError(t, err)
+	require.Len(t, converted.Warnings, 1)
+	require.Equal(t, WarningDroppedField, converted.Warnings[0].Code)
+	require.Equal(t, CapabilitySignature, converted.Warnings[0].Capability)
+}
+
+func TestPipelineResponseOptionsDefaultToRequestOptions(t *testing.T) {
+	registry := NewRegistry()
+	source := &stubConverter{
+		protocol: ProtocolOpenAIChat,
+		encodeResponse: func(response *ir.Response, options Options) ([]byte, []Warning, error) {
+			require.Equal(t, LossWarn, options.LossPolicy)
+			body, err := json.Marshal(response)
+			return body, nil, err
+		},
+	}
+	target := &stubConverter{protocol: ProtocolAnthropic}
+	require.NoError(t, registry.Register(source))
+	require.NoError(t, registry.Register(target))
+	pipeline, err := NewPipeline(registry, PipelineConfig{
+		Route:   Route{Source: ProtocolOpenAIChat, IntendedTarget: ProtocolAnthropic},
+		Options: Options{LossPolicy: LossWarn},
+	})
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{}`))
+	require.NoError(t, err)
+	_, err = pipeline.ConvertResponse([]byte(`{}`), ProtocolAnthropic)
+	require.NoError(t, err)
+}
+
 func TestPipelineIsOneShotEvenAfterRequestFailure(t *testing.T) {
 	registry := NewRegistry()
 	require.NoError(t, registry.Register(&stubConverter{protocol: ProtocolOpenAIChat}))

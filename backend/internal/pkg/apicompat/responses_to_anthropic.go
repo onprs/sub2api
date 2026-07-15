@@ -171,13 +171,14 @@ type ResponsesEventToAnthropicState struct {
 	MessageStartSent bool
 	MessageStopSent  bool
 
-	ContentBlockIndex   int
-	ContentBlockOpen    bool
-	CurrentBlockType    string // "text" | "thinking" | "tool_use"
-	CurrentToolName     string
-	CurrentToolArgs     string
-	CurrentToolHadDelta bool
-	HasToolCall         bool
+	ContentBlockIndex         int
+	ContentBlockOpen          bool
+	CurrentBlockType          string // "text" | "thinking" | "tool_use"
+	CurrentToolName           string
+	CurrentToolArgs           string
+	CurrentToolHadDelta       bool
+	CurrentReasoningSignature string
+	HasToolCall               bool
 
 	// OutputIndexToBlockIdx maps Responses output_index → Anthropic content block index.
 	OutputIndexToBlockIdx map[int]int
@@ -354,6 +355,7 @@ func resToAnthHandleOutputItemAdded(evt *ResponsesStreamEvent, state *ResponsesE
 		state.OutputIndexToBlockIdx[evt.OutputIndex] = idx
 		state.ContentBlockOpen = true
 		state.CurrentBlockType = "thinking"
+		state.CurrentReasoningSignature = evt.Item.EncryptedContent
 
 		events = append(events, AnthropicStreamEvent{
 			Type:  "content_block_start",
@@ -501,6 +503,10 @@ func resToAnthHandleOutputItemDone(evt *ResponsesStreamEvent, state *ResponsesEv
 		return nil
 	}
 
+	if evt.Item.Type == "reasoning" && evt.Item.EncryptedContent != "" {
+		state.CurrentReasoningSignature = evt.Item.EncryptedContent
+	}
+
 	// Handle web_search_call → synthesize server_tool_use + web_search_tool_result blocks.
 	if evt.Item.Type == "web_search_call" && evt.Item.Status == "completed" {
 		return resToAnthHandleWebSearchDone(evt, state)
@@ -627,13 +633,23 @@ func closeCurrentBlock(state *ResponsesEventToAnthropicState) []AnthropicStreamE
 		return nil
 	}
 	idx := state.ContentBlockIndex
+	var events []AnthropicStreamEvent
+	if state.CurrentBlockType == "thinking" && state.CurrentReasoningSignature != "" {
+		events = append(events, AnthropicStreamEvent{
+			Type:  "content_block_delta",
+			Index: &idx,
+			Delta: &AnthropicDelta{Type: "signature_delta", Signature: state.CurrentReasoningSignature},
+		})
+	}
 	state.ContentBlockOpen = false
 	state.ContentBlockIndex++
+	state.CurrentBlockType = ""
 	state.CurrentToolName = ""
 	state.CurrentToolArgs = ""
 	state.CurrentToolHadDelta = false
-	return []AnthropicStreamEvent{{
+	state.CurrentReasoningSignature = ""
+	return append(events, AnthropicStreamEvent{
 		Type:  "content_block_stop",
 		Index: &idx,
-	}}
+	})
 }

@@ -200,6 +200,140 @@ func TestPrepareOpenCodeGoMessagesCacheBody_StripsDriftingClientMessageAnchors(t
 	}
 }
 
+func TestNewOpenCodeGoPipelineRequestKeepsRequestSignatureLossStrict(t *testing.T) {
+	_, _, err := newOpenCodeGoPipelineRequest(
+		[]byte(`{"model":"minimax-m2.7","max_tokens":32,"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"plan","signature":"provider-signature"}]},{"role":"user","content":"continue"}]}`),
+		protocolconv.ProtocolAnthropic,
+		protocolconv.ProtocolOpenAIChat,
+		nil,
+		"minimax-m2.7",
+		"minimax-m2.7",
+	)
+	var conversionErr *protocolconv.Error
+	if !errors.As(err, &conversionErr) {
+		t.Fatalf("expected typed request conversion error, got %v", err)
+	}
+	if conversionErr.Code != protocolconv.ErrorUnsupportedCapability || conversionErr.Capability != protocolconv.CapabilitySignature {
+		t.Fatalf("expected strict signature loss error, got %+v", conversionErr)
+	}
+}
+
+func TestOpenCodeGoGatewayServiceBufferedAnthropicToChatDropsReasoningSignatureWithWarning(t *testing.T) {
+	svc := &OpenCodeGoGatewayService{cfg: &config.Config{}}
+	pipeline, _, err := newOpenCodeGoPipelineRequest(
+		[]byte(`{"model":"minimax-m2.7","messages":[{"role":"user","content":"hi"}],"stream":false}`),
+		protocolconv.ProtocolOpenAIChat,
+		protocolconv.ProtocolAnthropic,
+		nil,
+		"minimax-m2.7",
+		"minimax-m2.7",
+	)
+	if err != nil {
+		t.Fatalf("newOpenCodeGoPipelineRequest error: %v", err)
+	}
+	body := `{"id":"msg_minimax","type":"message","role":"assistant","model":"minimax-m2.7","content":[{"type":"thinking","thinking":"plan","signature":"provider-signature"},{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":4,"output_tokens":2}}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"rid_minimax"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", "")
+
+	result, err := svc.bufferAnthropicToChat(rec.Context, resp, pipeline, "minimax-m2.7", "minimax-m2.7", time.Now())
+	if err != nil {
+		t.Fatalf("bufferAnthropicToChat error: %v", err)
+	}
+	wire := rec.Recorder.Body.String()
+	if got := gjson.Get(wire, "choices.0.message.reasoning_content").String(); got != "plan" {
+		t.Fatalf("expected reasoning_content plan, got %q body=%s", got, wire)
+	}
+	if got := gjson.Get(wire, "choices.0.message.content").String(); got != "ok" {
+		t.Fatalf("expected visible content ok, got %q body=%s", got, wire)
+	}
+	if strings.Contains(wire, "provider-signature") || strings.Contains(wire, `"signature"`) {
+		t.Fatalf("Chat response must not expose Anthropic signature fields: %s", wire)
+	}
+	warnings := pipeline.Warnings()
+	if len(warnings) != 1 || warnings[0].Code != protocolconv.WarningDroppedField || warnings[0].Capability != protocolconv.CapabilitySignature {
+		t.Fatalf("expected one structured signature warning, got %+v", warnings)
+	}
+	if result == nil || result.RequestID != "rid_minimax" || result.Usage.InputTokens != 4 || result.Usage.OutputTokens != 2 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestOpenCodeGoGatewayServiceStreamingAnthropicToChatDropsReasoningSignatureWithWarning(t *testing.T) {
+	svc := &OpenCodeGoGatewayService{cfg: &config.Config{}}
+	pipeline, _, err := newOpenCodeGoPipelineRequest(
+		[]byte(`{"model":"minimax-m2.7","messages":[{"role":"user","content":"hi"}],"stream":true}`),
+		protocolconv.ProtocolOpenAIChat,
+		protocolconv.ProtocolAnthropic,
+		nil,
+		"minimax-m2.7",
+		"minimax-m2.7",
+	)
+	if err != nil {
+		t.Fatalf("newOpenCodeGoPipelineRequest error: %v", err)
+	}
+	upstreamBody := strings.Join([]string{
+		`event: message_start`,
+		`data: {"type":"message_start","message":{"id":"msg_minimax","type":"message","role":"assistant","model":"minimax-m2.7","content":[],"usage":{"input_tokens":4,"output_tokens":0}}}`,
+		"",
+		`event: content_block_start`,
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`,
+		"",
+		`event: content_block_delta`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"plan"}}`,
+		"",
+		`event: content_block_delta`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"provider-signature"}}`,
+		"",
+		`event: content_block_stop`,
+		`data: {"type":"content_block_stop","index":0}`,
+		"",
+		`event: content_block_start`,
+		`data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`,
+		"",
+		`event: content_block_delta`,
+		`data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"ok"}}`,
+		"",
+		`event: content_block_stop`,
+		`data: {"type":"content_block_stop","index":1}`,
+		"",
+		`event: message_delta`,
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}`,
+		"",
+		`event: message_stop`,
+		`data: {"type":"message_stop"}`,
+		"",
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid_minimax_stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", "")
+
+	result, err := svc.streamAnthropicToChat(rec.Context, resp, pipeline, "minimax-m2.7", "minimax-m2.7", time.Now())
+	if err != nil {
+		t.Fatalf("streamAnthropicToChat error: %v", err)
+	}
+	wire := rec.Recorder.Body.String()
+	if !strings.Contains(wire, `"reasoning_content":"plan"`) || !strings.Contains(wire, `"content":"ok"`) || !strings.Contains(wire, "data: [DONE]") {
+		t.Fatalf("expected completed Chat reasoning/text stream, got %s", wire)
+	}
+	if strings.Contains(wire, "provider-signature") || strings.Contains(wire, `"signature"`) {
+		t.Fatalf("Chat stream must not expose Anthropic signature fields: %s", wire)
+	}
+	warnings := pipeline.Warnings()
+	if len(warnings) != 1 || warnings[0].Code != protocolconv.WarningDroppedField || warnings[0].Capability != protocolconv.CapabilitySignature {
+		t.Fatalf("expected one structured signature warning, got %+v", warnings)
+	}
+	if result == nil || result.RequestID != "rid_minimax_stream" || result.Usage.InputTokens != 4 || result.Usage.OutputTokens != 2 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
 func TestOpenCodeGoGatewayServiceIdentityBufferedResponsePreservesRawJSON(t *testing.T) {
 	svc := &OpenCodeGoGatewayService{cfg: &config.Config{}}
 	pipeline, _, err := newOpenCodeGoPipelineRequest(

@@ -22,21 +22,25 @@ func TestStreamMatrixPreservesLifecycleAndSemantics(t *testing.T) {
 			for _, target := range protocolconv.StandardProtocols() {
 				target := target
 				t.Run(target.String(), func(t *testing.T) {
-					session, err := registry.NewStreamSession(source, target)
+					session, err := registry.NewStreamSessionWithOptions(source, target, protocolconv.Options{LossPolicy: protocolconv.LossWarn})
 					require.NoError(t, err)
 					var converted [][]byte
+					var warnings []protocolconv.Warning
 					for _, payload := range sourcePayloads {
-						out, _, err := session.Convert(payload)
+						out, chunkWarnings, err := session.Convert(payload)
 						require.NoError(t, err)
 						converted = append(converted, out...)
+						warnings = append(warnings, chunkWarnings...)
 					}
-					final, _, err := session.Finalize()
+					final, finalWarnings, err := session.Finalize()
 					require.NoError(t, err)
 					converted = append(converted, final...)
+					warnings = append(warnings, finalWarnings...)
 					require.NotEmpty(t, converted)
 
 					decoded := decodePayloads(t, registry, target, converted)
 					requireStreamSemantics(t, decoded)
+					requireStreamSignaturePolicy(t, source, target, decoded, warnings)
 				})
 			}
 		})
@@ -70,6 +74,9 @@ func encodeFixture(t *testing.T, registry *protocolconv.Registry, target protoco
 	converter, err := registry.Converter(target)
 	require.NoError(t, err)
 	encoder := converter.NewStreamEncoder()
+	if factory, ok := converter.(protocolconv.StreamFactoryWithOptions); ok {
+		encoder = factory.NewStreamEncoderWithOptions(protocolconv.Options{LossPolicy: protocolconv.LossWarn})
+	}
 	require.NotNil(t, encoder)
 	var payloads [][]byte
 	for _, event := range events {
@@ -136,6 +143,27 @@ func requireStreamSemantics(t *testing.T, events []ir.StreamEvent) {
 	require.Equal(t, 1, endCount)
 	require.NotNil(t, usage)
 	require.Equal(t, 60, usage.CacheReadTokens)
+}
+
+func requireStreamSignaturePolicy(t *testing.T, source, target protocolconv.Protocol, events []ir.StreamEvent, warnings []protocolconv.Warning) {
+	t.Helper()
+	if source == protocolconv.ProtocolOpenAIChat {
+		return
+	}
+	if target == protocolconv.ProtocolOpenAIChat {
+		for _, warning := range warnings {
+			if warning.Capability == protocolconv.CapabilitySignature {
+				return
+			}
+		}
+		t.Fatal("Chat stream conversion dropped a reasoning signature without warning")
+	}
+	for _, event := range events {
+		if event.Type == ir.EventReasoningDelta && event.Signature == "sig-1" {
+			return
+		}
+	}
+	t.Fatalf("target %s lost reasoning signature in stream conversion", target)
 }
 
 func streamFixture() []ir.StreamEvent {
