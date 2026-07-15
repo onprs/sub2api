@@ -102,6 +102,24 @@ func TestNativeResponsesProtocolOutputStreamBuffersPreambleAndRendersTerminal(t 
 	require.Equal(t, "data: [DONE]\n\n", wire[len(wire)-len("data: [DONE]\n\n"):])
 }
 
+func TestNativeResponsesProtocolOutputFirstOutputLimitIncludesSemanticEvent(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	pipeline := nativeResponsesOutputTestPipeline(t, "gpt-5", "gpt-5", true)
+	output, err := newNativeResponsesProtocolOutput(recorder, pipeline, "gpt-5", "gpt-5", true)
+	require.NoError(t, err)
+	require.NoError(t, output.WriteStreamHeaders(http.StatusOK, nil, protocolconv.ProtocolOpenAIResponses))
+
+	created := []byte(`{"type":"response.created","response":{"id":"resp_limit","model":"gpt-5"}}`)
+	delta := []byte(`{"type":"response.output_text.delta","delta":"hello"}`)
+	output.enableFirstOutputGuard(int64(len(created) + len(delta) - 1))
+	require.NoError(t, output.WriteStreamEvent(protocolconv.ProtocolOpenAIResponses, created))
+
+	err = output.WriteStreamEvent(protocolconv.ProtocolOpenAIResponses, delta)
+	require.ErrorIs(t, err, errOpenAIFirstOutputStageLimit)
+	require.False(t, output.ClientOutputStarted())
+	require.Empty(t, recorder.Body.String())
+}
+
 func TestNativeResponsesProtocolOutputRejectsMalformedEventBeforeCommit(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	pipeline := nativeResponsesOutputTestPipeline(t, "client-model", "upstream-model", true)
@@ -499,6 +517,153 @@ func TestStructuredNativeResponsesPreambleKeepaliveUsesDownstreamIdle(t *testing
 	require.Equal(t, 1, result.usage.OutputTokens)
 	require.Contains(t, recorder.Body.String(), ":\n\n")
 	require.Contains(t, recorder.Body.String(), "event: response.completed")
+}
+
+func TestStructuredNativeResponsesFirstOutputTimeoutDoesNotLeakAttempt(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	pipeline := nativeResponsesOutputTestPipeline(t, "gpt-5", "gpt-5", true)
+	output, err := newNativeResponsesProtocolOutput(c.Writer, pipeline, "gpt-5", "gpt-5", true)
+	require.NoError(t, err)
+	reader, writer := io.Pipe()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       reader,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+			"X-Request-Id": []string{"rid-stalled-attempt"},
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		MaxLineSize:                     2048,
+		StreamKeepaliveInterval:         1,
+		OpenAIFirstOutputTimeoutSeconds: 2,
+	}}}
+
+	writerDone := make(chan struct{})
+	releaseWriter := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		defer func() { _ = writer.Close() }()
+		_, _ = io.WriteString(writer, `data: {"type":"response.created","response":{"id":"resp_stalled","model":"gpt-5"}}`+"\n\n")
+		<-releaseWriter
+	}()
+
+	started := time.Now()
+	result, err := svc.handleStructuredResponsesStreamWithReasoning(
+		context.Background(), resp, c, &Account{ID: 47, Platform: PlatformOpenAI},
+		started, "gpt-5", output, "low",
+	)
+	close(releaseWriter)
+	<-writerDone
+
+	require.NotNil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, failoverErr.SafeToFailoverAfterWrite)
+	require.Contains(t, string(failoverErr.ResponseBody), "first_output_timeout")
+	require.GreaterOrEqual(t, time.Since(started), 1900*time.Millisecond)
+	require.Less(t, time.Since(started), 3*time.Second)
+	require.False(t, output.ClientOutputStarted())
+	require.NotContains(t, recorder.Body.String(), "data:")
+	require.NotContains(t, recorder.Body.String(), "response.created")
+	require.Contains(t, recorder.Body.String(), ":\n\n")
+	require.Empty(t, recorder.Header().Values("X-Request-Id"))
+}
+
+func TestStructuredNativeResponsesStreamIntervalBeforeFirstOutputFailsOverWithoutLeak(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	pipeline := nativeResponsesOutputTestPipeline(t, "gpt-5", "gpt-5", true)
+	output, err := newNativeResponsesProtocolOutput(c.Writer, pipeline, "gpt-5", "gpt-5", true)
+	require.NoError(t, err)
+	reader, writer := io.Pipe()
+	resp := &http.Response{StatusCode: http.StatusOK, Body: reader, Header: http.Header{"Content-Type": []string{"text/event-stream"}}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		MaxLineSize:                     2048,
+		StreamDataIntervalTimeout:       1,
+		OpenAIFirstOutputTimeoutSeconds: 2,
+	}}}
+
+	writerDone := make(chan struct{})
+	releaseWriter := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		defer func() { _ = writer.Close() }()
+		_, _ = io.WriteString(writer, `data: {"type":"response.created","response":{"id":"resp_interval","model":"gpt-5"}}`+"\n\n")
+		<-releaseWriter
+	}()
+
+	started := time.Now()
+	result, err := svc.handleStructuredResponsesStreamWithReasoning(
+		context.Background(), resp, c, &Account{ID: 49, Platform: PlatformOpenAI},
+		started, "gpt-5", output, "low",
+	)
+	close(releaseWriter)
+	<-writerDone
+
+	require.NotNil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, failoverErr.SafeToFailoverAfterWrite)
+	require.Contains(t, string(failoverErr.ResponseBody), "stream data interval timeout before first output")
+	require.GreaterOrEqual(t, time.Since(started), 900*time.Millisecond)
+	require.Less(t, time.Since(started), 1800*time.Millisecond)
+	require.False(t, output.ClientOutputStarted())
+	require.Empty(t, recorder.Body.String())
+}
+
+func TestStructuredNativeResponsesFirstOutputDisarmsOnSemanticEvent(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	pipeline := nativeResponsesOutputTestPipeline(t, "gpt-5", "gpt-5", true)
+	output, err := newNativeResponsesProtocolOutput(c.Writer, pipeline, "gpt-5", "gpt-5", true)
+	require.NoError(t, err)
+	reader, writer := io.Pipe()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       reader,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+			"X-Request-Id": []string{"rid-semantic-attempt"},
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		MaxLineSize:                     2048,
+		StreamKeepaliveInterval:         1,
+		OpenAIFirstOutputTimeoutSeconds: 2,
+	}}}
+
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		defer func() { _ = writer.Close() }()
+		_, _ = io.WriteString(writer, `data: {"type":"response.created","response":{"id":"resp_semantic","model":"gpt-5"}}`+"\n\n")
+		time.Sleep(1100 * time.Millisecond)
+		_, _ = io.WriteString(writer, `data: {"type":"response.output_text.delta","delta":"hello"}`+"\n\n")
+		time.Sleep(1100 * time.Millisecond)
+		_, _ = io.WriteString(writer, `data: {"type":"response.completed","response":{"id":"resp_semantic","model":"gpt-5","output":[],"usage":{"input_tokens":3,"output_tokens":1}}}`+"\n\n")
+	}()
+
+	result, err := svc.handleStructuredResponsesStreamWithReasoning(
+		context.Background(), resp, c, &Account{ID: 48, Platform: PlatformOpenAI},
+		time.Now(), "gpt-5", output, "low",
+	)
+	<-writerDone
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.firstTokenMs)
+	require.Equal(t, 3, result.usage.InputTokens)
+	require.Equal(t, 1, result.usage.OutputTokens)
+	require.Contains(t, recorder.Body.String(), ":\n\n")
+	require.Contains(t, recorder.Body.String(), "event: response.created")
+	require.Contains(t, recorder.Body.String(), "event: response.output_text.delta")
+	require.Contains(t, recorder.Body.String(), "event: response.completed")
+	require.Empty(t, recorder.Header().Values("X-Request-Id"))
 }
 
 func TestForwardNativeResponsesStreamingDisconnectDrainsUsage(t *testing.T) {
