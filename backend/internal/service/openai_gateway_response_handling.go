@@ -44,10 +44,6 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 	return s.handleStreamingResponseWithOutputAndReasoning(ctx, resp, c, account, startTime, originalModel, mappedModel, nil, "")
 }
 
-func (s *OpenAIGatewayService) handleStreamingResponseWithOutput(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string, output openAIProtocolOutput) (*openaiStreamingResult, error) {
-	return s.handleStreamingResponseWithOutputAndReasoning(ctx, resp, c, account, startTime, originalModel, mappedModel, output, "")
-}
-
 func (s *OpenAIGatewayService) handleStreamingResponseWithOutputAndReasoning(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string, output openAIProtocolOutput, reasoningEffort string) (*openaiStreamingResult, error) {
 	if output != nil {
 		return s.handleStructuredResponsesStreamWithReasoning(ctx, resp, c, account, startTime, originalModel, output, reasoningEffort)

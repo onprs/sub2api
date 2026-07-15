@@ -352,13 +352,14 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStreamWithReasoning(
 	reasoningEffort string,
 ) (*openaiStreamingResult, error) {
 	firstOutputTimeout := time.Duration(0)
-	guardFirstOutput := account != nil && account.Platform == PlatformOpenAI && isNativeResponsesProtocolOutput(output)
+	nativeOutput, nativeResponses := output.(*nativeResponsesProtocolOutput)
+	guardFirstOutput := account != nil && account.Platform == PlatformOpenAI && nativeResponses
 	if guardFirstOutput {
 		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffort)
 		guardFirstOutput = firstOutputTimeout > 0
 	}
 	if guardFirstOutput {
-		output.(*nativeResponsesProtocolOutput).enableFirstOutputGuard(openAIFirstOutputStageMaxBytes)
+		nativeOutput.enableFirstOutputGuard(openAIFirstOutputStageMaxBytes)
 	}
 	stream, err := s.collectStructuredResponsesStream(resp, startTime, output, false, guardFirstOutput)
 	if err != nil {
