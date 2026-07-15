@@ -121,6 +121,28 @@ The follow-up keeps request conversion strict and adds an explicit response-only
 
 Release `0.1.153/d9f36afd` was deployed on 2026-07-15. Deployed-wire acceptance sent `minimax-m2.7` through the previously failing buffered Chat-over-Anthropic route three consecutive times, Chat streaming, and direct Messages buffered/streaming; all returned HTTP 200. Additional field-level Chat probes confirmed that buffered and streaming output retained reasoning and final text, streaming emitted terminal usage and `[DONE]`, and neither format exposed `signature` or `encrypted_content`. Chat and Messages two-request forced-tool controls both returned 200/200 with preserved call/result IDs and final text. The isolated acceptance window produced 12 unique usage rows with positive usage and cost, 12 matching billing-dedup rows, no duplicate request IDs, and no signature/conversion errors. The service remained healthy with no restart after cutover.
 
+### Full Active-Group Production Acceptance
+
+A broader deployed-wire acceptance on 2026-07-15 used three test-only keys and fixed per-key usage-log baselines. It exercised Codex group 2, Antigravity group 8, and OpenCode Go group 10 across every supported ingress for their platform, in buffered and streaming modes. It also covered two-request tool-call/result flows with preserved IDs and final text, and sampled all four client stream formats for terminal events and usage. Nine buffered client-wire samples had the expected object shape, text, and usage; Chat and Responses output did not expose `signature` or `encrypted_content`.
+
+The isolated acceptance set contained 65 successful requests: 16 Codex, 34 Antigravity, and 15 OpenCode Go. All 65 had unique request IDs, positive token usage, positive total and actual cost, and one matching `usage_billing_dedup` row; there were no duplicate usage rows. Per-row `actual_cost = total_cost * rate_multiplier` held exactly. Aggregate `total_cost` was `0.1164956050 USD` and aggregate `actual_cost` was `0.0120269510 USD`. The acceptance window contained no server-side 5xx, signature error, or conversion error, and the service remained healthy with `NRestarts=0`.
+
+Unsupported ingress boundaries returned stable source-shaped client errors: Codex Messages returned 403, ordinary Google ingress for Antigravity returned 400, OpenCode Responses returned 404, and OpenCode Google discovery/generation returned 400. These rejections are part of the supported routing contract rather than failed conversion cells.
+
+At the time of this acceptance, the complete set of active, non-deleted groups having both a usable active key and at least one active schedulable account was:
+
+| Group | Platform | Usable active keys | Schedulable accounts | Evidence |
+| --- | --- | ---: | ---: | --- |
+| 2 `Codex-Plus-Only` | OpenAI | 14 | 23 | Direct full supported-ingress text/stream/tool probe |
+| 4 `Codex-Plus-Public` | OpenAI | 8 | 23 | Same 23-account pool and protocol configuration as group 2; 198 post-release Responses requests were token-complete, positive-cost, deduplicated successes |
+| 8 `Antigravity-TEST` | Antigravity | 11 | 2 | Direct full supported-ingress text/stream/tool probe |
+| 10 `Opencode` | OpenCode Go | 4 | 4 | Direct full supported-ingress text/stream/tool probe |
+| 11 `OpenCode_Public` | OpenCode Go | 7 | 4 | Same four-account pool and protocol configuration as group 10; historical Chat streaming traffic is present, but no post-release group-11 usage was available |
+
+Groups 2/4 and 10/11 use identical account IDs. Their protocol-affecting group fields and model-list configuration are equal, and none of the five groups has a channel override. The paired groups differ only in product metadata such as name/description, standard versus subscription billing, exclusivity, rate multiplier, timestamps, and a uniform account-binding priority. Those differences affect admission, ordering, or billing, not protocol conversion or account wire capability.
+
+This establishes full schedulable protocol coverage for all five active service groups. The strongest possible per-group empirical claim remains narrower: groups 4 and 11 were not each rerun through the entire matrix with a dedicated probe key, so their full matrix coverage is by identical account/configuration equivalence, supplemented by real traffic, rather than an independent group-specific wire run. Historical groups 5, 6, and 12 and their apparent active keys were excluded because both the groups and relevant keys are soft-deleted. Group 7 is also soft-deleted/inactive and has no schedulable account; its two undeleted key rows were verified to fail closed with HTTP 403 `GROUP_DELETED`.
+
 ## Production Integration
 
 The production integration keeps transport and account policy outside the converter. Authentication, model mapping, OAuth transforms, retries, sticky sessions, failover, rate limits, response headers, usage accounting, billing, and error passthrough remain owned by their existing services. Local admission, validation, conversion, and synthesized fallback failures keep caller-owned status/message policy but use the source `protocolconv.Renderer` for non-stream JSON envelopes across Chat, Responses, Anthropic, Google, and OpenCode Go entrypoints. Synthesized errors after SSE commitment also use the source renderer for JSON validation and framing: Chat and Google use data-only records, Anthropic uses `event: error`, and Responses retains its service-owned terminal `response.failed` object before renderer framing. Raw upstream HTTP error bodies remain service-owned passthrough; status selection, ops marking, response-commit policy, and protocol terminal semantics remain outside the renderer.
