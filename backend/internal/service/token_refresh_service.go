@@ -522,7 +522,7 @@ func (s *TokenRefreshService) ensureOpenAIPrivacy(ctx context.Context, account *
 		}
 	}
 
-	mode := disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)
+	mode := disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL, resolveOpenAIPrivacyAccountID(account))
 	if mode == "" {
 		return
 	}

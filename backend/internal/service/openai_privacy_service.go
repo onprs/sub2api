@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/util/httputil"
 	"github.com/imroc/req/v3"
 )
 
@@ -37,7 +39,7 @@ func shouldSkipOpenAIPrivacyEnsure(extra map[string]any) bool {
 
 // disableOpenAITraining calls ChatGPT settings API to turn off "Improve the model for everyone".
 // Returns privacy_mode value: "training_off" on success, "cf_blocked" / "failed" on failure.
-func disableOpenAITraining(ctx context.Context, clientFactory PrivacyClientFactory, accessToken, proxyURL string) string {
+func disableOpenAITraining(ctx context.Context, clientFactory PrivacyClientFactory, accessToken, proxyURL, chatGPTAccountID string) string {
 	if accessToken == "" || clientFactory == nil {
 		return ""
 	}
@@ -51,7 +53,7 @@ func disableOpenAITraining(ctx context.Context, clientFactory PrivacyClientFacto
 		return PrivacyModeFailed
 	}
 
-	resp, err := client.R().
+	request := client.R().
 		SetContext(ctx).
 		SetHeader("Authorization", "Bearer "+accessToken).
 		SetHeader("Origin", "https://chatgpt.com").
@@ -61,29 +63,56 @@ func disableOpenAITraining(ctx context.Context, clientFactory PrivacyClientFacto
 		SetHeader("sec-fetch-site", "same-origin").
 		SetHeader("sec-fetch-dest", "empty").
 		SetQueryParam("feature", "training_allowed").
-		SetQueryParam("value", "false").
-		Patch(openAISettingsURL)
+		SetQueryParam("value", "false")
+	if accountID := strings.TrimSpace(chatGPTAccountID); accountID != "" {
+		request.SetHeader("chatgpt-account-id", accountID)
+	}
 
+	resp, err := request.Patch(openAISettingsURL)
 	if err != nil {
 		slog.Warn("openai_privacy_request_error", "error", err.Error())
 		return PrivacyModeFailed
 	}
 
-	if resp.StatusCode == 403 || resp.StatusCode == 503 {
-		body := resp.String()
-		if strings.Contains(body, "cloudflare") || strings.Contains(body, "cf-") || strings.Contains(body, "Just a moment") {
-			slog.Warn("openai_privacy_cf_blocked", "status", resp.StatusCode)
-			return PrivacyModeCFBlocked
-		}
+	body := []byte(resp.String())
+	if isOpenAIPrivacyChallengeResponse(resp.StatusCode, resp.Header, body) {
+		slog.Warn("openai_privacy_cf_blocked",
+			"status", resp.StatusCode,
+			"cf_ray", httputil.ExtractCloudflareRayID(resp.Header, body),
+		)
+		return PrivacyModeCFBlocked
 	}
 
 	if !resp.IsSuccessState() {
-		slog.Warn("openai_privacy_failed", "status", resp.StatusCode, "body", truncate(resp.String(), 200))
+		slog.Warn("openai_privacy_failed", "status", resp.StatusCode, "body", truncate(string(body), 200))
 		return PrivacyModeFailed
 	}
 
 	slog.Info("openai_privacy_training_disabled")
 	return PrivacyModeTrainingOff
+}
+
+func isOpenAIPrivacyChallengeResponse(statusCode int, headers http.Header, body []byte) bool {
+	if httputil.IsCloudflareChallengeResponse(statusCode, headers, body) {
+		return true
+	}
+	if statusCode != http.StatusForbidden && statusCode != http.StatusServiceUnavailable {
+		return false
+	}
+	contentType := strings.ToLower(strings.TrimSpace(headers.Get("content-type")))
+	preview := strings.ToLower(httputil.TruncateBody(body, 4096))
+	return strings.Contains(contentType, "text/html") &&
+		(strings.Contains(preview, "<html") || strings.Contains(preview, "<!doctype html"))
+}
+
+func resolveOpenAIPrivacyAccountID(account *Account) string {
+	if account == nil {
+		return ""
+	}
+	if accountID := strings.TrimSpace(account.GetChatGPTAccountID()); accountID != "" {
+		return accountID
+	}
+	return strings.TrimSpace(account.GetCredential("organization_id"))
 }
 
 // ChatGPTAccountInfo 从 chatgpt.com/backend-api/accounts/check 获取的账号信息
