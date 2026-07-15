@@ -174,6 +174,136 @@ describe('UseKeyModal', () => {
     expect(models['gpt-5.6'].name).toBe('GPT-5.6 (Sol)')
   })
 
+  it('always exposes Claude Code for OpenAI groups', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'openai'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    const claudeTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.claudeCode')
+    )
+    expect(claudeTab).toBeDefined()
+    await claudeTab!.trigger('click')
+    await nextTick()
+
+    expect(wrapper.text()).toContain('ANTHROPIC_BASE_URL')
+    expect(wrapper.text()).toContain('https://example.com/v1')
+  })
+
+  it('exposes all four standard clients for OpenCode Go groups', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'opencode_go'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    const codexTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.codexCli')
+    )
+    const claudeTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.claudeCode')
+    )
+    const geminiTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.geminiCli')
+    )
+    const opencodeTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.opencode')
+    )
+    expect(codexTab).toBeDefined()
+    expect(claudeTab).toBeDefined()
+    expect(geminiTab).toBeDefined()
+    expect(opencodeTab).toBeDefined()
+
+    await codexTab!.trigger('click')
+    await nextTick()
+    expect(wrapper.text()).toContain('wire_api = "responses"')
+
+    await claudeTab!.trigger('click')
+    await nextTick()
+    expect(wrapper.text()).toContain('ANTHROPIC_BASE_URL')
+
+    await geminiTab!.trigger('click')
+    await nextTick()
+    expect(wrapper.text()).toContain('GOOGLE_GEMINI_BASE_URL')
+    expect(wrapper.text()).toContain('GEMINI_API_KEY')
+  })
+
+  it('uses ordinary standard routes for Antigravity client configs', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'antigravity'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    const codexTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.codexCli')
+    )
+    const claudeTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.claudeCode')
+    )
+    const geminiTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.geminiCli')
+    )
+    expect(codexTab).toBeDefined()
+    expect(claudeTab).toBeDefined()
+    expect(geminiTab).toBeDefined()
+
+    await codexTab!.trigger('click')
+    await nextTick()
+    expect(wrapper.text()).toContain('base_url = "https://example.com/v1"')
+
+    await claudeTab!.trigger('click')
+    await nextTick()
+    expect(wrapper.text()).toContain('ANTHROPIC_BASE_URL="https://example.com/v1"')
+    expect(wrapper.text()).not.toContain('https://example.com/v1/antigravity')
+
+    await geminiTab!.trigger('click')
+    await nextTick()
+    expect(wrapper.text()).toContain('GOOGLE_GEMINI_BASE_URL="https://example.com/v1"')
+    expect(wrapper.text()).not.toContain('https://example.com/v1/antigravity')
+  })
+
   it('renders Claude Fable 5 OpenCode config with adaptive thinking', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {

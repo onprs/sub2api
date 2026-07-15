@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -79,6 +80,13 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 // DeriveUpstreamEndpoint
 // ──────────────────────────────────────────────────────────
 
+func TestOpenCodeGoActualUpstreamEndpoint(t *testing.T) {
+	require.Equal(t, "", openCodeGoActualUpstreamEndpoint(nil))
+	require.Equal(t, "", openCodeGoActualUpstreamEndpoint(&service.ForwardResult{}))
+	require.Equal(t, EndpointChatCompletions, openCodeGoActualUpstreamEndpoint(&service.ForwardResult{ActualProtocol: protocolconv.ProtocolOpenAIChat}))
+	require.Equal(t, EndpointMessages, openCodeGoActualUpstreamEndpoint(&service.ForwardResult{ActualProtocol: protocolconv.ProtocolAnthropic}))
+}
+
 func TestDeriveUpstreamEndpoint(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -131,7 +139,7 @@ func TestDeriveUpstreamEndpoint(t *testing.T) {
 		// OpenCode Go — preserves the supported OpenAI-compatible and Anthropic-style surfaces.
 		{"opencode go messages", EndpointMessages, "/v1/messages", service.PlatformOpenCodeGo, EndpointMessages},
 		{"opencode go chat completions", EndpointChatCompletions, "/v1/chat/completions", service.PlatformOpenCodeGo, EndpointChatCompletions},
-		{"opencode go responses unsupported passthrough", EndpointResponses, "/v1/responses", service.PlatformOpenCodeGo, EndpointResponses},
+		{"opencode go responses source is resolved from actual protocol by handler", EndpointResponses, "/v1/responses", service.PlatformOpenCodeGo, EndpointResponses},
 
 		// Unknown platform — passthrough.
 		{"unknown platform", "/v1/embeddings", "/v1/embeddings", "unknown", "/v1/embeddings"},

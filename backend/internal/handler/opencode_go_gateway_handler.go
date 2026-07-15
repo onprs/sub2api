@@ -3,8 +3,10 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -77,6 +79,16 @@ func (h *OpenCodeGoGatewayHandler) Messages(c *gin.Context) {
 	h.handle(c, openCodeGoInboundMessages)
 }
 
+// Responses handles POST /v1/responses for OpenCode Go groups.
+func (h *OpenCodeGoGatewayHandler) Responses(c *gin.Context) {
+	h.handle(c, openCodeGoInboundResponses)
+}
+
+// GoogleGenAI handles Google generateContent and streamGenerateContent for OpenCode Go groups.
+func (h *OpenCodeGoGatewayHandler) GoogleGenAI(c *gin.Context) {
+	h.handle(c, openCodeGoInboundGoogle)
+}
+
 // Models handles GET /v1/models for OpenCode Go groups.
 func (h *OpenCodeGoGatewayHandler) Models(c *gin.Context) {
 	modelIDs := []string(nil)
@@ -99,8 +111,10 @@ func (h *OpenCodeGoGatewayHandler) Models(c *gin.Context) {
 type openCodeGoInboundProtocol string
 
 const (
-	openCodeGoInboundChat     openCodeGoInboundProtocol = "chat_completions"
-	openCodeGoInboundMessages openCodeGoInboundProtocol = "messages"
+	openCodeGoInboundChat      openCodeGoInboundProtocol = "chat_completions"
+	openCodeGoInboundResponses openCodeGoInboundProtocol = "responses"
+	openCodeGoInboundMessages  openCodeGoInboundProtocol = "messages"
+	openCodeGoInboundGoogle    openCodeGoInboundProtocol = "google_genai"
 )
 
 func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInboundProtocol) {
@@ -147,20 +161,24 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 		h.errorResponse(c, http.StatusBadRequest, errorFormat, "invalid_request_error", "Failed to parse request body")
 		return
 	}
-	reqModel := gjson.GetBytes(body, "model").String()
-	if reqModel == "" {
-		h.errorResponse(c, http.StatusBadRequest, errorFormat, "invalid_request_error", "model is required")
+	reqModel, reqStream, err := resolveOpenCodeGoInboundRequest(c, inbound, body)
+	if err != nil {
+		h.errorResponse(c, http.StatusBadRequest, errorFormat, "invalid_request_error", err.Error())
 		return
 	}
-	reqStream := gjson.GetBytes(body, "stream").Bool()
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
 
 	setOpsRequestContext(c, reqModel, reqStream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 
 	moderationProtocol := service.ContentModerationProtocolOpenAIChat
-	if inbound == openCodeGoInboundMessages {
+	switch inbound {
+	case openCodeGoInboundResponses:
+		moderationProtocol = service.ContentModerationProtocolOpenAIResponses
+	case openCodeGoInboundMessages:
 		moderationProtocol = service.ContentModerationProtocolAnthropicMessages
+	case openCodeGoInboundGoogle:
+		moderationProtocol = service.ContentModerationProtocolGemini
 	}
 	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, moderationProtocol, reqModel, body); decision != nil && decision.Blocked {
 		h.errorResponse(c, contentModerationStatus(decision), errorFormat, contentModerationErrorCode(decision), decision.Message)
@@ -250,8 +268,12 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
 		forwardBody := body
+		routingModel := reqModel
 		if channelMapping.Mapped {
-			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
+			routingModel = channelMapping.MappedModel
+			if inbound != openCodeGoInboundGoogle {
+				forwardBody = h.gatewayService.ReplaceModelInBody(body, routingModel)
+			}
 		}
 
 		writerSizeBeforeForward := c.Writer.Size()
@@ -262,10 +284,16 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 					accountReleaseFunc()
 				}
 			}()
-			if inbound == openCodeGoInboundMessages {
+			switch inbound {
+			case openCodeGoInboundResponses:
+				return h.openCodeGoService.ForwardResponses(c.Request.Context(), c, account, forwardBody, reqModel)
+			case openCodeGoInboundMessages:
 				return h.openCodeGoService.ForwardMessages(c.Request.Context(), c, account, forwardBody)
+			case openCodeGoInboundGoogle:
+				return h.openCodeGoService.ForwardGoogleGenAI(c.Request.Context(), c, account, forwardBody, reqModel, routingModel, reqStream)
+			default:
+				return h.openCodeGoService.ForwardChatCompletions(c.Request.Context(), c, account, forwardBody)
 			}
-			return h.openCodeGoService.ForwardChatCompletions(c.Request.Context(), c, account, forwardBody)
 		}()
 
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
@@ -309,7 +337,7 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 		clientIP := ip.GetClientIP(c)
 		requestPayloadHash := service.HashUsageRequestPayload(body)
 		inboundEndpoint := GetInboundEndpoint(c)
-		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
+		upstreamEndpoint := openCodeGoActualUpstreamEndpoint(result)
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		if quotaPlatform == "" {
 			quotaPlatform = service.PlatformOpenCodeGo
@@ -346,16 +374,62 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 	}
 }
 
+func resolveOpenCodeGoInboundRequest(c *gin.Context, inbound openCodeGoInboundProtocol, body []byte) (string, bool, error) {
+	if inbound == openCodeGoInboundGoogle {
+		if c == nil {
+			return "", false, fmt.Errorf("missing Google request context")
+		}
+		model, action, err := parseGeminiModelAction(strings.TrimPrefix(c.Param("modelAction"), "/"))
+		if err != nil {
+			return "", false, err
+		}
+		switch action {
+		case "generateContent":
+			return model, false, nil
+		case "streamGenerateContent":
+			return model, true, nil
+		default:
+			return "", false, fmt.Errorf("unsupported Google generation action %q", action)
+		}
+	}
+	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	if model == "" {
+		return "", false, fmt.Errorf("model is required")
+	}
+	return model, gjson.GetBytes(body, "stream").Bool(), nil
+}
+
+func openCodeGoActualUpstreamEndpoint(result *service.ForwardResult) string {
+	if result == nil {
+		return ""
+	}
+	switch result.ActualProtocol {
+	case protocolconv.ProtocolOpenAIChat:
+		return EndpointChatCompletions
+	case protocolconv.ProtocolAnthropic:
+		return EndpointMessages
+	default:
+		return ""
+	}
+}
+
 func (h *OpenCodeGoGatewayHandler) buildParsedRequest(body []byte, model string, stream bool, apiKey *service.APIKey, inbound openCodeGoInboundProtocol, c *gin.Context) *service.ParsedRequest {
 	bodyRef := service.NewRequestBodyRef(body)
 	protocol := "chat_completions"
-	if inbound == openCodeGoInboundMessages {
+	switch inbound {
+	case openCodeGoInboundResponses:
+		protocol = "responses"
+	case openCodeGoInboundMessages:
 		protocol = "anthropic"
+	case openCodeGoInboundGoogle:
+		protocol = "gemini"
 	}
 	parsed, _ := service.ParseGatewayRequest(bodyRef, protocol)
 	if parsed == nil {
-		parsed = &service.ParsedRequest{Model: model, Stream: stream, Body: bodyRef}
+		parsed = &service.ParsedRequest{Body: bodyRef}
 	}
+	parsed.Model = model
+	parsed.Stream = stream
 	parsed.GroupID = apiKey.GroupID
 	parsed.SessionContext = &service.SessionContext{
 		ClientIP:  ip.GetClientIP(c),
@@ -504,22 +578,14 @@ func (h *OpenCodeGoGatewayHandler) ensureForwardErrorResponse(c *gin.Context, fo
 
 func (h *OpenCodeGoGatewayHandler) handleStreamingAwareError(c *gin.Context, status int, format openCodeGoHandlerErrorFormat, errType string, message string, streamStarted bool) {
 	if streamStarted || (c != nil && c.Writer != nil && c.Writer.Written()) {
-		protocol := protocolconv.ProtocolOpenAIChat
-		if format == openCodeGoHandlerErrorAnthropic {
-			protocol = protocolconv.ProtocolAnthropic
-		}
-		writeProtocolStreamError(c, protocol, status, errType, errType, message)
+		writeProtocolStreamError(c, format.protocol(), status, errType, errType, message)
 		return
 	}
 	h.errorResponse(c, status, format, errType, message)
 }
 
 func (h *OpenCodeGoGatewayHandler) errorResponse(c *gin.Context, status int, format openCodeGoHandlerErrorFormat, errType string, message string) {
-	protocol := protocolconv.ProtocolOpenAIChat
-	if format == openCodeGoHandlerErrorAnthropic {
-		protocol = protocolconv.ProtocolAnthropic
-	}
-	writeProtocolError(c, protocol, status, errType, errType, message)
+	writeProtocolError(c, format.protocol(), status, errType, errType, message)
 }
 
 func (h *OpenCodeGoGatewayHandler) submitUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
@@ -540,12 +606,33 @@ type openCodeGoHandlerErrorFormat string
 
 const (
 	openCodeGoHandlerErrorChat      openCodeGoHandlerErrorFormat = "chat"
+	openCodeGoHandlerErrorResponses openCodeGoHandlerErrorFormat = "responses"
 	openCodeGoHandlerErrorAnthropic openCodeGoHandlerErrorFormat = "anthropic"
+	openCodeGoHandlerErrorGoogle    openCodeGoHandlerErrorFormat = "google"
 )
 
-func resolveOpenCodeGoHandlerErrorFormat(inbound openCodeGoInboundProtocol) openCodeGoHandlerErrorFormat {
-	if inbound == openCodeGoInboundMessages {
-		return openCodeGoHandlerErrorAnthropic
+func (f openCodeGoHandlerErrorFormat) protocol() protocolconv.Protocol {
+	switch f {
+	case openCodeGoHandlerErrorResponses:
+		return protocolconv.ProtocolOpenAIResponses
+	case openCodeGoHandlerErrorAnthropic:
+		return protocolconv.ProtocolAnthropic
+	case openCodeGoHandlerErrorGoogle:
+		return protocolconv.ProtocolGoogleGenAI
+	default:
+		return protocolconv.ProtocolOpenAIChat
 	}
-	return openCodeGoHandlerErrorChat
+}
+
+func resolveOpenCodeGoHandlerErrorFormat(inbound openCodeGoInboundProtocol) openCodeGoHandlerErrorFormat {
+	switch inbound {
+	case openCodeGoInboundResponses:
+		return openCodeGoHandlerErrorResponses
+	case openCodeGoInboundMessages:
+		return openCodeGoHandlerErrorAnthropic
+	case openCodeGoInboundGoogle:
+		return openCodeGoHandlerErrorGoogle
+	default:
+		return openCodeGoHandlerErrorChat
+	}
 }

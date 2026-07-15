@@ -966,9 +966,8 @@ export default {
         noFallback: 'No Fallback (Reject)'
       },
       openaiMessages: {
-        title: 'OpenAI Messages Dispatch',
-        allowDispatch: 'Allow /v1/messages dispatch',
-        allowDispatchHint: 'When enabled, API keys in this OpenAI group can dispatch requests through /v1/messages endpoint',
+        title: 'OpenAI Messages Model Mapping',
+        alwaysAvailableHint: 'OpenAI groups always accept /v1/messages generation and token-count requests. Configure only the Claude-to-upstream model mapping here.',
         familyMappingTitle: 'Family Default Mapping',
         familyMappingHint: 'Requests that match the Opus, Sonnet, or Haiku families will prefer the target model configured here.',
         opusModel: 'Opus Target Model',

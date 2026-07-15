@@ -627,6 +627,367 @@ func TestOpenCodeGoGatewayServiceForwardChatCompletionsDirectUsesOpenCodeGoEndpo
 	}
 }
 
+func TestOpenCodeGoGatewayServiceResponsesAndGoogleBufferedMatrix(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name             string
+		source           protocolconv.Protocol
+		actual           protocolconv.Protocol
+		requestBody      string
+		upstreamBody     string
+		wantEndpoint     string
+		wantRequestPath  string
+		wantRequestValue string
+		wantResponsePath string
+		wantUsagePath    string
+	}{
+		{
+			name: "responses_to_chat", source: protocolconv.ProtocolOpenAIResponses, actual: protocolconv.ProtocolOpenAIChat,
+			requestBody:  `{"model":"matrix-model","input":"hello","stream":false}`,
+			upstreamBody: `{"id":"chatcmpl_matrix","object":"chat.completion","model":"matrix-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
+			wantEndpoint: "/v1/chat/completions", wantRequestPath: "messages.0.content", wantRequestValue: "hello",
+			wantResponsePath: "output.0.content.0.text", wantUsagePath: "usage.input_tokens",
+		},
+		{
+			name: "responses_to_messages", source: protocolconv.ProtocolOpenAIResponses, actual: protocolconv.ProtocolAnthropic,
+			requestBody:  `{"model":"matrix-model","input":"hello","stream":false}`,
+			upstreamBody: `{"id":"msg_matrix","type":"message","role":"assistant","model":"matrix-model","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":2}}`,
+			wantEndpoint: "/v1/messages", wantRequestPath: "messages.0.content.0.text", wantRequestValue: "hello",
+			wantResponsePath: "output.0.content.0.text", wantUsagePath: "usage.input_tokens",
+		},
+		{
+			name: "google_to_chat", source: protocolconv.ProtocolGoogleGenAI, actual: protocolconv.ProtocolOpenAIChat,
+			requestBody:  `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`,
+			upstreamBody: `{"id":"chatcmpl_matrix","object":"chat.completion","model":"matrix-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
+			wantEndpoint: "/v1/chat/completions", wantRequestPath: "messages.0.content", wantRequestValue: "hello",
+			wantResponsePath: "candidates.0.content.parts.0.text", wantUsagePath: "usageMetadata.promptTokenCount",
+		},
+		{
+			name: "google_to_messages", source: protocolconv.ProtocolGoogleGenAI, actual: protocolconv.ProtocolAnthropic,
+			requestBody:  `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`,
+			upstreamBody: `{"id":"msg_matrix","type":"message","role":"assistant","model":"matrix-model","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":2}}`,
+			wantEndpoint: "/v1/messages", wantRequestPath: "messages.0.content.0.text", wantRequestValue: "hello",
+			wantResponsePath: "candidates.0.content.parts.0.text", wantUsagePath: "usageMetadata.promptTokenCount",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			protocol := OpenCodeGoProtocolChatCompletions
+			if tt.actual == protocolconv.ProtocolAnthropic {
+				protocol = OpenCodeGoProtocolMessages
+			}
+			upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"rid-matrix"}},
+				Body:       io.NopCloser(strings.NewReader(tt.upstreamBody)),
+			}}
+			svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+			account := &Account{
+				ID: 42, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 1,
+				Credentials: map[string]any{
+					"api_key": "ocg-secret", "base_url": "https://opencode.ai/zen/go/v1",
+					"model_protocols": map[string]any{"matrix-model": protocol},
+				},
+			}
+			rec := newTestGinContextRecorder(http.MethodPost, "/matrix", tt.requestBody)
+			var result *ForwardResult
+			var err error
+			if tt.source == protocolconv.ProtocolOpenAIResponses {
+				result, err = svc.ForwardResponses(context.Background(), rec.Context, account, []byte(tt.requestBody), "matrix-model")
+			} else {
+				result, err = svc.ForwardGoogleGenAI(context.Background(), rec.Context, account, []byte(tt.requestBody), "matrix-model", "matrix-model", false)
+			}
+			if err != nil {
+				t.Fatalf("forward error: %v", err)
+			}
+			if upstream.req == nil || !strings.HasSuffix(upstream.req.URL.Path, tt.wantEndpoint) {
+				t.Fatalf("unexpected endpoint: %v", upstream.req)
+			}
+			if got := gjson.Get(upstream.body, tt.wantRequestPath).String(); got != tt.wantRequestValue {
+				t.Fatalf("request semantic mismatch at %s: got=%q body=%s", tt.wantRequestPath, got, upstream.body)
+			}
+			wire := rec.Recorder.Body.Bytes()
+			if got := gjson.GetBytes(wire, tt.wantResponsePath).String(); got != "ok" {
+				t.Fatalf("response semantic mismatch at %s: got=%q body=%s", tt.wantResponsePath, got, wire)
+			}
+			if got := gjson.GetBytes(wire, tt.wantUsagePath).Int(); got != 3 {
+				t.Fatalf("response usage mismatch at %s: got=%d body=%s", tt.wantUsagePath, got, wire)
+			}
+			if result == nil || result.ActualProtocol != tt.actual || result.Usage.InputTokens != 3 || result.Usage.OutputTokens != 2 {
+				t.Fatalf("unexpected result: %+v", result)
+			}
+		})
+	}
+}
+
+func TestOpenCodeGoGatewayServiceResponsesAndGoogleRestoreClientModelAcrossMappings(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, source := range []protocolconv.Protocol{protocolconv.ProtocolOpenAIResponses, protocolconv.ProtocolGoogleGenAI} {
+		for _, actual := range []protocolconv.Protocol{protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic} {
+			t.Run(source.String()+"_from_"+actual.String(), func(t *testing.T) {
+				protocol := OpenCodeGoProtocolChatCompletions
+				upstreamBody := `{"id":"chatcmpl_map","object":"chat.completion","model":"upstream-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`
+				if actual == protocolconv.ProtocolAnthropic {
+					protocol = OpenCodeGoProtocolMessages
+					upstreamBody = `{"id":"msg_map","type":"message","role":"assistant","model":"upstream-model","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":2}}`
+				}
+				upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+				}}
+				svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+				account := &Account{ID: 42, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 1, Credentials: map[string]any{
+					"api_key": "ocg-secret", "base_url": "https://opencode.ai/zen/go/v1",
+					"model_mapping":   map[string]any{"channel-model": "upstream-model"},
+					"model_protocols": map[string]any{"upstream-model": protocol},
+				}}
+				requestBody := `{"model":"channel-model","input":"hello","stream":false}`
+				rec := newTestGinContextRecorder(http.MethodPost, "/matrix", requestBody)
+				var result *ForwardResult
+				var err error
+				responseModelPath := "model"
+				if source == protocolconv.ProtocolOpenAIResponses {
+					result, err = svc.ForwardResponses(context.Background(), rec.Context, account, []byte(requestBody), "client-model")
+				} else {
+					requestBody = `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`
+					rec = newTestGinContextRecorder(http.MethodPost, "/matrix", requestBody)
+					result, err = svc.ForwardGoogleGenAI(context.Background(), rec.Context, account, []byte(requestBody), "client-model", "channel-model", false)
+					responseModelPath = "modelVersion"
+				}
+				if err != nil {
+					t.Fatalf("forward error: %v", err)
+				}
+				if got := gjson.Get(upstream.body, "model").String(); got != "upstream-model" {
+					t.Fatalf("upstream model mismatch: got=%q body=%s", got, upstream.body)
+				}
+				if got := gjson.GetBytes(rec.Recorder.Body.Bytes(), responseModelPath).String(); got != "client-model" {
+					t.Fatalf("client model not restored at %s: got=%q body=%s", responseModelPath, got, rec.Recorder.Body.String())
+				}
+				if result == nil || result.Model != "client-model" || result.UpstreamModel != "upstream-model" || result.ActualProtocol != actual {
+					t.Fatalf("unexpected result: %+v", result)
+				}
+			})
+		}
+	}
+}
+
+func TestOpenCodeGoGatewayServiceResponsesAndGoogleStreamingMatrix(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	chatStream := strings.Join([]string{
+		`data: {"id":"chatcmpl_matrix","object":"chat.completion.chunk","model":"matrix-model","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"chatcmpl_matrix","object":"chat.completion.chunk","model":"matrix-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
+		"",
+		`data: [DONE]`,
+		"",
+	}, "\n")
+	messagesStream := strings.Join([]string{
+		`event: message_start`,
+		`data: {"type":"message_start","message":{"id":"msg_matrix","type":"message","role":"assistant","model":"matrix-model","content":[],"usage":{"input_tokens":3,"output_tokens":0}}}`,
+		"",
+		`event: content_block_start`,
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+		"",
+		`event: content_block_delta`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`,
+		"",
+		`event: content_block_stop`,
+		`data: {"type":"content_block_stop","index":0}`,
+		"",
+		`event: message_delta`,
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}`,
+		"",
+		`event: message_stop`,
+		`data: {"type":"message_stop"}`,
+		"",
+	}, "\n")
+
+	for _, source := range []protocolconv.Protocol{protocolconv.ProtocolOpenAIResponses, protocolconv.ProtocolGoogleGenAI} {
+		for _, actual := range []protocolconv.Protocol{protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic} {
+			name := source.String() + "_from_" + actual.String()
+			t.Run(name, func(t *testing.T) {
+				protocol := OpenCodeGoProtocolChatCompletions
+				upstreamWire := chatStream
+				if actual == protocolconv.ProtocolAnthropic {
+					protocol = OpenCodeGoProtocolMessages
+					upstreamWire = messagesStream
+				}
+				upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid-stream-matrix"}},
+					Body:       io.NopCloser(strings.NewReader(upstreamWire)),
+				}}
+				svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+				account := &Account{
+					ID: 42, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 1,
+					Credentials: map[string]any{
+						"api_key": "ocg-secret", "base_url": "https://opencode.ai/zen/go/v1",
+						"model_protocols": map[string]any{"matrix-model": protocol},
+					},
+				}
+				var requestBody string
+				if source == protocolconv.ProtocolOpenAIResponses {
+					requestBody = `{"model":"matrix-model","input":"hello","stream":true}`
+				} else {
+					requestBody = `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`
+				}
+				rec := newTestGinContextRecorder(http.MethodPost, "/matrix", requestBody)
+				var result *ForwardResult
+				var err error
+				if source == protocolconv.ProtocolOpenAIResponses {
+					result, err = svc.ForwardResponses(context.Background(), rec.Context, account, []byte(requestBody), "matrix-model")
+				} else {
+					result, err = svc.ForwardGoogleGenAI(context.Background(), rec.Context, account, []byte(requestBody), "matrix-model", "matrix-model", true)
+				}
+				if err != nil {
+					t.Fatalf("forward error: %v\nwire=%s", err, rec.Recorder.Body.String())
+				}
+				wire := rec.Recorder.Body.String()
+				if !strings.Contains(wire, "ok") {
+					t.Fatalf("missing streamed text: %s", wire)
+				}
+				if source == protocolconv.ProtocolOpenAIResponses {
+					if !strings.Contains(wire, "event: response.created") || !strings.Contains(wire, "event: response.completed") || !strings.Contains(wire, "data: [DONE]") {
+						t.Fatalf("invalid Responses stream lifecycle: %s", wire)
+					}
+				} else {
+					if !strings.Contains(wire, `"finishReason":"STOP"`) || !strings.Contains(wire, `"usageMetadata"`) || strings.Contains(wire, "[DONE]") || strings.Contains(wire, "event:") {
+						t.Fatalf("invalid Google stream lifecycle: %s", wire)
+					}
+				}
+				if result == nil || result.ActualProtocol != actual || !result.Stream || result.Usage.InputTokens != 3 || result.Usage.OutputTokens != 2 {
+					t.Fatalf("unexpected result: %+v", result)
+				}
+			})
+		}
+	}
+}
+
+func TestOpenCodeGoGatewayServiceResponsesAndGoogleToolCallsPreserveCorrelation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, source := range []protocolconv.Protocol{protocolconv.ProtocolOpenAIResponses, protocolconv.ProtocolGoogleGenAI} {
+		for _, actual := range []protocolconv.Protocol{protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic} {
+			t.Run(source.String()+"_to_"+actual.String(), func(t *testing.T) {
+				protocol := OpenCodeGoProtocolChatCompletions
+				upstreamBody := `{"id":"chatcmpl_tool","object":"chat.completion","model":"matrix-model","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_matrix","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"x\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`
+				if actual == protocolconv.ProtocolAnthropic {
+					protocol = OpenCodeGoProtocolMessages
+					upstreamBody = `{"id":"msg_tool","type":"message","role":"assistant","model":"matrix-model","content":[{"type":"tool_use","id":"call_matrix","name":"lookup","input":{"q":"x"}}],"stop_reason":"tool_use","usage":{"input_tokens":3,"output_tokens":2}}`
+				}
+				upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+				}}
+				svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+				account := &Account{ID: 42, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 1, Credentials: map[string]any{
+					"api_key": "ocg-secret", "base_url": "https://opencode.ai/zen/go/v1",
+					"model_protocols": map[string]any{"matrix-model": protocol},
+				}}
+				var requestBody string
+				if source == protocolconv.ProtocolOpenAIResponses {
+					requestBody = `{"model":"matrix-model","input":"use lookup","tools":[{"type":"function","name":"lookup","description":"lookup","parameters":{"type":"object","properties":{"q":{"type":"string"}},"required":["q"]}}],"tool_choice":{"type":"function","name":"lookup"},"stream":false}`
+				} else {
+					requestBody = `{"contents":[{"role":"user","parts":[{"text":"use lookup"}]}],"tools":[{"functionDeclarations":[{"name":"lookup","description":"lookup","parameters":{"type":"object","properties":{"q":{"type":"string"}},"required":["q"]}}]}],"toolConfig":{"functionCallingConfig":{"mode":"ANY","allowedFunctionNames":["lookup"]}}}`
+				}
+				rec := newTestGinContextRecorder(http.MethodPost, "/matrix", requestBody)
+				var err error
+				if source == protocolconv.ProtocolOpenAIResponses {
+					_, err = svc.ForwardResponses(context.Background(), rec.Context, account, []byte(requestBody), "matrix-model")
+				} else {
+					_, err = svc.ForwardGoogleGenAI(context.Background(), rec.Context, account, []byte(requestBody), "matrix-model", "matrix-model", false)
+				}
+				if err != nil {
+					t.Fatalf("forward error: %v", err)
+				}
+				if actual == protocolconv.ProtocolOpenAIChat {
+					if gjson.Get(upstream.body, "tools.0.function.name").String() != "lookup" {
+						t.Fatalf("Chat request lost tool: %s", upstream.body)
+					}
+				} else if gjson.Get(upstream.body, "tools.0.name").String() != "lookup" {
+					t.Fatalf("Messages request lost tool: %s", upstream.body)
+				}
+				wire := rec.Recorder.Body.Bytes()
+				if source == protocolconv.ProtocolOpenAIResponses {
+					if gjson.GetBytes(wire, "output.0.type").String() != "function_call" || gjson.GetBytes(wire, "output.0.call_id").String() != "call_matrix" || gjson.GetBytes(wire, "output.0.name").String() != "lookup" {
+						t.Fatalf("Responses output lost tool correlation: %s", wire)
+					}
+				} else {
+					if gjson.GetBytes(wire, "candidates.0.content.parts.0.functionCall.id").String() != "call_matrix" || gjson.GetBytes(wire, "candidates.0.content.parts.0.functionCall.name").String() != "lookup" {
+						t.Fatalf("Google output lost tool correlation: %s", wire)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestOpenCodeGoGatewayServiceResponsesAndGoogleToolResultsPreserveCorrelation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, source := range []protocolconv.Protocol{protocolconv.ProtocolOpenAIResponses, protocolconv.ProtocolGoogleGenAI} {
+		for _, actual := range []protocolconv.Protocol{protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic} {
+			t.Run(source.String()+"_to_"+actual.String(), func(t *testing.T) {
+				protocol := OpenCodeGoProtocolChatCompletions
+				upstreamBody := `{"id":"chatcmpl_final","object":"chat.completion","model":"matrix-model","choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}`
+				if actual == protocolconv.ProtocolAnthropic {
+					protocol = OpenCodeGoProtocolMessages
+					upstreamBody = `{"id":"msg_final","type":"message","role":"assistant","model":"matrix-model","content":[{"type":"text","text":"done"}],"stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":1}}`
+				}
+				upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+				}}
+				svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+				account := &Account{ID: 42, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 1, Credentials: map[string]any{
+					"api_key": "ocg-secret", "base_url": "https://opencode.ai/zen/go/v1",
+					"model_protocols": map[string]any{"matrix-model": protocol},
+				}}
+				requestBody := `{"model":"matrix-model","input":[{"type":"function_call","call_id":"call_matrix","name":"lookup","arguments":"{\"q\":\"x\"}"},{"type":"function_call_output","call_id":"call_matrix","output":"found"}],"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}],"stream":false}`
+				if source == protocolconv.ProtocolGoogleGenAI {
+					requestBody = `{"contents":[{"role":"model","parts":[{"functionCall":{"id":"call_matrix","name":"lookup","args":{"q":"x"}}}]},{"role":"user","parts":[{"functionResponse":{"id":"call_matrix","name":"lookup","response":{"content":"found"}}}]}],"tools":[{"functionDeclarations":[{"name":"lookup","parameters":{"type":"object"}}]}]}`
+				}
+				rec := newTestGinContextRecorder(http.MethodPost, "/matrix", requestBody)
+				var err error
+				if source == protocolconv.ProtocolOpenAIResponses {
+					_, err = svc.ForwardResponses(context.Background(), rec.Context, account, []byte(requestBody), "matrix-model")
+				} else {
+					_, err = svc.ForwardGoogleGenAI(context.Background(), rec.Context, account, []byte(requestBody), "matrix-model", "matrix-model", false)
+				}
+				if err != nil {
+					t.Fatalf("forward error: %v", err)
+				}
+				if actual == protocolconv.ProtocolOpenAIChat {
+					if gjson.Get(upstream.body, "messages.0.tool_calls.0.id").String() != "call_matrix" || gjson.Get(upstream.body, "messages.0.tool_calls.0.function.name").String() != "lookup" || gjson.Get(upstream.body, "messages.1.tool_call_id").String() != "call_matrix" {
+						t.Fatalf("Chat second turn lost tool correlation: %s", upstream.body)
+					}
+					toolResult := gjson.Get(upstream.body, "messages.1.content").String()
+					if source == protocolconv.ProtocolGoogleGenAI {
+						if gjson.Get(toolResult, "content").String() != "found" {
+							t.Fatalf("Chat second turn lost structured Google tool result: %s", upstream.body)
+						}
+					} else if toolResult != "found" {
+						t.Fatalf("Chat second turn lost Responses tool result: %s", upstream.body)
+					}
+				} else {
+					if gjson.Get(upstream.body, "messages.0.content.0.id").String() != "call_matrix" || gjson.Get(upstream.body, "messages.0.content.0.name").String() != "lookup" || gjson.Get(upstream.body, "messages.1.content.0.tool_use_id").String() != "call_matrix" {
+						t.Fatalf("Messages second turn lost tool correlation: %s", upstream.body)
+					}
+					toolResultPath := "messages.1.content.0.content"
+					if source == protocolconv.ProtocolGoogleGenAI {
+						toolResultPath += ".content"
+					}
+					if gjson.Get(upstream.body, toolResultPath).String() != "found" {
+						t.Fatalf("Messages second turn lost tool result: %s", upstream.body)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestOpenCodeGoGatewayServiceUsesStableUpstreamUserAgent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := &openCodeGoHTTPUpstreamStub{}
@@ -1308,6 +1669,49 @@ func TestOpenCodeGoGatewayServiceImmediateCrossProtocolErrorStaysBeforeSSECommit
 	}
 	if responseBody.closeCount != 1 {
 		t.Fatalf("upstream error body must close exactly once, got %d", responseBody.closeCount)
+	}
+}
+
+func TestOpenCodeGoCrossProtocolImmediateErrorsUseSourceEnvelope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, source := range []protocolconv.Protocol{protocolconv.ProtocolOpenAIResponses, protocolconv.ProtocolGoogleGenAI} {
+		t.Run(source.String(), func(t *testing.T) {
+			upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+				StatusCode: http.StatusBadRequest,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"bad provider input"}}`)),
+			}}
+			svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+			account := &Account{ID: 42, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 1, Credentials: map[string]any{
+				"api_key": "ocg-secret", "base_url": "https://opencode.ai/zen/go/v1",
+				"model_protocols": map[string]any{"matrix-model": OpenCodeGoProtocolChatCompletions},
+			}}
+			requestBody := `{"model":"matrix-model","input":"hi"}`
+			if source == protocolconv.ProtocolGoogleGenAI {
+				requestBody = `{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`
+			}
+			rec := newTestGinContextRecorder(http.MethodPost, "/matrix", requestBody)
+			var err error
+			if source == protocolconv.ProtocolOpenAIResponses {
+				_, err = svc.ForwardResponses(context.Background(), rec.Context, account, []byte(requestBody), "matrix-model")
+			} else {
+				_, err = svc.ForwardGoogleGenAI(context.Background(), rec.Context, account, []byte(requestBody), "matrix-model", "matrix-model", false)
+			}
+			if err == nil {
+				t.Fatal("expected upstream error")
+			}
+			if rec.Recorder.Code != http.StatusBadRequest {
+				t.Fatalf("unexpected status: %d body=%s", rec.Recorder.Code, rec.Recorder.Body.String())
+			}
+			wire := rec.Recorder.Body.Bytes()
+			if source == protocolconv.ProtocolOpenAIResponses {
+				if gjson.GetBytes(wire, "error.message").String() != "bad provider input" || gjson.GetBytes(wire, "error.type").String() != "upstream_error" {
+					t.Fatalf("invalid Responses error envelope: %s", wire)
+				}
+			} else if gjson.GetBytes(wire, "error.status").String() != "INVALID_ARGUMENT" || gjson.GetBytes(wire, "error.message").String() != "bad provider input" {
+				t.Fatalf("invalid Google error envelope: %s", wire)
+			}
+		})
 	}
 }
 

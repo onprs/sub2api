@@ -93,6 +93,65 @@ func TestGeminiV1BetaListModels_OpenAIGroupListsGenerationRoutableAliases(t *tes
 	require.NotContains(t, rec.Body.String(), "gpt-5.4")
 }
 
+func TestGeminiV1BetaListModels_AntigravityAndOpenCodeGroupsAreAdmitted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name     string
+		platform string
+		model    string
+	}{
+		{name: "antigravity", platform: service.PlatformAntigravity, model: "gemini-3-flash"},
+		{name: "opencode", platform: service.PlatformOpenCodeGo, model: "qwen3.7-plus"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			groupID := int64(20)
+			h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{
+				groupID: {{ID: 1, Platform: tc.platform, Credentials: map[string]any{"model_mapping": map[string]any{tc.model: tc.model}}}},
+			}})
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+			c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: tc.platform}})
+
+			h.GeminiV1BetaListModels(c)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.Contains(t, rec.Body.String(), "models/"+tc.model)
+			require.NotContains(t, rec.Body.String(), "does not support Gemini generation")
+		})
+	}
+}
+
+func TestGeminiV1BetaGetModel_AntigravityAndOpenCodeGroupsUseAliasSurface(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name          string
+		platform      string
+		clientModel   string
+		upstreamModel string
+	}{
+		{name: "antigravity", platform: service.PlatformAntigravity, clientModel: "gemini-alias", upstreamModel: "gemini-3-flash"},
+		{name: "opencode", platform: service.PlatformOpenCodeGo, clientModel: "qwen-alias", upstreamModel: "qwen3.7-plus"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			groupID := int64(24)
+			h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{
+				groupID: {{ID: 5, Platform: tc.platform, Credentials: map[string]any{"model_mapping": map[string]any{tc.clientModel: tc.upstreamModel}}}},
+			}})
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodGet, "/v1beta/models/"+tc.clientModel, nil)
+			c.Params = gin.Params{{Key: "model", Value: tc.clientModel}}
+			c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: tc.platform}})
+
+			h.GeminiV1BetaGetModel(c)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.Equal(t, "models/"+tc.clientModel, gjson.GetBytes(rec.Body.Bytes(), "name").String())
+		})
+	}
+}
+
 func TestGeminiV1BetaListModels_AnthropicGroupListsGenerationRoutableAliases(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	groupID := int64(21)

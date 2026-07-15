@@ -49,7 +49,7 @@ func newGatewayRoutesTestRouter(platform ...string) *gin.Engine {
 	return router
 }
 
-func TestGatewayRoutesOpenCodeGoResponsesIsNotRoutedToOpenAI(t *testing.T) {
+func TestGatewayRoutesOpenCodeGoResponsesUsesOpenCodeGoHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	RegisterGatewayRoutes(
@@ -79,8 +79,32 @@ func TestGatewayRoutesOpenCodeGoResponsesIsNotRoutedToOpenAI(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
-	require.Equal(t, http.StatusNotFound, w.Code)
-	require.Contains(t, w.Body.String(), "Responses API is not supported for this platform")
+	require.NotEqual(t, http.StatusNotFound, w.Code)
+	require.NotContains(t, w.Body.String(), "Responses API is not supported for this platform")
+}
+
+func TestGatewayRoutesOpenCodeGoGoogleGenerationUsesOpenCodeGoHandler(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformOpenCodeGo)
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/qwen3.7-plus:generateContent", strings.NewReader(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+	require.NotEqual(t, http.StatusNotFound, w.Code)
+	require.NotContains(t, w.Body.String(), "does not support Gemini generation")
+}
+
+func TestGatewayRoutesOpenCodeGoResponsesSubpathsRemainSpecialized(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformOpenCodeGo)
+	for _, path := range []string{"/v1/responses/compact", "/responses/compact", "/backend-api/codex/responses/compact"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"qwen3.7-plus","input":"hi"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code, "path=%s", path)
+		require.Contains(t, w.Body.String(), "Responses subpath", "path=%s", path)
+	}
 }
 
 func TestGatewayRoutesOpenCodeGoModelsUsesOpenCodeGoHandler(t *testing.T) {

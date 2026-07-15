@@ -197,7 +197,6 @@ interface Props {
   apiKey: string
   baseUrl: string
   platform: GroupPlatform | null
-  allowMessagesDispatch?: boolean
   apiKeyRecord?: ApiKey | null
 }
 
@@ -322,30 +321,25 @@ const SparkleIcon = {
 const clientTabs = computed((): TabConfig[] => {
   if (!props.platform) return []
   switch (props.platform) {
-    case 'openai': {
-      const tabs: TabConfig[] = [
+    case 'openai':
+      return [
         { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
         { id: 'codex-ws', label: t('keys.useKeyModal.cliTabs.codexCliWs'), icon: TerminalIcon },
+        { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
+        { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
-      if (props.allowMessagesDispatch) {
-        tabs.push({ id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon })
-      }
-      tabs.push({ id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon })
-      return tabs
-    }
     case 'gemini':
       return [
         { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
     case 'antigravity':
-      return [
-        { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
-        { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
-        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
-      ]
     case 'opencode_go':
       return [
+        { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
+        { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
+        { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
     default:
@@ -385,13 +379,26 @@ const platformDescription = computed(() => {
       if (activeClientTab.value === 'claude') {
         return t('keys.useKeyModal.description')
       }
+      if (activeClientTab.value === 'gemini') {
+        return t('keys.useKeyModal.gemini.description')
+      }
       return t('keys.useKeyModal.openai.description')
     case 'gemini':
       return t('keys.useKeyModal.gemini.description')
     case 'antigravity':
-      return t('keys.useKeyModal.antigravity.description')
     case 'opencode_go':
-      return t('keys.useKeyModal.opencodeGo.description')
+      if (activeClientTab.value === 'codex') {
+        return t('keys.useKeyModal.openai.description')
+      }
+      if (activeClientTab.value === 'claude') {
+        return t('keys.useKeyModal.description')
+      }
+      if (activeClientTab.value === 'gemini') {
+        return t('keys.useKeyModal.gemini.description')
+      }
+      return props.platform === 'antigravity'
+        ? t('keys.useKeyModal.antigravity.description')
+        : t('keys.useKeyModal.opencodeGo.description')
     default:
       return t('keys.useKeyModal.description')
   }
@@ -409,9 +416,25 @@ const platformNote = computed(() => {
     case 'gemini':
       return t('keys.useKeyModal.gemini.note')
     case 'antigravity':
-      return activeClientTab.value === 'claude'
-        ? t('keys.useKeyModal.antigravity.claudeNote')
-        : t('keys.useKeyModal.antigravity.geminiNote')
+      if (activeClientTab.value === 'claude') {
+        return t('keys.useKeyModal.antigravity.claudeNote')
+      }
+      if (activeClientTab.value === 'gemini') {
+        return t('keys.useKeyModal.antigravity.geminiNote')
+      }
+      return activeTab.value === 'windows'
+        ? t('keys.useKeyModal.openai.noteWindows')
+        : t('keys.useKeyModal.openai.note')
+    case 'opencode_go':
+      if (activeClientTab.value === 'gemini') {
+        return t('keys.useKeyModal.gemini.note')
+      }
+      if (activeClientTab.value === 'codex') {
+        return activeTab.value === 'windows'
+          ? t('keys.useKeyModal.openai.noteWindows')
+          : t('keys.useKeyModal.openai.note')
+      }
+      return t('keys.useKeyModal.note')
     default:
       return t('keys.useKeyModal.note')
   }
@@ -527,6 +550,9 @@ const currentFiles = computed((): FileConfig[] => {
       if (activeClientTab.value === 'claude') {
         return generateAnthropicFiles(baseUrl, apiKey)
       }
+      if (activeClientTab.value === 'gemini') {
+        return [generateGeminiCliContent(baseUrl, apiKey)]
+      }
       if (activeClientTab.value === 'codex-ws') {
         return generateOpenAIWsFiles(baseUrl, apiKey)
       }
@@ -534,11 +560,23 @@ const currentFiles = computed((): FileConfig[] => {
     case 'gemini':
       return [generateGeminiCliContent(baseUrl, apiKey)]
     case 'antigravity':
-      if (activeClientTab.value === 'gemini') {
-        return [generateGeminiCliContent(`${baseUrl}/antigravity`, apiKey)]
+      if (activeClientTab.value === 'codex') {
+        return generateOpenAIFiles(baseUrl, apiKey)
       }
-      return generateAnthropicFiles(`${baseUrl}/antigravity`, apiKey)
+      if (activeClientTab.value === 'gemini') {
+        return [generateGeminiCliContent(baseUrl, apiKey)]
+      }
+      return generateAnthropicFiles(baseUrl, apiKey)
     case 'opencode_go':
+      if (activeClientTab.value === 'codex') {
+        return generateOpenAIFiles(baseUrl, apiKey)
+      }
+      if (activeClientTab.value === 'claude') {
+        return generateAnthropicFiles(baseUrl, apiKey)
+      }
+      if (activeClientTab.value === 'gemini') {
+        return [generateGeminiCliContent(baseUrl, apiKey)]
+      }
       return [generateOpenCodeConfig('opencode-go', apiBase, apiKey)]
     default:
       return generateAnthropicFiles(baseUrl, apiKey)
