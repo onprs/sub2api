@@ -35,7 +35,7 @@ The client format alone does not select the upstream format. The effective path 
 | `antigravity` | Chat Completions, Responses, Messages, Google GenAI on both ordinary and dedicated generation routes | Standard Chat/Responses requests convert to Google GenAI before the Antigravity `v1internal` envelope over `streamGenerateContent`; ordinary Google ingress uses the same native Antigravity account loop as the dedicated route. Claude-family and Gemini-family vendor behavior is selected from the resolved account/model mapping |
 | `opencode_go` | Chat Completions, Responses, Messages, Google GenAI | Account `credentials.model_protocols` selects actual Chat or Messages wire after client and channel model mapping. Root HTTP Responses generation and Google generation are supported; Responses WebSocket and specialized `/responses/*subpath` operations remain excluded |
 
-The `feature/all-protocol-all-platform` branch implements the complete `4 client protocols × 3 production platforms` HTTP generation admission matrix. Local route, handler, buffered, streaming, model-identity, tool-call/result, usage-extraction, and source-error tests cover the four cells that production `0.1.153/d9f36afd` still rejects. This is not yet a production-completion claim: deployment, real-wire matrix probes, usage/billing reconciliation, and health verification remain separate release gates.
+The complete `4 client protocols × 3 production platforms` HTTP generation admission matrix is deployed in production release `0.1.157/254c8241b`. Local route, handler, buffered, streaming, model-identity, tool-call/result, usage-extraction, and source-error tests cover every cell; the deployed-wire, billing, and health evidence is recorded below.
 
 ## Antigravity Boundary
 
@@ -85,7 +85,7 @@ Commits `15c253d8` and `e35ec276` were reverted by `4df353d9` and `2a7dc9d8`. Th
 - The probes were Python scripts and did not exercise the exact Go conversion implementation required for production.
 - Coverage emphasized current model names and selected text/tool fixtures rather than malformed streams, capability loss, per-request state isolation, fuzzing, and round-trip inflation.
 
-The replacement was therefore built as a production-disconnected Go core first, then integrated provider by provider behind characterization tests. The original rewrite is deployed; later route-matrix expansion remains a separate merge and release boundary until its automated and live-probe gates pass.
+The replacement was therefore built as a production-disconnected Go core first, then integrated provider by provider behind characterization tests. The original rewrite and the later route-matrix expansion are now deployed; their separate automated and live-probe gates are recorded below.
 
 ## Live Probe Findings
 
@@ -123,6 +123,16 @@ The follow-up keeps request conversion strict and adds an explicit response-only
 
 Release `0.1.153/d9f36afd` was deployed on 2026-07-15. Deployed-wire acceptance sent `minimax-m2.7` through the previously failing buffered Chat-over-Anthropic route three consecutive times, Chat streaming, and direct Messages buffered/streaming; all returned HTTP 200. Additional field-level Chat probes confirmed that buffered and streaming output retained reasoning and final text, streaming emitted terminal usage and `[DONE]`, and neither format exposed `signature` or `encrypted_content`. Chat and Messages two-request forced-tool controls both returned 200/200 with preserved call/result IDs and final text. The isolated acceptance window produced 12 unique usage rows with positive usage and cost, 12 matching billing-dedup rows, no duplicate request IDs, and no signature/conversion errors. The service remained healthy with no restart after cutover.
 
+### Complete 4 × 3 Production Acceptance
+
+Release `0.1.156/3a61ce7e0` first deployed all four client protocols on OpenAI/Codex, Antigravity, and OpenCode Go. Its initial live matrix found one real-wire defect not covered by the stubs: a Google structured tool result sent to an OpenCode model using actual Anthropic wire was emitted as an object-valued `tool_result.content`, which Anthropic rejects. Commit `6c187fa29` aligned the Go converter with the pinned reference by serializing non-string structured results to normalized JSON text while preserving multipart content-block arrays. The fix was merged as `254c8241b` and deployed as `0.1.157` with SHA256 `a6b1cdabd14b9fa0982ab97a3d0a33b67af10ab28b8c9a9804f5af8520b68301`.
+
+The final isolated acceptance on `0.1.157` used Codex `gpt-5.4`, Antigravity `gemini-3-flash`, and OpenCode Go `minimax-m2.7`. All 24 text cases (`4 protocols × 3 platforms × buffered/streaming`) returned HTTP 200 with zero conversion warnings and valid stream terminals. All 12 two-request forced-tool cases returned 200/200, preserved the tool call/result ID, produced final text, and reported zero conversion warnings. This includes the corrected Google-to-OpenCode-to-Anthropic second turn.
+
+The final database window contained exactly 48 successful usage rows, 16 per platform. All 48 had unique request IDs, positive token usage, positive total and actual cost, and one matching `usage_billing_dedup` row. There were no duplicate usage rows, missing or orphan billing-dedup rows, or per-row multiplier mismatches. Aggregate `total_cost` was `0.0568800800 USD` and aggregate `actual_cost` was `0.0070509960 USD`; platform multipliers were exactly `0.1000`, `0.0500`, and `1.2000`. Each platform recorded four rows for each inbound generation endpoint, including one stream. Actual endpoints matched routing: Codex used `/v1/responses`, OpenCode used `/v1/messages`, and Antigravity used its Messages or Google surface according to ingress.
+
+The isolated request logs had no test-key 4xx/5xx and no signature, conversion, panic, or fatal signal. After acceptance the service remained `active/running`, health returned 200, PID remained stable, and `NRestarts=0`. This completes the production `4 × 3` HTTP generation acceptance; the specialized exclusions documented below remain unchanged.
+
 ### Prior Supported-Ingress Production Evidence
 
 A broader deployed-wire acceptance on 2026-07-15 used three test-only keys and fixed per-key usage-log baselines. It exercised Codex group 2, Antigravity group 8, and OpenCode Go group 10 across every ingress then admitted for their platform, in buffered and streaming modes. It also covered two-request tool-call/result flows with preserved IDs and final text, and sampled all four client stream formats for terminal events and usage. Nine buffered client-wire samples had the expected object shape, text, and usage; Chat and Responses output did not expose `signature` or `encrypted_content`.
@@ -145,7 +155,7 @@ Groups 2/4 and 10/11 use identical account IDs. Their protocol-affecting group f
 
 This census establishes equivalence of the shared account pools and validates the then-supported cells; it does not establish all-protocol coverage. Groups 4 and 11 were not independently rerun with dedicated probe keys, and account/configuration equivalence cannot substitute for implementing the four rejected protocol/platform cells. Historical groups 5, 6, and 12 and their apparent active keys were excluded because both the groups and relevant keys are soft-deleted. Group 7 is also soft-deleted/inactive and has no schedulable account; its two undeleted key rows were verified to fail closed with HTTP 403 `GROUP_DELETED`.
 
-The current branch removes those four admission gaps: OpenAI Messages generation/counting ignores the legacy product gate, ordinary Antigravity `/v1beta` is admitted, and OpenCode Go accepts root HTTP Responses plus Google generation while selecting actual Chat or Messages wire per account model capability. Production acceptance remains pending until a release runs the complete `4 × 3` deployed-wire matrix and reconciles usage, billing deduplication, errors, and service health.
+Release `0.1.157/254c8241b` closes those four admission gaps: OpenAI Messages generation/counting ignores the legacy product gate, ordinary Antigravity `/v1beta` is admitted, and OpenCode Go accepts root HTTP Responses plus Google generation while selecting actual Chat or Messages wire per account model capability. The complete deployed `4 × 3` matrix, billing-dedup reconciliation, error inspection, and health verification passed as recorded above.
 
 ## Production Integration
 
