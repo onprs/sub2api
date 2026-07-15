@@ -251,10 +251,8 @@ func decodeToolResultContent(raw json.RawMessage) (json.RawMessage, []ir.Content
 
 func encodeToolResultContent(part ir.ContentPart, options protocolconv.Options) (json.RawMessage, []protocolconv.Warning, error) {
 	if len(part.ToolResultContent) == 0 {
-		if len(part.ToolResult) == 0 {
-			return json.RawMessage(`""`), nil, nil
-		}
-		return cloneRaw(part.ToolResult), nil, nil
+		content, err := encodeToolResultJSON(part.ToolResult)
+		return content, nil, err
 	}
 	blocks := make([]blockWire, 0, len(part.ToolResultContent))
 	var warnings []protocolconv.Warning
@@ -287,6 +285,30 @@ func encodeToolResultContent(part ir.ContentPart, options protocolconv.Options) 
 	}
 	body, err := json.Marshal(blocks)
 	return body, warnings, err
+}
+
+func encodeToolResultJSON(raw json.RawMessage) (json.RawMessage, error) {
+	if len(raw) == 0 {
+		return json.RawMessage(`""`), nil
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	switch value := value.(type) {
+	case nil:
+		return json.RawMessage(`""`), nil
+	case string:
+		body, err := json.Marshal(value)
+		return body, err
+	default:
+		normalized, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		body, err := json.Marshal(string(normalized))
+		return body, err
+	}
 }
 
 func allToolResults(parts []ir.ContentPart) bool {

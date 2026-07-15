@@ -975,11 +975,12 @@ func TestOpenCodeGoGatewayServiceResponsesAndGoogleToolResultsPreserveCorrelatio
 					if gjson.Get(upstream.body, "messages.0.content.0.id").String() != "call_matrix" || gjson.Get(upstream.body, "messages.0.content.0.name").String() != "lookup" || gjson.Get(upstream.body, "messages.1.content.0.tool_use_id").String() != "call_matrix" {
 						t.Fatalf("Messages second turn lost tool correlation: %s", upstream.body)
 					}
-					toolResultPath := "messages.1.content.0.content"
+					toolResult := gjson.Get(upstream.body, "messages.1.content.0.content")
 					if source == protocolconv.ProtocolGoogleGenAI {
-						toolResultPath += ".content"
-					}
-					if gjson.Get(upstream.body, toolResultPath).String() != "found" {
+						if toolResult.Type != gjson.String || gjson.Get(toolResult.String(), "content").String() != "found" {
+							t.Fatalf("Messages second turn did not serialize the structured tool result as JSON text: %s", upstream.body)
+						}
+					} else if toolResult.String() != "found" {
 						t.Fatalf("Messages second turn lost tool result: %s", upstream.body)
 					}
 				}

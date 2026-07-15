@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -44,6 +45,23 @@ func TestRequestRoundTripPreservesMultimodalToolResult(t *testing.T) {
 	require.Equal(t, "image", gjson.GetBytes(encoded, "messages.1.content.0.content.1.type").String())
 	require.Equal(t, "image/png", gjson.GetBytes(encoded, "messages.1.content.0.content.1.source.media_type").String())
 	require.Equal(t, "AAAA", gjson.GetBytes(encoded, "messages.1.content.0.content.1.source.data").String())
+}
+
+func TestEncodeRequestSerializesStructuredToolResultAsJSONText(t *testing.T) {
+	request := &ir.Request{
+		Model: "claude-test",
+		Messages: []ir.Message{
+			{Role: ir.RoleAssistant, Content: []ir.ContentPart{{Type: ir.ContentToolCall, ToolCallID: "call-1", ToolName: "lookup", ToolInput: json.RawMessage(`{"q":"x"}`)}}},
+			{Role: ir.RoleTool, Content: []ir.ContentPart{{Type: ir.ContentToolResult, ToolCallID: "call-1", ToolName: "lookup", ToolResult: json.RawMessage(`{"content":"found"}`)}}},
+		},
+	}
+
+	body, warnings, err := New().EncodeRequest(request, protocolconv.Options{LossPolicy: protocolconv.LossError})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	content := gjson.GetBytes(body, "messages.1.content.0.content")
+	require.Equal(t, gjson.String, content.Type)
+	require.JSONEq(t, `{"content":"found"}`, content.String())
 }
 
 func TestEncodeRequestRejectsURLImageInsideToolResultInStrictMode(t *testing.T) {
