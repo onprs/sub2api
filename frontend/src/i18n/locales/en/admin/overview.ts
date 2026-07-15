@@ -15,7 +15,6 @@ export default {
       totalRequests: 'Total Requests',
       todayCost: 'Today Cost',
       totalCost: 'Total Cost',
-      newUsersToday: 'New Users Today',
       todayTokens: 'Today Tokens',
       totalTokens: 'Total Tokens',
       input: 'Input',
@@ -24,11 +23,7 @@ export default {
       performance: 'Performance',
       avgResponse: 'Avg Response',
       averageTime: 'Average Time',
-      active: 'active',
-      ok: 'ok',
-      err: 'err',
       activeUsers: 'active users',
-      create: 'Create',
       timeRange: 'Time Range',
       granularity: 'Granularity',
       day: 'Day',
@@ -38,7 +33,6 @@ export default {
       metricTokens: 'By Tokens',
       metricActualCost: 'By Actual Cost',
       tokenUsageTrend: 'Token Usage Trend',
-      userUsageTrend: 'User Usage Trend (Top 12)',
       model: 'Model',
       group: 'Group',
       noGroup: 'No Group',
@@ -457,6 +451,7 @@ export default {
       leaveEmptyToKeep: 'Leave empty to keep current password',
       generatePassword: 'Generate random password',
       copyPassword: 'Copy password',
+      passwordCopied: 'Password copied',
       creating: 'Creating...',
       updating: 'Updating...',
       form: {
@@ -495,6 +490,7 @@ export default {
         usageOpenAI: 'Usage (OpenAI)',
         usageGemini: 'Usage (Gemini)',
         usageAntigravity: 'Usage (Antigravity)',
+        usageOpenCodeGo: 'Usage (OpenCode Go)',
         concurrency: 'Concurrency',
         status: 'Status',
         lastActive: 'Last Active',
@@ -1024,14 +1020,6 @@ export default {
         tooltip: 'When enabled, if the request contains MCP tools, an XML format call protocol prompt will be injected into the system prompt. Disable this to avoid interference with certain clients.',
         enabled: 'Enabled',
         disabled: 'Disabled'
-      },
-      claudeMaxSimulation: {
-        title: 'Claude Max Usage Simulation',
-        tooltip:
-          'When enabled, for Claude models without upstream cache-write usage, the system deterministically maps tokens to a small input plus 1h cache creation while keeping total tokens unchanged.',
-        enabled: 'Enabled (simulate 1h cache)',
-        disabled: 'Disabled',
-        hint: 'Only token categories in usage billing logs are adjusted. No per-request mapping state is persisted.'
       },
       supportedScopes: {
         title: 'Supported Model Families',

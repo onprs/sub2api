@@ -55,7 +55,10 @@ export async function loadLocaleMessages(locale: LocaleCode): Promise<void> {
 
 export async function initI18n(): Promise<void> {
   const current = getLocale()
-  await loadLocaleMessages(current)
+  await loadLocaleMessages(DEFAULT_LOCALE)
+  if (current !== DEFAULT_LOCALE) {
+    await loadLocaleMessages(current)
+  }
   document.documentElement.setAttribute('lang', current)
 }
 

@@ -59,6 +59,7 @@ import { useI18n } from 'vue-i18n'
 import type { AccountPlatform, AccountType } from '@/types'
 import PlatformIcon from './PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { getAccountTypeLabelKey } from '@/utils/i18nLabels'
 
 const { t } = useI18n()
 
@@ -81,22 +82,9 @@ const platformLabel = computed(() => {
   return 'Gemini'
 })
 
-const typeLabel = computed(() => {
-  switch (props.type) {
-    case 'oauth':
-      return 'OAuth'
-    case 'setup-token':
-      return 'Token'
-    case 'apikey':
-      return 'Key'
-    case 'bedrock':
-      return 'AWS'
-    case 'service_account':
-      return 'Vertex'
-    default:
-      return props.type
-  }
-})
+const typeLabel = computed(() =>
+  t(getAccountTypeLabelKey(props.type), { value: props.type })
+)
 
 const planLabel = computed(() => {
   if (!props.planType) return ''

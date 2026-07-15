@@ -108,6 +108,11 @@ export default {
       },
       types: {
         oauth: 'OAuth',
+        'setup-token': 'Setup Token',
+        apikey: 'API Key',
+        upstream: 'Upstream',
+        bedrock: 'AWS Bedrock',
+        service_account: 'Service Account',
         chatgptOauth: 'ChatGPT OAuth',
         responsesApi: 'Responses API',
         googleOauth: 'Google OAuth',
@@ -115,7 +120,6 @@ export default {
         antigravityOauth: 'Antigravity OAuth',
         grokOauth: 'Grok OAuth',
         antigravityApikey: 'Connect via Base URL + API Key',
-        upstream: 'Upstream',
         upstreamDesc: 'Connect via Base URL + API Key'
       },
       antigravityProjectIdLabel: 'GCP Project ID (optional)',
@@ -314,6 +318,7 @@ export default {
         disableScheduling: 'Disable Scheduling',
         resetStatus: 'Reset Status',
         refreshToken: 'Refresh Token',
+        copyModelMapping: 'Copy Model Mapping',
         resetStatusSuccess: 'Successfully reset {count} account(s) status',
         refreshTokenSuccess: 'Successfully refreshed {count} account(s) token',
         partialSuccess: 'Partially completed: {success} succeeded, {failed} failed'
@@ -332,6 +337,24 @@ export default {
         noSelection: 'Please select accounts to edit',
         noFieldsSelected: 'Select at least one field to update',
         mixedPlatformWarning: 'Selected accounts span multiple platforms ({platforms}). Model mapping presets shown are combined — ensure mappings are appropriate for each platform.'
+      },
+      copyModelMapping: {
+        title: 'Copy Model Mapping',
+        warning: 'Existing model mappings on the selected target accounts will be replaced.',
+        targetCount: '{count} target account(s)',
+        sourceAccount: 'Source Account',
+        sourcePlaceholder: 'Select an account to copy from',
+        noSourceAccounts: 'No compatible source accounts are available',
+        mappingCount: '{count} mapping(s)',
+        copying: 'Copying...',
+        submit: 'Copy Mapping',
+        loadFailed: 'Failed to load source accounts',
+        emptySourceError: 'The selected source account has no model mappings',
+        noSelection: 'Select at least one target account',
+        mixedPlatformError: 'Selected accounts must use the same platform',
+        success: 'Copied model mapping to {count} account(s)',
+        partialSuccess: 'Model mapping copied partially: {success} succeeded, {failed} failed',
+        failed: 'Failed to copy model mapping'
       },
       bulkDeleteTitle: 'Bulk Delete Accounts',
       bulkDeleteConfirm: 'Delete the selected {count} account(s)? This action cannot be undone.',
@@ -495,6 +518,10 @@ export default {
         baseUrlHint: 'Grok OAuth accounts forward to the official xAI API base URL.',
         apiKeyHint: 'Grok subscription support uses OAuth refresh tokens; API keys are out of scope for this account type.'
       },
+      opencodeGo: {
+        baseUrlHint: 'Use the official OpenCode Go API root unless your deployment requires a compatible relay.',
+        apiKeyHint: 'Enter the API key issued for OpenCode Go.'
+      },
       anthropic: {
         apiKeyPassthrough: 'Auto passthrough (auth only)',
         apiKeyPassthroughDesc:
@@ -520,6 +547,8 @@ export default {
       supportsAllModels: '(supports all models)',
       requestModel: 'Request model',
       actualModel: 'Actual model',
+      fromModel: 'From Model',
+      toModel: 'To Model',
       addMapping: 'Add Mapping',
       mappingExists: 'Mapping for {model} already exists',
       wildcardOnlyAtEnd: 'Wildcard * can only be at the end',
@@ -701,6 +730,9 @@ export default {
       creating: 'Creating...',
       updating: 'Updating...',
       accountCreated: 'Account created successfully',
+      messages: {
+        accountCreated: 'Account created successfully'
+      },
       accountUpdated: 'Account updated successfully',
       failedToCreate: 'Failed to create account',
       failedToUpdate: 'Failed to update account',
@@ -817,6 +849,8 @@ export default {
               'No proxy is configured and this server could not reach OpenAI directly, so the OpenAI OAuth request failed. Select a proxy that can access OpenAI and retry; if the authorization code has expired, regenerate the authorization URL.'
           },
           // Refresh Token auth
+          mobileRefreshTokenAuth: 'Mobile Refresh Token',
+          accessTokenAuth: 'Access Token',
           refreshTokenAuth: 'Manual RT Input',
           refreshTokenDesc: 'Enter your existing OpenAI Refresh Token(s). Supports batch input (one per line). The system will automatically validate and create accounts.',
           refreshTokenPlaceholder: 'Paste your OpenAI Refresh Token...\nSupports multiple, one per line',
@@ -1214,7 +1248,8 @@ export default {
         grokLastProbe: 'Probe {time}',
         grokLastHeadersSeen: 'Headers {time}',
         passiveSampled: 'Passive',
-        activeQuery: 'Query'
+        activeQuery: 'Query',
+        estimatedData: 'Estimated from available upstream usage data'
       },
       openaiQuotaReset: {
         count: 'Credits',

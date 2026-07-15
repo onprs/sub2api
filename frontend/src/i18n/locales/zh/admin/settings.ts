@@ -30,6 +30,13 @@ export default {
           enabled: '启用可用渠道',
           enabledHint: '关闭后用户端侧边栏入口隐藏，接口返回空数组。',
         },
+        modelPricing: {
+          title: '模型计费',
+          description: '向已登录用户展示模型价格与计费规则。',
+          configureLink: '前往 渠道管理 > 渠道定价 配置模型价格',
+          enabled: '启用模型计费',
+          enabledHint: '关闭后用户无法打开模型计费页面。'
+        },
         riskControl: {
           title: '风控中心',
           description: '启用内容审计菜单和全端点请求审核入口。默认关闭。',
@@ -1019,6 +1026,11 @@ export default {
         scopeOAuth: '仅 OAuth 账号',
         scopeAPIKey: '仅 API Key 账号',
         scopeBedrock: '仅 Bedrock 账号',
+        userIds: '指定用户 ID',
+        userIdsHint: '留空表示对全部 Sub2API 用户生效。指定后仅匹配这些用户的 API Key 请求，且优先于全局规则。',
+        userIdPlaceholder: '例如: 1001',
+        addUserId: '添加用户 ID',
+        removeUserId: '移除用户 ID',
         errorMessage: '错误消息',
         errorMessagePlaceholder: '拦截时返回的自定义错误消息',
         errorMessageHint: '留空则使用默认错误消息。',

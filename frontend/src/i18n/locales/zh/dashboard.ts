@@ -135,6 +135,25 @@ export default {
       noGroupTitle: '请先分配分组',
       noGroupDescription:
         '此 API 密钥尚未分配分组，请先在密钥列表中点击分组列进行分配，然后才能查看使用配置。',
+      cliImport: {
+        keyName: 'API 密钥',
+        group: '分组',
+        endpoint: '端点',
+        defaultModel: '默认模型',
+        downloadWindows: '下载 Windows 脚本',
+        downloadLinux: '下载 macOS/Linux 脚本',
+        unknownKey: '未知密钥',
+        noGroup: '未分组',
+        notConfigured: '未配置',
+        disabled: {
+          noKey: 'API 密钥数据不可用',
+          noGroup: '请先分配分组再下载导入脚本',
+          expired: '此 API 密钥已过期',
+          quotaExhausted: '此 API 密钥额度已耗尽',
+          inactive: '此 API 密钥未启用'
+        },
+        downloadFailed: '下载导入脚本失败'
+      },
       openai: {
         description: '将以下配置文件添加到 Codex CLI 配置目录中。',
         configTomlHint: '请确保以下内容位于 config.toml 文件的开头部分',
@@ -168,6 +187,9 @@ export default {
         title: 'OpenCode 配置示例',
         subtitle: 'opencode.json',
         hint: '配置文件路径：~/.config/opencode/opencode.json（或 opencode.jsonc），不存在需手动创建。可使用默认 provider（openai/anthropic/google）或自定义 provider_id。API Key 支持直接配置或通过客户端 /connect 命令配置。示例仅供参考，模型与选项可按需调整。'
+      },
+      opencodeGo: {
+        description: '将此 API 密钥导入 OpenCode，用于 OpenCode Go 分组。'
       }
     },
     customKeyLabel: '自定义密钥',
