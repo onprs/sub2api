@@ -764,6 +764,86 @@ func TestExecuteSubscriptionFulfillmentRecoversCommittedAssignmentWithoutExtendi
 	require.Equal(t, 1, assignmentAuditCount)
 }
 
+func TestEnsurePaymentSubscriptionAssignedAppliesOrderQuotaSnapshot(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusPaid, time.Now())
+
+	fiveHour := 2.5
+	thirtyDay := 25.0
+	order, err := client.PaymentOrder.UpdateOneID(order.ID).
+		SetSubscriptionQuotaSnapshotVersion(1).
+		SetSubscriptionFiveHourLimitUsd(fiveHour).
+		ClearSubscriptionSevenDayLimitUsd().
+		SetSubscriptionThirtyDayLimitUsd(thirtyDay).
+		Save(ctx)
+	require.NoError(t, err)
+
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription},
+	}
+	subRepo := newSubscriptionUserSubRepoStub()
+	svc := &PaymentService{
+		entClient:       client,
+		groupRepo:       groupRepo,
+		subscriptionSvc: NewSubscriptionService(groupRepo, subRepo, nil, nil, nil),
+	}
+
+	require.NoError(t, svc.ensurePaymentSubscriptionAssigned(ctx, order, *order.SubscriptionGroupID, *order.SubscriptionDays))
+
+	sub, err := subRepo.GetByUserIDGroupIDAndPlanID(ctx, order.UserID, *order.SubscriptionGroupID, order.PlanID)
+	require.NoError(t, err)
+	require.NotNil(t, sub.PlanID)
+	require.Equal(t, *order.PlanID, *sub.PlanID)
+	require.NotNil(t, sub.FiveHourLimitUSD)
+	require.Equal(t, fiveHour, *sub.FiveHourLimitUSD)
+	require.Nil(t, sub.SevenDayLimitUSD)
+	require.NotNil(t, sub.ThirtyDayLimitUSD)
+	require.Equal(t, thirtyDay, *sub.ThirtyDayLimitUSD)
+}
+
+func TestEnsurePaymentSubscriptionAssignedKeepsQuotaForLegacyOrder(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusPaid, time.Now())
+
+	fiveHour := 3.0
+	sevenDay := 15.0
+	thirtyDay := 40.0
+	subRepo := newSubscriptionUserSubRepoStub()
+	subRepo.seed(&UserSubscription{
+		ID:                101,
+		UserID:            order.UserID,
+		GroupID:           *order.SubscriptionGroupID,
+		PlanID:            order.PlanID,
+		StartsAt:          time.Now().Add(-24 * time.Hour),
+		ExpiresAt:         time.Now().Add(24 * time.Hour),
+		Status:            SubscriptionStatusActive,
+		FiveHourLimitUSD:  &fiveHour,
+		SevenDayLimitUSD:  &sevenDay,
+		ThirtyDayLimitUSD: &thirtyDay,
+	})
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription},
+	}
+	svc := &PaymentService{
+		entClient:       client,
+		groupRepo:       groupRepo,
+		subscriptionSvc: NewSubscriptionService(groupRepo, subRepo, nil, nil, nil),
+	}
+
+	require.Zero(t, order.SubscriptionQuotaSnapshotVersion)
+	require.NoError(t, svc.ensurePaymentSubscriptionAssigned(ctx, order, *order.SubscriptionGroupID, *order.SubscriptionDays))
+
+	sub, err := subRepo.GetByUserIDGroupIDAndPlanID(ctx, order.UserID, *order.SubscriptionGroupID, order.PlanID)
+	require.NoError(t, err)
+	require.Equal(t, fiveHour, *sub.FiveHourLimitUSD)
+	require.Equal(t, sevenDay, *sub.SevenDayLimitUSD)
+	require.Equal(t, thirtyDay, *sub.ThirtyDayLimitUSD)
+}
+
 func TestHasPaymentSubscriptionOrderNoteRequiresIndependentExactLine(t *testing.T) {
 	t.Parallel()
 	require.True(t, hasPaymentSubscriptionOrderNote("before\r\npayment order 42\r\nafter", "payment order 42"))
