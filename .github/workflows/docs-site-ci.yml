@@ -1,0 +1,57 @@
+name: Docs Site CI
+
+on:
+  push:
+    paths:
+      - 'docs-site/**'
+      - '.github/workflows/docs-site-ci.yml'
+  pull_request:
+    paths:
+      - 'docs-site/**'
+      - '.github/workflows/docs-site-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: docs-site/pnpm-lock.yaml
+      - name: Install dependencies
+        working-directory: docs-site
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        working-directory: docs-site
+        run: pnpm typecheck
+      - name: Build
+        working-directory: docs-site
+        run: pnpm build
+      - name: Check critical external links
+        working-directory: docs-site
+        run: pnpm check:external
+      - name: Install Chromium
+        working-directory: docs-site
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Browser smoke
+        working-directory: docs-site
+        run: pnpm test:smoke
+      - name: Upload browser report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: docs-site-playwright-report
+          path: docs-site/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
