@@ -37,19 +37,62 @@ test('documentation navigation, clean URLs, copy and dark mode work', async ({ p
   expect(response?.status()).toBe(200)
   await expect(page.getByRole('heading', { level: 1, name: '发送第一条请求' })).toBeVisible()
 
+  const sidebarSections = [
+    '快速开始',
+    'API 使用',
+    '客户端',
+    '套餐与额度',
+    '错误排查',
+    '账号与安全',
+    '常见问题',
+    '文档更新'
+  ]
+
   if (isMobile) {
     const mobileMenuButton = page.locator('.VPNavBarHamburger')
     await mobileMenuButton.click()
     await expect(page.locator('.VPNavScreen')).toBeVisible()
-    await expect(page.getByRole('link', { name: /返回控制台/ })).toHaveAttribute('href', 'https://cdn.api.onprs.top/')
+
+    const mobileTopNav = page.locator('.VPNavScreenMenu')
+    await expect(mobileTopNav.getByRole('link')).toHaveCount(2)
+    await expect(mobileTopNav.getByRole('link', { name: '快速开始', exact: true })).toBeVisible()
+    await expect(mobileTopNav.getByRole('link', { name: /返回控制台/ })).toHaveAttribute(
+      'href',
+      'https://cdn.api.onprs.top/'
+    )
+
     await page.locator('.VPSwitchAppearance:visible').click()
     await expect(page.locator('html')).toHaveClass(/dark/)
     await mobileMenuButton.click()
     await expect(page.locator('.VPNavScreen')).toBeHidden()
+
+    await page.getByRole('button', { name: '文档目录' }).click()
+    const sidebar = page.locator('.VPSidebar')
+    await expect(sidebar).toHaveClass(/open/)
+    for (const section of sidebarSections) {
+      await expect(sidebar.getByText(section, { exact: true })).toBeVisible()
+    }
+    await expect
+      .poll(() => sidebar.evaluate((element) => getComputedStyle(element).transform))
+      .toBe('matrix(1, 0, 0, 1, 0, 0)')
+    await page.screenshot({ path: testInfo.outputPath('unified-sidebar.png') })
+    await page.keyboard.press('Escape')
+    await expect(sidebar).not.toHaveClass(/open/)
   } else {
-    await expect(page.locator('.VPSidebar')).toBeVisible()
-    await expect(page.getByRole('link', { name: /返回控制台/ })).toHaveAttribute('href', 'https://cdn.api.onprs.top/')
-    await expect(page.getByRole('link', { name: '创建 API Key', exact: true })).toBeVisible()
+    const topNav = page.locator('.VPNavBarMenu')
+    await expect(topNav.getByRole('link')).toHaveCount(2)
+    await expect(topNav.getByRole('link', { name: '快速开始', exact: true })).toBeVisible()
+    await expect(topNav.getByRole('link', { name: /返回控制台/ })).toHaveAttribute(
+      'href',
+      'https://cdn.api.onprs.top/'
+    )
+
+    const sidebar = page.locator('.VPSidebar')
+    await expect(sidebar).toBeVisible()
+    for (const section of sidebarSections) {
+      await expect(sidebar.getByText(section, { exact: true })).toBeVisible()
+    }
+    await expect(sidebar.getByRole('link', { name: '创建 API Key', exact: true })).toBeVisible()
     await page.locator('.VPSwitchAppearance:visible').click()
     await expect(page.locator('html')).toHaveClass(/dark/)
   }
@@ -64,6 +107,9 @@ test('documentation navigation, clean URLs, copy and dark mode work', async ({ p
   const cleanUrlResponse = await page.goto('/plans/rolling-quotas')
   expect(cleanUrlResponse?.status()).toBe(200)
   await expect(page.getByText('三个窗口同时检查')).toBeVisible()
+  if (!isMobile) {
+    await expect(page.locator('.VPSidebar').getByRole('link', { name: '5h / 7d / 30d 额度' })).toBeVisible()
+  }
 })
 
 test('unknown routes return a real custom 404', async ({ page }, testInfo) => {
