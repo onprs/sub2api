@@ -17,7 +17,7 @@ printf '%s' 'sk-your-api-key' > ~/.config/opencode/onprs.key
 chmod 600 ~/.config/opencode/onprs.key
 ```
 
-Windows 可使用主站 [API Keys](https://api.onprs.top/keys) 的“使用 Key”导入器，以避免手工处理权限和路径。
+Windows 可使用控制台 [API Keys](https://cdn.api.onprs.top/keys) 的“使用 Key”导入器，以避免手工处理权限和路径。
 
 ## 添加 provider
 
@@ -45,7 +45,7 @@ Windows 可使用主站 [API Keys](https://api.onprs.top/keys) 的“使用 Key�
 }
 ```
 
-主站导入器会按 Key 分组生成实际模型表，优先使用该结果，避免长期维护静态模型清单。
+控制台导入器会按 Key 分组生成实际模型表，优先使用该结果，避免长期维护静态模型清单。
 
 ## OpenCode Go 说明
 

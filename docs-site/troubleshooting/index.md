@@ -9,7 +9,7 @@ description: 按服务状态、Base URL、API Key、协议、模型、额度和�
 
 ## 1. 确认服务状态
 
-打开[渠道状态](https://api.onprs.top/monitor)和控制台首页，确认不是公告中的维护或平台级故障。若所有 Key、模型和协议都失败，再检查 `https://api.onprs.top/health` 是否可达。
+打开[渠道状态](https://cdn.api.onprs.top/monitor)和控制台首页，确认是否有维护或渠道异常。若所有 Key、模型和协议都失败，再检查 `https://api.onprs.top/health` 是否可达。
 
 ## 2. 检查 Base URL
 
@@ -21,11 +21,11 @@ description: 按服务状态、Base URL、API Key、协议、模型、额度和�
 
 ## 3. 检查 Key
 
-使用控制台 [API Keys](https://api.onprs.top/keys) 确认 Key 状态、分组、到期时间、额度和 IP 限制。新建临时终端变量做最小 curl，不要在日志中打印完整 Key。
+使用控制台 [API Keys](https://cdn.api.onprs.top/keys) 确认 Key 状态、分组、到期时间、额度和 IP 限制。新建临时终端变量做最小 curl，不要在日志中打印完整 Key。
 
 ## 4. 检查协议、路径和模型
 
-先发送纯文本、非流式、无工具的最小请求。模型名必须来自当前 Key 的[可用渠道](https://api.onprs.top/available-channels)。
+先发送纯文本、非流式、无工具的最小请求。模型名必须来自当前 Key 的[可用渠道](https://cdn.api.onprs.top/available-channels)。
 
 ## 5. 检查余额、套餐和限制
 

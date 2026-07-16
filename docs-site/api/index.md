@@ -10,7 +10,7 @@ OnprsCodexApi 提供四类标准生成协议。路由决定客户端发送的协
 ## 基础信息
 
 ```text
-控制台：https://api.onprs.top/
+控制台：https://cdn.api.onprs.top/
 OpenAI / Anthropic Base URL：https://api.onprs.top/v1
 Google GenAI Base URL：https://api.onprs.top
 ```
@@ -34,16 +34,9 @@ Anthropic SDK 可使用 `x-api-key`，Google SDK 可使用 `x-goog-api-key`。�
 
 完整路由见[协议与端点](/api/protocols)。
 
-## 一个请求的处理过程
+## 请求处理
 
-1. 从路由确定入站协议。
-2. 根据 API Key 读取用户、分组、平台和计费方式。
-3. 校验 Key、余额或订阅额度。
-4. 根据模型映射和可用账号选择实际平台与上游模型。
-5. 必要时在标准协议间转换请求和响应。
-6. 流式返回或缓冲返回，并写入用量和计费记录。
-
-因此，客户端看到的模型名和响应格式属于入站协议；用量页面还可能显示实际的上游模型和端点。
+服务会校验 API Key 和额度，根据模型配置路由请求，并按客户端使用的协议返回响应。用量页面可用于核对请求模型、实际模型和费用。
 
 ## 兼容边界
 

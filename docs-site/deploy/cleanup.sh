@@ -3,8 +3,9 @@ set -Eeuo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
 RELEASE_ID="${SCRIPT_NAME%-cleanup.sh}"
-ROOT="/opt/1panel/www/sites/sub2api-docs"
+ROOT="/opt/1panel/www/sites/doc.api.onprs.top"
 RELEASE_RETENTION="${DOCS_RELEASE_RETENTION:-3}"
+DOCS_URL="https://doc.api.onprs.top"
 
 if [[ ! "$RELEASE_ID" =~ ^docs-[A-Za-z0-9._-]+$ ]]; then
   echo "Invalid release ID derived from script name: $RELEASE_ID" >&2
@@ -16,12 +17,12 @@ if [[ "$(id -u)" -ne 0 ]]; then
   exit 1
 fi
 
-CURRENT_TARGET="$(readlink "$ROOT/current" 2>/dev/null || true)"
+CURRENT_TARGET="$(readlink "$ROOT/index" 2>/dev/null || true)"
 [[ "$CURRENT_TARGET" == "releases/$RELEASE_ID" ]] || {
   echo "Current docs release is $CURRENT_TARGET, not releases/$RELEASE_ID; refusing cleanup." >&2
   exit 1
 }
-[[ "$(curl -sS -o /dev/null --max-time 10 -w '%{http_code}' http://127.0.0.1:4173/)" == "200" ]]
+[[ "$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "$DOCS_URL/")" == "200" ]]
 [[ "$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' https://api.onprs.top/health)" == "200" ]]
 [[ "$RELEASE_RETENTION" =~ ^[0-9]+$ && "$RELEASE_RETENTION" -ge 2 ]]
 
@@ -52,24 +53,9 @@ for index in "${!RELEASES[@]}"; do
 done
 
 rm -f \
-  "/tmp/$RELEASE_ID.tar.gz" \
-  "/tmp/$RELEASE_ID.tar.gz.sha256" \
-  "/tmp/$RELEASE_ID-openresty.conf" \
-  "/tmp/$RELEASE_ID-logrotate.conf" \
-  "/tmp/$RELEASE_ID-conf-before.sha256" \
-  "/tmp/$RELEASE_ID-conf-preinstall.sha256" \
-  "/tmp/$RELEASE_ID-conf-after.sha256" \
-  "/tmp/$RELEASE_ID-nginx-before.txt" \
-  "/tmp/$RELEASE_ID-nginx-before.txt.stderr" \
-  "/tmp/$RELEASE_ID-nginx-after.txt" \
-  "/tmp/$RELEASE_ID-nginx-after.txt.stderr" \
-  "/tmp/$RELEASE_ID-nginx-after-without-docs.txt" \
-  "/tmp/$RELEASE_ID-nginx-docs.diff" \
-  "/tmp/$RELEASE_ID-nginx-unexpected.diff" \
-  "/tmp/$RELEASE_ID-config-before-rollback.conf" \
+  "/tmp/$RELEASE_ID-upload.tar.gz" \
   "/tmp/$RELEASE_ID-cutover.log" \
   "/tmp/$RELEASE_ID-rollback.log"
-
 rm -f "/tmp/$RELEASE_ID-cutover.sh" "/tmp/$RELEASE_ID-rollback.sh"
 rm -f -- "$0"
 

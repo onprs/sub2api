@@ -1,11 +1,11 @@
 import { defineConfig } from 'vitepress'
 
-const consoleUrl = 'https://api.onprs.top/'
+const consoleUrl = 'https://cdn.api.onprs.top/'
 
 export default defineConfig({
   lang: 'zh-CN',
   title: 'OnprsCodexApi 文档',
-  description: 'OnprsCodexApi 用户接入、客户端配置、协议、套餐额度与错误排查文档',
+  description: 'OnprsCodexApi 接入、客户端配置、API 使用与问题排查',
   base: '/',
   srcExclude: ['README.md', 'DEPLOYMENT.md'],
   cleanUrls: true,
@@ -14,10 +14,10 @@ export default defineConfig({
   appearance: true,
   head: [
     ['link', { rel: 'icon', href: '/favicon.ico' }],
-    ['meta', { name: 'theme-color', content: '#0f766e' }],
+    ['meta', { name: 'theme-color', content: '#75639a' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'OnprsCodexApi 文档' }],
-    ['meta', { property: 'og:description', content: '接入 API、配置客户端、理解套餐额度并快速排查错误' }],
+    ['meta', { property: 'og:description', content: 'OnprsCodexApi 接入、客户端配置与使用文档' }],
     ['meta', { property: 'og:image', content: '/og-image.png' }],
     ['meta', { name: 'robots', content: 'index,follow' }]
   ],
@@ -26,7 +26,7 @@ export default defineConfig({
       label: '简体中文',
       lang: 'zh-CN',
       title: 'OnprsCodexApi 文档',
-      description: 'OnprsCodexApi 用户接入与排错文档'
+      description: 'OnprsCodexApi 接入与使用文档'
     }
   },
   themeConfig: {
@@ -166,7 +166,7 @@ export default defineConfig({
     langMenuLabel: '切换语言',
     externalLinkIcon: true,
     footer: {
-      message: '公开用户文档。套餐价格、库存和模型可用性以控制台实时页面为准。',
+      message: 'OnprsCodexApi 使用文档',
       copyright: '支持邮箱：839097298@qq.com'
     }
   }

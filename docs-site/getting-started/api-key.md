@@ -7,7 +7,7 @@ description: 创建、命名、轮换、禁用和撤销 OnprsCodexApi API Key
 
 ## 创建 Key
 
-1. 登录后打开 [API Keys](https://api.onprs.top/keys)。
+1. 登录后打开 [API Keys](https://cdn.api.onprs.top/keys)。
 2. 选择新建 Key。
 3. 使用能识别用途的名称，例如 `claude-workstation`、`ci-staging`。
 4. 选择与目标模型和计费方式匹配的分组。
@@ -32,7 +32,7 @@ OpenAI 兼容客户端通常使用 Bearer；Anthropic 和 Google SDK 可能使�
 
 ## 选择分组
 
-分组决定可见平台、模型范围、计费方式和部分限制。创建前先在[可用渠道](https://api.onprs.top/available-channels)确认：
+分组决定可见平台、模型范围、计费方式和部分限制。创建前先在[可用渠道](https://cdn.api.onprs.top/available-channels)确认：
 
 - 目标模型在该分组可见。
 - 客户端使用的协议与分组平台兼容。
@@ -53,7 +53,7 @@ OpenAI 兼容客户端通常使用 Bearer；Anthropic 和 Google SDK 可能使�
 
 ## 泄露处理
 
-一旦怀疑泄露，立即禁用或撤销 Key，再创建新 Key。随后检查[用量记录](https://api.onprs.top/usage)中的时间、模型、IP 和请求 ID，并联系支持说明异常范围。
+一旦怀疑泄露，立即禁用或撤销 Key，再创建新 Key。随后检查[用量记录](https://cdn.api.onprs.top/usage)中的时间、模型、IP 和请求 ID，并联系支持说明异常范围。
 
 ::: danger 不要发送完整 Key
 支持人员定位问题通常只需要 Key 名称、页面中的 Key ID、脱敏前后缀、请求 ID 和发生时间。

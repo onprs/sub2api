@@ -7,10 +7,10 @@ description: OnprsCodexApi 服务条款、隐私政策、使用政策和地区�
 
 使用服务前，请以控制台当前发布版本为准阅读：
 
-- [服务条款](https://api.onprs.top/legal/terms-of-service)
-- [隐私政策](https://api.onprs.top/legal/privacy-policy)
-- [使用政策](https://api.onprs.top/legal/usage-policy)
-- [支持的国家和地区](https://api.onprs.top/legal/supported-regions)
+- [服务条款](https://cdn.api.onprs.top/legal/terms-of-service)
+- [隐私政策](https://cdn.api.onprs.top/legal/privacy-policy)
+- [使用政策](https://cdn.api.onprs.top/legal/usage-policy)
+- [支持的国家和地区](https://cdn.api.onprs.top/legal/supported-regions)
 
 上述页面由运营方维护，更新日期和内容可能变化。本文档不替代用户协议、隐私告知、支付规则或适用法律。
 
