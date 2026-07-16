@@ -20,7 +20,7 @@ description: 为 OnprsCodexApi 选择并配置 Claude Code、Codex CLI、OpenCod
 ## 配置前检查
 
 1. 为这个客户端创建独立 API Key。
-2. 在[可用渠道](https://cdn.api.onprs.top/available-channels)复制该 Key 分组可用的模型名。
+2. 在[渠道监控](https://cdn.api.onprs.top/monitor)复制模型名。
 3. 关闭客户端中已有的官方账号登录或其他 provider，避免凭据优先级冲突。
 4. 配置后完全退出并重启桌面客户端或终端。
 5. 用只要求返回短文本的提示完成最小测试。

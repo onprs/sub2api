@@ -19,7 +19,7 @@ OpenAI 和 Anthropic 客户端通常填 `https://api.onprs.top/v1`。Gemini CLI 
 
 ## 模型名从哪里复制？
 
-从当前 Key 分组的[可用渠道](https://cdn.api.onprs.top/available-channels)或控制台“使用 Key”配置中复制。
+从[渠道监控](https://cdn.api.onprs.top/monitor)或控制台“使用 Key”配置中复制。
 
 ## 同一个模型能用四种协议吗？
 

@@ -7,9 +7,9 @@ description: 在 OnprsCodexApi 控制台查看渠道、模型、用量、订阅�
 
 模型、价格、库存和账号状态等动态信息以控制台显示为准。
 
-## 可用渠道
+## 渠道监控
 
-打开[可用渠道](https://cdn.api.onprs.top/available-channels)，按 API Key 所属分组确认平台和模型。模型列表会随渠道状态和分组配置更新。
+[渠道监控](https://cdn.api.onprs.top/monitor)中显示的提供商为当前可用渠道；Key 可用分组以创建 Key 时页面可选项为准。
 
 找不到模型时继续检查[模型与映射](/api/models)。
 

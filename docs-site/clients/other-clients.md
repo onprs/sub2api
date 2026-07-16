@@ -19,7 +19,7 @@ description: 将其他 SDK、IDE 和 GUI 客户端映射到 OnprsCodexApi 协议
 | Provider | OpenAI-compatible、Anthropic 或 Google，按实际协议选择 |
 | Base URL | OpenAI/Anthropic 用 `https://api.onprs.top/v1`；Google 用 `https://api.onprs.top` |
 | API Key | 为该客户端创建的独立 Key |
-| Model | 控制台可用渠道中的精确模型名 |
+| Model | 渠道监控中的精确模型名 |
 | Streaming | 初次排错先关闭，基础请求成功后再开启 |
 
 ## 验收方法

@@ -5,7 +5,7 @@ description: 使用 curl 测试 Chat Completions、Responses、Anthropic Message
 
 # 发送第一条请求
 
-准备一个 API Key，并从[可用渠道](https://cdn.api.onprs.top/available-channels)复制当前可用模型名。下面的 `replace-with-an-available-model` 必须替换。
+准备一个 API Key，并从[渠道监控](https://cdn.api.onprs.top/monitor)复制模型名。下面的 `replace-with-an-available-model` 必须替换。
 
 ## Chat Completions
 

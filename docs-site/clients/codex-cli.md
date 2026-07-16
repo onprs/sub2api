@@ -11,7 +11,7 @@ description: 使用 OpenAI Responses 协议连接 Codex CLI 与 OnprsCodexApi
 
 - Key 分组支持目标模型的 Responses 请求。
 - `codex --version` 能正常运行。
-- 已从[可用渠道](https://cdn.api.onprs.top/available-channels)取得模型名。
+- 已从[渠道监控](https://cdn.api.onprs.top/monitor)取得模型名。
 
 ## 设置 Key 环境变量
 

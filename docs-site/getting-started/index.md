@@ -25,7 +25,7 @@ API Key 不是登录凭据。不要把完整 Key 发给客服、写入 Git、截
 
 ## 3. 确认模型和协议
 
-进入[可用渠道](https://cdn.api.onprs.top/available-channels)确认分组当前可用模型，再根据客户端选择协议：
+进入[渠道监控](https://cdn.api.onprs.top/monitor)确认提供商和模型，再根据客户端选择协议：
 
 | 使用方式 | Base URL | 主要生成端点 |
 | --- | --- | --- |
