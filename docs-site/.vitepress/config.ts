@@ -34,98 +34,87 @@ export default defineConfig({
     siteTitle: 'OnprsCodexApi 文档',
     nav: [
       { text: '快速开始', link: '/getting-started/' },
-      { text: '客户端', link: '/clients/' },
-      { text: '套餐与额度', link: '/plans/' },
-      { text: '错误排查', link: '/troubleshooting/' },
       { text: '返回控制台', link: consoleUrl }
     ],
-    sidebar: {
-      '/getting-started/': [
-        {
-          text: '快速开始',
-          items: [
-            { text: '接入概览', link: '/getting-started/' },
-            { text: '注册与账号安全', link: '/getting-started/account' },
-            { text: '创建 API Key', link: '/getting-started/api-key' },
-            { text: '发送第一条请求', link: '/getting-started/first-request' },
-            { text: '查看模型与用量', link: '/getting-started/console' }
-          ]
-        }
-      ],
-      '/clients/': [
-        {
-          text: '客户端配置',
-          items: [
-            { text: '选择接入方式', link: '/clients/' },
-            { text: 'OpenAI 兼容客户端', link: '/clients/openai-compatible' },
-            { text: 'Claude Code', link: '/clients/claude-code' },
-            { text: 'Codex CLI', link: '/clients/codex-cli' },
-            { text: 'OpenCode', link: '/clients/opencode' },
-            { text: 'Gemini / Google GenAI', link: '/clients/gemini' },
-            { text: '其他客户端', link: '/clients/other-clients' }
-          ]
-        }
-      ],
-      '/api/': [
-        {
-          text: 'API 使用',
-          items: [
-            { text: 'API 总览', link: '/api/' },
-            { text: '协议与端点', link: '/api/protocols' },
-            { text: '模型与映射', link: '/api/models' },
-            { text: '流式、工具与结构化输出', link: '/api/capabilities' },
-            { text: '响应、用量与请求 ID', link: '/api/responses' }
-          ]
-        }
-      ],
-      '/plans/': [
-        {
-          text: '套餐、计费与额度',
-          items: [
-            { text: '计费方式', link: '/plans/' },
-            { text: '5h / 7d / 30d 额度', link: '/plans/rolling-quotas' },
-            { text: '购买、续费与权益快照', link: '/plans/lifecycle' },
-            { text: '订单、支付与兑换码', link: '/plans/orders' }
-          ]
-        }
-      ],
-      '/troubleshooting/': [
-        {
-          text: '错误排查',
-          items: [
-            { text: '统一排错流程', link: '/troubleshooting/' },
-            { text: 'HTTP 状态码', link: '/troubleshooting/status-codes' },
-            { text: 'Key、权限与模型', link: '/troubleshooting/auth-model' },
-            { text: '余额、套餐与限流', link: '/troubleshooting/quota' },
-            { text: '超时、流与工具调用', link: '/troubleshooting/streaming' },
-            { text: 'DNS、TLS 与代理', link: '/troubleshooting/network' },
-            { text: '支付与订单', link: '/troubleshooting/payment' }
-          ]
-        }
-      ],
-      '/account/': [
-        {
-          text: '账号与安全',
-          items: [
-            { text: 'API Key 安全', link: '/account/' },
-            { text: '联系支持', link: '/account/support' },
-            { text: '条款、隐私与合规', link: '/account/legal' }
-          ]
-        }
-      ],
-      '/faq/': [
-        {
-          text: '常见问题',
-          items: [{ text: 'FAQ', link: '/faq/' }]
-        }
-      ],
-      '/changelog/': [
-        {
-          text: '文档更新',
-          items: [{ text: '更新记录', link: '/changelog/' }]
-        }
-      ]
-    },
+    sidebar: [
+      {
+        text: '快速开始',
+        collapsed: true,
+        items: [
+          { text: '接入概览', link: '/getting-started/' },
+          { text: '注册与账号安全', link: '/getting-started/account' },
+          { text: '创建 API Key', link: '/getting-started/api-key' },
+          { text: '发送第一条请求', link: '/getting-started/first-request' },
+          { text: '查看模型与用量', link: '/getting-started/console' }
+        ]
+      },
+      {
+        text: 'API 使用',
+        collapsed: true,
+        items: [
+          { text: 'API 总览', link: '/api/' },
+          { text: '协议与端点', link: '/api/protocols' },
+          { text: '模型与映射', link: '/api/models' },
+          { text: '流式、工具与结构化输出', link: '/api/capabilities' },
+          { text: '响应、用量与请求 ID', link: '/api/responses' }
+        ]
+      },
+      {
+        text: '客户端',
+        collapsed: true,
+        items: [
+          { text: '选择接入方式', link: '/clients/' },
+          { text: 'OpenAI 兼容客户端', link: '/clients/openai-compatible' },
+          { text: 'Claude Code', link: '/clients/claude-code' },
+          { text: 'Codex CLI', link: '/clients/codex-cli' },
+          { text: 'OpenCode', link: '/clients/opencode' },
+          { text: 'Gemini / Google GenAI', link: '/clients/gemini' },
+          { text: '其他客户端', link: '/clients/other-clients' }
+        ]
+      },
+      {
+        text: '套餐与额度',
+        collapsed: true,
+        items: [
+          { text: '计费方式', link: '/plans/' },
+          { text: '5h / 7d / 30d 额度', link: '/plans/rolling-quotas' },
+          { text: '购买、续费与权益快照', link: '/plans/lifecycle' },
+          { text: '订单、支付与兑换码', link: '/plans/orders' }
+        ]
+      },
+      {
+        text: '错误排查',
+        collapsed: true,
+        items: [
+          { text: '统一排错流程', link: '/troubleshooting/' },
+          { text: 'HTTP 状态码', link: '/troubleshooting/status-codes' },
+          { text: 'Key、权限与模型', link: '/troubleshooting/auth-model' },
+          { text: '余额、套餐与限流', link: '/troubleshooting/quota' },
+          { text: '超时、流与工具调用', link: '/troubleshooting/streaming' },
+          { text: 'DNS、TLS 与代理', link: '/troubleshooting/network' },
+          { text: '支付与订单', link: '/troubleshooting/payment' }
+        ]
+      },
+      {
+        text: '账号与安全',
+        collapsed: true,
+        items: [
+          { text: 'API Key 安全', link: '/account/' },
+          { text: '联系支持', link: '/account/support' },
+          { text: '条款、隐私与合规', link: '/account/legal' }
+        ]
+      },
+      {
+        text: '常见问题',
+        collapsed: true,
+        items: [{ text: 'FAQ', link: '/faq/' }]
+      },
+      {
+        text: '文档更新',
+        collapsed: true,
+        items: [{ text: '更新记录', link: '/changelog/' }]
+      }
+    ],
     search: {
       provider: 'local',
       options: {
