@@ -1,0 +1,29 @@
+{
+  "name": "sub2api-docs-site",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20 <25"
+  },
+  "scripts": {
+    "dev": "vitepress dev --host 0.0.0.0",
+    "build": "vitepress build",
+    "preview": "vitepress preview --host 0.0.0.0 --port 4174",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "check:external": "node scripts/check-external-links.mjs",
+    "test:smoke": "playwright test"
+  },
+  "dependencies": {
+    "@lucide/vue": "1.24.0",
+    "vitepress": "1.6.4",
+    "vue": "3.5.40"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@types/node": "20.19.43",
+    "typescript": "5.9.3",
+    "vue-tsc": "3.3.7"
+  }
+}
