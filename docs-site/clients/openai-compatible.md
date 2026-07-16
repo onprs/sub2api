@@ -13,7 +13,7 @@ description: 配置支持自定义 OpenAI Base URL 的 SDK、IDE 和 GUI 客户�
 | --- | --- |
 | API Key | 你在控制台创建的独立 Key |
 | Base URL | `https://api.onprs.top/v1` |
-| Model | 从[可用渠道](https://cdn.api.onprs.top/available-channels)复制 |
+| Model | 从[渠道监控](https://cdn.api.onprs.top/monitor)复制 |
 | API mode | 优先选 Chat Completions；明确支持 Responses 时也可选 Responses |
 
 部分客户端把字段称为 `Endpoint`、`Host` 或 `OpenAI API Base`。如果它会自行追加 `/v1`，则填写 `https://api.onprs.top`；出现 `/v1/v1/...` 的 404 就表示重复追加。

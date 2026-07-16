@@ -25,7 +25,7 @@ description: 按服务状态、Base URL、API Key、协议、模型、额度和�
 
 ## 4. 检查协议、路径和模型
 
-先发送纯文本、非流式、无工具的最小请求。模型名必须来自当前 Key 的[可用渠道](https://cdn.api.onprs.top/available-channels)。
+先发送纯文本、非流式、无工具的最小请求。模型名从[渠道监控](https://cdn.api.onprs.top/monitor)复制。
 
 ## 5. 检查余额、套餐和限制
 

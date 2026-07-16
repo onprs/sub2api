@@ -121,6 +121,10 @@ CLAUDE.md
 scripts
 !backend/scripts/
 !backend/scripts/resolve-version.sh
+!docs-site/scripts/
+!docs-site/scripts/**
+!docs-site/tests/
+!docs-site/tests/**
 .code-review-state
 #openspec/
 code-reviews/
