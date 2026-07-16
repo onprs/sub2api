@@ -53,7 +53,7 @@ claude
 
 ## 最小测试
 
-启动新会话，选择控制台可用模型并发送：`Reply with exactly: connected`。成功后在[用量记录](https://api.onprs.top/usage)确认 `/v1/messages` 请求。
+启动新会话，选择控制台可用模型并发送：`Reply with exactly: connected`。成功后在[用量记录](https://cdn.api.onprs.top/usage)确认 `/v1/messages` 请求。
 
 ## 常见失败
 

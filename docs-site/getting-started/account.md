@@ -7,12 +7,10 @@ description: OnprsCodexApi 注册、登录和账号安全建议
 
 ## 注册和登录
 
-1. 打开[控制台](https://api.onprs.top/)。
+1. 打开[控制台](https://cdn.api.onprs.top/)。
 2. 使用页面当前提供的邮箱或第三方登录方式注册。
 3. 如页面要求邮箱验证、邀请码、验证码或同意条款，按页面提示完成。
-4. 登录后打开[个人中心](https://api.onprs.top/profile)，核对账号邮箱和绑定信息。
-
-注册入口、第三方登录方式和验证要求由运营配置决定；文档不保证所有方式始终开放。
+4. 登录后打开[个人中心](https://cdn.api.onprs.top/profile)，核对账号邮箱和绑定信息。
 
 ## 登录凭据与 API Key 的区别
 
@@ -29,7 +27,7 @@ description: OnprsCodexApi 注册、登录和账号安全建议
 - 为密码管理器生成唯一强密码，不与其他网站复用。
 - 若个人中心提供双因素认证，优先启用并妥善保存恢复信息。
 - 每台设备、每个应用和每个环境使用不同 API Key。
-- 定期检查[用量记录](https://api.onprs.top/usage)和 Key 的最后使用时间。
+- 定期检查[用量记录](https://cdn.api.onprs.top/usage)和 Key 的最后使用时间。
 - 离职、设备丢失、配置外泄或出现异常用量时，立即禁用或撤销相关 Key。
 
 ## 无法登录

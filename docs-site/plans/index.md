@@ -9,8 +9,8 @@ description: 理解 OnprsCodexApi 余额计费、订阅套餐、倍率和用量�
 
 | 类型 | 权益来源 | 请求如何计费 | 主要页面 |
 | --- | --- | --- | --- |
-| 余额计费 | 充值、余额兑换码或运营赠送 | 按模型费用和倍率从余额扣除 | [用量记录](https://api.onprs.top/usage) |
-| 订阅套餐 | 购买套餐、套餐兑换码或运营分配 | 使用订阅有效期和额度窗口 | [我的订阅](https://api.onprs.top/subscriptions) |
+| 余额计费 | 充值、余额兑换码或运营赠送 | 按模型费用和倍率从余额扣除 | [用量记录](https://cdn.api.onprs.top/usage) |
+| 订阅套餐 | 购买套餐、套餐兑换码或运营分配 | 使用订阅有效期和额度窗口 | [我的订阅](https://cdn.api.onprs.top/subscriptions) |
 
 同一账号可以同时拥有余额和一个或多个订阅，但具体请求使用哪一种由 API Key 的分组决定：
 
@@ -22,7 +22,7 @@ description: 理解 OnprsCodexApi 余额计费、订阅套餐、倍率和用量�
 
 ## 套餐页面中的字段
 
-当前可售内容以[购买套餐](https://api.onprs.top/purchase)为准。常见字段包括：
+当前可售内容以[购买套餐](https://cdn.api.onprs.top/purchase)为准。常见字段包括：
 
 - 套餐价格与划线原价。
 - 续费折扣及当前是否符合续费条件。
@@ -39,7 +39,7 @@ description: 理解 OnprsCodexApi 余额计费、订阅套餐、倍率和用量�
 
 例如，套餐标注的 `$10` 用量额度表示最多累计 `$10` 的计价用量，不代表订单必然支付 `$10`，也不代表可退款现金余额。
 
-最终以[模型价格](https://api.onprs.top/model-pricing)、订单和用量记录为准。
+最终以[模型价格](https://cdn.api.onprs.top/model-pricing)、订单和用量记录为准。
 
 ## 多个权益同时存在
 

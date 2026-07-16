@@ -19,7 +19,7 @@ OpenAI 和 Anthropic 客户端通常填 `https://api.onprs.top/v1`。Gemini CLI 
 
 ## 模型名从哪里复制？
 
-从当前 Key 分组的[可用渠道](https://api.onprs.top/available-channels)或主站“使用 Key”配置中复制，不使用旧截图。
+从当前 Key 分组的[可用渠道](https://cdn.api.onprs.top/available-channels)或控制台“使用 Key”配置中复制。
 
 ## 同一个模型能用四种协议吗？
 
@@ -64,10 +64,6 @@ OpenAI 和 Anthropic 客户端通常填 `https://api.onprs.top/v1`。Gemini CLI 
 ## 是否支持 OpenCode Go？
 
 支持。它是独立平台，可通过 Chat Completions 或 Messages 上游执行，并支持根级 HTTP Responses；不支持 Responses WebSocket 和专用子路径。
-
-## 文档站有后台吗？
-
-没有。首期是 VitePress 静态站，内容通过 Git 中的 Markdown 更新，不读取生产用户数据。
 
 ## 联系支持要发 Key 吗？
 

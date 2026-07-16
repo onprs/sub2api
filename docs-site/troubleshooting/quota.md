@@ -26,7 +26,7 @@ description: 排查余额不足、订阅到期、滚动窗口、Key 额度、并
 - `SEVEN_DAY_LIMIT_EXCEEDED`
 - `THIRTY_DAY_LIMIT_EXCEEDED`
 
-打开[我的订阅](https://api.onprs.top/subscriptions)，查看哪个窗口为零、何时重置。多个窗口同时生效，必须全部有剩余。
+打开[我的订阅](https://cdn.api.onprs.top/subscriptions)，查看哪个窗口为零、何时重置。多个窗口同时生效，必须全部有剩余。
 
 ## 并发限制
 

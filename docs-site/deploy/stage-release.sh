@@ -10,7 +10,7 @@ RELEASE_ID="${RELEASE_ID:-docs-${GIT_SHA}-$(date +%Y%m%d%H%M%S)}"
 ARTIFACT_DIR="$REPO_ROOT/artifacts/$RELEASE_ID"
 ARCHIVE="$ARTIFACT_DIR/$RELEASE_ID.tar.gz"
 UPLOAD_BUNDLE="$ARTIFACT_DIR/$RELEASE_ID-upload.tar.gz"
-REMOTE_ROOT="/opt/1panel/www/sites/sub2api-docs"
+REMOTE_ROOT="/opt/1panel/www/sites/doc.api.onprs.top"
 
 if [[ ! "$RELEASE_ID" =~ ^docs-[A-Za-z0-9._-]+$ ]]; then
   echo "Invalid release ID: $RELEASE_ID" >&2
@@ -35,8 +35,6 @@ tar -C docs-site/.vitepress/dist -czf "$ARCHIVE" .
 SHA256="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
 printf '%s  %s\n' "$SHA256" "$(basename "$ARCHIVE")" >"$ARCHIVE.sha256"
 
-cp docs-site/deploy/sub2api-docs-port.conf "$ARTIFACT_DIR/$RELEASE_ID-openresty.conf"
-cp docs-site/deploy/sub2api-docs.logrotate "$ARTIFACT_DIR/$RELEASE_ID-logrotate.conf"
 cp docs-site/deploy/cutover.sh "$ARTIFACT_DIR/$RELEASE_ID-cutover.sh"
 cp docs-site/deploy/rollback.sh "$ARTIFACT_DIR/$RELEASE_ID-rollback.sh"
 cp docs-site/deploy/cleanup.sh "$ARTIFACT_DIR/$RELEASE_ID-cleanup.sh"
@@ -44,8 +42,6 @@ cp docs-site/deploy/cleanup.sh "$ARTIFACT_DIR/$RELEASE_ID-cleanup.sh"
 tar -C "$ARTIFACT_DIR" -czf "$UPLOAD_BUNDLE" \
   "$RELEASE_ID.tar.gz" \
   "$RELEASE_ID.tar.gz.sha256" \
-  "$RELEASE_ID-openresty.conf" \
-  "$RELEASE_ID-logrotate.conf" \
   "$RELEASE_ID-cutover.sh" \
   "$RELEASE_ID-rollback.sh" \
   "$RELEASE_ID-cleanup.sh"
@@ -68,10 +64,6 @@ stage_remote() {
       rm -rf \"\$upload_dir\" \"\$staging_dir\"
       if [[ \"\$success\" -ne 1 ]]; then
         rm -f \
-          \"/tmp/\$release_id.tar.gz\" \
-          \"/tmp/\$release_id.tar.gz.sha256\" \
-          \"/tmp/\$release_id-openresty.conf\" \
-          \"/tmp/\$release_id-logrotate.conf\" \
           \"/tmp/\$release_id-cutover.sh\" \
           \"/tmp/\$release_id-rollback.sh\" \
           \"/tmp/\$release_id-cleanup.sh\"
@@ -82,10 +74,10 @@ stage_remote() {
     }
     trap cleanup EXIT
 
-    install -d -m 0755 \"\$root/releases\"
-    install -d -m 0755 \"\$root/log\"
-    test -e \"\$root/log/access.log\" || install -m 0640 /dev/null \"\$root/log/access.log\"
-    test -e \"\$root/log/error.log\" || install -m 0640 /dev/null \"\$root/log/error.log\"
+    test -d \"\$root\"
+    test -d \"\$root/releases\"
+    test -L \"\$root/index\"
+    test -f /opt/1panel/www/conf.d/doc.api.onprs.top.conf
 
     if [[ -e \"\$release_dir\" ]]; then
       test -f \"\$release_dir/archive-sha256.txt\"
@@ -102,17 +94,11 @@ stage_remote() {
     cd \"\$upload_dir\"
     test -f \"\$release_id.tar.gz\"
     test -f \"\$release_id.tar.gz.sha256\"
-    test -f \"\$release_id-openresty.conf\"
-    test -f \"\$release_id-logrotate.conf\"
     test -f \"\$release_id-cutover.sh\"
     test -f \"\$release_id-rollback.sh\"
     test -f \"\$release_id-cleanup.sh\"
     printf '%s  %s\n' '$SHA256' \"\$release_id.tar.gz\" | sha256sum -c -
 
-    install -m 0600 \"\$release_id.tar.gz\" \"/tmp/\$release_id.tar.gz\"
-    install -m 0600 \"\$release_id.tar.gz.sha256\" \"/tmp/\$release_id.tar.gz.sha256\"
-    install -m 0600 \"\$release_id-openresty.conf\" \"/tmp/\$release_id-openresty.conf\"
-    install -m 0600 \"\$release_id-logrotate.conf\" \"/tmp/\$release_id-logrotate.conf\"
     install -m 0755 \"\$release_id-cutover.sh\" \"/tmp/\$release_id-cutover.sh\"
     install -m 0755 \"\$release_id-rollback.sh\" \"/tmp/\$release_id-rollback.sh\"
     install -m 0755 \"\$release_id-cleanup.sh\" \"/tmp/\$release_id-cleanup.sh\"
@@ -123,6 +109,8 @@ stage_remote() {
       test -f \"\$staging_dir/index.html\"
       test -f \"\$staging_dir/404.html\"
       test -f \"\$staging_dir/getting-started/index.html\"
+      test -d \"\$staging_dir/assets\"
+      grep -Fq 'https://cdn.api.onprs.top/' \"\$staging_dir/index.html\"
       printf '%s\n' '$GIT_SHA' >\"\$staging_dir/git-commit.txt\"
       printf '%s\n' '$SHA256' >\"\$staging_dir/archive-sha256.txt\"
       chown -R root:root \"\$staging_dir\"

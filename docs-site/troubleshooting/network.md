@@ -8,7 +8,7 @@ description: 排查域名解析、证书、系统时间、HTTP 代理和企业�
 ## 分层检查
 
 ```bash
-curl -I --connect-timeout 10 https://api.onprs.top/
+curl -I --connect-timeout 10 https://cdn.api.onprs.top/
 curl -i --connect-timeout 10 https://api.onprs.top/health
 ```
 
@@ -46,6 +46,10 @@ nslookup api.onprs.top
 
 收到 HTML challenge、WAF 页面或代理品牌错误页时，它不是模型 API JSON。保存状态码、响应头、页面标题和发生时间，检查浏览器验证、出口 IP、User-Agent 和企业策略。
 
-## 端口与文档站
+## 服务域名
 
-API 使用标准 `https://api.onprs.top`。文档站的公网 `4173` 端口只提供静态文档，不能作为 API Base URL。
+- API 请求使用 `https://api.onprs.top`。
+- 控制台使用 `https://cdn.api.onprs.top`。
+- 文档使用 `https://doc.api.onprs.top`。
+
+控制台和文档域名均不能作为 API Base URL。

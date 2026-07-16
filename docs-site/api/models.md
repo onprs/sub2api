@@ -9,9 +9,9 @@ description: 理解模型名称、分组可见性、模型映射和模型不可�
 
 优先级如下：
 
-1. 当前 API Key 对应的[可用渠道](https://api.onprs.top/available-channels)。
+1. 当前 API Key 对应的[可用渠道](https://cdn.api.onprs.top/available-channels)。
 2. 客户端使用 Key 请求 `GET /v1/models` 或 Google `GET /v1beta/models`。
-3. 主站“使用 Key”生成的客户端模型配置。
+3. 控制台“使用 Key”生成的客户端模型配置。
 
 不要从旧截图、聊天记录或第三方模型列表复制。平台可随时新增、下线或重映射模型。
 
