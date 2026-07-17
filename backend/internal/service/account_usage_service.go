@@ -522,6 +522,10 @@ func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int
 // buildPassiveUsageWindow 从 Extra 中的被动采样数据（utilization 为 0-1 小数、reset 为 Unix 秒）
 // 构建用量窗口，无数据时返回 nil。
 func buildPassiveUsageWindow(extra map[string]any, utilKey, resetKey string) *UsageProgress {
+	return buildPassiveUsageWindowAt(extra, utilKey, resetKey, time.Now())
+}
+
+func buildPassiveUsageWindowAt(extra map[string]any, utilKey, resetKey string, now time.Time) *UsageProgress {
 	util := parseExtraFloat64(extra[utilKey])
 	resetRaw := parseExtraFloat64(extra[resetKey])
 	if util <= 0 && resetRaw <= 0 {
@@ -532,7 +536,7 @@ func buildPassiveUsageWindow(extra map[string]any, utilKey, resetKey string) *Us
 	if resetRaw > 0 {
 		t := time.Unix(int64(resetRaw), 0)
 		resetAt = &t
-		remaining = int(time.Until(t).Seconds())
+		remaining = int(t.Sub(now).Seconds())
 		if remaining < 0 {
 			remaining = 0
 		}
@@ -1751,11 +1755,15 @@ func (s *AccountUsageService) buildUsageInfo(resp *ClaudeUsageResponse, updatedA
 
 // estimateSetupTokenUsage 根据session_window推算Setup Token账号的使用量
 func (s *AccountUsageService) estimateSetupTokenUsage(account *Account) *UsageInfo {
+	return s.estimateSetupTokenUsageAt(account, time.Now())
+}
+
+func (s *AccountUsageService) estimateSetupTokenUsageAt(account *Account, now time.Time) *UsageInfo {
 	info := &UsageInfo{}
 
 	// 如果有session_window信息
 	if account.SessionWindowEnd != nil {
-		remaining := int(time.Until(*account.SessionWindowEnd).Seconds())
+		remaining := int(account.SessionWindowEnd.Sub(now).Seconds())
 		if remaining < 0 {
 			remaining = 0
 		}
@@ -1795,7 +1803,7 @@ func (s *AccountUsageService) estimateSetupTokenUsage(account *Account) *UsageIn
 		// 窗口已过期（resetAt 在 now 之前）→ 额度已重置，归零；
 		// 与 Codex 分支 buildCodexUsageProgressFromExtra 保持一致，避免
 		// UI 在 active poll 没回写 SessionWindowEnd 时渲染矛盾状态。
-		if info.FiveHour.ResetsAt != nil && !time.Now().Before(*info.FiveHour.ResetsAt) {
+		if info.FiveHour.ResetsAt != nil && !now.Before(*info.FiveHour.ResetsAt) {
 			info.FiveHour.Utilization = 0
 			info.FiveHour.ResetsAt = nil
 			info.FiveHour.RemainingSeconds = 0

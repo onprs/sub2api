@@ -18,10 +18,10 @@ func (s *AccountUsageService) GetStoredUsageSnapshot(account *Account, now time.
 
 	switch account.Platform {
 	case PlatformAnthropic:
-		usage := s.estimateSetupTokenUsage(account)
+		usage := s.estimateSetupTokenUsageAt(account, now)
 		usage.Source = "stored"
-		usage.SevenDay = buildPassiveUsageWindow(account.Extra, "passive_usage_7d_utilization", "passive_usage_7d_reset")
-		usage.SevenDayFable = buildPassiveUsageWindow(account.Extra, "passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset")
+		usage.SevenDay = buildPassiveUsageWindowAt(account.Extra, "passive_usage_7d_utilization", "passive_usage_7d_reset", now)
+		usage.SevenDayFable = buildPassiveUsageWindowAt(account.Extra, "passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset", now)
 		usage.UpdatedAt = observerStoredUsageUpdatedAt(account.Extra, "passive_usage_sampled_at")
 		if observerUsageEmpty(usage) {
 			return nil, ErrObserverQuotaUnavailable
