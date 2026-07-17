@@ -36,6 +36,7 @@ func RegisterAdminRoutes(
 
 		// 账号管理
 		registerAccountRoutes(admin, h)
+		registerAccountObserverAdminRoutes(admin, h)
 
 		// 公告管理
 		registerAnnouncementRoutes(admin, h)
@@ -290,6 +291,15 @@ func registerGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		groups.PUT("/:id/rpm-overrides", h.Admin.Group.BatchSetGroupRPMOverrides)
 		groups.DELETE("/:id/rpm-overrides", h.Admin.Group.ClearGroupRPMOverrides)
 		groups.GET("/:id/api-keys", h.Admin.Group.GetGroupAPIKeys)
+	}
+}
+
+func registerAccountObserverAdminRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	tokens := admin.Group("/integration-tokens/account-observer")
+	{
+		tokens.GET("", h.AccountObserver.ListTokens)
+		tokens.POST("", h.AccountObserver.CreateToken)
+		tokens.POST("/:id/revoke", h.AccountObserver.RevokeToken)
 	}
 }
 
