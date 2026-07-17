@@ -102,6 +102,7 @@ func TestAccountObserverListAccountsNeverSerializesSecrets(t *testing.T) {
 	service.now = func() time.Time { return now }
 	page, err := service.ListAccounts(context.Background(), ObserverListParams{})
 	require.NoError(t, err)
+	require.Equal(t, 1, page.SchemaVersion)
 	require.Len(t, page.Items, 1)
 	require.True(t, page.Items[0].Available)
 	require.NotNil(t, page.Items[0].Quota)

@@ -101,11 +101,12 @@ type ObserverAccount struct {
 }
 
 type ObserverAccountsPage struct {
-	InstanceID  string            `json:"instance_id"`
-	Items       []ObserverAccount `json:"items"`
-	NextCursor  string            `json:"next_cursor,omitempty"`
-	GeneratedAt time.Time         `json:"generated_at"`
-	ETag        string            `json:"-"`
+	SchemaVersion int               `json:"schema_version"`
+	InstanceID    string            `json:"instance_id"`
+	Items         []ObserverAccount `json:"items"`
+	NextCursor    string            `json:"next_cursor,omitempty"`
+	GeneratedAt   time.Time         `json:"generated_at"`
+	ETag          string            `json:"-"`
 }
 
 type accountObserverRow struct {
@@ -319,10 +320,11 @@ func (s *AccountObserverService) ListAccounts(ctx context.Context, params Observ
 	}
 
 	page := &ObserverAccountsPage{
-		InstanceID:  instanceID,
-		Items:       items,
-		NextCursor:  nextCursor,
-		GeneratedAt: now,
+		SchemaVersion: 1,
+		InstanceID:    instanceID,
+		Items:         items,
+		NextCursor:    nextCursor,
+		GeneratedAt:   now,
 	}
 	page.ETag, err = observerPageETag(page)
 	if err != nil {
@@ -520,10 +522,11 @@ func decodeObserverCursor(cursor string) (int64, error) {
 
 func observerPageETag(page *ObserverAccountsPage) (string, error) {
 	canonical := struct {
-		InstanceID string            `json:"instance_id"`
-		Items      []ObserverAccount `json:"items"`
-		NextCursor string            `json:"next_cursor"`
-	}{page.InstanceID, page.Items, page.NextCursor}
+		SchemaVersion int               `json:"schema_version"`
+		InstanceID    string            `json:"instance_id"`
+		Items         []ObserverAccount `json:"items"`
+		NextCursor    string            `json:"next_cursor"`
+	}{page.SchemaVersion, page.InstanceID, page.Items, page.NextCursor}
 	encoded, err := json.Marshal(canonical)
 	if err != nil {
 		return "", fmt.Errorf("encode observer etag: %w", err)
