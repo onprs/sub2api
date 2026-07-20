@@ -1,16 +1,18 @@
 ---
 title: Gemini CLI
-description: 使用配置文件连接 Gemini CLI 与 OnprsCodexApi
+description: 使用 .gemini/.env 手动配置 Gemini CLI
 ---
 
 # Gemini CLI
 
-## 1. 取得 Key 和模型名
+::: warning 自动配置功能
+自动配置功能仍在开发和验证中。当前请按以下步骤手动配置。
+:::
 
-1. 打开控制台 [API Keys](https://cdn-api.onprs.online/keys)。
-2. 在目标 Key 所在行点击“使用密钥”，选择“Gemini CLI”。
-3. 复制弹窗中的 Key。
-4. 按[模型列表](/api/models)使用当前 Key 请求 `GET /v1beta/models`，复制返回的模型名并去掉 `models/` 前缀。
+## 1. 准备 Key 和模型名
+
+1. 在控制台 [API Keys](https://cdn-api.onprs.online/keys) 创建状态为“有效”的独立 Key，并为它选择分组。
+2. 按[模型列表](/api/models)使用当前 Key 请求 `GET /v1beta/models`，复制返回的模型名并去掉 `models/` 前缀。
 
 ## 2. 创建配置文件
 
@@ -19,7 +21,7 @@ description: 使用配置文件连接 Gemini CLI 与 OnprsCodexApi
 - Windows：`%USERPROFILE%\.gemini\.env`
 - macOS / Linux：`~/.gemini/.env`
 
-先创建目录和文件：
+创建目录和文件：
 
 ::: code-group
 
@@ -35,7 +37,7 @@ touch ~/.gemini/.env
 
 :::
 
-将下面三行写入 `.env`，替换 Key 和模型名：
+使用文本编辑器打开 `.env`，写入以下内容并替换 Key 和模型名：
 
 ```dotenv
 GOOGLE_GEMINI_BASE_URL="https://cdn-api.onprs.online"
@@ -56,5 +58,5 @@ gemini -p "Reply with exactly: connected" --output-format text
 ## 配置未生效
 
 - 返回 `401`：核对 `.env` 中的 `GEMINI_API_KEY`。
-- 返回 `404`：核对模型名已经去掉 `models/` 前缀。
+- 返回 `404`：确认模型名来自当前 Key 的 `/v1beta/models` 响应，并且已经去掉 `models/` 前缀。
 - URL 中出现两次 `/v1beta`：保持 `GOOGLE_GEMINI_BASE_URL` 为上面的域名根地址。

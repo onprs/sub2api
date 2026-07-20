@@ -120,23 +120,28 @@ test('client guides provide a short complete setup path', async ({ page }, testI
   await expect(page.getByRole('link', { name: '配置 Codex CLI' })).toBeVisible()
   await expect(page.getByRole('link', { name: '配置 OpenCode' })).toBeVisible()
   await expect(page.getByRole('link', { name: '配置 Gemini CLI' })).toBeVisible()
+  await expect(page.getByText('控制台下载脚本仍在开发和验证中')).toBeVisible()
   await expect(page.getByText('Reply with exactly: connected')).toBeVisible()
+  await expect(page.locator('body')).not.toContainText('sub2api-cli-import')
   await expectNoPageOverflow(page)
   await page.screenshot({ path: testInfo.outputPath('client-index.png'), fullPage: true })
 
   const codexResponse = await page.goto('/clients/codex-cli')
   expect(codexResponse?.status()).toBe(200)
-  await expect(page.getByRole('heading', { level: 2, name: '1. 下载配置脚本' })).toBeVisible()
-  await expect(page.getByRole('heading', { level: 2, name: '2. 运行脚本' })).toBeVisible()
-  await expect(page.getByRole('heading', { level: 2, name: '3. 启动并验证' })).toBeVisible()
-  await expect(page.getByText('脚本询问导入目标时输入 1')).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: '1. 准备 Key 和模型名' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: '2. 创建配置目录' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: '3. 写入配置' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: '4. 启动并验证' })).toBeVisible()
+  await expect(page.locator('pre code').filter({ hasText: 'model_provider = "OpenAI"' }).first()).toBeVisible()
+  await expect(page.locator('pre code').filter({ hasText: '"OPENAI_API_KEY": "sk-your-api-key"' }).first()).toBeVisible()
+  await expect(page.locator('body')).not.toContainText('sub2api-cli-import')
   await expect(page.locator('body')).not.toContainText('WebSocket')
   await expectNoPageOverflow(page)
   await page.screenshot({ path: testInfo.outputPath('codex-guide.png'), fullPage: true })
 
   const guideChecks = [
-    ['/clients/claude-code', '1. 下载配置脚本'],
-    ['/clients/opencode', '3. 选择模型并验证'],
+    ['/clients/claude-code', '2. 创建配置文件'],
+    ['/clients/opencode', '2. 创建配置文件'],
     ['/clients/gemini', '2. 创建配置文件'],
     ['/clients/openai-compatible', '1. 准备三个值']
   ] as const
