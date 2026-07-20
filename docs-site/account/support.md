@@ -16,7 +16,7 @@ description: 联系 OnprsCodexApi 支持时需要提供的信息和脱敏要求
 - Base URL、协议路径、模型名和是否流式。
 - HTTP 状态码、完整错误码和错误正文。
 - `x-request-id` 与 `x-client-request-id`（如有）。
-- 删除敏感字段后的最小请求。
+- 删除敏感字段后的可复现请求。
 - 已完成的自查步骤。
 
 ## 套餐和额度问题

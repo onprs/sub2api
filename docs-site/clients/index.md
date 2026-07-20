@@ -23,7 +23,7 @@ description: 为 OnprsCodexApi 选择并配置 Claude Code、Codex CLI、OpenCod
 2. 使用当前 Key 拉取模型列表，并复制实际返回的模型名。
 3. 确保客户端启用 OnprsCodexApi provider，并读取对应 Key。
 4. 配置后完全退出并重启桌面客户端或终端。
-5. 用只要求返回短文本的提示完成最小测试。
+5. 使用短文本提示完成配置验证。
 
 ## 自动导入与手工配置
 

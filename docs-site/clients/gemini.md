@@ -27,7 +27,7 @@ $env:GEMINI_MODEL="replace-with-an-available-model"
 
 :::
 
-## 最小测试
+## 配置验证
 
 ```bash
 gemini -p "Reply with exactly: connected" --output-format text

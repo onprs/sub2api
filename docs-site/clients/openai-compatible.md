@@ -18,7 +18,7 @@ description: 配置支持自定义 OpenAI Base URL 的 SDK、IDE 和 GUI 客户�
 
 部分客户端把字段称为 `Endpoint`、`Host` 或 `OpenAI API Base`。客户端会自行追加 `/v1` 时，填写 `https://cdn-api.onprs.online`；其他情况填写完整 Base URL。
 
-## Python 最小示例
+## Python 示例
 
 ```python
 import os
@@ -36,7 +36,7 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-## JavaScript 最小示例
+## JavaScript 示例
 
 ```js
 import OpenAI from 'openai'

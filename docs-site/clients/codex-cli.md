@@ -46,7 +46,7 @@ wire_api = "responses"
 
 已有配置时，合并顶层默认值和 `[model_providers.onprs]` 表，并保留 MCP、sandbox 与其他 provider。
 
-## 最小测试
+## 配置验证
 
 先运行 `codex --strict-config --version` 检查配置字段，再进入一个测试目录启动 `codex`，发送 `Reply with exactly: connected`。成功后在用量记录确认入站端点为 Responses。
 

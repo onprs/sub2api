@@ -1,13 +1,13 @@
 ---
 title: API Key 安全
-description: OnprsCodexApi API Key 最小权限、存储、轮换、审计和泄露响应
+description: OnprsCodexApi API Key 按需授权、存储、轮换、审计和泄露响应
 ---
 
 # API Key 安全
 
 API Key 可以代表账号发起付费请求，请将其作为生产凭据管理。
 
-## 最小权限
+## 按需授权
 
 - 每个客户端、设备、环境和自动化任务使用独立 Key。
 - 只绑定所需分组，不为测试任务开放全部模型。

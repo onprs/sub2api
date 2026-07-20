@@ -53,7 +53,7 @@ OpenCode Go 按独立平台配置。Sub2API 根据账号的模型协议映射，
 
 根级 HTTP Responses 是 OpenCode Go 的 Responses 生成入口。Responses WebSocket 和专用 `/responses/*` 子路径不在支持范围。
 
-## 最小测试
+## 配置验证
 
 完全退出 OpenCode Desktop 的后台进程后重启，运行 `/models` 选择 `onprs/...`，再发送 `Reply with exactly: connected` 完成生成验证。
 

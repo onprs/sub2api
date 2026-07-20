@@ -21,11 +21,11 @@ description: 按服务状态、Base URL、API Key、协议、模型、额度和�
 
 ## 3. 检查 Key
 
-使用控制台 [API Keys](https://cdn-api.onprs.online/keys) 确认 Key 状态、分组、到期时间、额度和 IP 限制。通过临时环境变量发送最小 curl，并在日志中使用脱敏 Key。
+使用控制台 [API Keys](https://cdn-api.onprs.online/keys) 确认 Key 状态、分组、到期时间、额度和 IP 限制。通过临时环境变量发送 curl 验证请求，并在日志中使用脱敏 Key。
 
 ## 4. 检查协议、路径和模型
 
-先发送纯文本、非流式、无工具的最小请求。模型名从当前 Key 实际拉取的模型列表中复制。
+先发送纯文本、非流式、无工具的基础请求。模型名从当前 Key 实际拉取的模型列表中复制。
 
 ## 5. 检查余额、套餐和限制
 

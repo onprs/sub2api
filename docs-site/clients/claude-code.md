@@ -51,7 +51,7 @@ claude
 
 如需固定模型，可从当前 Key 的 `/v1/models` 返回结果中选择，并设置 `ANTHROPIC_MODEL`。非 `claude-` 前缀模型还可能需要 `ANTHROPIC_CUSTOM_MODEL_OPTION`；优先使用控制台“使用 Key”生成的配置。
 
-## 最小测试
+## 配置验证
 
 启动新会话，选择当前 Key 模型列表中的模型并发送：`Reply with exactly: connected`。成功后在[用量记录](https://cdn-api.onprs.online/usage)确认 `/v1/messages` 请求。
 
