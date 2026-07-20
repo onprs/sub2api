@@ -21,7 +21,7 @@ description: 按服务状态、Base URL、API Key、协议、模型、额度和�
 
 ## 3. 检查 Key
 
-使用控制台 [API Keys](https://cdn-api.onprs.online/keys) 确认 Key 状态、分组、到期时间、额度和 IP 限制。通过临时环境变量发送 curl 验证请求，并在日志中使用脱敏 Key。
+使用控制台 [API Keys](https://cdn-api.onprs.online/keys) 确认 Key 状态、分组、到期时间、额度和 IP 限制。使用 curl 发送验证请求，并在日志中使用脱敏 Key。
 
 ## 4. 检查协议、路径和模型
 
@@ -35,7 +35,7 @@ description: 按服务状态、Base URL、API Key、协议、模型、额度和�
 
 ## 6. 检查网络和客户端
 
-使用 curl 与客户端对比。curl 正常时，继续检查客户端的代理、证书、环境变量优先级、运行进程和响应解析。
+使用 curl 与客户端对比。curl 正常时，继续检查客户端的代理、证书、凭据来源、运行进程和响应解析。
 
 ## 快速定位
 

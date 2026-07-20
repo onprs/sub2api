@@ -30,7 +30,7 @@ API Key 可以代表账号发起付费请求，请将其作为生产凭据管理
 
 日志中仅保留 Key 名称、控制台 Key ID 或少量前后缀。Authorization、Cookie、登录 Token 和完整请求正文应默认过滤。
 
-向支持提交 curl 时改成环境变量：
+向支持提交 curl 时使用占位变量隐藏实际 Key：
 
 ```bash
 -H "Authorization: Bearer $ONPRS_API_KEY"

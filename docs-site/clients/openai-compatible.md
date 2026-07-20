@@ -18,6 +18,8 @@ description: 配置支持自定义 OpenAI Base URL 的 SDK、IDE 和 GUI 客户�
 
 部分客户端把字段称为 `Endpoint`、`Host` 或 `OpenAI API Base`。客户端会自行追加 `/v1` 时，填写 `https://cdn-api.onprs.online`；其他情况填写完整 Base URL。
 
+以下示例从进程环境读取 Key，实际项目可替换为现有的安全凭据来源。
+
 ## Python 示例
 
 ```python

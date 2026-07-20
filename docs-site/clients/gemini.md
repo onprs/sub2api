@@ -5,27 +5,19 @@ description: 使用 Google GenAI 协议连接 Gemini CLI 与 OnprsCodexApi
 
 # Gemini 与 Google GenAI
 
-适用版本：Gemini CLI `0.46.0`，最后核对日期 2026-07-16。环境变量规则参照 [Gemini CLI configuration](https://geminicli.com/docs/reference/configuration)。
+适用版本：Gemini CLI `0.46.0`，最后核对日期 2026-07-16。配置规则参照 [Gemini CLI configuration](https://geminicli.com/docs/reference/configuration)。
 
-## 配置环境变量
+## 配置方式
 
-`GOOGLE_GEMINI_BASE_URL` 填域名根，不追加 `/v1beta`。Gemini CLI 会自行组成 Google GenAI 路径。
+Gemini CLI 可从 `.gemini/.env` 文件加载配置，无需设置系统环境变量。用户级路径为 `~/.gemini/.env`，Windows 为 `%USERPROFILE%\.gemini\.env`。
 
-::: code-group
-
-```bash [macOS / Linux]
-export GOOGLE_GEMINI_BASE_URL="https://cdn-api.onprs.online"
-export GEMINI_API_KEY="sk-your-api-key"
-export GEMINI_MODEL="replace-with-an-available-model"
+```dotenv
+GOOGLE_GEMINI_BASE_URL="https://cdn-api.onprs.online"
+GEMINI_API_KEY="sk-your-api-key"
+GEMINI_MODEL="replace-with-an-available-model"
 ```
 
-```powershell [Windows PowerShell]
-$env:GOOGLE_GEMINI_BASE_URL="https://cdn-api.onprs.online"
-$env:GEMINI_API_KEY="sk-your-api-key"
-$env:GEMINI_MODEL="replace-with-an-available-model"
-```
-
-:::
+`GOOGLE_GEMINI_BASE_URL` 填域名根，Gemini CLI 会自行组成 Google GenAI 路径。控制台“使用 Key”生成的终端命令可作为临时会话配置。
 
 ## 配置验证
 
@@ -44,7 +36,7 @@ POST https://cdn-api.onprs.online/v1beta/models/{model}:generateContent
 POST https://cdn-api.onprs.online/v1beta/models/{model}:streamGenerateContent
 ```
 
-也支持稳定 `/v1/models/{model}:generateContent` 生成路径；模型发现仍应优先使用 `/v1beta/models` 或控制台。
+也支持稳定 `/v1/models/{model}:generateContent` 生成路径；模型发现以 `/v1beta/models` 的实际响应为准。
 
 ## 配置检查
 
@@ -55,4 +47,4 @@ POST https://cdn-api.onprs.online/v1beta/models/{model}:streamGenerateContent
 
 ## 恢复原配置
 
-删除三个环境变量并重新打开终端。若变量写入 shell profile 或系统用户环境，也需从对应持久配置中移除。
+从 `.gemini/.env` 或当前使用的凭据配置中删除上述三项，再重新打开终端。

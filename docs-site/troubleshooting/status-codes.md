@@ -31,7 +31,7 @@ description: 排查 OnprsCodexApi 400、401、403、404、409、429 和 5xx
 
 `API_KEY_REQUIRED` 表示服务未从 Bearer、`x-api-key` 或 `x-goog-api-key` 读到 Key。`INVALID_API_KEY` 表示 Key 不存在；`API_KEY_DISABLED` 表示已禁用。
 
-确认环境变量已传入启动客户端的同一个进程。
+确认客户端已读取配置文件、凭据存储或当前会话中的 Key。
 
 ## 403 Forbidden
 

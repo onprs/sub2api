@@ -13,7 +13,23 @@ description: 使用 Anthropic Messages 协议连接 Claude Code 与 OnprsCodexAp
 - 已安装 Claude Code，并可运行 `claude --version`。
 - 已完全退出仍在运行的 Claude Code 或 IDE 扩展会话。
 
-## 临时配置
+## 配置方式
+
+优先使用控制台“使用 Key”生成的配置，也可手工编辑 `~/.claude/settings.json`；Windows 路径同样位于用户目录的 `.claude/settings.json`。Claude Code 可直接从该文件读取配置，无需设置系统环境变量。
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://cdn-api.onprs.online/v1",
+    "ANTHROPIC_AUTH_TOKEN": "sk-your-api-key",
+    "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"
+  }
+}
+```
+
+如需固定模型，可从当前 Key 的 `/v1/models` 返回结果中选择，并设置 `ANTHROPIC_MODEL`。非 `claude-` 前缀模型还可能需要 `ANTHROPIC_CUSTOM_MODEL_OPTION`；优先使用控制台生成的配置。
+
+### 终端会话配置（可选）
 
 ::: code-group
 
@@ -33,23 +49,7 @@ claude
 
 :::
 
-临时变量只对当前终端有效，适合先验证。
-
-## 持久配置
-
-编辑 `~/.claude/settings.json`；Windows 同样位于用户目录的 `.claude/settings.json`。与现有 JSON 合并：
-
-```json
-{
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://cdn-api.onprs.online/v1",
-    "ANTHROPIC_AUTH_TOKEN": "sk-your-api-key",
-    "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"
-  }
-}
-```
-
-如需固定模型，可从当前 Key 的 `/v1/models` 返回结果中选择，并设置 `ANTHROPIC_MODEL`。非 `claude-` 前缀模型还可能需要 `ANTHROPIC_CUSTOM_MODEL_OPTION`；优先使用控制台“使用 Key”生成的配置。
+终端配置只对当前会话有效，适合临时验证。
 
 ## 配置验证
 
@@ -57,11 +57,11 @@ claude
 
 ## 配置检查
 
-- 出现官方订阅登录：关闭所有 Claude Code 进程，重新打开读取 `ANTHROPIC_AUTH_TOKEN` 的终端。
+- 出现官方订阅登录：关闭所有 Claude Code 进程，并确认新进程读取了 `settings.json` 或当前终端配置。
 - `404`：核对 Base URL 中的 `/v1`。
 - 模型不可选：启用 gateway model discovery，或显式设置 `/v1/models` 返回的模型名。
 - 工具调用中断：记录 Claude Code 版本、请求 ID 和错误正文，查看[流与工具调用排错](/troubleshooting/streaming)。
 
 ## 恢复原配置
 
-从 `settings.json` 的 `env` 中删除上述 OnprsCodexApi 变量，关闭终端和 IDE 后重启。临时配置可直接关闭终端，或使用 `unset` / `Remove-Item Env:` 清除。
+从 `settings.json` 的 `env` 中删除上述 OnprsCodexApi 配置，关闭终端和 IDE 后重启。使用终端会话配置时，关闭终端即可清除。
