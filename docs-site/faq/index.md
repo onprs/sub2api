@@ -19,7 +19,7 @@ API Key 用于模型 API；登录密码、Cookie 和 JWT 用于控制台。请�
 
 ## 模型名从哪里复制？
 
-从[渠道监控](https://cdn-api.onprs.online/monitor)或控制台“使用 Key”配置中复制。
+使用当前 Key 请求 `GET /v1/models`；Google GenAI 客户端请求 `GET /v1beta/models`。从实际返回结果中复制模型名。
 
 ## 同一个模型能用四种协议吗？
 

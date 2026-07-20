@@ -11,7 +11,7 @@ description: 使用 OpenAI Responses 协议连接 Codex CLI 与 OnprsCodexApi
 
 - Key 分组支持目标模型的 Responses 请求。
 - `codex --version` 能正常运行。
-- 已从[渠道监控](https://cdn-api.onprs.online/monitor)取得模型名。
+- 已使用当前 Key 从 `/v1/models` 取得模型名。
 
 ## 设置 Key 环境变量
 
@@ -31,7 +31,7 @@ $env:ONPRS_API_KEY="sk-your-api-key"
 
 ## 配置 provider
 
-编辑 `~/.codex/config.toml`，Windows 路径为 `%USERPROFILE%\.codex\config.toml`。把模型占位符替换为控制台模型名：
+编辑 `~/.codex/config.toml`，Windows 路径为 `%USERPROFILE%\.codex\config.toml`。把模型占位符替换为 `/v1/models` 实际返回的模型名：
 
 ```toml
 model_provider = "onprs"

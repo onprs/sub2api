@@ -5,13 +5,15 @@ description: 在 OnprsCodexApi 控制台查看渠道、模型、用量、订阅�
 
 # 查看模型与用量
 
-模型、价格、库存和账号状态等动态信息以控制台显示为准。
+可用模型以当前 Key 实际拉取的列表为准；价格、库存和账号状态以控制台显示为准。
 
-## 渠道监控
+## 可用模型
 
-[渠道监控](https://cdn-api.onprs.online/monitor)中显示的提供商为当前可用渠道；Key 可用分组以创建 Key 时页面可选项为准。
+使用当前 Key 请求 `GET /v1/models`；Google GenAI 客户端请求 `GET /v1beta/models`。实际返回的模型列表就是该 Key 当前可用的模型范围。
 
-找不到模型时继续检查[模型与映射](/api/models)。
+## 渠道状态
+
+[渠道监控](https://cdn-api.onprs.online/monitor)用于查看提供商和渠道运行状态。模型列表为空或模型调用异常时，继续检查[模型与映射](/api/models)。
 
 ## 模型价格
 

@@ -49,17 +49,17 @@ claude
 }
 ```
 
-如需固定模型，可在确认控制台模型名后增加 `ANTHROPIC_MODEL`。非 `claude-` 前缀模型还可能需要 `ANTHROPIC_CUSTOM_MODEL_OPTION`；优先使用控制台“使用 Key”生成的配置。
+如需固定模型，可从当前 Key 的 `/v1/models` 返回结果中选择，并设置 `ANTHROPIC_MODEL`。非 `claude-` 前缀模型还可能需要 `ANTHROPIC_CUSTOM_MODEL_OPTION`；优先使用控制台“使用 Key”生成的配置。
 
 ## 最小测试
 
-启动新会话，选择控制台可用模型并发送：`Reply with exactly: connected`。成功后在[用量记录](https://cdn-api.onprs.online/usage)确认 `/v1/messages` 请求。
+启动新会话，选择当前 Key 模型列表中的模型并发送：`Reply with exactly: connected`。成功后在[用量记录](https://cdn-api.onprs.online/usage)确认 `/v1/messages` 请求。
 
 ## 配置检查
 
 - 出现官方订阅登录：关闭所有 Claude Code 进程，重新打开读取 `ANTHROPIC_AUTH_TOKEN` 的终端。
 - `404`：核对 Base URL 中的 `/v1`。
-- 模型不可选：启用 gateway model discovery，或显式设置控制台模型名。
+- 模型不可选：启用 gateway model discovery，或显式设置 `/v1/models` 返回的模型名。
 - 工具调用中断：记录 Claude Code 版本、请求 ID 和错误正文，查看[流与工具调用排错](/troubleshooting/streaming)。
 
 ## 恢复原配置

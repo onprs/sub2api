@@ -5,7 +5,7 @@ description: 使用 curl 测试 Chat Completions、Responses、Anthropic Message
 
 # 发送第一条请求
 
-准备一个 API Key，并从[渠道监控](https://cdn-api.onprs.online/monitor)复制模型名，用它替换下方的 `replace-with-an-available-model`。
+准备一个 API Key，使用当前 Key 拉取模型列表，并用实际返回的模型名替换下方的 `replace-with-an-available-model`。
 
 ## Chat Completions
 
@@ -56,7 +56,7 @@ curl --fail-with-body https://cdn-api.onprs.online/v1/messages \
 
 ## Google GenAI
 
-Google 原生路径中的模型名属于 URL，先使用只含字母、数字、点、下划线和连字符的控制台模型 ID。
+Google 原生路径中的模型名属于 URL，请使用 `/v1beta/models` 实际返回的模型 ID。
 
 ```bash
 curl --fail-with-body \

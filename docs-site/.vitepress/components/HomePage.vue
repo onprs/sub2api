@@ -112,7 +112,7 @@ const resources = [
           </div>
           <div>
             <dt>模型</dt>
-            <dd><a href="https://cdn-api.onprs.online/monitor">查看渠道监控</a></dd>
+            <dd><a href="/api/models">拉取模型列表</a></dd>
           </div>
         </dl>
       </div>

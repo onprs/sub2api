@@ -5,15 +5,14 @@ description: 理解模型名称、分组可见性、模型映射和模型不可�
 
 # 模型与映射
 
-## 模型名从哪里取得
+## 获取可用模型
 
-优先级如下：
+当前 Key 实际返回的模型列表是可用模型的依据：
 
-1. [渠道监控](https://cdn-api.onprs.online/monitor)中显示的提供商和模型。
-2. 客户端使用 Key 请求 `GET /v1/models` 或 Google `GET /v1beta/models`。
-3. 控制台“使用 Key”生成的客户端模型配置。
+- OpenAI、Anthropic 和通用兼容客户端：`GET /v1/models`。
+- Google GenAI 客户端：`GET /v1beta/models`。
 
-Key 可用分组以创建 Key 时页面可选项为准。模型名请从上述实时来源复制。
+模型列表会根据 Key 分组和当前配置返回。控制台“使用 Key”生成的客户端配置可用于自动填入实际模型名；[渠道监控](https://cdn-api.onprs.online/monitor)仅用于查看渠道运行状态。
 
 ## 客户端模型与上游模型
 
@@ -37,7 +36,7 @@ Google 模型列表使用 `models/{id}` 形态；URL 生成时通常使用不带
 ## 模型调用检查
 
 1. 确认 Key 所属分组与目标平台一致。
-2. 打开渠道监控，复制精确模型名，检查大小写、点和连字符。
+2. 使用当前 Key 拉取模型列表，并复制精确模型名。
 3. 确认协议与请求路径一致。
 4. 暂时删除图片、工具、结构化输出和采样参数，做纯文本最小请求。
 5. 检查用量和错误正文中的 requested/upstream model。

@@ -5,7 +5,7 @@ description: 从注册、创建 API Key 到发送第一条 OnprsCodexApi 请求
 
 # 快速开始
 
-准备控制台账号、API Key 和可用模型名后，按以下步骤完成接入。
+准备控制台账号后，按以下步骤创建 API Key、拉取模型并完成接入。
 
 ## 1. 登录控制台
 
@@ -23,9 +23,9 @@ description: 从注册、创建 API Key 到发送第一条 OnprsCodexApi 请求
 API Key 仅配置给需要调用接口的程序，并保存在安全存储中。支持排查使用 Key 名称、ID 和脱敏前后缀即可。
 :::
 
-## 3. 确认模型和协议
+## 3. 拉取模型并确认协议
 
-进入[渠道监控](https://cdn-api.onprs.online/monitor)确认提供商和模型，再根据客户端选择协议：
+使用当前 Key 请求 `GET /v1/models`；Google GenAI 客户端请求 `GET /v1beta/models`。从实际返回的模型列表中选择模型，再根据客户端选择协议：
 
 | 使用方式 | Base URL | 主要生成端点 |
 | --- | --- | --- |

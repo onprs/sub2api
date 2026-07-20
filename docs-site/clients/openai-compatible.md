@@ -13,7 +13,7 @@ description: 配置支持自定义 OpenAI Base URL 的 SDK、IDE 和 GUI 客户�
 | --- | --- |
 | API Key | 你在控制台创建的独立 Key |
 | Base URL | `https://cdn-api.onprs.online/v1` |
-| Model | 从[渠道监控](https://cdn-api.onprs.online/monitor)复制 |
+| Model | 从当前 Key 的 `/v1/models` 返回结果中复制 |
 | API mode | 优先选 Chat Completions；明确支持 Responses 时也可选 Responses |
 
 部分客户端把字段称为 `Endpoint`、`Host` 或 `OpenAI API Base`。客户端会自行追加 `/v1` 时，填写 `https://cdn-api.onprs.online`；其他情况填写完整 Base URL。

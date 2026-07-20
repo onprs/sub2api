@@ -41,7 +41,7 @@ Responses、Anthropic 和 Google 对 reasoning 或 thought signature 的表达�
 
 ## 图片和批量图片
 
-图片输入、图片生成、编辑和批量图片属于模型与平台专用能力，使用前请在渠道监控确认目标模型。
+图片输入、图片生成、编辑和批量图片属于模型与平台专用能力。先确认目标模型在当前 Key 实际拉取的模型列表中，再查看对应模型的能力说明。
 
 - OpenAI 风格生成：`/v1/images/generations`、`/v1/images/edits`。
 - 批量图片：控制台[批量图片](https://cdn-api.onprs.online/batch-image)及 `/v1/images/batches` 系列接口。

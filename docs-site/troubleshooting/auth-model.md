@@ -33,14 +33,15 @@ curl -i https://cdn-api.onprs.online/v1/models \
 Key 在创建时绑定分组，分组决定平台、模型范围和计费类型。切换分组时创建对应的新 Key。
 
 1. 打开 API Keys 查看 Key 分组。
-2. 在渠道监控确认提供商、模型和状态。
-3. 若计费方式不匹配，创建绑定正确分组的新 Key。
+2. 使用当前 Key 拉取 `/v1/models` 或 `/v1beta/models`。
+3. 在渠道监控确认提供商和渠道状态。
+4. 若计费方式不匹配，创建绑定正确分组的新 Key。
 
 ## 模型调用检查
 
 错误正文可能是 `model not found`、`unsupported model`、`no available accounts supporting model` 或客户端自己的模型校验。
 
-- 从控制台复制模型名。
+- 从当前 Key 实际返回的模型列表中复制模型名。
 - 调用 `/v1/models` 验证模型发现，再做最小生成。
 - 先使用纯文本基础参数，再逐项加入图片、工具或采样参数。
 - 确认客户端发送的最终模型名。
