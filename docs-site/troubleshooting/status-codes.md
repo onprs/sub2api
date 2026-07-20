@@ -15,8 +15,8 @@ description: 排查 OnprsCodexApi 400、401、403、404、409、429 和 5xx
 | `401` | Key 缺失、无效、禁用或用户不可用 | 检查认证 Header 和 Key 状态 |
 | `403` | Key 到期、IP/分组权限、余额或订阅无效 | 查看机器错误码和 Key 分组 |
 | `404` | URL/端点错误、模型不存在、能力不支持 | 打印最终 URL 并核对协议矩阵 |
-| `409` | 重复操作、状态冲突或资源正在处理 | 查询当前状态，不要立即重复提交 |
-| `429` | Key/订阅额度、RPM、并发或上游限流 | 读取错误码和重试时间，停止高频重试 |
+| `409` | 重复操作、状态冲突或资源正在处理 | 查询当前状态并按状态继续 |
+| `429` | Key/订阅额度、RPM、并发或上游限流 | 读取错误码和重试时间，按间隔重试 |
 | `5xx` | 上游、网关依赖、转换或临时服务故障 | 保留请求 ID，短暂退避后重试一次 |
 
 ## 400 Bad Request
@@ -25,13 +25,13 @@ description: 排查 OnprsCodexApi 400、401、403、404、409、429 和 5xx
 2. 删除工具、图片、schema、reasoning 和采样参数。
 3. 确认 Chat 使用 `messages`，Responses 使用 `input`，Google 使用 `contents`。
 4. 检查 `Content-Type: application/json`。
-5. 若错误点名某字段不支持，只删除该字段，不要盲目切换 Key。
+5. 若错误点名某字段，删除或调整该字段后再次验证。
 
 ## 401 Unauthorized
 
 `API_KEY_REQUIRED` 表示服务未从 Bearer、`x-api-key` 或 `x-goog-api-key` 读到 Key。`INVALID_API_KEY` 表示 Key 不存在；`API_KEY_DISABLED` 表示已禁用。
 
-检查环境变量是否在启动客户端的同一个进程中，避免只在另一个终端设置。
+确认环境变量已传入启动客户端的同一个进程。
 
 ## 403 Forbidden
 
@@ -43,11 +43,11 @@ description: 排查 OnprsCodexApi 400、401、403、404、409、429 和 5xx
 
 - OpenResty/HTML 404：通常是域名或 URL 路径错误。
 - JSON API 404：通常是端点、模型或平台能力不支持。
-- OpenCode Go Responses WebSocket / 子路径 404：属于明确不支持的边界，应改用根级 HTTP Responses。
+- OpenCode Go Responses WebSocket / 子路径 404：使用根级 HTTP Responses。
 
 ## 409 Conflict
 
-订单正在处理、兑换码已用、订阅状态不允许、重复创建或并发状态更新都可能返回 409。先重新获取资源状态；不要不断重放同一个支付、兑换或写操作。
+订单正在处理、兑换码已用、订阅状态限制、重复创建或并发状态更新都可能返回 409。重新获取资源状态，并按当前状态继续。
 
 ## 429 Too Many Requests
 
@@ -55,4 +55,4 @@ description: 排查 OnprsCodexApi 400、401、403、404、409、429 和 5xx
 
 ## 5xx
 
-使用相同 Key 和模型做一次纯文本非流式请求。若仍失败，换同分组另一个基础模型；两者都失败且渠道状态异常时再联系支持。不要对 5xx 无限重试，否则可能放大故障或产生重复费用。
+使用相同 Key 和模型做一次纯文本非流式请求。若仍失败，换同分组另一个基础模型；两者都失败且渠道状态异常时联系支持。5xx 重试应设置间隔和最大次数。

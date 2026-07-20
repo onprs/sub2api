@@ -12,11 +12,11 @@ description: 配置支持自定义 OpenAI Base URL 的 SDK、IDE 和 GUI 客户�
 | 字段 | 值 |
 | --- | --- |
 | API Key | 你在控制台创建的独立 Key |
-| Base URL | `https://api.onprs.top/v1` |
-| Model | 从[渠道监控](https://cdn.api.onprs.top/monitor)复制 |
+| Base URL | `https://cdn-api.onprs.online/v1` |
+| Model | 从[渠道监控](https://cdn-api.onprs.online/monitor)复制 |
 | API mode | 优先选 Chat Completions；明确支持 Responses 时也可选 Responses |
 
-部分客户端把字段称为 `Endpoint`、`Host` 或 `OpenAI API Base`。如果它会自行追加 `/v1`，则填写 `https://api.onprs.top`；出现 `/v1/v1/...` 的 404 就表示重复追加。
+部分客户端把字段称为 `Endpoint`、`Host` 或 `OpenAI API Base`。客户端会自行追加 `/v1` 时，填写 `https://cdn-api.onprs.online`；其他情况填写完整 Base URL。
 
 ## Python 最小示例
 
@@ -26,7 +26,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key=os.environ["ONPRS_API_KEY"],
-    base_url="https://api.onprs.top/v1",
+    base_url="https://cdn-api.onprs.online/v1",
 )
 
 response = client.chat.completions.create(
@@ -43,7 +43,7 @@ import OpenAI from 'openai'
 
 const client = new OpenAI({
   apiKey: process.env.ONPRS_API_KEY,
-  baseURL: 'https://api.onprs.top/v1'
+  baseURL: 'https://cdn-api.onprs.online/v1'
 })
 
 const response = await client.responses.create({
@@ -55,8 +55,8 @@ console.log(response.output_text)
 
 ## 成功判据
 
-客户端能返回 `connected`，控制台[用量记录](https://cdn.api.onprs.top/usage)出现对应模型和请求。客户端若只测试 `/models` 成功，仍需再做一次生成请求。
+客户端返回 `connected`，且控制台[用量记录](https://cdn-api.onprs.online/usage)出现对应模型和请求，即表示接入完成。连接测试后请再发送一次生成请求。
 
 ## 恢复原配置
 
-切回原 provider 或官方 Base URL，移除 OnprsCodexApi Key，并完全重启客户端。不要删除其他 provider 的配置。
+切回原 provider 或官方 Base URL，移除 OnprsCodexApi Key，并保留其他 provider 配置。完全重启客户端后生效。

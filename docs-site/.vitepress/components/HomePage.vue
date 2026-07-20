@@ -72,8 +72,8 @@ const resources = [
 
       <div class="home-endpoints" aria-label="服务入口">
         <span>API Base URL</span>
-        <code>https://api.onprs.top/v1</code>
-        <a href="https://cdn.api.onprs.top/" target="_blank" rel="noreferrer">
+        <code>https://cdn-api.onprs.online/v1</code>
+        <a href="https://cdn-api.onprs.online/" target="_blank" rel="noreferrer">
           打开控制台
           <ExternalLink :size="15" aria-hidden="true" />
         </a>
@@ -104,7 +104,7 @@ const resources = [
         <dl class="reference-list">
           <div>
             <dt>Base URL</dt>
-            <dd><code>https://api.onprs.top/v1</code></dd>
+            <dd><code>https://cdn-api.onprs.online/v1</code></dd>
           </div>
           <div>
             <dt>认证</dt>
@@ -112,7 +112,7 @@ const resources = [
           </div>
           <div>
             <dt>模型</dt>
-            <dd><a href="https://cdn.api.onprs.top/monitor">查看渠道监控</a></dd>
+            <dd><a href="https://cdn-api.onprs.online/monitor">查看渠道监控</a></dd>
           </div>
         </dl>
       </div>

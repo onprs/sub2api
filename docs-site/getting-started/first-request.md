@@ -5,12 +5,12 @@ description: 使用 curl 测试 Chat Completions、Responses、Anthropic Message
 
 # 发送第一条请求
 
-准备一个 API Key，并从[渠道监控](https://cdn.api.onprs.top/monitor)复制模型名。下面的 `replace-with-an-available-model` 必须替换。
+准备一个 API Key，并从[渠道监控](https://cdn-api.onprs.online/monitor)复制模型名，用它替换下方的 `replace-with-an-available-model`。
 
 ## Chat Completions
 
 ```bash
-curl --fail-with-body https://api.onprs.top/v1/chat/completions \
+curl --fail-with-body https://cdn-api.onprs.online/v1/chat/completions \
   -H "Authorization: Bearer $ONPRS_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -25,7 +25,7 @@ curl --fail-with-body https://api.onprs.top/v1/chat/completions \
 ## Responses
 
 ```bash
-curl --fail-with-body https://api.onprs.top/v1/responses \
+curl --fail-with-body https://cdn-api.onprs.online/v1/responses \
   -H "Authorization: Bearer $ONPRS_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -40,7 +40,7 @@ curl --fail-with-body https://api.onprs.top/v1/responses \
 ## Anthropic Messages
 
 ```bash
-curl --fail-with-body https://api.onprs.top/v1/messages \
+curl --fail-with-body https://cdn-api.onprs.online/v1/messages \
   -H "x-api-key: $ONPRS_API_KEY" \
   -H "anthropic-version: 2023-06-01" \
   -H "Content-Type: application/json" \
@@ -60,7 +60,7 @@ Google 原生路径中的模型名属于 URL，先使用只含字母、数字、
 
 ```bash
 curl --fail-with-body \
-  "https://api.onprs.top/v1beta/models/replace-with-an-available-model:generateContent" \
+  "https://cdn-api.onprs.online/v1beta/models/replace-with-an-available-model:generateContent" \
   -H "x-goog-api-key: $ONPRS_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -70,6 +70,6 @@ curl --fail-with-body \
 
 成功时查看 `candidates[0].content.parts`。
 
-## 失败时保留什么
+## 排错信息
 
-增加 `-i` 可同时显示响应头。记录状态码、错误正文、`x-request-id`、请求时间、协议路径和模型名；删除 Authorization、Cookie 和完整 Key 后，再按[统一排错流程](/troubleshooting/)检查。
+增加 `-i` 可同时显示响应头。记录状态码、错误正文、`x-request-id`、请求时间、协议路径和模型名。提交材料前移除 Authorization、Cookie 和完整 Key，再按[统一排错流程](/troubleshooting/)检查。

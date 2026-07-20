@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitepress'
 
-const consoleUrl = 'https://cdn.api.onprs.top/'
+const consoleUrl = 'https://cdn-api.onprs.online/'
 
 export default defineConfig({
   lang: 'zh-CN',

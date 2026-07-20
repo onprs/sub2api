@@ -1,13 +1,13 @@
 const links = [
-  { name: 'console', url: 'https://cdn.api.onprs.top/' },
-  { name: 'health', url: 'https://api.onprs.top/health' },
-  { name: 'keys', url: 'https://cdn.api.onprs.top/keys' },
-  { name: 'channel monitor', url: 'https://cdn.api.onprs.top/monitor' },
-  { name: 'usage', url: 'https://cdn.api.onprs.top/usage' },
-  { name: 'subscriptions', url: 'https://cdn.api.onprs.top/subscriptions' },
-  { name: 'orders', url: 'https://cdn.api.onprs.top/orders' },
-  { name: 'terms', url: 'https://cdn.api.onprs.top/legal/terms-of-service' },
-  { name: 'privacy', url: 'https://cdn.api.onprs.top/legal/privacy-policy' },
+  { name: 'console', url: 'https://cdn-api.onprs.online/' },
+  { name: 'health', url: 'https://cdn-api.onprs.online/health' },
+  { name: 'keys', url: 'https://cdn-api.onprs.online/keys' },
+  { name: 'channel monitor', url: 'https://cdn-api.onprs.online/monitor' },
+  { name: 'usage', url: 'https://cdn-api.onprs.online/usage' },
+  { name: 'subscriptions', url: 'https://cdn-api.onprs.online/subscriptions' },
+  { name: 'orders', url: 'https://cdn-api.onprs.online/orders' },
+  { name: 'terms', url: 'https://cdn-api.onprs.online/legal/terms-of-service' },
+  { name: 'privacy', url: 'https://cdn-api.onprs.online/legal/privacy-policy' },
   { name: 'anthropic gateway docs', url: 'https://docs.anthropic.com/en/docs/claude-code/llm-gateway' },
   { name: 'codex config docs', url: 'https://developers.openai.com/codex/config-reference', allowed: [403] },
   { name: 'opencode provider docs', url: 'https://opencode.ai/docs/providers' },
@@ -58,3 +58,4 @@ if (failures.length > 0) {
 }
 
 console.log(`external_link_check_ok=${links.length}`)
+process.exit(0)

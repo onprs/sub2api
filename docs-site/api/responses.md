@@ -14,7 +14,7 @@ description: 读取四类协议响应、Token 用量、费用和请求 ID
 | Anthropic Messages | `content[]` 中的 `text` 块 |
 | Google GenAI | `candidates[].content.parts[]` 中的 `text` |
 
-工具调用、图片和 reasoning 可能与文本并列。生产代码不要假设响应只有一个字符串字段。
+工具调用、图片和 reasoning 可能与文本并列。生产代码应按协议遍历内容数组和内容块。
 
 ## 用量字段
 
@@ -28,7 +28,7 @@ description: 读取四类协议响应、Token 用量、费用和请求 ID
 - 分组倍率、账号倍率或时段倍率。
 - 余额计费或订阅权益归属。
 
-客户端原始 `usage` 可用于核对单次请求，最终扣费以[用量记录](https://cdn.api.onprs.top/usage)为准。
+客户端原始 `usage` 可用于核对单次请求，最终扣费以[用量记录](https://cdn-api.onprs.online/usage)为准。
 
 ## 请求 ID
 
@@ -38,18 +38,18 @@ description: 读取四类协议响应、Token 用量、费用和请求 ID
 x-request-id
 ```
 
-部分客户端或网关链路还会产生 `x-client-request-id`。提交支持请求时同时提供两者最有利于关联，但不要伪造或重复使用同一个 ID 来代表多个请求。
+部分客户端或网关链路还会产生 `x-client-request-id`。提交支持请求时可同时提供两者；每个请求保留其原始 ID。
 
 使用 curl 可这样显示响应头：
 
 ```bash
-curl -i --fail-with-body https://api.onprs.top/v1/models \
+curl -i --fail-with-body https://cdn-api.onprs.online/v1/models \
   -H "Authorization: Bearer $ONPRS_API_KEY"
 ```
 
 ## 错误响应
 
-错误外层结构会按入站协议呈现，不保证四类协议字段完全相同。通用定位顺序是：
+错误外层结构按入站协议呈现。通用定位顺序是：
 
 1. HTTP 状态码。
 2. 机器可读错误码、`type` 或 `reason`。

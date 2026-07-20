@@ -8,28 +8,28 @@ description: 排查域名解析、证书、系统时间、HTTP 代理和企业�
 ## 分层检查
 
 ```bash
-curl -I --connect-timeout 10 https://cdn.api.onprs.top/
-curl -i --connect-timeout 10 https://api.onprs.top/health
+curl -I --connect-timeout 10 https://cdn-api.onprs.online/
+curl -i --connect-timeout 10 https://cdn-api.onprs.online/health
 ```
 
-首页和 health 均不可达时，再检查 DNS、TLS 和代理；health 可达但 API 失败通常不是基础网络问题。
+首页和 health 均不可达时，依次检查 DNS、TLS 和代理。health 可达时，继续检查 API 配置。
 
 ## DNS
 
 ```bash
-nslookup api.onprs.top
+nslookup cdn-api.onprs.online
 ```
 
-确认没有被本机 hosts、企业 DNS 或代理插件解析到错误地址。更换公共 DNS 只能用于诊断，企业网络用户应遵守组织策略。
+核对本机 hosts、企业 DNS 和代理插件的解析结果。公共 DNS 可用于诊断，企业网络用户按组织策略操作。
 
 ## TLS 与系统时间
 
 证书尚未生效、过期、域名不匹配或本机时间偏差都可能导致 TLS 错误。
 
 - 自动同步系统日期、时间和时区。
-- 不要使用 `curl -k` 作为长期修复。
-- 企业 HTTPS 检查需要把组织 CA 正确安装到客户端信任库，而不是关闭证书校验。
-- IP 地址不能替代 `https://api.onprs.top` 进行 API TLS 调用。
+- 保持 TLS 证书校验开启。
+- 企业 HTTPS 检查环境应将组织 CA 安装到客户端信任库。
+- API TLS 调用使用 `https://cdn-api.onprs.online` 域名。
 
 ## HTTP 代理
 
@@ -40,16 +40,15 @@ nslookup api.onprs.top
 - 在空闲时间关闭长连接。
 - 去掉 Authorization 或限制请求体大小。
 
-用不经过代理的受控网络做一次对照。不要在公共网络中关闭 TLS 校验。
+使用受控的直连网络做一次对照，并保持 TLS 校验开启。
 
 ## Cloudflare、CDN 和企业网关
 
-收到 HTML challenge、WAF 页面或代理品牌错误页时，它不是模型 API JSON。保存状态码、响应头、页面标题和发生时间，检查浏览器验证、出口 IP、User-Agent 和企业策略。
+收到 HTML challenge、WAF 页面或代理品牌错误页时，保存状态码、响应头、页面标题和发生时间，并检查浏览器验证、出口 IP、User-Agent 和企业策略。
 
 ## 服务域名
 
-- API 请求使用 `https://api.onprs.top`。
-- 控制台使用 `https://cdn.api.onprs.top`。
-- 文档使用 `https://doc.api.onprs.top`。
+- API 与控制台使用 `https://cdn-api.onprs.online`。
+- 文档使用 `https://doc-api.onprs.online`。
 
-控制台和文档域名均不能作为 API Base URL。
+API Base URL 使用 `https://cdn-api.onprs.online`。

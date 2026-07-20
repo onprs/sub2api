@@ -7,19 +7,19 @@ description: OnprsCodexApi Base URL、模型、协议、余额、套餐、额度
 
 ## Base URL 应该填什么？
 
-OpenAI 和 Anthropic 客户端通常填 `https://api.onprs.top/v1`。Gemini CLI 的 `GOOGLE_GEMINI_BASE_URL` 填 `https://api.onprs.top`，由客户端追加 Google 路径。
+OpenAI 和 Anthropic 客户端通常填 `https://cdn-api.onprs.online/v1`。Gemini CLI 的 `GOOGLE_GEMINI_BASE_URL` 填 `https://cdn-api.onprs.online`，由客户端追加 Google 路径。
 
 ## API Key 和登录密码一样吗？
 
-不一样。API Key 只用于模型 API；登录密码、Cookie 和 JWT 只用于控制台。不要交叉使用。
+API Key 用于模型 API；登录密码、Cookie 和 JWT 用于控制台。请按各自用途配置。
 
 ## 为什么 `/v1/models` 成功，生成仍失败？
 
-模型发现不检查所有生成能力。余额、订阅额度、上游容量、协议字段和模型能力仍可能在生成时失败。
+模型列表用于模型发现。生成请求还会校验余额、订阅额度、上游容量、协议字段和模型能力。
 
 ## 模型名从哪里复制？
 
-从[渠道监控](https://cdn.api.onprs.top/monitor)或控制台“使用 Key”配置中复制。
+从[渠道监控](https://cdn-api.onprs.online/monitor)或控制台“使用 Key”配置中复制。
 
 ## 同一个模型能用四种协议吗？
 
@@ -27,11 +27,11 @@ OpenAI 和 Anthropic 客户端通常填 `https://api.onprs.top/v1`。Gemini CLI 
 
 ## 余额和套餐会同时扣吗？
 
-单个请求按 Key 分组对应的计费方式处理。标准分组用余额，订阅分组用订阅权益；不会因为订阅无效就自动改扣余额。
+单个请求按 Key 分组对应的计费方式处理：标准分组使用余额，订阅分组使用订阅权益。
 
 ## 5h / 7d / 30d 是三选一吗？
 
-不是。套餐配置了哪些窗口，就同时检查哪些窗口，任一耗尽都会限制请求。
+套餐配置的窗口会同时检查，请求需要各窗口均有剩余额度。
 
 ## “无限额”是什么意思？
 
@@ -59,12 +59,12 @@ OpenAI 和 Anthropic 客户端通常填 `https://api.onprs.top/v1`。Gemini CLI 
 
 ## 429 都是上游限流吗？
 
-不是。它也可能是 Key 额度、订阅窗口、RPM 或并发限制。先看机器错误码和重试时间。
+429 可能来自 Key 额度、订阅窗口、RPM、并发或上游限流。先查看机器错误码和重试时间。
 
 ## 是否支持 OpenCode Go？
 
-支持。它是独立平台，可通过 Chat Completions 或 Messages 上游执行，并支持根级 HTTP Responses；不支持 Responses WebSocket 和专用子路径。
+支持。OpenCode Go 按独立平台配置，可通过 Chat Completions 或 Messages 上游执行，Responses 使用根级 HTTP 入口。Responses WebSocket 和专用子路径不在支持范围。
 
 ## 联系支持要发 Key 吗？
 
-不要。提供 Key 名称或 ID、请求 ID、时间、客户端版本和脱敏请求即可。
+提供 Key 名称或 ID、请求 ID、时间、客户端版本和脱敏请求即可，完整 Key 请保留在本地。

@@ -14,13 +14,13 @@ description: 使用 Google GenAI 协议连接 Gemini CLI 与 OnprsCodexApi
 ::: code-group
 
 ```bash [macOS / Linux]
-export GOOGLE_GEMINI_BASE_URL="https://api.onprs.top"
+export GOOGLE_GEMINI_BASE_URL="https://cdn-api.onprs.online"
 export GEMINI_API_KEY="sk-your-api-key"
 export GEMINI_MODEL="replace-with-an-available-model"
 ```
 
 ```powershell [Windows PowerShell]
-$env:GOOGLE_GEMINI_BASE_URL="https://api.onprs.top"
+$env:GOOGLE_GEMINI_BASE_URL="https://cdn-api.onprs.online"
 $env:GEMINI_API_KEY="sk-your-api-key"
 $env:GEMINI_MODEL="replace-with-an-available-model"
 ```
@@ -40,18 +40,18 @@ gemini -p "Reply with exactly: connected" --output-format text
 原生 REST 生成路径为：
 
 ```text
-POST https://api.onprs.top/v1beta/models/{model}:generateContent
-POST https://api.onprs.top/v1beta/models/{model}:streamGenerateContent
+POST https://cdn-api.onprs.online/v1beta/models/{model}:generateContent
+POST https://cdn-api.onprs.online/v1beta/models/{model}:streamGenerateContent
 ```
 
 也支持稳定 `/v1/models/{model}:generateContent` 生成路径；模型发现仍应优先使用 `/v1beta/models` 或控制台。
 
-## 常见失败
+## 配置检查
 
-- `/v1beta/v1beta/...`：Base URL 被错误写成带 `/v1beta` 的地址。
-- `401`：`GEMINI_API_KEY` 未传入，或 SDK 没有使用 `x-goog-api-key`。
-- `404`：URL 中模型名、动作名或版本路径不匹配。
-- 工具结果格式错误：确认客户端发送规范 Google `functionCall` / `functionResponse`，不要自行混入 Anthropic 内容块。
+- URL 出现重复 `/v1beta`：将 Base URL 设为域名根。
+- `401`：确认 `GEMINI_API_KEY` 已传入，并由 SDK 使用 `x-goog-api-key`。
+- `404`：核对 URL 中的模型名、动作名和版本路径。
+- 工具结果格式错误：使用 Google `functionCall` / `functionResponse` 格式。
 
 ## 恢复原配置
 

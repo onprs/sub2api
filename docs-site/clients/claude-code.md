@@ -18,14 +18,14 @@ description: 使用 Anthropic Messages 协议连接 Claude Code 与 OnprsCodexAp
 ::: code-group
 
 ```bash [macOS / Linux]
-export ANTHROPIC_BASE_URL="https://api.onprs.top/v1"
+export ANTHROPIC_BASE_URL="https://cdn-api.onprs.online/v1"
 export ANTHROPIC_AUTH_TOKEN="sk-your-api-key"
 export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY="1"
 claude
 ```
 
 ```powershell [Windows PowerShell]
-$env:ANTHROPIC_BASE_URL="https://api.onprs.top/v1"
+$env:ANTHROPIC_BASE_URL="https://cdn-api.onprs.online/v1"
 $env:ANTHROPIC_AUTH_TOKEN="sk-your-api-key"
 $env:CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY="1"
 claude
@@ -42,7 +42,7 @@ claude
 ```json
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "https://api.onprs.top/v1",
+    "ANTHROPIC_BASE_URL": "https://cdn-api.onprs.online/v1",
     "ANTHROPIC_AUTH_TOKEN": "sk-your-api-key",
     "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"
   }
@@ -53,12 +53,12 @@ claude
 
 ## 最小测试
 
-启动新会话，选择控制台可用模型并发送：`Reply with exactly: connected`。成功后在[用量记录](https://cdn.api.onprs.top/usage)确认 `/v1/messages` 请求。
+启动新会话，选择控制台可用模型并发送：`Reply with exactly: connected`。成功后在[用量记录](https://cdn-api.onprs.online/usage)确认 `/v1/messages` 请求。
 
-## 常见失败
+## 配置检查
 
-- 仍出现官方订阅登录：当前进程没有读取 `ANTHROPIC_AUTH_TOKEN`，关闭所有 Claude Code 进程后重开。
-- `404`：Base URL 缺少 `/v1` 或被重复追加。
+- 出现官方订阅登录：关闭所有 Claude Code 进程，重新打开读取 `ANTHROPIC_AUTH_TOKEN` 的终端。
+- `404`：核对 Base URL 中的 `/v1`。
 - 模型不可选：启用 gateway model discovery，或显式设置控制台模型名。
 - 工具调用中断：记录 Claude Code 版本、请求 ID 和错误正文，查看[流与工具调用排错](/troubleshooting/streaming)。
 

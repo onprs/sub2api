@@ -4,7 +4,7 @@ set -Eeuo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-REMOTE_HOST="${REMOTE_HOST:-onprs}"
+REMOTE_HOST="${REMOTE_HOST:-sub2api_tokyo}"
 GIT_SHA="$(git rev-parse --short HEAD)"
 RELEASE_ID="${RELEASE_ID:-docs-${GIT_SHA}-$(date +%Y%m%d%H%M%S)}"
 ARTIFACT_DIR="$REPO_ROOT/artifacts/$RELEASE_ID"
@@ -22,13 +22,13 @@ if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
   exit 1
 fi
 
-corepack pnpm --dir docs-site install --frozen-lockfile
-corepack pnpm --dir docs-site run typecheck
-corepack pnpm --dir docs-site run build
+corepack pnpm@9.15.9 --dir docs-site install --frozen-lockfile
+corepack pnpm@9.15.9 --dir docs-site run typecheck
+corepack pnpm@9.15.9 --dir docs-site run build
 test ! -e docs-site/.vitepress/dist/deployment.html
 test ! -e docs-site/.vitepress/dist/readme.html
-corepack pnpm --dir docs-site run check:external
-corepack pnpm --dir docs-site run test:smoke
+corepack pnpm@9.15.9 --dir docs-site run check:external
+corepack pnpm@9.15.9 --dir docs-site run test:smoke
 
 mkdir -p "$ARTIFACT_DIR"
 tar -C docs-site/.vitepress/dist -czf "$ARCHIVE" .
@@ -110,7 +110,7 @@ stage_remote() {
       test -f \"\$staging_dir/404.html\"
       test -f \"\$staging_dir/getting-started/index.html\"
       test -d \"\$staging_dir/assets\"
-      grep -Fq 'https://cdn.api.onprs.top/' \"\$staging_dir/index.html\"
+      grep -Fq 'https://cdn-api.onprs.online/' \"\$staging_dir/index.html\"
       printf '%s\n' '$GIT_SHA' >\"\$staging_dir/git-commit.txt\"
       printf '%s\n' '$SHA256' >\"\$staging_dir/archive-sha256.txt\"
       chown -R root:root \"\$staging_dir\"

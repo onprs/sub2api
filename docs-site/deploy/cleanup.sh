@@ -5,7 +5,7 @@ SCRIPT_NAME="$(basename "$0")"
 RELEASE_ID="${SCRIPT_NAME%-cleanup.sh}"
 ROOT="/opt/1panel/www/sites/doc.api.onprs.top"
 RELEASE_RETENTION="${DOCS_RELEASE_RETENTION:-3}"
-DOCS_URL="https://doc.api.onprs.top"
+DOCS_URL="https://doc-api.onprs.online"
 
 if [[ ! "$RELEASE_ID" =~ ^docs-[A-Za-z0-9._-]+$ ]]; then
   echo "Invalid release ID derived from script name: $RELEASE_ID" >&2
@@ -23,7 +23,7 @@ CURRENT_TARGET="$(readlink "$ROOT/index" 2>/dev/null || true)"
   exit 1
 }
 [[ "$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "$DOCS_URL/")" == "200" ]]
-[[ "$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' https://api.onprs.top/health)" == "200" ]]
+[[ "$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' https://cdn-api.onprs.online/health)" == "200" ]]
 [[ "$RELEASE_RETENTION" =~ ^[0-9]+$ && "$RELEASE_RETENTION" -ge 2 ]]
 
 PREVIOUS_RELEASE=""

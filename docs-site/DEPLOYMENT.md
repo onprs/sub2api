@@ -1,6 +1,6 @@
 # 文档站发布与回滚
 
-生产站点：`https://doc.api.onprs.top/`
+生产站点：`https://doc-api.onprs.online/`
 
 生产目录：`/opt/1panel/www/sites/doc.api.onprs.top`。1Panel 管理域名、TLS 和 OpenResty 配置；文档发布只更新静态文件，不运行 Node、Docker sidecar 或独立 systemd 服务。
 

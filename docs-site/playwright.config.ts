@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test'
 
+const browserExecutablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
@@ -14,7 +16,10 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:4175',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
-    permissions: ['clipboard-read', 'clipboard-write']
+    permissions: ['clipboard-read', 'clipboard-write'],
+    launchOptions: browserExecutablePath
+      ? { executablePath: browserExecutablePath }
+      : undefined
   },
   webServer: {
     command: 'corepack pnpm exec vitepress preview --host 127.0.0.1 --port 4175',

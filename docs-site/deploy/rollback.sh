@@ -8,7 +8,7 @@ ROOT="/opt/1panel/www/sites/doc.api.onprs.top"
 CURRENT_LINK="$ROOT/index"
 CONF_PATH="/opt/1panel/www/conf.d/doc.api.onprs.top.conf"
 STATE_PATH="$ROOT/.rollback-$RELEASE_ID"
-DOCS_HOST="doc.api.onprs.top"
+DOCS_HOST="doc-api.onprs.online"
 PUBLIC_DOCS_URL="https://$DOCS_HOST"
 ORIGINAL_TARGET=""
 OLD_TARGET=""
@@ -63,7 +63,7 @@ wait_http() {
 validate_services() {
   systemctl is-active --quiet sub2api
   wait_http http://127.0.0.1:8080/health 200
-  wait_http https://api.onprs.top/health 200
+  wait_http https://cdn-api.onprs.online/health 200
   wait_http "$PUBLIC_DOCS_URL/?rollback=$RELEASE_ID" 200 --resolve "$DOCS_HOST:443:127.0.0.1"
   wait_http "$PUBLIC_DOCS_URL/definitely-not-a-doc-page-$RELEASE_ID" 404 --resolve "$DOCS_HOST:443:127.0.0.1"
   wait_http "$PUBLIC_DOCS_URL/?rollback=$RELEASE_ID" 200

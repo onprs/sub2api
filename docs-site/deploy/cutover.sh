@@ -9,7 +9,7 @@ RELEASE_DIR="$ROOT/releases/$RELEASE_ID"
 CURRENT_LINK="$ROOT/index"
 CONF_PATH="/opt/1panel/www/conf.d/doc.api.onprs.top.conf"
 STATE_PATH="$ROOT/.rollback-$RELEASE_ID"
-DOCS_HOST="doc.api.onprs.top"
+DOCS_HOST="doc-api.onprs.online"
 PUBLIC_DOCS_URL="https://$DOCS_HOST"
 ERROR_LOG="$ROOT/log/error.log"
 OLD_TARGET=""
@@ -86,7 +86,7 @@ write_state() {
 
 validate_panel_config() {
   [[ -f "$CONF_PATH" ]]
-  grep -Eq '^[[:space:]]*server_name[[:space:]]+doc\.api\.onprs\.top;' "$CONF_PATH"
+  grep -Eq '^[[:space:]]*server_name[[:space:]]+doc-api\.onprs\.online;' "$CONF_PATH"
   grep -Fq 'root /www/sites/doc.api.onprs.top/index;' "$CONF_PATH"
   grep -Fq 'try_files $uri $uri.html $uri/ =404;' "$CONF_PATH"
   grep -Fq 'error_page 404 /404.html;' "$CONF_PATH"
@@ -96,7 +96,7 @@ validate_panel_config() {
 validate_main_service() {
   systemctl is-active --quiet sub2api
   wait_http http://127.0.0.1:8080/health 200
-  wait_http https://api.onprs.top/health 200
+  wait_http https://cdn-api.onprs.online/health 200
   [[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" == "true" ]]
   ss -ltnp | grep -Eq '0\.0\.0\.0:80[[:space:]].*openresty'
   ss -ltnp | grep -Eq '0\.0\.0\.0:443[[:space:]].*openresty'
@@ -155,7 +155,7 @@ log "validating staged release $RELEASE_ID"
 [[ -f "$RELEASE_DIR/robots.txt" ]]
 [[ -f "$RELEASE_DIR/git-commit.txt" ]]
 [[ -f "$RELEASE_DIR/archive-sha256.txt" ]]
-grep -Fq 'https://cdn.api.onprs.top/' "$RELEASE_DIR/index.html"
+grep -Fq 'https://cdn-api.onprs.online/' "$RELEASE_DIR/index.html"
 
 find_openresty_container
 SERVICE_PID_BEFORE="$(systemctl show sub2api -p MainPID --value)"

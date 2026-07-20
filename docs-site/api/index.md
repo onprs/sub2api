@@ -10,9 +10,9 @@ OnprsCodexApi 提供四类标准生成协议。路由决定客户端发送的协
 ## 基础信息
 
 ```text
-控制台：https://cdn.api.onprs.top/
-OpenAI / Anthropic Base URL：https://api.onprs.top/v1
-Google GenAI Base URL：https://api.onprs.top
+控制台：https://cdn-api.onprs.online/
+OpenAI / Anthropic Base URL：https://cdn-api.onprs.online/v1
+Google GenAI Base URL：https://cdn-api.onprs.online
 ```
 
 推荐认证方式：
@@ -21,7 +21,7 @@ Google GenAI Base URL：https://api.onprs.top
 Authorization: Bearer sk-your-api-key
 ```
 
-Anthropic SDK 可使用 `x-api-key`，Google SDK 可使用 `x-goog-api-key`。不要在 URL query、日志或错误截图中暴露 Key。
+Anthropic SDK 可使用 `x-api-key`，Google SDK 可使用 `x-goog-api-key`。Key 请通过 Header 发送，并在日志和截图中脱敏。
 
 ## 协议入口
 
@@ -40,6 +40,6 @@ Anthropic SDK 可使用 `x-api-key`，Google SDK 可使用 `x-goog-api-key`。�
 
 ## 兼容边界
 
-协议可转换不代表所有模型都支持图片、工具调用、结构化输出、超长上下文或同样的采样参数。跨协议遇到不可无损表达的能力时，服务可能返回明确错误，而不是静默丢弃内容。
+模型能力以渠道监控和目标平台说明为准，包括图片、工具调用、结构化输出、上下文长度和采样参数。跨协议无法完整表达某项能力时，服务会返回明确错误。
 
 开始调用前先查看[模型与映射](/api/models)和[流式、工具与结构化输出](/api/capabilities)。

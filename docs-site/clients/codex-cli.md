@@ -11,7 +11,7 @@ description: 使用 OpenAI Responses 协议连接 Codex CLI 与 OnprsCodexApi
 
 - Key 分组支持目标模型的 Responses 请求。
 - `codex --version` 能正常运行。
-- 已从[渠道监控](https://cdn.api.onprs.top/monitor)取得模型名。
+- 已从[渠道监控](https://cdn-api.onprs.online/monitor)取得模型名。
 
 ## 设置 Key 环境变量
 
@@ -27,7 +27,7 @@ $env:ONPRS_API_KEY="sk-your-api-key"
 
 :::
 
-不要把 Key 直接写入 `config.toml`。
+通过 `ONPRS_API_KEY` 环境变量向 Codex CLI 提供 Key。
 
 ## 配置 provider
 
@@ -39,12 +39,12 @@ model = "replace-with-an-available-model"
 
 [model_providers.onprs]
 name = "OnprsCodexApi"
-base_url = "https://api.onprs.top/v1"
+base_url = "https://cdn-api.onprs.online/v1"
 env_key = "ONPRS_API_KEY"
 wire_api = "responses"
 ```
 
-已有配置时，只合并顶层默认值和 `[model_providers.onprs]` 表，不要覆盖 MCP、sandbox 或其他 provider。
+已有配置时，合并顶层默认值和 `[model_providers.onprs]` 表，并保留 MCP、sandbox 与其他 provider。
 
 ## 最小测试
 
@@ -61,11 +61,11 @@ supports_websockets = true
 responses_websockets_v2 = true
 ```
 
-WebSocket 握手失败时先退回普通 HTTP，避免把传输问题误判为模型问题。
+WebSocket 握手未成功时，先用普通 HTTP 验证基础生成链路。
 
-## 常见失败与恢复
+## 配置检查与恢复
 
 - `Missing environment variable`：新终端没有继承 `ONPRS_API_KEY`。
 - `401`：变量值错误、Key 已禁用或旧官方登录覆盖了 provider。
-- `404`：`base_url` 不是精确的 `/v1` 地址，或分组不支持该请求。
+- `404`：核对 `base_url` 的 `/v1` 地址和 Key 分组。
 - 恢复时把 `model_provider` 改回原值，并删除 `[model_providers.onprs]`；环境变量一并移除。

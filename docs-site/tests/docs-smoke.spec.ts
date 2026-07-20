@@ -14,11 +14,11 @@ test('homepage exposes search, tasks and production entry points', async ({ page
 
   await expect(page.getByRole('heading', { level: 1, name: 'OnprsCodexApi 文档' })).toBeVisible()
   await expect(page.getByRole('img', { name: 'OnprsCodexApi Logo' })).toBeVisible()
-  await expect(page.getByText('https://api.onprs.top/v1', { exact: true }).first()).toBeVisible()
-  await expect(page.getByRole('link', { name: /打开控制台/ })).toHaveAttribute('href', 'https://cdn.api.onprs.top/')
+  await expect(page.getByText('https://cdn-api.onprs.online/v1', { exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('link', { name: /打开控制台/ })).toHaveAttribute('href', 'https://cdn-api.onprs.online/')
   await expect(page.getByRole('link', { name: '查看渠道监控' })).toHaveAttribute(
     'href',
-    'https://cdn.api.onprs.top/monitor'
+    'https://cdn-api.onprs.online/monitor'
   )
 
   await page.getByRole('button', { name: '搜索文档内容' }).click()
@@ -58,7 +58,7 @@ test('documentation navigation, clean URLs, copy and dark mode work', async ({ p
     await expect(mobileTopNav.getByRole('link', { name: '快速开始', exact: true })).toBeVisible()
     await expect(mobileTopNav.getByRole('link', { name: /返回控制台/ })).toHaveAttribute(
       'href',
-      'https://cdn.api.onprs.top/'
+      'https://cdn-api.onprs.online/'
     )
 
     await page.locator('.VPSwitchAppearance:visible').click()
@@ -84,7 +84,7 @@ test('documentation navigation, clean URLs, copy and dark mode work', async ({ p
     await expect(topNav.getByRole('link', { name: '快速开始', exact: true })).toBeVisible()
     await expect(topNav.getByRole('link', { name: /返回控制台/ })).toHaveAttribute(
       'href',
-      'https://cdn.api.onprs.top/'
+      'https://cdn-api.onprs.online/'
     )
 
     const sidebar = page.locator('.VPSidebar')
