@@ -1,64 +1,75 @@
 ---
-title: OpenAI 兼容客户端
-description: 配置支持自定义 OpenAI Base URL 的 SDK、IDE 和 GUI 客户端
+title: IDE、GUI 与 OpenAI SDK
+description: 使用 API Key、Base URL 和模型名配置 OpenAI 兼容客户端
 ---
 
-# OpenAI 兼容客户端
+# IDE、GUI 与 OpenAI SDK
 
-适用于允许填写 OpenAI API Key、Base URL 和模型名的 SDK、IDE 插件或 GUI 客户端。
+适用于可以填写 OpenAI API Key、Base URL 和模型名的客户端。
 
-## 字段填写
+## 1. 准备三个值
 
-| 字段 | 值 |
+| 客户端字段 | 填写内容 |
 | --- | --- |
-| API Key | 你在控制台创建的独立 Key |
+| API Key | 控制台创建的独立 Key |
 | Base URL | `https://cdn-api.onprs.online/v1` |
-| Model | 从当前 Key 的 `/v1/models` 返回结果中复制 |
-| API mode | 优先选 Chat Completions；明确支持 Responses 时也可选 Responses |
+| Model | 当前 Key 请求 `GET /v1/models` 返回的模型名 |
 
-部分客户端把字段称为 `Endpoint`、`Host` 或 `OpenAI API Base`。客户端会自行追加 `/v1` 时，填写 `https://cdn-api.onprs.online`；其他情况填写完整 Base URL。
+客户端中的字段名称也会显示为 `Endpoint`、`Host` 或 `OpenAI API Base`。
 
-以下示例从进程环境读取 Key，实际项目可替换为现有的安全凭据来源。
+## 2. 保存客户端配置
 
-## Python 示例
+1. Provider 选择 `OpenAI` 或 `OpenAI-compatible`。
+2. 填入上面的 API Key、Base URL 和模型名。
+3. API mode 选择 `Chat Completions`。
+4. 保存配置并重启客户端。
 
-```python
-import os
+客户端明确标注会自动追加 `/v1` 时，Base URL 填写 `https://cdn-api.onprs.online`。
+
+## 3. SDK 配置
+
+SDK 使用相同的三个值：
+
+::: code-group
+
+```python [Python]
 from openai import OpenAI
 
 client = OpenAI(
-    api_key=os.environ["ONPRS_API_KEY"],
+    api_key="sk-your-api-key",
     base_url="https://cdn-api.onprs.online/v1",
 )
-
-response = client.chat.completions.create(
+result = client.chat.completions.create(
     model="replace-with-an-available-model",
-    messages=[{"role": "user", "content": "Reply with: connected"}],
+    messages=[{"role": "user", "content": "Reply with exactly: connected"}],
 )
-print(response.choices[0].message.content)
+print(result.choices[0].message.content)
 ```
 
-## JavaScript 示例
-
-```js
+```js [JavaScript]
 import OpenAI from 'openai'
 
 const client = new OpenAI({
-  apiKey: process.env.ONPRS_API_KEY,
+  apiKey: 'sk-your-api-key',
   baseURL: 'https://cdn-api.onprs.online/v1'
 })
-
-const response = await client.responses.create({
+const result = await client.chat.completions.create({
   model: 'replace-with-an-available-model',
-  input: 'Reply with: connected'
+  messages: [{ role: 'user', content: 'Reply with exactly: connected' }]
 })
-console.log(response.output_text)
+console.log(result.choices[0].message.content)
 ```
 
-## 成功判据
+:::
 
-客户端返回 `connected`，且控制台[用量记录](https://cdn-api.onprs.online/usage)出现对应模型和请求，即表示接入完成。连接测试后请再发送一次生成请求。
+## 4. 发送验证请求
 
-## 恢复原配置
+发送 `Reply with exactly: connected`。客户端返回 `connected`，并且[用量记录](https://cdn-api.onprs.online/usage)出现本次请求，即表示配置完成。
 
-切回原 provider 或官方 Base URL，移除 OnprsCodexApi Key，并保留其他 provider 配置。完全重启客户端后生效。
+curl 和其他协议示例见[发送第一条请求](/getting-started/first-request)。
+
+## 配置未生效
+
+- `401`：重新填写 Key，并确认 Key 状态为“有效”。
+- `404`：核对 Base URL、模型名和客户端是否自动追加 `/v1`。
+- 找不到自定义 Base URL：使用支持自定义 Endpoint 的客户端。

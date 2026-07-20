@@ -1,62 +1,48 @@
 ---
 title: OpenCode
-description: 使用自定义 OpenAI-compatible provider 连接 OpenCode 与 OnprsCodexApi
+description: 使用控制台导入脚本配置 OpenCode
 ---
 
 # OpenCode
 
-适用版本：OpenCode `1.18.2`，最后核对日期 2026-07-16。自定义 provider 和 `baseURL` 规则见 [OpenCode Providers](https://opencode.ai/docs/providers)。
+## 1. 下载配置脚本
 
-## 配置文件
+1. 打开控制台 [API Keys](https://cdn-api.onprs.online/keys)。
+2. 在目标 Key 所在行点击“使用密钥”。
+3. 确认弹窗中的分组和默认模型。
+4. 点击“下载 Windows 脚本”或“下载 macOS/Linux 脚本”。
 
-OpenCode 配置文件为 `~/.config/opencode/opencode.jsonc` 或 `opencode.json`。Key 单独保存在权限受限文件中：
+脚本会备份现有配置，添加 OnprsCodexApi provider，并导入当前 Key 的模型列表。
 
-```bash
-mkdir -p ~/.config/opencode
-printf '%s' 'sk-your-api-key' > ~/.config/opencode/onprs.key
-chmod 600 ~/.config/opencode/onprs.key
+## 2. 运行脚本
+
+::: code-group
+
+```powershell [Windows PowerShell]
+cd "$HOME\Downloads"
+.\sub2api-cli-import.bat
 ```
 
-Windows 可使用控制台 [API Keys](https://cdn-api.onprs.online/keys) 的“使用 Key”导入器，自动处理权限和路径。
-
-## 添加 provider
-
-把 `replace-with-an-available-model` 在 provider 模型表和顶层 `model` 中同时替换：
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "provider": {
-    "onprs": {
-      "name": "OnprsCodexApi",
-      "npm": "@ai-sdk/openai-compatible",
-      "options": {
-        "baseURL": "https://cdn-api.onprs.online/v1",
-        "apiKey": "{file:~/.config/opencode/onprs.key}"
-      },
-      "models": {
-        "replace-with-an-available-model": {
-          "name": "Onprs model"
-        }
-      }
-    }
-  },
-  "model": "onprs/replace-with-an-available-model"
-}
+```bash [macOS / Linux]
+cd ~/Downloads
+chmod 700 sub2api-cli-import.sh
+./sub2api-cli-import.sh
 ```
 
-控制台导入器会按 Key 分组生成实际模型表，优先使用该结果即可保持模型配置同步。
+:::
 
-## OpenCode Go 说明
+脚本询问导入目标时输入 `2`，询问是否设为默认配置时输入 `y`。OpenCode Desktop 已运行时，按脚本提示输入 `y` 完成重启。
 
-OpenCode Go 按独立平台配置。Sub2API 根据账号的模型协议映射，把请求发送到实际 Chat Completions 或 Messages 上游；用户使用控制台为该 Key 生成的 provider 和模型列表即可。
+## 3. 选择模型并验证
 
-OpenCode Go 支持标准 HTTP Responses 生成。
+1. 启动 OpenCode，并新建会话。
+2. 运行 `/models`，选择 `OnprsCodexApi` provider 下的模型。
+3. 发送 `Reply with exactly: connected`。
 
-## 配置验证
+返回 `connected` 后，在[用量记录](https://cdn-api.onprs.online/usage)确认本次请求。
 
-完全退出 OpenCode Desktop 的后台进程后重启，运行 `/models` 选择 `onprs/...`，再发送 `Reply with exactly: connected` 完成生成验证。
+## 配置未生效
 
-## 恢复原配置
-
-删除 `provider.onprs`、指向它的顶层 `model` 和 `onprs.key`，再重启 OpenCode Desktop 与 sidecar。新建会话可刷新缓存状态。
+- 看不到 `OnprsCodexApi`：完全退出 OpenCode Desktop 和 sidecar，再重新打开。
+- 模型列表需要更新：重新下载并运行脚本。
+- 返回 `401` 或 `404`：按 [Key、权限与模型](/troubleshooting/auth-model)检查 Key 状态和分组。

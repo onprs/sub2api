@@ -1,40 +1,34 @@
 ---
 title: 客户端配置
-description: 为 OnprsCodexApi 选择并配置 Claude Code、Codex CLI、OpenCode、Gemini 或 OpenAI 兼容客户端
+description: 按步骤配置 Claude Code、Codex CLI、OpenCode、Gemini CLI、IDE、GUI 和 SDK
 ---
 
 # 客户端配置
 
-按客户端原生协议选择教程；同一模型别名可由不同平台和协议提供。
+找到你正在使用的客户端，打开对应教程即可。
 
-| 客户端 | 推荐协议 | Base URL | 教程验证版本 |
-| --- | --- | --- | --- |
-| Claude Code | Anthropic Messages | `https://cdn-api.onprs.online/v1` | `2.1.175` |
-| Codex CLI | OpenAI Responses | `https://cdn-api.onprs.online/v1` | `0.144.1` |
-| OpenCode | OpenAI-compatible provider | `https://cdn-api.onprs.online/v1` | `1.18.2` |
-| Gemini CLI | Google GenAI | `https://cdn-api.onprs.online` | `0.46.0` |
-| 通用 OpenAI SDK / GUI | Chat Completions 或 Responses | `https://cdn-api.onprs.online/v1` | 按客户端而定 |
+| 你使用的客户端 | 配置方式 | 教程 |
+| --- | --- | --- |
+| Claude Code | 控制台导入脚本 | [配置 Claude Code](/clients/claude-code) |
+| Codex CLI | 控制台导入脚本 | [配置 Codex CLI](/clients/codex-cli) |
+| OpenCode | 控制台导入脚本 | [配置 OpenCode](/clients/opencode) |
+| Gemini CLI | `.gemini/.env` 文件 | [配置 Gemini CLI](/clients/gemini) |
+| IDE、GUI 或 OpenAI SDK | API Key、Base URL、模型名 | [配置 OpenAI 兼容客户端](/clients/openai-compatible) |
 
-版本最后核对日期：2026-07-16。服务端协议支持以[协议矩阵](/api/protocols)为准。
+## 开始前准备
 
-## 配置前检查
+1. 安装并确认目标客户端可以启动。
+2. 在控制台 [API Keys](https://cdn-api.onprs.online/keys) 创建一个状态为“有效”的 Key，并为它选择分组。
+3. 在 Key 所在行点击“使用密钥”，确认弹窗显示的分组和默认模型。
 
-1. 为这个客户端创建独立 API Key。
-2. 使用当前 Key 拉取模型列表，并复制实际返回的模型名。
-3. 确保客户端启用 OnprsCodexApi provider，并读取对应 Key。
-4. 配置后完全退出并重启桌面客户端或终端。
-5. 使用短文本提示完成配置验证。
+一个客户端使用一个独立 Key，后续停用、轮换和查询用量时更容易定位。控制台导入脚本会使用当前 Key 的实际模型列表生成配置；脚本包含当前 Key，执行完成后删除下载文件。
 
-## 自动导入与手工配置
+## 完成标准
 
-控制台 [API Keys](https://cdn-api.onprs.online/keys) 的“使用 Key”入口可生成适配当前 Key、分组和模型的配置。导入前查看脚本内容并备份已有配置。
+配置完成后发送：
 
-需要保留多个 provider 时，按本章手工合并对应字段，同时保留现有配置。
+```text
+Reply with exactly: connected
+```
 
-## 配置检查
-
-- `401`：确认客户端读取了当前 Key，并启用了 OnprsCodexApi provider。
-- `404`：核对 Base URL 中的 `/v1` 和协议端点。
-- `400`：根据错误正文调整模型参数或能力字段。
-- 模型列表为空：核对 Key 分组、模型映射和 provider 配置。
-- 配置未生效：完全退出客户端，并确认实际读取的配置目录。
+客户端返回 `connected`，并且[用量记录](https://cdn-api.onprs.online/usage)出现本次请求，即表示配置完成。

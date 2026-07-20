@@ -5,6 +5,13 @@ description: OnprsCodexApi 用户文档版本与重要内容变化
 
 # 文档更新记录
 
+## 2026-07-20
+
+- 客户端配置改为统一的“准备、配置、验证”流程。
+- Claude Code、Codex CLI 和 OpenCode 增加控制台导入脚本的完整执行步骤。
+- Gemini CLI 增加 `.gemini/.env` 文件路径和创建步骤。
+- IDE、GUI 与 OpenAI SDK 统一使用 API Key、Base URL 和当前 Key 的模型列表。
+
 ## 2026-07-16
 
 新增中文使用文档：

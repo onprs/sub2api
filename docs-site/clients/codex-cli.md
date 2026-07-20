@@ -1,51 +1,50 @@
 ---
 title: Codex CLI
-description: 使用 OpenAI Responses 协议连接 Codex CLI 与 OnprsCodexApi
+description: 使用控制台导入脚本配置 Codex CLI
 ---
 
 # Codex CLI
 
-适用版本：Codex CLI `0.144.1`，最后核对日期 2026-07-16。配置字段参照 [Codex configuration reference](https://developers.openai.com/codex/config-reference)。
+## 1. 下载配置脚本
 
-## 前置条件
+1. 打开控制台 [API Keys](https://cdn-api.onprs.online/keys)。
+2. 在目标 Key 所在行点击“使用密钥”。
+3. 确认弹窗中的分组和默认模型。
+4. 点击“下载 Windows 脚本”或“下载 macOS/Linux 脚本”。
 
-- Key 分组支持目标模型的 Responses 请求。
-- `codex --version` 能正常运行。
-- 已使用当前 Key 从 `/v1/models` 取得模型名。
+脚本会备份现有配置，再写入 `~/.codex/config.toml` 和对应凭据。
 
-## 配置文件
+## 2. 运行脚本
 
-控制台“使用 Key”可生成 `config.toml` 和 `auth.json`。Codex CLI 会从 `auth.json` 读取 Key，无需设置系统环境变量。
+::: code-group
 
-`config.toml` 位于 `~/.codex/config.toml`，Windows 路径为 `%USERPROFILE%\.codex\config.toml`。把模型占位符替换为 `/v1/models` 实际返回的模型名：
-
-```toml
-model_provider = "OpenAI"
-model = "replace-with-an-available-model"
-
-[model_providers.OpenAI]
-name = "OpenAI"
-base_url = "https://cdn-api.onprs.online/v1"
-wire_api = "responses"
-requires_openai_auth = true
+```powershell [Windows PowerShell]
+cd "$HOME\Downloads"
+.\sub2api-cli-import.bat
 ```
 
-在同目录的 `auth.json` 中保存 Key：
-
-```json
-{
-  "OPENAI_API_KEY": "sk-your-api-key"
-}
+```bash [macOS / Linux]
+cd ~/Downloads
+chmod 700 sub2api-cli-import.sh
+./sub2api-cli-import.sh
 ```
 
-已有配置时，按控制台生成结果合并对应字段，并保留 MCP、sandbox 与其他 provider。
+:::
 
-## 配置验证
+脚本询问导入目标时输入 `1`，询问是否设为默认配置时输入 `y`。看到 `Sub2API CLI import finished` 后关闭原有 Codex CLI 会话。
 
-先运行 `codex --strict-config --version` 检查配置字段，再进入一个测试目录启动 `codex`，发送 `Reply with exactly: connected`。成功后在用量记录确认入站端点为 Responses。
+## 3. 启动并验证
 
-## 配置检查与恢复
+打开新终端并运行：
 
-- `401`：确认 `auth.json` 中的 Key、Key 状态和当前 provider。
-- `404`：核对 `base_url` 的 `/v1` 地址和 Key 分组。
-- 恢复时还原原有 `config.toml` 和 `auth.json`，再重启 Codex CLI。
+```bash
+codex
+```
+
+发送 `Reply with exactly: connected`。返回 `connected` 后，在[用量记录](https://cdn-api.onprs.online/usage)确认本次 `/v1/responses` 请求。
+
+## 配置未生效
+
+- 仍使用原 provider：确认运行脚本时第二个选项输入了 `y`，再启动新终端。
+- 没有目标模型：在“使用密钥”弹窗确认默认模型，重新下载并运行脚本。
+- 返回 `401` 或 `404`：按 [Key、权限与模型](/troubleshooting/auth-model)检查 Key 状态和分组。

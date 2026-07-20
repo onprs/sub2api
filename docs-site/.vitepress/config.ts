@@ -63,13 +63,12 @@ export default defineConfig({
         text: '客户端',
         collapsed: true,
         items: [
-          { text: '选择接入方式', link: '/clients/' },
-          { text: 'OpenAI 兼容客户端', link: '/clients/openai-compatible' },
+          { text: '选择客户端', link: '/clients/' },
           { text: 'Claude Code', link: '/clients/claude-code' },
           { text: 'Codex CLI', link: '/clients/codex-cli' },
           { text: 'OpenCode', link: '/clients/opencode' },
-          { text: 'Gemini / Google GenAI', link: '/clients/gemini' },
-          { text: '其他客户端', link: '/clients/other-clients' }
+          { text: 'Gemini CLI', link: '/clients/gemini' },
+          { text: 'IDE、GUI 与 OpenAI SDK', link: '/clients/openai-compatible' }
         ]
       },
       {
