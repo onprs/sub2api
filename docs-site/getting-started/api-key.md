@@ -14,7 +14,7 @@ description: 创建、命名、轮换、禁用和撤销 OnprsCodexApi API Key
 5. 如页面提供到期时间、额度或 IP 访问限制，请按实际用途设置。
 6. 创建后直接配置到目标客户端，并通过安全方式传递。
 
-API Key 通常通过以下三种方式之一发送：
+API Key 支持以下三种 Header：
 
 ```http
 Authorization: Bearer sk-your-api-key
@@ -28,7 +28,7 @@ x-api-key: sk-your-api-key
 x-goog-api-key: sk-your-api-key
 ```
 
-OpenAI 兼容客户端通常使用 Bearer；Anthropic 和 Google SDK 可能使用各自的 Key Header。网关均可识别，优先沿用客户端原生方式。
+OpenAI 兼容客户端使用 Bearer，Anthropic SDK 使用 `x-api-key`，Google SDK 使用 `x-goog-api-key`。网关均可识别，优先沿用客户端原生方式。
 
 ## 选择分组
 
@@ -51,5 +51,5 @@ OpenAI 兼容客户端通常使用 Bearer；Anthropic 和 Google SDK 可能使�
 一旦怀疑泄露，立即禁用或撤销 Key，再创建新 Key。随后检查[用量记录](https://cdn-api.onprs.online/usage)中的时间、模型、IP 和请求 ID，并联系支持说明异常范围。
 
 ::: danger 提交脱敏信息
-支持人员定位问题通常只需要 Key 名称、页面中的 Key ID、脱敏前后缀、请求 ID 和发生时间。完整 Key 请保留在本地。
+支持人员定位问题需要 Key 名称、页面中的 Key ID、脱敏前后缀、请求 ID 和发生时间。完整 Key 请保留在本地。
 :::

@@ -1,6 +1,6 @@
 ---
 title: 流式、工具与结构化输出
-description: OnprsCodexApi 流式响应、工具调用、结构化输出和媒体能力边界
+description: OnprsCodexApi 流式响应、工具调用、结构化输出和媒体能力
 ---
 
 # 流式、工具与结构化输出
@@ -37,7 +37,7 @@ Responses 和 Chat 客户端可请求 JSON schema 等结构化形式，具体支
 
 ## Reasoning 与签名
 
-Responses、Anthropic 和 Google 对 reasoning 或 thought signature 的表达方式不同。跨协议请求会在能力允许时保留相关内容；无法兼容时可能返回能力错误。
+Responses、Anthropic 和 Google 对 reasoning 或 thought signature 的表达方式不同。跨协议请求会在能力允许时保留相关内容；无法兼容时返回能力错误。
 
 ## 图片和批量图片
 
@@ -46,5 +46,3 @@ Responses、Anthropic 和 Google 对 reasoning 或 thought signature 的表达�
 - OpenAI 风格生成：`/v1/images/generations`、`/v1/images/edits`。
 - 批量图片：控制台[批量图片](https://cdn-api.onprs.online/batch-image)及 `/v1/images/batches` 系列接口。
 - Spark 类 Codex 模型的图片能力以控制台标记为准。
-
-视频、embedding、compact 和 Responses WebSocket 也属于专用路径，不在四类普通生成能力矩阵内。

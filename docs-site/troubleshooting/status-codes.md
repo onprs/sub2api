@@ -5,16 +5,16 @@ description: 排查 OnprsCodexApi 400、401、403、404、409、429 和 5xx
 
 # HTTP 状态码排查
 
-先读取错误正文中的 `code`、`type`、`reason` 和 `message`。相同状态码可能来自网关、上游或客户端前置检查。
+先读取错误正文中的 `code`、`type`、`reason` 和 `message`。状态码来源包括网关、上游和客户端前置检查。
 
 ## 状态码速查
 
-| 状态 | 常见原因 | 第一动作 |
+| 状态 | 原因 | 第一动作 |
 | --- | --- | --- |
 | `400` | JSON、字段、协议或模型参数无效 | 使用纯文本非流式请求验证 |
 | `401` | Key 缺失、无效、禁用或用户不可用 | 检查认证 Header 和 Key 状态 |
 | `403` | Key 到期、IP/分组权限、余额或订阅无效 | 查看机器错误码和 Key 分组 |
-| `404` | URL/端点错误、模型不存在、能力不支持 | 打印最终 URL 并核对协议矩阵 |
+| `404` | URL/端点错误、模型不存在或模型与端点不匹配 | 打印最终 URL 并核对协议矩阵 |
 | `409` | 重复操作、状态冲突或资源正在处理 | 查询当前状态并按状态继续 |
 | `429` | Key/订阅额度、RPM、并发或上游限流 | 读取错误码和重试时间，按间隔重试 |
 | `5xx` | 上游、网关依赖、转换或临时服务故障 | 保留请求 ID，短暂退避后重试一次 |
@@ -35,19 +35,18 @@ description: 排查 OnprsCodexApi 400、401、403、404、409、429 和 5xx
 
 ## 403 Forbidden
 
-常见错误包括 `API_KEY_EXPIRED`、`ACCESS_DENIED`、`INSUFFICIENT_BALANCE`、无有效订阅和分组不可用。`ACCESS_DENIED` 可能返回当前识别到的 IP，用于核对 Key 的 IP 规则。
+相关错误包括 `API_KEY_EXPIRED`、`ACCESS_DENIED`、`INSUFFICIENT_BALANCE`、无有效订阅和分组不可用。`ACCESS_DENIED` 响应包含当前识别到的 IP 时，可用于核对 Key 的 IP 规则。
 
 ## 404 Not Found
 
 先区分：
 
-- OpenResty/HTML 404：通常是域名或 URL 路径错误。
-- JSON API 404：通常是端点、模型或平台能力不支持。
-- OpenCode Go Responses WebSocket / 子路径 404：使用根级 HTTP Responses。
+- OpenResty/HTML 404：检查域名和 URL 路径。
+- JSON API 404：检查端点、模型和平台能力。
 
 ## 409 Conflict
 
-订单正在处理、兑换码已用、订阅状态限制、重复创建或并发状态更新都可能返回 409。重新获取资源状态，并按当前状态继续。
+409 的来源包括订单处理中、兑换码已用、订阅状态限制、重复创建和并发状态更新。重新获取资源状态，并按当前状态继续。
 
 ## 429 Too Many Requests
 

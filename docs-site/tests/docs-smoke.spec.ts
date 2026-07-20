@@ -44,7 +44,7 @@ test('documentation navigation, clean URLs, copy and dark mode work', async ({ p
     '套餐与额度',
     '错误排查',
     '账号与安全',
-    '常见问题',
+    '问题解答',
     '文档更新'
   ]
 

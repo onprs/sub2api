@@ -27,7 +27,7 @@ description: 使用 Anthropic Messages 协议连接 Claude Code 与 OnprsCodexAp
 }
 ```
 
-如需固定模型，可从当前 Key 的 `/v1/models` 返回结果中选择，并设置 `ANTHROPIC_MODEL`。非 `claude-` 前缀模型还可能需要 `ANTHROPIC_CUSTOM_MODEL_OPTION`；优先使用控制台生成的配置。
+如需固定模型，可从当前 Key 的 `/v1/models` 返回结果中选择，并设置 `ANTHROPIC_MODEL`。非 `claude-` 前缀模型请使用控制台生成的配置。
 
 ### 终端会话配置（可选）
 

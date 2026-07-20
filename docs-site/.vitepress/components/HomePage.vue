@@ -48,7 +48,7 @@ const tasks = [
 
 const resources = [
   { title: 'API 参考', detail: '协议、端点与响应', href: '/api/', icon: BookOpen },
-  { title: '常见问题', detail: '接入与套餐问题', href: '/faq/', icon: CircleHelp },
+  { title: '问题解答', detail: '接入与套餐问题', href: '/faq/', icon: CircleHelp },
   { title: '账号安全', detail: 'Key 管理与支持', href: '/account/', icon: ShieldCheck }
 ]
 </script>

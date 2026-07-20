@@ -27,7 +27,7 @@ GET  /v1/models
 
 请求使用 `input`；流式请求设置 `stream: true`，返回 Responses 事件。普通 SDK 使用 `/v1/responses`；根级 `/responses` 是兼容别名，`/backend-api/codex` 由 Codex 专用客户端使用。
 
-`/v1/responses/compact`、图片、视频和 WebSocket 属于专用能力，具体支持以平台说明为准。OpenCode Go 的 Responses 入口为根级 HTTP 生成，Responses WebSocket 和 `/responses/*` 专用子路径不在支持范围。
+OpenCode Go 支持标准 HTTP Responses 生成。
 
 ## Anthropic Messages
 

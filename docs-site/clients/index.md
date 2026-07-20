@@ -5,7 +5,7 @@ description: 为 OnprsCodexApi 选择并配置 Claude Code、Codex CLI、OpenCod
 
 # 客户端配置
 
-按客户端原生协议选择教程；同一模型别名可能由不同平台和协议提供。
+按客户端原生协议选择教程；同一模型别名可由不同平台和协议提供。
 
 | 客户端 | 推荐协议 | Base URL | 教程验证版本 |
 | --- | --- | --- | --- |

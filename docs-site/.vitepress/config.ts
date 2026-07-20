@@ -105,7 +105,7 @@ export default defineConfig({
         ]
       },
       {
-        text: '常见问题',
+        text: '问题解答',
         collapsed: true,
         items: [{ text: 'FAQ', link: '/faq/' }]
       },

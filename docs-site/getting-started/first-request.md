@@ -35,7 +35,7 @@ curl --fail-with-body https://cdn-api.onprs.online/v1/responses \
   }'
 ```
 
-成功时在 `output` 数组的消息内容中读取文本。不同 SDK 可能提供 `output_text` 便捷字段。
+成功时在 `output` 数组的消息内容中读取文本。部分 SDK 提供 `output_text` 便捷字段。
 
 ## Anthropic Messages
 

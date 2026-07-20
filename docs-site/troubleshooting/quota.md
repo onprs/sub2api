@@ -20,7 +20,7 @@ description: 排查余额不足、订阅到期、滚动窗口、Key 额度、并
 
 ## 滚动窗口耗尽
 
-错误正文可能包含：
+错误正文会标明对应窗口：
 
 - `FIVE_HOUR_LIMIT_EXCEEDED`
 - `SEVEN_DAY_LIMIT_EXCEEDED`
@@ -39,7 +39,7 @@ description: 排查余额不足、订阅到期、滚动窗口、Key 额度、并
 
 ## RPM 和上游 429
 
-服务端 RPM、Key 级限速和上游模型容量都可能返回 429。遵守 `Retry-After` 或错误中的 retry delay。无明确时间时可使用 1、2、4、8 秒退避，并在少量尝试后停止。
+429 的来源包括服务端 RPM、Key 级限速和上游模型容量。遵守 `Retry-After` 或错误中的 retry delay；响应未提供时间时，使用 1、2、4、8 秒退避并限制尝试次数。
 
 切换模型时逐个验证，并保持受控并发。
 

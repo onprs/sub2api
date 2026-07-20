@@ -44,19 +44,6 @@ requires_openai_auth = true
 
 先运行 `codex --strict-config --version` 检查配置字段，再进入一个测试目录启动 `codex`，发送 `Reply with exactly: connected`。成功后在用量记录确认入站端点为 Responses。
 
-## WebSocket 模式
-
-普通 HTTP Responses 是首选基线。只有控制台生成配置明确启用且当前分组支持时，才增加：
-
-```toml
-supports_websockets = true
-
-[features]
-responses_websockets_v2 = true
-```
-
-WebSocket 握手未成功时，先用普通 HTTP 验证基础生成链路。
-
 ## 配置检查与恢复
 
 - `401`：确认 `auth.json` 中的 Key、Key 状态和当前 provider。

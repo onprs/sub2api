@@ -24,7 +24,7 @@ nslookup cdn-api.onprs.online
 
 ## TLS 与系统时间
 
-证书尚未生效、过期、域名不匹配或本机时间偏差都可能导致 TLS 错误。
+证书未生效、已过期、域名不匹配或本机时间偏差会导致 TLS 错误。
 
 - 自动同步系统日期、时间和时区。
 - 保持 TLS 证书校验开启。
@@ -33,7 +33,7 @@ nslookup cdn-api.onprs.online
 
 ## HTTP 代理
 
-检查 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 和客户端内置代理。代理可能：
+检查 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 和客户端内置代理。重点检查代理对以下内容的影响：
 
 - 修改 SNI、证书或请求 Header。
 - 缓冲 SSE，导致流式输出一次性出现。

@@ -9,7 +9,7 @@ description: 使用自定义 OpenAI-compatible provider 连接 OpenCode 与 Onpr
 
 ## 配置文件
 
-OpenCode 通常读取 `~/.config/opencode/opencode.jsonc` 或 `opencode.json`。建议让 Key 单独保存在权限受限文件中：
+OpenCode 配置文件为 `~/.config/opencode/opencode.jsonc` 或 `opencode.json`。Key 单独保存在权限受限文件中：
 
 ```bash
 mkdir -p ~/.config/opencode
@@ -51,7 +51,7 @@ Windows 可使用控制台 [API Keys](https://cdn-api.onprs.online/keys) 的“�
 
 OpenCode Go 按独立平台配置。Sub2API 根据账号的模型协议映射，把请求发送到实际 Chat Completions 或 Messages 上游；用户使用控制台为该 Key 生成的 provider 和模型列表即可。
 
-根级 HTTP Responses 是 OpenCode Go 的 Responses 生成入口。Responses WebSocket 和专用 `/responses/*` 子路径不在支持范围。
+OpenCode Go 支持标准 HTTP Responses 生成。
 
 ## 配置验证
 

@@ -1,13 +1,13 @@
 ---
-title: 常见问题
-description: OnprsCodexApi Base URL、模型、协议、余额、套餐、额度、并发和客户端常见问题
+title: 问题解答
+description: OnprsCodexApi Base URL、模型、协议、余额、套餐、额度、并发和客户端问题解答
 ---
 
-# 常见问题
+# 问题解答
 
 ## Base URL 应该填什么？
 
-OpenAI 和 Anthropic 客户端通常填 `https://cdn-api.onprs.online/v1`。Gemini CLI 的 `GOOGLE_GEMINI_BASE_URL` 填 `https://cdn-api.onprs.online`，由客户端追加 Google 路径。
+OpenAI 和 Anthropic 客户端填写 `https://cdn-api.onprs.online/v1`。Gemini CLI 的 `GOOGLE_GEMINI_BASE_URL` 填写 `https://cdn-api.onprs.online`，由客户端追加 Google 路径。
 
 ## API Key 和登录密码一样吗？
 
@@ -27,7 +27,7 @@ API Key 用于模型 API；登录密码、Cookie 和 JWT 用于控制台。请�
 
 ## 同一个模型能用四种协议吗？
 
-服务支持四类入站协议和跨协议转换，但具体模型、分组和能力仍有限制。工具、图片、schema 和 reasoning 可能无法在所有协议间无损表达。
+服务支持四类入站协议和跨协议转换。具体模型、分组和能力以当前 Key 的模型列表及协议矩阵为准。
 
 ## 余额和套餐会同时扣吗？
 
@@ -55,7 +55,7 @@ API Key 用于模型 API；登录密码、Cookie 和 JWT 用于控制台。请�
 
 ## 可以同时买同分组多个套餐吗？
 
-可以存在不同套餐的独立权益。服务会选择当前未耗尽且有效的订阅；相同套餐再次购买通常续期同一权益。
+不同套餐可形成独立权益。服务会选择当前未耗尽且有效的订阅；有效期内再次购买同一套餐会续期该权益。
 
 ## 为什么流式请求更容易触发并发？
 
@@ -63,11 +63,11 @@ API Key 用于模型 API；登录密码、Cookie 和 JWT 用于控制台。请�
 
 ## 429 都是上游限流吗？
 
-429 可能来自 Key 额度、订阅窗口、RPM、并发或上游限流。先查看机器错误码和重试时间。
+429 的来源包括 Key 额度、订阅窗口、RPM、并发和上游限流。先查看机器错误码和重试时间。
 
 ## 是否支持 OpenCode Go？
 
-支持。OpenCode Go 按独立平台配置，可通过 Chat Completions 或 Messages 上游执行，Responses 使用根级 HTTP 入口。Responses WebSocket 和专用子路径不在支持范围。
+支持。OpenCode Go 按独立平台配置，可通过 Chat Completions、Messages 和标准 HTTP Responses 执行。
 
 ## 联系支持要发 Key 吗？
 

@@ -33,7 +33,7 @@ description: 理解套餐的五小时、七天和三十天用量窗口与重置�
 
 - 页面显示“无限额”表示该窗口没有配置限制。
 - 额度为零表示该窗口已耗尽。
-- 套餐仍可能受其他窗口、Key 额度、并发、RPM 和上游限流约束。
+- 套餐同时受其他窗口、Key 额度、并发、RPM 和上游限流约束。
 
 ## 续费对窗口的影响
 
@@ -47,4 +47,4 @@ description: 理解套餐的五小时、七天和三十天用量窗口与重置�
 
 ## 窗口耗尽
 
-常见错误为 `429 USAGE_LIMIT_EXCEEDED`，正文可能包含 `FIVE_HOUR_LIMIT_EXCEEDED`、`SEVEN_DAY_LIMIT_EXCEEDED` 或 `THIRTY_DAY_LIMIT_EXCEEDED`。按页面显示的重置时间等待，或使用具有可用权益的 Key/分组。
+窗口耗尽时返回 `429 USAGE_LIMIT_EXCEEDED`，正文使用 `FIVE_HOUR_LIMIT_EXCEEDED`、`SEVEN_DAY_LIMIT_EXCEEDED` 或 `THIRTY_DAY_LIMIT_EXCEEDED` 标识具体窗口。按页面显示的重置时间等待，或使用具有可用权益的 Key/分组。

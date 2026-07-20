@@ -39,7 +39,7 @@ Key 在创建时绑定分组，分组决定平台、模型范围和计费类型�
 
 ## 模型调用检查
 
-错误正文可能是 `model not found`、`unsupported model`、`no available accounts supporting model` 或客户端自己的模型校验。
+相关错误包括 `model not found`、`unsupported model`、`no available accounts supporting model` 和客户端模型校验错误。
 
 - 从当前 Key 实际返回的模型列表中复制模型名。
 - 调用 `/v1/models` 验证模型发现，再发送基础生成请求。
@@ -49,4 +49,4 @@ Key 在创建时绑定分组，分组决定平台、模型范围和计费类型�
 
 ## 客户端缓存
 
-Claude Code、Codex CLI 和 OpenCode 可能缓存模型或 provider。配置更新后完全退出进程，OpenCode Desktop 还需停止 sidecar 并新建会话。旧会话持续报相同错误时，用新会话验证。
+配置更新后完全退出 Claude Code、Codex CLI 或 OpenCode 进程。OpenCode Desktop 还需停止 sidecar 并新建会话。旧会话持续报相同错误时，用新会话验证。
