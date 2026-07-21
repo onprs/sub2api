@@ -15,7 +15,9 @@ import type {
   UsageRequestType,
   UserErrorRequest,
   UserErrorRequestDetail,
-  UserErrorListParams
+  UserErrorListParams,
+  UserRequestRecord,
+  UserRequestHistoryParams
 } from '@/types'
 
 // ==================== Dashboard Types ====================
@@ -154,6 +156,18 @@ export async function query(
   config: { signal?: AbortSignal } = {}
 ): Promise<PaginatedResponse<UsageLog>> {
   const { data } = await apiClient.get<PaginatedResponse<UsageLog>>('/usage', {
+    ...config,
+    params
+  })
+  return data
+}
+
+/** List successful and failed requests in one user-owned timeline. */
+export async function queryRequests(
+  params: UserRequestHistoryParams,
+  config: { signal?: AbortSignal } = {}
+): Promise<PaginatedResponse<UserRequestRecord>> {
+  const { data } = await apiClient.get<PaginatedResponse<UserRequestRecord>>('/usage/requests', {
     ...config,
     params
   })
@@ -371,6 +385,7 @@ export async function getMyErrorDetail(id: number): Promise<UserErrorRequestDeta
 export const usageAPI = {
   list,
   query,
+  queryRequests,
   getStats,
   getStatsByDateRange,
   getByDateRange,

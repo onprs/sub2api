@@ -1415,6 +1415,26 @@ export interface AdminUsageLog extends UsageLog {
   account?: UsageLogAccountSummary
 }
 
+export interface UserRequestHistoryKey {
+  id: number
+  name: string
+  deleted: boolean
+}
+
+export interface UserRequestHistoryGroup {
+  id: number
+  name: string
+}
+
+export interface UserRequestRecord extends Omit<UsageLog, 'api_key_id' | 'api_key' | 'group'> {
+  record_type: 'success' | 'error'
+  api_key_id: number | null
+  api_key?: UserRequestHistoryKey
+  group?: UserRequestHistoryGroup
+  platform?: string
+  message?: string
+}
+
 export interface UsageCleanupFilters {
   start_time: string
   end_time: string
@@ -1793,6 +1813,11 @@ export interface UserErrorListParams {
   // 服务端排序,列白名单见后端 opsErrorLogsOrderBy(created_at/model/status_code)
   sort_by?: string
   sort_order?: 'asc' | 'desc'
+}
+
+export interface UserRequestHistoryParams extends UsageQueryParams {
+  category?: string
+  status_code?: number
 }
 
 export interface UsageQueryParams {

@@ -68,40 +68,22 @@
 
       <div class="card p-6">
         <div class="flex flex-wrap items-end justify-between gap-4">
-          <div v-if="activeTab === 'errors'" class="flex flex-1 flex-wrap items-end gap-4">
-            <div class="w-full sm:w-auto sm:min-w-[220px]">
-              <label class="input-label">{{ t('usage.errors.keyName') }}</label>
-              <Select v-model="errorFilter.api_key_id" :options="errorKeyOptions" @change="applyErrorFilters" />
-            </div>
-            <div class="w-full sm:w-auto sm:min-w-[220px]">
-              <label class="input-label">{{ t('usage.errors.model') }}</label>
-              <Select
-                v-model="errorFilter.model"
-                :options="errorModelOptions"
-                searchable
-                creatable
-                clearable
-                :placeholder="t('usage.errors.modelPlaceholder')"
-                @change="applyErrorFilters"
-              />
-            </div>
-            <div class="w-full sm:w-auto sm:min-w-[200px]">
-              <label class="input-label">{{ t('usage.errors.category') }}</label>
-              <Select v-model="errorFilter.category" :options="errorCategoryOptions" @change="applyErrorFilters" />
-            </div>
-            <div class="w-full sm:w-auto sm:min-w-[180px]">
-              <label class="input-label">{{ t('usage.errors.status') }}</label>
-              <Select v-model="errorFilter.status_code" :options="errorStatusOptions" @change="applyErrorFilters" />
-            </div>
-          </div>
-          <div v-else class="flex flex-1 flex-wrap items-end gap-4">
+          <div class="flex flex-1 flex-wrap items-end gap-4">
             <div class="w-full sm:w-auto sm:min-w-[220px]">
               <label class="input-label">{{ t('usage.apiKeyFilter') }}</label>
               <Select v-model="filters.api_key_id" :options="apiKeyOptions" @change="applyFilters" />
             </div>
             <div class="w-full sm:w-auto sm:min-w-[220px]">
               <label class="input-label">{{ t('usage.model') }}</label>
-              <Select v-model="filters.model" :options="modelOptions" searchable @change="applyFilters" />
+              <Select
+                v-model="filters.model"
+                :options="modelOptions"
+                searchable
+                creatable
+                clearable
+                :placeholder="t('usage.errors.modelPlaceholder')"
+                @change="applyFilters"
+              />
             </div>
             <div class="w-full sm:w-auto sm:min-w-[200px]">
               <label class="input-label">{{ t('admin.usage.group') }}</label>
@@ -110,6 +92,14 @@
             <div class="w-full sm:w-auto sm:min-w-[180px]">
               <label class="input-label">{{ t('usage.type') }}</label>
               <Select v-model="filters.request_type" :options="requestTypeOptions" @change="applyFilters" />
+            </div>
+            <div class="w-full sm:w-auto sm:min-w-[200px]">
+              <label class="input-label">{{ t('usage.errors.category') }}</label>
+              <Select v-model="filters.category" :options="requestCategoryOptions" @change="applyFilters" />
+            </div>
+            <div class="w-full sm:w-auto sm:min-w-[180px]">
+              <label class="input-label">{{ t('usage.errors.status') }}</label>
+              <Select v-model="filters.status_code" :options="requestStatusOptions" @change="applyFilters" />
             </div>
             <div class="w-full sm:w-auto sm:min-w-[200px]">
               <label class="input-label">{{ t('admin.usage.billingType') }}</label>
@@ -122,7 +112,7 @@
           </div>
 
           <div class="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
-            <button type="button" @click="refreshData" :disabled="activeTab === 'errors' ? errorLoading : loading" class="btn btn-secondary">
+            <button type="button" @click="refreshData" :disabled="loading" class="btn btn-secondary">
               {{ t('common.refresh') }}
             </button>
             <button type="button" @click="resetFilters" class="btn btn-secondary">
@@ -143,70 +133,51 @@
                 class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
               >
                 <button
-                  v-for="col in currentToggleableColumns"
+                  v-for="col in toggleableColumns"
                   :key="col.key"
                   type="button"
-                  @click="toggleCurrentColumn(col.key)"
+                  @click="toggleColumn(col.key)"
                   class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
                 >
                   <span>{{ col.label }}</span>
-                  <Icon v-if="isCurrentColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" />
+                  <Icon v-if="isColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" />
                 </button>
               </div>
             </div>
-            <button v-if="activeTab !== 'errors'" type="button" @click="exportToCSV" :disabled="exporting" class="btn btn-primary">
+            <button type="button" @click="exportToCSV" :disabled="exporting" class="btn btn-primary">
               {{ exporting ? t('usage.exporting') : t('usage.exportCsv') }}
             </button>
           </div>
         </div>
       </div>
 
-      <div v-if="errorViewEnabled" class="flex gap-2 border-b border-gray-200 dark:border-dark-700">
-        <button class="tab" :class="{ 'tab-active': activeTab === 'usage' }" @click="activeTab = 'usage'">
-          {{ t('usage.tabs.usage') }}
-        </button>
-        <button class="tab" :class="{ 'tab-active': activeTab === 'errors' }" @click="switchToErrors">
-          {{ t('usage.tabs.errors') }}
-        </button>
-      </div>
-
-      <template v-if="activeTab === 'usage'">
-        <UsageTable
-          :data="usageLogs"
-          :loading="loading"
-          :columns="visibleColumns"
-          :server-side-sort="true"
-          :show-account-billing="false"
-          :show-upstream-endpoint="false"
-          :format-request-ids="true"
-          default-sort-key="created_at"
-          default-sort-order="desc"
-          @sort="handleSort"
-          @ipGeoBatchFailed="handleIpGeoBatchFailed"
-        />
-
-        <Pagination
-          v-if="pagination.total > 0"
-          :page="pagination.page"
-          :total="pagination.total"
-          :page-size="pagination.page_size"
-          @update:page="handlePageChange"
-          @update:pageSize="handlePageSizeChange"
-        />
-      </template>
-
-      <UserErrorRequestsTable
-        v-else-if="errorViewEnabled"
-        :rows="errorRows"
-        :total="errorTotal"
-        :loading="errorLoading"
-        :page="errorPage"
-        :page-size="errorPageSize"
-        :visible-column-keys="errVisibleColumnKeys"
-        @sort="onErrorSort"
-        @update:page="onErrorPage"
-        @update:pageSize="onErrorPageSize"
+      <UsageTable
+        :data="requestRows"
+        :loading="loading"
+        :columns="visibleColumns"
+        :server-side-sort="true"
+        :show-account-billing="false"
+        :show-upstream-endpoint="false"
+        :format-request-ids="true"
+        default-sort-key="created_at"
+        default-sort-order="desc"
+        @sort="handleSort"
+        @errorClick="openErrorDetail"
         @ipGeoBatchFailed="handleIpGeoBatchFailed"
+      />
+
+      <Pagination
+        v-if="pagination.total > 0"
+        :page="pagination.page"
+        :total="pagination.total"
+        :page-size="pagination.page_size"
+        @update:page="handlePageChange"
+        @update:pageSize="handlePageSizeChange"
+      />
+
+      <UserErrorDetailModal
+        v-model:show="showErrorDetail"
+        :error-id="selectedErrorID"
       />
     </div>
   </AppLayout>
@@ -229,7 +200,7 @@ import GroupDistributionChart from '@/components/charts/GroupDistributionChart.v
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
 import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import Icon from '@/components/icons/Icon.vue'
-import UserErrorRequestsTable from '@/components/user/UserErrorRequestsTable.vue'
+import UserErrorDetailModal from '@/components/user/UserErrorDetailModal.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { formatReasoningEffort } from '@/utils/format'
 import { BILLING_MODE_IMAGE, getBillingModeLabel } from '@/utils/billingMode'
@@ -242,10 +213,10 @@ import type {
   GroupStat,
   ModelStat,
   TrendDataPoint,
-  UsageLog,
   UsageQueryParams,
   UsageStatsResponse,
-  UserErrorRequest,
+  UserRequestHistoryParams,
+  UserRequestRecord,
 } from '@/types'
 import type { Column } from '@/components/common/types'
 import { COMMON_ERROR_STATUS_CODES } from '@/utils/errorBadges'
@@ -257,7 +228,7 @@ type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
 
 const usageStats = ref<UsageStatsResponse | null>(null)
-const usageLogs = ref<UsageLog[]>([])
+const requestRows = ref<UserRequestRecord[]>([])
 const trendData = ref<TrendDataPoint[]>([])
 const requestedModelStats = ref<ModelStat[]>([])
 const groupStats = ref<GroupStat[]>([])
@@ -270,56 +241,23 @@ const chartsLoading = ref(false)
 const modelStatsLoading = ref(false)
 const endpointStatsLoading = ref(false)
 const exporting = ref(false)
-const errorRows = ref<UserErrorRequest[]>([])
-const errorLoading = ref(false)
-const errorPage = ref(1)
-const errorPageSize = ref(20)
-const errorSortBy = ref('created_at')
-const errorSortOrder = ref<'asc' | 'desc'>('desc')
-const errorTotal = ref(0)
-const errorFilter = ref<{ model: string | null; category: string; api_key_id: number | null; status_code: number | null }>({
-  model: '',
-  category: '',
-  api_key_id: null,
-  status_code: null,
-})
+const showErrorDetail = ref(false)
+const selectedErrorID = ref<number | null>(null)
 
-const errorKeyOptions = computed<SelectOption[]>(() => [
-  { value: null, label: t('usage.errors.allKeys') },
-  ...apiKeys.value.map((k) => ({ value: k.id, label: k.name })),
-])
-
-// 模型候选取自当前已加载错误中出现过的模型；creatable 允许输入任意片段做后端模糊。
-const errorModelOptions = computed<SelectOption[]>(() => {
-  const seen = new Set<string>()
-  const opts: SelectOption[] = []
-  for (const r of errorRows.value) {
-    if (r.model && !seen.has(r.model)) {
-      seen.add(r.model)
-      opts.push({ value: r.model, label: r.model })
-    }
-  }
-  return opts
-})
-
-const errorCategoryCodes = ['auth', 'rate_limit', 'quota', 'invalid_request', 'service_unavailable', 'upstream', 'internal', 'cyber']
-
-const errorCategoryOptions = computed<SelectOption[]>(() => [
+const errorCategoryCodes = ['auth', 'rate_limit', 'quota', 'invalid_request', 'service_unavailable', 'upstream', 'internal', 'cyber', 'other']
+const errorViewEnabled = computed(() => appStore.cachedPublicSettings?.allow_user_view_error_requests ?? true)
+const requestCategoryOptions = computed<SelectOption[]>(() => [
   { value: '', label: t('usage.errors.allCategories') },
-  ...errorCategoryCodes.map((c) => ({ value: c, label: t('usage.errors.categories.' + c) })),
+  { value: 'success', label: t('usage.errors.categories.success') },
+  ...(errorViewEnabled.value
+    ? errorCategoryCodes.map((category) => ({ value: category, label: t('usage.errors.categories.' + category) }))
+    : []),
 ])
-
-// 状态码候选用固定常用列表(与管理端 UsageFilters 共用常量),不受当前页数据限制:
-// 后端 status_code 过滤对全量生效,若只列当前页出现过的码,用户就选不到仅在后续页的码。
-const errorStatusOptions = computed<SelectOption[]>(() => [
+const requestStatusOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('usage.errors.allStatuses') },
-  ...COMMON_ERROR_STATUS_CODES.map((c) => ({ value: c, label: String(c) })),
+  { value: 200, label: '200' },
+  ...(errorViewEnabled.value ? COMMON_ERROR_STATUS_CODES.map((status) => ({ value: status, label: String(status) })) : []),
 ])
-
-const applyErrorFilters = () => {
-  errorPage.value = 1
-  void loadErrors()
-}
 
 let abortController: AbortController | null = null
 let chartReqSeq = 0
@@ -350,13 +288,13 @@ const modelDistributionMetric = ref<DistributionMetric>('tokens')
 const groupDistributionMetric = ref<DistributionMetric>('tokens')
 const endpointDistributionMetric = ref<DistributionMetric>('tokens')
 const endpointDistributionSource = ref<EndpointSource>('inbound')
-const activeTab = ref<'usage' | 'errors'>('usage')
-const errorViewEnabled = computed(() => appStore.cachedPublicSettings?.allow_user_view_error_requests ?? true)
 
-const filters = ref<UsageQueryParams>({
+const filters = ref<UserRequestHistoryParams>({
   start_date: startDate.value,
   end_date: endDate.value,
   request_type: undefined,
+  category: '',
+  status_code: undefined,
   billing_type: null,
   billing_mode: null,
 })
@@ -411,7 +349,7 @@ const modelOptions = computed<SelectOption[]>(() => [
   ...modelOptionValues.value.map((model) => ({ value: model, label: model })),
 ])
 
-const normalizedFilters = computed<UsageQueryParams>(() => {
+const normalizedFilters = computed<UserRequestHistoryParams>(() => {
   const requestType = filters.value.request_type
   const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
   return {
@@ -422,7 +360,14 @@ const normalizedFilters = computed<UsageQueryParams>(() => {
   }
 })
 
-const buildUsageListParams = (page: number, pageSize: number): UsageQueryParams => ({
+const normalizedUsageFilters = computed<UsageQueryParams>(() => {
+  const usageFilters = { ...normalizedFilters.value }
+  delete usageFilters.category
+  delete usageFilters.status_code
+  return usageFilters
+})
+
+const buildUsageListParams = (page: number, pageSize: number): UserRequestHistoryParams => ({
   page,
   page_size: pageSize,
   ...normalizedFilters.value,
@@ -436,11 +381,11 @@ const loadLogs = async () => {
   abortController = controller
   loading.value = true
   try {
-    const res = await usageAPI.query(buildUsageListParams(pagination.page, pagination.page_size), {
+    const res = await usageAPI.queryRequests(buildUsageListParams(pagination.page, pagination.page_size), {
       signal: controller.signal,
     })
     if (!controller.signal.aborted) {
-      usageLogs.value = res.items
+      requestRows.value = res.items
       pagination.total = res.total
     }
   } catch (error: any) {
@@ -456,7 +401,7 @@ const loadStats = async () => {
   const seq = ++statsReqSeq
   endpointStatsLoading.value = true
   try {
-    const stats = await usageAPI.getStats(normalizedFilters.value)
+    const stats = await usageAPI.getStats(normalizedUsageFilters.value)
     if (seq !== statsReqSeq) return
     usageStats.value = stats
     inboundEndpointStats.value = stats.endpoints || []
@@ -478,7 +423,7 @@ const loadModelStats = async () => {
   modelStatsLoading.value = true
   try {
     const response = await usageAPI.getDashboardModels({
-      ...normalizedFilters.value,
+      ...normalizedUsageFilters.value,
       model_source: 'requested',
     })
     if (seq !== modelStatsReqSeq) return
@@ -498,7 +443,7 @@ const loadChartData = async () => {
   chartsLoading.value = true
   try {
     const snapshot = await usageAPI.getDashboardSnapshotV2({
-      ...normalizedFilters.value,
+      ...normalizedUsageFilters.value,
       granularity: granularity.value,
       include_trend: true,
       include_model_stats: false,
@@ -533,7 +478,6 @@ const applyFilters = () => {
   void loadStats()
   void loadModelStats()
   void loadChartData()
-  resetErrorRows()
 }
 
 const refreshData = () => {
@@ -541,7 +485,6 @@ const refreshData = () => {
   void loadStats()
   void loadModelStats()
   void loadChartData()
-  if (activeTab.value === 'errors') void loadErrors()
 }
 
 const resetFilters = () => {
@@ -552,15 +495,13 @@ const resetFilters = () => {
     start_date: range.start,
     end_date: range.end,
     request_type: undefined,
+    category: '',
+    status_code: undefined,
     billing_type: null,
     billing_mode: null,
   }
   granularity.value = getGranularityForRange(range.start, range.end)
   applyFilters()
-  if (activeTab.value === 'errors') {
-    errorFilter.value = { model: '', category: '', api_key_id: null, status_code: null }
-    applyErrorFilters()
-  }
 }
 
 const onDateRangeChange = (range: { startDate: string; endDate: string; preset: string | null }) => {
@@ -594,7 +535,9 @@ const handleIpGeoBatchFailed = () => {
   appStore.showError(t('usage.ipGeo.batchFailed'))
 }
 
-const getRequestTypeExportText = (log: UsageLog): string => {
+const isErrorRequest = (record: UserRequestRecord) => record.record_type === 'error'
+
+const getRequestTypeExportText = (log: UserRequestRecord): string => {
   const requestType = resolveUsageRequestType(log)
   if (requestType === 'cyber') return 'Cyber'
   if (requestType === 'ws_v2') return 'WS'
@@ -604,7 +547,7 @@ const getRequestTypeExportText = (log: UsageLog): string => {
 }
 
 const getDisplayBillingMode = (
-  row: Pick<UsageLog, 'billing_mode' | 'image_count'> | null | undefined
+  row: Pick<UserRequestRecord, 'billing_mode' | 'image_count'> | null | undefined
 ): string | null | undefined => {
   if ((row?.image_count ?? 0) > 0) return BILLING_MODE_IMAGE
   return row?.billing_mode
@@ -627,11 +570,11 @@ const exportToCSV = async () => {
   exporting.value = true
   appStore.showInfo(t('usage.preparingExport'))
   try {
-    const allLogs: UsageLog[] = []
+    const allLogs: UserRequestRecord[] = []
     const pageSize = 100
     const totalPages = Math.ceil(pagination.total / pageSize)
     for (let page = 1; page <= totalPages; page++) {
-      const response = await usageAPI.query(buildUsageListParams(page, pageSize))
+      const response = await usageAPI.queryRequests(buildUsageListParams(page, pageSize))
       allLogs.push(...response.items)
     }
     if (allLogs.length === 0) {
@@ -643,6 +586,8 @@ const exportToCSV = async () => {
       'Request ID',
       'Category',
       'Status Code',
+      'Platform',
+      'Message',
       'API Key Name',
       'Model',
       'Reasoning Effort',
@@ -665,22 +610,24 @@ const exportToCSV = async () => {
       formatRequestId(log.request_id),
       t('usage.errors.categories.' + (log.category || 'success')),
       log.status_code ?? 200,
+      log.platform || '',
+      log.message || '',
       log.api_key?.name || '',
       log.model,
       formatReasoningEffort(log.reasoning_effort),
       log.inbound_endpoint || '',
       log.ip_address || '',
       getRequestTypeExportText(log),
-      getBillingModeLabel(getDisplayBillingMode(log), t),
-      log.input_tokens,
-      log.output_tokens,
-      log.cache_read_tokens,
-      log.cache_creation_tokens,
-      log.rate_multiplier,
-      log.actual_cost.toFixed(8),
-      log.total_cost.toFixed(8),
-      log.first_token_ms ?? '',
-      log.duration_ms ?? '',
+      isErrorRequest(log) ? '' : getBillingModeLabel(getDisplayBillingMode(log), t),
+      isErrorRequest(log) ? '' : log.input_tokens,
+      isErrorRequest(log) ? '' : log.output_tokens,
+      isErrorRequest(log) ? '' : log.cache_read_tokens,
+      isErrorRequest(log) ? '' : log.cache_creation_tokens,
+      isErrorRequest(log) ? '' : log.rate_multiplier,
+      isErrorRequest(log) ? '' : log.actual_cost.toFixed(8),
+      isErrorRequest(log) ? '' : log.total_cost.toFixed(8),
+      isErrorRequest(log) ? '' : (log.first_token_ms ?? ''),
+      isErrorRequest(log) ? '' : (log.duration_ms ?? ''),
     ].map(escapeCSVValue))
     const csvContent = [
       headers.map(escapeCSVValue).join(','),
@@ -702,7 +649,7 @@ const exportToCSV = async () => {
   }
 }
 
-const ALWAYS_VISIBLE = ['created_at']
+const ALWAYS_VISIBLE = ['request_id', 'category', 'status', 'created_at']
 const DEFAULT_HIDDEN_COLUMNS = ['user_agent']
 const HIDDEN_COLUMNS_KEY = 'user-usage-hidden-columns'
 
@@ -716,7 +663,9 @@ const allColumns = computed<Column[]>(() => [
   { key: 'group', label: t('admin.usage.group'), sortable: false },
   { key: 'stream', label: t('usage.type'), sortable: false },
   { key: 'category', label: t('usage.errors.category'), sortable: false },
-  { key: 'status', label: t('usage.errors.status'), sortable: false },
+  { key: 'status', label: t('usage.errors.status'), sortable: true },
+  { key: 'platform', label: t('usage.errors.platform'), sortable: false },
+  { key: 'message', label: t('usage.errors.message'), sortable: false },
   { key: 'billing_mode', label: t('admin.usage.billingMode'), sortable: false },
   { key: 'tokens', label: t('usage.tokens'), sortable: false },
   { key: 'cost', label: t('usage.cost'), sortable: false },
@@ -746,64 +695,6 @@ const loadSavedColumns = () => {
   }
 }
 
-// 错误请求 tab 独立列设置(机制同用量列设置,存储互不影响)
-const ERR_ALWAYS_VISIBLE = ['status', 'created_at']
-const ERR_DEFAULT_HIDDEN_COLUMNS = ['user_agent']
-const ERR_HIDDEN_COLUMNS_KEY = 'user-usage-error-hidden-columns'
-
-// key 须与 UserErrorRequestsTable 的 allColumns 一致
-const errAllColumns = computed<Column[]>(() => [
-  { key: 'key_name', label: t('usage.errors.keyName') },
-  { key: 'request_id', label: t('usage.requestId') },
-  { key: 'model', label: t('usage.errors.model') },
-  { key: 'endpoint', label: t('usage.errors.endpoint') },
-  { key: 'client_ip', label: 'IP' },
-  { key: 'group', label: t('admin.usage.group') },
-  { key: 'type', label: t('usage.type') },
-  { key: 'platform', label: t('usage.errors.platform') },
-  { key: 'category', label: t('usage.errors.category') },
-  { key: 'status', label: t('usage.errors.status') },
-  { key: 'message', label: t('usage.errors.message') },
-  { key: 'created_at', label: t('usage.errors.time') },
-  { key: 'user_agent', label: t('usage.userAgent') },
-])
-
-const errHiddenColumns = reactive<Set<string>>(new Set())
-const errToggleableColumns = computed(() =>
-  errAllColumns.value.filter((col) => !ERR_ALWAYS_VISIBLE.includes(col.key))
-)
-const errVisibleColumnKeys = computed(() =>
-  errAllColumns.value
-    .filter((col) => ERR_ALWAYS_VISIBLE.includes(col.key) || !errHiddenColumns.has(col.key))
-    .map((col) => col.key)
-)
-const isErrColumnVisible = (key: string) => !errHiddenColumns.has(key)
-const toggleErrColumn = (key: string) => {
-  if (errHiddenColumns.has(key)) errHiddenColumns.delete(key)
-  else errHiddenColumns.add(key)
-  localStorage.setItem(ERR_HIDDEN_COLUMNS_KEY, JSON.stringify([...errHiddenColumns]))
-}
-const loadSavedErrColumns = () => {
-  try {
-    const saved = localStorage.getItem(ERR_HIDDEN_COLUMNS_KEY)
-    const values = saved ? (JSON.parse(saved) as string[]) : ERR_DEFAULT_HIDDEN_COLUMNS
-    values.forEach((key) => errHiddenColumns.add(key))
-  } catch {
-    ERR_DEFAULT_HIDDEN_COLUMNS.forEach((key) => errHiddenColumns.add(key))
-  }
-}
-
-// 列设置下拉按当前 tab 分发
-const currentToggleableColumns = computed(() =>
-  activeTab.value === 'errors' ? errToggleableColumns.value : toggleableColumns.value
-)
-const isCurrentColumnVisible = (key: string) =>
-  activeTab.value === 'errors' ? isErrColumnVisible(key) : isColumnVisible(key)
-const toggleCurrentColumn = (key: string) => {
-  if (activeTab.value === 'errors') toggleErrColumn(key)
-  else toggleColumn(key)
-}
-
 const showColumnDropdown = ref(false)
 const columnDropdownRef = ref<HTMLElement | null>(null)
 const handleColumnClickOutside = (event: MouseEvent) => {
@@ -825,67 +716,13 @@ const loadFilterOptions = async () => {
   }
 }
 
-const resetErrorRows = () => {
-  errorPage.value = 1
-  if (activeTab.value === 'errors') {
-    void loadErrors()
-  } else {
-    errorRows.value = []
-    errorTotal.value = 0
-  }
-}
-
-const loadErrors = async () => {
-  errorLoading.value = true
-  try {
-    const resp = await usageAPI.listMyErrorRequests({
-      page: errorPage.value,
-      page_size: errorPageSize.value,
-      start_date: startDate.value,
-      end_date: endDate.value,
-      model: (errorFilter.value.model ?? '').trim() || undefined,
-      category: errorFilter.value.category || undefined,
-      api_key_id: errorFilter.value.api_key_id ?? undefined,
-      status_code: errorFilter.value.status_code ?? undefined,
-      sort_by: errorSortBy.value,
-      sort_order: errorSortOrder.value,
-    })
-    errorRows.value = resp.items
-    errorTotal.value = resp.total
-  } catch (error) {
-    console.error('[UsageView] loadErrors failed:', error)
-    appStore.showError(t('usage.errors.failedToLoad'))
-  } finally {
-    errorLoading.value = false
-  }
-}
-
-const onErrorSort = (sortBy: string, sortOrder: 'asc' | 'desc') => {
-  errorSortBy.value = sortBy
-  errorSortOrder.value = sortOrder
-  errorPage.value = 1
-  void loadErrors()
-}
-
-const onErrorPage = (page: number) => {
-  errorPage.value = page
-  void loadErrors()
-}
-
-const onErrorPageSize = (pageSize: number) => {
-  errorPageSize.value = pageSize
-  errorPage.value = 1
-  void loadErrors()
-}
-
-const switchToErrors = () => {
-  activeTab.value = 'errors'
-  if (errorRows.value.length === 0) void loadErrors()
+const openErrorDetail = (errorID: number) => {
+  selectedErrorID.value = errorID
+  showErrorDetail.value = true
 }
 
 onMounted(() => {
   loadSavedColumns()
-  loadSavedErrColumns()
   document.addEventListener('click', handleColumnClickOutside)
   void loadFilterOptions()
   refreshData()

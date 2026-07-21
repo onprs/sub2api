@@ -24,6 +24,7 @@
         :server-side-sort="serverSideSort"
         :default-sort-key="defaultSortKey"
         :default-sort-order="defaultSortOrder"
+        :row-key="requestRowKey"
         @sort="(key, order) => $emit('sort', key, order)"
       >
         <template #cell-user="{ row }">
@@ -45,7 +46,13 @@
         </template>
 
         <template #cell-api_key="{ row }">
-          <span class="text-sm text-gray-900 dark:text-white">{{ row.api_key?.name || '-' }}</span>
+          <div class="text-sm">
+            <span class="text-gray-900 dark:text-white">{{ row.api_key?.name || '-' }}</span>
+            <span
+              v-if="isRequestAPIKeyDeleted(row)"
+              class="ml-1 inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-rose-100 text-rose-600 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/20 dark:text-rose-400 dark:ring-rose-500/30"
+            >{{ t('usage.errors.keyDeleted') }}</span>
+          </div>
         </template>
 
         <template #cell-request_id="{ row }">
@@ -122,13 +129,27 @@
           </span>
         </template>
 
+        <template #cell-message="{ row }">
+          <button
+            v-if="isErrorRecord(row) && row.message"
+            type="button"
+            class="block max-w-[260px] whitespace-normal break-words text-left text-xs text-primary-600 hover:underline dark:text-primary-400"
+            :title="row.message"
+            @click="$emit('errorClick', row.id)"
+          >{{ row.message }}</button>
+          <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
+        </template>
+
         <template #cell-billing_mode="{ row }">
-          <span class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium" :class="getBillingModeBadgeClass(getDisplayBillingMode(row))">
+          <span v-if="isErrorRecord(row)" class="text-sm text-gray-400 dark:text-gray-500">-</span>
+          <span v-else class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium" :class="getBillingModeBadgeClass(getDisplayBillingMode(row))">
             {{ getBillingModeLabel(getDisplayBillingMode(row), t) }}
           </span>
         </template>
 
         <template #cell-tokens="{ row }">
+          <span v-if="isErrorRecord(row)" class="text-sm text-gray-400 dark:text-gray-500">-</span>
+          <template v-else>
           <!-- 图片生成请求（仅按次计费时显示图片格式） -->
           <div v-if="isImageUsage(row)" class="flex items-center gap-1.5">
             <svg class="h-4 w-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -181,10 +202,12 @@
               </div>
             </div>
           </div>
+          </template>
         </template>
 
         <template #cell-cost="{ row }">
-          <div class="text-sm">
+          <span v-if="isErrorRecord(row)" class="text-sm text-gray-400 dark:text-gray-500">-</span>
+          <div v-else class="text-sm">
             <div class="flex items-center gap-1.5">
               <span class="font-medium text-green-600 dark:text-green-400">${{ row.actual_cost?.toFixed(6) || '0.000000' }}</span>
               <!-- Cost Detail Tooltip -->
@@ -206,7 +229,8 @@
 
         <!-- 合并首字/总耗时的健康度列：左侧色条上端随首字档、下端随总耗时档，中段(40%-60%)短渐变过渡，便于纵向扫视整体健康状况 -->
         <template #cell-latency="{ row }">
-          <div class="flex items-stretch gap-2">
+          <span v-if="isErrorRecord(row)" class="text-sm text-gray-400 dark:text-gray-500">-</span>
+          <div v-else class="flex items-stretch gap-2">
             <span
               class="w-1 shrink-0 rounded-full"
               :class="row.first_token_ms != null
@@ -432,15 +456,15 @@
           <template v-if="showAccountBilling">
             <div class="flex items-center justify-between gap-6 border-t border-gray-700 pt-1.5">
               <span class="text-gray-400">{{ t('usage.accountMultiplier') }}</span>
-              <span class="font-semibold text-blue-400">{{ formatMultiplier(tooltipData?.account_rate_multiplier ?? 1) }}x</span>
+              <span class="font-semibold text-blue-400">{{ formatMultiplier(getAccountRateMultiplier(tooltipData) ?? 1) }}x</span>
             </div>
             <div class="flex items-center justify-between gap-6">
               <span class="text-gray-400">{{ t('usage.accountBilled') }}</span>
               <span class="font-semibold text-green-400">
                 ${{ accountBilled({
                   total_cost: tooltipData?.total_cost,
-                  account_stats_cost: tooltipData?.account_stats_cost,
-                  account_rate_multiplier: tooltipData?.account_rate_multiplier,
+                  account_stats_cost: getAccountStatsCost(tooltipData),
+                  account_rate_multiplier: getAccountRateMultiplier(tooltipData),
                 }).toFixed(6) }}
               </span>
             </div>
@@ -502,11 +526,13 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import IpGeoCell from '@/components/common/IpGeoCell.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { fetchBatch, getEntry } from '@/utils/ipGeoLookup'
-import type { AdminUsageLog } from '@/types'
+import type { AdminUsageLog, UserRequestRecord } from '@/types'
 import type { Column } from '@/components/common/types'
 
+type UsageTableRow = AdminUsageLog | UserRequestRecord
+
 interface Props {
-  data: AdminUsageLog[]
+  data: UsageTableRow[]
   loading?: boolean
   columns: Column[]
   serverSideSort?: boolean
@@ -533,12 +559,23 @@ const emit = defineEmits<{
   userClick: [userID: number, email?: string]
   sort: [key: string, order: 'asc' | 'desc']
   ipGeoBatchFailed: []
+  errorClick: [errorID: number]
 }>()
 const { t } = useI18n()
 const showAccountBilling = props.showAccountBilling
 const showUpstreamEndpoint = props.showUpstreamEndpoint
 const displayedRequestId = (requestId: string | null | undefined) =>
   props.formatRequestIds ? formatRequestId(requestId) : requestId?.trim() ?? ''
+const isErrorRecord = (row: UsageTableRow): row is UserRequestRecord =>
+  'record_type' in row && row.record_type === 'error'
+const isRequestAPIKeyDeleted = (row: UsageTableRow) =>
+  isErrorRecord(row) && Boolean(row.api_key?.deleted)
+const requestRowKey = (row: UsageTableRow) =>
+  'record_type' in row ? `${row.record_type}:${row.id}` : row.id
+const getAccountRateMultiplier = (row: UsageTableRow | null) =>
+  row && 'account_rate_multiplier' in row ? row.account_rate_multiplier : null
+const getAccountStatsCost = (row: UsageTableRow | null) =>
+  row && 'account_stats_cost' in row ? row.account_stats_cost : null
 const ipGeoBatchLoading = ref(false)
 
 const showIpGeoToolbar = computed(() => props.columns.some((col) => col.key === 'ip_address'))
@@ -568,14 +605,14 @@ const handleBatchFetchIpGeo = async () => {
 // Tooltip state - cost
 const tooltipVisible = ref(false)
 const tooltipPosition = ref({ x: 0, y: 0 })
-const tooltipData = ref<AdminUsageLog | null>(null)
+const tooltipData = ref<UsageTableRow | null>(null)
 
 // Tooltip state - token
 const tokenTooltipVisible = ref(false)
 const tokenTooltipPosition = ref({ x: 0, y: 0 })
-const tokenTooltipData = ref<AdminUsageLog | null>(null)
+const tokenTooltipData = ref<UsageTableRow | null>(null)
 
-const getRequestTypeLabel = (row: AdminUsageLog): string => {
+const getRequestTypeLabel = (row: UsageTableRow): string => {
   const requestType = resolveUsageRequestType(row)
   if (requestType === 'cyber') return t('usage.cyber')
   if (requestType === 'ws_v2') return t('usage.ws')
@@ -584,7 +621,7 @@ const getRequestTypeLabel = (row: AdminUsageLog): string => {
   return t('usage.unknown')
 }
 
-const getRequestTypeBadgeClass = (row: AdminUsageLog): string => {
+const getRequestTypeBadgeClass = (row: UsageTableRow): string => {
   const requestType = resolveUsageRequestType(row)
   if (requestType === 'cyber') return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
   if (requestType === 'ws_v2') return 'bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200'
@@ -610,7 +647,7 @@ const formatDuration = (ms: number | null | undefined): string => {
 }
 
 // Cost tooltip functions
-const showTooltip = (event: MouseEvent, row: AdminUsageLog) => {
+const showTooltip = (event: MouseEvent, row: UsageTableRow) => {
   const target = event.currentTarget as HTMLElement
   const rect = target.getBoundingClientRect()
   tooltipData.value = row
@@ -625,7 +662,7 @@ const hideTooltip = () => {
 }
 
 // Token tooltip functions
-const showTokenTooltip = (event: MouseEvent, row: AdminUsageLog) => {
+const showTokenTooltip = (event: MouseEvent, row: UsageTableRow) => {
   const target = event.currentTarget as HTMLElement
   const rect = target.getBoundingClientRect()
   tokenTooltipData.value = row

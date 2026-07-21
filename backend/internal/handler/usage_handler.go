@@ -248,6 +248,70 @@ func (h *UsageHandler) List(c *gin.Context) {
 	response.Paginated(c, out, result.Total, page, pageSize)
 }
 
+// ListRequests returns successful and failed requests in one redacted timeline.
+// GET /api/v1/usage/requests
+func (h *UsageHandler) ListRequests(c *gin.Context) {
+	page, pageSize := response.ParsePagination(c)
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	parsed, ok := h.parseUserUsageFilters(c, false)
+	if !ok {
+		return
+	}
+	if h.opsService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
+		return
+	}
+
+	category := strings.ToLower(strings.TrimSpace(c.Query("category")))
+	if !service.IsUserRequestCategory(category) {
+		response.BadRequest(c, "Invalid category")
+		return
+	}
+	var statusCode *int
+	if raw := strings.TrimSpace(c.Query("status_code")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 100 || value > 599 {
+			response.BadRequest(c, "Invalid status_code")
+			return
+		}
+		statusCode = &value
+	}
+
+	params := pagination.PaginationParams{
+		Page:      page,
+		PageSize:  pageSize,
+		SortBy:    c.DefaultQuery("sort_by", "created_at"),
+		SortOrder: c.DefaultQuery("sort_order", "desc"),
+	}
+	filters := parsed.Filters
+	items, total, err := h.opsService.ListUserRequestHistory(
+		c.Request.Context(),
+		filters.UserID,
+		params,
+		service.UserRequestHistoryFilter{
+			APIKeyID:      filters.APIKeyID,
+			GroupID:       filters.GroupID,
+			Model:         filters.Model,
+			RequestType:   filters.RequestType,
+			Stream:        filters.Stream,
+			BillingType:   filters.BillingType,
+			BillingMode:   filters.BillingMode,
+			Category:      category,
+			StatusCode:    statusCode,
+			StartTime:     filters.StartTime,
+			EndTime:       filters.EndTime,
+			IncludeErrors: h.settingService != nil && h.settingService.IsUserErrorViewAllowed(c.Request.Context()),
+		},
+	)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Paginated(c, items, total, page, pageSize)
+}
+
 // ListErrors handles listing the current user's failed requests (redacted).
 // GET /api/v1/usage/errors
 func (h *UsageHandler) ListErrors(c *gin.Context) {
