@@ -32,7 +32,13 @@
 
         <section v-if="resourceOptions.length" class="border-t border-gray-200 py-4 dark:border-dark-700">
           <label class="input-label">{{ resourceLabel }}</label>
-          <Select v-model="selectedResourceId" :options="resourceOptions" clearable searchable />
+          <Select
+            v-model="selectedResourceId"
+            :options="resourceOptions"
+            :placeholder="t('tickets.create.optionalResourcePlaceholder')"
+            clearable
+            searchable
+          />
         </section>
 
         <TicketAttachmentUploader
@@ -96,7 +102,7 @@ const resourceOptions = computed(() => {
 const resourceLabel = computed(() => {
   if (form.category === 'api_issue') return t('tickets.create.relatedUsage')
   if (form.category === 'payment') return t('tickets.create.order')
-  if (form.category === 'subscription') return t('tickets.create.subscription')
+  if (form.category === 'subscription') return t('tickets.create.relatedSubscription')
   return t('tickets.create.relatedResource')
 })
 const dirty = computed(() => Boolean(form.subject.trim() || form.body.trim() || pendingAttachments.value.length))
@@ -117,7 +123,7 @@ async function loadResources(): Promise<void> {
   const [usage, orders, subscriptions] = await Promise.allSettled([
     usageAPI.list(1, 50),
     paymentAPI.getMyOrders({ page: 1, page_size: 50 }),
-    subscriptionsAPI.getMySubscriptions(),
+    subscriptionsAPI.getActiveSubscriptions(),
   ])
   if (usage.status === 'fulfilled') {
     usageOptions.value = usage.value.items.map((item) => ({
