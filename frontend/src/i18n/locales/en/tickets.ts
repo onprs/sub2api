@@ -17,8 +17,8 @@ export default {
     create: {
       title: 'New ticket', category: 'Category', impact: 'Impact', subject: 'Subject', description: 'Description',
       subjectPlaceholder: 'Briefly describe the issue', bodyPlaceholder: 'Include steps to reproduce, expected behavior, and actual behavior',
-      relatedResource: 'Related resource', relatedUsage: 'Related usage record', usageLog: 'Usage log ID', apiKey: 'API key ID', order: 'Order ID', subscription: 'Subscription ID',
-      optionalIdPlaceholder: 'Optional; enter only an ID that belongs to you', submit: 'Submit ticket', submitting: 'Submitting', cancel: 'Cancel',
+      relatedResource: 'Related resource', relatedUsage: 'Related usage record', relatedSubscription: 'Related subscription (optional)', usageLog: 'Usage log ID', apiKey: 'API key ID', order: 'Order ID', subscription: 'Subscription ID',
+      optionalIdPlaceholder: 'Optional; enter only an ID that belongs to you', optionalResourcePlaceholder: 'Optional; you can submit without linking one', submit: 'Submit ticket', submitting: 'Submitting', cancel: 'Cancel',
       leaveWarning: 'Your ticket has not been submitted. Leave this page?', failed: 'Failed to create ticket'
     },
     detail: {

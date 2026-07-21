@@ -53,6 +53,36 @@ func TestTicketServiceCreateNormalizesInput(t *testing.T) {
 	require.Equal(t, usageLogID, *repo.createParams.References.UsageLogID)
 }
 
+func TestTicketServiceCreateAllowsOptionalReferences(t *testing.T) {
+	t.Parallel()
+
+	for _, category := range []domain.TicketCategory{
+		domain.TicketCategorySubscription,
+		domain.TicketCategoryOther,
+	} {
+		category := category
+		t.Run(string(category), func(t *testing.T) {
+			t.Parallel()
+			repo := &ticketRepositoryStub{}
+			svc := NewTicketService(repo)
+
+			_, err := svc.Create(context.Background(), 7, &CreateTicketInput{
+				Category: category,
+				Impact:   domain.TicketImpactGeneral,
+				Subject:  "question without reference",
+				Body:     "reference is optional",
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, repo.createParams)
+			require.Nil(t, repo.createParams.References.UsageLogID)
+			require.Nil(t, repo.createParams.References.APIKeyID)
+			require.Nil(t, repo.createParams.References.PaymentOrderID)
+			require.Nil(t, repo.createParams.References.UserSubscriptionID)
+		})
+	}
+}
+
 func TestConfiguredTicketServiceUsesAttachmentLimit(t *testing.T) {
 	t.Parallel()
 

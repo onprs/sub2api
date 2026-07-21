@@ -286,8 +286,7 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: false,
       title: 'Tickets',
-      titleKey: 'tickets.title',
-      descriptionKey: 'tickets.description'
+      titleKey: 'tickets.title'
     }
   },
   {
