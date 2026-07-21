@@ -19,6 +19,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
+	"github.com/Wei-Shaw/sub2api/ent/ticket"
+	"github.com/Wei-Shaw/sub2api/ent/ticketattachment"
+	"github.com/Wei-Shaw/sub2api/ent/ticketevent"
+	"github.com/Wei-Shaw/sub2api/ent/ticketmessage"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
@@ -549,6 +553,81 @@ func (_c *UserCreate) AddPlatformQuotas(v ...*UserPlatformQuota) *UserCreate {
 	return _c.AddPlatformQuotaIDs(ids...)
 }
 
+// AddRequestedTicketIDs adds the "requested_tickets" edge to the Ticket entity by IDs.
+func (_c *UserCreate) AddRequestedTicketIDs(ids ...int64) *UserCreate {
+	_c.mutation.AddRequestedTicketIDs(ids...)
+	return _c
+}
+
+// AddRequestedTickets adds the "requested_tickets" edges to the Ticket entity.
+func (_c *UserCreate) AddRequestedTickets(v ...*Ticket) *UserCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddRequestedTicketIDs(ids...)
+}
+
+// AddAssignedTicketIDs adds the "assigned_tickets" edge to the Ticket entity by IDs.
+func (_c *UserCreate) AddAssignedTicketIDs(ids ...int64) *UserCreate {
+	_c.mutation.AddAssignedTicketIDs(ids...)
+	return _c
+}
+
+// AddAssignedTickets adds the "assigned_tickets" edges to the Ticket entity.
+func (_c *UserCreate) AddAssignedTickets(v ...*Ticket) *UserCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddAssignedTicketIDs(ids...)
+}
+
+// AddTicketMessageIDs adds the "ticket_messages" edge to the TicketMessage entity by IDs.
+func (_c *UserCreate) AddTicketMessageIDs(ids ...int64) *UserCreate {
+	_c.mutation.AddTicketMessageIDs(ids...)
+	return _c
+}
+
+// AddTicketMessages adds the "ticket_messages" edges to the TicketMessage entity.
+func (_c *UserCreate) AddTicketMessages(v ...*TicketMessage) *UserCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddTicketMessageIDs(ids...)
+}
+
+// AddTicketEventIDs adds the "ticket_events" edge to the TicketEvent entity by IDs.
+func (_c *UserCreate) AddTicketEventIDs(ids ...int64) *UserCreate {
+	_c.mutation.AddTicketEventIDs(ids...)
+	return _c
+}
+
+// AddTicketEvents adds the "ticket_events" edges to the TicketEvent entity.
+func (_c *UserCreate) AddTicketEvents(v ...*TicketEvent) *UserCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddTicketEventIDs(ids...)
+}
+
+// AddTicketAttachmentIDs adds the "ticket_attachments" edge to the TicketAttachment entity by IDs.
+func (_c *UserCreate) AddTicketAttachmentIDs(ids ...int64) *UserCreate {
+	_c.mutation.AddTicketAttachmentIDs(ids...)
+	return _c
+}
+
+// AddTicketAttachments adds the "ticket_attachments" edges to the TicketAttachment entity.
+func (_c *UserCreate) AddTicketAttachments(v ...*TicketAttachment) *UserCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddTicketAttachmentIDs(ids...)
+}
+
 // Mutation returns the UserMutation object of the builder.
 func (_c *UserCreate) Mutation() *UserMutation {
 	return _c.mutation
@@ -1073,6 +1152,86 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(userplatformquota.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.RequestedTicketsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.RequestedTicketsTable,
+			Columns: []string{user.RequestedTicketsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(ticket.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.AssignedTicketsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.AssignedTicketsTable,
+			Columns: []string{user.AssignedTicketsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(ticket.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.TicketMessagesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.TicketMessagesTable,
+			Columns: []string{user.TicketMessagesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(ticketmessage.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.TicketEventsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.TicketEventsTable,
+			Columns: []string{user.TicketEventsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(ticketevent.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.TicketAttachmentsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.TicketAttachmentsTable,
+			Columns: []string{user.TicketAttachmentsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(ticketattachment.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

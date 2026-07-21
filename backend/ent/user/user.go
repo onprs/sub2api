@@ -89,6 +89,16 @@ const (
 	EdgePendingAuthSessions = "pending_auth_sessions"
 	// EdgePlatformQuotas holds the string denoting the platform_quotas edge name in mutations.
 	EdgePlatformQuotas = "platform_quotas"
+	// EdgeRequestedTickets holds the string denoting the requested_tickets edge name in mutations.
+	EdgeRequestedTickets = "requested_tickets"
+	// EdgeAssignedTickets holds the string denoting the assigned_tickets edge name in mutations.
+	EdgeAssignedTickets = "assigned_tickets"
+	// EdgeTicketMessages holds the string denoting the ticket_messages edge name in mutations.
+	EdgeTicketMessages = "ticket_messages"
+	// EdgeTicketEvents holds the string denoting the ticket_events edge name in mutations.
+	EdgeTicketEvents = "ticket_events"
+	// EdgeTicketAttachments holds the string denoting the ticket_attachments edge name in mutations.
+	EdgeTicketAttachments = "ticket_attachments"
 	// EdgeUserAllowedGroups holds the string denoting the user_allowed_groups edge name in mutations.
 	EdgeUserAllowedGroups = "user_allowed_groups"
 	// Table holds the table name of the user in the database.
@@ -182,6 +192,41 @@ const (
 	PlatformQuotasInverseTable = "user_platform_quotas"
 	// PlatformQuotasColumn is the table column denoting the platform_quotas relation/edge.
 	PlatformQuotasColumn = "user_id"
+	// RequestedTicketsTable is the table that holds the requested_tickets relation/edge.
+	RequestedTicketsTable = "tickets"
+	// RequestedTicketsInverseTable is the table name for the Ticket entity.
+	// It exists in this package in order to avoid circular dependency with the "ticket" package.
+	RequestedTicketsInverseTable = "tickets"
+	// RequestedTicketsColumn is the table column denoting the requested_tickets relation/edge.
+	RequestedTicketsColumn = "user_id"
+	// AssignedTicketsTable is the table that holds the assigned_tickets relation/edge.
+	AssignedTicketsTable = "tickets"
+	// AssignedTicketsInverseTable is the table name for the Ticket entity.
+	// It exists in this package in order to avoid circular dependency with the "ticket" package.
+	AssignedTicketsInverseTable = "tickets"
+	// AssignedTicketsColumn is the table column denoting the assigned_tickets relation/edge.
+	AssignedTicketsColumn = "assignee_id"
+	// TicketMessagesTable is the table that holds the ticket_messages relation/edge.
+	TicketMessagesTable = "ticket_messages"
+	// TicketMessagesInverseTable is the table name for the TicketMessage entity.
+	// It exists in this package in order to avoid circular dependency with the "ticketmessage" package.
+	TicketMessagesInverseTable = "ticket_messages"
+	// TicketMessagesColumn is the table column denoting the ticket_messages relation/edge.
+	TicketMessagesColumn = "author_id"
+	// TicketEventsTable is the table that holds the ticket_events relation/edge.
+	TicketEventsTable = "ticket_events"
+	// TicketEventsInverseTable is the table name for the TicketEvent entity.
+	// It exists in this package in order to avoid circular dependency with the "ticketevent" package.
+	TicketEventsInverseTable = "ticket_events"
+	// TicketEventsColumn is the table column denoting the ticket_events relation/edge.
+	TicketEventsColumn = "actor_id"
+	// TicketAttachmentsTable is the table that holds the ticket_attachments relation/edge.
+	TicketAttachmentsTable = "ticket_attachments"
+	// TicketAttachmentsInverseTable is the table name for the TicketAttachment entity.
+	// It exists in this package in order to avoid circular dependency with the "ticketattachment" package.
+	TicketAttachmentsInverseTable = "ticket_attachments"
+	// TicketAttachmentsColumn is the table column denoting the ticket_attachments relation/edge.
+	TicketAttachmentsColumn = "uploaded_by"
 	// UserAllowedGroupsTable is the table that holds the user_allowed_groups relation/edge.
 	UserAllowedGroupsTable = "user_allowed_groups"
 	// UserAllowedGroupsInverseTable is the table name for the UserAllowedGroup entity.
@@ -602,6 +647,76 @@ func ByPlatformQuotas(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByRequestedTicketsCount orders the results by requested_tickets count.
+func ByRequestedTicketsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newRequestedTicketsStep(), opts...)
+	}
+}
+
+// ByRequestedTickets orders the results by requested_tickets terms.
+func ByRequestedTickets(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newRequestedTicketsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByAssignedTicketsCount orders the results by assigned_tickets count.
+func ByAssignedTicketsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newAssignedTicketsStep(), opts...)
+	}
+}
+
+// ByAssignedTickets orders the results by assigned_tickets terms.
+func ByAssignedTickets(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newAssignedTicketsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByTicketMessagesCount orders the results by ticket_messages count.
+func ByTicketMessagesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newTicketMessagesStep(), opts...)
+	}
+}
+
+// ByTicketMessages orders the results by ticket_messages terms.
+func ByTicketMessages(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTicketMessagesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByTicketEventsCount orders the results by ticket_events count.
+func ByTicketEventsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newTicketEventsStep(), opts...)
+	}
+}
+
+// ByTicketEvents orders the results by ticket_events terms.
+func ByTicketEvents(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTicketEventsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByTicketAttachmentsCount orders the results by ticket_attachments count.
+func ByTicketAttachmentsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newTicketAttachmentsStep(), opts...)
+	}
+}
+
+// ByTicketAttachments orders the results by ticket_attachments terms.
+func ByTicketAttachments(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTicketAttachmentsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByUserAllowedGroupsCount orders the results by user_allowed_groups count.
 func ByUserAllowedGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -704,6 +819,41 @@ func newPlatformQuotasStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(PlatformQuotasInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, PlatformQuotasTable, PlatformQuotasColumn),
+	)
+}
+func newRequestedTicketsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(RequestedTicketsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, RequestedTicketsTable, RequestedTicketsColumn),
+	)
+}
+func newAssignedTicketsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(AssignedTicketsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, AssignedTicketsTable, AssignedTicketsColumn),
+	)
+}
+func newTicketMessagesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TicketMessagesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, TicketMessagesTable, TicketMessagesColumn),
+	)
+}
+func newTicketEventsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TicketEventsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, TicketEventsTable, TicketEventsColumn),
+	)
+}
+func newTicketAttachmentsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TicketAttachmentsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, TicketAttachmentsTable, TicketAttachmentsColumn),
 	)
 }
 func newUserAllowedGroupsStep() *sqlgraph.Step {

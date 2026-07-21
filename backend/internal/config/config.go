@@ -94,6 +94,7 @@ type Config struct {
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
+	Ticketing               TicketingConfig               `mapstructure:"ticketing"`
 }
 
 type LogConfig struct {
@@ -174,6 +175,25 @@ type IdempotencyConfig struct {
 	CleanupIntervalSeconds int `mapstructure:"cleanup_interval_seconds"`
 	// CleanupBatchSize 每次清理的最大记录数。
 	CleanupBatchSize int `mapstructure:"cleanup_batch_size"`
+}
+
+type TicketingConfig struct {
+	Enabled               bool                      `mapstructure:"enabled"`
+	ResolvedAutoCloseDays int                       `mapstructure:"resolved_auto_close_days"`
+	PollingHintSeconds    int                       `mapstructure:"polling_hint_seconds"`
+	DetailPollingSeconds  int                       `mapstructure:"detail_polling_seconds"`
+	LocalStorageRoot      string                    `mapstructure:"local_storage_root"`
+	LocalStorageShared    bool                      `mapstructure:"local_storage_shared"`
+	Attachments           TicketingAttachmentConfig `mapstructure:"attachments"`
+}
+
+type TicketingAttachmentConfig struct {
+	MaxFileBytes       int64 `mapstructure:"max_file_bytes"`
+	MaxFilesPerMessage int   `mapstructure:"max_files_per_message"`
+	MaxTicketBytes     int64 `mapstructure:"max_ticket_bytes"`
+	MaxImagePixels     int64 `mapstructure:"max_image_pixels"`
+	PendingExpiryHours int   `mapstructure:"pending_expiry_hours"`
+	CleanupBatchSize   int   `mapstructure:"cleanup_batch_size"`
 }
 
 type BatchImageConfig struct {
@@ -1795,6 +1815,20 @@ func setDefaults() {
 	viper.SetDefault("redis.min_idle_conns", 128)
 	viper.SetDefault("redis.enable_tls", false)
 
+	// Ticketing
+	viper.SetDefault("ticketing.enabled", true)
+	viper.SetDefault("ticketing.resolved_auto_close_days", 7)
+	viper.SetDefault("ticketing.polling_hint_seconds", 30)
+	viper.SetDefault("ticketing.detail_polling_seconds", 15)
+	viper.SetDefault("ticketing.local_storage_root", "./data/ticket-attachments")
+	viper.SetDefault("ticketing.local_storage_shared", false)
+	viper.SetDefault("ticketing.attachments.max_file_bytes", int64(5*1024*1024))
+	viper.SetDefault("ticketing.attachments.max_files_per_message", 3)
+	viper.SetDefault("ticketing.attachments.max_ticket_bytes", int64(30*1024*1024))
+	viper.SetDefault("ticketing.attachments.max_image_pixels", int64(40*1000*1000))
+	viper.SetDefault("ticketing.attachments.pending_expiry_hours", 24)
+	viper.SetDefault("ticketing.attachments.cleanup_batch_size", 100)
+
 	// Batch Image queue
 	viper.SetDefault("batch_image.enabled", false)
 	viper.SetDefault("batch_image.max_items_per_job_default", 200)
@@ -2445,6 +2479,26 @@ func (c *Config) Validate() error {
 	}
 	if c.Redis.MinIdleConns > c.Redis.PoolSize {
 		return fmt.Errorf("redis.min_idle_conns cannot exceed redis.pool_size")
+	}
+	if c.Ticketing.Enabled {
+		if c.Ticketing.ResolvedAutoCloseDays <= 0 {
+			return fmt.Errorf("ticketing.resolved_auto_close_days must be positive")
+		}
+		if c.Ticketing.PollingHintSeconds <= 0 || c.Ticketing.DetailPollingSeconds <= 0 {
+			return fmt.Errorf("ticketing polling intervals must be positive")
+		}
+		if strings.TrimSpace(c.Ticketing.LocalStorageRoot) == "" {
+			return fmt.Errorf("ticketing.local_storage_root must not be empty")
+		}
+		if c.Ticketing.Attachments.MaxFileBytes <= 0 || c.Ticketing.Attachments.MaxFilesPerMessage <= 0 || c.Ticketing.Attachments.MaxTicketBytes <= 0 {
+			return fmt.Errorf("ticketing attachment size limits must be positive")
+		}
+		if c.Ticketing.Attachments.MaxTicketBytes < c.Ticketing.Attachments.MaxFileBytes {
+			return fmt.Errorf("ticketing.attachments.max_ticket_bytes must be at least max_file_bytes")
+		}
+		if c.Ticketing.Attachments.MaxImagePixels <= 0 || c.Ticketing.Attachments.PendingExpiryHours <= 0 || c.Ticketing.Attachments.CleanupBatchSize <= 0 {
+			return fmt.Errorf("ticketing attachment safety and cleanup limits must be positive")
+		}
 	}
 	if c.BatchImage.QueueEnabled {
 		if strings.TrimSpace(c.BatchImage.QueueReadyKey) == "" {

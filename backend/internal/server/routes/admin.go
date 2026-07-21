@@ -31,6 +31,9 @@ func RegisterAdminRoutes(
 		// 用户管理
 		registerUserManagementRoutes(admin, h)
 
+		// 工单管理
+		registerTicketRoutes(admin, h)
+
 		// 分组管理
 		registerGroupRoutes(admin, h)
 
@@ -268,6 +271,28 @@ func registerUserManagementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// User attribute values
 		users.GET("/:id/attributes", h.Admin.UserAttribute.GetUserAttributes)
 		users.PUT("/:id/attributes", h.Admin.UserAttribute.UpdateUserAttributes)
+	}
+}
+
+func registerTicketRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	tickets := admin.Group("/tickets")
+	{
+		tickets.GET("/storage-settings", h.Admin.Ticket.GetStorageSettings)
+		tickets.PUT("/storage-settings", h.Admin.Ticket.UpdateStorageSettings)
+		tickets.POST("/storage-settings/test", h.Admin.Ticket.TestStorageSettings)
+		tickets.Use(h.Admin.Ticket.RequireEnabled)
+		tickets.GET("/counts", h.Admin.Ticket.Counts)
+		tickets.POST("/attachments", h.Admin.Ticket.UploadAttachment)
+		tickets.GET("", h.Admin.Ticket.List)
+		tickets.GET("/:ticket_no", h.Admin.Ticket.Get)
+		tickets.GET("/:ticket_no/attachments/:attachment_id", h.Admin.Ticket.DownloadAttachment)
+		tickets.POST("/:ticket_no/claim", h.Admin.Ticket.Claim)
+		tickets.PUT("/:ticket_no/assignee", h.Admin.Ticket.Assign)
+		tickets.PUT("/:ticket_no/priority", h.Admin.Ticket.ChangePriority)
+		tickets.POST("/:ticket_no/messages", h.Admin.Ticket.Message)
+		tickets.POST("/:ticket_no/resolve", h.Admin.Ticket.Resolve)
+		tickets.POST("/:ticket_no/reopen", h.Admin.Ticket.Reopen)
+		tickets.POST("/:ticket_no/close", h.Admin.Ticket.Close)
 	}
 }
 

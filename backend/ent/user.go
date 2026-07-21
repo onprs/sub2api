@@ -99,11 +99,21 @@ type UserEdges struct {
 	PendingAuthSessions []*PendingAuthSession `json:"pending_auth_sessions,omitempty"`
 	// PlatformQuotas holds the value of the platform_quotas edge.
 	PlatformQuotas []*UserPlatformQuota `json:"platform_quotas,omitempty"`
+	// RequestedTickets holds the value of the requested_tickets edge.
+	RequestedTickets []*Ticket `json:"requested_tickets,omitempty"`
+	// AssignedTickets holds the value of the assigned_tickets edge.
+	AssignedTickets []*Ticket `json:"assigned_tickets,omitempty"`
+	// TicketMessages holds the value of the ticket_messages edge.
+	TicketMessages []*TicketMessage `json:"ticket_messages,omitempty"`
+	// TicketEvents holds the value of the ticket_events edge.
+	TicketEvents []*TicketEvent `json:"ticket_events,omitempty"`
+	// TicketAttachments holds the value of the ticket_attachments edge.
+	TicketAttachments []*TicketAttachment `json:"ticket_attachments,omitempty"`
 	// UserAllowedGroups holds the value of the user_allowed_groups edge.
 	UserAllowedGroups []*UserAllowedGroup `json:"user_allowed_groups,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [14]bool
+	loadedTypes [19]bool
 }
 
 // APIKeysOrErr returns the APIKeys value or an error if the edge
@@ -223,10 +233,55 @@ func (e UserEdges) PlatformQuotasOrErr() ([]*UserPlatformQuota, error) {
 	return nil, &NotLoadedError{edge: "platform_quotas"}
 }
 
+// RequestedTicketsOrErr returns the RequestedTickets value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) RequestedTicketsOrErr() ([]*Ticket, error) {
+	if e.loadedTypes[13] {
+		return e.RequestedTickets, nil
+	}
+	return nil, &NotLoadedError{edge: "requested_tickets"}
+}
+
+// AssignedTicketsOrErr returns the AssignedTickets value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) AssignedTicketsOrErr() ([]*Ticket, error) {
+	if e.loadedTypes[14] {
+		return e.AssignedTickets, nil
+	}
+	return nil, &NotLoadedError{edge: "assigned_tickets"}
+}
+
+// TicketMessagesOrErr returns the TicketMessages value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) TicketMessagesOrErr() ([]*TicketMessage, error) {
+	if e.loadedTypes[15] {
+		return e.TicketMessages, nil
+	}
+	return nil, &NotLoadedError{edge: "ticket_messages"}
+}
+
+// TicketEventsOrErr returns the TicketEvents value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) TicketEventsOrErr() ([]*TicketEvent, error) {
+	if e.loadedTypes[16] {
+		return e.TicketEvents, nil
+	}
+	return nil, &NotLoadedError{edge: "ticket_events"}
+}
+
+// TicketAttachmentsOrErr returns the TicketAttachments value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) TicketAttachmentsOrErr() ([]*TicketAttachment, error) {
+	if e.loadedTypes[17] {
+		return e.TicketAttachments, nil
+	}
+	return nil, &NotLoadedError{edge: "ticket_attachments"}
+}
+
 // UserAllowedGroupsOrErr returns the UserAllowedGroups value or an error if the edge
 // was not loaded in eager-loading.
 func (e UserEdges) UserAllowedGroupsOrErr() ([]*UserAllowedGroup, error) {
-	if e.loadedTypes[13] {
+	if e.loadedTypes[18] {
 		return e.UserAllowedGroups, nil
 	}
 	return nil, &NotLoadedError{edge: "user_allowed_groups"}
@@ -494,6 +549,31 @@ func (_m *User) QueryPendingAuthSessions() *PendingAuthSessionQuery {
 // QueryPlatformQuotas queries the "platform_quotas" edge of the User entity.
 func (_m *User) QueryPlatformQuotas() *UserPlatformQuotaQuery {
 	return NewUserClient(_m.config).QueryPlatformQuotas(_m)
+}
+
+// QueryRequestedTickets queries the "requested_tickets" edge of the User entity.
+func (_m *User) QueryRequestedTickets() *TicketQuery {
+	return NewUserClient(_m.config).QueryRequestedTickets(_m)
+}
+
+// QueryAssignedTickets queries the "assigned_tickets" edge of the User entity.
+func (_m *User) QueryAssignedTickets() *TicketQuery {
+	return NewUserClient(_m.config).QueryAssignedTickets(_m)
+}
+
+// QueryTicketMessages queries the "ticket_messages" edge of the User entity.
+func (_m *User) QueryTicketMessages() *TicketMessageQuery {
+	return NewUserClient(_m.config).QueryTicketMessages(_m)
+}
+
+// QueryTicketEvents queries the "ticket_events" edge of the User entity.
+func (_m *User) QueryTicketEvents() *TicketEventQuery {
+	return NewUserClient(_m.config).QueryTicketEvents(_m)
+}
+
+// QueryTicketAttachments queries the "ticket_attachments" edge of the User entity.
+func (_m *User) QueryTicketAttachments() *TicketAttachmentQuery {
+	return NewUserClient(_m.config).QueryTicketAttachments(_m)
 }
 
 // QueryUserAllowedGroups queries the "user_allowed_groups" edge of the User entity.
