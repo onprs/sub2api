@@ -178,6 +178,7 @@
           :server-side-sort="true"
           :show-account-billing="false"
           :show-upstream-endpoint="false"
+          :format-request-ids="true"
           default-sort-key="created_at"
           default-sort-order="desc"
           @sort="handleSort"
@@ -233,6 +234,7 @@ import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { formatReasoningEffort } from '@/utils/format'
 import { BILLING_MODE_IMAGE, getBillingModeLabel } from '@/utils/billingMode'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
+import { formatRequestId } from '@/utils/requestId'
 import type {
   ApiKey,
   EndpointStat,
@@ -660,7 +662,7 @@ const exportToCSV = async () => {
     ]
     const rows = allLogs.map((log) => [
       log.created_at,
-      log.request_id,
+      formatRequestId(log.request_id),
       t('usage.errors.categories.' + (log.category || 'success')),
       log.status_code ?? 200,
       log.api_key?.name || '',

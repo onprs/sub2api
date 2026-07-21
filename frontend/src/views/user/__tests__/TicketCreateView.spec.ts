@@ -56,7 +56,7 @@ vi.mock('vue-i18n', async () => {
 describe('TicketCreateView', () => {
   it('uses a single divider and offers usage records for API issues', async () => {
     usageList.mockResolvedValue({
-      items: [{ id: 42, request_id: 'req-ticket-context' }],
+      items: [{ id: 42, request_id: 'client:req-ticket-context' }],
     })
     getMyOrders.mockResolvedValue({ data: { items: [] } })
     getMySubscriptions.mockResolvedValue([])
@@ -83,6 +83,7 @@ describe('TicketCreateView', () => {
     expect(resourceSection.classes()).not.toContain('border-y')
     expect(resourceSection.text()).toContain('Related usage record')
     expect(resourceSection.text()).toContain('Usage log ID: req-ticket-context')
+    expect(resourceSection.text()).not.toContain('client:')
     expect(resourceSection.text()).not.toContain('API key ID')
   })
 })

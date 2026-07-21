@@ -21,7 +21,7 @@ describe('UserErrorRequestsTable', () => {
     const row: UserErrorRequest = {
       id: 1,
       created_at: '2026-07-22T00:00:00Z',
-      request_id: 'req-error-visible-to-user',
+      request_id: 'client:req-error-visible-to-user',
       model: 'gpt-5.4',
       inbound_endpoint: '/v1/responses',
       status_code: 502,
@@ -62,6 +62,12 @@ describe('UserErrorRequestsTable', () => {
     })
 
     expect(wrapper.text()).toContain('req-error-visible-to-user')
+    expect(wrapper.text()).not.toContain('client:')
+    expect(wrapper.find('span').classes()).toEqual(expect.arrayContaining([
+      'max-w-[220px]',
+      'whitespace-normal',
+      'break-all',
+    ]))
     expect(wrapper.text()).toContain('Upstream error')
     expect(wrapper.text()).toContain('502')
   })

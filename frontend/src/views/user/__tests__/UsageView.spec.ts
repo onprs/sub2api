@@ -102,7 +102,7 @@ const chartStub = { template: '<div />' }
 
 const usageLog = {
   id: 1,
-  request_id: 'req-user-export',
+  request_id: 'client:req-user-export',
   status_code: 200,
   category: 'success',
   actual_cost: 0.092883,
@@ -263,6 +263,7 @@ describe('user UsageView', () => {
     ].join('\n'))
     expect(csvContent).toContain('Request ID')
     expect(csvContent).toContain('req-user-export')
+    expect(csvContent).not.toContain('client:')
     expect(csvContent).toContain('Category,Status Code')
     expect(csvContent).toContain('IP Address')
     expect(csvContent).toContain('203.0.113.10')

@@ -24,7 +24,7 @@
         <!-- Request ID -->
         <div>
           <span class="font-medium text-gray-500 dark:text-dark-400">{{ t('usage.requestId') }}</span>
-          <p class="mt-0.5 break-all font-mono text-xs text-gray-900 dark:text-dark-100">{{ detail.request_id || '-' }}</p>
+          <p class="mt-0.5 whitespace-normal break-all font-mono text-xs text-gray-900 dark:text-dark-100">{{ formatRequestId(detail.request_id) || '-' }}</p>
         </div>
         <!-- Model -->
         <div>
@@ -81,6 +81,7 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import { getMyErrorDetail } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
+import { formatRequestId } from '@/utils/requestId'
 import type { UserErrorRequestDetail } from '@/types'
 
 const props = defineProps<{

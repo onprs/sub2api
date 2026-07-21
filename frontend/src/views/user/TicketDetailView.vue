@@ -61,7 +61,7 @@
           <h2 class="text-sm font-semibold uppercase text-gray-500 dark:text-dark-400">{{ t('tickets.detail.context') }}</h2>
           <dl class="space-y-3 text-sm">
             <div><dt class="text-gray-400">{{ t('tickets.create.impact') }}</dt><dd class="mt-0.5 text-gray-800 dark:text-gray-200">{{ t(`tickets.impact.${detail.ticket.impact}`) }}</dd></div>
-            <div v-if="detail.ticket.request_id"><dt class="text-gray-400">Request ID</dt><dd class="mt-0.5 break-all font-mono text-xs text-gray-800 dark:text-gray-200">{{ detail.ticket.request_id }}</dd></div>
+            <div v-if="detail.ticket.request_id"><dt class="text-gray-400">Request ID</dt><dd class="mt-0.5 whitespace-normal break-all font-mono text-xs text-gray-800 dark:text-gray-200">{{ formatRequestId(detail.ticket.request_id) }}</dd></div>
             <div v-if="detail.ticket.api_key_name"><dt class="text-gray-400">{{ t('tickets.create.apiKey') }}</dt><dd class="mt-0.5 break-words text-gray-800 dark:text-gray-200">{{ detail.ticket.api_key_name }}</dd></div>
             <div v-if="detail.ticket.payment_order_no"><dt class="text-gray-400">{{ t('tickets.create.order') }}</dt><dd class="mt-0.5 break-all text-gray-800 dark:text-gray-200">{{ detail.ticket.payment_order_no }}</dd></div>
             <div v-if="detail.ticket.subscription_name"><dt class="text-gray-400">{{ t('tickets.create.subscription') }}</dt><dd class="mt-0.5 break-words text-gray-800 dark:text-gray-200">{{ detail.ticket.subscription_name }}</dd></div>
@@ -86,6 +86,7 @@ import { mergeUserTicketDetail } from '@/components/tickets/detailMerge'
 import { ticketsAPI } from '@/api'
 import { createTicketIdempotencyKey } from '@/api/tickets'
 import { useAppStore, useTicketNotificationsStore } from '@/stores'
+import { formatRequestId } from '@/utils/requestId'
 import type { PendingTicketAttachment, TicketMessageAttachment, UserTicketDetail } from '@/types/ticket'
 
 const { t } = useI18n()

@@ -15,8 +15,8 @@
         @rowClick="(row) => openDetail(row.id)"
       >
         <template #cell-request_id="{ row }">
-          <span class="block max-w-[220px] break-all font-mono text-xs text-gray-700 dark:text-gray-300">
-            {{ row.request_id || '-' }}
+          <span class="block max-w-[220px] whitespace-normal break-all font-mono text-xs text-gray-700 dark:text-gray-300">
+            {{ formatRequestId(row.request_id) || '-' }}
           </span>
         </template>
 
@@ -136,6 +136,7 @@ import UserErrorDetailModal from '@/components/user/UserErrorDetailModal.vue'
 import IpGeoCell from '@/components/common/IpGeoCell.vue'
 import IpGeoBatchToolbar from '@/components/common/IpGeoBatchToolbar.vue'
 import { formatDateTime } from '@/utils/format'
+import { formatRequestId } from '@/utils/requestId'
 import {
   mapErrorSortKey,
   numericRequestTypeKind,
