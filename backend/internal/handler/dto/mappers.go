@@ -611,6 +611,8 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		APIKeyID:              l.APIKeyID,
 		AccountID:             l.AccountID,
 		RequestID:             l.RequestID,
+		StatusCode:            200,
+		Category:              "success",
 		Model:                 requestedModel,
 		ServiceTier:           l.ServiceTier,
 		ReasoningEffort:       l.ReasoningEffort,

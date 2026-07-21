@@ -30,7 +30,7 @@
           <div class="mt-1 text-right text-xs text-gray-400">{{ form.body.length }}/5000</div>
         </div>
 
-        <section v-if="resourceOptions.length" class="border-y border-gray-200 py-4 dark:border-dark-700">
+        <section v-if="resourceOptions.length" class="border-t border-gray-200 py-4 dark:border-dark-700">
           <label class="input-label">{{ resourceLabel }}</label>
           <Select v-model="selectedResourceId" :options="resourceOptions" clearable searchable />
         </section>
@@ -61,7 +61,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import TicketAttachmentUploader from '@/components/tickets/TicketAttachmentUploader.vue'
-import { keysAPI, paymentAPI, ticketsAPI, usageAPI } from '@/api'
+import { paymentAPI, ticketsAPI, usageAPI } from '@/api'
 import subscriptionsAPI from '@/api/subscriptions'
 import { createTicketIdempotencyKey } from '@/api/tickets'
 import { useAppStore, useTicketNotificationsStore } from '@/stores'
@@ -75,7 +75,6 @@ const submitting = ref(false)
 const submitted = ref(false)
 const pendingAttachments = ref<PendingTicketAttachment[]>([])
 const selectedResourceId = ref<string | number | null>(null)
-const apiKeyOptions = ref<SelectOption[]>([])
 const usageOptions = ref<SelectOption[]>([])
 const orderOptions = ref<SelectOption[]>([])
 const subscriptionOptions = ref<SelectOption[]>([])
@@ -88,12 +87,13 @@ const form = reactive<{ category: TicketCategory; impact: TicketImpact; subject:
 const categoryOptions = computed<SelectOption[]>(() => ['api_issue', 'subscription', 'payment', 'account', 'feature_request', 'other'].map((value) => ({ value, label: t(`tickets.category.${value}`) })))
 const impactOptions = computed<SelectOption[]>(() => ['blocked', 'degraded', 'general'].map((value) => ({ value, label: t(`tickets.impact.${value}`) })))
 const resourceOptions = computed(() => {
-  if (form.category === 'api_issue') return [...usageOptions.value, ...apiKeyOptions.value]
+  if (form.category === 'api_issue') return usageOptions.value
   if (form.category === 'payment') return orderOptions.value
   if (form.category === 'subscription') return subscriptionOptions.value
   return []
 })
 const resourceLabel = computed(() => {
+  if (form.category === 'api_issue') return t('tickets.create.relatedUsage')
   if (form.category === 'payment') return t('tickets.create.order')
   if (form.category === 'subscription') return t('tickets.create.subscription')
   return t('tickets.create.relatedResource')
@@ -113,15 +113,11 @@ watch([
 }, { deep: true })
 
 async function loadResources(): Promise<void> {
-  const [keys, usage, orders, subscriptions] = await Promise.allSettled([
-    keysAPI.list(1, 100),
+  const [usage, orders, subscriptions] = await Promise.allSettled([
     usageAPI.list(1, 50),
     paymentAPI.getMyOrders({ page: 1, page_size: 50 }),
     subscriptionsAPI.getMySubscriptions(),
   ])
-  if (keys.status === 'fulfilled') {
-    apiKeyOptions.value = keys.value.items.map((item) => ({ value: `key:${item.id}`, label: `${t('tickets.create.apiKey')}: ${item.name}` }))
-  }
   if (usage.status === 'fulfilled') {
     usageOptions.value = usage.value.items.map((item) => ({ value: `usage:${item.id}`, label: `${t('tickets.create.usageLog')}: ${item.request_id || item.id}` }))
   }
@@ -139,8 +135,7 @@ async function submit(): Promise<void> {
   try {
     const references: Record<string, number | null> = {}
     const selected = selectedResourceId.value
-    if (typeof selected === 'string' && selected.startsWith('key:')) references.api_key_id = Number(selected.slice(4))
-    else if (typeof selected === 'string' && selected.startsWith('usage:')) references.usage_log_id = Number(selected.slice(6))
+    if (typeof selected === 'string' && selected.startsWith('usage:')) references.usage_log_id = Number(selected.slice(6))
     else if (typeof selected === 'number' && form.category === 'payment') references.payment_order_id = selected
     else if (typeof selected === 'number' && form.category === 'subscription') references.user_subscription_id = selected
 

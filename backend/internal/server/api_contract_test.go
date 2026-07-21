@@ -585,6 +585,8 @@ func TestAPIContracts(t *testing.T) {
 							"api_key_id": 100,
 							"account_id": 200,
 								"request_id": "req_123",
+								"status_code": 200,
+								"category": "success",
 								"model": "claude-3",
 								"request_type": "stream",
 								"openai_ws_mode": false,
@@ -968,7 +970,7 @@ func TestAPIContracts(t *testing.T) {
 					"wechat_connect_redirect_url": "",
 					"wechat_connect_frontend_redirect_url": "/auth/wechat/callback",
 					"wechat_connect_scopes": "snsapi_login",
-					"allow_user_view_error_requests": false
+					"allow_user_view_error_requests": true
 				}
 			}`,
 		},
@@ -1276,7 +1278,7 @@ func TestAPIContracts(t *testing.T) {
 					"auth_source_default_dingtalk_grant_on_signup": false,
 					"auth_source_default_dingtalk_grant_on_first_bind": false,
 					"force_email_on_third_party_signup": false,
-					"allow_user_view_error_requests": false
+					"allow_user_view_error_requests": true
 				}
 			}`,
 		},

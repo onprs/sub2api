@@ -48,6 +48,12 @@
           <span class="text-sm text-gray-900 dark:text-white">{{ row.api_key?.name || '-' }}</span>
         </template>
 
+        <template #cell-request_id="{ row }">
+          <span class="block max-w-[220px] break-all font-mono text-xs text-gray-700 dark:text-gray-300">
+            {{ row.request_id || '-' }}
+          </span>
+        </template>
+
         <template #cell-account="{ row }">
           <span class="text-sm text-gray-900 dark:text-white">{{ row.account?.name || '-' }}</span>
         </template>
@@ -101,6 +107,18 @@
         <template #cell-stream="{ row }">
           <span class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium" :class="getRequestTypeBadgeClass(row)">
             {{ getRequestTypeLabel(row) }}
+          </span>
+        </template>
+
+        <template #cell-category="{ row }">
+          <span class="text-sm text-gray-900 dark:text-white">
+            {{ t('usage.errors.categories.' + (row.category || 'success')) }}
+          </span>
+        </template>
+
+        <template #cell-status="{ row }">
+          <span class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium" :class="statusCodeBadgeClass(row.status_code ?? 200)">
+            {{ row.status_code ?? 200 }}
           </span>
         </template>
 
@@ -442,6 +460,7 @@ import { formatCacheTokens, formatMultiplier } from '@/utils/formatters'
 import { formatTokenPricePerMillion } from '@/utils/usagePricing'
 import { getUsageServiceTierLabel } from '@/utils/usageServiceTier'
 import { resolveUsageRequestType } from '@/utils/usageRequestType'
+import { statusCodeBadgeClass } from '@/utils/errorBadges'
 import {
   LATENCY_BAR_CLASSES,
   LATENCY_BAR_FROM_CLASSES,

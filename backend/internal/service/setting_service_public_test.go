@@ -110,17 +110,28 @@ func TestSettingService_GetPublicSettings_ExposesModelPricingIndependently(t *te
 	require.False(t, settings.AvailableChannelsEnabled)
 }
 
-func TestSettingService_GetPublicSettings_ExposesAllowUserViewErrorRequests(t *testing.T) {
-	repo := &settingPublicRepoStub{
-		values: map[string]string{
-			SettingKeyAllowUserViewErrorRequests: "true",
-		},
-	}
-	svc := NewSettingService(repo, &config.Config{})
+func TestSettingService_GetPublicSettings_DefaultsUserErrorRequestsOn(t *testing.T) {
+	svc := NewSettingService(&settingPublicRepoStub{values: map[string]string{}}, &config.Config{})
 
 	settings, err := svc.GetPublicSettings(context.Background())
 	require.NoError(t, err)
 	require.True(t, settings.AllowUserViewErrorRequests)
+	require.True(t, svc.IsUserErrorViewAllowed(context.Background()))
+	require.True(t, svc.parseSettings(map[string]string{}).AllowUserViewErrorRequests)
+}
+
+func TestSettingService_GetPublicSettings_AllowsDisablingUserErrorRequests(t *testing.T) {
+	svc := NewSettingService(&settingPublicRepoStub{values: map[string]string{
+		SettingKeyAllowUserViewErrorRequests: "false",
+	}}, &config.Config{})
+
+	settings, err := svc.GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.False(t, settings.AllowUserViewErrorRequests)
+	require.False(t, svc.IsUserErrorViewAllowed(context.Background()))
+	require.False(t, svc.parseSettings(map[string]string{
+		SettingKeyAllowUserViewErrorRequests: "false",
+	}).AllowUserViewErrorRequests)
 }
 
 func TestSettingService_GetPublicSettings_ExposesWeChatOAuthModeCapabilities(t *testing.T) {

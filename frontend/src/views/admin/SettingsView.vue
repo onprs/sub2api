@@ -8394,7 +8394,7 @@ const form = reactive<SettingsForm>({
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: false,
   // Allow user view error requests
-  allow_user_view_error_requests: false,
+  allow_user_view_error_requests: true,
 });
 
 type OpenAIAdvancedSchedulerOverrideKey =

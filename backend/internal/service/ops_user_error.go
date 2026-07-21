@@ -13,6 +13,7 @@ import "time"
 type UserErrorRequest struct {
 	ID              int64     `json:"id"`
 	CreatedAt       time.Time `json:"created_at"`
+	RequestID       string    `json:"request_id"`
 	Model           string    `json:"model"`
 	InboundEndpoint string    `json:"inbound_endpoint"`
 	StatusCode      int       `json:"status_code"`
@@ -105,6 +106,7 @@ func ToUserErrorRequest(e *OpsErrorLog) *UserErrorRequest {
 	return &UserErrorRequest{
 		ID:              e.ID,
 		CreatedAt:       e.CreatedAt,
+		RequestID:       e.RequestID,
 		Model:           model,
 		InboundEndpoint: e.InboundEndpoint,
 		StatusCode:      e.StatusCode,

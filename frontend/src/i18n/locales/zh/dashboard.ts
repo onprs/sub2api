@@ -301,6 +301,7 @@ export default {
     exporting: '导出中...',
     preparingExport: '正在准备导出...',
     model: '模型',
+    requestId: '请求 ID',
     requestedModel: '请求',
     upstreamModel: '上游',
     reasoningEffort: '推理强度',
@@ -395,7 +396,7 @@ export default {
       modelPlaceholder: '搜索模型', allCategories: '全部分类', allStatuses: '全部状态码',
       empty: '暂无错误请求', failedToLoad: '加载错误请求失败',
       categories: {
-        auth: '认证失败', rate_limit: '限流', quota: '余额/订阅',
+        success: '成功', auth: '认证失败', rate_limit: '限流', quota: '余额/订阅',
         invalid_request: '参数错误', service_unavailable: '服务暂时不可用',
         upstream: '上游错误', internal: '平台错误', other: '其他', cyber: '安全策略',
       },

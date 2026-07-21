@@ -349,7 +349,7 @@ const groupDistributionMetric = ref<DistributionMetric>('tokens')
 const endpointDistributionMetric = ref<DistributionMetric>('tokens')
 const endpointDistributionSource = ref<EndpointSource>('inbound')
 const activeTab = ref<'usage' | 'errors'>('usage')
-const errorViewEnabled = computed(() => appStore.cachedPublicSettings?.allow_user_view_error_requests ?? false)
+const errorViewEnabled = computed(() => appStore.cachedPublicSettings?.allow_user_view_error_requests ?? true)
 
 const filters = ref<UsageQueryParams>({
   start_date: startDate.value,
@@ -638,6 +638,9 @@ const exportToCSV = async () => {
     }
     const headers = [
       'Time',
+      'Request ID',
+      'Category',
+      'Status Code',
       'API Key Name',
       'Model',
       'Reasoning Effort',
@@ -657,6 +660,9 @@ const exportToCSV = async () => {
     ]
     const rows = allLogs.map((log) => [
       log.created_at,
+      log.request_id,
+      t('usage.errors.categories.' + (log.category || 'success')),
+      log.status_code ?? 200,
       log.api_key?.name || '',
       log.model,
       formatReasoningEffort(log.reasoning_effort),
@@ -700,12 +706,15 @@ const HIDDEN_COLUMNS_KEY = 'user-usage-hidden-columns'
 
 const allColumns = computed<Column[]>(() => [
   { key: 'api_key', label: t('usage.apiKeyFilter'), sortable: false },
+  { key: 'request_id', label: t('usage.requestId'), sortable: false },
   { key: 'model', label: t('usage.model'), sortable: true },
   { key: 'reasoning_effort', label: t('usage.reasoningEffort'), sortable: false },
   { key: 'endpoint', label: t('usage.endpoint'), sortable: false },
   { key: 'ip_address', label: 'IP', sortable: false },
   { key: 'group', label: t('admin.usage.group'), sortable: false },
   { key: 'stream', label: t('usage.type'), sortable: false },
+  { key: 'category', label: t('usage.errors.category'), sortable: false },
+  { key: 'status', label: t('usage.errors.status'), sortable: false },
   { key: 'billing_mode', label: t('admin.usage.billingMode'), sortable: false },
   { key: 'tokens', label: t('usage.tokens'), sortable: false },
   { key: 'cost', label: t('usage.cost'), sortable: false },
@@ -743,6 +752,7 @@ const ERR_HIDDEN_COLUMNS_KEY = 'user-usage-error-hidden-columns'
 // key 须与 UserErrorRequestsTable 的 allColumns 一致
 const errAllColumns = computed<Column[]>(() => [
   { key: 'key_name', label: t('usage.errors.keyName') },
+  { key: 'request_id', label: t('usage.requestId') },
   { key: 'model', label: t('usage.errors.model') },
   { key: 'endpoint', label: t('usage.errors.endpoint') },
   { key: 'client_ip', label: 'IP' },
