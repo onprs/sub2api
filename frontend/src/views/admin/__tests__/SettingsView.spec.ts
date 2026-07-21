@@ -563,6 +563,7 @@ function mountView() {
         "router-link": RouterLinkStub,
         ImageUpload: ImageUploadStub,
         BackupSettings: true,
+        TicketStorageSettingsPanel: true,
       },
     },
   });
@@ -908,6 +909,7 @@ describe("admin SettingsView payment visible method controls", () => {
           ProxySelector: ProxySelectorStub,
           ImageUpload: ImageUploadStub,
           BackupSettings: true,
+          TicketStorageSettingsPanel: true,
         },
       },
     });
@@ -1001,6 +1003,7 @@ describe("admin SettingsView payment visible method controls", () => {
           ProxySelector: true,
           ImageUpload: ImageUploadStub,
           BackupSettings: true,
+          TicketStorageSettingsPanel: true,
         },
       },
     });

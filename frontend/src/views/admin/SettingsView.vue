@@ -7360,13 +7360,18 @@
         </div>
         <!-- /Tab: Email -->
 
+        <!-- Tab: Ticketing -->
+        <div v-show="activeTab === 'ticketing'">
+          <TicketStorageSettingsPanel />
+        </div>
+
         <!-- Tab: Backup -->
         <div v-show="activeTab === 'backup'">
           <BackupSettings />
         </div>
 
         <!-- Save Button -->
-        <div v-show="activeTab !== 'backup'" class="flex justify-end">
+        <div v-show="activeTab !== 'backup' && activeTab !== 'ticketing'" class="flex justify-end">
           <button
             type="submit"
             :disabled="saving || loadFailed"
@@ -7482,6 +7487,7 @@ import Toggle from "@/components/common/Toggle.vue";
 import ProxySelector from "@/components/common/ProxySelector.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
+import TicketStorageSettingsPanel from "@/components/admin/tickets/TicketStorageSettingsPanel.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import { useClipboard } from "@/composables/useClipboard";
 import { affiliatesAPI, type AffiliateAdminEntry, type SimpleUser as AffiliateSimpleUser } from "@/api/admin/affiliates";
@@ -7532,6 +7538,7 @@ type SettingsTab =
   | "gateway"
   | "payment"
   | "email"
+  | "ticketing"
   | "backup";
 const activeTab = ref<SettingsTab>("general");
 const settingsTabs = [
@@ -7543,8 +7550,13 @@ const settingsTabs = [
   { key: "gateway" as SettingsTab, icon: "server" as const },
   { key: "payment" as SettingsTab, icon: "creditCard" as const },
   { key: "email" as SettingsTab, icon: "mail" as const },
+  { key: "ticketing" as SettingsTab, icon: "inbox" as const },
   { key: "backup" as SettingsTab, icon: "database" as const },
 ];
+const requestedSettingsTab = new URLSearchParams(window.location.search).get("tab");
+if (settingsTabs.some((item) => item.key === requestedSettingsTab)) {
+  activeTab.value = requestedSettingsTab as SettingsTab;
+}
 
 const settingsTabKeyboardActions = {
   ArrowLeft: -1,

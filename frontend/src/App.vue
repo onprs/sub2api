@@ -6,7 +6,15 @@ import NavigationProgress from '@/components/common/NavigationProgress.vue'
 import AdminComplianceDialog from '@/components/admin/AdminComplianceDialog.vue'
 import { resolveRouteDocumentTitle } from '@/router/title'
 import AnnouncementPopup from '@/components/common/AnnouncementPopup.vue'
-import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore, useAdminComplianceStore, useAdminSettingsStore } from '@/stores'
+import {
+  useAppStore,
+  useAuthStore,
+  useSubscriptionStore,
+  useAnnouncementStore,
+  useAdminComplianceStore,
+  useAdminSettingsStore,
+  useTicketNotificationsStore,
+} from '@/stores'
 import { getSetupStatus } from '@/api/setup'
 
 const router = useRouter()
@@ -17,6 +25,7 @@ const subscriptionStore = useSubscriptionStore()
 const announcementStore = useAnnouncementStore()
 const adminComplianceStore = useAdminComplianceStore()
 const adminSettingsStore = useAdminSettingsStore()
+const ticketNotificationsStore = useTicketNotificationsStore()
 
 function updateDocumentTitle() {
   const customMenuItems = [
@@ -94,6 +103,7 @@ watch(
         console.error('Failed to preload subscriptions:', error)
       })
       subscriptionStore.startPolling()
+      ticketNotificationsStore.start(authStore.isAdmin)
 
       // Announcements: new login vs page refresh restore
       if (oldValue === false) {
@@ -111,6 +121,7 @@ watch(
       subscriptionStore.clear()
       announcementStore.reset()
       adminComplianceStore.reset()
+      ticketNotificationsStore.reset()
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   },
@@ -125,6 +136,7 @@ router.afterEach(() => {
 })
 
 onBeforeUnmount(() => {
+  ticketNotificationsStore.stop()
   document.removeEventListener('visibilitychange', onVisibilityChange)
   window.removeEventListener('admin-compliance-required', onAdminComplianceRequired)
 })
