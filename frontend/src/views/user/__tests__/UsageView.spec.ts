@@ -4,7 +4,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import UsageView from '../UsageView.vue'
 
 const {
-  query,
+  queryRequests,
   getStats,
   getDashboardModels,
   getDashboardSnapshotV2,
@@ -15,7 +15,7 @@ const {
   showSuccess,
   showInfo,
 } = vi.hoisted(() => ({
-  query: vi.fn(),
+  queryRequests: vi.fn(),
   getStats: vi.fn(),
   getDashboardModels: vi.fn(),
   getDashboardSnapshotV2: vi.fn(),
@@ -54,6 +54,7 @@ const messages: Record<string, string> = {
   'usage.errors.category': 'Category',
   'usage.errors.status': 'Status Code',
   'usage.errors.categories.success': 'Success',
+  'usage.errors.categories.upstream': 'Upstream error',
   'usage.ws': 'WS',
   'usage.stream': 'Stream',
   'usage.sync': 'Sync',
@@ -70,7 +71,7 @@ const messages: Record<string, string> = {
 
 vi.mock('@/api', () => ({
   usageAPI: {
-    query,
+    queryRequests,
     getStats,
     getDashboardModels,
     getDashboardSnapshotV2,
@@ -84,7 +85,13 @@ vi.mock('@/api', () => ({
 }))
 
 vi.mock('@/stores/app', () => ({
-  useAppStore: () => ({ showError, showWarning, showSuccess, showInfo }),
+  useAppStore: () => ({
+    showError,
+    showWarning,
+    showSuccess,
+    showInfo,
+    cachedPublicSettings: { allow_user_view_error_requests: true },
+  }),
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -101,6 +108,7 @@ const simpleStub = { template: '<div><slot /></div>' }
 const chartStub = { template: '<div />' }
 
 const usageLog = {
+  record_type: 'success',
   id: 1,
   request_id: 'client:req-user-export',
   status_code: 200,
@@ -131,6 +139,30 @@ const usageLog = {
   billing_mode: 'token',
   request_type: 'sync',
   stream: false,
+  platform: 'openai',
+  message: '',
+}
+
+const errorLog = {
+  ...usageLog,
+  record_type: 'error',
+  id: 501,
+  request_id: 'client:req-user-error',
+  status_code: 502,
+  category: 'upstream',
+  model: 'gpt-error',
+  actual_cost: 0,
+  total_cost: 0,
+  rate_multiplier: 0,
+  input_tokens: 0,
+  output_tokens: 0,
+  cache_creation_tokens: 0,
+  cache_read_tokens: 0,
+  first_token_ms: null,
+  duration_ms: null,
+  billing_mode: null,
+  message: 'upstream failed',
+  created_at: '2026-03-08T00:01:00Z',
 }
 
 function mountUsageView() {
@@ -143,11 +175,21 @@ function mountUsageView() {
         DateRangePicker: true,
         Icon: true,
         UsageStatsCards: chartStub,
-        UsageTable: chartStub,
+        UsageTable: {
+          name: 'UsageTable',
+          props: ['data', 'columns'],
+          emits: ['errorClick'],
+          template: '<div class="usage-table-stub"><span v-for="row in data" :key="`${row.record_type}:${row.id}`">{{ row.record_type }}:{{ row.request_id }}:{{ row.category }}:{{ row.status_code }}</span></div>',
+        },
         ModelDistributionChart: chartStub,
         GroupDistributionChart: chartStub,
         EndpointDistributionChart: chartStub,
         TokenUsageTrend: chartStub,
+        UserErrorDetailModal: {
+          name: 'UserErrorDetailModal',
+          props: ['show', 'errorId'],
+          template: '<div class="error-detail-stub">{{ show }}:{{ errorId }}</div>',
+        },
       },
     },
   })
@@ -155,7 +197,7 @@ function mountUsageView() {
 
 describe('user UsageView', () => {
   beforeEach(() => {
-    query.mockReset()
+    queryRequests.mockReset()
     getStats.mockReset()
     getDashboardModels.mockReset()
     getDashboardSnapshotV2.mockReset()
@@ -166,7 +208,7 @@ describe('user UsageView', () => {
     showSuccess.mockReset()
     showInfo.mockReset()
 
-    query.mockResolvedValue({ items: [usageLog], total: 1, pages: 1 })
+    queryRequests.mockResolvedValue({ items: [errorLog, usageLog], total: 2, pages: 1 })
     getStats.mockResolvedValue({
       total_requests: 1,
       total_input_tokens: 10,
@@ -201,7 +243,7 @@ describe('user UsageView', () => {
     mountUsageView()
     await flushPromises()
 
-    expect(query).toHaveBeenCalled()
+    expect(queryRequests).toHaveBeenCalled()
     expect(getStats).toHaveBeenCalled()
     expect(getDashboardModels).toHaveBeenCalled()
     expect(getDashboardSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
@@ -213,17 +255,30 @@ describe('user UsageView', () => {
     expect(getAvailable).toHaveBeenCalled()
   })
 
-  it('keeps request metadata visible in both usage tabs', async () => {
+  it('shows successful and failed requests in one table with shared metadata columns', async () => {
     const wrapper = mountUsageView()
     await flushPromises()
 
     const vm = wrapper.vm as any
+    expect(vm.requestRows.map((row: { record_type: string }) => row.record_type)).toEqual(['error', 'success'])
     expect(vm.visibleColumns.map((column: { key: string }) => column.key)).toEqual(expect.arrayContaining([
       'request_id',
       'category',
       'status',
+      'message',
     ]))
-    expect(vm.errVisibleColumnKeys).toContain('request_id')
+    expect(wrapper.find('.usage-table-stub').text()).toContain('error:client:req-user-error:upstream:502')
+    expect(wrapper.find('.usage-table-stub').text()).toContain('success:client:req-user-export:success:200')
+  })
+
+  it('opens the existing redacted detail dialog from an error row', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+
+    wrapper.findComponent({ name: 'UsageTable' }).vm.$emit('errorClick', 501)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.error-detail-stub').text()).toBe('true:501')
   })
 
   it('exports csv with current filters and without admin-only fields', async () => {
@@ -249,7 +304,7 @@ describe('user UsageView', () => {
     await (wrapper.vm as any).exportToCSV()
 
     expect(exportedBlob).not.toBeNull()
-    expect(query).toHaveBeenCalledWith(expect.objectContaining({
+    expect(queryRequests).toHaveBeenCalledWith(expect.objectContaining({
       page_size: 100,
       sort_by: 'created_at',
       sort_order: 'desc',
@@ -257,10 +312,13 @@ describe('user UsageView', () => {
     expect(clickSpy).toHaveBeenCalled()
     expect(showSuccess).toHaveBeenCalled()
     expect(csvContent.startsWith('\uFEFF')).toBe(true)
-    expect(csvContent.slice(1)).toBe([
-      'Time,Request ID,Category,Status Code,API Key Name,Model,Reasoning Effort,Inbound Endpoint,IP Address,Type,Billing Mode,Input Tokens,Output Tokens,Cache Read Tokens,Cache Creation Tokens,Rate Multiplier,Billed Cost,Original Cost,First Token (ms),Duration (ms)',
-      '2026-03-08T00:00:00Z,req-user-export,Success,200,demo-key,gpt-5.4,"\'-",,203.0.113.10,Sync,Token,4057,101,278272,4,1,0.09288300,0.09288300,12,345',
-    ].join('\n'))
+    const csvLines = csvContent.slice(1).split('\n')
+    expect(csvLines).toHaveLength(3)
+    expect(csvLines[0]).toContain('Time,Request ID,Category,Status Code,Platform,Message,API Key Name')
+    expect(csvLines[1]).toContain('req-user-error,Upstream error,502,openai,upstream failed,demo-key,gpt-error')
+    expect(csvLines[1]).not.toContain('0.00000000')
+    expect(csvLines[2]).toContain('req-user-export,Success,200,openai,,demo-key,gpt-5.4')
+    expect(csvLines[2]).toContain('0.09288300,0.09288300,12,345')
     expect(csvContent).toContain('Request ID')
     expect(csvContent).toContain('req-user-export')
     expect(csvContent).not.toContain('client:')
@@ -280,7 +338,7 @@ describe('user UsageView', () => {
   })
 
   it('exports historical image rows with image billing mode derived from image_count', async () => {
-    query.mockResolvedValue({
+    queryRequests.mockResolvedValue({
       items: [
         {
           ...usageLog,

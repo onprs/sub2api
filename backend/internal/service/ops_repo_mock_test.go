@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
 // opsRepoMock is a test-only OpsRepository implementation with optional function hooks.
@@ -32,6 +34,10 @@ func (m *opsRepoMock) BatchInsertErrorLogs(ctx context.Context, inputs []*OpsIns
 
 func (m *opsRepoMock) ListErrorLogs(ctx context.Context, filter *OpsErrorLogFilter) (*OpsErrorLogList, error) {
 	return &OpsErrorLogList{Errors: []*OpsErrorLog{}, Page: 1, PageSize: 20}, nil
+}
+
+func (m *opsRepoMock) ListUserRequestHistory(context.Context, pagination.PaginationParams, UserRequestHistoryFilter) ([]UserRequestRecord, int64, error) {
+	return []UserRequestRecord{}, 0, nil
 }
 
 func (m *opsRepoMock) GetErrorLogByID(ctx context.Context, id int64) (*OpsErrorLogDetail, error) {
