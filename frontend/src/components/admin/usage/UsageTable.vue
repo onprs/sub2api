@@ -49,8 +49,8 @@
         </template>
 
         <template #cell-request_id="{ row }">
-          <span class="block max-w-[220px] break-all font-mono text-xs text-gray-700 dark:text-gray-300">
-            {{ row.request_id || '-' }}
+          <span class="block max-w-[220px] whitespace-normal break-all font-mono text-xs text-gray-700 dark:text-gray-300">
+            {{ displayedRequestId(row.request_id) || '-' }}
           </span>
         </template>
 
@@ -461,6 +461,7 @@ import { formatTokenPricePerMillion } from '@/utils/usagePricing'
 import { getUsageServiceTierLabel } from '@/utils/usageServiceTier'
 import { resolveUsageRequestType } from '@/utils/usageRequestType'
 import { statusCodeBadgeClass } from '@/utils/errorBadges'
+import { formatRequestId } from '@/utils/requestId'
 import {
   LATENCY_BAR_CLASSES,
   LATENCY_BAR_FROM_CLASSES,
@@ -513,6 +514,7 @@ interface Props {
   defaultSortOrder?: 'asc' | 'desc'
   showAccountBilling?: boolean
   showUpstreamEndpoint?: boolean
+  formatRequestIds?: boolean
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
 }
@@ -524,6 +526,7 @@ const props = withDefaults(defineProps<Props>(), {
   defaultSortOrder: 'asc',
   showAccountBilling: true,
   showUpstreamEndpoint: true,
+  formatRequestIds: false,
   flat: false
 })
 const emit = defineEmits<{
@@ -534,6 +537,8 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const showAccountBilling = props.showAccountBilling
 const showUpstreamEndpoint = props.showUpstreamEndpoint
+const displayedRequestId = (requestId: string | null | undefined) =>
+  props.formatRequestIds ? formatRequestId(requestId) : requestId?.trim() ?? ''
 const ipGeoBatchLoading = ref(false)
 
 const showIpGeoToolbar = computed(() => props.columns.some((col) => col.key === 'ip_address'))

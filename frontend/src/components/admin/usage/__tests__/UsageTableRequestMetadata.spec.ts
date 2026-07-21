@@ -19,7 +19,7 @@ vi.mock('vue-i18n', async () => {
 describe('UsageTable request metadata', () => {
   it('renders the request ID, success category, and status code', () => {
     const row = {
-      request_id: 'req-visible-to-user',
+      request_id: 'client:req-visible-to-user',
       status_code: 200,
       category: 'success',
     } as AdminUsageLog
@@ -33,6 +33,7 @@ describe('UsageTable request metadata', () => {
           { key: 'status', label: 'Status' },
         ],
         flat: true,
+        formatRequestIds: true,
       },
       global: {
         stubs: {
@@ -55,6 +56,12 @@ describe('UsageTable request metadata', () => {
     })
 
     expect(wrapper.text()).toContain('req-visible-to-user')
+    expect(wrapper.text()).not.toContain('client:')
+    expect(wrapper.find('span').classes()).toEqual(expect.arrayContaining([
+      'max-w-[220px]',
+      'whitespace-normal',
+      'break-all',
+    ]))
     expect(wrapper.text()).toContain('Success')
     expect(wrapper.text()).toContain('200')
   })

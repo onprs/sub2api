@@ -65,6 +65,7 @@ import { paymentAPI, ticketsAPI, usageAPI } from '@/api'
 import subscriptionsAPI from '@/api/subscriptions'
 import { createTicketIdempotencyKey } from '@/api/tickets'
 import { useAppStore, useTicketNotificationsStore } from '@/stores'
+import { formatRequestId } from '@/utils/requestId'
 import type { PendingTicketAttachment, TicketCategory, TicketImpact } from '@/types/ticket'
 
 const { t } = useI18n()
@@ -119,7 +120,10 @@ async function loadResources(): Promise<void> {
     subscriptionsAPI.getMySubscriptions(),
   ])
   if (usage.status === 'fulfilled') {
-    usageOptions.value = usage.value.items.map((item) => ({ value: `usage:${item.id}`, label: `${t('tickets.create.usageLog')}: ${item.request_id || item.id}` }))
+    usageOptions.value = usage.value.items.map((item) => ({
+      value: `usage:${item.id}`,
+      label: `${t('tickets.create.usageLog')}: ${formatRequestId(item.request_id) || item.id}`,
+    }))
   }
   if (orders.status === 'fulfilled') {
     orderOptions.value = orders.value.data.items.map((item) => ({ value: item.id, label: item.out_trade_no || `#${item.id}` }))
