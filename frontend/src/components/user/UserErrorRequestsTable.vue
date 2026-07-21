@@ -14,6 +14,12 @@
         @sort="onSort"
         @rowClick="(row) => openDetail(row.id)"
       >
+        <template #cell-request_id="{ row }">
+          <span class="block max-w-[220px] break-all font-mono text-xs text-gray-700 dark:text-gray-300">
+            {{ row.request_id || '-' }}
+          </span>
+        </template>
+
         <template #cell-model="{ row }">
           <span v-if="row.model" class="text-sm font-medium text-gray-900 dark:text-white">{{ row.model }}</span>
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
@@ -163,10 +169,11 @@ function onSort(key: string, order: 'asc' | 'desc') {
 
 const { t } = useI18n()
 
-// 列序对齐用户端用量明细:Key → 模型 → 端点 → IP → 分组 → 类型 → 平台 → 分类
+// 列序对齐用户端用量明细:Key → 请求 ID → 模型 → 端点 → IP → 分组 → 类型 → 平台 → 分类
 // → 结果(状态→消息)→ 时间 → UA(用量明细 UA 同在时间之后的尾部)
 const allColumns = computed<Column[]>(() => [
   { key: 'key_name', label: t('usage.errors.keyName') },
+  { key: 'request_id', label: t('usage.requestId') },
   { key: 'model', label: t('usage.errors.model'), sortable: true },
   { key: 'endpoint', label: t('usage.errors.endpoint') },
   { key: 'client_ip', label: 'IP' },

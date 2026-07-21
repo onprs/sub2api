@@ -68,6 +68,7 @@ func TestToUserErrorRequest_RedactsSensitiveFields(t *testing.T) {
 	src := &OpsErrorLog{
 		ID:              123,
 		CreatedAt:       time.Unix(0, 0).UTC(),
+		RequestID:       "req_user_visible",
 		Model:           "m",
 		RequestedModel:  "rm",
 		InboundEndpoint: "/v1/chat/completions",
@@ -82,6 +83,9 @@ func TestToUserErrorRequest_RedactsSensitiveFields(t *testing.T) {
 	out := ToUserErrorRequest(src)
 	if out.ID != 123 {
 		t.Errorf("want ID=123, got %d", out.ID)
+	}
+	if out.RequestID != "req_user_visible" {
+		t.Errorf("want request_id=req_user_visible, got %q", out.RequestID)
 	}
 	if out.Model != "rm" {
 		t.Errorf("want requested_model preferred, got %q", out.Model)
@@ -110,6 +114,7 @@ func TestToUserErrorRequestDetail_WhitelistAndRedacts(t *testing.T) {
 		OpsErrorLog: OpsErrorLog{
 			ID:               999,
 			CreatedAt:        time.Unix(1000, 0).UTC(),
+			RequestID:        "req_error_detail",
 			Model:            "gpt-4",
 			RequestedModel:   "gpt-4-turbo",
 			InboundEndpoint:  "/v1/chat/completions",
@@ -138,6 +143,9 @@ func TestToUserErrorRequestDetail_WhitelistAndRedacts(t *testing.T) {
 	// 基础字段正确映射
 	if out.ID != 999 {
 		t.Errorf("want ID=999, got %d", out.ID)
+	}
+	if out.RequestID != "req_error_detail" {
+		t.Errorf("want request_id=req_error_detail, got %q", out.RequestID)
 	}
 	if out.Message != "upstream error" {
 		t.Errorf("want message=%q, got %q", "upstream error", out.Message)

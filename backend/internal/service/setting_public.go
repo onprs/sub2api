@@ -339,7 +339,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 
 		RiskControlEnabled: settings[SettingKeyRiskControlEnabled] == "true",
 
-		AllowUserViewErrorRequests: settings[SettingKeyAllowUserViewErrorRequests] == "true",
+		AllowUserViewErrorRequests: !isFalseSettingValue(settings[SettingKeyAllowUserViewErrorRequests]),
 	}, nil
 }
 
@@ -430,14 +430,15 @@ func (s *SettingService) GetModelPricingRuntime(ctx context.Context) AvailableCh
 }
 
 // IsUserErrorViewAllowed reads the user-facing error-requests visibility switch
-// directly from the settings store. Fail-closed: on error returns false (opt-in default).
+// directly from the settings store. Missing values use the product default (enabled),
+// while repository failures remain fail-closed.
 func (s *SettingService) IsUserErrorViewAllowed(ctx context.Context) bool {
 	vals, err := s.settingRepo.GetMultiple(ctx, []string{SettingKeyAllowUserViewErrorRequests})
 	if err != nil {
 		slog.Warn("failed to get allow_user_view_error_requests setting, defaulting to false", "error", err)
 		return false
 	}
-	return vals[SettingKeyAllowUserViewErrorRequests] == "true"
+	return !isFalseSettingValue(vals[SettingKeyAllowUserViewErrorRequests])
 }
 
 // PublicSettingsInjectionPayload is the JSON shape embedded into HTML as

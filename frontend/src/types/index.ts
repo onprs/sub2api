@@ -1331,6 +1331,8 @@ export interface UsageLog {
   api_key_id: number
   account_id: number | null
   request_id: string
+  status_code: number
+  category: string
   model: string
   service_tier?: string | null
   reasoning_effort?: string | null
@@ -1757,6 +1759,7 @@ export interface ExtendSubscriptionRequest {
 export interface UserErrorRequest {
   id: number
   created_at: string
+  request_id: string
   model: string
   inbound_endpoint: string
   status_code: number

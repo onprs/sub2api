@@ -49,7 +49,11 @@ const messages: Record<string, string> = {
   'usage.allApiKeys': 'All API Keys',
   'usage.apiKeyFilter': 'API Key',
   'usage.model': 'Model',
+  'usage.requestId': 'Request ID',
   'usage.type': 'Type',
+  'usage.errors.category': 'Category',
+  'usage.errors.status': 'Status Code',
+  'usage.errors.categories.success': 'Success',
   'usage.ws': 'WS',
   'usage.stream': 'Stream',
   'usage.sync': 'Sync',
@@ -99,6 +103,8 @@ const chartStub = { template: '<div />' }
 const usageLog = {
   id: 1,
   request_id: 'req-user-export',
+  status_code: 200,
+  category: 'success',
   actual_cost: 0.092883,
   total_cost: 0.092883,
   rate_multiplier: 1,
@@ -207,6 +213,19 @@ describe('user UsageView', () => {
     expect(getAvailable).toHaveBeenCalled()
   })
 
+  it('keeps request metadata visible in both usage tabs', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    expect(vm.visibleColumns.map((column: { key: string }) => column.key)).toEqual(expect.arrayContaining([
+      'request_id',
+      'category',
+      'status',
+    ]))
+    expect(vm.errVisibleColumnKeys).toContain('request_id')
+  })
+
   it('exports csv with current filters and without admin-only fields', async () => {
     const wrapper = mountUsageView()
     await flushPromises()
@@ -239,9 +258,12 @@ describe('user UsageView', () => {
     expect(showSuccess).toHaveBeenCalled()
     expect(csvContent.startsWith('\uFEFF')).toBe(true)
     expect(csvContent.slice(1)).toBe([
-      'Time,API Key Name,Model,Reasoning Effort,Inbound Endpoint,IP Address,Type,Billing Mode,Input Tokens,Output Tokens,Cache Read Tokens,Cache Creation Tokens,Rate Multiplier,Billed Cost,Original Cost,First Token (ms),Duration (ms)',
-      '2026-03-08T00:00:00Z,demo-key,gpt-5.4,"\'-",,203.0.113.10,Sync,Token,4057,101,278272,4,1,0.09288300,0.09288300,12,345',
+      'Time,Request ID,Category,Status Code,API Key Name,Model,Reasoning Effort,Inbound Endpoint,IP Address,Type,Billing Mode,Input Tokens,Output Tokens,Cache Read Tokens,Cache Creation Tokens,Rate Multiplier,Billed Cost,Original Cost,First Token (ms),Duration (ms)',
+      '2026-03-08T00:00:00Z,req-user-export,Success,200,demo-key,gpt-5.4,"\'-",,203.0.113.10,Sync,Token,4057,101,278272,4,1,0.09288300,0.09288300,12,345',
     ].join('\n'))
+    expect(csvContent).toContain('Request ID')
+    expect(csvContent).toContain('req-user-export')
+    expect(csvContent).toContain('Category,Status Code')
     expect(csvContent).toContain('IP Address')
     expect(csvContent).toContain('203.0.113.10')
     expect(csvContent).toContain('Billed Cost')

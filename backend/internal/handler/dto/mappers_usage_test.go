@@ -8,6 +8,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestUsageLogFromService_IdentifiesSuccessfulRequests(t *testing.T) {
+	t.Parallel()
+
+	log := &service.UsageLog{RequestID: "req_success", Model: "gpt-5.4"}
+	userDTO := UsageLogFromService(log)
+	adminDTO := UsageLogFromServiceAdmin(log)
+
+	require.Equal(t, 200, userDTO.StatusCode)
+	require.Equal(t, "success", userDTO.Category)
+	require.Equal(t, 200, adminDTO.StatusCode)
+	require.Equal(t, "success", adminDTO.Category)
+}
+
 func TestUsageLogFromService_IncludesOpenAIWSMode(t *testing.T) {
 	t.Parallel()
 

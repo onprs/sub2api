@@ -369,7 +369,7 @@ export const useAppStore = defineStore('app', () => {
         risk_control_enabled: false,
         service_quota_enabled: false,
         affiliate_enabled: false,
-        allow_user_view_error_requests: false,
+        allow_user_view_error_requests: true,
       })
     }
 

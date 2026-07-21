@@ -21,6 +21,11 @@
           <span class="font-medium text-gray-500 dark:text-dark-400">{{ t('usage.errors.time') }}</span>
           <p class="mt-0.5 text-gray-900 dark:text-dark-100">{{ formatDateTime(detail.created_at) }}</p>
         </div>
+        <!-- Request ID -->
+        <div>
+          <span class="font-medium text-gray-500 dark:text-dark-400">{{ t('usage.requestId') }}</span>
+          <p class="mt-0.5 break-all font-mono text-xs text-gray-900 dark:text-dark-100">{{ detail.request_id || '-' }}</p>
+        </div>
         <!-- Model -->
         <div>
           <span class="font-medium text-gray-500 dark:text-dark-400">{{ t('usage.errors.model') }}</span>

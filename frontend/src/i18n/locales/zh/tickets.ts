@@ -17,7 +17,7 @@ export default {
     create: {
       title: '新建工单', category: '问题类型', impact: '影响情况', subject: '主题', description: '问题描述',
       subjectPlaceholder: '简要说明遇到的问题', bodyPlaceholder: '请说明复现步骤、预期结果和实际结果',
-      relatedResource: '关联资源', usageLog: '使用记录 ID', apiKey: 'API 密钥 ID', order: '订单 ID', subscription: '订阅 ID',
+      relatedResource: '关联资源', relatedUsage: '关联使用记录', usageLog: '使用记录 ID', apiKey: 'API 密钥 ID', order: '订单 ID', subscription: '订阅 ID',
       optionalIdPlaceholder: '可选，仅填写属于您的记录 ID', submit: '提交工单', submitting: '正在提交', cancel: '取消',
       leaveWarning: '当前内容尚未提交，确定离开吗？', failed: '创建工单失败'
     },
