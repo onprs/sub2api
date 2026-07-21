@@ -97,6 +97,7 @@
               <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
               <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
               <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+              <span v-if="item.badge && item.badge() > 0" :class="sidebarCollapsed ? 'absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500' : 'ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white'" :aria-label="String(item.badge())">{{ sidebarCollapsed ? '' : formatNavBadge(item.badge()) }}</span>
             </router-link>
           </template>
         </div>
@@ -122,6 +123,7 @@
             <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
             <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
             <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+            <span v-if="item.badge && item.badge() > 0" :class="sidebarCollapsed ? 'absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500' : 'ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white'" :aria-label="String(item.badge())">{{ sidebarCollapsed ? '' : formatNavBadge(item.badge()) }}</span>
           </router-link>
         </div>
       </template>
@@ -142,6 +144,7 @@
             <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
             <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
             <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+            <span v-if="item.badge && item.badge() > 0" :class="sidebarCollapsed ? 'absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500' : 'ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white'" :aria-label="String(item.badge())">{{ sidebarCollapsed ? '' : formatNavBadge(item.badge()) }}</span>
           </router-link>
         </div>
       </template>
@@ -191,7 +194,7 @@
 import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
+import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore, useTicketNotificationsStore } from '@/stores'
 import VersionBadge from '@/components/common/VersionBadge.vue'
 import { sanitizeSvg } from '@/utils/sanitize'
 import { sanitizeUrl } from '@/utils/url'
@@ -217,6 +220,7 @@ interface NavItem {
    * 开关切换时菜单自动更新。
    */
   featureFlag?: () => boolean | undefined
+  badge?: () => number
 }
 
 // applyFeatureFlags 递归过滤掉 featureFlag() === false 的节点（含子节点）。
@@ -242,6 +246,7 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 const onboardingStore = useOnboardingStore()
 const adminSettingsStore = useAdminSettingsStore()
+const ticketNotificationsStore = useTicketNotificationsStore()
 const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
 
 const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
@@ -355,6 +360,28 @@ const UserIcon = {
         })
       ]
     )
+}
+
+const TicketBubbleIcon = {
+  render: () =>
+    h('svg', { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' }, [
+      h('path', {
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+        d: 'M8.625 12h.008m3.742 0h.008m3.742 0h.008M21 12c0 4.556-4.03 8.25-9 8.25a9.8 9.8 0 01-2.555-.337A5.97 5.97 0 015.41 20.97a5.9 5.9 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z'
+      })
+    ])
+}
+
+const TicketInboxIcon = {
+  render: () =>
+    h('svg', { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' }, [
+      h('path', {
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+        d: 'M20.25 13.5V6.75A2.25 2.25 0 0018 4.5H6a2.25 2.25 0 00-2.25 2.25v6.75m16.5 0v3.75A2.25 2.25 0 0118 19.5H6a2.25 2.25 0 01-2.25-2.25V13.5m16.5 0h-3.086a1.5 1.5 0 00-1.061.44l-1.06 1.06a1.5 1.5 0 01-1.061.44h-4.064A1.5 1.5 0 018.907 15l-1.06-1.06a1.5 1.5 0 00-1.061-.44H3.75'
+      })
+    ])
 }
 
 const UsersIcon = {
@@ -689,6 +716,7 @@ const flagRiskControl = makeSidebarFlag(FeatureFlags.riskControl)
 const flagOpsMonitoring = () => adminSettingsStore.opsMonitoringEnabled
 const flagAdminPayment = () => adminSettingsStore.paymentEnabled
 const flagBatchImageAccess = () => canUseBatchImage.value
+const flagTicketing = () => ticketNotificationsStore.capabilities?.enabled
 
 // buildSelfNavItems 构造用户自己的导航项（用户端主菜单和管理员的"我的账户"子菜单共享这组声明）。
 // withDashboard=true 时包含仪表盘（用户端），false 时不含（管理员的个人区已经有独立仪表盘入口）。
@@ -712,6 +740,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/orders', label: t('nav.myOrders'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment },
     { path: '/redeem', label: t('nav.redeem'), icon: GiftIcon, hideInSimpleMode: true },
     { path: '/affiliate', label: t('nav.affiliate'), icon: UsersIcon, hideInSimpleMode: true, featureFlag: flagAffiliate },
+    { path: '/tickets', label: t('nav.ticketFeedback'), icon: TicketBubbleIcon, featureFlag: flagTicketing, badge: () => ticketNotificationsStore.userUnread },
     { path: '/profile', label: t('nav.profile'), icon: UserIcon },
     ...customMenuItemsForUser.value.map((item): NavItem => ({
       path: `/custom/${item.id}`,
@@ -757,6 +786,7 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/dashboard', label: t('nav.dashboard'), icon: DashboardIcon },
     { path: '/admin/ops', label: t('nav.ops'), icon: ChartIcon, featureFlag: flagOpsMonitoring },
     { path: '/admin/users', label: t('nav.users'), icon: UsersIcon, hideInSimpleMode: true },
+    { path: '/admin/tickets', label: t('nav.ticketManagement'), icon: TicketInboxIcon, featureFlag: flagTicketing, badge: () => ticketNotificationsStore.adminActionRequired },
     { path: '/admin/groups', label: t('nav.groups'), icon: FolderIcon, hideInSimpleMode: true },
     {
       path: '/admin/channels',
@@ -857,6 +887,10 @@ function handleMenuItemClick(itemPath: string) {
   if (selector && onboardingStore.isCurrentStep(selector)) {
     onboardingStore.nextStep(500)
   }
+}
+
+function formatNavBadge(value: number): string {
+  return value > 99 ? '99+' : String(value)
 }
 
 function isActive(path: string): boolean {

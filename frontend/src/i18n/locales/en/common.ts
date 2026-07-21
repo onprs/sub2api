@@ -161,6 +161,8 @@ export default {
     usage: 'Usage',
     redeem: 'Redeem',
     affiliate: 'Affiliate Rebates',
+    ticketFeedback: 'Support Tickets',
+    ticketManagement: 'Ticket Management',
     affiliateManagement: 'Affiliate Rebates',
     affiliateInviteRecords: 'Invite Records',
     affiliateRebateRecords: 'Rebate Records',

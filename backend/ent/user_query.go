@@ -22,6 +22,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
+	"github.com/Wei-Shaw/sub2api/ent/ticket"
+	"github.com/Wei-Shaw/sub2api/ent/ticketattachment"
+	"github.com/Wei-Shaw/sub2api/ent/ticketevent"
+	"github.com/Wei-Shaw/sub2api/ent/ticketmessage"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/userallowedgroup"
@@ -50,6 +54,11 @@ type UserQuery struct {
 	withAuthIdentities        *AuthIdentityQuery
 	withPendingAuthSessions   *PendingAuthSessionQuery
 	withPlatformQuotas        *UserPlatformQuotaQuery
+	withRequestedTickets      *TicketQuery
+	withAssignedTickets       *TicketQuery
+	withTicketMessages        *TicketMessageQuery
+	withTicketEvents          *TicketEventQuery
+	withTicketAttachments     *TicketAttachmentQuery
 	withUserAllowedGroups     *UserAllowedGroupQuery
 	modifiers                 []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
@@ -374,6 +383,116 @@ func (_q *UserQuery) QueryPlatformQuotas() *UserPlatformQuotaQuery {
 	return query
 }
 
+// QueryRequestedTickets chains the current query on the "requested_tickets" edge.
+func (_q *UserQuery) QueryRequestedTickets() *TicketQuery {
+	query := (&TicketClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(ticket.Table, ticket.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.RequestedTicketsTable, user.RequestedTicketsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryAssignedTickets chains the current query on the "assigned_tickets" edge.
+func (_q *UserQuery) QueryAssignedTickets() *TicketQuery {
+	query := (&TicketClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(ticket.Table, ticket.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.AssignedTicketsTable, user.AssignedTicketsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryTicketMessages chains the current query on the "ticket_messages" edge.
+func (_q *UserQuery) QueryTicketMessages() *TicketMessageQuery {
+	query := (&TicketMessageClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(ticketmessage.Table, ticketmessage.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.TicketMessagesTable, user.TicketMessagesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryTicketEvents chains the current query on the "ticket_events" edge.
+func (_q *UserQuery) QueryTicketEvents() *TicketEventQuery {
+	query := (&TicketEventClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(ticketevent.Table, ticketevent.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.TicketEventsTable, user.TicketEventsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryTicketAttachments chains the current query on the "ticket_attachments" edge.
+func (_q *UserQuery) QueryTicketAttachments() *TicketAttachmentQuery {
+	query := (&TicketAttachmentClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(ticketattachment.Table, ticketattachment.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.TicketAttachmentsTable, user.TicketAttachmentsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
 // QueryUserAllowedGroups chains the current query on the "user_allowed_groups" edge.
 func (_q *UserQuery) QueryUserAllowedGroups() *UserAllowedGroupQuery {
 	query := (&UserAllowedGroupClient{config: _q.config}).Query()
@@ -601,6 +720,11 @@ func (_q *UserQuery) Clone() *UserQuery {
 		withAuthIdentities:        _q.withAuthIdentities.Clone(),
 		withPendingAuthSessions:   _q.withPendingAuthSessions.Clone(),
 		withPlatformQuotas:        _q.withPlatformQuotas.Clone(),
+		withRequestedTickets:      _q.withRequestedTickets.Clone(),
+		withAssignedTickets:       _q.withAssignedTickets.Clone(),
+		withTicketMessages:        _q.withTicketMessages.Clone(),
+		withTicketEvents:          _q.withTicketEvents.Clone(),
+		withTicketAttachments:     _q.withTicketAttachments.Clone(),
 		withUserAllowedGroups:     _q.withUserAllowedGroups.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
@@ -751,6 +875,61 @@ func (_q *UserQuery) WithPlatformQuotas(opts ...func(*UserPlatformQuotaQuery)) *
 	return _q
 }
 
+// WithRequestedTickets tells the query-builder to eager-load the nodes that are connected to
+// the "requested_tickets" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UserQuery) WithRequestedTickets(opts ...func(*TicketQuery)) *UserQuery {
+	query := (&TicketClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withRequestedTickets = query
+	return _q
+}
+
+// WithAssignedTickets tells the query-builder to eager-load the nodes that are connected to
+// the "assigned_tickets" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UserQuery) WithAssignedTickets(opts ...func(*TicketQuery)) *UserQuery {
+	query := (&TicketClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withAssignedTickets = query
+	return _q
+}
+
+// WithTicketMessages tells the query-builder to eager-load the nodes that are connected to
+// the "ticket_messages" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UserQuery) WithTicketMessages(opts ...func(*TicketMessageQuery)) *UserQuery {
+	query := (&TicketMessageClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withTicketMessages = query
+	return _q
+}
+
+// WithTicketEvents tells the query-builder to eager-load the nodes that are connected to
+// the "ticket_events" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UserQuery) WithTicketEvents(opts ...func(*TicketEventQuery)) *UserQuery {
+	query := (&TicketEventClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withTicketEvents = query
+	return _q
+}
+
+// WithTicketAttachments tells the query-builder to eager-load the nodes that are connected to
+// the "ticket_attachments" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UserQuery) WithTicketAttachments(opts ...func(*TicketAttachmentQuery)) *UserQuery {
+	query := (&TicketAttachmentClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withTicketAttachments = query
+	return _q
+}
+
 // WithUserAllowedGroups tells the query-builder to eager-load the nodes that are connected to
 // the "user_allowed_groups" edge. The optional arguments are used to configure the query builder of the edge.
 func (_q *UserQuery) WithUserAllowedGroups(opts ...func(*UserAllowedGroupQuery)) *UserQuery {
@@ -840,7 +1019,7 @@ func (_q *UserQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*User, e
 	var (
 		nodes       = []*User{}
 		_spec       = _q.querySpec()
-		loadedTypes = [14]bool{
+		loadedTypes = [19]bool{
 			_q.withAPIKeys != nil,
 			_q.withRedeemCodes != nil,
 			_q.withSubscriptions != nil,
@@ -854,6 +1033,11 @@ func (_q *UserQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*User, e
 			_q.withAuthIdentities != nil,
 			_q.withPendingAuthSessions != nil,
 			_q.withPlatformQuotas != nil,
+			_q.withRequestedTickets != nil,
+			_q.withAssignedTickets != nil,
+			_q.withTicketMessages != nil,
+			_q.withTicketEvents != nil,
+			_q.withTicketAttachments != nil,
 			_q.withUserAllowedGroups != nil,
 		}
 	)
@@ -970,6 +1154,41 @@ func (_q *UserQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*User, e
 		if err := _q.loadPlatformQuotas(ctx, query, nodes,
 			func(n *User) { n.Edges.PlatformQuotas = []*UserPlatformQuota{} },
 			func(n *User, e *UserPlatformQuota) { n.Edges.PlatformQuotas = append(n.Edges.PlatformQuotas, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withRequestedTickets; query != nil {
+		if err := _q.loadRequestedTickets(ctx, query, nodes,
+			func(n *User) { n.Edges.RequestedTickets = []*Ticket{} },
+			func(n *User, e *Ticket) { n.Edges.RequestedTickets = append(n.Edges.RequestedTickets, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withAssignedTickets; query != nil {
+		if err := _q.loadAssignedTickets(ctx, query, nodes,
+			func(n *User) { n.Edges.AssignedTickets = []*Ticket{} },
+			func(n *User, e *Ticket) { n.Edges.AssignedTickets = append(n.Edges.AssignedTickets, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withTicketMessages; query != nil {
+		if err := _q.loadTicketMessages(ctx, query, nodes,
+			func(n *User) { n.Edges.TicketMessages = []*TicketMessage{} },
+			func(n *User, e *TicketMessage) { n.Edges.TicketMessages = append(n.Edges.TicketMessages, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withTicketEvents; query != nil {
+		if err := _q.loadTicketEvents(ctx, query, nodes,
+			func(n *User) { n.Edges.TicketEvents = []*TicketEvent{} },
+			func(n *User, e *TicketEvent) { n.Edges.TicketEvents = append(n.Edges.TicketEvents, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withTicketAttachments; query != nil {
+		if err := _q.loadTicketAttachments(ctx, query, nodes,
+			func(n *User) { n.Edges.TicketAttachments = []*TicketAttachment{} },
+			func(n *User, e *TicketAttachment) { n.Edges.TicketAttachments = append(n.Edges.TicketAttachments, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -1408,6 +1627,171 @@ func (_q *UserQuery) loadPlatformQuotas(ctx context.Context, query *UserPlatform
 		node, ok := nodeids[fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "user_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UserQuery) loadRequestedTickets(ctx context.Context, query *TicketQuery, nodes []*User, init func(*User), assign func(*User, *Ticket)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(ticket.FieldUserID)
+	}
+	query.Where(predicate.Ticket(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.RequestedTicketsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.UserID
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "user_id" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "user_id" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UserQuery) loadAssignedTickets(ctx context.Context, query *TicketQuery, nodes []*User, init func(*User), assign func(*User, *Ticket)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(ticket.FieldAssigneeID)
+	}
+	query.Where(predicate.Ticket(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.AssignedTicketsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.AssigneeID
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "assignee_id" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "assignee_id" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UserQuery) loadTicketMessages(ctx context.Context, query *TicketMessageQuery, nodes []*User, init func(*User), assign func(*User, *TicketMessage)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(ticketmessage.FieldAuthorID)
+	}
+	query.Where(predicate.TicketMessage(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.TicketMessagesColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.AuthorID
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "author_id" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "author_id" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UserQuery) loadTicketEvents(ctx context.Context, query *TicketEventQuery, nodes []*User, init func(*User), assign func(*User, *TicketEvent)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(ticketevent.FieldActorID)
+	}
+	query.Where(predicate.TicketEvent(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.TicketEventsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.ActorID
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "actor_id" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "actor_id" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UserQuery) loadTicketAttachments(ctx context.Context, query *TicketAttachmentQuery, nodes []*User, init func(*User), assign func(*User, *TicketAttachment)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(ticketattachment.FieldUploadedBy)
+	}
+	query.Where(predicate.TicketAttachment(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.TicketAttachmentsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.UploadedBy
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "uploaded_by" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "uploaded_by" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

@@ -1530,6 +1530,272 @@ var (
 		Columns:    TLSFingerprintProfilesColumns,
 		PrimaryKey: []*schema.Column{TLSFingerprintProfilesColumns[0]},
 	}
+	// TicketsColumns holds the columns for the "tickets" table.
+	TicketsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "ticket_no", Type: field.TypeString, Unique: true, Size: 32},
+		{Name: "requester_email", Type: field.TypeString, Size: 255, Default: ""},
+		{Name: "requester_username", Type: field.TypeString, Size: 100, Default: ""},
+		{Name: "subject", Type: field.TypeString, Size: 100},
+		{Name: "category", Type: field.TypeString, Size: 32},
+		{Name: "impact", Type: field.TypeString, Size: 24},
+		{Name: "priority", Type: field.TypeString, Size: 16, Default: "normal"},
+		{Name: "status", Type: field.TypeString, Size: 24, Default: "open"},
+		{Name: "request_id", Type: field.TypeString, Size: 128, Default: ""},
+		{Name: "usage_log_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "api_key_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "api_key_name", Type: field.TypeString, Size: 100, Default: ""},
+		{Name: "payment_order_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "payment_order_no", Type: field.TypeString, Size: 100, Default: ""},
+		{Name: "user_subscription_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "subscription_name", Type: field.TypeString, Size: 200, Default: ""},
+		{Name: "last_public_message_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "last_activity_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "action_required_since", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "user_notification_seq", Type: field.TypeInt64, Default: 0},
+		{Name: "user_last_read_seq", Type: field.TypeInt64, Default: 0},
+		{Name: "resolved_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "reopen_deadline", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "closed_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "version", Type: field.TypeInt64, Default: 1},
+		{Name: "user_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "assignee_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// TicketsTable holds the schema information for the "tickets" table.
+	TicketsTable = &schema.Table{
+		Name:       "tickets",
+		Columns:    TicketsColumns,
+		PrimaryKey: []*schema.Column{TicketsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "tickets_users_requested_tickets",
+				Columns:    []*schema.Column{TicketsColumns[28]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "tickets_users_assigned_tickets",
+				Columns:    []*schema.Column{TicketsColumns[29]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "ticket_user_id_last_public_message_at",
+				Unique:  false,
+				Columns: []*schema.Column{TicketsColumns[28], TicketsColumns[19]},
+			},
+			{
+				Name:    "ticket_user_id_status_last_public_message_at",
+				Unique:  false,
+				Columns: []*schema.Column{TicketsColumns[28], TicketsColumns[10], TicketsColumns[19]},
+			},
+			{
+				Name:    "ticket_status_priority_action_required_since",
+				Unique:  false,
+				Columns: []*schema.Column{TicketsColumns[10], TicketsColumns[9], TicketsColumns[21]},
+			},
+			{
+				Name:    "ticket_assignee_id_status_action_required_since",
+				Unique:  false,
+				Columns: []*schema.Column{TicketsColumns[29], TicketsColumns[10], TicketsColumns[21]},
+			},
+			{
+				Name:    "ticket_category_status_last_activity_at",
+				Unique:  false,
+				Columns: []*schema.Column{TicketsColumns[7], TicketsColumns[10], TicketsColumns[20]},
+			},
+			{
+				Name:    "ticket_request_id",
+				Unique:  false,
+				Columns: []*schema.Column{TicketsColumns[11]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "request_id <> ''",
+				},
+			},
+			{
+				Name:    "ticket_payment_order_id",
+				Unique:  false,
+				Columns: []*schema.Column{TicketsColumns[15]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "payment_order_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "ticket_user_subscription_id",
+				Unique:  false,
+				Columns: []*schema.Column{TicketsColumns[17]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "user_subscription_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "ticket_reopen_deadline",
+				Unique:  false,
+				Columns: []*schema.Column{TicketsColumns[25]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "status = 'resolved'",
+				},
+			},
+		},
+	}
+	// TicketAttachmentsColumns holds the columns for the "ticket_attachments" table.
+	TicketAttachmentsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "upload_token", Type: field.TypeString, Unique: true, Size: 64},
+		{Name: "uploader_role", Type: field.TypeString, Size: 16},
+		{Name: "state", Type: field.TypeString, Size: 16, Default: "pending"},
+		{Name: "storage_provider", Type: field.TypeString, Size: 16},
+		{Name: "object_key", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "original_name", Type: field.TypeString, Size: 255},
+		{Name: "content_type", Type: field.TypeString, Size: 100},
+		{Name: "byte_size", Type: field.TypeInt64},
+		{Name: "sha256", Type: field.TypeString, Size: 64},
+		{Name: "expires_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "ticket_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "message_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "uploaded_by", Type: field.TypeInt64, Nullable: true},
+	}
+	// TicketAttachmentsTable holds the schema information for the "ticket_attachments" table.
+	TicketAttachmentsTable = &schema.Table{
+		Name:       "ticket_attachments",
+		Columns:    TicketAttachmentsColumns,
+		PrimaryKey: []*schema.Column{TicketAttachmentsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "ticket_attachments_tickets_attachments",
+				Columns:    []*schema.Column{TicketAttachmentsColumns[12]},
+				RefColumns: []*schema.Column{TicketsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "ticket_attachments_ticket_messages_attachments",
+				Columns:    []*schema.Column{TicketAttachmentsColumns[13]},
+				RefColumns: []*schema.Column{TicketMessagesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "ticket_attachments_users_ticket_attachments",
+				Columns:    []*schema.Column{TicketAttachmentsColumns[14]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "ticketattachment_storage_provider_object_key",
+				Unique:  true,
+				Columns: []*schema.Column{TicketAttachmentsColumns[4], TicketAttachmentsColumns[5]},
+			},
+			{
+				Name:    "ticketattachment_state_expires_at",
+				Unique:  false,
+				Columns: []*schema.Column{TicketAttachmentsColumns[3], TicketAttachmentsColumns[10]},
+			},
+			{
+				Name:    "ticketattachment_ticket_id_message_id",
+				Unique:  false,
+				Columns: []*schema.Column{TicketAttachmentsColumns[12], TicketAttachmentsColumns[13]},
+			},
+			{
+				Name:    "ticketattachment_uploaded_by_uploader_role_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{TicketAttachmentsColumns[14], TicketAttachmentsColumns[2], TicketAttachmentsColumns[11]},
+			},
+		},
+	}
+	// TicketEventsColumns holds the columns for the "ticket_events" table.
+	TicketEventsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "actor_role", Type: field.TypeString, Size: 16},
+		{Name: "event_type", Type: field.TypeString, Size: 40},
+		{Name: "from_status", Type: field.TypeString, Nullable: true, Size: 24},
+		{Name: "to_status", Type: field.TypeString, Nullable: true, Size: 24},
+		{Name: "payload", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "visibility", Type: field.TypeString, Size: 16},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "ticket_id", Type: field.TypeInt64},
+		{Name: "actor_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// TicketEventsTable holds the schema information for the "ticket_events" table.
+	TicketEventsTable = &schema.Table{
+		Name:       "ticket_events",
+		Columns:    TicketEventsColumns,
+		PrimaryKey: []*schema.Column{TicketEventsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "ticket_events_tickets_events",
+				Columns:    []*schema.Column{TicketEventsColumns[8]},
+				RefColumns: []*schema.Column{TicketsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "ticket_events_users_ticket_events",
+				Columns:    []*schema.Column{TicketEventsColumns[9]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "ticketevent_ticket_id",
+				Unique:  false,
+				Columns: []*schema.Column{TicketEventsColumns[8]},
+			},
+			{
+				Name:    "ticketevent_ticket_id_visibility",
+				Unique:  false,
+				Columns: []*schema.Column{TicketEventsColumns[8], TicketEventsColumns[6]},
+			},
+		},
+	}
+	// TicketMessagesColumns holds the columns for the "ticket_messages" table.
+	TicketMessagesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "author_role", Type: field.TypeString, Size: 16},
+		{Name: "visibility", Type: field.TypeString, Size: 16},
+		{Name: "author_name", Type: field.TypeString, Size: 100, Default: ""},
+		{Name: "body", Type: field.TypeString, Size: 5000, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "ticket_id", Type: field.TypeInt64},
+		{Name: "author_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// TicketMessagesTable holds the schema information for the "ticket_messages" table.
+	TicketMessagesTable = &schema.Table{
+		Name:       "ticket_messages",
+		Columns:    TicketMessagesColumns,
+		PrimaryKey: []*schema.Column{TicketMessagesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "ticket_messages_tickets_messages",
+				Columns:    []*schema.Column{TicketMessagesColumns[6]},
+				RefColumns: []*schema.Column{TicketsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "ticket_messages_users_ticket_messages",
+				Columns:    []*schema.Column{TicketMessagesColumns[7]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "ticketmessage_ticket_id",
+				Unique:  false,
+				Columns: []*schema.Column{TicketMessagesColumns[6]},
+			},
+			{
+				Name:    "ticketmessage_ticket_id_visibility",
+				Unique:  false,
+				Columns: []*schema.Column{TicketMessagesColumns[6], TicketMessagesColumns[2]},
+			},
+		},
+	}
 	// UsageCleanupTasksColumns holds the columns for the "usage_cleanup_tasks" table.
 	UsageCleanupTasksColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2076,6 +2342,10 @@ var (
 		SettingsTable,
 		SubscriptionPlansTable,
 		TLSFingerprintProfilesTable,
+		TicketsTable,
+		TicketAttachmentsTable,
+		TicketEventsTable,
+		TicketMessagesTable,
 		UsageCleanupTasksTable,
 		UsageLogsTable,
 		UsersTable,
@@ -2200,6 +2470,27 @@ func init() {
 	}
 	TLSFingerprintProfilesTable.Annotation = &entsql.Annotation{
 		Table: "tls_fingerprint_profiles",
+	}
+	TicketsTable.ForeignKeys[0].RefTable = UsersTable
+	TicketsTable.ForeignKeys[1].RefTable = UsersTable
+	TicketsTable.Annotation = &entsql.Annotation{
+		Table: "tickets",
+	}
+	TicketAttachmentsTable.ForeignKeys[0].RefTable = TicketsTable
+	TicketAttachmentsTable.ForeignKeys[1].RefTable = TicketMessagesTable
+	TicketAttachmentsTable.ForeignKeys[2].RefTable = UsersTable
+	TicketAttachmentsTable.Annotation = &entsql.Annotation{
+		Table: "ticket_attachments",
+	}
+	TicketEventsTable.ForeignKeys[0].RefTable = TicketsTable
+	TicketEventsTable.ForeignKeys[1].RefTable = UsersTable
+	TicketEventsTable.Annotation = &entsql.Annotation{
+		Table: "ticket_events",
+	}
+	TicketMessagesTable.ForeignKeys[0].RefTable = TicketsTable
+	TicketMessagesTable.ForeignKeys[1].RefTable = UsersTable
+	TicketMessagesTable.Annotation = &entsql.Annotation{
+		Table: "ticket_messages",
 	}
 	UsageCleanupTasksTable.Annotation = &entsql.Annotation{
 		Table: "usage_cleanup_tasks",

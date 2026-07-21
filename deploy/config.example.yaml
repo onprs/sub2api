@@ -67,6 +67,31 @@ server:
 run_mode: "standard"
 
 # =============================================================================
+# Ticketing Configuration
+# 工单配置
+# =============================================================================
+ticketing:
+  # Disable this only when the whole ticket feature must be unavailable.
+  # 仅在需要完全关闭工单功能时设为 false；附件可在管理后台单独关闭。
+  enabled: true
+  resolved_auto_close_days: 7
+  polling_hint_seconds: 30
+  detail_polling_seconds: 15
+  # Fixed private storage root for local attachments. The admin UI cannot change it.
+  # 本机附件固定私有目录，管理后台不能修改此路径。
+  local_storage_root: "./data/ticket-attachments"
+  # Set true only when every application instance mounts the same persistent volume.
+  # 仅当所有应用实例挂载同一持久卷时设为 true。
+  local_storage_shared: false
+  attachments:
+    max_file_bytes: 5242880
+    max_files_per_message: 3
+    max_ticket_bytes: 31457280
+    max_image_pixels: 40000000
+    pending_expiry_hours: 24
+    cleanup_batch_size: 100
+
+# =============================================================================
 # CORS Configuration
 # 跨域资源共享 (CORS) 配置
 # =============================================================================

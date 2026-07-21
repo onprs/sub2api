@@ -232,6 +232,53 @@ func TestMigrationsRunner_AuthIdentityAndPaymentSchemaStayAligned(t *testing.T) 
 	requireIndexAbsent(t, tx, "payment_orders", "paymentorder_out_trade_no_unique")
 }
 
+func TestMigrationsRunner_TicketingSchemaStaysAligned(t *testing.T) {
+	tx := testTx(t)
+
+	requireColumn(t, tx, "tickets", "ticket_no", "character varying", 32, false)
+	requireColumn(t, tx, "tickets", "user_id", "bigint", 0, true)
+	requireColumn(t, tx, "tickets", "assignee_id", "bigint", 0, true)
+	requireColumn(t, tx, "tickets", "status", "character varying", 24, false)
+	requireColumn(t, tx, "tickets", "action_required_since", "timestamp with time zone", 0, true)
+	requireColumn(t, tx, "tickets", "user_notification_seq", "bigint", 0, false)
+	requireColumn(t, tx, "tickets", "user_last_read_seq", "bigint", 0, false)
+	requireColumn(t, tx, "tickets", "version", "bigint", 0, false)
+	requireForeignKeyOnDelete(t, tx, "tickets", "user_id", "users", "SET NULL")
+	requireForeignKeyOnDelete(t, tx, "tickets", "assignee_id", "users", "SET NULL")
+	requireConstraintDefinitionContains(t, tx, "tickets", "tickets_category_check", "api_issue", "feature_request")
+	requireConstraintDefinitionContains(t, tx, "tickets", "tickets_status_check", "waiting_user", "resolved", "closed")
+	requireConstraintDefinitionContains(t, tx, "tickets", "tickets_notification_seq_check", "user_last_read_seq", "user_notification_seq")
+	requireIndex(t, tx, "tickets", "idx_tickets_user_public_activity")
+	requireIndex(t, tx, "tickets", "idx_tickets_admin_queue")
+	requireIndex(t, tx, "tickets", "idx_tickets_resolved_auto_close")
+
+	requireColumn(t, tx, "ticket_messages", "ticket_id", "bigint", 0, false)
+	requireColumn(t, tx, "ticket_messages", "body", "text", 0, false)
+	requireColumn(t, tx, "ticket_messages", "visibility", "character varying", 16, false)
+	requireForeignKeyOnDelete(t, tx, "ticket_messages", "ticket_id", "tickets", "CASCADE")
+	requireForeignKeyOnDelete(t, tx, "ticket_messages", "author_id", "users", "SET NULL")
+	requireConstraintDefinitionContains(t, tx, "ticket_messages", "ticket_messages_user_visibility_check", "author_role", "visibility", "public")
+	requireIndex(t, tx, "ticket_messages", "idx_ticket_messages_ticket_visibility_id")
+
+	requireColumn(t, tx, "ticket_events", "payload", "jsonb", 0, false)
+	requireColumn(t, tx, "ticket_events", "event_type", "character varying", 40, false)
+	requireForeignKeyOnDelete(t, tx, "ticket_events", "ticket_id", "tickets", "CASCADE")
+	requireForeignKeyOnDelete(t, tx, "ticket_events", "actor_id", "users", "SET NULL")
+	requireIndex(t, tx, "ticket_events", "idx_ticket_events_ticket_visibility_id")
+
+	requireColumn(t, tx, "ticket_attachments", "upload_token", "character varying", 64, false)
+	requireColumn(t, tx, "ticket_attachments", "storage_provider", "character varying", 16, false)
+	requireColumn(t, tx, "ticket_attachments", "object_key", "text", 0, false)
+	requireColumn(t, tx, "ticket_attachments", "expires_at", "timestamp with time zone", 0, true)
+	requireForeignKeyOnDelete(t, tx, "ticket_attachments", "uploaded_by", "users", "SET NULL")
+	requireForeignKeyOnDelete(t, tx, "ticket_attachments", "ticket_id", "tickets", "CASCADE")
+	requireForeignKeyOnDelete(t, tx, "ticket_attachments", "message_id", "ticket_messages", "CASCADE")
+	requireConstraintDefinitionContains(t, tx, "ticket_attachments", "ticket_attachments_lifecycle_check", "pending", "attached", "deleting")
+	requireIndex(t, tx, "ticket_attachments", "idx_ticket_attachments_pending_expiry")
+	requireIndex(t, tx, "ticket_attachments", "idx_ticket_attachments_uploader_activity")
+	requireIndex(t, tx, "ticket_attachments", "ticket_attachments_storage_object_unique")
+}
+
 func requireIndex(t *testing.T, tx *sql.Tx, table, index string) {
 	t.Helper()
 

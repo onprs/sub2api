@@ -279,6 +279,40 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/tickets',
+    name: 'Tickets',
+    component: () => import('@/views/user/TicketsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Tickets',
+      titleKey: 'tickets.title',
+      descriptionKey: 'tickets.description'
+    }
+  },
+  {
+    path: '/tickets/new',
+    name: 'TicketCreate',
+    component: () => import('@/views/user/TicketCreateView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'New Ticket',
+      titleKey: 'tickets.create.title'
+    }
+  },
+  {
+    path: '/tickets/:ticketNo',
+    name: 'TicketDetail',
+    component: () => import('@/views/user/TicketDetailView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Ticket Detail',
+      titleKey: 'tickets.detail.title'
+    }
+  },
+  {
     path: '/profile',
     name: 'Profile',
     component: () => import('@/views/user/ProfileView.vue'),
@@ -437,6 +471,29 @@ const routes: RouteRecordRaw[] = [
       title: 'User Management',
       titleKey: 'admin.users.title',
       descriptionKey: 'admin.users.description'
+    }
+  },
+  {
+    path: '/admin/tickets',
+    name: 'AdminTickets',
+    component: () => import('@/views/admin/TicketsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Ticket Management',
+      titleKey: 'admin.tickets.title',
+      descriptionKey: 'admin.tickets.description'
+    }
+  },
+  {
+    path: '/admin/tickets/:ticketNo',
+    name: 'AdminTicketDetail',
+    component: () => import('@/views/admin/TicketDetailView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Ticket Detail',
+      titleKey: 'admin.tickets.detail.title'
     }
   },
   {

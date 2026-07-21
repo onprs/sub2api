@@ -42,6 +42,37 @@ describe('AppSidebar scroll position persistence', () => {
   })
 })
 
+describe('AppSidebar ticket navigation', () => {
+  it('places user tickets between affiliate and profile', () => {
+    const affiliate = componentSource.indexOf("path: '/affiliate'")
+    const tickets = componentSource.indexOf("path: '/tickets'")
+    const profile = componentSource.indexOf("path: '/profile'")
+    expect(affiliate).toBeGreaterThan(-1)
+    expect(tickets).toBeGreaterThan(affiliate)
+    expect(profile).toBeGreaterThan(tickets)
+  })
+
+  it('places the admin queue immediately after user management', () => {
+    const users = componentSource.indexOf("path: '/admin/users'")
+    const tickets = componentSource.indexOf("path: '/admin/tickets'")
+    const groups = componentSource.indexOf("path: '/admin/groups'")
+    expect(tickets).toBeGreaterThan(users)
+    expect(groups).toBeGreaterThan(tickets)
+  })
+
+  it('binds user and admin ticket navigation to the deployment capability', () => {
+    expect(componentSource).toContain('const flagTicketing = () => ticketNotificationsStore.capabilities?.enabled')
+    expect(componentSource.match(/featureFlag: flagTicketing/g)).toHaveLength(2)
+  })
+
+  it('renders 99+ badges when expanded and a red dot when collapsed', () => {
+    expect(componentSource).toContain("return value > 99 ? '99+' : String(value)")
+    expect(componentSource).toContain("sidebarCollapsed ? 'absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500'")
+    expect(componentSource).toContain('ticketNotificationsStore.userUnread')
+    expect(componentSource).toContain('ticketNotificationsStore.adminActionRequired')
+  })
+})
+
 describe('AppSidebar header styles', () => {
   it('does not clip the version badge dropdown', () => {
     const sidebarHeaderBlockMatch = styleSource.match(/\.sidebar-header\s*\{[\s\S]*?\n {2}\}/)

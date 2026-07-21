@@ -95,6 +95,23 @@ func RegisterUserRoutes(
 			usage.POST("/dashboard/api-keys-usage", h.Usage.DashboardAPIKeysUsage)
 		}
 
+		// 工单反馈
+		tickets := authenticated.Group("/tickets")
+		{
+			tickets.GET("/capabilities", h.Ticket.Capabilities)
+			tickets.Use(h.Ticket.RequireEnabled)
+			tickets.GET("/counts", h.Ticket.Counts)
+			tickets.GET("", h.Ticket.List)
+			tickets.POST("", h.Ticket.Create)
+			tickets.POST("/attachments", h.Ticket.UploadAttachment)
+			tickets.GET("/:ticket_no", h.Ticket.Get)
+			tickets.GET("/:ticket_no/attachments/:attachment_id", h.Ticket.DownloadAttachment)
+			tickets.POST("/:ticket_no/read", h.Ticket.MarkRead)
+			tickets.POST("/:ticket_no/messages", h.Ticket.Reply)
+			tickets.POST("/:ticket_no/close", h.Ticket.Close)
+			tickets.POST("/:ticket_no/reopen", h.Ticket.Reopen)
+		}
+
 		// 公告（用户可见）
 		announcements := authenticated.Group("/announcements")
 		{

@@ -38,6 +38,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
+	"github.com/Wei-Shaw/sub2api/ent/ticket"
+	"github.com/Wei-Shaw/sub2api/ent/ticketattachment"
+	"github.com/Wei-Shaw/sub2api/ent/ticketevent"
+	"github.com/Wei-Shaw/sub2api/ent/ticketmessage"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -915,6 +919,114 @@ func (f TraverseTLSFingerprintProfile) Traverse(ctx context.Context, q ent.Query
 	return fmt.Errorf("unexpected query type %T. expect *ent.TLSFingerprintProfileQuery", q)
 }
 
+// The TicketFunc type is an adapter to allow the use of ordinary function as a Querier.
+type TicketFunc func(context.Context, *ent.TicketQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f TicketFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.TicketQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.TicketQuery", q)
+}
+
+// The TraverseTicket type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseTicket func(context.Context, *ent.TicketQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseTicket) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseTicket) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.TicketQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.TicketQuery", q)
+}
+
+// The TicketAttachmentFunc type is an adapter to allow the use of ordinary function as a Querier.
+type TicketAttachmentFunc func(context.Context, *ent.TicketAttachmentQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f TicketAttachmentFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.TicketAttachmentQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.TicketAttachmentQuery", q)
+}
+
+// The TraverseTicketAttachment type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseTicketAttachment func(context.Context, *ent.TicketAttachmentQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseTicketAttachment) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseTicketAttachment) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.TicketAttachmentQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.TicketAttachmentQuery", q)
+}
+
+// The TicketEventFunc type is an adapter to allow the use of ordinary function as a Querier.
+type TicketEventFunc func(context.Context, *ent.TicketEventQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f TicketEventFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.TicketEventQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.TicketEventQuery", q)
+}
+
+// The TraverseTicketEvent type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseTicketEvent func(context.Context, *ent.TicketEventQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseTicketEvent) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseTicketEvent) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.TicketEventQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.TicketEventQuery", q)
+}
+
+// The TicketMessageFunc type is an adapter to allow the use of ordinary function as a Querier.
+type TicketMessageFunc func(context.Context, *ent.TicketMessageQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f TicketMessageFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.TicketMessageQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.TicketMessageQuery", q)
+}
+
+// The TraverseTicketMessage type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseTicketMessage func(context.Context, *ent.TicketMessageQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseTicketMessage) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseTicketMessage) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.TicketMessageQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.TicketMessageQuery", q)
+}
+
 // The UsageCleanupTaskFunc type is an adapter to allow the use of ordinary function as a Querier.
 type UsageCleanupTaskFunc func(context.Context, *ent.UsageCleanupTaskQuery) (ent.Value, error)
 
@@ -1194,6 +1306,14 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.SubscriptionPlanQuery, predicate.SubscriptionPlan, subscriptionplan.OrderOption]{typ: ent.TypeSubscriptionPlan, tq: q}, nil
 	case *ent.TLSFingerprintProfileQuery:
 		return &query[*ent.TLSFingerprintProfileQuery, predicate.TLSFingerprintProfile, tlsfingerprintprofile.OrderOption]{typ: ent.TypeTLSFingerprintProfile, tq: q}, nil
+	case *ent.TicketQuery:
+		return &query[*ent.TicketQuery, predicate.Ticket, ticket.OrderOption]{typ: ent.TypeTicket, tq: q}, nil
+	case *ent.TicketAttachmentQuery:
+		return &query[*ent.TicketAttachmentQuery, predicate.TicketAttachment, ticketattachment.OrderOption]{typ: ent.TypeTicketAttachment, tq: q}, nil
+	case *ent.TicketEventQuery:
+		return &query[*ent.TicketEventQuery, predicate.TicketEvent, ticketevent.OrderOption]{typ: ent.TypeTicketEvent, tq: q}, nil
+	case *ent.TicketMessageQuery:
+		return &query[*ent.TicketMessageQuery, predicate.TicketMessage, ticketmessage.OrderOption]{typ: ent.TypeTicketMessage, tq: q}, nil
 	case *ent.UsageCleanupTaskQuery:
 		return &query[*ent.UsageCleanupTaskQuery, predicate.UsageCleanupTask, usagecleanuptask.OrderOption]{typ: ent.TypeUsageCleanupTask, tq: q}, nil
 	case *ent.UsageLogQuery:
