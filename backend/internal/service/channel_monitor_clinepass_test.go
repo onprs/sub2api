@@ -23,6 +23,20 @@ func TestChannelMonitorClinePassProviderAdapter(t *testing.T) {
 	require.ErrorIs(t, validateAPIMode(MonitorProviderClinePass, MonitorAPIModeMessages), ErrChannelMonitorInvalidAPIMode)
 }
 
+func TestChannelMonitorClinePassCreateRejectsVersionedCurrentServicePath(t *testing.T) {
+	params := ChannelMonitorCreateParams{
+		Provider:        MonitorProviderClinePass,
+		APIMode:         MonitorAPIModeChatCompletions,
+		Endpoint:        "https://api.onprs.top/v1",
+		APIKey:          "local-group-key",
+		PrimaryModel:    "cline-pass/glm-5.2",
+		IntervalSeconds: 60,
+		JitterSeconds:   0,
+	}
+
+	require.ErrorIs(t, validateCreateParams(params), ErrChannelMonitorEndpointPath)
+}
+
 func TestRunCheckForModelClinePassUsesBufferedContract(t *testing.T) {
 	oldClient := monitorHTTPClient
 	monitorHTTPClient = &http.Client{Transport: http.DefaultTransport}

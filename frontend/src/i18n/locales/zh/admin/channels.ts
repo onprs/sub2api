@@ -526,7 +526,7 @@ export default {
         endpoint: '上游地址',
         endpointPlaceholder: 'https://api.example.com',
         useCurrentDomain: '使用当前服务',
-        clinePassEndpointHint: '推荐使用当前服务的 /v1 地址做端到端检测，并选择本站 ClinePass 分组 Key。仅直连上游时才填写 https://api.cline.bot/api/v1。',
+        clinePassEndpointHint: '推荐使用当前服务的基础域名（不带路径）做端到端检测，并选择本站 ClinePass 分组 Key。检测器会自动拼接 /chat/completions。',
         apiKey: 'API Key',
         apiKeyPlaceholder: '请输入 API Key',
         apiKeyEditPlaceholder: '留空表示不修改',

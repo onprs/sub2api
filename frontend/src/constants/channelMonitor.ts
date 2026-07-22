@@ -69,7 +69,7 @@ export function monitorProviderKeyGroupPlatform(provider: Provider): GroupPlatfo
 
 export function monitorCurrentDomainEndpoint(provider: Provider, origin: string): string {
   const normalized = origin.replace(/\/+$/, '')
-  if (provider === PROVIDER_OPENCODE_GO || provider === PROVIDER_CLINEPASS) {
+  if (provider === PROVIDER_OPENCODE_GO) {
     return `${normalized}/v1`
   }
   return normalized

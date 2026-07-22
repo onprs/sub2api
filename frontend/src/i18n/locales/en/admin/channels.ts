@@ -526,7 +526,7 @@ export default {
         endpoint: 'Endpoint',
         endpointPlaceholder: 'https://api.example.com',
         useCurrentDomain: 'Use current service',
-        clinePassEndpointHint: 'Use the current service /v1 endpoint with a local ClinePass group key for end-to-end checks. Use https://api.cline.bot/api/v1 only for direct upstream checks.',
+        clinePassEndpointHint: 'Use the current service origin without a path and select a local ClinePass group key. The monitor appends /chat/completions automatically.',
         apiKey: 'API Key',
         apiKeyPlaceholder: 'Enter API Key',
         apiKeyEditPlaceholder: 'Leave blank to keep current key',
