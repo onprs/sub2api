@@ -52,6 +52,12 @@ func (s *AccountUsageService) GetStoredUsageSnapshot(account *Account, now time.
 		}
 		return usage, nil
 
+	case PlatformClinePass:
+		if usage := buildClinePassUsageFromExtra(account.Extra, now); usage != nil {
+			return usage, nil
+		}
+		return nil, ErrObserverQuotaUnavailable
+
 	default:
 		return nil, ErrObserverQuotaUnavailable
 	}

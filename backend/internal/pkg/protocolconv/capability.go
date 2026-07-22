@@ -51,10 +51,18 @@ const (
 	LossWarn
 )
 
+// ChatExtensions enables explicitly negotiated non-standard Chat Completions
+// fields. The zero value is fully disabled so existing providers keep standard
+// protocol behavior.
+type ChatExtensions struct {
+	AnthropicCacheControl bool
+}
+
 // Options apply to one conversion. Strict loss handling is the default because
 // the zero value uses LossError.
 type Options struct {
-	LossPolicy LossPolicy
+	LossPolicy     LossPolicy
+	ChatExtensions ChatExtensions
 	// SourceModel supplies model metadata carried outside the JSON body, as in
 	// Google GenAI model-action URLs. It is never inferred by the converter.
 	SourceModel string

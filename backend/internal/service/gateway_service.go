@@ -1267,8 +1267,11 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 
 	// If no account has model_mapping, return nil (use default)
 	if !hasAnyMapping {
-		if platform == PlatformOpenCodeGo {
+		if platform == PlatformOpenCodeGo || platform == PlatformClinePass {
 			models := OpenCodeGoDefaultModelIDs()
+			if platform == PlatformClinePass {
+				models = ClinePassDefaultModelIDs()
+			}
 			if s.modelsListCache != nil {
 				s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
 				modelsListCacheStoreTotal.Add(1)

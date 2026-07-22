@@ -302,6 +302,7 @@ type AccountUsageService struct {
 	cache                         *UsageCache
 	identityCache                 IdentityCache
 	tlsFPProfileService           *TLSFingerprintProfileService
+	clinePassClient               *ClinePassClient
 	openCodeGoConsoleSummaryFetch OpenCodeGoConsoleSummaryFetcher
 }
 
@@ -317,6 +318,7 @@ func NewAccountUsageService(
 	cache *UsageCache,
 	identityCache IdentityCache,
 	tlsFPProfileService *TLSFingerprintProfileService,
+	clinePassClient *ClinePassClient,
 ) *AccountUsageService {
 	return &AccountUsageService{
 		accountRepo:             accountRepo,
@@ -329,6 +331,7 @@ func NewAccountUsageService(
 		cache:                   cache,
 		identityCache:           identityCache,
 		tlsFPProfileService:     tlsFPProfileService,
+		clinePassClient:         clinePassClient,
 	}
 }
 
@@ -350,6 +353,10 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
 		return usage, err
+	}
+
+	if account.IsClinePassAPIKey() {
+		return s.getClinePassUsage(ctx, account, forceProbe)
 	}
 
 	if account.Platform == PlatformOpenAI && account.Type == AccountTypeOAuth {

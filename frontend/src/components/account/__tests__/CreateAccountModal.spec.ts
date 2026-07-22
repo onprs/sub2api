@@ -186,6 +186,32 @@ describe('CreateAccountModal', () => {
     expect(payload.extra).toBeUndefined()
   })
 
+  it('creates ClinePass as API key only with the official API root and no console flow', async () => {
+    const wrapper = mountModal()
+    const platformButton = wrapper.findAll('button').find((button) => button.text().includes('ClinePass'))
+    expect(platformButton).toBeDefined()
+    await platformButton!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('OAuth')
+    expect(wrapper.find('[data-testid="opencode-go-console-panel"]').exists()).toBe(false)
+    await wrapper.get('[data-tour="account-form-name"]').setValue('ClinePass Key')
+    const keyInput = wrapper.findAll('input[type="password"]').find((input) =>
+      (input.attributes('placeholder') || '').includes('sk-')
+    )
+    expect(keyInput).toBeDefined()
+    await keyInput!.setValue('sk-clinepass')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload.platform).toBe('clinepass')
+    expect(payload.type).toBe('apikey')
+    expect(payload.credentials.base_url).toBe('https://api.cline.bot/api/v1')
+    expect(payload.credentials.api_key).toBe('sk-clinepass')
+    expect(createOpenCodeGoConsoleAuthTicketMock).not.toHaveBeenCalled()
+  })
+
   it('shows OpenCode Go official usage sync step after creation and generates helper command', async () => {
     const wrapper = mountModal()
 

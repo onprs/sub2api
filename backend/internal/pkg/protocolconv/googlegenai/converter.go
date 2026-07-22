@@ -49,7 +49,7 @@ func (c *Converter) DecodeRequest(body []byte, options protocolconv.Options) (*i
 	if wire.SystemInstruction != nil {
 		for _, part := range wire.SystemInstruction.Parts {
 			if part.Text != "" {
-				out.SystemInstruction = append(out.SystemInstruction, ir.ContentPart{Type: ir.ContentText, Text: part.Text})
+				out.SystemInstruction = append(out.SystemInstruction, ir.ContentPart{Type: ir.ContentText, Text: part.Text, CacheHint: cloneRaw(part.CacheControl)})
 			}
 		}
 	}

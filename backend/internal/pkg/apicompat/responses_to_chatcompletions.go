@@ -333,9 +333,10 @@ func chatUsageFromResponsesUsage(u *ResponsesUsage) *ChatUsage {
 		return nil
 	}
 	usage := &ChatUsage{
-		PromptTokens:     u.InputTokens,
-		CompletionTokens: u.OutputTokens,
-		TotalTokens:      u.InputTokens + u.OutputTokens,
+		PromptTokens:             u.InputTokens,
+		CompletionTokens:         u.OutputTokens,
+		TotalTokens:              u.InputTokens + u.OutputTokens,
+		CacheCreationInputTokens: u.CacheCreationInputTokens,
 	}
 	usage.PromptTokensDetails = promptDetailsFromResponses(u.InputTokensDetails)
 	if u.CacheCreationInputTokens > 0 {

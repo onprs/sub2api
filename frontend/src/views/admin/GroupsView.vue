@@ -3618,6 +3618,7 @@ const platformOptions = computed(() => [
   { value: "antigravity", label: "Antigravity" },
   { value: "grok", label: "Grok" },
   { value: "opencode_go", label: "OpenCode Go" },
+  { value: "clinepass", label: "ClinePass" },
 ]);
 
 const platformFilterOptions = computed(() => [
@@ -3628,6 +3629,7 @@ const platformFilterOptions = computed(() => [
   { value: "antigravity", label: "Antigravity" },
   { value: "grok", label: "Grok" },
   { value: "opencode_go", label: "OpenCode Go" },
+  { value: "clinepass", label: "ClinePass" },
 ]);
 
 const editStatusOptions = computed(() => [

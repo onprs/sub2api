@@ -196,6 +196,22 @@ function buildOpenCodeGoAccount() {
   } as any
 }
 
+function buildClinePassAccount() {
+  return {
+    ...buildAccount(),
+    id: 6,
+    name: 'ClinePass Key',
+    platform: 'clinepass',
+    credentials: {
+      api_key: 'sk-clinepass-existing',
+      base_url: 'https://api.cline.bot/api/v1',
+      model_mapping: {
+        'cline-pass/glm-5.2': 'cline-pass/glm-5.2'
+      }
+    }
+  } as any
+}
+
 function buildOpenCodeGoConsoleSummary() {
   return {
     authorized: true,
@@ -345,6 +361,27 @@ function mountModal(account = buildAccount()) {
 describe('EditAccountModal', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
+  })
+
+  it('edits ClinePass API key settings without exposing OpenCode Console controls', async () => {
+    const account = buildClinePassAccount()
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+    expect(wrapper.findAll('input').some((input) => input.element.value === 'https://api.cline.bot/api/v1')).toBe(true)
+    expect(wrapper.find('[data-testid="opencode-go-console-panel"]').exists()).toBe(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials.base_url).toBe('https://api.cline.bot/api/v1')
+    expect(credentials.model_mapping).toEqual({
+      'cline-pass/glm-5.2': 'cline-pass/glm-5.2'
+    })
   })
 
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {

@@ -35,6 +35,9 @@ class VerifyReleaseBinaryTest(unittest.TestCase):
                 "https://opencode.ai/zen/go/v1",
                 "https://opencode.ai/docs/go/",
                 "channel_monitor_provider_opencode_go",
+                "clinepass",
+                "https://api.cline.bot/api/v1",
+                "channel_monitor_provider_clinepass",
             ]
         )
         binary = self.write_binary(payload)

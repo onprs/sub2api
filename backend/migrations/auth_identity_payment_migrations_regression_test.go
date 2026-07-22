@@ -214,6 +214,23 @@ func TestMigration154aAddsSparkShadowIndexesConcurrently(t *testing.T) {
 	require.Contains(t, sql, "deleted_at IS NULL")
 }
 
+func TestMigration181AddsClinePassPlatformContractsIdempotently(t *testing.T) {
+	content, err := FS.ReadFile("181_add_clinepass_platform.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	for _, platform := range []string{"anthropic", "openai", "opencode_go", "clinepass", "gemini", "antigravity", "grok"} {
+		require.Contains(t, sql, "'"+platform+"'")
+	}
+	require.Contains(t, sql, "DROP CONSTRAINT IF EXISTS user_platform_quotas_platform_check")
+	require.Contains(t, sql, "DROP CONSTRAINT IF EXISTS channel_monitors_provider_check")
+	require.Contains(t, sql, "DROP CONSTRAINT IF EXISTS channel_monitor_request_templates_provider_check")
+	require.Contains(t, sql, "ON CONFLICT (provider, name) DO NOTHING")
+	require.Contains(t, sql, "CHECK (platform IN (")
+	require.Contains(t, sql, "CHECK (provider IN (")
+	require.NotContains(t, sql, "'unknown'")
+}
+
 func TestMigration173AllowsCyberBlockedUsageRequestType(t *testing.T) {
 	entries, err := FS.ReadDir(".")
 	require.NoError(t, err)

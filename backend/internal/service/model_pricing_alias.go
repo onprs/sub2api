@@ -45,6 +45,15 @@ func billingModelPricingCandidates(model string) []string {
 	}
 
 	add(raw)
+	if strings.HasPrefix(raw, "cline-pass/") {
+		suffix := strings.TrimPrefix(raw, "cline-pass/")
+		add("clinepass/" + suffix)
+		add(suffix)
+	} else if strings.HasPrefix(raw, "clinepass/") {
+		suffix := strings.TrimPrefix(raw, "clinepass/")
+		add("cline-pass/" + suffix)
+		add(suffix)
+	}
 	lookupKey := billingModelAliasLookupKey(raw)
 	add(lookupKey)
 	canonical := canonicalBillingModelForPricing(raw)
@@ -59,6 +68,7 @@ func billingModelAliasLookupKey(model string) string {
 	key := strings.ToLower(strings.TrimSpace(model))
 	key = strings.TrimLeft(key, "/")
 	key = trimOpenCodeGoModelProviderPrefix(key)
+	key = trimClinePassModelProviderPrefix(key)
 	key = strings.TrimPrefix(key, "models/")
 	key = trimOpenCodeGoModelProviderPrefix(key)
 	key = strings.TrimPrefix(key, "publishers/google/models/")
@@ -68,7 +78,15 @@ func billingModelAliasLookupKey(model string) string {
 	if idx := strings.LastIndex(key, "/models/"); idx != -1 {
 		key = key[idx+len("/models/"):]
 	}
-	return strings.TrimSpace(strings.TrimLeft(trimOpenCodeGoModelProviderPrefix(key), "/"))
+	key = trimOpenCodeGoModelProviderPrefix(key)
+	key = trimClinePassModelProviderPrefix(key)
+	return strings.TrimSpace(strings.TrimLeft(key, "/"))
+}
+
+func trimClinePassModelProviderPrefix(key string) string {
+	key = strings.TrimPrefix(key, "cline-pass/")
+	key = strings.TrimPrefix(key, "clinepass/")
+	return key
 }
 
 func trimOpenCodeGoModelProviderPrefix(key string) string {

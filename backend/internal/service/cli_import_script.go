@@ -369,6 +369,8 @@ func DefaultModelIDsForPlatform(platform string) []string {
 		return ids
 	case PlatformOpenCodeGo:
 		return OpenCodeGoDefaultModelIDs()
+	case PlatformClinePass:
+		return ClinePassDefaultModelIDs()
 	case PlatformAntigravity:
 		models := antigravity.DefaultModels()
 		ids := make([]string, 0, len(models))

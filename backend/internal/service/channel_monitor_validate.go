@@ -62,8 +62,8 @@ func validateJitter(jitterSec, intervalSec int) error {
 //   - scheme 强制 https（拒绝 http，避免明文凭证 + 部分 SSRF 利用面）
 //   - 默认必须为 origin（无 path/query/fragment），防止用户填 https://api.openai.com/v1
 //     导致 joinURL 拼出 /v1/v1/chat/completions
-//   - OpenCode Go 的官方 API root 自带 base path（/zen/go/v1），本站转发也需要 /v1，
-//     所以只对 opencode_go 允许非空 path，但仍拒绝 query/fragment。
+//   - OpenCode Go 和 ClinePass 的官方 API root 自带 base path，
+//     所以只对这两个 provider 允许非空 path，但仍拒绝 query/fragment。
 //   - hostname 不能是 localhost/metadata 等已知元数据 hostname
 //   - 解析所有 IP，任一落在 loopback/RFC1918/link-local/ULA 段即拒绝（防 SSRF）
 //
@@ -83,7 +83,7 @@ func validateEndpointForProvider(provider, ep string) error {
 	if u.Host == "" {
 		return ErrChannelMonitorInvalidEndpoint
 	}
-	if provider != MonitorProviderOpenCodeGo && u.Path != "" && u.Path != "/" {
+	if provider != MonitorProviderOpenCodeGo && provider != MonitorProviderClinePass && u.Path != "" && u.Path != "/" {
 		return ErrChannelMonitorEndpointPath
 	}
 	if u.RawQuery != "" || u.Fragment != "" {
@@ -103,7 +103,7 @@ func validateEndpointForProvider(provider, ep string) error {
 	return nil
 }
 
-// validateEndpoint 保留旧调用点语义：非 OpenCode Go provider 只接受 origin。
+// validateEndpoint 保留旧调用点语义：未指定 provider 时只接受 origin。
 func validateEndpoint(ep string) error {
 	return validateEndpointForProvider("", ep)
 }

@@ -1682,6 +1682,7 @@ func setDefaults() {
 		"open.bigmodel.cn",
 		"api.minimaxi.com",
 		"opencode.ai",
+		"api.cline.bot",
 		"generativelanguage.googleapis.com",
 		"cloudcode-pa.googleapis.com",
 		"*.openai.azure.com",

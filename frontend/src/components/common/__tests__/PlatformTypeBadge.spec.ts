@@ -28,6 +28,17 @@ describe('PlatformTypeBadge', () => {
     expect(wrapper.find('svg[stroke="currentColor"]').exists()).toBe(true)
   })
 
+  it('renders ClinePass as an independent API key platform', () => {
+    testLocale.value = 'en'
+    const wrapper = mount(PlatformTypeBadge, {
+      props: { platform: 'clinepass', type: 'apikey' }
+    })
+
+    expect(wrapper.text()).toContain('ClinePass')
+    expect(wrapper.text()).toContain('API Key')
+    expect(wrapper.text()).not.toContain('OpenCode Go')
+  })
+
   it('uses Chinese account type labels without exposing the backend value', () => {
     testLocale.value = 'zh'
     const wrapper = mount(PlatformTypeBadge, {

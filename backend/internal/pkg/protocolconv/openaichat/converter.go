@@ -73,7 +73,12 @@ func (c *Converter) DecodeRequest(body []byte, options protocolconv.Options) (*i
 }
 
 func (c *Converter) EncodeRequest(request *ir.Request, options protocolconv.Options) ([]byte, []protocolconv.Warning, error) {
+	cacheHints, cacheWarnings, err := collectChatCacheHints(request, options)
+	if err != nil {
+		return nil, cacheWarnings, err
+	}
 	canonical, warnings, err := c.responses.EncodeRequest(request, options)
+	warnings = append(cacheWarnings, warnings...)
 	if err != nil {
 		return nil, warnings, err
 	}
@@ -90,6 +95,10 @@ func (c *Converter) EncodeRequest(request *ir.Request, options protocolconv.Opti
 		wire.StreamOptions = &apicompat.ChatStreamOptions{IncludeUsage: true}
 	}
 	wire.Messages = injectChatToolResultContent(wire.Messages, request)
+	wire.Messages, err = injectChatCacheHints(wire.Messages, cacheHints)
+	if err != nil {
+		return nil, warnings, err
+	}
 	signatureWarnings, err := checkSignatures(request.Messages, options)
 	warnings = append(warnings, signatureWarnings...)
 	if err != nil {
@@ -156,6 +165,108 @@ func checkSignatures(messages []ir.Message, options protocolconv.Options) ([]pro
 		}
 	}
 	return warnings, nil
+}
+
+type chatCacheHint struct {
+	text string
+	hint json.RawMessage
+	path string
+}
+
+func collectChatCacheHints(request *ir.Request, options protocolconv.Options) ([]chatCacheHint, []protocolconv.Warning, error) {
+	if request == nil {
+		return nil, nil, nil
+	}
+	var hints []chatCacheHint
+	var warnings []protocolconv.Warning
+	collect := func(parts []ir.ContentPart, basePath string) error {
+		for i, part := range parts {
+			if len(part.CacheHint) == 0 {
+				continue
+			}
+			path := fmt.Sprintf("%s[%d].cache_control", basePath, i)
+			if part.Type != ir.ContentText || !options.ChatExtensions.AnthropicCacheControl {
+				if options.LossPolicy == protocolconv.LossWarn {
+					warnings = append(warnings, protocolconv.Warning{Code: protocolconv.WarningUnsupportedCapability, Protocol: protocolconv.ProtocolOpenAIChat, Capability: protocolconv.CapabilityCacheControl, Path: path, Message: "Chat Completions cache_control extension is not enabled for this field"})
+					continue
+				}
+				return &protocolconv.Error{Code: protocolconv.ErrorUnsupportedCapability, Protocol: protocolconv.ProtocolOpenAIChat, Capability: protocolconv.CapabilityCacheControl, Path: path, Message: "Chat Completions cache_control extension is not enabled for this field"}
+			}
+			hints = append(hints, chatCacheHint{text: part.Text, hint: append(json.RawMessage(nil), part.CacheHint...), path: path})
+		}
+		return nil
+	}
+	if err := collect(request.SystemInstruction, "system"); err != nil {
+		return nil, warnings, err
+	}
+	for i, message := range request.Messages {
+		if err := collect(message.Content, fmt.Sprintf("messages[%d].content", i)); err != nil {
+			return nil, warnings, err
+		}
+	}
+	for i, tool := range request.Tools {
+		if len(tool.CacheHint) == 0 {
+			continue
+		}
+		path := fmt.Sprintf("tools[%d].cache_control", i)
+		if options.LossPolicy == protocolconv.LossWarn {
+			warnings = append(warnings, protocolconv.Warning{Code: protocolconv.WarningUnsupportedCapability, Protocol: protocolconv.ProtocolOpenAIChat, Capability: protocolconv.CapabilityCacheControl, Path: path, Message: "Chat content-block cache_control cannot represent tool-level cache hints"})
+			continue
+		}
+		return nil, warnings, &protocolconv.Error{Code: protocolconv.ErrorUnsupportedCapability, Protocol: protocolconv.ProtocolOpenAIChat, Capability: protocolconv.CapabilityCacheControl, Path: path, Message: "Chat content-block cache_control cannot represent tool-level cache hints"}
+	}
+	return hints, warnings, nil
+}
+
+func injectChatCacheHints(messages []apicompat.ChatMessage, hints []chatCacheHint) ([]apicompat.ChatMessage, error) {
+	if len(hints) == 0 {
+		return messages, nil
+	}
+	index := 0
+	for messageIndex := range messages {
+		if index >= len(hints) || len(messages[messageIndex].Content) == 0 {
+			continue
+		}
+		var text string
+		if err := json.Unmarshal(messages[messageIndex].Content, &text); err == nil {
+			if text == hints[index].text {
+				parts := []apicompat.ChatContentPart{{Type: "text", Text: text, CacheControl: hints[index].hint}}
+				encoded, marshalErr := json.Marshal(parts)
+				if marshalErr != nil {
+					return nil, marshalErr
+				}
+				messages[messageIndex].Content = encoded
+				index++
+			}
+			continue
+		}
+		var parts []apicompat.ChatContentPart
+		if err := json.Unmarshal(messages[messageIndex].Content, &parts); err != nil {
+			continue
+		}
+		changed := false
+		for partIndex := range parts {
+			if index >= len(hints) {
+				break
+			}
+			if parts[partIndex].Type == "text" && parts[partIndex].Text == hints[index].text {
+				parts[partIndex].CacheControl = hints[index].hint
+				index++
+				changed = true
+			}
+		}
+		if changed {
+			encoded, err := json.Marshal(parts)
+			if err != nil {
+				return nil, err
+			}
+			messages[messageIndex].Content = encoded
+		}
+	}
+	if index != len(hints) {
+		return nil, &protocolconv.Error{Code: protocolconv.ErrorConversion, Protocol: protocolconv.ProtocolOpenAIChat, Capability: protocolconv.CapabilityCacheControl, Path: hints[index].path, Message: "failed to attach cache_control to encoded Chat content block"}
+	}
+	return messages, nil
 }
 
 func injectChatReasoning(request *ir.Request, messages []apicompat.ChatMessage) {

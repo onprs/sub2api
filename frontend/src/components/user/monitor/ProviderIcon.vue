@@ -1,6 +1,13 @@
 <template>
+  <Icon
+    v-if="provider === 'clinepass'"
+    name="chat"
+    size="lg"
+    :style="{ width: `${size}px`, height: `${size}px` }"
+    aria-hidden="true"
+  />
   <svg
-    v-if="iconInfo"
+    v-else-if="iconInfo"
     :width="size"
     :height="size"
     viewBox="0 0 24 24"
@@ -27,6 +34,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Provider } from '@/api/admin/channelMonitor'
+import Icon from '@/components/icons/Icon.vue'
 
 interface IconData {
   paths: string[]

@@ -239,6 +239,7 @@ const defaultClientTab = computed(() => {
     case 'antigravity':
       return 'claude'
     case 'opencode_go':
+    case 'clinepass':
       return 'opencode'
     default:
       return 'claude'
@@ -336,6 +337,7 @@ const clientTabs = computed((): TabConfig[] => {
       ]
     case 'antigravity':
     case 'opencode_go':
+    case 'clinepass':
       return [
         { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
         { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
@@ -387,6 +389,7 @@ const platformDescription = computed(() => {
       return t('keys.useKeyModal.gemini.description')
     case 'antigravity':
     case 'opencode_go':
+    case 'clinepass':
       if (activeClientTab.value === 'codex') {
         return t('keys.useKeyModal.openai.description')
       }
@@ -396,9 +399,9 @@ const platformDescription = computed(() => {
       if (activeClientTab.value === 'gemini') {
         return t('keys.useKeyModal.gemini.description')
       }
-      return props.platform === 'antigravity'
-        ? t('keys.useKeyModal.antigravity.description')
-        : t('keys.useKeyModal.opencodeGo.description')
+      if (props.platform === 'antigravity') return t('keys.useKeyModal.antigravity.description')
+      if (props.platform === 'opencode_go') return t('keys.useKeyModal.opencodeGo.description')
+      return t('keys.useKeyModal.openai.description')
     default:
       return t('keys.useKeyModal.description')
   }
@@ -426,6 +429,7 @@ const platformNote = computed(() => {
         ? t('keys.useKeyModal.openai.noteWindows')
         : t('keys.useKeyModal.openai.note')
     case 'opencode_go':
+    case 'clinepass':
       if (activeClientTab.value === 'gemini') {
         return t('keys.useKeyModal.gemini.note')
       }
@@ -540,6 +544,8 @@ const currentFiles = computed((): FileConfig[] => {
         ]
       case 'opencode_go':
         return [generateOpenCodeConfig('opencode-go', apiBase, apiKey)]
+      case 'clinepass':
+        return [generateOpenCodeConfig('openai', apiBase, apiKey)]
       default:
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
     }
@@ -568,6 +574,7 @@ const currentFiles = computed((): FileConfig[] => {
       }
       return generateAnthropicFiles(baseUrl, apiKey)
     case 'opencode_go':
+    case 'clinepass':
       if (activeClientTab.value === 'codex') {
         return generateOpenAIFiles(baseUrl, apiKey)
       }

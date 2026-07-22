@@ -491,6 +491,7 @@ export default {
         usageGemini: 'Usage (Gemini)',
         usageAntigravity: 'Usage (Antigravity)',
         usageOpenCodeGo: 'Usage (OpenCode Go)',
+        usageClinePass: 'Usage (ClinePass)',
         concurrency: 'Concurrency',
         status: 'Status',
         lastActive: 'Last Active',
@@ -889,6 +890,7 @@ export default {
         antigravity: 'Antigravity',
         grok: 'Grok',
         opencode_go: 'OpenCode Go',
+        clinepass: 'ClinePass',
       },
       deleteConfirm:
         "Are you sure you want to delete '{name}'? All associated API keys will no longer belong to any group.",

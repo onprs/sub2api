@@ -168,6 +168,26 @@ describe('AccountStatusIndicator', () => {
     expect(wrapper.text()).toContain('admin.accounts.status.creditsExhausted')
   })
 
+  it('ClinePass exhausted usage without resetsAt uses bounded refresh backoff', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          platform: 'clinepass',
+          type: 'apikey',
+          extra: {
+            clinepass_usage_source: 'official_api',
+            clinepass_usage_updated_at: new Date().toISOString(),
+            clinepass_usage_5h_used_percent: 100
+          }
+        })
+      },
+      global: { stubs: { Icon: true } }
+    })
+
+    expect(wrapper.text()).toContain('admin.accounts.status.rateLimited')
+    expect(wrapper.text()).not.toContain('admin.accounts.status.active')
+  })
+
   it('OpenCode Go 官方 5h/7d/30d 用量满额时显示账号限流', () => {
     const resetsAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
 

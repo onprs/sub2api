@@ -51,7 +51,7 @@ func partFromGoogle(part partWire) ([]ir.ContentPart, error) {
 	case part.Thought:
 		return []ir.ContentPart{{Type: ir.ContentReasoning, Reasoning: part.Text, Signature: part.ThoughtSignature}}, nil
 	default:
-		return []ir.ContentPart{{Type: ir.ContentText, Text: part.Text, Signature: part.ThoughtSignature}}, nil
+		return []ir.ContentPart{{Type: ir.ContentText, Text: part.Text, Signature: part.ThoughtSignature, CacheHint: cloneRaw(part.CacheControl)}}, nil
 	}
 }
 

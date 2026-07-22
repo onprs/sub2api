@@ -5,7 +5,7 @@
 
 import { apiClient } from '../client'
 
-export type Provider = 'openai' | 'anthropic' | 'gemini' | 'antigravity_claude' | 'antigravity_gemini' | 'opencode_go'
+export type Provider = 'openai' | 'anthropic' | 'gemini' | 'antigravity_claude' | 'antigravity_gemini' | 'opencode_go' | 'clinepass'
 export type MonitorStatus = 'operational' | 'degraded' | 'failed' | 'error'
 export type BodyOverrideMode = 'off' | 'merge' | 'replace'
 export type APIMode = 'chat_completions' | 'responses' | 'messages'
@@ -140,6 +140,11 @@ export async function list(
   return data
 }
 
+export async function listClinePassModels(): Promise<string[]> {
+  const { data } = await apiClient.get<{ models: string[] }>('/admin/channel-monitors/clinepass-models')
+  return data.models || []
+}
+
 /**
  * Get a channel monitor by ID
  */
@@ -197,6 +202,7 @@ export async function listHistory(
 
 export const channelMonitorAPI = {
   list,
+  listClinePassModels,
   get,
   create,
   update,

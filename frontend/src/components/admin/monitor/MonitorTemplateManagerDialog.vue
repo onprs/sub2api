@@ -251,6 +251,7 @@ import {
   PROVIDER_ANTIGRAVITY_CLAUDE,
   PROVIDER_ANTIGRAVITY_GEMINI,
   PROVIDER_OPENCODE_GO,
+  PROVIDER_CLINEPASS,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_MESSAGES,
   API_MODE_RESPONSES,
@@ -276,6 +277,7 @@ const providerTabs = computed<{ value: Provider; label: string }[]>(() => [
   { value: PROVIDER_ANTIGRAVITY_CLAUDE, label: t('monitorCommon.providers.antigravity_claude') },
   { value: PROVIDER_ANTIGRAVITY_GEMINI, label: t('monitorCommon.providers.antigravity_gemini') },
   { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
+  { value: PROVIDER_CLINEPASS, label: t('monitorCommon.providers.clinepass') },
 ])
 
 const activeProvider = ref<Provider>(PROVIDER_ANTHROPIC)
@@ -294,6 +296,7 @@ const countByProvider = computed<Record<Provider, number>>(() => {
     antigravity_claude: 0,
     antigravity_gemini: 0,
     opencode_go: 0,
+    clinepass: 0,
   }
   for (const t of templates.value) out[t.provider]++
   return out

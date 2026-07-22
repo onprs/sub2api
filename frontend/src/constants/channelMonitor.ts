@@ -16,6 +16,7 @@ export const PROVIDER_GEMINI: Provider = 'gemini'
 export const PROVIDER_ANTIGRAVITY_CLAUDE: Provider = 'antigravity_claude'
 export const PROVIDER_ANTIGRAVITY_GEMINI: Provider = 'antigravity_gemini'
 export const PROVIDER_OPENCODE_GO: Provider = 'opencode_go'
+export const PROVIDER_CLINEPASS: Provider = 'clinepass'
 
 export const API_MODE_CHAT_COMPLETIONS: APIMode = 'chat_completions'
 export const API_MODE_RESPONSES: APIMode = 'responses'
@@ -28,6 +29,7 @@ export const PROVIDERS: readonly Provider[] = [
   PROVIDER_ANTIGRAVITY_CLAUDE,
   PROVIDER_ANTIGRAVITY_GEMINI,
   PROVIDER_OPENCODE_GO,
+  PROVIDER_CLINEPASS,
 ]
 
 export const API_MODES: readonly APIMode[] = [
@@ -58,6 +60,7 @@ const MONITOR_PROVIDER_KEY_GROUP_PLATFORM: Record<Provider, GroupPlatform> = {
   antigravity_claude: 'antigravity',
   antigravity_gemini: 'antigravity',
   opencode_go: 'opencode_go',
+  clinepass: 'clinepass',
 }
 
 export function monitorProviderKeyGroupPlatform(provider: Provider): GroupPlatform {

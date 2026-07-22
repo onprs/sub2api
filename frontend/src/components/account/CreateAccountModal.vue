@@ -173,6 +173,19 @@
             <PlatformIcon platform="opencode_go" size="sm" />
             OpenCode Go
           </button>
+          <button
+            type="button"
+            @click="form.platform = 'clinepass'"
+            :class="[
+              'flex min-w-[8.5rem] flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'clinepass'
+                ? 'bg-white text-rose-600 shadow-sm dark:bg-dark-600 dark:text-rose-300'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <PlatformIcon platform="clinepass" size="sm" />
+            ClinePass
+          </button>
         </div>
       </div>
 
@@ -1102,7 +1115,9 @@
                   ? 'https://generativelanguage.googleapis.com'
                   : form.platform === 'opencode_go'
                     ? OPENCODE_GO_DEFAULT_BASE_URL
-                    : 'https://api.anthropic.com'
+                    : form.platform === 'clinepass'
+                      ? CLINEPASS_DEFAULT_BASE_URL
+                      : 'https://api.anthropic.com'
             "
           />
           <p class="input-hint">{{ baseUrlHint }}</p>
@@ -1119,7 +1134,7 @@
                 ? 'sk-proj-...'
                 : form.platform === 'gemini'
                   ? 'AIza...'
-                  : form.platform === 'opencode_go'
+                  : form.platform === 'opencode_go' || form.platform === 'clinepass'
                     ? 'sk-...'
                     : 'sk-ant-...'
             "
@@ -3579,6 +3594,7 @@ interface OAuthFlowExposed {
 const { t } = useI18n()
 const authStore = useAuthStore()
 const OPENCODE_GO_DEFAULT_BASE_URL = 'https://opencode.ai/zen/go/v1'
+const CLINEPASS_DEFAULT_BASE_URL = 'https://api.cline.bot/api/v1'
 
 const oauthStepTitle = computed(() => {
   if (form.platform === 'opencode_go') return '官方用量同步'
@@ -3595,6 +3611,7 @@ const baseUrlHint = computed(() => {
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (form.platform === 'grok') return t('admin.accounts.grok.baseUrlHint')
   if (form.platform === 'opencode_go') return t('admin.accounts.opencodeGo.baseUrlHint')
+  if (form.platform === 'clinepass') return t('admin.accounts.clinePass.baseUrlHint')
   return t('admin.accounts.baseUrlHint')
 })
 
@@ -3603,6 +3620,7 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   if (form.platform === 'grok') return t('admin.accounts.grok.apiKeyHint')
   if (form.platform === 'opencode_go') return t('admin.accounts.opencodeGo.apiKeyHint')
+  if (form.platform === 'clinepass') return t('admin.accounts.clinePass.apiKeyHint')
   return t('admin.accounts.apiKeyHint')
 })
 
@@ -4055,7 +4073,7 @@ const form = reactive({
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
-  if (form.platform === 'opencode_go') {
+  if (form.platform === 'opencode_go' || form.platform === 'clinepass') {
     return false
   }
   // Antigravity upstream 类型不需要 OAuth 流程
@@ -4142,7 +4160,7 @@ watch(
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
-    if (form.platform === 'opencode_go') {
+    if (form.platform === 'opencode_go' || form.platform === 'clinepass') {
       form.type = 'apikey'
       return
     }
@@ -4181,7 +4199,9 @@ watch(
             ? 'https://api.x.ai/v1'
             : newPlatform === 'opencode_go'
               ? OPENCODE_GO_DEFAULT_BASE_URL
-              : 'https://api.anthropic.com'
+              : newPlatform === 'clinepass'
+                ? CLINEPASS_DEFAULT_BASE_URL
+                : 'https://api.anthropic.com'
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
@@ -4200,6 +4220,10 @@ watch(
       poolModeEnabled.value = false
       customErrorCodesEnabled.value = false
       tempUnschedEnabled.value = false
+    } else if (newPlatform === 'clinepass') {
+      accountCategory.value = 'apikey'
+      modelRestrictionMode.value = 'whitelist'
+      poolModeEnabled.value = false
     } else {
       allowOverages.value = false
       antigravityProjectId.value = ''
@@ -5103,7 +5127,9 @@ const handleSubmit = async () => {
         ? 'https://generativelanguage.googleapis.com'
         : form.platform === 'opencode_go'
           ? OPENCODE_GO_DEFAULT_BASE_URL
-          : 'https://api.anthropic.com'
+          : form.platform === 'clinepass'
+            ? CLINEPASS_DEFAULT_BASE_URL
+            : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {

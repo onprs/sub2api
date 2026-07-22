@@ -37,7 +37,7 @@ func NewChannelMonitorHandler(monitorService *service.ChannelMonitorService) *Ch
 
 type channelMonitorCreateRequest struct {
 	Name             string            `json:"name" binding:"required,max=100"`
-	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini opencode_go antigravity_claude antigravity_gemini"`
+	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini opencode_go clinepass antigravity_claude antigravity_gemini"`
 	APIMode          string            `json:"api_mode" binding:"omitempty,oneof=chat_completions messages responses"`
 	Endpoint         string            `json:"endpoint" binding:"required,max=500"`
 	APIKey           string            `json:"api_key" binding:"required,max=2000"`
@@ -55,7 +55,7 @@ type channelMonitorCreateRequest struct {
 
 type channelMonitorUpdateRequest struct {
 	Name             *string            `json:"name" binding:"omitempty,max=100"`
-	Provider         *string            `json:"provider" binding:"omitempty,oneof=openai anthropic gemini opencode_go antigravity_claude antigravity_gemini"`
+	Provider         *string            `json:"provider" binding:"omitempty,oneof=openai anthropic gemini opencode_go clinepass antigravity_claude antigravity_gemini"`
 	APIMode          *string            `json:"api_mode" binding:"omitempty,oneof=chat_completions messages responses"`
 	Endpoint         *string            `json:"endpoint" binding:"omitempty,max=500"`
 	APIKey           *string            `json:"api_key" binding:"omitempty,max=2000"`
@@ -219,6 +219,11 @@ func parseListEnabled(raw string) *bool {
 }
 
 // --- Handlers ---
+
+// ClinePassModels GET /api/v1/admin/channel-monitors/clinepass-models
+func (h *ChannelMonitorHandler) ClinePassModels(c *gin.Context) {
+	response.Success(c, gin.H{"models": service.ClinePassDefaultModelIDs()})
+}
 
 // List GET /api/v1/admin/channel-monitors
 func (h *ChannelMonitorHandler) List(c *gin.Context) {

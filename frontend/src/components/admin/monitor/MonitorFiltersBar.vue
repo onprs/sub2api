@@ -73,6 +73,7 @@ import {
   PROVIDER_ANTIGRAVITY_CLAUDE,
   PROVIDER_ANTIGRAVITY_GEMINI,
   PROVIDER_OPENCODE_GO,
+  PROVIDER_CLINEPASS,
 } from '@/constants/channelMonitor'
 
 defineProps<{
@@ -100,6 +101,7 @@ const providerFilterOptions = computed(() => [
   { value: PROVIDER_ANTIGRAVITY_CLAUDE, label: t('monitorCommon.providers.antigravity_claude') },
   { value: PROVIDER_ANTIGRAVITY_GEMINI, label: t('monitorCommon.providers.antigravity_gemini') },
   { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
+  { value: PROVIDER_CLINEPASS, label: t('monitorCommon.providers.clinepass') },
 ])
 
 const enabledFilterOptions = computed(() => [

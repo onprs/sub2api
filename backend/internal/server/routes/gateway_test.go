@@ -94,6 +94,28 @@ func TestGatewayRoutesOpenCodeGoGoogleGenerationUsesOpenCodeGoHandler(t *testing
 	require.NotContains(t, w.Body.String(), "does not support Gemini generation")
 }
 
+func TestGatewayRoutesClinePassStandardGenerationPathsUseProviderHandler(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformClinePass)
+	tests := []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodPost, "/v1/chat/completions", `{"model":"cline-pass/glm-5.2","messages":[{"role":"user","content":"hi"}]}`},
+		{http.MethodPost, "/v1/responses", `{"model":"cline-pass/glm-5.2","input":"hi"}`},
+		{http.MethodPost, "/v1/messages", `{"model":"cline-pass/glm-5.2","max_tokens":32,"messages":[{"role":"user","content":"hi"}]}`},
+		{http.MethodPost, "/v1beta/models/cline-pass%2Fglm-5.2:generateContent", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`},
+	}
+	for _, tc := range tests {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s", tc.path)
+		require.NotContains(t, w.Body.String(), "does not support", "path=%s", tc.path)
+	}
+}
+
 func TestGatewayRoutesGoogleV1GenerationPathIsRegistered(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformAntigravity)
 	req := httptest.NewRequest(http.MethodPost, "/v1/models/gemini-3.1-pro-high:generateContent", strings.NewReader(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`))

@@ -209,6 +209,7 @@ var providerAdapters = map[string]providerAdapter{
 		textPath: "candidates.0.content.parts.0.text",
 	},
 	MonitorProviderOpenCodeGo: providerOpenCodeGoChatAdapter,
+	MonitorProviderClinePass:  providerClinePassChatAdapter,
 	MonitorProviderAntigravityClaude: {
 		buildPath: func(string) string { return "/antigravity/v1/messages" },
 		buildBody: func(model, prompt string) ([]byte, error) {
@@ -282,6 +283,25 @@ var providerOpenCodeGoChatAdapter = providerAdapter{
 	},
 	textPath:           "choices.0.message.content",
 	releaseGuardMarker: "channel_monitor_provider_opencode_go",
+}
+
+//nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
+var providerClinePassChatAdapter = providerAdapter{
+	buildPath: func(string) string { return providerClinePassChatPath },
+	buildBody: func(model, prompt string) ([]byte, error) {
+		return json.Marshal(map[string]any{
+			"model":       model,
+			"messages":    []map[string]string{{"role": "user", "content": prompt}},
+			"max_tokens":  monitorClinePassChallengeMaxTokens,
+			"temperature": 0,
+			"stream":      false,
+		})
+	},
+	buildHeaders: func(apiKey string) map[string]string {
+		return map[string]string{"Authorization": "Bearer " + apiKey}
+	},
+	textPath:           "data.choices.0.message.content",
+	releaseGuardMarker: "channel_monitor_provider_clinepass",
 }
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
@@ -646,6 +666,7 @@ var bodyMergeKeyDenyList = map[string]map[string]bool{
 	MonitorProviderGemini:                                           {"contents": true},
 	MonitorProviderOpenCodeGo + ":" + MonitorAPIModeChatCompletions: {"model": true, "messages": true, "stream": true},
 	MonitorProviderOpenCodeGo + ":" + MonitorAPIModeMessages:        {"model": true, "messages": true},
+	MonitorProviderClinePass + ":" + MonitorAPIModeChatCompletions:  {"model": true, "messages": true, "stream": true},
 	MonitorProviderAntigravityClaude:                                {"model": true, "messages": true},
 	MonitorProviderAntigravityGemini:                                {"contents": true},
 }
@@ -658,7 +679,7 @@ func checkAPIMode(opts *CheckOptions) string {
 }
 
 func bodyMergeDenyKey(provider, apiMode string) string {
-	if provider == MonitorProviderOpenAI || provider == MonitorProviderOpenCodeGo {
+	if provider == MonitorProviderOpenAI || provider == MonitorProviderOpenCodeGo || provider == MonitorProviderClinePass {
 		return provider + ":" + defaultAPIMode(apiMode)
 	}
 	return provider
@@ -674,7 +695,7 @@ func validateReplaceRequestBody(provider, apiMode string, body map[string]any) e
 			return fmt.Errorf("replace mode responses body: instructions and input are required")
 		}
 	case MonitorAPIModeChatCompletions, MonitorAPIModeMessages:
-		if provider != MonitorProviderOpenAI && provider != MonitorProviderOpenCodeGo {
+		if provider != MonitorProviderOpenAI && provider != MonitorProviderOpenCodeGo && provider != MonitorProviderClinePass {
 			return nil
 		}
 		if !hasNonEmptyBodyValue(body["messages"]) {

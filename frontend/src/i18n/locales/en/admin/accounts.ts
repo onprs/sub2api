@@ -105,6 +105,7 @@ export default {
         antigravity: 'Antigravity',
         grok: 'Grok',
         opencode_go: 'OpenCode Go',
+        clinepass: 'ClinePass',
       },
       types: {
         oauth: 'OAuth',
@@ -521,6 +522,11 @@ export default {
       opencodeGo: {
         baseUrlHint: 'Use the official OpenCode Go API root unless your deployment requires a compatible relay.',
         apiKeyHint: 'Enter the API key issued for OpenCode Go.'
+      },
+      clinePass: {
+        baseUrlHint: 'Use the official ClinePass API root unless your deployment requires an approved compatible relay.',
+        apiKeyHint: 'Enter the static API key issued for ClinePass.',
+        usageSource: 'Official ClinePass usage limits'
       },
       anthropic: {
         apiKeyPassthrough: 'Auto passthrough (auth only)',
