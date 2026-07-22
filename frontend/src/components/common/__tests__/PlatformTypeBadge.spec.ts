@@ -37,6 +37,8 @@ describe('PlatformTypeBadge', () => {
     expect(wrapper.text()).toContain('ClinePass')
     expect(wrapper.text()).toContain('API Key')
     expect(wrapper.text()).not.toContain('OpenCode Go')
+    expect(wrapper.find('svg[viewBox="0 0 466.73 487.04"]').exists()).toBe(true)
+    expect(wrapper.find('svg[viewBox="0 0 466.73 487.04"] path').attributes('d')).toContain('M463.6,275.08')
   })
 
   it('uses Chinese account type labels without exposing the backend value', () => {
