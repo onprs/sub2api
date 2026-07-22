@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -52,9 +53,11 @@ type TestEvent struct {
 }
 
 const (
-	defaultGeminiTextTestPrompt  = "hi"
-	defaultGeminiImageTestPrompt = "Generate a cute orange cat astronaut sticker on a clean pastel background."
-	defaultOpenAIImageTestPrompt = "Generate a cute orange cat astronaut sticker on a clean pastel background."
+	defaultGeminiTextTestPrompt    = "hi"
+	defaultGeminiImageTestPrompt   = "Generate a cute orange cat astronaut sticker on a clean pastel background."
+	defaultOpenAIImageTestPrompt   = "Generate a cute orange cat astronaut sticker on a clean pastel background."
+	accountGenerationTestPrompt    = "Reply with one short sentence confirming that this connection works."
+	accountGenerationTestMaxTokens = 4096
 )
 
 // isOpenAIImageModel checks if the model is an OpenAI image generation model (e.g. gpt-image-2).
@@ -173,10 +176,9 @@ func createTestPayload(modelID string) (map[string]any, error) {
 	}, nil
 }
 
-// TestAccountConnection tests an account's connection by sending a test request
-// All account types use full Claude Code client characteristics, only auth header differs
-// modelID is optional - if empty, defaults to claude.DefaultTestModel
-// mode is optional - "compact" routes OpenAI accounts to the /responses/compact probe path
+// TestAccountConnection tests an account with a real platform-specific generation request.
+// modelID is optional; each platform chooses a routable default when it is empty.
+// mode is optional - "compact" routes OpenAI accounts to the /responses/compact probe path.
 func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string) error {
 	ctx := c.Request.Context()
 
@@ -188,10 +190,10 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 
 	// Route to platform-specific test method
 	if account.IsClinePass() {
-		return s.testClinePassAccountConnection(c, account)
+		return s.testClinePassAccountConnection(c, account, modelID)
 	}
 	if account.IsOpenCodeGo() {
-		return s.testOpenCodeGoAccountConnection(c, account)
+		return s.testOpenCodeGoAccountConnection(c, account, modelID)
 	}
 
 	if account.IsOpenAI() {
@@ -213,38 +215,160 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	return s.testClaudeAccountConnection(c, account, modelID)
 }
 
-func (s *AccountTestService) testClinePassAccountConnection(c *gin.Context, account *Account) error {
+func (s *AccountTestService) testClinePassAccountConnection(c *gin.Context, account *Account, requestedModel string) error {
 	if account == nil || !account.IsClinePassAPIKey() {
 		return s.sendErrorAndEnd(c, "ClinePass accounts must use API key credentials")
 	}
-	s.sendEvent(c, TestEvent{Type: "status", Text: "Testing ClinePass API key through the usage-limits endpoint"})
 	if s.clinePassClient == nil {
 		return s.sendErrorAndEnd(c, "ClinePass client is not configured")
 	}
-	snapshot, err := s.clinePassClient.FetchUsage(c.Request.Context(), account)
+	modelID, err := accountGenerationTestModel(account, requestedModel)
 	if err != nil {
 		return s.sendErrorAndEnd(c, err.Error())
 	}
-	s.sendEvent(c, TestEvent{Type: "status", Text: fmt.Sprintf("ClinePass API key verified; %d usage windows returned", len(snapshot.Windows))})
+
+	prepareAccountTestEventStream(c)
+	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过 Chat Completions 发起真实 ClinePass 生成请求"})
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: modelID})
+
+	payload, err := createAccountGenerationTestPayload(modelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to create ClinePass generation test payload")
+	}
+	probe, recorder := newAccountGenerationProbeContext(c.Request.Context(), payload)
+	gateway := NewClinePassGatewayService(s.clinePassClient, s.cfg, nil)
+	if _, err := gateway.ForwardChatCompletions(c.Request.Context(), probe, account, payload); err != nil {
+		return s.sendErrorAndEnd(c, "ClinePass generation test failed: "+accountGenerationProbeError(err, recorder.Body.Bytes()))
+	}
+	text := strings.TrimSpace(extractOpenCodeGoChatText(recorder.Body.Bytes()))
+	if text == "" {
+		return s.sendErrorAndEnd(c, "ClinePass generation test returned no visible response text")
+	}
+
+	s.sendEvent(c, TestEvent{Type: "content", Text: text})
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 	return nil
 }
 
-func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, account *Account) error {
-	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过 /v1/models 测试 OpenCode Go 连接"})
-
-	models, err := s.FetchUpstreamSupportedModels(c.Request.Context(), account)
+func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, account *Account, requestedModel string) error {
+	if account == nil || !account.IsOpenCodeGoAPIKey() {
+		return s.sendErrorAndEnd(c, "OpenCode Go accounts must use API key credentials")
+	}
+	if s.httpUpstream == nil {
+		return s.sendErrorAndEnd(c, "OpenCode Go HTTP client is not configured")
+	}
+	modelID, err := accountGenerationTestModel(account, requestedModel)
 	if err != nil {
-		var syncErr *UpstreamModelSyncError
-		if errors.As(err, &syncErr) {
-			return s.sendErrorAndEnd(c, syncErr.SafeMessage())
-		}
 		return s.sendErrorAndEnd(c, err.Error())
 	}
 
-	s.sendEvent(c, TestEvent{Type: "status", Text: fmt.Sprintf("已通过 /v1/models 验证，返回 %d 个模型", len(models))})
+	prepareAccountTestEventStream(c)
+	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过模型生成接口发起真实 OpenCode Go 请求"})
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: modelID})
+
+	payload, err := createAccountGenerationTestPayload(modelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to create OpenCode Go generation test payload")
+	}
+	probe, recorder := newAccountGenerationProbeContext(c.Request.Context(), payload)
+	gateway := NewOpenCodeGoGatewayService(s.httpUpstream, s.cfg, s.tlsFPProfileService, nil)
+	if _, err := gateway.ForwardChatCompletions(c.Request.Context(), probe, account, payload); err != nil {
+		return s.sendErrorAndEnd(c, "OpenCode Go generation test failed: "+accountGenerationProbeError(err, recorder.Body.Bytes()))
+	}
+	text := strings.TrimSpace(extractOpenCodeGoChatText(recorder.Body.Bytes()))
+	if text == "" {
+		return s.sendErrorAndEnd(c, "OpenCode Go generation test returned no visible response text")
+	}
+
+	s.sendEvent(c, TestEvent{Type: "content", Text: text})
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 	return nil
+}
+
+func accountGenerationTestModel(account *Account, requestedModel string) (string, error) {
+	if modelID := strings.TrimSpace(requestedModel); modelID != "" {
+		return modelID, nil
+	}
+	if account == nil {
+		return "", fmt.Errorf("account is required")
+	}
+
+	mapping := account.GetExplicitModelMapping()
+	if len(mapping) > 0 {
+		models := make([]string, 0, len(mapping))
+		for model := range mapping {
+			if model = strings.TrimSpace(model); model != "" {
+				models = append(models, model)
+			}
+		}
+		sort.Strings(models)
+		if len(models) > 0 {
+			return models[0], nil
+		}
+	}
+
+	if account.IsClinePass() {
+		models := ClinePassDefaultModelIDs()
+		if len(models) > 0 {
+			return models[0], nil
+		}
+		return "", fmt.Errorf("no ClinePass model is available for generation testing")
+	}
+	if account.IsOpenCodeGo() {
+		for _, model := range OpenCodeGoDefaultModelIDs() {
+			if _, ok := account.ResolveOpenCodeGoModelProtocol(model); ok {
+				return model, nil
+			}
+		}
+		return "", fmt.Errorf("no OpenCode Go model with a configured protocol is available for generation testing")
+	}
+	return "", fmt.Errorf("real generation testing is not supported for platform %s", account.Platform)
+}
+
+func createAccountGenerationTestPayload(modelID string) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"model": strings.TrimSpace(modelID),
+		"messages": []map[string]string{
+			{"role": "user", "content": accountGenerationTestPrompt},
+		},
+		"max_tokens": accountGenerationTestMaxTokens,
+		"stream":     false,
+	})
+}
+
+func prepareAccountTestEventStream(c *gin.Context) {
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+}
+
+func newAccountGenerationProbeContext(ctx context.Context, payload []byte) (*gin.Context, *httptest.ResponseRecorder) {
+	recorder := httptest.NewRecorder()
+	probe, _ := gin.CreateTestContext(recorder)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	probe.Request = request.WithContext(ctx)
+	return probe, recorder
+}
+
+func accountGenerationProbeError(probeErr error, responseBody []byte) string {
+	candidates := [][]byte{responseBody}
+	var failover *UpstreamFailoverError
+	if errors.As(probeErr, &failover) && len(failover.ResponseBody) > 0 {
+		candidates = append(candidates, failover.ResponseBody)
+	}
+	for _, body := range candidates {
+		if message := strings.TrimSpace(extractUpstreamErrorMessage(body)); message != "" {
+			return sanitizeUpstreamErrorMessage(message)
+		}
+	}
+	if probeErr == nil {
+		return "upstream generation request failed"
+	}
+	return sanitizeUpstreamErrorMessage(probeErr.Error())
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection

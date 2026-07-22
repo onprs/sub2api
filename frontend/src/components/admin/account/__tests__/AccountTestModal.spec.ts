@@ -203,6 +203,42 @@ describe('AccountTestModal', () => {
     })
   })
 
+  it('ClinePass 测试会发送选中模型并显示真实生成回复', async () => {
+    getAvailableModels.mockResolvedValue([
+      { id: 'cline-pass/glm-5.2', display_name: 'GLM 5.2' }
+    ])
+    global.fetch = vi.fn().mockResolvedValue(
+      createStreamResponse([
+        'data: {"type":"status","text":"running real generation"}\n',
+        'data: {"type":"test_start","model":"cline-pass/glm-5.2"}\n',
+        'data: {"type":"content","text":"ClinePass replied successfully."}\n',
+        'data: {"type":"test_complete","success":true}\n'
+      ])
+    ) as any
+
+    const wrapper = mountModal({
+      id: 52,
+      name: 'ClinePass Account',
+      platform: 'clinepass',
+      type: 'apikey',
+      status: 'active'
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+    await flushPromises()
+
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    const [, request] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(request.body)).toEqual({
+      model_id: 'cline-pass/glm-5.2',
+      prompt: ''
+    })
+    expect(wrapper.text()).toContain('ClinePass replied successfully.')
+  })
+
   it('OpenAI Compact 探测会携带 compact 测试模式', async () => {
     getAvailableModels.mockResolvedValue([
       { id: 'gpt-5.4', display_name: 'GPT-5.4' }

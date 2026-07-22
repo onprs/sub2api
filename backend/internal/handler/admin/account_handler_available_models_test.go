@@ -256,6 +256,74 @@ func TestAccountHandlerGetAvailableModels_OpenAISparkShadowReturnsMappingModels(
 	}, ids, "影子可用模型由 model_mapping 派生（非写死）")
 }
 
+func TestAccountHandlerGetAvailableModels_ClinePassUsesCatalogWithoutMapping(t *testing.T) {
+	expectedModels := service.ClinePassDefaultModelIDs()
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       46,
+			Name:     "clinepass-defaults",
+			Platform: service.PlatformClinePass,
+			Type:     service.AccountTypeAPIKey,
+			Status:   service.StatusActive,
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/46/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotEmpty(t, resp.Data)
+	ids := make([]string, 0, len(resp.Data))
+	for _, model := range resp.Data {
+		ids = append(ids, model.ID)
+		require.True(t, strings.HasPrefix(model.ID, "cline-pass/"), model.ID)
+		require.NotContains(t, strings.ToLower(model.ID), "claude")
+	}
+	require.ElementsMatch(t, expectedModels, ids)
+}
+
+func TestAccountHandlerGetAvailableModels_ClinePassUsesRequestedMappingModels(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       47,
+			Name:     "clinepass-mapped",
+			Platform: service.PlatformClinePass,
+			Type:     service.AccountTypeAPIKey,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"friendly-cline": "cline-pass/glm-5.2",
+				},
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/47/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Data, 1)
+	require.Equal(t, "friendly-cline", resp.Data[0].ID)
+}
+
 func TestAccountHandlerSyncUpstreamModels_ConfigErrorReturnsBadRequest(t *testing.T) {
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),
