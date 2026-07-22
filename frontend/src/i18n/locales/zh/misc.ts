@@ -13,6 +13,7 @@ export default {
       channel: '渠道',
       platform: '平台',
       model: '模型',
+      contextTier: '上下文档位',
       group: '分组',
       multiplier: '倍率',
       source: '来源',
@@ -32,6 +33,12 @@ export default {
       token: '按 Token',
       perRequest: '按次',
       image: '按图片'
+    },
+    contextTiers: {
+      all: '全部上下文',
+      upTo: '不超过 {tokens}',
+      above: '超过 {tokens}',
+      range: '{min} 至 {max}'
     },
     units: {
       request: '次',

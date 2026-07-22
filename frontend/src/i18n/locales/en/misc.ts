@@ -13,6 +13,7 @@ export default {
       channel: 'Channel',
       platform: 'Platform',
       model: 'Model',
+      contextTier: 'Context Tier',
       group: 'Group',
       multiplier: 'Multiplier',
       source: 'Source',
@@ -32,6 +33,12 @@ export default {
       token: 'Per Token',
       perRequest: 'Per Request',
       image: 'Per Image'
+    },
+    contextTiers: {
+      all: 'All contexts',
+      upTo: 'Up to {tokens}',
+      above: 'Above {tokens}',
+      range: '{min} to {max}'
     },
     units: {
       request: 'req',

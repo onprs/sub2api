@@ -53,7 +53,7 @@
 
       <template #table>
         <div class="table-wrapper model-pricing-table-wrapper">
-          <table class="min-w-[1420px] border-collapse text-xs">
+          <table class="min-w-[1540px] border-collapse text-xs">
             <thead
               class="model-pricing-sticky-header sticky top-0 z-20 bg-gray-50/95 text-left font-medium uppercase text-gray-500 shadow-sm backdrop-blur dark:bg-dark-800/95 dark:text-gray-400"
             >
@@ -61,6 +61,7 @@
                 <th class="w-40 px-4 py-3">{{ t('modelPricing.columns.channel') }}</th>
                 <th class="w-36 px-4 py-3">{{ t('modelPricing.columns.platform') }}</th>
                 <th class="model-pricing-sticky-model w-56 px-4 py-3">{{ t('modelPricing.columns.model') }}</th>
+                <th class="w-36 px-4 py-3">{{ t('modelPricing.columns.contextTier') }}</th>
                 <th class="w-64 px-4 py-3">{{ t('modelPricing.columns.group') }}</th>
                 <th class="w-28 px-4 py-3">{{ t('modelPricing.columns.multiplier') }}</th>
                 <th class="w-40 px-4 py-3">{{ t('modelPricing.columns.source') }}</th>
@@ -75,7 +76,7 @@
 
             <tbody v-if="loading">
               <tr>
-                <td colspan="12" class="py-10 text-center">
+                <td colspan="13" class="py-10 text-center">
                   <Icon name="refresh" size="lg" class="inline-block animate-spin text-gray-400" />
                 </td>
               </tr>
@@ -83,7 +84,7 @@
 
             <tbody v-else-if="filteredRows.length === 0">
               <tr>
-                <td colspan="12" class="py-12 text-center">
+                <td colspan="13" class="py-12 text-center">
                   <Icon name="inbox" size="xl" class="mx-auto mb-3 h-12 w-12 text-gray-400" />
                   <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('modelPricing.empty') }}</p>
                 </td>
@@ -117,6 +118,16 @@
 
                 <td class="model-pricing-sticky-model px-4 py-3 align-top font-mono text-[12px] text-gray-900 dark:text-gray-100">
                   {{ row.modelName }}
+                </td>
+
+                <td class="px-4 py-3 align-top text-gray-600 dark:text-gray-300">
+                  <div
+                    v-for="line in pricingLines(row)"
+                    :key="line.key"
+                    class="model-pricing-tier-line whitespace-nowrap"
+                  >
+                    {{ line.label }}
+                  </div>
                 </td>
 
                 <td class="px-4 py-3 align-top">
@@ -167,19 +178,49 @@
                 </td>
 
                 <td class="px-4 py-3 text-right align-top font-mono text-[12px]">
-                  {{ tokenPrice(row, 'inputPrice') }}
+                  <div
+                    v-for="line in pricingLines(row)"
+                    :key="line.key"
+                    class="model-pricing-tier-line whitespace-nowrap"
+                  >
+                    {{ tokenPrice(line.pricing, 'inputPrice') }}
+                  </div>
                 </td>
                 <td class="px-4 py-3 text-right align-top font-mono text-[12px]">
-                  {{ tokenPrice(row, 'outputPrice') }}
+                  <div
+                    v-for="line in pricingLines(row)"
+                    :key="line.key"
+                    class="model-pricing-tier-line whitespace-nowrap"
+                  >
+                    {{ tokenPrice(line.pricing, 'outputPrice') }}
+                  </div>
                 </td>
                 <td class="px-4 py-3 text-right align-top font-mono text-[12px]">
-                  {{ tokenPrice(row, 'cacheWritePrice') }}
+                  <div
+                    v-for="line in pricingLines(row)"
+                    :key="line.key"
+                    class="model-pricing-tier-line whitespace-nowrap"
+                  >
+                    {{ tokenPrice(line.pricing, 'cacheWritePrice') }}
+                  </div>
                 </td>
                 <td class="px-4 py-3 text-right align-top font-mono text-[12px]">
-                  {{ tokenPrice(row, 'cacheReadPrice') }}
+                  <div
+                    v-for="line in pricingLines(row)"
+                    :key="line.key"
+                    class="model-pricing-tier-line whitespace-nowrap"
+                  >
+                    {{ tokenPrice(line.pricing, 'cacheReadPrice') }}
+                  </div>
                 </td>
                 <td class="px-4 py-3 text-right align-top font-mono text-[12px]">
-                  {{ unitPrice(row) }}
+                  <div
+                    v-for="line in pricingLines(row)"
+                    :key="line.key"
+                    class="model-pricing-tier-line whitespace-nowrap"
+                  >
+                    {{ unitPrice(line.pricing) }}
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -209,12 +250,19 @@ import { formatScaled } from '@/utils/pricing'
 import {
   buildModelPricingRows,
   filterModelPricingRows,
+  type ModelPricingIntervalRow,
   type ModelPricingRow,
   type ModelPricingValues,
 } from './modelPricingRows'
 
 type PricingMode = 'raw' | 'actual'
 type TokenPriceKey = 'inputPrice' | 'outputPrice' | 'cacheWritePrice' | 'cacheReadPrice'
+
+interface ModelPricingLine {
+  key: string
+  label: string
+  pricing: ModelPricingValues
+}
 
 const { t, te } = useI18n()
 const appStore = useAppStore()
@@ -238,12 +286,65 @@ function selectedPricing(row: ModelPricingRow): ModelPricingValues {
   return pricingMode.value === 'actual' ? row.actualPricing : row.pricing
 }
 
-function tokenPrice(row: ModelPricingRow, key: TokenPriceKey): string {
-  return formatScaled(selectedPricing(row)[key], perMillionScale)
+function selectedIntervalPricing(interval: ModelPricingIntervalRow): ModelPricingValues {
+  return pricingMode.value === 'actual' ? interval.actualPricing : interval.pricing
 }
 
-function unitPrice(row: ModelPricingRow): string {
-  const pricing = selectedPricing(row)
+function formatContextTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000 && tokens % 1_000_000 === 0) {
+    return `${tokens / 1_000_000}M`
+  }
+  if (tokens >= 1_000 && tokens % 1_000 === 0) {
+    return `${tokens / 1_000}K`
+  }
+  return tokens.toLocaleString()
+}
+
+function contextTierLabel(interval: ModelPricingIntervalRow): string {
+  if (interval.tierLabel) {
+    return interval.tierLabel
+  }
+  if (interval.minTokens <= 0 && interval.maxTokens == null) {
+    return t('modelPricing.contextTiers.all')
+  }
+  if (interval.minTokens <= 0 && interval.maxTokens != null) {
+    return t('modelPricing.contextTiers.upTo', {
+      tokens: formatContextTokenCount(interval.maxTokens),
+    })
+  }
+  if (interval.maxTokens == null) {
+    return t('modelPricing.contextTiers.above', {
+      tokens: formatContextTokenCount(interval.minTokens),
+    })
+  }
+  return t('modelPricing.contextTiers.range', {
+    min: formatContextTokenCount(interval.minTokens),
+    max: formatContextTokenCount(interval.maxTokens),
+  })
+}
+
+function pricingLines(row: ModelPricingRow): ModelPricingLine[] {
+  if (row.intervals.length === 0) {
+    return [
+      {
+        key: 'all',
+        label: t('modelPricing.contextTiers.all'),
+        pricing: selectedPricing(row),
+      },
+    ]
+  }
+  return row.intervals.map((interval, index) => ({
+    key: `${interval.minTokens}:${interval.maxTokens ?? 'max'}:${index}`,
+    label: contextTierLabel(interval),
+    pricing: selectedIntervalPricing(interval),
+  }))
+}
+
+function tokenPrice(pricing: ModelPricingValues, key: TokenPriceKey): string {
+  return formatScaled(pricing[key], perMillionScale)
+}
+
+function unitPrice(pricing: ModelPricingValues): string {
   const parts: string[] = []
   if (pricing.perRequestPrice != null) {
     parts.push(`${formatScaled(pricing.perRequestPrice, 1)} ${t('modelPricing.units.request')}`)
@@ -322,6 +423,11 @@ onMounted(loadPricing)
 
 .dark .model-pricing-sticky-header th {
   background-color: rgb(31 41 55 / 0.95);
+}
+
+.model-pricing-tier-line {
+  min-height: 1.5rem;
+  line-height: 1.5rem;
 }
 
 .model-pricing-sticky-model {

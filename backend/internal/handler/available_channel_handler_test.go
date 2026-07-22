@@ -335,6 +335,46 @@ func TestBuildModelPricingChannels_OpenCodeGoFallbackIncludesOfficialCatalogMode
 	require.InDelta(t, 0.000003, *kimi25.Pricing.OutputPrice, 1e-12)
 }
 
+func TestBuildModelPricingChannels_ClinePassIncludesEveryReferencePrice(t *testing.T) {
+	h := &AvailableChannelHandler{
+		channelService: service.NewChannelService(nil, nil, nil, nil, service.NewBillingService(&config.Config{}, nil)),
+		modelPricingModels: &modelPricingGatewayStub{
+			modelsByGroup: map[int64][]string{
+				28: service.ClinePassFallbackModelIDs(),
+			},
+		},
+	}
+
+	got := h.buildModelPricingChannels(context.Background(), []service.Group{
+		{
+			ID:               28,
+			Name:             "ClinePass",
+			Platform:         service.PlatformClinePass,
+			RateMultiplier:   1,
+			SubscriptionType: service.SubscriptionTypeStandard,
+		},
+	}, nil)
+
+	require.Len(t, got, 1)
+	section := got[0].Platforms[0]
+	require.Equal(t, service.PlatformClinePass, section.Platform)
+	require.Len(t, section.SupportedModels, len(service.ClinePassFallbackModelIDs()))
+	models := make(map[string]userSupportedModel, len(section.SupportedModels))
+	for _, model := range section.SupportedModels {
+		require.NotNil(t, model.Pricing, model.Name)
+		require.Equal(t, service.PricingSourceCatalog, model.Pricing.PricingSource, model.Name)
+		require.NotNil(t, model.Pricing.InputPrice, model.Name)
+		require.NotNil(t, model.Pricing.OutputPrice, model.Name)
+		models[model.Name] = model
+	}
+
+	qwen := models["cline-pass/qwen3.7-plus"]
+	require.NotNil(t, qwen.Pricing)
+	require.Len(t, qwen.Pricing.Intervals, 2)
+	require.Equal(t, 256000, *qwen.Pricing.Intervals[0].MaxTokens)
+	require.Equal(t, 256000, qwen.Pricing.Intervals[1].MinTokens)
+}
+
 func newHandlerPricingService(t *testing.T, data string) *service.PricingService {
 	t.Helper()
 	dataDir := t.TempDir()
