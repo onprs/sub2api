@@ -2362,6 +2362,11 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	if account.IsClinePass() {
+		response.Success(c, clinePassAvailableModels(account))
+		return
+	}
+
 	if account.IsOpenCodeGo() {
 		response.Success(c, openCodeGoAvailableModels(account))
 		return
@@ -2458,19 +2463,34 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	response.Success(c, models)
 }
 
+func clinePassAvailableModels(account *service.Account) []openai.Model {
+	ids := []string{}
+	if account != nil {
+		for requestedModel := range account.GetExplicitModelMapping() {
+			ids = append(ids, requestedModel)
+		}
+	}
+	if len(ids) == 0 {
+		ids = service.ClinePassDefaultModelIDs()
+	}
+	return accountTestModels(ids)
+}
+
 func openCodeGoAvailableModels(account *service.Account) []openai.Model {
 	ids := []string{}
 	if account != nil {
-		mapping := account.GetExplicitModelMapping()
-		for requestedModel := range mapping {
+		for requestedModel := range account.GetExplicitModelMapping() {
 			ids = append(ids, requestedModel)
 		}
 	}
 	if len(ids) == 0 {
 		ids = service.OpenCodeGoDefaultModelIDs()
 	}
-	sort.Strings(ids)
+	return accountTestModels(ids)
+}
 
+func accountTestModels(ids []string) []openai.Model {
+	sort.Strings(ids)
 	models := make([]openai.Model, 0, len(ids))
 	for _, id := range ids {
 		models = append(models, openai.Model{
