@@ -14,9 +14,15 @@ import (
 
 func TestParseClinePassCatalogFiltersAndSorts(t *testing.T) {
 	models, err := parseClinePassCatalog([]byte(`{
-		"free":["cline-pass/ignored"],
-		"recommended":["cline-pass/also-ignored"],
-		"clinePass":[" cline-pass/qwen3.7-plus ","bad","cline-pass/glm-5.2","cline-pass/GLM-5.2","cline-pass/qwen3.7-plus"]
+		"free":[{"id":"cline-pass/ignored"}],
+		"recommended":[{"id":"cline-pass/also-ignored"}],
+		"clinePass":[
+			{"id":" cline-pass/qwen3.7-plus ","name":"Qwen"},
+			{"id":"bad"},
+			{"id":"cline-pass/glm-5.2","name":"GLM"},
+			{"id":"cline-pass/GLM-5.2"},
+			"cline-pass/qwen3.7-plus"
+		]
 	}`))
 	require.NoError(t, err)
 	require.Equal(t, []string{"cline-pass/glm-5.2", "cline-pass/qwen3.7-plus"}, models)
@@ -36,7 +42,7 @@ func TestClinePassCatalogFallbackAndLastKnownGood(t *testing.T) {
 			http.Error(w, "unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		_, _ = w.Write([]byte(`{"clinePass":["cline-pass/test-model"]}`))
+		_, _ = w.Write([]byte(`{"clinePass":[{"id":"cline-pass/test-model","name":"Test Model"}]}`))
 	}))
 	defer server.Close()
 
@@ -57,7 +63,7 @@ func TestClinePassCatalogConcurrentRefreshIsDeduplicated(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		time.Sleep(20 * time.Millisecond)
-		_, _ = w.Write([]byte(`{"clinePass":["cline-pass/test-model"]}`))
+		_, _ = w.Write([]byte(`{"clinePass":[{"id":"cline-pass/test-model","name":"Test Model"}]}`))
 	}))
 	defer server.Close()
 

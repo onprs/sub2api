@@ -99,7 +99,7 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 
 	if strings.TrimSpace(respText) == "" {
 		res.Status = MonitorStatusFailed
-		res.Message = truncateMessage("upstream returned 2xx but response text was empty; check endpoint, api_mode, and response format")
+		res.Message = truncateMessage(emptyMonitorResponseMessage(provider, rawBody))
 		return res
 	}
 
@@ -290,15 +290,20 @@ var providerClinePassChatAdapter = providerAdapter{
 	buildPath: func(string) string { return providerClinePassChatPath },
 	buildBody: func(model, prompt string) ([]byte, error) {
 		return json.Marshal(map[string]any{
-			"model":       model,
-			"messages":    []map[string]string{{"role": "user", "content": prompt}},
-			"max_tokens":  monitorClinePassChallengeMaxTokens,
-			"temperature": 0,
-			"stream":      false,
+			"model": model,
+			"messages": []map[string]string{
+				{"role": "system", "content": "Return only the requested check code. Do not explain or use tools."},
+				{"role": "user", "content": prompt},
+			},
+			"max_tokens": monitorClinePassChallengeMaxTokens,
+			"stream":     true,
 		})
 	},
 	buildHeaders: func(apiKey string) map[string]string {
-		return map[string]string{"Authorization": "Bearer " + apiKey}
+		return map[string]string{
+			"Authorization": "Bearer " + apiKey,
+			"Accept":        "text/event-stream",
+		}
 	},
 	textPath:           "data.choices.0.message.content",
 	releaseGuardMarker: "channel_monitor_provider_clinepass",
@@ -397,6 +402,13 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 		}
 		return extractOpenCodeGoChatText(respBytes), string(respBytes), status, nil
 	}
+	if provider == MonitorProviderClinePass {
+		if status < http.StatusOK || status >= http.StatusMultipleChoices {
+			return "", string(respBytes), status, nil
+		}
+		text, extractErr := extractClinePassChatText(respBytes)
+		return text, string(respBytes), status, extractErr
+	}
 	return gjson.GetBytes(respBytes, adapter.textPath).String(), string(respBytes), status, nil
 }
 
@@ -478,6 +490,106 @@ func collectGeminiCandidateTexts(candidates gjson.Result) []string {
 		return true
 	})
 	return texts
+}
+
+func extractClinePassChatText(respBytes []byte) (string, error) {
+	if events, ok := clinePassSSEData(respBytes); ok {
+		return extractClinePassSSEText(events)
+	}
+	return extractClinePassChatJSONText(respBytes)
+}
+
+func clinePassSSEData(respBytes []byte) ([][]byte, bool) {
+	var events [][]byte
+	sawDataLine := false
+	for _, line := range strings.Split(string(respBytes), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		sawDataLine = true
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+		events = append(events, []byte(data))
+	}
+	return events, sawDataLine
+}
+
+func extractClinePassSSEText(events [][]byte) (string, error) {
+	var texts []string
+	for _, event := range events {
+		text, err := extractClinePassChatJSONText(event)
+		if err != nil {
+			return "", err
+		}
+		if text != "" {
+			texts = append(texts, text)
+		}
+	}
+	return strings.Join(texts, ""), nil
+}
+
+func extractClinePassChatJSONText(respBytes []byte) (string, error) {
+	root := gjson.ParseBytes(respBytes)
+	if success := root.Get("success"); success.Exists() {
+		if !success.Bool() {
+			return "", fmt.Errorf("ClinePass returned an unsuccessful 2xx response")
+		}
+		if !root.Get("data").IsObject() {
+			return "", fmt.Errorf("ClinePass returned a successful 2xx envelope without data")
+		}
+	}
+	return extractOpenCodeGoChatText(clinePassMonitorResponsePayload(respBytes)), nil
+}
+
+func clinePassMonitorResponsePayload(respBytes []byte) []byte {
+	data := gjson.GetBytes(respBytes, "data")
+	if data.IsObject() {
+		return []byte(data.Raw)
+	}
+	return respBytes
+}
+
+func emptyMonitorResponseMessage(provider, rawBody string) string {
+	if provider != MonitorProviderClinePass {
+		return "upstream returned 2xx but response text was empty; check endpoint, api_mode, and response format"
+	}
+	finishReason, reasoning := clinePassMonitorResponseMetadata([]byte(rawBody))
+	if finishReason == "length" {
+		return "ClinePass exhausted the output budget before returning final text"
+	}
+	if reasoning != "" {
+		return "ClinePass returned reasoning but no final response text"
+	}
+	return "ClinePass returned 2xx but response text was empty; verify that the endpoint and API key belong to the same service"
+}
+
+func clinePassMonitorResponseMetadata(respBytes []byte) (string, string) {
+	payloads := [][]byte{respBytes}
+	if events, ok := clinePassSSEData(respBytes); ok {
+		payloads = events
+	}
+
+	var finishReason string
+	var reasoning []string
+	for _, payload := range payloads {
+		payload = clinePassMonitorResponsePayload(payload)
+		if value := strings.TrimSpace(gjson.GetBytes(payload, "choices.0.finish_reason").String()); value != "" {
+			finishReason = value
+		}
+		for _, path := range []string{
+			"choices.0.message.reasoning_content",
+			"choices.0.delta.reasoning_content",
+			"choices.0.delta.reasoning",
+		} {
+			if value := strings.TrimSpace(gjson.GetBytes(payload, path).String()); value != "" {
+				reasoning = append(reasoning, value)
+			}
+		}
+	}
+	return finishReason, strings.Join(reasoning, "")
 }
 
 func extractOpenCodeGoChatText(respBytes []byte) string {

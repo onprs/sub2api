@@ -17,6 +17,7 @@ describe('channel monitor constants', () => {
   it('uses /v1 when monitoring OpenCode Go through the current Sub2API domain', () => {
     expect(monitorCurrentDomainEndpoint(PROVIDER_OPENCODE_GO, 'https://api.onprs.top')).toBe('https://api.onprs.top/v1')
     expect(monitorCurrentDomainEndpoint(PROVIDER_ANTHROPIC, 'https://api.onprs.top')).toBe('https://api.onprs.top')
+    expect(monitorCurrentDomainEndpoint(PROVIDER_CLINEPASS, 'https://api.onprs.top/')).toBe('https://api.onprs.top')
   })
 
   it('preserves OpenCode Go messages mode in monitor payloads', () => {

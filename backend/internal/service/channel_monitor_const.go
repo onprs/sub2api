@@ -57,7 +57,7 @@ const (
 	providerOpenCodeGoChatPath = "/chat/completions"
 	// providerOpenCodeGoMessagesPath OpenCode Go Anthropic-style Messages path.
 	providerOpenCodeGoMessagesPath = "/messages"
-	// providerClinePassChatPath ClinePass Chat Completions path relative to its /api/v1 root.
+	// providerClinePassChatPath works with both the local gateway root and Cline's /api/v1 root.
 	providerClinePassChatPath = "/chat/completions"
 
 	// MonitorProvider* provider 字符串常量（也是 ent enum 的实际值）。
@@ -99,8 +99,9 @@ const (
 	monitorChallengeMaxTokens = 50
 	// monitorOpenCodeGoChallengeMaxTokens 为 OpenCode Go 推理/转换链路保留更宽的输出预算，避免 final content 偶发为空。
 	monitorOpenCodeGoChallengeMaxTokens = 512
-	// monitorClinePassChallengeMaxTokens 为 ClinePass reasoning 模型保留足够的最终答案预算。
-	monitorClinePassChallengeMaxTokens = 128
+	// monitorClinePassChallengeMaxTokens 为 ClinePass reasoning 模型保留最终答案预算。
+	// 官方 SDK 默认输出上限为 32k；探活使用 4k，在控制额度消耗的同时避免 reasoning 挤占全部输出。
+	monitorClinePassChallengeMaxTokens = 4096
 	// monitorAntigravityGeminiChallengeMaxTokens 为 Antigravity Gemini thinking/agent 模型保留更多输出预算。
 	monitorAntigravityGeminiChallengeMaxTokens = 1024
 	// monitorAntigravityGeminiThinkingLevel 渠道监控只做极简探活，Gemini 3 用 low 降低 thinking 消耗与首 token 延迟。

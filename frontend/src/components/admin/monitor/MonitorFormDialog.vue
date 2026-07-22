@@ -55,6 +55,9 @@
             {{ t('admin.channelMonitor.form.useCurrentDomain') }}
           </button>
         </div>
+        <p v-if="form.provider === PROVIDER_CLINEPASS" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.channelMonitor.form.clinePassEndpointHint') }}
+        </p>
       </div>
 
       <div>
@@ -74,6 +77,9 @@
           </button>
         </div>
         <p v-if="editing && editing.api_key_masked" class="mt-1 text-xs text-gray-400">{{ editing.api_key_masked }}</p>
+        <p v-if="form.provider === PROVIDER_CLINEPASS" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.channelMonitor.form.clinePassAPIKeyHint') }}
+        </p>
       </div>
 
       <div>
@@ -112,6 +118,9 @@
         <label class="input-label">{{ t('admin.channelMonitor.form.intervalSeconds') }} <span class="text-red-500">*</span></label>
         <input v-model.number="form.interval_seconds" type="number" min="15" max="3600" required class="input" />
         <p class="mt-1 text-xs text-gray-400">{{ t('admin.channelMonitor.form.intervalSecondsHint') }}</p>
+        <p v-if="form.provider === PROVIDER_CLINEPASS" class="mt-1 text-xs text-amber-600 dark:text-amber-400">
+          {{ t('admin.channelMonitor.form.clinePassIntervalHint') }}
+        </p>
       </div>
 
       <div>
@@ -445,7 +454,7 @@ watch(() => form.provider, (provider) => {
   form.api_key = ''
   form.api_mode = normalizeAPIModeForProvider(provider, form.api_mode)
   if (provider === PROVIDER_CLINEPASS) {
-    form.endpoint = 'https://api.cline.bot/api/v1'
+    form.endpoint = monitorCurrentDomainEndpoint(provider, window.location.origin)
     void loadClinePassModels()
   }
   clearRequestSnapshot()
