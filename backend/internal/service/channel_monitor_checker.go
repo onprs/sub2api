@@ -296,13 +296,13 @@ var providerClinePassChatAdapter = providerAdapter{
 				{"role": "user", "content": prompt},
 			},
 			"max_tokens": monitorClinePassChallengeMaxTokens,
-			"stream":     true,
+			"stream":     false,
 		})
 	},
 	buildHeaders: func(apiKey string) map[string]string {
 		return map[string]string{
 			"Authorization": "Bearer " + apiKey,
-			"Accept":        "text/event-stream",
+			"Accept":        "application/json",
 		}
 	},
 	textPath:           "data.choices.0.message.content",
@@ -494,6 +494,9 @@ func collectGeminiCandidateTexts(candidates gjson.Result) []string {
 
 func extractClinePassChatText(respBytes []byte) (string, error) {
 	if events, ok := clinePassSSEData(respBytes); ok {
+		if len(events) == 0 {
+			return "", fmt.Errorf("ClinePass stream ended without response events")
+		}
 		return extractClinePassSSEText(events)
 	}
 	return extractClinePassChatJSONText(respBytes)
@@ -532,7 +535,24 @@ func extractClinePassSSEText(events [][]byte) (string, error) {
 }
 
 func extractClinePassChatJSONText(respBytes []byte) (string, error) {
+	if !gjson.ValidBytes(respBytes) {
+		return "", fmt.Errorf("ClinePass returned a non-JSON 2xx response; verify the endpoint path")
+	}
 	root := gjson.ParseBytes(respBytes)
+	if embeddedErr := root.Get("error"); embeddedErr.Exists() {
+		message := firstNonEmptyGJSON(
+			embeddedErr.Get("message"),
+			embeddedErr.Get("error.message"),
+			root.Get("message"),
+		)
+		if message == "" && embeddedErr.Type == gjson.String {
+			message = strings.TrimSpace(embeddedErr.String())
+		}
+		if message == "" {
+			message = "unspecified error"
+		}
+		return "", fmt.Errorf("ClinePass returned an error in a 2xx response: %s", message)
+	}
 	if success := root.Get("success"); success.Exists() {
 		if !success.Bool() {
 			return "", fmt.Errorf("ClinePass returned an unsuccessful 2xx response")
@@ -542,6 +562,15 @@ func extractClinePassChatJSONText(respBytes []byte) (string, error) {
 		}
 	}
 	return extractOpenCodeGoChatText(clinePassMonitorResponsePayload(respBytes)), nil
+}
+
+func firstNonEmptyGJSON(values ...gjson.Result) string {
+	for _, value := range values {
+		if text := strings.TrimSpace(value.String()); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 func clinePassMonitorResponsePayload(respBytes []byte) []byte {

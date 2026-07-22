@@ -54,7 +54,7 @@ func TestClinePassLiveContract(t *testing.T) {
 		require.Contains(t, models, model)
 	})
 
-	t.Run("channel monitor streaming challenge", func(t *testing.T) {
+	t.Run("channel monitor challenge", func(t *testing.T) {
 		result := runCheckForModel(ctx, MonitorProviderClinePass, DefaultClinePassBaseURL, apiKey, model, nil)
 		require.Equal(t, MonitorStatusOperational, result.Status, result.Message)
 	})
