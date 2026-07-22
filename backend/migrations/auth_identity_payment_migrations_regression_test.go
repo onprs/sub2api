@@ -231,6 +231,17 @@ func TestMigration181AddsClinePassPlatformContractsIdempotently(t *testing.T) {
 	require.NotContains(t, sql, "'unknown'")
 }
 
+func TestMigration182UpdatesClinePassMonitorGuidance(t *testing.T) {
+	content, err := FS.ReadFile("182_fix_clinepass_channel_monitor_template.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "UPDATE channel_monitor_request_templates")
+	require.Contains(t, sql, "current Sub2API service")
+	require.Contains(t, sql, "Cline-issued API key")
+	require.Contains(t, sql, "WHERE provider = 'clinepass'")
+}
+
 func TestMigration173AllowsCyberBlockedUsageRequestType(t *testing.T) {
 	entries, err := FS.ReadDir(".")
 	require.NoError(t, err)

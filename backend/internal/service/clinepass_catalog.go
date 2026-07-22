@@ -162,15 +162,15 @@ func (c *ClinePassCatalog) fetch(ctx context.Context) ([]string, error) {
 func parseClinePassCatalog(body []byte) ([]string, error) {
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	var payload struct {
-		ClinePass []string `json:"clinePass"`
+		ClinePass []json.RawMessage `json:"clinePass"`
 	}
 	if err := decoder.Decode(&payload); err != nil {
 		return nil, err
 	}
 	seen := make(map[string]struct{}, len(payload.ClinePass))
 	models := make([]string, 0, len(payload.ClinePass))
-	for _, model := range payload.ClinePass {
-		model = strings.TrimSpace(model)
+	for _, entry := range payload.ClinePass {
+		model := strings.TrimSpace(clinePassCatalogModelID(entry))
 		if !isClinePassModelID(model) {
 			continue
 		}
@@ -186,6 +186,20 @@ func parseClinePassCatalog(body []byte) ([]string, error) {
 	}
 	sort.Strings(models)
 	return models, nil
+}
+
+func clinePassCatalogModelID(entry json.RawMessage) string {
+	var model string
+	if err := json.Unmarshal(entry, &model); err == nil {
+		return model
+	}
+	var item struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(entry, &item); err == nil {
+		return item.ID
+	}
+	return ""
 }
 
 func isClinePassModelID(model string) bool {

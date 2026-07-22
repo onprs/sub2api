@@ -693,7 +693,7 @@ Sub2API supports ClinePass as the independent `clinepass` platform. Administrato
 - Public generation entry points: Chat Completions, Responses, Anthropic Messages, and Google GenAI. All four formats convert to the ClinePass `/chat/completions` upstream.
 - Model discovery: the official recommended-model catalog supplies complete `cline-pass/...` slugs, with a one-hour cache, last-known-good retention, and a static fallback.
 - Usage and scheduling: `/users/me/plan/usage-limits` supplies the official 5-hour, 7-day, and 30-day windows. A missing reset time remains optional; an exhausted window without one uses a bounded refresh backoff.
-- Channel Monitor: use provider `clinepass`, Chat Completions mode, and the official API root. Monitor checks consume ClinePass quota.
+- Channel Monitor: use provider `clinepass` and Chat Completions mode. For an end-to-end check, use the current Sub2API endpoint with a local ClinePass group key. Direct checks against `https://api.cline.bot/api/v1` require a Cline-issued API key. Both paths perform a real generation and consume ClinePass quota.
 - Billing: ClinePass response cost extensions are not used as the Sub2API bill. Requests without configured token pricing fail before reaching the upstream.
 - Exclusions: OAuth/device auth, provider token counting, Responses WebSocket, and specialized `/responses/*` subpaths.
 

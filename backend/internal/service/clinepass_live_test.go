@@ -54,6 +54,11 @@ func TestClinePassLiveContract(t *testing.T) {
 		require.Contains(t, models, model)
 	})
 
+	t.Run("channel monitor streaming challenge", func(t *testing.T) {
+		result := runCheckForModel(ctx, MonitorProviderClinePass, DefaultClinePassBaseURL, apiKey, model, nil)
+		require.Equal(t, MonitorStatusOperational, result.Status, result.Message)
+	})
+
 	t.Run("four buffered ingress protocols", func(t *testing.T) {
 		tests := []struct {
 			name       string
@@ -64,7 +69,7 @@ func TestClinePassLiveContract(t *testing.T) {
 				name: "chat with developer normalization",
 				forward: func(t *testing.T) string {
 					recorder, ginContext := newClinePassTestContext()
-					_, err := gateway.ForwardChatCompletions(ctx, ginContext, account, []byte(`{"model":"`+model+`","messages":[{"role":"developer","content":"Reply briefly."},{"role":"user","content":"Reply with OK."}],"max_tokens":128}`))
+					_, err := gateway.ForwardChatCompletions(ctx, ginContext, account, []byte(`{"model":"`+model+`","messages":[{"role":"developer","content":"Reply briefly."},{"role":"user","content":"Reply with OK."}],"max_tokens":4096}`))
 					require.NoError(t, err)
 					return recorder.Body.String()
 				},
@@ -74,7 +79,7 @@ func TestClinePassLiveContract(t *testing.T) {
 				name: "responses",
 				forward: func(t *testing.T) string {
 					recorder, ginContext := newClinePassTestContext()
-					_, err := gateway.ForwardResponses(ctx, ginContext, account, []byte(`{"model":"`+model+`","input":"Reply with OK.","max_output_tokens":128}`), model)
+					_, err := gateway.ForwardResponses(ctx, ginContext, account, []byte(`{"model":"`+model+`","input":"Reply with OK.","max_output_tokens":4096}`), model)
 					require.NoError(t, err)
 					return recorder.Body.String()
 				},
@@ -84,7 +89,7 @@ func TestClinePassLiveContract(t *testing.T) {
 				name: "anthropic messages",
 				forward: func(t *testing.T) string {
 					recorder, ginContext := newClinePassTestContext()
-					_, err := gateway.ForwardMessages(ctx, ginContext, account, []byte(`{"model":"`+model+`","max_tokens":128,"messages":[{"role":"user","content":"Reply with OK."}]}`))
+					_, err := gateway.ForwardMessages(ctx, ginContext, account, []byte(`{"model":"`+model+`","max_tokens":4096,"messages":[{"role":"user","content":"Reply with OK."}]}`))
 					require.NoError(t, err)
 					return recorder.Body.String()
 				},
@@ -94,7 +99,7 @@ func TestClinePassLiveContract(t *testing.T) {
 				name: "google genai",
 				forward: func(t *testing.T) string {
 					recorder, ginContext := newClinePassTestContext()
-					_, err := gateway.ForwardGoogleGenAI(ctx, ginContext, account, []byte(`{"contents":[{"role":"user","parts":[{"text":"Reply with OK."}]}],"generationConfig":{"maxOutputTokens":128}}`), model, model, false)
+					_, err := gateway.ForwardGoogleGenAI(ctx, ginContext, account, []byte(`{"contents":[{"role":"user","parts":[{"text":"Reply with OK."}]}],"generationConfig":{"maxOutputTokens":4096}}`), model, model, false)
 					require.NoError(t, err)
 					return recorder.Body.String()
 				},
@@ -112,7 +117,7 @@ func TestClinePassLiveContract(t *testing.T) {
 
 	t.Run("chat streaming usage and terminal", func(t *testing.T) {
 		recorder, ginContext := newClinePassTestContext()
-		result, err := gateway.ForwardChatCompletions(ctx, ginContext, account, []byte(`{"model":"`+model+`","messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":128,"stream":true}`))
+		result, err := gateway.ForwardChatCompletions(ctx, ginContext, account, []byte(`{"model":"`+model+`","messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":4096,"stream":true}`))
 		require.NoError(t, err)
 		require.Contains(t, recorder.Body.String(), "data: [DONE]")
 		require.Positive(t, result.Usage.InputTokens+result.Usage.OutputTokens)
@@ -126,7 +131,7 @@ func TestClinePassLiveContract(t *testing.T) {
 			}
 			t.Run(name, func(t *testing.T) {
 				recorder, ginContext := newClinePassTestContext()
-				body := `{"model":"` + model + `","messages":[{"role":"user","content":"Look up id 1."}],"max_tokens":128,"stream":` + boolJSON(stream) + `,"tools":[{"type":"function","function":{"name":"lookup","description":"Lookup an id","parameters":{"type":"object","properties":{"id":{"type":"integer"}},"required":["id"]}}}],"tool_choice":{"type":"function","function":{"name":"lookup"}}}`
+				body := `{"model":"` + model + `","messages":[{"role":"user","content":"Look up id 1."}],"max_tokens":4096,"stream":` + boolJSON(stream) + `,"tools":[{"type":"function","function":{"name":"lookup","description":"Lookup an id","parameters":{"type":"object","properties":{"id":{"type":"integer"}},"required":["id"]}}}],"tool_choice":{"type":"function","function":{"name":"lookup"}}}`
 				_, err := gateway.ForwardChatCompletions(ctx, ginContext, account, []byte(body))
 				require.NoError(t, err)
 				require.Contains(t, recorder.Body.String(), "tool_calls")
