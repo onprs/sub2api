@@ -25,6 +25,7 @@ type partWire struct {
 	FunctionResponse *functionResponseWire `json:"functionResponse,omitempty"`
 	Thought          bool                  `json:"thought,omitempty"`
 	ThoughtSignature string                `json:"thoughtSignature,omitempty"`
+	CacheControl     json.RawMessage       `json:"cache_control,omitempty"`
 }
 
 type blobWire struct {

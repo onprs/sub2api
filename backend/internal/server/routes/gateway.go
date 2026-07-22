@@ -42,6 +42,10 @@ func RegisterGatewayRoutes(
 	isOpenAIGatewayPlatform := func(c *gin.Context) bool {
 		return getGroupPlatform(c) == service.PlatformOpenAI
 	}
+	isStandardProtocolGatewayPlatform := func(c *gin.Context) bool {
+		platform := getGroupPlatform(c)
+		return platform == service.PlatformOpenCodeGo || platform == service.PlatformClinePass
+	}
 	imagesHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {
 		case service.PlatformOpenAI:
@@ -85,7 +89,7 @@ func RegisterGatewayRoutes(
 		})
 	}
 	googleGenerationHandler := func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+		if isStandardProtocolGatewayPlatform(c) {
 			h.OpenCodeGo.GoogleGenAI(c)
 			return
 		}
@@ -102,7 +106,7 @@ func RegisterGatewayRoutes(
 	{
 		// /v1/messages: auto-route based on group platform
 		gateway.POST("/messages", func(c *gin.Context) {
-			if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+			if isStandardProtocolGatewayPlatform(c) {
 				h.OpenCodeGo.Messages(c)
 				return
 			}
@@ -120,7 +124,7 @@ func RegisterGatewayRoutes(
 				h.OpenAIGateway.CountTokens(c)
 				return
 			}
-			if platform == service.PlatformOpenCodeGo || isOpenAIResponsesCompatibleGatewayPlatform(c) {
+			if platform == service.PlatformOpenCodeGo || platform == service.PlatformClinePass || isOpenAIResponsesCompatibleGatewayPlatform(c) {
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 				c.JSON(http.StatusNotFound, gin.H{
 					"type": "error",
@@ -137,7 +141,7 @@ func RegisterGatewayRoutes(
 		// /models endpoint with a client_version query and expect the ChatGPT
 		// Codex manifest format; other clients keep the OpenAI-style list.
 		gateway.GET("/models", func(c *gin.Context) {
-			if getGroupPlatform(c) == service.PlatformOpenCodeGo && h.OpenCodeGo != nil {
+			if isStandardProtocolGatewayPlatform(c) && h.OpenCodeGo != nil {
 				h.OpenCodeGo.Models(c)
 				return
 			}
@@ -150,7 +154,7 @@ func RegisterGatewayRoutes(
 		gateway.GET("/usage", h.Gateway.Usage)
 		// OpenAI Responses API: auto-route based on group platform
 		gateway.POST("/responses", func(c *gin.Context) {
-			if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+			if isStandardProtocolGatewayPlatform(c) {
 				h.OpenCodeGo.Responses(c)
 				return
 			}
@@ -161,7 +165,7 @@ func RegisterGatewayRoutes(
 			h.Gateway.Responses(c)
 		})
 		gateway.POST("/responses/*subpath", func(c *gin.Context) {
-			if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+			if isStandardProtocolGatewayPlatform(c) {
 				writeOpenCodeGoResponsesSubpathUnsupported(c)
 				return
 			}
@@ -172,7 +176,7 @@ func RegisterGatewayRoutes(
 			h.Gateway.Responses(c)
 		})
 		gateway.GET("/responses", func(c *gin.Context) {
-			if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+			if isStandardProtocolGatewayPlatform(c) {
 				writeOpenCodeGoResponsesWebSocketUnsupported(c)
 				return
 			}
@@ -180,7 +184,7 @@ func RegisterGatewayRoutes(
 		})
 		// OpenAI Chat Completions API: auto-route based on group platform
 		gateway.POST("/chat/completions", func(c *gin.Context) {
-			if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+			if isStandardProtocolGatewayPlatform(c) {
 				h.OpenCodeGo.ChatCompletions(c)
 				return
 			}
@@ -249,7 +253,7 @@ func RegisterGatewayRoutes(
 
 	// OpenAI Responses API（不带v1前缀的别名）— auto-route based on group platform
 	responsesHandler := func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+		if isStandardProtocolGatewayPlatform(c) {
 			h.OpenCodeGo.Responses(c)
 			return
 		}
@@ -261,14 +265,14 @@ func RegisterGatewayRoutes(
 	}
 	r.POST("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, responsesHandler)
 	r.POST("/responses/*subpath", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+		if isStandardProtocolGatewayPlatform(c) {
 			writeOpenCodeGoResponsesSubpathUnsupported(c)
 			return
 		}
 		responsesHandler(c)
 	})
 	r.GET("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+		if isStandardProtocolGatewayPlatform(c) {
 			writeOpenCodeGoResponsesWebSocketUnsupported(c)
 			return
 		}
@@ -279,14 +283,14 @@ func RegisterGatewayRoutes(
 	{
 		codexDirect.POST("/responses", responsesHandler)
 		codexDirect.POST("/responses/*subpath", func(c *gin.Context) {
-			if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+			if isStandardProtocolGatewayPlatform(c) {
 				writeOpenCodeGoResponsesSubpathUnsupported(c)
 				return
 			}
 			responsesHandler(c)
 		})
 		codexDirect.GET("/responses", func(c *gin.Context) {
-			if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+			if isStandardProtocolGatewayPlatform(c) {
 				writeOpenCodeGoResponsesWebSocketUnsupported(c)
 				return
 			}
@@ -296,7 +300,7 @@ func RegisterGatewayRoutes(
 	}
 	// OpenAI Chat Completions API（不带v1前缀的别名）— auto-route based on group platform
 	r.POST("/chat/completions", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformOpenCodeGo {
+		if isStandardProtocolGatewayPlatform(c) {
 			h.OpenCodeGo.ChatCompletions(c)
 			return
 		}

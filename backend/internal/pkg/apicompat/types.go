@@ -627,9 +627,10 @@ type ChatMessage struct {
 
 // ChatContentPart is a typed content part in a multi-modal message.
 type ChatContentPart struct {
-	Type     string        `json:"type"` // "text" | "image_url"
-	Text     string        `json:"text,omitempty"`
-	ImageURL *ChatImageURL `json:"image_url,omitempty"`
+	Type         string          `json:"type"` // "text" | "image_url"
+	Text         string          `json:"text,omitempty"`
+	ImageURL     *ChatImageURL   `json:"image_url,omitempty"`
+	CacheControl json.RawMessage `json:"cache_control,omitempty"`
 }
 
 // ChatImageURL contains the URL for an image content part.
@@ -688,11 +689,12 @@ type ChatChoice struct {
 
 // ChatUsage holds token counts in Chat Completions format.
 type ChatUsage struct {
-	PromptTokens            int               `json:"prompt_tokens"`
-	CompletionTokens        int               `json:"completion_tokens"`
-	TotalTokens             int               `json:"total_tokens"`
-	PromptTokensDetails     *ChatTokenDetails `json:"prompt_tokens_details,omitempty"`
-	CompletionTokensDetails *ChatTokenDetails `json:"completion_tokens_details,omitempty"`
+	PromptTokens             int               `json:"prompt_tokens"`
+	CompletionTokens         int               `json:"completion_tokens"`
+	TotalTokens              int               `json:"total_tokens"`
+	CacheCreationInputTokens int               `json:"cache_creation_input_tokens,omitempty"`
+	PromptTokensDetails      *ChatTokenDetails `json:"prompt_tokens_details,omitempty"`
+	CompletionTokensDetails  *ChatTokenDetails `json:"completion_tokens_details,omitempty"`
 }
 
 // ChatTokenDetails provides a breakdown of token usage. The same type is

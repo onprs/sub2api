@@ -7,10 +7,10 @@ import (
 
 // ValidateGatewayTokenPricingAvailable performs a fast preflight for gateway
 // paths that cannot safely proceed when token pricing is missing. This is
-// especially important for OpenCode Go, whose model catalog is open-ended and
+// especially important for providers with open-ended model catalogs, which
 // must not silently fall back to zero-cost billing for unknown models.
 func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Context, apiKey *APIKey, account *Account, requestedModel string, mapping ChannelMappingResult) error {
-	if s == nil || account == nil || !account.IsOpenCodeGo() {
+	if s == nil || account == nil || (!account.IsOpenCodeGo() && !account.IsClinePass()) {
 		return nil
 	}
 
@@ -25,7 +25,8 @@ func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Contex
 		return tokenPricingUnavailableError(requestedModel)
 	}
 
-	candidates := billableUsageModelCandidates(billingModel, mapping.MappedModel, requestedModel)
+	accountMappedModel := strings.TrimSpace(account.GetMappedModel(requestedModel))
+	candidates := billableUsageModelCandidates(billingModel, mapping.MappedModel, accountMappedModel, requestedModel)
 	if s.resolver != nil && apiKey != nil && apiKey.GroupID != nil {
 		for _, candidate := range candidates {
 			candidate = strings.TrimSpace(candidate)

@@ -1141,10 +1141,11 @@ func convertAnthropicBodyToChatCompletionsBody(body []byte) ([]byte, error) {
 
 func claudeUsageFromChatBody(body []byte) ClaudeUsage {
 	return normalizeOpenCodeGoChatUsage(ClaudeUsage{
-		InputTokens:          int(gjson.GetBytes(body, "usage.prompt_tokens").Int()),
-		OutputTokens:         int(gjson.GetBytes(body, "usage.completion_tokens").Int()),
-		CacheReadInputTokens: int(gjson.GetBytes(body, "usage.prompt_tokens_details.cached_tokens").Int()),
-		ImageOutputTokens:    int(gjson.GetBytes(body, "usage.completion_tokens_details.image_tokens").Int()),
+		InputTokens:              int(gjson.GetBytes(body, "usage.prompt_tokens").Int()),
+		OutputTokens:             int(gjson.GetBytes(body, "usage.completion_tokens").Int()),
+		CacheCreationInputTokens: int(gjson.GetBytes(body, "usage.cache_creation_input_tokens").Int()),
+		CacheReadInputTokens:     int(gjson.GetBytes(body, "usage.prompt_tokens_details.cached_tokens").Int()),
+		ImageOutputTokens:        int(gjson.GetBytes(body, "usage.completion_tokens_details.image_tokens").Int()),
 	})
 }
 
@@ -1162,8 +1163,9 @@ func claudeUsageFromChatUsage(usage *apicompat.ChatUsage) ClaudeUsage {
 		return ClaudeUsage{}
 	}
 	out := ClaudeUsage{
-		InputTokens:  usage.PromptTokens,
-		OutputTokens: usage.CompletionTokens,
+		InputTokens:              usage.PromptTokens,
+		OutputTokens:             usage.CompletionTokens,
+		CacheCreationInputTokens: usage.CacheCreationInputTokens,
 	}
 	if usage.PromptTokensDetails != nil {
 		out.CacheReadInputTokens = usage.PromptTokensDetails.CachedTokens

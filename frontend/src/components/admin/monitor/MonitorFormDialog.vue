@@ -85,7 +85,11 @@
           class="input font-medium"
           :class="getPlatformTextClass(form.provider)"
           :placeholder="t('admin.channelMonitor.form.primaryModelPlaceholder')"
+          :list="form.provider === PROVIDER_CLINEPASS ? 'clinepass-monitor-models' : undefined"
         />
+        <datalist v-if="form.provider === PROVIDER_CLINEPASS" id="clinepass-monitor-models">
+          <option v-for="model in clinePassModels" :key="model" :value="model" />
+        </datalist>
       </div>
 
       <div>
@@ -94,6 +98,7 @@
           :models="form.extra_models"
           :platform="form.provider"
           :placeholder="t('admin.channelMonitor.form.extraModelsPlaceholder')"
+          :suggestions="form.provider === PROVIDER_CLINEPASS ? clinePassModels : undefined"
           @update:models="form.extra_models = $event"
         />
       </div>
@@ -216,6 +221,7 @@ import {
   PROVIDER_ANTIGRAVITY_CLAUDE,
   PROVIDER_ANTIGRAVITY_GEMINI,
   PROVIDER_OPENCODE_GO,
+  PROVIDER_CLINEPASS,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_MESSAGES,
   API_MODE_RESPONSES,
@@ -255,6 +261,7 @@ const submitting = ref(false)
 const showKeyPicker = ref(false)
 const myKeysLoading = ref(false)
 const myActiveKeys = ref<ApiKey[]>([])
+const clinePassModels = ref<string[]>([])
 const userGroupRates = ref<Record<number, number>>({})
 
 interface MonitorForm {
@@ -397,6 +404,15 @@ function templateOptionLabel(tpl: ChannelMonitorTemplate): string {
   return `${tpl.name} · ${t(apiModeLabelKey(normalizeAPIModeForProvider(tpl.provider, tpl.api_mode)))}`
 }
 
+async function loadClinePassModels() {
+  if (clinePassModels.value.length > 0) return
+  try {
+    clinePassModels.value = await adminAPI.channelMonitor.listClinePassModels()
+  } catch {
+    clinePassModels.value = []
+  }
+}
+
 function clearRequestSnapshot() {
   form.template_id = null
   form.extra_headers = {}
@@ -416,6 +432,7 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_ANTIGRAVITY_CLAUDE, label: t('monitorCommon.providers.antigravity_claude') },
   { value: PROVIDER_ANTIGRAVITY_GEMINI, label: t('monitorCommon.providers.antigravity_gemini') },
   { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
+  { value: PROVIDER_CLINEPASS, label: t('monitorCommon.providers.clinepass') },
 ])
 
 // Clear api_key whenever provider changes to avoid cross-provider key mismatch.
@@ -423,10 +440,14 @@ const providerOptions = computed<ProviderOption[]>(() => [
 // typing, so clearing on provider change is always a safe no-op until the user
 // picks a new key.
 // 同时清空 template_id（模板有 provider 归属，跨平台不通用）。
-watch(() => form.provider, () => {
+watch(() => form.provider, (provider) => {
   if (suppressFormWatchers) return
   form.api_key = ''
-  form.api_mode = normalizeAPIModeForProvider(form.provider, form.api_mode)
+  form.api_mode = normalizeAPIModeForProvider(provider, form.api_mode)
+  if (provider === PROVIDER_CLINEPASS) {
+    form.endpoint = 'https://api.cline.bot/api/v1'
+    void loadClinePassModels()
+  }
   clearRequestSnapshot()
 }, { flush: 'sync' })
 
@@ -484,6 +505,7 @@ watch(
   ([show, m]) => {
     if (!show) return
     void loadTemplates()
+    if (m?.provider === PROVIDER_CLINEPASS) void loadClinePassModels()
     if (m) loadFromMonitor(m)
     else resetForm()
   },

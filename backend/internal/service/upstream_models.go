@@ -84,6 +84,13 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 	if account.Platform == PlatformAntigravity && account.Type != AccountTypeAPIKey {
 		return s.fetchAntigravityOAuthUpstreamModels(ctx, account)
 	}
+	if account.IsClinePassAPIKey() {
+		models := defaultClinePassCatalog.ModelIDs(ctx)
+		if len(models) == 0 {
+			return nil, newUpstreamModelSyncUpstreamError("ClinePass model catalog is unavailable", nil)
+		}
+		return models, nil
+	}
 
 	if s.httpUpstream == nil {
 		return nil, newUpstreamModelSyncConfigError("Upstream HTTP client is not configured", nil)
@@ -135,6 +142,8 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 		return s.buildOpenAIUpstreamModelsRequest(ctx, account)
 	case account.IsOpenCodeGo():
 		return s.buildOpenCodeGoUpstreamModelsRequest(ctx, account)
+	case account.IsClinePass():
+		return nil, newUpstreamModelSyncUnsupportedError("ClinePass uses its dedicated public catalog", nil)
 	case account.IsGemini():
 		return s.buildGeminiUpstreamModelsRequest(ctx, account)
 	case account.IsAnthropic():

@@ -24,6 +24,8 @@
     <path stroke-linecap="round" stroke-linejoin="round" d="M4 6.75A2.75 2.75 0 0 1 6.75 4h10.5A2.75 2.75 0 0 1 20 6.75v10.5A2.75 2.75 0 0 1 17.25 20H6.75A2.75 2.75 0 0 1 4 17.25V6.75Z" />
     <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 9 3 3-3 3M12.75 15h3" />
   </svg>
+  <!-- ClinePass uses the shared chat command icon. -->
+  <Icon v-else-if="platform === 'clinepass'" name="chat" :size="size" />
   <!-- Grok / xAI logo mark (stylized angular X) -->
   <svg v-else-if="platform === 'grok'" :class="sizeClass" viewBox="0 0 24 24" fill="currentColor">
     <path
@@ -41,6 +43,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { GroupPlatform } from '@/types'
+import Icon from '@/components/icons/Icon.vue'
 
 interface Props {
   platform?: GroupPlatform

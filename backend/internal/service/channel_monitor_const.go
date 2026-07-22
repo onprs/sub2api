@@ -57,12 +57,15 @@ const (
 	providerOpenCodeGoChatPath = "/chat/completions"
 	// providerOpenCodeGoMessagesPath OpenCode Go Anthropic-style Messages path.
 	providerOpenCodeGoMessagesPath = "/messages"
+	// providerClinePassChatPath ClinePass Chat Completions path relative to its /api/v1 root.
+	providerClinePassChatPath = "/chat/completions"
 
 	// MonitorProvider* provider 字符串常量（也是 ent enum 的实际值）。
 	MonitorProviderOpenAI            = "openai"
 	MonitorProviderAnthropic         = "anthropic"
 	MonitorProviderGemini            = "gemini"
 	MonitorProviderOpenCodeGo        = "opencode_go"
+	MonitorProviderClinePass         = "clinepass"
 	MonitorProviderAntigravityClaude = "antigravity_claude"
 	MonitorProviderAntigravityGemini = "antigravity_gemini"
 
@@ -96,6 +99,8 @@ const (
 	monitorChallengeMaxTokens = 50
 	// monitorOpenCodeGoChallengeMaxTokens 为 OpenCode Go 推理/转换链路保留更宽的输出预算，避免 final content 偶发为空。
 	monitorOpenCodeGoChallengeMaxTokens = 512
+	// monitorClinePassChallengeMaxTokens 为 ClinePass reasoning 模型保留足够的最终答案预算。
+	monitorClinePassChallengeMaxTokens = 128
 	// monitorAntigravityGeminiChallengeMaxTokens 为 Antigravity Gemini thinking/agent 模型保留更多输出预算。
 	monitorAntigravityGeminiChallengeMaxTokens = 1024
 	// monitorAntigravityGeminiThinkingLevel 渠道监控只做极简探活，Gemini 3 用 low 降低 thinking 消耗与首 token 延迟。
@@ -125,7 +130,7 @@ var (
 		"CHANNEL_MONITOR_NOT_FOUND", "channel monitor not found",
 	)
 	ErrChannelMonitorInvalidProvider = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/opencode_go/antigravity_claude/antigravity_gemini",
+		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/opencode_go/clinepass/antigravity_claude/antigravity_gemini",
 	)
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, messages, or responses; responses is only supported for openai and messages is only supported for opencode_go",

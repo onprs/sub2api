@@ -54,8 +54,28 @@ export const buildOpenCodeGoUsageRefreshKey = (account: Pick<Account, 'id' | 'pl
   ].map(normalizeUsageRefreshValue).join('|')
 }
 
+export const buildClinePassUsageRefreshKey = (account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'extra'>): string => {
+  if (account.platform !== 'clinepass' || account.type !== 'apikey') return ''
+
+  const extra = account.extra ?? {}
+  return [
+    account.id,
+    account.updated_at,
+    extra.clinepass_usage_auth_status,
+    extra.clinepass_usage_last_error_at,
+    extra.clinepass_usage_source,
+    extra.clinepass_usage_updated_at,
+    extra.clinepass_usage_5h_used_percent,
+    extra.clinepass_usage_5h_resets_at,
+    extra.clinepass_usage_7d_used_percent,
+    extra.clinepass_usage_7d_resets_at,
+    extra.clinepass_usage_30d_used_percent,
+    extra.clinepass_usage_30d_resets_at
+  ].map(normalizeUsageRefreshValue).join('|')
+}
+
 export const buildAccountUsageRefreshKey = (
   account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'last_used_at' | 'rate_limit_reset_at' | 'extra'>
 ): string => {
-  return buildOpenAIUsageRefreshKey(account) || buildOpenCodeGoUsageRefreshKey(account)
+  return buildOpenAIUsageRefreshKey(account) || buildOpenCodeGoUsageRefreshKey(account) || buildClinePassUsageRefreshKey(account)
 }

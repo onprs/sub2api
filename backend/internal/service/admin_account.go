@@ -59,6 +59,30 @@ func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 	return accounts, nil
 }
 
+func normalizeAndValidateClinePassAccount(platform, accountType string, credentials map[string]any) error {
+	if platform != PlatformClinePass {
+		return nil
+	}
+	if accountType != AccountTypeAPIKey {
+		return infraerrors.BadRequest("CLINEPASS_ACCOUNT_TYPE_INVALID", "ClinePass accounts must use type=apikey")
+	}
+	apiKey, _ := credentials["api_key"].(string)
+	if strings.TrimSpace(apiKey) == "" {
+		return infraerrors.BadRequest("CLINEPASS_API_KEY_REQUIRED", "ClinePass api_key is required")
+	}
+	baseURL := strings.TrimSpace(fmt.Sprint(credentials["base_url"]))
+	if baseURL == "" || baseURL == "<nil>" {
+		credentials["base_url"] = DefaultClinePassBaseURL
+		return nil
+	}
+	normalized, err := validateClinePassBaseURL(nil, baseURL)
+	if err != nil {
+		return infraerrors.BadRequest("CLINEPASS_BASE_URL_INVALID", err.Error())
+	}
+	credentials["base_url"] = strings.TrimRight(normalized, "/")
+	return nil
+}
+
 func normalizeAccountConcurrency(platform, accountType string, concurrency int) int {
 	if platform == PlatformGrok && accountType == AccountTypeOAuth {
 		if concurrency <= 0 {
@@ -69,6 +93,12 @@ func normalizeAccountConcurrency(platform, accountType string, concurrency int) 
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	if input == nil {
+		return nil, ErrAccountNilInput
+	}
+	if err := normalizeAndValidateClinePassAccount(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
 	// 绑定分组
 	groupIDs := input.GroupIDs
 	// 如果没有指定分组,自动绑定对应平台的默认分组
@@ -307,6 +337,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	if input.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *input.AutoPauseOnExpired
+	}
+	if err := normalizeAndValidateClinePassAccount(account.Platform, account.Type, account.Credentials); err != nil {
+		return nil, err
 	}
 
 	// 先验证分组是否存在（在任何写操作之前）

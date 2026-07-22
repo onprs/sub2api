@@ -491,7 +491,8 @@ const platformOptions = [
   { value: 'gemini', label: 'Gemini' },
   { value: 'antigravity', label: 'Antigravity' },
   { value: 'grok', label: 'Grok' },
-  { value: 'opencode_go', label: 'OpenCode Go' }
+  { value: 'opencode_go', label: 'OpenCode Go' },
+  { value: 'clinepass', label: 'ClinePass' }
 ]
 
 // Load rules when dialog opens

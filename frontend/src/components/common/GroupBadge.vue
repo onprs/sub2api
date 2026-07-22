@@ -165,6 +165,9 @@ const labelClass = computed(() => {
   if (props.platform === 'opencode_go') {
     return `${base} bg-cyan-200/60 text-cyan-800 dark:bg-cyan-800/40 dark:text-cyan-300`
   }
+  if (props.platform === 'clinepass') {
+    return `${base} bg-rose-200/60 text-rose-800 dark:bg-rose-800/40 dark:text-rose-300`
+  }
   return `${base} bg-violet-200/60 text-violet-800 dark:bg-violet-800/40 dark:text-violet-300`
 })
 
@@ -204,6 +207,11 @@ const badgeClass = computed(() => {
     return isSubscription.value
       ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
       : 'bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-300'
+  }
+  if (props.platform === 'clinepass') {
+    return isSubscription.value
+      ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+      : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300'
   }
   // Fallback: original colors
   return isSubscription.value

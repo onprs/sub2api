@@ -84,7 +84,7 @@ func NewGroupHandler(adminService service.AdminService, dashboardService *servic
 type CreateGroupRequest struct {
 	Name             string             `json:"name" binding:"required"`
 	Description      string             `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai opencode_go gemini antigravity grok"`
+	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai opencode_go clinepass gemini antigravity grok"`
 	RateMultiplier   float64            `json:"rate_multiplier"`
 	IsExclusive      bool               `json:"is_exclusive"`
 	SubscriptionType string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
@@ -136,7 +136,7 @@ type CreateGroupRequest struct {
 type UpdateGroupRequest struct {
 	Name             string             `json:"name"`
 	Description      *string            `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai opencode_go gemini antigravity grok"`
+	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai opencode_go clinepass gemini antigravity grok"`
 	RateMultiplier   *float64           `json:"rate_multiplier"`
 	IsExclusive      *bool              `json:"is_exclusive"`
 	Status           string             `json:"status" binding:"omitempty,oneof=active inactive"`
@@ -300,7 +300,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	if rejectOpenCodeGoRequireOAuthOnly(c, req.Platform, req.RequireOAuthOnly) {
+	if rejectAPIKeyOnlyPlatformRequireOAuthOnly(c, req.Platform, req.RequireOAuthOnly) {
 		return
 	}
 
@@ -382,7 +382,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 				platform = existing.Platform
 			}
 		}
-		if rejectOpenCodeGoRequireOAuthOnly(c, platform, true) {
+		if rejectAPIKeyOnlyPlatformRequireOAuthOnly(c, platform, true) {
 			return
 		}
 	}
@@ -440,11 +440,14 @@ func (h *GroupHandler) Update(c *gin.Context) {
 	response.Success(c, dto.GroupFromServiceAdmin(group))
 }
 
-func rejectOpenCodeGoRequireOAuthOnly(c *gin.Context, platform string, requireOAuthOnly bool) bool {
-	if platform != service.PlatformOpenCodeGo || !requireOAuthOnly {
+func rejectAPIKeyOnlyPlatformRequireOAuthOnly(c *gin.Context, platform string, requireOAuthOnly bool) bool {
+	if !requireOAuthOnly {
 		return false
 	}
-	response.BadRequest(c, "require_oauth_only is not supported for opencode_go groups")
+	if platform != service.PlatformOpenCodeGo && platform != service.PlatformClinePass {
+		return false
+	}
+	response.BadRequest(c, "require_oauth_only is not supported for "+platform+" groups")
 	return true
 }
 

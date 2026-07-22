@@ -328,8 +328,27 @@ const openCodeGoOfficialUsageRateLimitResetMs = (account: Account): number | nul
   return latest
 }
 
-const isOpenCodeGoOfficialUsageExceeded = computed(() => {
-  return openCodeGoOfficialUsageRateLimitResetMs(props.account) !== null
+const clinePassOfficialUsageRateLimitResetMs = (account: Account): number | null => {
+  if (account.platform !== 'clinepass' || account.type !== 'apikey') return null
+  const extra = account.extra as Record<string, unknown> | undefined
+  if (!extra || String(extra.clinepass_usage_source || '').trim() !== 'official_api') return null
+
+  const updatedAt = timeFromExtra(extra.clinepass_usage_updated_at)
+  let latest: number | null = null
+  for (const window of ['5h', '7d', '30d']) {
+    const usedPercent = numberFromExtra(extra[`clinepass_usage_${window}_used_percent`])
+    if (usedPercent === null || usedPercent < 100) continue
+    const explicitReset = timeFromExtra(extra[`clinepass_usage_${window}_resets_at`])
+    const resetAtMs = explicitReset ?? (updatedAt === null ? null : updatedAt + 10 * 60 * 1000)
+    if (resetAtMs === null || resetAtMs <= Date.now()) continue
+    if (latest === null || resetAtMs > latest) latest = resetAtMs
+  }
+  return latest
+}
+
+const isOfficialUsageExceeded = computed(() => {
+  return openCodeGoOfficialUsageRateLimitResetMs(props.account) !== null ||
+    clinePassOfficialUsageRateLimitResetMs(props.account) !== null
 })
 
 const effectiveRateLimitResetAt = computed(() => {
@@ -337,9 +356,10 @@ const effectiveRateLimitResetAt = computed(() => {
   if (accountResetMs !== null && accountResetMs > Date.now()) {
     return props.account.rate_limit_reset_at
   }
-  const openCodeGoResetMs = openCodeGoOfficialUsageRateLimitResetMs(props.account)
-  if (openCodeGoResetMs !== null && openCodeGoResetMs > Date.now()) {
-    return new Date(openCodeGoResetMs).toISOString()
+  const providerResetMs = openCodeGoOfficialUsageRateLimitResetMs(props.account) ??
+    clinePassOfficialUsageRateLimitResetMs(props.account)
+  if (providerResetMs !== null && providerResetMs > Date.now()) {
+    return new Date(providerResetMs).toISOString()
   }
   return props.account.rate_limit_reset_at
 })
@@ -357,7 +377,7 @@ const isQuotaExceeded = computed(() => {
     exceeded(props.account.quota_used, props.account.quota_limit) ||
     exceeded(props.account.quota_daily_used, props.account.quota_daily_limit) ||
     exceeded(props.account.quota_weekly_used, props.account.quota_weekly_limit) ||
-    isOpenCodeGoOfficialUsageExceeded.value
+    isOfficialUsageExceeded.value
   )
 })
 

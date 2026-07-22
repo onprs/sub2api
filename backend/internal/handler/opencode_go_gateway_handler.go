@@ -21,9 +21,18 @@ import (
 	"go.uber.org/zap"
 )
 
-// OpenCodeGoGatewayHandler handles OpenCode Go gateway requests.
+type standardProtocolGateway interface {
+	ForwardChatCompletions(context.Context, *gin.Context, *service.Account, []byte) (*service.ForwardResult, error)
+	ForwardResponses(context.Context, *gin.Context, *service.Account, []byte, string) (*service.ForwardResult, error)
+	ForwardMessages(context.Context, *gin.Context, *service.Account, []byte) (*service.ForwardResult, error)
+	ForwardGoogleGenAI(context.Context, *gin.Context, *service.Account, []byte, string, string, bool) (*service.ForwardResult, error)
+}
+
+// OpenCodeGoGatewayHandler handles standard protocol gateway requests for
+// OpenCode Go and ClinePass groups.
 type OpenCodeGoGatewayHandler struct {
 	openCodeGoService        *service.OpenCodeGoGatewayService
+	clinePassService         *service.ClinePassGatewayService
 	gatewayService           *service.GatewayService
 	billingCacheService      *service.BillingCacheService
 	apiKeyService            *service.APIKeyService
@@ -38,6 +47,7 @@ type OpenCodeGoGatewayHandler struct {
 // NewOpenCodeGoGatewayHandler creates an OpenCode Go gateway handler.
 func NewOpenCodeGoGatewayHandler(
 	openCodeGoService *service.OpenCodeGoGatewayService,
+	clinePassService *service.ClinePassGatewayService,
 	gatewayService *service.GatewayService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
@@ -57,6 +67,7 @@ func NewOpenCodeGoGatewayHandler(
 	}
 	return &OpenCodeGoGatewayHandler{
 		openCodeGoService:        openCodeGoService,
+		clinePassService:         clinePassService,
 		gatewayService:           gatewayService,
 		billingCacheService:      billingCacheService,
 		apiKeyService:            apiKeyService,
@@ -91,19 +102,23 @@ func (h *OpenCodeGoGatewayHandler) GoogleGenAI(c *gin.Context) {
 
 // Models handles GET /v1/models for OpenCode Go groups.
 func (h *OpenCodeGoGatewayHandler) Models(c *gin.Context) {
+	platform := service.PlatformOpenCodeGo
+	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil {
+		platform = apiKey.Group.Platform
+	}
 	modelIDs := []string(nil)
 	if h != nil && h.gatewayService != nil {
-		modelIDs = h.gatewayService.GetAvailableModels(c.Request.Context(), apiKeyGroupIDFromContext(c), service.PlatformOpenCodeGo)
+		modelIDs = h.gatewayService.GetAvailableModels(c.Request.Context(), apiKeyGroupIDFromContext(c), platform)
 	}
 
 	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
-		modelIDs = filterModelsByCustomList(modelIDs, defaultModelIDsForPlatform(service.PlatformOpenCodeGo), apiKey.Group.ModelsListConfig.Models)
+		modelIDs = filterModelsByCustomList(modelIDs, defaultModelIDsForPlatform(platform), apiKey.Group.ModelsListConfig.Models)
 		writeModelsList(c, modelIDs)
 		return
 	}
 
 	if len(modelIDs) == 0 {
-		modelIDs = service.OpenCodeGoDefaultModelIDs()
+		modelIDs = defaultModelIDsForPlatform(platform)
 	}
 	writeModelsList(c, modelIDs)
 }
@@ -121,7 +136,7 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 	streamStarted := false
 	requestStart := time.Now()
 	errorFormat := resolveOpenCodeGoHandlerErrorFormat(inbound)
-	component := "handler.opencode_go_gateway." + string(inbound)
+	component := "handler.standard_protocol_gateway." + string(inbound)
 
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok {
@@ -140,7 +155,11 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 		zap.Int64("api_key_id", apiKey.ID),
 		zap.Any("group_id", apiKey.GroupID),
 	)
-	if !h.ensureDependencies(c, errorFormat, reqLog) {
+	platform := service.PlatformOpenCodeGo
+	if apiKey.Group != nil {
+		platform = apiKey.Group.Platform
+	}
+	if !h.ensureDependencies(c, errorFormat, reqLog, platform) {
 		return
 	}
 
@@ -213,7 +232,7 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 
 	parsedReq := h.buildParsedRequest(body, reqModel, reqStream, apiKey, inbound, c)
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
-	if inbound == openCodeGoInboundChat {
+	if inbound == openCodeGoInboundChat && platform == service.PlatformOpenCodeGo {
 		sessionHash = h.gatewayService.GenerateOpenCodeGoCacheAffinityHash(parsedReq)
 	}
 	fs := NewFailoverState(h.maxAccountSwitches, false)
@@ -284,15 +303,19 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 					accountReleaseFunc()
 				}
 			}()
+			providerService := h.gatewayForPlatform(account.Platform)
+			if providerService == nil {
+				return nil, fmt.Errorf("unsupported standard protocol platform %q", account.Platform)
+			}
 			switch inbound {
 			case openCodeGoInboundResponses:
-				return h.openCodeGoService.ForwardResponses(c.Request.Context(), c, account, forwardBody, reqModel)
+				return providerService.ForwardResponses(c.Request.Context(), c, account, forwardBody, reqModel)
 			case openCodeGoInboundMessages:
-				return h.openCodeGoService.ForwardMessages(c.Request.Context(), c, account, forwardBody)
+				return providerService.ForwardMessages(c.Request.Context(), c, account, forwardBody)
 			case openCodeGoInboundGoogle:
-				return h.openCodeGoService.ForwardGoogleGenAI(c.Request.Context(), c, account, forwardBody, reqModel, routingModel, reqStream)
+				return providerService.ForwardGoogleGenAI(c.Request.Context(), c, account, forwardBody, reqModel, routingModel, reqStream)
 			default:
-				return h.openCodeGoService.ForwardChatCompletions(c.Request.Context(), c, account, forwardBody)
+				return providerService.ForwardChatCompletions(c.Request.Context(), c, account, forwardBody)
 			}
 		}()
 
@@ -324,6 +347,13 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 					return
 				}
 			}
+			if standardGatewayForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward) {
+				reqLog.Error("opencode_go.forward_failed_after_error_response",
+					zap.Int64("account_id", account.ID),
+					zap.Error(err),
+				)
+				return
+			}
 			wrote := h.ensureForwardErrorResponse(c, errorFormat, streamStarted)
 			reqLog.Error("opencode_go.forward_failed",
 				zap.Int64("account_id", account.ID),
@@ -340,7 +370,7 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 		upstreamEndpoint := openCodeGoActualUpstreamEndpoint(result)
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		if quotaPlatform == "" {
-			quotaPlatform = service.PlatformOpenCodeGo
+			quotaPlatform = account.Platform
 		}
 
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
@@ -509,13 +539,13 @@ func (h *OpenCodeGoGatewayHandler) acquireAccountSlot(c *gin.Context, selection 
 	return wrapReleaseOnDone(c.Request.Context(), release), true
 }
 
-func (h *OpenCodeGoGatewayHandler) ensureDependencies(c *gin.Context, format openCodeGoHandlerErrorFormat, reqLog *zap.Logger) bool {
+func (h *OpenCodeGoGatewayHandler) ensureDependencies(c *gin.Context, format openCodeGoHandlerErrorFormat, reqLog *zap.Logger, platform string) bool {
 	missing := make([]string, 0, 4)
 	if h == nil {
 		missing = append(missing, "handler")
 	} else {
-		if h.openCodeGoService == nil {
-			missing = append(missing, "openCodeGoService")
+		if h.gatewayForPlatform(platform) == nil {
+			missing = append(missing, "providerGatewayService")
 		}
 		if h.gatewayService == nil {
 			missing = append(missing, "gatewayService")
@@ -535,6 +565,20 @@ func (h *OpenCodeGoGatewayHandler) ensureDependencies(c *gin.Context, format ope
 	}
 	h.errorResponse(c, http.StatusServiceUnavailable, format, "api_error", "Service temporarily unavailable")
 	return false
+}
+
+func (h *OpenCodeGoGatewayHandler) gatewayForPlatform(platform string) standardProtocolGateway {
+	if h == nil {
+		return nil
+	}
+	switch platform {
+	case service.PlatformClinePass:
+		return h.clinePassService
+	case service.PlatformOpenCodeGo:
+		return h.openCodeGoService
+	default:
+		return nil
+	}
 }
 
 func (h *OpenCodeGoGatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotType string, streamStarted bool, format openCodeGoHandlerErrorFormat) {
@@ -563,6 +607,10 @@ func (h *OpenCodeGoGatewayHandler) mapUpstreamError(statusCode int) (int, string
 	default:
 		return http.StatusBadGateway, "upstream_error", "Upstream request failed"
 	}
+}
+
+func standardGatewayForwardErrorAlreadyCommunicated(c *gin.Context, writerSizeBeforeForward int) bool {
+	return c != nil && c.Writer != nil && c.Writer.Size() > writerSizeBeforeForward && c.Writer.Status() >= http.StatusBadRequest
 }
 
 func (h *OpenCodeGoGatewayHandler) ensureForwardErrorResponse(c *gin.Context, format openCodeGoHandlerErrorFormat, streamStarted bool) bool {

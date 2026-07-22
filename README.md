@@ -686,6 +686,19 @@ xAI quota is passive. Sub2API does not invent subscription quota values; it reco
 
 ---
 
+## ClinePass Support
+
+Sub2API supports ClinePass as the independent `clinepass` platform. Administrators create `apikey` accounts with a static ClinePass key; the default and recommended API root is `https://api.cline.bot/api/v1`.
+
+- Public generation entry points: Chat Completions, Responses, Anthropic Messages, and Google GenAI. All four formats convert to the ClinePass `/chat/completions` upstream.
+- Model discovery: the official recommended-model catalog supplies complete `cline-pass/...` slugs, with a one-hour cache, last-known-good retention, and a static fallback.
+- Usage and scheduling: `/users/me/plan/usage-limits` supplies the official 5-hour, 7-day, and 30-day windows. A missing reset time remains optional; an exhausted window without one uses a bounded refresh backoff.
+- Channel Monitor: use provider `clinepass`, Chat Completions mode, and the official API root. Monitor checks consume ClinePass quota.
+- Billing: ClinePass response cost extensions are not used as the Sub2API bill. Requests without configured token pricing fail before reaching the upstream.
+- Exclusions: OAuth/device auth, provider token counting, Responses WebSocket, and specialized `/responses/*` subpaths.
+
+For opt-in live verification, inject a newly issued key through `CLINEPASS_TEST_API_KEY` and run `go test ./internal/service -run '^TestClinePassLiveContract$' -count=1 -v` from `backend/`. Never place the key in a command argument, repository file, or test fixture.
+
 ## Antigravity Support
 
 Sub2API supports [Antigravity](https://antigravity.so/) accounts. After authorization, dedicated endpoints are available for Claude and Gemini models.

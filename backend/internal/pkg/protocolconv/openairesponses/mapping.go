@@ -21,15 +21,16 @@ func decodeInstructions(raw json.RawMessage, out *[]ir.ContentPart) error {
 		return nil
 	}
 	var parts []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type         string          `json:"type"`
+		Text         string          `json:"text"`
+		CacheControl json.RawMessage `json:"cache_control"`
 	}
 	if err := json.Unmarshal(raw, &parts); err != nil {
 		return err
 	}
 	for _, part := range parts {
 		if part.Type == "input_text" || part.Type == "text" {
-			*out = append(*out, ir.ContentPart{Type: ir.ContentText, Text: part.Text})
+			*out = append(*out, ir.ContentPart{Type: ir.ContentText, Text: part.Text, CacheHint: cloneRaw(part.CacheControl)})
 		}
 	}
 	return nil
@@ -121,7 +122,7 @@ func decodeMessageContent(raw json.RawMessage, role ir.Role) ([]ir.ContentPart, 
 		case "input_text", "output_text", "text":
 			var text string
 			_ = json.Unmarshal(part["text"], &text)
-			out = append(out, ir.ContentPart{Type: ir.ContentText, Text: text})
+			out = append(out, ir.ContentPart{Type: ir.ContentText, Text: text, CacheHint: cloneRaw(part["cache_control"])})
 		case "input_image":
 			var url string
 			_ = json.Unmarshal(part["image_url"], &url)

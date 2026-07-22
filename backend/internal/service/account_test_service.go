@@ -72,6 +72,7 @@ type AccountTestService struct {
 	httpUpstream              HTTPUpstream
 	cfg                       *config.Config
 	tlsFPProfileService       *TLSFingerprintProfileService
+	clinePassClient           *ClinePassClient
 }
 
 // NewAccountTestService creates a new AccountTestService
@@ -84,6 +85,7 @@ func NewAccountTestService(
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
 	tlsFPProfileService *TLSFingerprintProfileService,
+	clinePassClient *ClinePassClient,
 ) *AccountTestService {
 	return &AccountTestService{
 		accountRepo:               accountRepo,
@@ -94,6 +96,7 @@ func NewAccountTestService(
 		httpUpstream:              httpUpstream,
 		cfg:                       cfg,
 		tlsFPProfileService:       tlsFPProfileService,
+		clinePassClient:           clinePassClient,
 	}
 }
 
@@ -184,6 +187,9 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	// Route to platform-specific test method
+	if account.IsClinePass() {
+		return s.testClinePassAccountConnection(c, account)
+	}
 	if account.IsOpenCodeGo() {
 		return s.testOpenCodeGoAccountConnection(c, account)
 	}
@@ -205,6 +211,23 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	return s.testClaudeAccountConnection(c, account, modelID)
+}
+
+func (s *AccountTestService) testClinePassAccountConnection(c *gin.Context, account *Account) error {
+	if account == nil || !account.IsClinePassAPIKey() {
+		return s.sendErrorAndEnd(c, "ClinePass accounts must use API key credentials")
+	}
+	s.sendEvent(c, TestEvent{Type: "status", Text: "Testing ClinePass API key through the usage-limits endpoint"})
+	if s.clinePassClient == nil {
+		return s.sendErrorAndEnd(c, "ClinePass client is not configured")
+	}
+	snapshot, err := s.clinePassClient.FetchUsage(c.Request.Context(), account)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
+	s.sendEvent(c, TestEvent{Type: "status", Text: fmt.Sprintf("ClinePass API key verified; %d usage windows returned", len(snapshot.Windows))})
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
 }
 
 func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, account *Account) error {

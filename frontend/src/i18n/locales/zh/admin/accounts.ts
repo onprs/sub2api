@@ -221,6 +221,7 @@ export default {
         antigravity: 'Antigravity',
         grok: 'Grok',
         opencode_go: 'OpenCode Go',
+        clinepass: 'ClinePass',
       },
       types: {
         oauth: 'OAuth',
@@ -582,6 +583,11 @@ export default {
       opencodeGo: {
         baseUrlHint: '除非部署使用兼容中继，否则请保留 OpenCode Go 官方 API Root。',
         apiKeyHint: '请输入 OpenCode Go 签发的 API Key。'
+      },
+      clinePass: {
+        baseUrlHint: '除非部署使用已批准的兼容中继，否则请保留 ClinePass 官方 API Root。',
+        apiKeyHint: '请输入 ClinePass 签发的静态 API Key。',
+        usageSource: 'ClinePass 官方用量限制'
       },
       anthropic: {
         apiKeyPassthrough: '自动透传（仅替换认证）',

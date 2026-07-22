@@ -594,6 +594,8 @@ var ProviderSet = wire.NewSet(
 	NewGatewayService,
 	NewOpenAIGatewayService,
 	NewOpenCodeGoGatewayService,
+	NewClinePassClient,
+	NewClinePassGatewayService,
 	ProvideBatchImageModelPricingResolver,
 	NewBatchImagePublicService,
 	NewBatchImageDownloadService,

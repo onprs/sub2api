@@ -88,6 +88,22 @@ const antigravityModels = [
 // OpenCode Go 首版不内置模型白名单，管理员通过 model_mapping 手工维护。
 const opencodeGoModels: string[] = []
 
+// ClinePass public catalog fallback. Account model sync replaces this list when
+// the official clinePass[] catalog is reachable.
+const clinePassModels = [
+  'cline-pass/glm-5.2',
+  'cline-pass/kimi-k3',
+  'cline-pass/deepseek-v4-pro',
+  'cline-pass/deepseek-v4-flash',
+  'cline-pass/kimi-k2.7-code',
+  'cline-pass/kimi-k2.6',
+  'cline-pass/mimo-v2.5-pro',
+  'cline-pass/mimo-v2.5',
+  'cline-pass/minimax-m3',
+  'cline-pass/qwen3.7-max',
+  'cline-pass/qwen3.7-plus'
+]
+
 // 智谱 GLM
 const zhipuModels = [
   'glm-4', 'glm-4v', 'glm-4-plus', 'glm-4-0520',
@@ -358,6 +374,7 @@ const antigravityPresetMappings = [
 ]
 
 const opencodeGoPresetMappings: typeof anthropicPresetMappings = []
+const clinePassPresetMappings: typeof anthropicPresetMappings = []
 
 // Bedrock 预设映射（与后端 DefaultBedrockModelMapping 保持一致）
 const bedrockPresetMappings = [
@@ -419,6 +436,7 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'gemini': return geminiModels
     case 'antigravity': return antigravityModels
     case 'opencode_go': return opencodeGoModels
+    case 'clinepass': return clinePassModels
     case 'zhipu': return zhipuModels
     case 'qwen': return qwenModels
     case 'deepseek': return deepseekModels
@@ -446,6 +464,7 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'grok' || platform === 'xai') return grokPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'opencode_go') return opencodeGoPresetMappings
+  if (platform === 'clinepass') return clinePassPresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings
   return anthropicPresetMappings
 }

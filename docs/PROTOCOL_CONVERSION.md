@@ -34,8 +34,22 @@ The client format alone does not select the upstream format. The effective path 
 | `gemini` | Chat Completions, Responses, Messages, Google GenAI | Compatibility formats use standard pipelines into Google GenAI; OAuth paths may use the Code Assist envelope, API-key paths use AI Studio semantics |
 | `antigravity` | Chat Completions, Responses, Messages, Google GenAI on both ordinary and dedicated generation routes | Standard Chat/Responses requests convert to Google GenAI before the Antigravity `v1internal` envelope over `streamGenerateContent`; ordinary Google ingress uses the same native Antigravity account loop as the dedicated route. Claude-family and Gemini-family vendor behavior is selected from the resolved account/model mapping |
 | `opencode_go` | Chat Completions, Responses, Messages, Google GenAI | Account `credentials.model_protocols` selects actual Chat or Messages wire after client and channel model mapping. Root HTTP Responses generation and Google generation are supported; Responses WebSocket and specialized `/responses/*subpath` operations remain excluded |
+| `clinepass` | Chat Completions, Responses, Messages, Google GenAI | All generation requests convert to OpenAI Chat Completions and use the fixed ClinePass `/chat/completions` upstream. Responses WebSocket, specialized `/responses/*subpath` operations, and provider token counting remain excluded |
 
-The complete `4 client protocols × 3 production platforms` HTTP generation admission matrix is deployed in production release `0.1.157/254c8241b`. Local route, handler, buffered, streaming, model-identity, tool-call/result, usage-extraction, and source-error tests cover every cell; the deployed-wire, billing, and health evidence is recorded below.
+The complete `4 client protocols × 3 production platforms` HTTP generation admission matrix is deployed in production release `0.1.157/254c8241b`. Local route, handler, buffered, streaming, model-identity, tool-call/result, usage-extraction, and source-error tests cover every deployed cell; the ClinePass branch adds a fourth platform with the same four HTTP generation formats. ClinePass live-wire acceptance remains separate from local coverage and requires `CLINEPASS_TEST_API_KEY`. The deployed-wire, billing, and health evidence for the existing three platforms is recorded below.
+
+## ClinePass Provider Boundary
+
+ClinePass is a provider adapter, not a fifth standard protocol. Its accounts use static Bearer API keys and default to `https://api.cline.bot/api/v1`; all model slugs remain complete `cline-pass/...` identifiers. The adapter owns these observed wire differences outside `protocolconv`:
+
+- buffered success responses use `{"success":true,"data":<chat-response>}`, while streaming responses are root OpenAI SSE records ending in `[DONE]`;
+- Chat `developer` messages normalize to `system` before dispatch because the provider wraps the downstream 400 as an outer 500;
+- response model names are restored to the client model, and observed tool calls normalize `finish_reason=stop` to `tool_calls`;
+- Anthropic-style text-part `cache_control` is enabled through the explicit, default-off Chat extension;
+- nested provider errors are decoded before retry and account-failover policy is selected;
+- official `five_hour`, `weekly`, and `monthly` usage limits map to the existing 5h/7d/30d windows. Missing `resetsAt` remains absent; an exhausted window without a reset uses a bounded refresh backoff rather than a permanent block.
+
+The public recommended-model catalog is cached with a one-hour TTL, concurrent refresh deduplication, last-known-good retention, and a static fallback. A newly discovered model without configured token pricing fails closed before any upstream request. Channel Monitor uses Chat Completions only and unwraps the buffered provider envelope before challenge validation.
 
 ## Antigravity Boundary
 

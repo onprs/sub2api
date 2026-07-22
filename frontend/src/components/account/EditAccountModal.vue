@@ -43,7 +43,9 @@
                     ? 'https://cloudcode-pa.googleapis.com'
                     : account.platform === 'opencode_go'
                       ? OPENCODE_GO_DEFAULT_BASE_URL
-                      : 'https://api.anthropic.com'
+                      : account.platform === 'clinepass'
+                        ? CLINEPASS_DEFAULT_BASE_URL
+                        : 'https://api.anthropic.com'
             "
           />
           <p class="input-hint">{{ baseUrlHint }}</p>
@@ -65,7 +67,7 @@
                   ? 'AIza...'
                   : account.platform === 'antigravity'
                     ? 'sk-...'
-                    : account.platform === 'opencode_go'
+                    : account.platform === 'opencode_go' || account.platform === 'clinepass'
                       ? 'sk-...'
                       : 'sk-ant-...'
             "
@@ -2772,6 +2774,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const OPENCODE_GO_DEFAULT_BASE_URL = 'https://opencode.ai/zen/go/v1'
+const CLINEPASS_DEFAULT_BASE_URL = 'https://api.cline.bot/api/v1'
 
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。
@@ -2783,6 +2786,7 @@ const baseUrlHint = computed(() => {
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (props.account.platform === 'opencode_go') return t('admin.accounts.opencodeGo.baseUrlHint')
+  if (props.account.platform === 'clinepass') return t('admin.accounts.clinePass.baseUrlHint')
   return t('admin.accounts.baseUrlHint')
 })
 
@@ -3239,6 +3243,7 @@ const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'opencode_go') return OPENCODE_GO_DEFAULT_BASE_URL
+  if (props.account?.platform === 'clinepass') return CLINEPASS_DEFAULT_BASE_URL
   return 'https://api.anthropic.com'
 })
 
@@ -3735,7 +3740,9 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'opencode_go'
             ? OPENCODE_GO_DEFAULT_BASE_URL
-            : 'https://api.anthropic.com'
+            : newAccount.platform === 'clinepass'
+              ? CLINEPASS_DEFAULT_BASE_URL
+              : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
 
     // Load model mappings and detect mode
@@ -3817,7 +3824,9 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'opencode_go'
             ? OPENCODE_GO_DEFAULT_BASE_URL
-            : 'https://api.anthropic.com'
+            : newAccount.platform === 'clinepass'
+              ? CLINEPASS_DEFAULT_BASE_URL
+              : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl
 
     // Load model mappings for OpenAI/Grok OAuth accounts

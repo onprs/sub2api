@@ -91,6 +91,7 @@ const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
 
 const (
 	DefaultOpenCodeGoBaseURL           = "https://opencode.ai/zen/go/v1"
+	DefaultClinePassBaseURL            = "https://api.cline.bot/api/v1"
 	OpenCodeGoProtocolChatCompletions  = "chat_completions"
 	OpenCodeGoProtocolMessages         = "messages"
 	openCodeGoModelProtocolsCredential = "model_protocols"
@@ -1303,6 +1304,14 @@ func (a *Account) IsOpenCodeGoAPIKey() bool {
 	return a.IsOpenCodeGo() && a.Type == AccountTypeAPIKey
 }
 
+func (a *Account) IsClinePass() bool {
+	return a != nil && a.Platform == PlatformClinePass
+}
+
+func (a *Account) IsClinePassAPIKey() bool {
+	return a.IsClinePass() && a.Type == AccountTypeAPIKey
+}
+
 func (a *Account) IsOpenAIOAuth() bool {
 	return a.IsOpenAI() && a.Type == AccountTypeOAuth
 }
@@ -1411,6 +1420,24 @@ func (a *Account) GetOpenCodeGoBaseURL() string {
 	baseURL := strings.TrimRight(strings.TrimSpace(a.GetCredential("base_url")), "/")
 	if baseURL == "" {
 		return DefaultOpenCodeGoBaseURL
+	}
+	return baseURL
+}
+
+func (a *Account) GetClinePassAPIKey() string {
+	if !a.IsClinePassAPIKey() {
+		return ""
+	}
+	return strings.TrimSpace(a.GetCredential("api_key"))
+}
+
+func (a *Account) GetClinePassBaseURL() string {
+	if !a.IsClinePass() {
+		return ""
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(a.GetCredential("base_url")), "/")
+	if baseURL == "" {
+		return DefaultClinePassBaseURL
 	}
 	return baseURL
 }
@@ -2522,6 +2549,9 @@ func (a *Account) HasAnyQuotaLimit() bool {
 }
 
 var openCodeGoOfficialUsageQuotaWindows = [...]string{"5h", "7d", "30d"}
+var clinePassOfficialUsageQuotaWindows = [...]string{"5h", "7d", "30d"}
+
+const clinePassMissingResetBackoff = 10 * time.Minute
 
 func (a *Account) IsOpenCodeGoOfficialUsageExhausted() bool {
 	return a.OpenCodeGoOfficialUsageRateLimitResetAt(time.Now()) != nil
@@ -2569,6 +2599,41 @@ func (a *Account) openCodeGoOfficialUsageWindowResetAt(window string, now time.T
 	return &resetAt
 }
 
+func (a *Account) IsClinePassOfficialUsageExhausted() bool {
+	return a.ClinePassOfficialUsageRateLimitResetAt(time.Now()) != nil
+}
+
+func (a *Account) ClinePassOfficialUsageRateLimitResetAt(now time.Time) *time.Time {
+	if a == nil || !a.IsClinePassAPIKey() || len(a.Extra) == 0 {
+		return nil
+	}
+	if strings.TrimSpace(a.getExtraString("clinepass_usage_source")) != clinePassUsageSourceOfficialAPI {
+		return nil
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	updatedAt := a.getExtraTime("clinepass_usage_updated_at")
+	var latest *time.Time
+	for _, window := range clinePassOfficialUsageQuotaWindows {
+		if a.getExtraFloat64("clinepass_usage_"+window+"_used_percent") < 100 {
+			continue
+		}
+		resetAt := a.getExtraTime("clinepass_usage_" + window + "_resets_at")
+		if resetAt.IsZero() && !updatedAt.IsZero() {
+			resetAt = updatedAt.Add(clinePassMissingResetBackoff)
+		}
+		if resetAt.IsZero() || !now.Before(resetAt) {
+			continue
+		}
+		if latest == nil || resetAt.After(*latest) {
+			copyResetAt := resetAt
+			latest = &copyResetAt
+		}
+	}
+	return latest
+}
+
 // isPeriodExpired 检查指定周期（自 periodStart 起经过 dur）是否已过期
 func isPeriodExpired(periodStart time.Time, dur time.Duration) bool {
 	if periodStart.IsZero() {
@@ -2597,7 +2662,7 @@ func (a *Account) IsWeeklyQuotaPeriodExpired() bool {
 
 // IsQuotaExceeded 检查 API Key 账号配额是否已超限（任一维度超限即返回 true）
 func (a *Account) IsQuotaExceeded() bool {
-	if a.IsOpenCodeGoOfficialUsageExhausted() {
+	if a.IsOpenCodeGoOfficialUsageExhausted() || a.IsClinePassOfficialUsageExhausted() {
 		return true
 	}
 	// 总额度

@@ -23,12 +23,16 @@
         type="text"
         class="flex-1 min-w-[120px] border-none bg-transparent text-sm outline-none placeholder:text-gray-400 dark:text-white"
         :placeholder="models.length === 0 ? placeholder : ''"
+        :list="suggestions?.length ? datalistId : undefined"
         @keydown.enter.prevent="addModel"
         @keydown.tab.prevent="addModel"
         @keydown.delete="handleBackspace"
         @paste="handlePaste"
         @blur="addModel"
       />
+      <datalist v-if="suggestions?.length" :id="datalistId">
+        <option v-for="suggestion in suggestions" :key="suggestion" :value="suggestion" />
+      </datalist>
     </div>
     <p class="mt-1 text-xs text-gray-400">
       {{ t('admin.channels.form.modelInputHint', 'Press Enter to add, supports paste for batch import.') }}
@@ -48,6 +52,7 @@ const props = defineProps<{
   models: string[]
   placeholder?: string
   platform?: string
+  suggestions?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -55,6 +60,7 @@ const emit = defineEmits<{
 }>()
 
 const inputValue = ref('')
+const datalistId = `model-tag-suggestions-${Math.random().toString(36).slice(2)}`
 const inputRef = ref<HTMLInputElement>()
 
 function addModel() {

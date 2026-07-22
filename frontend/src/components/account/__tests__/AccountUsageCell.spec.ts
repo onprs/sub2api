@@ -82,6 +82,37 @@ describe('AccountUsageCell', () => {
     })
   })
 
+  it('renders ClinePass official 5h/7d/30d windows without an estimated label', async () => {
+    getUsage.mockResolvedValue({
+      source: 'official_api',
+      five_hour: { utilization: 18.5, resets_at: null, source: 'official_api' },
+      seven_day: { utilization: 42, resets_at: '2026-07-29T00:00:00Z', source: 'official_api' },
+      thirty_day: { utilization: 67, resets_at: null, source: 'official_api' }
+    })
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({ id: 7001, platform: 'clinepass', type: 'apikey', extra: {} })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'resetsAt'],
+            template: '<div>{{ label }}|{{ utilization }}|{{ resetsAt }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledWith(7001)
+    expect(wrapper.text()).toContain('5h|18.5|')
+    expect(wrapper.text()).toContain('7d|42|2026-07-29T00:00:00Z')
+    expect(wrapper.text()).toContain('30d|67|')
+    expect(wrapper.text()).toContain('official')
+    expect(wrapper.text()).not.toContain('admin.accounts.usageWindow.estimatedData')
+  })
+
   it('Antigravity 图片用量会聚合新旧 image 模型', async () => {
     getUsage.mockResolvedValue({
       antigravity_quota: {

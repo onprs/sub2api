@@ -1088,7 +1088,9 @@ const platformFilterOptions = computed(() => [
   { value: 'openai', label: 'OpenAI' },
   { value: 'gemini', label: 'Gemini' },
   { value: 'antigravity', label: 'Antigravity' },
-  { value: 'opencode_go', label: 'OpenCode Go' }
+  { value: 'grok', label: 'Grok' },
+  { value: 'opencode_go', label: 'OpenCode Go' },
+  { value: 'clinepass', label: 'ClinePass' }
 ])
 
 const subscriptionPlanOptions = computed<SubscriptionPlanOption[]>(() =>

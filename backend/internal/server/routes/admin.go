@@ -703,6 +703,7 @@ func registerChannelMonitorRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	monitors := admin.Group("/channel-monitors")
 	{
 		monitors.GET("", h.Admin.ChannelMonitor.List)
+		monitors.GET("/clinepass-models", h.Admin.ChannelMonitor.ClinePassModels)
 		monitors.POST("", h.Admin.ChannelMonitor.Create)
 		monitors.GET("/:id", h.Admin.ChannelMonitor.Get)
 		monitors.PUT("/:id", h.Admin.ChannelMonitor.Update)

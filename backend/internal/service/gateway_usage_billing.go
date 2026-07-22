@@ -756,7 +756,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	// 计算费用
 	cost, _, costErr := s.calculateRecordUsageCostFromCandidates(ctx, result, apiKey, billingModels, multiplier, imageMultiplier, opts)
 	if costErr != nil {
-		if account != nil && account.IsOpenCodeGo() && isUsagePricingUnavailableError(costErr) {
+		if account != nil && (account.IsOpenCodeGo() || account.IsClinePass()) && isUsagePricingUnavailableError(costErr) {
 			return costErr
 		}
 		logger.LegacyPrintf("service.gateway", "Calculate cost failed for billing models %s: %v", strings.Join(billingModels, ","), costErr)
