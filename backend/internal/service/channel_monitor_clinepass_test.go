@@ -17,13 +17,13 @@ func TestChannelMonitorClinePassProviderAdapter(t *testing.T) {
 	require.Equal(t, MonitorAPIModeChatCompletions, apiMode)
 	require.Equal(t, "/chat/completions", adapter.buildPath("cline-pass/glm-5.2"))
 	require.Equal(t, "Bearer cp-key", adapter.buildHeaders("cp-key")["Authorization"])
-	require.Equal(t, "text/event-stream", adapter.buildHeaders("cp-key")["Accept"])
+	require.Equal(t, "application/json", adapter.buildHeaders("cp-key")["Accept"])
 	require.Equal(t, "data.choices.0.message.content", adapter.textPath)
 	require.Equal(t, "channel_monitor_provider_clinepass", adapter.releaseGuardMarker)
 	require.ErrorIs(t, validateAPIMode(MonitorProviderClinePass, MonitorAPIModeMessages), ErrChannelMonitorInvalidAPIMode)
 }
 
-func TestRunCheckForModelClinePassUsesStreamingContract(t *testing.T) {
+func TestRunCheckForModelClinePassUsesBufferedContract(t *testing.T) {
 	oldClient := monitorHTTPClient
 	monitorHTTPClient = &http.Client{Transport: http.DefaultTransport}
 	t.Cleanup(func() { monitorHTTPClient = oldClient })
@@ -35,9 +35,9 @@ func TestRunCheckForModelClinePassUsesStreamingContract(t *testing.T) {
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 		require.Equal(t, "cline-pass/glm-5.2", body["model"])
 		require.EqualValues(t, monitorClinePassChallengeMaxTokens, body["max_tokens"])
-		require.Equal(t, true, body["stream"])
+		require.Equal(t, false, body["stream"])
 		require.NotContains(t, body, "temperature")
-		require.Equal(t, "text/event-stream", r.Header.Get("Accept"))
+		require.Equal(t, "application/json", r.Header.Get("Accept"))
 
 		messages := body["messages"].([]any)
 		require.Len(t, messages, 2)
@@ -45,14 +45,15 @@ func TestRunCheckForModelClinePassUsesStreamingContract(t *testing.T) {
 		require.Equal(t, "user", messages[1].(map[string]any)["role"])
 		prompt := messages[1].(map[string]any)["content"].(string)
 		expected := expectedClinePassCheckCode(t, prompt)
-		w.Header().Set("Content-Type", "text/event-stream")
-		chunk, err := json.Marshal(map[string]any{
-			"choices": []map[string]any{{
-				"delta": map[string]any{"content": expected},
-			}},
-		})
-		require.NoError(t, err)
-		_, _ = w.Write([]byte(": keepalive\n\nevent: completion\ndata: " + string(chunk) + "\n\ndata: [DONE]\n\n"))
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"data": map[string]any{
+				"choices": []map[string]any{{
+					"message": map[string]any{"content": expected},
+				}},
+			},
+		}))
 	}))
 	defer srv.Close()
 
@@ -75,6 +76,30 @@ func TestExtractClinePassChatTextSupportsBufferedEnvelope(t *testing.T) {
 	}`))
 	require.NoError(t, err)
 	require.Equal(t, "654321", text)
+}
+
+func TestExtractClinePassChatTextRejectsNonJSONAndEmptyStream(t *testing.T) {
+	_, err := extractClinePassChatText([]byte(`<html>not a gateway response</html>`))
+	require.ErrorContains(t, err, "non-JSON 2xx response")
+
+	_, err = extractClinePassChatText([]byte("data: [DONE]\n\n"))
+	require.ErrorContains(t, err, "without response events")
+}
+
+func TestRunCheckForModelClinePassSurfacesSSEErrorEvent(t *testing.T) {
+	oldClient := monitorHTTPClient
+	monitorHTTPClient = &http.Client{Transport: http.DefaultTransport}
+	t.Cleanup(func() { monitorHTTPClient = oldClient })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: error\ndata: {\"error\":{\"message\":\"Model pricing is not configured for this model\"}}\n\n"))
+	}))
+	defer srv.Close()
+
+	result := runCheckForModel(context.Background(), MonitorProviderClinePass, srv.URL, "cp-key", "cline-pass/glm-5.2", nil)
+	require.Equal(t, MonitorStatusError, result.Status)
+	require.Contains(t, result.Message, "Model pricing is not configured")
 }
 
 func TestRunCheckForModelClinePassExplainsReasoningOnlyResponse(t *testing.T) {
