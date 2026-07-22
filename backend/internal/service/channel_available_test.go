@@ -405,6 +405,40 @@ func TestBuildCatalogSupportedModel_OpenCodeGoCodeAliasCandidate(t *testing.T) {
 	require.NotNil(t, got.Pricing.CacheReadPrice)
 }
 
+func TestBuildCatalogSupportedModel_ClinePassUsesReferencePricingAndContextTiers(t *testing.T) {
+	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{})
+	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
+	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
+
+	for _, modelID := range ClinePassFallbackModelIDs() {
+		got := svc.BuildCatalogSupportedModel(modelID, PlatformClinePass, nil)
+		require.Equal(t, PricingSourceCatalog, got.PricingSource, modelID)
+		require.NotNil(t, got.Pricing, modelID)
+		require.NotNil(t, got.Pricing.InputPrice, modelID)
+		require.NotNil(t, got.Pricing.OutputPrice, modelID)
+	}
+
+	qwen := svc.BuildCatalogSupportedModel("cline-pass/qwen3.7-plus", PlatformClinePass, nil)
+	require.NotNil(t, qwen.Pricing)
+	require.Len(t, qwen.Pricing.Intervals, 2)
+	baseTier := qwen.Pricing.Intervals[0]
+	require.Equal(t, 0, baseTier.MinTokens)
+	require.NotNil(t, baseTier.MaxTokens)
+	require.Equal(t, clinePassQwen37PlusLongContextThreshold, *baseTier.MaxTokens)
+	require.InDelta(t, 0.4e-6, *baseTier.InputPrice, 1e-15)
+	require.InDelta(t, 1.6e-6, *baseTier.OutputPrice, 1e-15)
+	require.InDelta(t, 0.5e-6, *baseTier.CacheWritePrice, 1e-15)
+	require.InDelta(t, 0.04e-6, *baseTier.CacheReadPrice, 1e-15)
+
+	longTier := qwen.Pricing.Intervals[1]
+	require.Equal(t, clinePassQwen37PlusLongContextThreshold, longTier.MinTokens)
+	require.Nil(t, longTier.MaxTokens)
+	require.InDelta(t, 1.2e-6, *longTier.InputPrice, 1e-15)
+	require.InDelta(t, 4.8e-6, *longTier.OutputPrice, 1e-15)
+	require.InDelta(t, 1.5e-6, *longTier.CacheWritePrice, 1e-15)
+	require.InDelta(t, 0.12e-6, *longTier.CacheReadPrice, 1e-15)
+}
+
 func TestBuildCatalogSupportedModel_OpenCodeGoUsesModelsDevSupplementalPricing(t *testing.T) {
 	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
 		"kimi-k2.5": {

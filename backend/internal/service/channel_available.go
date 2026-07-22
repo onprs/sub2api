@@ -278,23 +278,53 @@ func synthesizePricingFromModelPricing(mp *ModelPricing, existing *ChannelModelP
 	if existing != nil && existing.BillingMode != "" {
 		mode = existing.BillingMode
 	}
-	if mode == BillingModeImage || mode == BillingModePerRequest {
-		return &ChannelModelPricing{
-			BillingMode:      mode,
-			InputPrice:       nonZeroPtr(mp.InputPricePerToken),
-			OutputPrice:      nonZeroPtr(mp.OutputPricePerToken),
-			CacheWritePrice:  nonZeroPtr(mp.CacheCreationPricePerToken),
-			CacheReadPrice:   nonZeroPtr(mp.CacheReadPricePerToken),
-			ImageOutputPrice: nonZeroPtr(mp.ImageOutputPricePerToken),
-		}
-	}
-	return &ChannelModelPricing{
+	pricing := &ChannelModelPricing{
 		BillingMode:      mode,
 		InputPrice:       nonZeroPtr(mp.InputPricePerToken),
 		OutputPrice:      nonZeroPtr(mp.OutputPricePerToken),
 		CacheWritePrice:  nonZeroPtr(mp.CacheCreationPricePerToken),
 		CacheReadPrice:   nonZeroPtr(mp.CacheReadPricePerToken),
 		ImageOutputPrice: nonZeroPtr(mp.ImageOutputPricePerToken),
+	}
+	if mode == BillingModeToken {
+		pricing.Intervals = longContextDisplayIntervals(mp)
+	}
+	return pricing
+}
+
+func longContextDisplayIntervals(mp *ModelPricing) []PricingInterval {
+	if mp == nil || mp.LongContextInputThreshold <= 0 {
+		return nil
+	}
+	inputMultiplier := mp.LongContextInputMultiplier
+	if inputMultiplier <= 0 {
+		inputMultiplier = 1
+	}
+	outputMultiplier := mp.LongContextOutputMultiplier
+	if outputMultiplier <= 0 {
+		outputMultiplier = 1
+	}
+	if inputMultiplier == 1 && outputMultiplier == 1 {
+		return nil
+	}
+
+	threshold := mp.LongContextInputThreshold
+	return []PricingInterval{
+		{
+			MinTokens:       0,
+			MaxTokens:       &threshold,
+			InputPrice:      nonZeroPtr(mp.InputPricePerToken),
+			OutputPrice:     nonZeroPtr(mp.OutputPricePerToken),
+			CacheWritePrice: nonZeroPtr(mp.CacheCreationPricePerToken),
+			CacheReadPrice:  nonZeroPtr(mp.CacheReadPricePerToken),
+		},
+		{
+			MinTokens:       threshold,
+			InputPrice:      nonZeroPtr(mp.InputPricePerToken * inputMultiplier),
+			OutputPrice:     nonZeroPtr(mp.OutputPricePerToken * outputMultiplier),
+			CacheWritePrice: nonZeroPtr(mp.CacheCreationPricePerToken * inputMultiplier),
+			CacheReadPrice:  nonZeroPtr(mp.CacheReadPricePerToken * inputMultiplier),
+		},
 	}
 }
 

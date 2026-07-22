@@ -840,6 +840,12 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 // GetModelPricing 获取模型价格配置
 func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	model = strings.ToLower(strings.TrimSpace(model))
+	if pricing, isClinePassModel := clinePassReferencePricing(model); isClinePassModel {
+		if pricing == nil {
+			return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
+		}
+		return pricing, nil
+	}
 	candidates := billingModelPricingCandidates(model)
 
 	// Prefer dynamic pricing across every canonical/alias candidate before falling

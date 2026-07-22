@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ModelPricingView from '../ModelPricingView.vue'
+import type { UserAvailableChannel } from '@/api/channels'
 import { BILLING_MODE_TOKEN } from '@/constants/channel'
 
 const { getAvailable, getUserGroupRates, showError, extractApiErrorMessage } = vi.hoisted(() => ({
@@ -20,6 +21,7 @@ const messages: Record<string, string> = {
   'modelPricing.columns.channel': 'Channel',
   'modelPricing.columns.platform': 'Platform',
   'modelPricing.columns.model': 'Model',
+  'modelPricing.columns.contextTier': 'Context Tier',
   'modelPricing.columns.group': 'Group',
   'modelPricing.columns.multiplier': 'Multiplier',
   'modelPricing.columns.source': 'Source',
@@ -31,6 +33,10 @@ const messages: Record<string, string> = {
   'modelPricing.columns.unitPrice': 'Per Request/Image',
   'modelPricing.sources.channel': 'Channel Pricing',
   'modelPricing.billingModes.token': 'Per Token',
+  'modelPricing.contextTiers.all': 'All contexts',
+  'modelPricing.contextTiers.upTo': 'Up to {tokens}',
+  'modelPricing.contextTiers.above': 'Above {tokens}',
+  'modelPricing.contextTiers.range': '{min} to {max}',
   'modelPricing.units.request': 'req',
   'modelPricing.units.image': 'img',
   'availableChannels.exclusive': 'Exclusive',
@@ -59,7 +65,15 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string, fallback?: string) => messages[key] ?? fallback ?? key,
+      t: (key: string, paramsOrFallback?: string | Record<string, string>) => {
+        const fallback = typeof paramsOrFallback === 'string' ? paramsOrFallback : key
+        const template = messages[key] ?? fallback
+        if (typeof paramsOrFallback !== 'object') return template
+        return Object.entries(paramsOrFallback).reduce(
+          (text, [name, value]) => text.replace(`{${name}}`, value),
+          template,
+        )
+      },
       te: (key: string) => key in messages,
     }),
   }
@@ -82,7 +96,7 @@ const GroupBadgeStub = {
   template: '<span class="group-badge-stub">{{ name }} {{ userRateMultiplier ?? rateMultiplier }}x</span>',
 }
 
-function makeChannel() {
+function makeChannel(): UserAvailableChannel[] {
   return [
     {
       name: 'Gateway A',
@@ -97,6 +111,10 @@ function makeChannel() {
               platform: 'openai',
               subscription_type: 'subscription',
               rate_multiplier: 2,
+              peak_rate_enabled: false,
+              peak_start: '',
+              peak_end: '',
+              peak_rate_multiplier: 1,
               is_exclusive: true,
             },
           ],
@@ -172,6 +190,53 @@ describe('ModelPricingView', () => {
     await wrapper.get('button:nth-of-type(1)').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('$1')
+  })
+
+  it('renders every context tier and its token prices', async () => {
+    const channels = makeChannel()
+    const pricing = channels[0].platforms[0].supported_models[0].pricing
+    if (!pricing) throw new Error('test pricing is required')
+    pricing.intervals = [
+      {
+        min_tokens: 0,
+        max_tokens: 256000,
+        tier_label: '',
+        input_price: 0.4e-6,
+        output_price: 1.6e-6,
+        cache_write_price: 0.5e-6,
+        cache_read_price: 0.04e-6,
+        per_request_price: null,
+      },
+      {
+        min_tokens: 256000,
+        max_tokens: null,
+        tier_label: '',
+        input_price: 1.2e-6,
+        output_price: 4.8e-6,
+        cache_write_price: 1.5e-6,
+        cache_read_price: 0.12e-6,
+        per_request_price: null,
+      },
+    ]
+    getAvailable.mockResolvedValue(channels)
+    getUserGroupRates.mockResolvedValue({})
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Context Tier')
+    expect(wrapper.text()).toContain('Up to 256K')
+    expect(wrapper.text()).toContain('Above 256K')
+    expect(wrapper.text()).toContain('$0.8')
+    expect(wrapper.text()).toContain('$2.4')
+    expect(wrapper.text()).toContain('$0.08')
+    expect(wrapper.text()).toContain('$0.24')
+
+    await wrapper.get('button:nth-of-type(1)').trigger('click')
+    expect(wrapper.text()).toContain('$0.4')
+    expect(wrapper.text()).toContain('$1.2')
+    expect(wrapper.text()).toContain('$0.04')
+    expect(wrapper.text()).toContain('$0.12')
   })
 
   it('shows an app error when available channels fail to load', async () => {
