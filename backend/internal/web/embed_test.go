@@ -460,6 +460,10 @@ func TestFrontendServer_Middleware(t *testing.T) {
 			"/health",
 			"/responses",
 			"/responses/compact",
+			"/chat/completions",
+			"/embeddings",
+			"/images/generations",
+			"/videos/generations",
 		}
 
 		for _, path := range apiPaths {
@@ -505,6 +509,27 @@ func TestFrontendServer_Middleware(t *testing.T) {
 		assert.True(t, nextCalled, "next handler should be called for compact API route")
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.JSONEq(t, `{"ok":true}`, w.Body.String())
+	})
+
+	t.Run("skips_root_chat_completions_post_route", func(t *testing.T) {
+		provider := &mockSettingsProvider{settings: map[string]string{"test": "value"}}
+		server, err := NewFrontendServer(provider)
+		require.NoError(t, err)
+
+		router := gin.New()
+		router.Use(server.Middleware())
+		router.POST("/chat/completions", func(c *gin.Context) {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": "API_KEY_REQUIRED"})
+		})
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/chat/completions", strings.NewReader(`{"model":"cline-pass/glm-5.2"}`))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+		assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
+		assert.JSONEq(t, `{"code":"API_KEY_REQUIRED"}`, w.Body.String())
 	})
 
 	t.Run("serves_index_for_spa_routes", func(t *testing.T) {
@@ -664,6 +689,10 @@ func TestServeEmbeddedFrontend(t *testing.T) {
 			"/health",
 			"/responses",
 			"/responses/compact",
+			"/chat/completions",
+			"/embeddings",
+			"/images/generations",
+			"/videos/generations",
 		}
 
 		for _, path := range apiPaths {
