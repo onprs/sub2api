@@ -242,7 +242,14 @@ func TestProxyResponsesWebSocketFromClientForGrokUsesXAIHTTPBridge(t *testing.T)
 		req.Header = req.Header.Clone()
 		ginCtx.Request = req
 
-		errCh <- svc.ProxyResponsesWebSocketFromClient(r.Context(), ginCtx, conn, account, "access-token", firstMessage, nil)
+		errCh <- svc.ProxyResponsesWebSocketFromClient(r.Context(), ginCtx, conn, account, "access-token", firstMessage, &OpenAIWSIngressHooks{
+			MapRequestModel: func(_ int, originalModel string) (string, error) {
+				if originalModel == "channel-alias" {
+					return "grok-4.3", nil
+				}
+				return originalModel, nil
+			},
+		})
 	}))
 	defer wsServer.Close()
 
