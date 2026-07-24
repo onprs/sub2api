@@ -62,6 +62,19 @@ func TestLoadDefaultServerPublicReadTimeout(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultGatewayMaxLineSize(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	const want = 40 * 1024 * 1024
+	if cfg.Gateway.MaxLineSize != want {
+		t.Fatalf("Gateway.MaxLineSize = %d, want %d", cfg.Gateway.MaxLineSize, want)
+	}
+}
+
 func TestLoadDefaultSchedulingConfig(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
