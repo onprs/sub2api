@@ -539,22 +539,27 @@ Additional security-related options are available in `config.yaml`:
 - `server.trusted_proxies` to enable X-Forwarded-For parsing
 - `turnstile.required` to require Turnstile in release mode
 
-**⚠️ Security Warning: HTTP URL Configuration**
+**⚠️ Security Warning: Outbound URL Policy**
 
-When `security.url_allowlist.enabled=false`, the system performs minimal URL validation and **allows HTTP URLs by default** (dev-friendly mode; Docker Compose deployments use the same default). For production, explicitly tighten this to HTTPS-only:
+The default policy is fail-closed: URL allowlist validation is enabled, HTTP URLs are rejected, and private/loopback/link-local destinations are blocked again at socket dial time. Docker Compose uses the same defaults.
+
+To permit a trusted private HTTPS upstream, keep validation enabled, add the hostname explicitly, and opt in to private addresses:
 
 ```yaml
 security:
   url_allowlist:
-    enabled: false                # Disable allowlist checks
-    allow_insecure_http: false    # HTTPS only (recommended for production)
+    enabled: true
+    upstream_hosts:
+      - "internal-api.example"
+    allow_private_hosts: true
 ```
 
-**Or via environment variable:**
+For temporary local development that requires private HTTP endpoints, all three compatibility switches must be explicit. This disables the allowlist and final dial-time SSRF guard:
 
 ```bash
 SECURITY_URL_ALLOWLIST_ENABLED=false
-SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP=false
+SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP=true
+SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS=true
 ```
 
 **Risks of allowing HTTP:**

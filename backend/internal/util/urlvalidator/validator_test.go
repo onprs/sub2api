@@ -72,4 +72,12 @@ func TestValidateHTTPURL(t *testing.T) {
 	if _, err := ValidateHTTPURL("https://localhost", false, ValidationOptions{AllowPrivate: false}); err == nil {
 		t.Fatalf("expected localhost to be blocked when allow_private_hosts is false")
 	}
+	privateOptions := ValidationOptions{
+		AllowedHosts:     []string{"10.0.0.8"},
+		RequireAllowlist: true,
+		AllowPrivate:     true,
+	}
+	if _, err := ValidateHTTPURL("https://10.0.0.8", false, privateOptions); err != nil {
+		t.Fatalf("expected explicitly allowlisted private host to pass when opted in: %v", err)
+	}
 }

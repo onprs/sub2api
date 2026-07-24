@@ -537,22 +537,27 @@ default:
 - `server.trusted_proxies` - X-Forwarded-For パースの有効化
 - `turnstile.required` - リリースモードでの Turnstile 必須化
 
-**⚠️ セキュリティ警告: HTTP URL 設定**
+**⚠️ セキュリティ警告: アウトバウンド URL ポリシー**
 
-`security.url_allowlist.enabled=false` の場合、システムは最小限の URL バリデーションのみを行い、**デフォルトで HTTP URL を許可**します（開発フレンドリーモード。Docker Compose デプロイのデフォルトも同じです）。本番環境では、以下のように明示的に HTTPS のみに制限することを推奨します:
+デフォルトはフェイルクローズです。URL 許可リストを有効化し、HTTP URL を拒否し、最終的な socket 接続時にもプライベート、ループバック、リンクローカル宛先を遮断します。Docker Compose も同じデフォルトを使用します。
+
+信頼済みのプライベート HTTPS 上流を許可する場合は、検証を有効のまま維持し、ホスト名を明示的に追加してプライベートアドレスを許可してください:
 
 ```yaml
 security:
   url_allowlist:
-    enabled: false                # 許可リストチェックを無効化
-    allow_insecure_http: false    # HTTPS のみ許可（本番環境推奨）
+    enabled: true
+    upstream_hosts:
+      - "internal-api.example"
+    allow_private_hosts: true
 ```
 
-**または環境変数で設定:**
+ローカル開発でプライベート HTTP が必要な場合に限り、次の 3 つの互換スイッチを明示的に設定してください。このモードでは許可リストと最終接続時の SSRF 防御が無効になります:
 
 ```bash
 SECURITY_URL_ALLOWLIST_ENABLED=false
-SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP=false
+SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP=true
+SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS=true
 ```
 
 **HTTP を許可するリスク:**
