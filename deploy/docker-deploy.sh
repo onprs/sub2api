@@ -163,7 +163,7 @@ main() {
     echo "     http://localhost:8080"
     echo ""
     print_info "If admin password is not set in .env, it will be auto-generated."
-    print_info "Check logs for the generated admin password on first startup."
+    print_info "Read it once from /app/data/.first-admin-password (mode 0600), then delete the file; it is never logged."
     echo ""
 }
 

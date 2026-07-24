@@ -8,7 +8,9 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +30,7 @@ const (
 	ConfigFileName             = "config.yaml"
 	InstallLockFile            = ".installed"
 	InstallPendingLockFile     = ".installed.pending"
+	FirstAdminPasswordFile     = ".first-admin-password"
 	defaultUserConcurrency     = 5
 	simpleModeAdminConcurrency = 30
 	defaultMigrationTimeout    = 60 * time.Second
@@ -86,6 +89,11 @@ func GetConfigFilePath() string {
 // GetInstallLockPath returns the full path to .installed lock file
 func GetInstallLockPath() string {
 	return GetDataDir() + "/" + InstallLockFile
+}
+
+// GetFirstAdminPasswordPath returns the one-time generated admin password path.
+func GetFirstAdminPasswordPath() string {
+	return filepath.Join(GetDataDir(), FirstAdminPasswordFile)
 }
 
 // GetInstallPendingLockPath returns the full path to the in-progress setup lock.
@@ -511,14 +519,8 @@ func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 		return false, decision.reason, nil
 	}
 
-	if strings.TrimSpace(cfg.Admin.Password) == "" {
-		password, genErr := generateSecret(16)
-		if genErr != nil {
-			return false, "", fmt.Errorf("failed to generate admin password: %w", genErr)
-		}
-		cfg.Admin.Password = password
-		fmt.Printf("Generated admin password (one-time): %s\n", cfg.Admin.Password)
-		fmt.Println("IMPORTANT: Save this password! It will not be shown again.")
+	if _, err := prepareAdminPassword(cfg); err != nil {
+		return false, "", err
 	}
 
 	admin := &service.User{
@@ -627,6 +629,82 @@ func generateSecret(length int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes), nil
+}
+
+func prepareAdminPassword(cfg *SetupConfig) (bool, error) {
+	return prepareAdminPasswordWithWriter(cfg, os.Stdout)
+}
+
+func prepareAdminPasswordWithWriter(cfg *SetupConfig, output io.Writer) (bool, error) {
+	if strings.TrimSpace(cfg.Admin.Password) != "" {
+		if err := os.Remove(GetFirstAdminPasswordPath()); err != nil && !os.IsNotExist(err) {
+			return false, fmt.Errorf("remove stale generated admin password: %w", err)
+		}
+		return false, nil
+	}
+	password, err := generateSecret(16)
+	if err != nil {
+		return false, fmt.Errorf("failed to generate admin password: %w", err)
+	}
+	if err := writeFirstAdminPassword(password); err != nil {
+		return false, fmt.Errorf("failed to persist generated admin password: %w", err)
+	}
+	cfg.Admin.Password = password
+	if output != nil {
+		_, _ = fmt.Fprintf(output, "Generated admin password written to %s (mode 0600). Read it once, then delete the file.\n", GetFirstAdminPasswordPath())
+	}
+	return true, nil
+}
+
+func writeFirstAdminPassword(password string) error {
+	dataDir := GetDataDir()
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
+		return fmt.Errorf("create data directory: %w", err)
+	}
+
+	tempFile, err := os.CreateTemp(dataDir, FirstAdminPasswordFile+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temporary password file: %w", err)
+	}
+	tempPath := tempFile.Name()
+	keepTemp := true
+	defer func() {
+		_ = tempFile.Close()
+		if keepTemp {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	if err := tempFile.Chmod(0600); err != nil {
+		return fmt.Errorf("set temporary password file permissions: %w", err)
+	}
+	if _, err := tempFile.WriteString(password + "\n"); err != nil {
+		return fmt.Errorf("write temporary password file: %w", err)
+	}
+	if err := tempFile.Sync(); err != nil {
+		return fmt.Errorf("sync temporary password file: %w", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("close temporary password file: %w", err)
+	}
+
+	targetPath := GetFirstAdminPasswordPath()
+	if err := os.Rename(tempPath, targetPath); err != nil {
+		if _, statErr := os.Stat(targetPath); statErr != nil {
+			return fmt.Errorf("install generated password file: %w", err)
+		}
+		if removeErr := os.Remove(targetPath); removeErr != nil {
+			return fmt.Errorf("replace generated password file: %w", removeErr)
+		}
+		if retryErr := os.Rename(tempPath, targetPath); retryErr != nil {
+			return fmt.Errorf("install generated password file: %w", retryErr)
+		}
+	}
+	keepTemp = false
+	if err := os.Chmod(targetPath, 0600); err != nil {
+		return fmt.Errorf("set generated password file permissions: %w", err)
+	}
+	return nil
 }
 
 // =============================================================================
