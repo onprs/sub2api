@@ -55,6 +55,9 @@ func openCodeGoSeedCatalog() map[string]OpenCodeGoCatalogEntry {
 		"kimi-k2.6":         OpenCodeGoProtocolChatCompletions,
 		"kimi-k2.5":         OpenCodeGoProtocolChatCompletions,
 		"kimi-k2.7-code":    OpenCodeGoProtocolChatCompletions,
+		"kimi-k3":           OpenCodeGoProtocolChatCompletions,
+		"grok-4.5":          OpenCodeGoProtocolChatCompletions,
+		"hy3":               OpenCodeGoProtocolChatCompletions,
 		"mimo-v2.5":         OpenCodeGoProtocolChatCompletions,
 		"mimo-v2.5-pro":     OpenCodeGoProtocolChatCompletions,
 		"mimo-v2-pro":       OpenCodeGoProtocolChatCompletions,
@@ -76,6 +79,8 @@ func openCodeGoSeedCatalog() map[string]OpenCodeGoCatalogEntry {
 		"kimi-k2.6",
 		"kimi-k2.5",
 		"kimi-k2.7-code",
+		"kimi-k3",
+		"grok-4.5",
 		"mimo-v2.5",
 		"mimo-v2.5-pro",
 		"mimo-v2-pro",
@@ -87,6 +92,7 @@ func openCodeGoSeedCatalog() map[string]OpenCodeGoCatalogEntry {
 		"qwen3.6-plus",
 		"qwen3.7-max",
 		"qwen3.7-plus",
+		"hy3",
 		"hy3-preview",
 	}
 	out := make(map[string]OpenCodeGoCatalogEntry, len(models))
