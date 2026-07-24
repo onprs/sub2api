@@ -868,9 +868,10 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 	if s.responseHeaderFilter != nil {
 		filteredHeaders = responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
 	}
+	parser := protocoltransport.NewSSEParser(resp.Body, maxRecordSize)
 	stream := &protocoltransport.Stream{
 		StatusCode: resp.StatusCode, Headers: filteredHeaders, ActualProtocol: actualProtocol,
-		RequestID: resp.Header.Get("x-request-id"), Events: protocoltransport.NewSSEParser(resp.Body, maxRecordSize),
+		RequestID: resp.Header.Get("x-request-id"), Events: parser,
 	}
 	if err := stream.Validate(); err != nil {
 		_ = stream.Close()
@@ -887,6 +888,17 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 	}
 	headersWritten := false
 	clientDisconnected := false
+	lastDownstreamWriteAt := time.Now()
+	ensureHeaders := func() error {
+		if headersWritten {
+			return nil
+		}
+		if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
+			return err
+		}
+		headersWritten = true
+		return nil
+	}
 	writePayloads := func(payloads [][]byte) error {
 		if clientDisconnected || len(payloads) == 0 {
 			return nil
@@ -899,11 +911,8 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 			}
 			framedPayloads = append(framedPayloads, framed)
 		}
-		if !headersWritten {
-			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
-				return err
-			}
-			headersWritten = true
+		if err := ensureHeaders(); err != nil {
+			return err
 		}
 		for _, framed := range framedPayloads {
 			if _, err := c.Writer.Write(framed); err != nil {
@@ -912,37 +921,122 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 			}
 		}
 		c.Writer.Flush()
+		lastDownstreamWriteAt = time.Now()
 		return nil
+	}
+
+	type streamReadResult struct {
+		record protocoltransport.SSERecord
+		err    error
+	}
+	events := make(chan streamReadResult, 16)
+	done := make(chan struct{})
+	go func() {
+		defer close(events)
+		for {
+			record, nextErr := stream.Events.Next(context.Background())
+			select {
+			case events <- streamReadResult{record: record, err: nextErr}:
+			case <-done:
+				return
+			}
+			if nextErr != nil {
+				return
+			}
+		}
+	}()
+	defer close(done)
+
+	streamInterval := time.Duration(0)
+	if s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
+		streamInterval = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
+	}
+	var intervalTicker *time.Ticker
+	if streamInterval > 0 {
+		intervalTicker = time.NewTicker(streamInterval)
+		defer intervalTicker.Stop()
+	}
+	var intervalCh <-chan time.Time
+	if intervalTicker != nil {
+		intervalCh = intervalTicker.C
+	}
+
+	keepaliveInterval := time.Duration(0)
+	if s.cfg != nil && s.cfg.Gateway.StreamKeepaliveInterval > 0 {
+		keepaliveInterval = time.Duration(s.cfg.Gateway.StreamKeepaliveInterval) * time.Second
+	}
+	var keepaliveTicker *time.Ticker
+	if keepaliveInterval > 0 {
+		keepaliveTicker = time.NewTicker(keepaliveInterval)
+		defer keepaliveTicker.Stop()
+	}
+	var keepaliveCh <-chan time.Time
+	if keepaliveTicker != nil {
+		keepaliveCh = keepaliveTicker.C
 	}
 
 	identityStream := actualProtocol == sourceProtocol
 	identityTerminal := false
-	for {
-		record, nextErr := stream.Events.Next(context.Background())
-		if errors.Is(nextErr, protocoltransport.ErrSSEDone) {
-			if identityStream && actualProtocol == protocolconv.ProtocolOpenAIChat {
+	readComplete := false
+	for !readComplete {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				readComplete = true
+				continue
+			}
+			nextErr := event.err
+			if errors.Is(nextErr, protocoltransport.ErrSSEDone) {
+				if identityStream && actualProtocol == protocolconv.ProtocolOpenAIChat {
+					identityTerminal = true
+				}
+				readComplete = true
+				continue
+			}
+			if errors.Is(nextErr, io.EOF) {
+				readComplete = true
+				continue
+			}
+			if nextErr != nil {
+				return clientDisconnected, nextErr
+			}
+			record := event.record
+			if identityStream && actualProtocol == protocolconv.ProtocolAnthropic && gjson.GetBytes(record.Data, "type").String() == "message_stop" {
 				identityTerminal = true
 			}
-			break
-		}
-		if errors.Is(nextErr, io.EOF) {
-			break
-		}
-		if nextErr != nil {
-			return clientDisconnected, nextErr
-		}
-		if identityStream && actualProtocol == protocolconv.ProtocolAnthropic && gjson.GetBytes(record.Data, "type").String() == "message_stop" {
-			identityTerminal = true
-		}
-		if observe != nil {
-			observe(record.Data)
-		}
-		payloads, _, err := session.Convert(record.Data)
-		if err != nil {
-			return clientDisconnected, err
-		}
-		if err := writePayloads(payloads); err != nil {
-			return clientDisconnected, err
+			if observe != nil {
+				observe(record.Data)
+			}
+			payloads, _, convertErr := session.Convert(record.Data)
+			if convertErr != nil {
+				return clientDisconnected, convertErr
+			}
+			if err := writePayloads(payloads); err != nil {
+				return clientDisconnected, err
+			}
+
+		case <-intervalCh:
+			if time.Since(parser.Progress().LastReadAt) < streamInterval {
+				continue
+			}
+			if clientDisconnected {
+				return clientDisconnected, errors.New("OpenCode Go stream usage incomplete after timeout")
+			}
+			return clientDisconnected, errors.New("OpenCode Go stream data interval timeout")
+
+		case <-keepaliveCh:
+			if clientDisconnected || parser.Progress().InRecord || time.Since(lastDownstreamWriteAt) < keepaliveInterval {
+				continue
+			}
+			if err := ensureHeaders(); err != nil {
+				return clientDisconnected, err
+			}
+			if _, err := c.Writer.Write(renderer.StreamKeepalive()); err != nil {
+				clientDisconnected = true
+				continue
+			}
+			c.Writer.Flush()
+			lastDownstreamWriteAt = time.Now()
 		}
 	}
 	if identityStream && !identityTerminal {
@@ -956,11 +1050,8 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 		return clientDisconnected, err
 	}
 	if !clientDisconnected {
-		if !headersWritten {
-			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
-				return false, err
-			}
-			headersWritten = true
+		if err := ensureHeaders(); err != nil {
+			return false, err
 		}
 		if terminal := renderer.StreamTerminal(); len(terminal) > 0 {
 			if _, err := c.Writer.Write(terminal); err != nil {
