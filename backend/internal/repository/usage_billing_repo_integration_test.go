@@ -242,6 +242,70 @@ func TestUsageBillingRepositoryApply_ExhaustsSubscriptionWhenResponseCostExceeds
 	require.InDelta(t, 65.01, sevenDayUsage, 0.000001)
 }
 
+func TestUsageBillingRepositoryApply_OverrunExhaustsRemainingSubscriptionBeforeAlreadyExhaustedOne(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := NewUsageBillingRepository(client, integrationDB)
+
+	user := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("usage-billing-multi-overrun-user-%d@example.com", time.Now().UnixNano()),
+		PasswordHash: "hash",
+	})
+	group := mustCreateGroup(t, client, &service.Group{
+		Name:             "usage-billing-multi-overrun-group-" + uuid.NewString(),
+		Platform:         service.PlatformOpenAI,
+		SubscriptionType: service.SubscriptionTypeSubscription,
+	})
+	apiKey := mustCreateApiKey(t, client, &service.APIKey{
+		UserID:  user.ID,
+		GroupID: &group.ID,
+		Key:     "sk-usage-billing-multi-overrun-" + uuid.NewString(),
+		Name:    "billing-multi-overrun",
+	})
+	now := time.Now()
+	earlyLimit := 10.0
+	laterLimit := 20.0
+	early := mustCreateSubscription(t, client, &service.UserSubscription{
+		UserID:              user.ID,
+		GroupID:             group.ID,
+		StartsAt:            now.Add(-time.Hour),
+		ExpiresAt:           now.Add(24 * time.Hour),
+		SevenDayLimitUSD:    &earlyLimit,
+		SevenDayUsageUSD:    11.0,
+		SevenDayWindowStart: &now,
+	})
+	later := mustCreateSubscription(t, client, &service.UserSubscription{
+		UserID:              user.ID,
+		GroupID:             group.ID,
+		StartsAt:            now.Add(-time.Hour),
+		ExpiresAt:           now.Add(48 * time.Hour),
+		SevenDayLimitUSD:    &laterLimit,
+		SevenDayUsageUSD:    19.99,
+		SevenDayWindowStart: &now,
+	})
+
+	result, err := repo.Apply(ctx, &service.UsageBillingCommand{
+		RequestID:        uuid.NewString(),
+		APIKeyID:         apiKey.ID,
+		UserID:           user.ID,
+		GroupID:          &group.ID,
+		SubscriptionCost: 0.02,
+	})
+
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	require.NotNil(t, result.SubscriptionID)
+	require.Equal(t, later.ID, *result.SubscriptionID)
+
+	var earlyUsage float64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT seven_day_usage_usd FROM user_subscriptions WHERE id = $1", early.ID).Scan(&earlyUsage))
+	require.InDelta(t, 11.0, earlyUsage, 0.000001)
+
+	var laterUsage float64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT seven_day_usage_usd FROM user_subscriptions WHERE id = $1", later.ID).Scan(&laterUsage))
+	require.InDelta(t, 20.01, laterUsage, 0.000001)
+}
+
 func TestUsageBillingRepositoryApply_RequestFingerprintConflict(t *testing.T) {
 	ctx := context.Background()
 	client := testEntClient(t)

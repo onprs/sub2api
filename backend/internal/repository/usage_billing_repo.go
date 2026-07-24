@@ -291,6 +291,10 @@ func selectUsageBillingSubscription(ctx context.Context, tx *sql.Tx, userID, gro
 	return subscriptionID, nil
 }
 
+// selectUsageBillingExhaustionSubscription records an unavoidable response-cost
+// overrun against a subscription that still had headroom before the response.
+// This closes the entitlement for subsequent preflight checks instead of
+// repeatedly charging an older subscription that was already exhausted.
 func selectUsageBillingExhaustionSubscription(ctx context.Context, tx *sql.Tx, userID, groupID int64, costUSD float64) (int64, error) {
 	const query = `
 		SELECT us.id
@@ -332,7 +336,49 @@ func selectUsageBillingExhaustionSubscription(ctx context.Context, tx *sql.Tx, u
 					END + $3 > us.thirty_day_limit_usd
 				)
 			)
-		ORDER BY us.expires_at ASC, us.id ASC
+		ORDER BY
+			CASE
+				WHEN (
+					us.five_hour_limit_usd IS NOT NULL
+					AND (
+						us.five_hour_limit_usd <= 0
+						OR CASE
+							WHEN us.five_hour_window_start IS NULL
+								OR us.five_hour_window_start + INTERVAL '5 hours' <= NOW()
+							THEN 0
+							ELSE us.five_hour_usage_usd
+						END >= us.five_hour_limit_usd
+					)
+				)
+				OR (
+					us.seven_day_limit_usd IS NOT NULL
+					AND (
+						us.seven_day_limit_usd <= 0
+						OR CASE
+							WHEN us.seven_day_window_start IS NULL
+								OR us.seven_day_window_start + INTERVAL '7 days' <= NOW()
+							THEN 0
+							ELSE us.seven_day_usage_usd
+						END >= us.seven_day_limit_usd
+					)
+				)
+				OR (
+					us.thirty_day_limit_usd IS NOT NULL
+					AND (
+						us.thirty_day_limit_usd <= 0
+						OR CASE
+							WHEN us.thirty_day_window_start IS NULL
+								OR us.thirty_day_window_start + INTERVAL '30 days' <= NOW()
+							THEN 0
+							ELSE us.thirty_day_usage_usd
+						END >= us.thirty_day_limit_usd
+					)
+				)
+				THEN 1
+				ELSE 0
+			END ASC,
+			us.expires_at ASC,
+			us.id ASC
 		FOR UPDATE
 		LIMIT 1
 	`
