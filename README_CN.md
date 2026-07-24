@@ -413,9 +413,10 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 
 在浏览器中打开 `http://你的服务器IP:8080`
 
-如果管理员密码是自动生成的，在日志中查找：
+如果管理员密码是自动生成的，请读取一次权限为 0600 的文件并立即删除；密码不会写入日志：
 ```bash
-docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
+docker compose -f docker-compose.local.yml exec sub2api sh -c \
+  'cat /app/data/.first-admin-password && rm -f /app/data/.first-admin-password'
 ```
 
 #### 升级

@@ -85,8 +85,9 @@ docker compose -f docker-compose.local.yml up -d
 # View logs
 docker compose -f docker-compose.local.yml logs -f sub2api
 
-# If admin password was auto-generated, find it in logs:
-docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
+# If the admin password was auto-generated, read it once and delete the 0600 file:
+docker compose -f docker-compose.local.yml exec sub2api sh -c \
+  'cat /app/data/.first-admin-password && rm -f /app/data/.first-admin-password'
 
 # Access Web UI
 # http://localhost:8080
@@ -117,7 +118,7 @@ mkdir -p data postgres_data redis_data
 # Start all services using local directory version
 docker compose -f docker-compose.local.yml up -d
 
-# View logs (check for auto-generated admin password)
+# View logs (generated admin passwords are never printed here)
 docker compose -f docker-compose.local.yml logs -f sub2api
 
 # Access Web UI
@@ -146,9 +147,10 @@ When using Docker Compose with `AUTO_SETUP=true`:
 
 2. No manual Setup Wizard needed - just configure `.env` and start
 
-3. If `ADMIN_PASSWORD` is not set, check logs for the generated password:
+3. If `ADMIN_PASSWORD` is not set, the generated password is written to `/app/data/.first-admin-password` with mode 0600. Read it once and delete it:
    ```bash
-   docker compose logs sub2api | grep "admin password"
+   docker compose exec sub2api sh -c \
+     'cat /app/data/.first-admin-password && rm -f /app/data/.first-admin-password'
    ```
 
 ### Database Migration Notes (PostgreSQL)
@@ -241,7 +243,7 @@ docker compose down -v
 | `TOTP_ENCRYPTION_KEY` | **Recommended** | *(auto-generated)* | TOTP encryption key (fixed for persistent 2FA) |
 | `SERVER_PORT` | No | `8080` | Server port |
 | `ADMIN_EMAIL` | No | `admin@sub2api.local` | Admin email |
-| `ADMIN_PASSWORD` | No | *(auto-generated)* | Admin password |
+| `ADMIN_PASSWORD` | No | *(auto-generated)* | Admin password; when generated, stored once in `/app/data/.first-admin-password` (0600), never logged |
 | `TZ` | No | `Asia/Shanghai` | Timezone |
 | `GEMINI_OAUTH_CLIENT_ID` | No | *(builtin)* | Google OAuth client ID (Gemini OAuth). Leave empty to use the built-in Gemini CLI client. |
 | `GEMINI_OAUTH_CLIENT_SECRET` | No | *(builtin)* | Google OAuth client secret (Gemini OAuth). Leave empty to use the built-in Gemini CLI client. |

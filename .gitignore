@@ -111,6 +111,8 @@ backend/data/
 backend/config.yaml
 deploy/config.yaml
 backend/.installed
+.first-admin-password
+.first-admin-password.tmp-*
 
 # ===================
 # 其他

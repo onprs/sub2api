@@ -1,7 +1,9 @@
 package setup
 
 import (
+	"bytes"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +71,69 @@ func TestSetupDefaultAdminConcurrency(t *testing.T) {
 			t.Fatalf("setupDefaultAdminConcurrency()=%d, want %d", got, defaultUserConcurrency)
 		}
 	})
+}
+
+func TestPrepareAdminPasswordWritesMode0600WithoutLoggingSecret(t *testing.T) {
+	t.Setenv("DATA_DIR", t.TempDir())
+	cfg := &SetupConfig{}
+	var output bytes.Buffer
+
+	generated, err := prepareAdminPasswordWithWriter(cfg, &output)
+	if err != nil {
+		t.Fatalf("prepareAdminPasswordWithWriter() error = %v", err)
+	}
+	if !generated {
+		t.Fatal("expected a generated password")
+	}
+	if cfg.Admin.Password == "" {
+		t.Fatal("generated password is empty")
+	}
+	if strings.Contains(output.String(), cfg.Admin.Password) {
+		t.Fatalf("stdout leaked generated password: %q", output.String())
+	}
+	if !strings.Contains(output.String(), GetFirstAdminPasswordPath()) {
+		t.Fatalf("stdout should identify password file, got %q", output.String())
+	}
+
+	passwordFile, err := os.ReadFile(GetFirstAdminPasswordPath())
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(passwordFile) != cfg.Admin.Password+"\n" {
+		t.Fatal("password file content does not match generated password")
+	}
+	info, err := os.Stat(GetFirstAdminPasswordPath())
+	if err != nil {
+		t.Fatalf("Stat() error = %v", err)
+	}
+	if runtime.GOOS != "windows" {
+		if got := info.Mode().Perm(); got != 0600 {
+			t.Fatalf("password file mode = %04o, want 0600", got)
+		}
+	}
+}
+
+func TestPrepareAdminPasswordDoesNotPersistExplicitPassword(t *testing.T) {
+	t.Setenv("DATA_DIR", t.TempDir())
+	cfg := &SetupConfig{Admin: AdminConfig{Password: "operator-supplied"}}
+	if err := os.WriteFile(GetFirstAdminPasswordPath(), []byte("stale-generated-password\n"), 0600); err != nil {
+		t.Fatalf("seed stale password file: %v", err)
+	}
+	var output bytes.Buffer
+
+	generated, err := prepareAdminPasswordWithWriter(cfg, &output)
+	if err != nil {
+		t.Fatalf("prepareAdminPasswordWithWriter() error = %v", err)
+	}
+	if generated {
+		t.Fatal("explicit password must not be reported as generated")
+	}
+	if output.Len() != 0 {
+		t.Fatalf("explicit password path should not log, got %q", output.String())
+	}
+	if _, err := os.Stat(GetFirstAdminPasswordPath()); !os.IsNotExist(err) {
+		t.Fatalf("explicit password must not be persisted, stat error = %v", err)
+	}
 }
 
 func TestSetupMigrationTimeout(t *testing.T) {

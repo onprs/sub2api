@@ -397,9 +397,10 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 
 Open `http://YOUR_SERVER_IP:8080` in your browser.
 
-If admin password was auto-generated, find it in logs:
+If the admin password was auto-generated, read the mode-0600 file once and delete it. The password is never written to logs:
 ```bash
-docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
+docker compose -f docker-compose.local.yml exec sub2api sh -c \
+  'cat /app/data/.first-admin-password && rm -f /app/data/.first-admin-password'
 ```
 
 #### Upgrade
