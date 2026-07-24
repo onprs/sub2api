@@ -584,22 +584,27 @@ gateway:
 - `/auth/register`、`/auth/login`、`/auth/login/2fa`、`/auth/send-verify-code` 已提供服务端兜底限流（Redis 故障时 fail-close）。
 - 推荐将 WAF/CDN 作为第一层防护，服务端限流与响应读取上限作为第二层兜底；两层同时保留，避免旁路流量与误配置风险。
 
-**⚠️ 安全警告：HTTP URL 配置**
+**⚠️ 安全警告：出站 URL 策略**
 
-当 `security.url_allowlist.enabled=false` 时，系统仅执行最小 URL 校验，且**默认允许 HTTP URL**（开发友好模式，Docker Compose 部署的默认值一致）。生产环境建议显式收紧为仅允许 HTTPS：
+默认策略为 fail-closed：启用 URL 白名单、拒绝 HTTP，并在最终 socket 拨号时再次阻断私网、回环和链路本地地址。Docker Compose 使用相同默认值。
+
+如需访问可信的私网 HTTPS 上游，请保持校验开启，将主机显式加入白名单，并单独允许私网地址：
 
 ```yaml
 security:
   url_allowlist:
-    enabled: false                # 禁用白名单检查
-    allow_insecure_http: false    # 仅允许 HTTPS（生产环境推荐）
+    enabled: true
+    upstream_hosts:
+      - "internal-api.example"
+    allow_private_hosts: true
 ```
 
-**或通过环境变量：**
+仅在本地开发确实需要私网 HTTP 时，才显式启用以下三个兼容开关。该模式会关闭白名单和最终拨号阶段的 SSRF 防护：
 
 ```bash
 SECURITY_URL_ALLOWLIST_ENABLED=false
-SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP=false
+SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP=true
+SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS=true
 ```
 
 **允许 HTTP 的风险：**

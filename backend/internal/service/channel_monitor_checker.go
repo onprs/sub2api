@@ -23,11 +23,11 @@ var monitorHTTPClient = newSSRFSafeHTTPClient(monitorRequestTimeout)
 // monitorPingHTTPClient 用于 endpoint origin 的 HEAD ping，超时更短。
 var monitorPingHTTPClient = newSSRFSafeHTTPClient(monitorPingTimeout)
 
-// newSSRFSafeHTTPClient 返回一个使用 safeDialContext 的 http.Client。
+// newSSRFSafeHTTPClient 返回一个在最终拨号时复核 IP 的 http.Client。
 // 仅供监控模块对外发起请求使用——所有目标都应是公网 endpoint。
 func newSSRFSafeHTTPClient(timeout time.Duration) *http.Client {
 	tr := &http.Transport{
-		DialContext:           safeDialContext,
+		DialContext:           NewSSRFSafeDialContext(monitorDialer),
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          16,
 		IdleConnTimeout:       monitorIdleConnTimeout,

@@ -113,9 +113,9 @@ cors:
 # =============================================================================
 security:
   url_allowlist:
-    # Enable URL allowlist validation (disable to skip all URL checks)
-    # 启用 URL 白名单验证（禁用则跳过所有 URL 检查）
-    enabled: false
+    # Enable URL allowlist validation (default: true; disabling removes SSRF checks)
+    # 启用 URL 白名单验证（默认启用；禁用会移除 SSRF 防护）
+    enabled: true
     # Allowed upstream hosts for API proxying
     # 允许代理的上游 API 主机列表
     upstream_hosts:
@@ -138,12 +138,12 @@ security:
     # Allowed hosts for CRS sync (required when using CRS sync)
     # 允许 CRS 同步的主机列表（使用 CRS 同步功能时必须配置）
     crs_hosts: []
-    # Allow localhost/private IPs for upstream/pricing/CRS (use only in trusted networks)
-    # 允许本地/私有 IP 地址用于上游/定价/CRS（仅在可信网络中使用）
-    allow_private_hosts: true
-    # Allow http:// URLs when allowlist is disabled (default: true; set to false to require https)
-    # 白名单禁用时是否允许 http:// URL（默认: true，设为 false 则仅允许 https）
-    allow_insecure_http: true
+    # Allow explicitly allowlisted private hosts (default: false; trusted networks only)
+    # 允许白名单内的私网主机（默认禁用；仅用于可信网络）
+    allow_private_hosts: false
+    # Allow http:// URLs when allowlist is disabled (default: false)
+    # 白名单禁用时是否允许 http:// URL（默认禁用）
+    allow_insecure_http: false
   response_headers:
     # Enable configurable response header filtering (default: true)
     # 启用可配置的响应头过滤（默认启用，过滤上游敏感响应头）

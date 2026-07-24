@@ -1613,6 +1613,8 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 
 	if !cfg.Security.URLAllowlist.Enabled {
 		slog.Warn("security.url_allowlist.enabled=false; allowlist/SSRF checks disabled (minimal format validation only).")
+	} else if cfg.Security.URLAllowlist.AllowPrivateHosts {
+		slog.Warn("security.url_allowlist.allow_private_hosts=true; final private-IP dial guard is disabled for allowlisted upstreams.")
 	}
 	if !cfg.Security.ResponseHeaders.Enabled {
 		slog.Warn("security.response_headers.enabled=false; configurable header filtering disabled (default allowlist only).")
@@ -1676,7 +1678,7 @@ func setDefaults() {
 	viper.SetDefault("cors.allow_credentials", true)
 
 	// Security
-	viper.SetDefault("security.url_allowlist.enabled", false)
+	viper.SetDefault("security.url_allowlist.enabled", true)
 	viper.SetDefault("security.url_allowlist.upstream_hosts", []string{
 		"api.openai.com",
 		"api.anthropic.com",
@@ -1695,8 +1697,8 @@ func setDefaults() {
 		"models.dev",
 	})
 	viper.SetDefault("security.url_allowlist.crs_hosts", []string{})
-	viper.SetDefault("security.url_allowlist.allow_private_hosts", true)
-	viper.SetDefault("security.url_allowlist.allow_insecure_http", true)
+	viper.SetDefault("security.url_allowlist.allow_private_hosts", false)
+	viper.SetDefault("security.url_allowlist.allow_insecure_http", false)
 	viper.SetDefault("security.response_headers.enabled", true)
 	viper.SetDefault("security.response_headers.additional_allowed", []string{})
 	viper.SetDefault("security.response_headers.force_remove", []string{})
