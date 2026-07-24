@@ -123,6 +123,9 @@ export default {
     notFoundDesc: '该自定义页面不存在或已被删除。',
     notConfiguredTitle: '页面链接未配置',
     notConfiguredDesc: '该自定义页面的 URL 未正确配置。',
+    insecureUrlTitle: '不安全的链接已被拦截',
+    insecureUrlDesc:
+      '自定义页面链接必须使用 HTTPS，请联系管理员更新链接或将其改为 Markdown 模式。',
     tableOfContents: '目录',
     copyCode: '复制',
     copiedCode: '已复制',

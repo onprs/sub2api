@@ -76,6 +76,23 @@
           ></div>
         </div>
 
+        <!-- Insecure http:// URL blocked: admin must switch to https:// or Markdown mode -->
+        <div v-else-if="isHttpBlockedUrl" class="flex h-full items-center justify-center p-10 text-center">
+          <div class="max-w-md">
+            <div
+              class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 dark:bg-dark-700"
+            >
+              <Icon name="shield" size="lg" class="text-amber-500 dark:text-amber-400" />
+            </div>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('customPage.insecureUrlTitle') }}
+            </h3>
+            <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
+              {{ t('customPage.insecureUrlDesc') }}
+            </p>
+          </div>
+        </div>
+
         <!-- URL not configured -->
         <div v-else-if="!isValidUrl" class="flex h-full items-center justify-center p-10 text-center">
           <div class="max-w-md">
@@ -107,6 +124,8 @@
           <iframe
             :src="embeddedUrl"
             class="custom-embed-frame"
+            sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+            referrerpolicy="no-referrer"
             allowfullscreen
           ></iframe>
         </div>
@@ -125,7 +144,7 @@ import { useAdminSettingsStore } from '@/stores/adminSettings'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { buildApiUrl } from '@/api/client'
-import { buildEmbeddedUrl, detectTheme } from '@/utils/embedded-url'
+import { buildEmbeddedUrlSafe, detectTheme, isSecureEmbeddableUrl } from '@/utils/embedded-url'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
@@ -175,19 +194,25 @@ const isMarkdownMode = computed(() => !!markdownSlug.value)
 
 const embeddedUrl = computed(() => {
   if (!menuItem.value || isMarkdownMode.value) return ''
-  return buildEmbeddedUrl(
-    menuItem.value.url,
-    authStore.user?.id,
-    authStore.token,
-    pageTheme.value,
-    locale.value,
-  )
+  // SECURITY: never forward the user Bearer JWT to an admin-configured
+  // external URL. Only non-sensitive tracking parameters (user_id, theme,
+  // lang, ui_mode, truncated src_host/src_url) are attached here.
+  return buildEmbeddedUrlSafe(menuItem.value.url, {
+    userId: authStore.user?.id,
+    theme: pageTheme.value,
+    lang: locale.value,
+  })
 })
 
 const isValidUrl = computed(() => {
   if (isMarkdownMode.value) return false
+  return isSecureEmbeddableUrl(embeddedUrl.value)
+})
+
+const isHttpBlockedUrl = computed(() => {
+  if (isMarkdownMode.value) return false
   const url = embeddedUrl.value
-  return url.startsWith('http://') || url.startsWith('https://')
+  return url.startsWith('http://')
 })
 
 function generateHeadingId(text: string, index: number): string {

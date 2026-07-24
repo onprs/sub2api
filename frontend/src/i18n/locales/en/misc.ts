@@ -125,6 +125,9 @@ export default {
     notFoundDesc: 'This custom page does not exist or has been removed.',
     notConfiguredTitle: 'Page URL not configured',
     notConfiguredDesc: 'The URL for this custom page has not been properly configured.',
+    insecureUrlTitle: 'Insecure URL blocked',
+    insecureUrlDesc:
+      'Custom page URLs must use HTTPS. Please ask the administrator to update the URL or switch the page to Markdown mode.',
     tableOfContents: 'Contents',
     copyCode: 'Copy',
     copiedCode: 'Copied',
