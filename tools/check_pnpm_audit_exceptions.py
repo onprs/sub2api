@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import re
 import sys
 from datetime import date
 
@@ -49,15 +50,12 @@ def parse_exceptions(path: str) -> list[dict]:
 
 
 def pick_advisory_id(advisory: dict) -> str | None:
-    # 优先使用可稳定匹配的标识（GHSA/URL/CVE），避免误匹配到其他同名漏洞。
+    # 只接受可稳定匹配的标识；标题/描述可能变化，不能作为例外键。
     return (
         advisory.get("github_advisory_id")
         or advisory.get("url")
         or (advisory.get("cves") or [None])[0]
         or (str(advisory.get("id")) if advisory.get("id") is not None else None)
-        or advisory.get("title")
-        or advisory.get("advisory")
-        or advisory.get("overview")
     )
 
 
@@ -90,9 +88,8 @@ def iter_vulns(data: dict):
                         advisories.append(
                             item.get("github_advisory_id")
                             or item.get("url")
+                            or (item.get("cves") or [None])[0]
                             or item.get("source")
-                            or item.get("title")
-                            or item.get("name")
                         )
                         titles.append(
                             item.get("title")
@@ -106,8 +103,11 @@ def iter_vulns(data: dict):
             elif isinstance(via, str):
                 advisories.append(via)
                 titles.append(via)
-            title = "; ".join([t for t in titles if t])
-            for advisory_id in [a for a in advisories if a]:
+            title = "; ".join([str(t) for t in titles if t])
+            if not advisories:
+                yield name, severity, None, title
+                continue
+            for advisory_id in advisories:
                 yield name, severity, advisory_id, title
 
 
@@ -124,11 +124,18 @@ def normalize_package(name: str) -> str:
 
 
 def normalize_advisory(advisory: str) -> str:
-    # advisory 统一为小写匹配，避免 GHSA/URL 因大小写差异导致漏匹配。
-    # pnpm 的 source 字段可能是数字，这里统一转为字符串以保证可比较。
+    # 统一 GHSA/CVE 的裸 ID 与 URL 表示；source 数字则转成字符串匹配。
     if advisory is None:
         return ""
-    return str(advisory).strip().lower()
+    value = str(advisory).strip().lower()
+    for pattern in (
+        r"ghsa-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}",
+        r"cve-[0-9]{4}-[0-9]{4,}",
+    ):
+        match = re.search(pattern, value)
+        if match:
+            return match.group(0)
+    return value
 
 
 def parse_date(value: str) -> date | None:
@@ -139,54 +146,95 @@ def parse_date(value: str) -> date | None:
         return None
 
 
+def validate_audit_response(audit) -> list[str]:
+    errors = []
+    if not isinstance(audit, dict):
+        return ["pnpm audit output must be a JSON object"]
+    if "error" in audit:
+        detail = json.dumps(audit["error"], ensure_ascii=False, sort_keys=True)
+        errors.append(f"pnpm audit reported an error: {detail}")
+
+    report_keys = [key for key in ("advisories", "vulnerabilities") if key in audit]
+    if not report_keys:
+        errors.append(
+            "pnpm audit output is missing advisories/vulnerabilities; refusing an empty report"
+        )
+    for key in report_keys:
+        if not isinstance(audit[key], dict):
+            errors.append(f"pnpm audit field {key} must be a JSON object")
+    return errors
+
+
+def load_audit(path: str):
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle), []
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, [f"Unable to read pnpm audit JSON: {exc}"]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--audit", required=True)
-    parser.add_argument("--exceptions", required=True)
+    parser.add_argument("--exceptions")
+    parser.add_argument("--audit-exit-code", type=int)
+    parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="validate audit output/exit status without checking the exception list",
+    )
     args = parser.parse_args()
+    if not args.validate_only and not args.exceptions:
+        parser.error("--exceptions is required unless --validate-only is used")
 
-    with open(args.audit, "r", encoding="utf-8") as handle:
-        audit = json.load(handle)
+    audit, errors = load_audit(args.audit)
+    if not errors:
+        errors.extend(validate_audit_response(audit))
+    if errors:
+        sys.stderr.write("\n".join(errors) + "\n")
+        return 1
 
-    # 读取异常清单并建立索引，便于快速匹配包名 + advisory。
-    exceptions = parse_exceptions(args.exceptions)
     exception_index = {}
-    errors = []
-
-    for exc in exceptions:
-        missing = [field for field in REQUIRED_FIELDS if not exc.get(field)]
-        if missing:
-            errors.append(
-                f"Exception missing required fields {missing}: {exc.get('package', '<unknown>')}"
-            )
-            continue
-        exc_severity = normalize_severity(exc.get("severity"))
-        exc_package = normalize_package(exc.get("package"))
-        exc_advisory = normalize_advisory(exc.get("advisory"))
-        exc_date = parse_date(exc.get("expires_on"))
-        if exc_date is None:
-            errors.append(
-                f"Exception has invalid expires_on date: {exc.get('package', '<unknown>')}"
-            )
-            continue
-        if not exc_package or not exc_advisory:
-            errors.append("Exception missing package or advisory value")
-            continue
-        key = (exc_package, exc_advisory)
-        if key in exception_index:
-            errors.append(
-                f"Duplicate exception for {exc_package} advisory {exc.get('advisory')}"
-            )
-            continue
-        exception_index[key] = {
-            "raw": exc,
-            "severity": exc_severity,
-            "expires_on": exc_date,
-        }
+    if not args.validate_only:
+        # 读取异常清单并建立索引，便于快速匹配包名 + advisory。
+        exceptions = parse_exceptions(args.exceptions)
+        for exc in exceptions:
+            missing = [field for field in REQUIRED_FIELDS if not exc.get(field)]
+            if missing:
+                errors.append(
+                    f"Exception missing required fields {missing}: "
+                    f"{exc.get('package', '<unknown>')}"
+                )
+                continue
+            exc_severity = normalize_severity(exc.get("severity"))
+            exc_package = normalize_package(exc.get("package"))
+            exc_advisory = normalize_advisory(exc.get("advisory"))
+            exc_date = parse_date(exc.get("expires_on"))
+            if exc_date is None:
+                errors.append(
+                    "Exception has invalid expires_on date: "
+                    f"{exc.get('package', '<unknown>')}"
+                )
+                continue
+            if not exc_package or not exc_advisory:
+                errors.append("Exception missing package or advisory value")
+                continue
+            key = (exc_package, exc_advisory)
+            if key in exception_index:
+                errors.append(
+                    f"Duplicate exception for {exc_package} advisory "
+                    f"{exc.get('advisory')}"
+                )
+                continue
+            exception_index[key] = {
+                "severity": exc_severity,
+                "expires_on": exc_date,
+            }
 
     today = date.today()
     missing_exceptions = []
     expired_exceptions = []
+    high_vulnerability_count = 0
 
     # 去重处理：同一包名 + advisory 可能在不同字段重复出现。
     seen = set()
@@ -194,6 +242,7 @@ def main() -> int:
         sev = normalize_severity(severity)
         if sev not in HIGH_SEVERITIES or not name:
             continue
+        high_vulnerability_count += 1
         advisory_key = normalize_advisory(advisory_id)
         if not advisory_key:
             errors.append(
@@ -204,6 +253,8 @@ def main() -> int:
         if key in seen:
             continue
         seen.add(key)
+        if args.validate_only:
+            continue
         exc = exception_index.get(key)
         if exc is None:
             missing_exceptions.append((name, sev, advisory_id, title))
@@ -216,6 +267,17 @@ def main() -> int:
         if exc["expires_on"] and exc["expires_on"] < today:
             expired_exceptions.append(
                 (name, sev, advisory_id, exc["expires_on"].isoformat())
+            )
+
+    if args.audit_exit_code is not None:
+        if args.audit_exit_code not in (0, 1):
+            errors.append(
+                f"pnpm audit failed with unexpected exit code {args.audit_exit_code}"
+            )
+        elif args.audit_exit_code == 1 and high_vulnerability_count == 0:
+            errors.append(
+                "pnpm audit exited with code 1 without reporting a high/critical "
+                "vulnerability"
             )
 
     if missing_exceptions:
@@ -239,7 +301,10 @@ def main() -> int:
         sys.stderr.write("\n".join(errors) + "\n")
         return 1
 
-    print("Audit exceptions validated.")
+    if args.validate_only:
+        print("Audit response validated.")
+    else:
+        print("Audit exceptions validated.")
     return 0
 
 
