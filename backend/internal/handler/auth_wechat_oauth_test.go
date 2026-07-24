@@ -1497,3 +1497,11 @@ func (s *wechatOAuthRefreshTokenCacheStub) GetFamilyTokenHashes(context.Context,
 func (s *wechatOAuthRefreshTokenCacheStub) IsTokenInFamily(context.Context, string, string) (bool, error) {
 	return false, nil
 }
+
+func (s *wechatOAuthRefreshTokenCacheStub) ConsumeRefreshToken(context.Context, string) (*service.RefreshTokenData, bool, error) {
+	return nil, false, nil
+}
+
+func (s *wechatOAuthRefreshTokenCacheStub) GetRefreshTokenFamilyID(context.Context, string) (string, error) {
+	return "", nil
+}

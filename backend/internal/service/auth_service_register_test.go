@@ -159,6 +159,14 @@ func (s *refreshTokenCacheStub) IsTokenInFamily(context.Context, string, string)
 	return false, nil
 }
 
+func (s *refreshTokenCacheStub) ConsumeRefreshToken(context.Context, string) (*RefreshTokenData, bool, error) {
+	return nil, false, nil
+}
+
+func (s *refreshTokenCacheStub) GetRefreshTokenFamilyID(context.Context, string) (string, error) {
+	return "", nil
+}
+
 func (s *emailCacheStub) GetVerificationCode(ctx context.Context, email string) (*VerificationCodeData, error) {
 	if s.err != nil {
 		return nil, s.err

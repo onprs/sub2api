@@ -733,10 +733,11 @@ func (s *emailBindCacheStub) IncrNotifyCodeUserRate(context.Context, int64, time
 }
 
 type emailBindRefreshTokenCacheStub struct {
-	mu       sync.Mutex
-	tokens   map[string]*service.RefreshTokenData
-	userSets map[int64]map[string]struct{}
-	families map[string]map[string]struct{}
+	mu        sync.Mutex
+	tokens    map[string]*service.RefreshTokenData
+	userSets  map[int64]map[string]struct{}
+	families  map[string]map[string]struct{}
+	familyOf  map[string]string // tokenHash -> familyID reverse index (mirrors the Redis impl)
 }
 
 func newEmailBindRefreshTokenCacheStub() *emailBindRefreshTokenCacheStub {
@@ -744,7 +745,29 @@ func newEmailBindRefreshTokenCacheStub() *emailBindRefreshTokenCacheStub {
 		tokens:   make(map[string]*service.RefreshTokenData),
 		userSets: make(map[int64]map[string]struct{}),
 		families: make(map[string]map[string]struct{}),
+		familyOf: make(map[string]string),
 	}
+}
+
+// ConsumeRefreshToken atomically reads and deletes the token under the stub
+// mutex, so only one concurrent caller observes consumed=true (mirrors the
+// Redis GET+DEL Lua script in production).
+func (s *emailBindRefreshTokenCacheStub) ConsumeRefreshToken(_ context.Context, tokenHash string) (*service.RefreshTokenData, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, ok := s.tokens[tokenHash]
+	if !ok {
+		return nil, false, nil
+	}
+	delete(s.tokens, tokenHash)
+	cloned := *data
+	return &cloned, true, nil
+}
+
+func (s *emailBindRefreshTokenCacheStub) GetRefreshTokenFamilyID(_ context.Context, tokenHash string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.familyOf[tokenHash], nil
 }
 
 func (s *emailBindRefreshTokenCacheStub) StoreRefreshToken(_ context.Context, tokenHash string, data *service.RefreshTokenData, _ time.Duration) error {
@@ -752,6 +775,9 @@ func (s *emailBindRefreshTokenCacheStub) StoreRefreshToken(_ context.Context, to
 	defer s.mu.Unlock()
 	cloned := *data
 	s.tokens[tokenHash] = &cloned
+	if data.FamilyID != "" {
+		s.familyOf[tokenHash] = data.FamilyID
+	}
 	return nil
 }
 
@@ -770,6 +796,7 @@ func (s *emailBindRefreshTokenCacheStub) DeleteRefreshToken(_ context.Context, t
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.tokens, tokenHash)
+	delete(s.familyOf, tokenHash)
 	for _, tokenSet := range s.userSets {
 		delete(tokenSet, tokenHash)
 	}
@@ -784,6 +811,7 @@ func (s *emailBindRefreshTokenCacheStub) DeleteUserRefreshTokens(_ context.Conte
 	defer s.mu.Unlock()
 	for tokenHash := range s.userSets[userID] {
 		delete(s.tokens, tokenHash)
+		delete(s.familyOf, tokenHash)
 		for _, tokenSet := range s.families {
 			delete(tokenSet, tokenHash)
 		}
@@ -797,6 +825,7 @@ func (s *emailBindRefreshTokenCacheStub) DeleteTokenFamily(_ context.Context, fa
 	defer s.mu.Unlock()
 	for tokenHash := range s.families[familyID] {
 		delete(s.tokens, tokenHash)
+		delete(s.familyOf, tokenHash)
 		for _, tokenSet := range s.userSets {
 			delete(tokenSet, tokenHash)
 		}
