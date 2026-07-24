@@ -1,11 +1,13 @@
 <template>
   <!-- Custom Home Content: Full Page Mode -->
   <div v-if="homeContent" class="min-h-screen">
-    <!-- iframe mode -->
+    <!-- iframe mode (HTTPS only, sandboxed, never forwards auth tokens) -->
     <iframe
       v-if="isHomeContentUrl"
       :src="homeContent.trim()"
       class="h-screen w-full border-0"
+      sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+      referrerpolicy="no-referrer"
       allowfullscreen
     ></iframe>
     <!-- HTML mode - SECURITY: homeContent is admin-only setting, XSS risk is acceptable -->
@@ -438,10 +440,12 @@ const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle
 const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || ''))
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
 
-// Check if homeContent is a URL (for iframe display)
+// Check if homeContent is an embeddable URL. Only HTTPS targets are loaded
+// inside the iframe to avoid leaking any parent-side context over plaintext
+// transport. http:// URLs intentionally fall through to the HTML/text branch.
 const isHomeContentUrl = computed(() => {
   const content = homeContent.value.trim()
-  return content.startsWith('http://') || content.startsWith('https://')
+  return content.startsWith('https://')
 })
 
 // Theme
