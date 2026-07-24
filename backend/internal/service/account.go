@@ -105,6 +105,9 @@ var openCodeGoBuiltinModelProtocols = map[string]string{
 	"kimi-k2.7-code":    OpenCodeGoProtocolChatCompletions,
 	"kimi-k2.6":         OpenCodeGoProtocolChatCompletions,
 	"kimi-k2.5":         OpenCodeGoProtocolChatCompletions,
+	"kimi-k3":           OpenCodeGoProtocolChatCompletions,
+	"grok-4.5":          OpenCodeGoProtocolChatCompletions,
+	"hy3":               OpenCodeGoProtocolChatCompletions,
 	"deepseek-v4-pro":   OpenCodeGoProtocolChatCompletions,
 	"deepseek-v4-flash": OpenCodeGoProtocolChatCompletions,
 	"mimo-v2.5":         OpenCodeGoProtocolChatCompletions,
@@ -130,7 +133,8 @@ func inferOpenCodeGoModelFamilyProtocol(model string) string {
 	case openCodeGoHasVersionedPrefix(model, "glm-"),
 		openCodeGoHasVersionedPrefix(model, "deepseek-v"),
 		openCodeGoHasVersionedPrefix(model, "mimo-v"),
-		openCodeGoHasVersionedPrefix(model, "kimi-k2."):
+		openCodeGoHasVersionedPrefix(model, "kimi-k2."),
+		openCodeGoHasVersionedPrefix(model, "kimi-k3."):
 		return OpenCodeGoProtocolChatCompletions
 	case openCodeGoHasVersionedPrefix(model, "qwen"),
 		openCodeGoHasVersionedPrefix(model, "minimax-m"):

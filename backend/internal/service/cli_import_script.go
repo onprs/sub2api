@@ -670,6 +670,20 @@ var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability
 		"HY3 Preview", "hy3", false, true, true, true,
 		[]string{"text"}, 262144, 65536, 0, 0, nil, nil,
 	),
+	// Hy3 GA (graduated from preview). Pricing mirrors the OpenCode Go docs
+	// ($0.14/$0.58/$0.035 per 1M tokens); limits/caps follow the Tencent Hy3
+	// native spec published on models.dev.
+	"hy3": newOpenCodeGoBuiltinCLIImportCapability(
+		"Hy3", "hy3", false, true, true, true,
+		[]string{"text"}, 262144, 65536, 0.14, 0.58, cliImportFloat64Ptr(0.035), nil,
+	),
+	// Grok 4.5: OpenCode Go serves it via /chat/completions at
+	// $2/$6/$0.30 (cache read) per 1M tokens. Output spec mirrors the xAI
+	// canonical models.dev entry (500000 input / 500000 output).
+	"grok-4.5": newOpenCodeGoBuiltinCLIImportCapability(
+		"Grok 4.5", "grok", true, true, true, true,
+		[]string{"text", "image"}, 500000, 500000, 2.0, 6.0, cliImportFloat64Ptr(0.30), nil,
+	),
 	"kimi-k2.5": newOpenCodeGoBuiltinCLIImportCapability(
 		"Kimi K2.5", "kimi-k2", true, true, true, true,
 		[]string{"text", "image", "video"}, 262144, 65536, 0.6, 3, cliImportFloat64Ptr(0.1), nil,
@@ -685,6 +699,13 @@ var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability
 	"kimi-k2.7-code": newOpenCodeGoBuiltinCLIImportCapability(
 		"Kimi K2.7 Code", "kimi-k2", true, true, false, true,
 		[]string{"text", "image", "video"}, 262144, 262144, 0.95, 4, cliImportFloat64Ptr(0.19), nil,
+	),
+	// Kimi K3: OpenCode Go serves it via /chat/completions at
+	// $3/$15/$0.30 (cache read) per 1M tokens. Native spec is 1M context /
+	// 131072 output, multimodal text+image+video, reasoning toggle, no temperature.
+	"kimi-k3": newOpenCodeGoBuiltinCLIImportCapability(
+		"Kimi K3", "kimi-k3", true, true, false, true,
+		[]string{"text", "image", "video"}, 1048576, 131072, 3.0, 15.0, cliImportFloat64Ptr(0.30), nil,
 	),
 	"mimo-v2.5": newOpenCodeGoBuiltinCLIImportCapability(
 		"MiMo V2.5", "mimo-v2.5", true, true, true, true,
