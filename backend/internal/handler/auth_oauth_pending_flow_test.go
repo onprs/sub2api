@@ -2752,6 +2752,14 @@ func (s *oauthPendingFlowRefreshTokenCacheStub) IsTokenInFamily(context.Context,
 	return false, nil
 }
 
+func (s *oauthPendingFlowRefreshTokenCacheStub) ConsumeRefreshToken(context.Context, string) (*service.RefreshTokenData, bool, error) {
+	return nil, false, nil
+}
+
+func (s *oauthPendingFlowRefreshTokenCacheStub) GetRefreshTokenFamilyID(context.Context, string) (string, error) {
+	return "", nil
+}
+
 type oauthPendingFlowRedeemCodeRepo struct {
 	client *dbent.Client
 }

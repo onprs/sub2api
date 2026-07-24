@@ -1535,22 +1535,27 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 
 	tokenHash := hashToken(refreshToken)
 
-	// 获取Token数据
-	data, err := s.refreshTokenCache.GetRefreshToken(ctx, tokenHash)
+	// 原子消费Refresh Token（GET+DEL），避免 GET/DEL 分离导致的并发重放。
+	data, consumed, err := s.refreshTokenCache.ConsumeRefreshToken(ctx, tokenHash)
 	if err != nil {
-		if errors.Is(err, ErrRefreshTokenNotFound) {
-			// Token不存在，可能是已被使用（Token轮转）或已过期
-			logger.LegacyPrintf("service.auth", "[Auth] Refresh token not found, possible reuse attack")
-			return nil, ErrRefreshTokenInvalid
-		}
-		logger.LegacyPrintf("service.auth", "[Auth] Error getting refresh token: %v", err)
+		logger.LegacyPrintf("service.auth", "[Auth] Error consuming refresh token: %v", err)
 		return nil, ErrServiceUnavailable
 	}
+	if !consumed {
+		// Token不存在（已被使用/过期/删除）。视为重放/重用，
+		// 尽力通过反向索引撤销其所属Token家族，阻断重放会话链。
+		familyID, famErr := s.refreshTokenCache.GetRefreshTokenFamilyID(ctx, tokenHash)
+		if famErr != nil {
+			logger.LegacyPrintf("service.auth", "[Auth] Failed resolving family for replayed refresh token: %v", famErr)
+		} else if familyID != "" {
+			logger.LegacyPrintf("service.auth", "[Auth] Refresh token replay detected (family %s), revoking family", familyID)
+			_ = s.refreshTokenCache.DeleteTokenFamily(ctx, familyID)
+		}
+		return nil, ErrRefreshTokenInvalid
+	}
 
-	// 检查Token是否过期
+	// 检查Token是否过期（已被原子消费，无需再删除）
 	if time.Now().After(data.ExpiresAt) {
-		// 删除过期Token
-		_ = s.refreshTokenCache.DeleteRefreshToken(ctx, tokenHash)
 		return nil, ErrRefreshTokenExpired
 	}
 
@@ -1580,13 +1585,7 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 		return nil, ErrTokenRevoked
 	}
 
-	// Token轮转：立即使旧Token失效
-	if err := s.refreshTokenCache.DeleteRefreshToken(ctx, tokenHash); err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Failed to delete old refresh token: %v", err)
-		// 继续处理，不影响主流程
-	}
-
-	// 生成新的Token对，保持同一个家族ID
+	// 生成新的Token对，保持同一个家族ID（旧Refresh Token已在上一步原子消费/轮转）
 	pair, err := s.GenerateTokenPair(ctx, user, data.FamilyID)
 	if err != nil {
 		return nil, err

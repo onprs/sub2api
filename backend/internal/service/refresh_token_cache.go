@@ -23,9 +23,10 @@ type RefreshTokenData struct {
 // 用于JWT Token刷新机制，支持Token轮转和防重放攻击
 //
 // Key 格式:
-//   - refresh_token:{token_hash}     -> RefreshTokenData (JSON)
-//   - user_refresh_tokens:{user_id}  -> Set<token_hash>
-//   - token_family:{family_id}       -> Set<token_hash>
+//   - refresh_token:{token_hash}         -> RefreshTokenData (JSON)
+//   - user_refresh_tokens:{user_id}      -> Set<token_hash>
+//   - token_family:{family_id}           -> Set<token_hash>
+//   - refresh_token_family_of:{hash}    -> family_id (JSON-family reverse index for replay revocation)
 type RefreshTokenCache interface {
 	// StoreRefreshToken 存储Refresh Token
 	// tokenHash: Token的SHA256哈希值（不存储原始Token）
@@ -38,6 +39,19 @@ type RefreshTokenCache interface {
 	// 返回 (nil, ErrRefreshTokenNotFound) 如果Token不存在
 	// 返回 (nil, err) 如果发生其他错误
 	GetRefreshToken(ctx context.Context, tokenHash string) (*RefreshTokenData, error)
+
+	// ConsumeRefreshToken 原子地读取并删除单个Refresh Token（GET + DEL）。
+	// 这是Refresh轮转的主路径，用以避免 GET/DEL 分离导致的并发重放。
+	// 返回：(data, true, nil) 表示Token存在且已被本调用原子消费；
+	// 返回：(nil, false, nil) 表示Token不存在（可能已被使用/过期），调用方
+	// 应视为重放并尽快撤销其所属Token家族；
+	// 返回：(nil, false, err) 表示底层错误（调用方应返回 ErrServiceUnavailable）。
+	ConsumeRefreshToken(ctx context.Context, tokenHash string) (*RefreshTokenData, bool, error)
+
+	// GetRefreshTokenFamilyID 通过反向索引获取Token所属家族ID。
+	// 返回 (familyID, nil)，familyID 可能为空（表示未知/已过期）。
+	// 用于 ConsumeRefreshToken 命中“不存在”分支时尽力撤销家族。
+	GetRefreshTokenFamilyID(ctx context.Context, tokenHash string) (string, error)
 
 	// DeleteRefreshToken 删除单个Refresh Token
 	// 用于Token轮转时使旧Token失效

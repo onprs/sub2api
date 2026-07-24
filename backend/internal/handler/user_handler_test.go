@@ -442,6 +442,14 @@ func (s *userHandlerRefreshTokenCacheStub) IsTokenInFamily(context.Context, stri
 	return false, nil
 }
 
+func (s *userHandlerRefreshTokenCacheStub) ConsumeRefreshToken(context.Context, string) (*service.RefreshTokenData, bool, error) {
+	return nil, false, nil
+}
+
+func (s *userHandlerRefreshTokenCacheStub) GetRefreshTokenFamilyID(context.Context, string) (string, error) {
+	return "", nil
+}
+
 func (s *userHandlerEmailCacheStub) GetVerificationCode(context.Context, string) (*service.VerificationCodeData, error) {
 	return s.data, nil
 }
