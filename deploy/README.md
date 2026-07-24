@@ -27,6 +27,33 @@ This directory contains files for deploying Sub2API on Linux servers.
 
 ---
 
+## Setup Wizard Security (Binary Install)
+
+The first-run web setup wizard is **not** intended to be reachable by anonymous
+remote callers. Since this release it defaults to binding on `127.0.0.1:8080`
+instead of `0.0.0.0:8080`, so on a freshly deployed server reproduce it locally:
+
+```bash
+# From your workstation, tunnel to the wizard that is listening on loopback:
+ssh -L 8080:127.0.0.1:8080 user@your-server
+# Then open http://127.0.0.1:8080 in your local browser.
+```
+
+If you must expose the wizard on a non-loopback address, additionally set
+`SETUP_TOKEN` (any random secret); the wizard then requires that value in the
+`X-Setup-Token` header (or `setup_token` cookie) for every state-changing
+`/setup/*` request:
+
+```bash
+# /etc/systemd/system/sub2api.service or environment
+Environment=SERVER_HOST=0.0.0.0
+Environment=SETUP_TOKEN=<long-random-secret>
+# Without SETUP_TOKEN the server refuses to start the wizard on a non-loopback bind.
+```
+
+Docker with `AUTO_SETUP=true` does **not** run the HTTP wizard at all (it sets
+up from environment variables), so these hardening options do not affect it.
+
 ## Docker Deployment (Recommended)
 
 ### Method 1: One-Click Deployment (Recommended)
