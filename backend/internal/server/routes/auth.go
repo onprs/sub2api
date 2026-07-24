@@ -19,12 +19,14 @@ func RegisterAuthRoutes(
 	jwtAuth servermiddleware.JWTAuthMiddleware,
 	redisClient *redis.Client,
 	settingService *service.SettingService,
+	publicReadTimeout time.Duration,
 ) {
 	// 创建速率限制器
 	rateLimiter := middleware.NewRateLimiter(redisClient)
 
 	// 公开接口
 	auth := v1.Group("/auth")
+	usePublicRequestGuards(auth, publicReadTimeout)
 	auth.Use(servermiddleware.BackendModeAuthGuard(settingService))
 	{
 		// 注册/登录/2FA/验证码发送均属于高风险入口，增加服务端兜底限流（Redis 故障时 fail-close）
@@ -219,6 +221,7 @@ func RegisterAuthRoutes(
 
 	// 需要认证的当前用户信息
 	authenticated := v1.Group("")
+	usePublicRequestGuards(authenticated, publicReadTimeout)
 	authenticated.Use(gin.HandlerFunc(jwtAuth))
 	authenticated.Use(servermiddleware.BackendModeUserGuard(settingService))
 	{

@@ -50,6 +50,18 @@ func TestNormalizeRunMode(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultServerPublicReadTimeout(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Server.PublicReadTimeoutSeconds != 30 {
+		t.Fatalf("PublicReadTimeoutSeconds = %d, want 30", cfg.Server.PublicReadTimeoutSeconds)
+	}
+}
+
 func TestLoadDefaultSchedulingConfig(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
@@ -1152,6 +1164,11 @@ func TestValidateConfigErrors(t *testing.T) {
 			name:    "subscription maintenance queue_size non-negative",
 			mutate:  func(c *Config) { c.SubscriptionMaintenance.QueueSize = -1 },
 			wantErr: "subscription_maintenance.queue_size",
+		},
+		{
+			name:    "public read timeout positive",
+			mutate:  func(c *Config) { c.Server.PublicReadTimeoutSeconds = 0 },
+			wantErr: "server.public_read_timeout_seconds must be positive",
 		},
 		{
 			name:    "jwt expire hour positive",
