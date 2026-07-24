@@ -32,6 +32,10 @@ server:
   # Applies to all requests, especially important for h2c first request memory protection
   # 适用于所有请求，对 h2c 第一请求的内存保护尤为重要
   max_request_body_size: 268435456
+  # Request-body read timeout for public auth/payment routes (seconds).
+  # Does not limit gateway streaming response duration.
+  # 公开认证/支付路由的请求体读取超时（秒），不限制网关流式响应时长。
+  public_read_timeout_seconds: 30
   # HTTP/2 Cleartext (h2c) configuration
   # HTTP/2 Cleartext (h2c) 配置
   h2c:

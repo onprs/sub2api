@@ -107,8 +107,9 @@ func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *http.Server {
 		ReadHeaderTimeout: time.Duration(cfg.Server.ReadHeaderTimeout) * time.Second,
 		// IdleTimeout: 空闲连接超时时间，释放不活跃的连接资源
 		IdleTimeout: time.Duration(cfg.Server.IdleTimeout) * time.Second,
-		// 注意：不设置 WriteTimeout，因为流式响应可能持续十几分钟
-		// 不设置 ReadTimeout，因为大请求体可能需要较长时间读取
+		// 注意：不设置 WriteTimeout，因为流式响应可能持续十几分钟。
+		// 不设置全局 ReadTimeout；公开 auth/payment 路由通过读取截止时间单独保护，
+		// 网关的大请求体和流式响应不受影响。
 	}
 
 	globalMaxSize := cfg.Server.MaxRequestBodySize
