@@ -3,6 +3,7 @@ package setup
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"crypto/tls"
 	"database/sql"
 	"encoding/hex"
@@ -26,9 +27,24 @@ import (
 const (
 	ConfigFileName             = "config.yaml"
 	InstallLockFile            = ".installed"
+	InstallPendingLockFile     = ".installed.pending"
 	defaultUserConcurrency     = 5
 	simpleModeAdminConcurrency = 30
 	defaultMigrationTimeout    = 60 * time.Second
+
+	// SetupWizardEnv lets operators explicitly choose the bind host for the setup
+	// wizard. The wizard defaults to 127.0.0.1 (H-3) so an unauthenticated remote
+	// host cannot complete installation; setting this to 0.0.0.0 / a public IP
+	// additionally requires SetupTokenEnv to be set (see main.runSetupServer).
+	SetupWizardEnv = "SERVER_HOST"
+	SetupPortEnv   = "SERVER_PORT"
+	// SetupTokenEnv is an optional shared secret. When set, the setup wizard's
+	// state-changing endpoints require it via the X-Setup-Token header or
+	// setup_token cookie (constant-time compare). When unset, behavior is
+	// unchanged to avoid breaking existing CI/scripts (H-3).
+	SetupTokenEnv    = "SETUP_TOKEN"
+	SetupTokenHeader = "X-Setup-Token"
+	SetupTokenCookie = "setup_token"
 )
 
 func setupDefaultAdminConcurrency() int {
@@ -70,6 +86,88 @@ func GetConfigFilePath() string {
 // GetInstallLockPath returns the full path to .installed lock file
 func GetInstallLockPath() string {
 	return GetDataDir() + "/" + InstallLockFile
+}
+
+// GetInstallPendingLockPath returns the full path to the in-progress setup lock.
+// AcquireSetupLock creates it atomically before the HTTP setup wizard starts so
+// two wizard processes cannot race on the same data directory.
+func GetInstallPendingLockPath() string {
+	return GetDataDir() + "/" + InstallPendingLockFile
+}
+
+// GetSetupBindAddress resolves the host:port the setup wizard should bind to.
+// It deliberately defaults to 127.0.0.1 (host = SERVER_HOST only if explicitly
+// set) instead of the production server default 0.0.0.0, so a freshly-launched
+// wizard is not reachable by anonymous remote callers (H-3).
+func GetSetupBindAddress() (host string, port int) {
+	host = strings.TrimSpace(os.Getenv(SetupWizardEnv))
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	port = getEnvIntOrDefault(SetupPortEnv, 8080)
+	if port <= 0 || port > 65535 {
+		port = 8080
+	}
+	return host, port
+}
+
+// IsLoopbackBind reports whether a setup bind host is loopback / unspecified
+// (considered safe to expose without a SETUP_TOKEN).
+func IsLoopbackBind(host string) bool {
+	h := strings.ToLower(strings.TrimSpace(host))
+	switch h {
+	case "", "127.0.0.1", "localhost", "::1", "[::1]", "0:0:0:0:0:0:0:1":
+		return true
+	}
+	return strings.HasPrefix(h, "127.")
+}
+
+// AcquireSetupLock atomically creates the pending install lock for the setup
+// wizard. It returns a release closure that must be deferred by the caller. If a
+// pending lock already exists the call fails fast (a wizard is running or a
+// previous run crashed); the returned error points the operator at the stale
+// path to remove manually rather than silently clobbering it (H-3).
+func AcquireSetupLock() (release func(), err error) {
+	path := GetInstallPendingLockPath()
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil, fmt.Errorf("setup wizard already running or stale lock present at %s; remove it manually only if the previous run crashed", path)
+		}
+		return nil, fmt.Errorf("acquire setup lock: %w", err)
+	}
+
+	content := fmt.Sprintf("pid=%d\nstarted_at=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339))
+	if _, werr := f.WriteString(content); werr != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return nil, fmt.Errorf("write setup lock: %w", werr)
+	}
+	if cerr := f.Close(); cerr != nil {
+		_ = os.Remove(path)
+		return nil, fmt.Errorf("close setup lock: %w", cerr)
+	}
+	return func() { _ = os.Remove(path) }, nil
+}
+
+// SetupTokenConfigured reports whether the operator opted into SETUP_TOKEN
+// enforcement for the setup wizard.
+func SetupTokenConfigured() bool {
+	return os.Getenv(SetupTokenEnv) != ""
+}
+
+// ValidateSetupToken reports whether the supplied value is the configured
+// SETUP_TOKEN using a constant-time compare. When SETUP_TOKEN is unset the
+// function accepts any input (backward-compatible behavior, H-3).
+func ValidateSetupToken(provided string) bool {
+	want := os.Getenv(SetupTokenEnv)
+	if want == "" {
+		return true
+	}
+	if provided == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(want)) == 1
 }
 
 // SetupConfig holds the setup configuration
@@ -328,10 +426,24 @@ func Install(cfg *SetupConfig) error {
 	return nil
 }
 
-// createInstallLock creates a lock file to prevent re-installation attacks
+// createInstallLock creates the install lock file. When a pending setup lock
+// exists (the wizard holds it), it atomically promotes the pending lock to the
+// final .installed lock via rename so completion is observed exactly once.
+// Otherwise (CLI / AUTO_SETUP paths that never created a pending lock) it falls
+// back to writing a fresh read-only lock file.
 func createInstallLock() error {
+	pendingPath := GetInstallPendingLockPath()
+	installPath := GetInstallLockPath()
+	if _, err := os.Stat(pendingPath); err == nil {
+		if renameErr := os.Rename(pendingPath, installPath); renameErr == nil {
+			return os.Chmod(installPath, 0400)
+		}
+		// Rename failed (e.g. cross-device data dir) — fall through to writing the
+		// lock directly while still clearing the pending marker.
+		_ = os.Remove(pendingPath)
+	}
 	content := fmt.Sprintf("installed_at=%s\n", time.Now().UTC().Format(time.RFC3339))
-	return os.WriteFile(GetInstallLockPath(), []byte(content), 0400) // Read-only for owner
+	return os.WriteFile(installPath, []byte(content), 0400) // Read-only for owner
 }
 
 func initializeDatabase(cfg *SetupConfig) error {

@@ -50,11 +50,32 @@ func getStatus(c *gin.Context) {
 	})
 }
 
-// setupGuard middleware ensures setup endpoints are only accessible during setup mode
+// setupTokenFromRequest extracts the operator-supplied SETUP_TOKEN from the
+// X-Setup-Token header first, falling back to the setup_token cookie (so it can
+// be set by an authenticated reverse proxy / SSH-tunnel front).
+func setupTokenFromRequest(c *gin.Context) string {
+	if t := strings.TrimSpace(c.GetHeader(SetupTokenHeader)); t != "" {
+		return t
+	}
+	if cookie, err := c.Cookie(SetupTokenCookie); err == nil {
+		return strings.TrimSpace(cookie)
+	}
+	return ""
+}
+
+// setupGuard middleware ensures setup endpoints are only accessible during
+// setup mode and, when SETUP_TOKEN is configured, only with a matching token
+// (constant-time compare). With SETUP_TOKEN unset the guard preserves the
+// historical behavior to avoid breaking existing CI/scripts (H-3).
 func setupGuard() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !NeedsSetup() {
 			response.Error(c, http.StatusForbidden, "Setup is not allowed: system is already installed")
+			c.Abort()
+			return
+		}
+		if !ValidateSetupToken(setupTokenFromRequest(c)) {
+			response.Error(c, http.StatusForbidden, "Setup token required: provide the SETUP_TOKEN value via the X-Setup-Token header or setup_token cookie")
 			c.Abort()
 			return
 		}

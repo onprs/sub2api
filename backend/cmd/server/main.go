@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -95,6 +96,13 @@ func main() {
 }
 
 func runSetupServer() {
+	// H-3: prevent two wizard processes from racing on the same data directory.
+	release, err := setup.AcquireSetupLock()
+	if err != nil {
+		log.Fatalf("Refusing to start setup wizard: %v", err)
+	}
+	defer release()
+
 	r := gin.New()
 	r.Use(middleware.Recovery())
 	r.Use(middleware.CORS(config.CORSConfig{}))
@@ -108,9 +116,19 @@ func runSetupServer() {
 		r.Use(web.ServeEmbeddedFrontend())
 	}
 
-	// Get server address from config.yaml or environment variables (SERVER_HOST, SERVER_PORT)
-	// This allows users to run setup on a different address if needed
-	addr := config.GetServerAddress()
+	// H-3: bind the setup wizard to 127.0.0.1 by default so an unauthenticated
+	// remote host cannot complete installation. Exposing it on a non-loopback
+	// address (explicit SERVER_HOST) additionally requires SETUP_TOKEN.
+	setupHost, setupPort := setup.GetSetupBindAddress()
+	if !setup.IsLoopbackBind(setupHost) && !setup.SetupTokenConfigured() {
+		log.Fatalf(
+			"Refusing to expose the setup wizard on non-loopback %s without SETUP_TOKEN. "+
+				"Bind 127.0.0.1 (default) and reach it via `ssh -L 8080:127.0.0.1:8080`, "+
+				"or set SETUP_TOKEN and SERVER_HOST explicitly.",
+			setupHost,
+		)
+	}
+	addr := fmt.Sprintf("%s:%d", setupHost, setupPort)
 	log.Printf("Setup wizard available at http://%s", addr)
 	log.Println("Complete the setup wizard to configure Sub2API")
 
