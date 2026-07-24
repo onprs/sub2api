@@ -48,14 +48,36 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
       - name: Run pnpm audit
+        id: pnpm-audit
         working-directory: frontend
+        shell: bash
         run: |
-          pnpm audit --prod --audit-level=high --json > audit.json || true
-      - name: Check audit exceptions
+          # Exit 1 can mean findings or an operational failure; classify the JSON below.
+          set +e
+          pnpm audit --prod --audit-level=high --json > audit.json
+          audit_exit_code=$?
+          set -e
+          printf 'exit_code=%s\n' "$audit_exit_code" >> "$GITHUB_OUTPUT"
+          if [ ! -s audit.json ]; then
+            echo "pnpm audit did not produce a JSON report" >&2
+            exit 1
+          fi
+      - name: Validate pnpm audit response
+        env:
+          AUDIT_EXIT_CODE: ${{ steps.pnpm-audit.outputs.exit_code }}
         run: |
           python tools/check_pnpm_audit_exceptions.py \
             --audit frontend/audit.json \
-            --exceptions .github/audit-exceptions.yml
+            --audit-exit-code "$AUDIT_EXIT_CODE" \
+            --validate-only
+      - name: Check audit exceptions
+        env:
+          AUDIT_EXIT_CODE: ${{ steps.pnpm-audit.outputs.exit_code }}
+        run: |
+          python tools/check_pnpm_audit_exceptions.py \
+            --audit frontend/audit.json \
+            --exceptions .github/audit-exceptions.yml \
+            --audit-exit-code "$AUDIT_EXIT_CODE"
 
   # Fail fast if any workflow interpolates user-/step-controlled ${{ ... }}
   # expressions directly inside a `run:` block (H-4 regression guard).
