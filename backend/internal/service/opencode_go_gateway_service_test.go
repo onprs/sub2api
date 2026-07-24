@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -398,6 +399,57 @@ func TestOpenCodeGoGatewayServiceIdentityChatStreamPreservesVendorPayload(t *tes
 	}
 	if result == nil || !result.Stream {
 		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestOpenCodeGoGatewayServiceIdentityChatStreamSendsKeepaliveDuringUpstreamSilence(t *testing.T) {
+	svc := &OpenCodeGoGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}}}
+	pipeline, _, err := newOpenCodeGoPipelineRequest(
+		[]byte(`{"model":"client-model","messages":[{"role":"user","content":"hi"}],"stream":true}`),
+		"openai_chat_completions",
+		"openai_chat_completions",
+		nil,
+		"client-model",
+		"upstream-model",
+	)
+	if err != nil {
+		t.Fatalf("newOpenCodeGoPipelineRequest error: %v", err)
+	}
+	first := `{"id":"chatcmpl_stream","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}`
+	arguments := `{"path":"tmp/plan.md","content":"` + strings.Repeat("x", 43*1024) + `"}`
+	toolCall := `{"id":"chatcmpl_stream","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_write","type":"function","function":{"name":"write","arguments":` + strconv.Quote(arguments) + `}}]},"finish_reason":null}]}`
+	finish := `{"id":"chatcmpl_stream","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`
+	reader, writer := io.Pipe()
+	go func() {
+		_, _ = io.WriteString(writer, "data: "+first+"\n\n")
+		time.Sleep(3 * time.Second)
+		_, _ = io.WriteString(writer, "data: "+toolCall+"\n\ndata: "+finish+"\n\ndata: [DONE]\n\n")
+		_ = writer.Close()
+	}()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       reader,
+	}
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", "")
+
+	result, err := svc.streamChatPassthrough(rec.Context, resp, pipeline, "client-model", "upstream-model", time.Now())
+	if err != nil {
+		t.Fatalf("streamChatPassthrough error: %v", err)
+	}
+	if result == nil || result.ClientDisconnect {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	wire := rec.Recorder.Body.String()
+	firstAt := strings.Index(wire, "data: "+first)
+	keepaliveAt := strings.Index(wire, ":\n\n")
+	toolCallAt := strings.Index(wire, "data: "+toolCall)
+	finishAt := strings.Index(wire, "data: "+finish)
+	if firstAt < 0 || keepaliveAt <= firstAt || toolCallAt <= keepaliveAt || finishAt <= toolCallAt {
+		t.Fatalf("expected a keepalive before the large tool-call event, indexes=%d/%d/%d/%d body_bytes=%d", firstAt, keepaliveAt, toolCallAt, finishAt, len(wire))
+	}
+	if !strings.HasSuffix(wire, "data: [DONE]\n\n") {
+		t.Fatalf("expected terminal sentinel after large tool-call event, body_bytes=%d", len(wire))
 	}
 }
 
