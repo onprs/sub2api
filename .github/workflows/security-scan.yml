@@ -56,3 +56,15 @@ jobs:
           python tools/check_pnpm_audit_exceptions.py \
             --audit frontend/audit.json \
             --exceptions .github/audit-exceptions.yml
+
+  # Fail fast if any workflow interpolates user-/step-controlled ${{ ... }}
+  # expressions directly inside a `run:` block (H-4 regression guard).
+  workflow-injection-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: "Scan workflows for run: expression injection"
+        run: |
+          python -m pip install --quiet pyyaml
+          python tools/check_workflow_injection.py

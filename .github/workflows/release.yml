@@ -20,14 +20,39 @@ on:
 # tag push 触发时读取 vars.SIMPLE_RELEASE，workflow_dispatch 时使用输入参数
 env:
   SIMPLE_RELEASE: ${{ github.event.inputs.simple_release == 'true' || vars.SIMPLE_RELEASE == 'true' }}
+  # User-controlled tag input is delivered through the environment so it is
+  # never expression-interpolated into a shell `run:` command (H-4 injection fix).
+  TAG_INPUT: ${{ github.event.inputs.tag }}
+  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
 
 permissions:
   contents: write
   packages: write
 
 jobs:
+  # Validate the user-controlled tag input before any job consumes it. Rejects
+  # injection-style values (e.g. "v1.2.3$(touch /tmp/pwned)") so later `run:`
+  # steps cannot execute arbitrary commands through expression interpolation.
+  validate-input:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate tag input
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            TAG="$TAG_INPUT"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "Validating tag: $TAG"
+          # Strict semver with optional pre-release/build suffix.
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([0-9A-Za-z.-]+)?$'; then
+            echo "::error::Invalid tag '$TAG'. Expected vX.Y.Z with optional pre-release suffix."
+            exit 1
+          fi
+
   # Update VERSION file with tag version
   update-version:
+    needs: [validate-input]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,11 +60,10 @@ jobs:
 
       - name: Update VERSION file
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION=${{ github.event.inputs.tag }}
-            VERSION=${VERSION#v}
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            VERSION="${TAG_INPUT#v}"
           else
-            VERSION=${GITHUB_REF#refs/tags/v}
+            VERSION="${GITHUB_REF#refs/tags/v}"
           fi
           echo "$VERSION" > backend/cmd/server/VERSION
           echo "Updated VERSION file to: $VERSION"
@@ -148,10 +172,10 @@ jobs:
       - name: Get tag message
         id: tag_message
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME=${{ github.event.inputs.tag }}
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            TAG_NAME="$TAG_INPUT"
           else
-            TAG_NAME=${GITHUB_REF#refs/tags/}
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
           fi
           echo "Processing tag: $TAG_NAME"
 
@@ -205,6 +229,9 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          # Tag message is delivered via env to avoid expression interpolation
+          # inside single quotes (H-4 injection fix).
+          TAG_MESSAGE: ${{ steps.tag_message.outputs.message }}
         continue-on-error: true
         run: |
           # 检查必要的环境变量
@@ -213,18 +240,17 @@ jobs:
             exit 0
           fi
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME=${{ github.event.inputs.tag }}
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            TAG_NAME="$TAG_INPUT"
           else
-            TAG_NAME=${GITHUB_REF#refs/tags/}
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
           fi
-          VERSION=${TAG_NAME#v}
+          VERSION="${TAG_NAME#v}"
           REPO="${{ github.repository }}"
           GHCR_IMAGE="ghcr.io/${REPO,,}"  # ${,,} converts to lowercase
 
-          # 获取 tag message 内容并转义 Markdown 特殊字符
-          TAG_MESSAGE='${{ steps.tag_message.outputs.message }}'
-          TAG_MESSAGE=$(echo "$TAG_MESSAGE" | sed 's/\([_*`\[]\)/\\\1/g')
+          # 转义 Markdown 特殊字符；TAG_MESSAGE 来自环境变量，安全。
+          TAG_MESSAGE=$(printf '%s' "$TAG_MESSAGE" | sed 's/\([_*`\[]\)/\\\1/g')
 
           # 限制消息长度（Telegram 消息限制 4096 字符，预留空间给头尾固定内容）
           if [ ${#TAG_MESSAGE} -gt 3500 ]; then
@@ -284,11 +310,10 @@ jobs:
 
       - name: Sync VERSION file to released tag
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION=${{ github.event.inputs.tag }}
-            VERSION=${VERSION#v}
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            VERSION="${TAG_INPUT#v}"
           else
-            VERSION=${GITHUB_REF#refs/tags/v}
+            VERSION="${GITHUB_REF#refs/tags/v}"
           fi
 
           CURRENT_VERSION=$(tr -d '\r\n' < backend/cmd/server/VERSION || true)
@@ -303,4 +328,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add backend/cmd/server/VERSION
           git commit -m "chore: sync VERSION to ${VERSION} [skip ci]"
-          git push origin HEAD:${{ github.event.repository.default_branch }}
+          git push origin "HEAD:${DEFAULT_BRANCH}"
