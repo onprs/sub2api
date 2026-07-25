@@ -212,7 +212,7 @@ func (*Converter) DecodeResponse(body []byte, _ protocolconv.Options) (*ir.Respo
 		case "reasoning":
 			var text bytes.Buffer
 			for _, summary := range item.Summary {
-				text.WriteString(summary.Text)
+				_, _ = text.WriteString(summary.Text)
 			}
 			message.Content = append(message.Content, ir.ContentPart{Type: ir.ContentReasoning, Reasoning: text.String(), Signature: item.EncryptedContent, Status: item.Status})
 		case "function_call", "custom_tool_call", "tool_search_call":

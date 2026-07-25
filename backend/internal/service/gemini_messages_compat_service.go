@@ -57,18 +57,6 @@ type GeminiMessagesCompatService struct {
 	providerMetadataStore     protocolconv.MetadataStore
 }
 
-func (s *GeminiMessagesCompatService) readUpstreamErrorBody(resp *http.Response) []byte {
-	if resp == nil || resp.Body == nil {
-		return nil
-	}
-	limit := gatewayUpstreamErrorBodyReadLimit
-	if s != nil && s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody && s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes > int(limit) {
-		limit = int64(s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
-	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, limit))
-	return body
-}
-
 func NewGeminiMessagesCompatService(
 	accountRepo AccountRepository,
 	groupRepo GroupRepository,
@@ -2117,7 +2105,7 @@ func unwrapIfNeeded(isOAuth bool, raw []byte) []byte {
 
 func (s *GeminiMessagesCompatService) collectGeminiSSEWithRaw(body io.ReadCloser, isOAuth bool) (map[string]any, *ClaudeUsage, []byte, error) {
 	if body == nil {
-		return nil, nil, nil, errors.New("Gemini SSE response body is nil")
+		return nil, nil, nil, errors.New("response body is nil for Gemini SSE")
 	}
 	maxTotalBytes := resolveUpstreamResponseReadLimit(s.cfg)
 	limited := &io.LimitedReader{R: body, N: maxTotalBytes + 1}

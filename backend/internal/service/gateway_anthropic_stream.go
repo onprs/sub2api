@@ -204,7 +204,6 @@ func (s *GatewayService) handleStructuredStreamingResponse(
 			if event.err != nil {
 				switch {
 				case errors.Is(event.err, protocoltransport.ErrSSEDone):
-					sawTerminalEvent = true
 					if err := finalize(); err != nil {
 						return result(), err
 					}

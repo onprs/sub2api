@@ -562,53 +562,6 @@ func extractTextFromSSEResponse(respBody []byte) string {
 	return strings.Join(texts, "")
 }
 
-// injectIdentityPatchToGeminiRequest 为 Gemini 格式请求注入身份提示词
-// 如果请求中已包含 "You are Antigravity" 则不重复注入
-func injectIdentityPatchToGeminiRequest(body []byte) ([]byte, error) {
-	var request map[string]any
-	if err := json.Unmarshal(body, &request); err != nil {
-		return nil, fmt.Errorf("解析 Gemini 请求失败: %w", err)
-	}
-
-	// 检查现有 systemInstruction 是否已包含身份提示词
-	if sysInst, ok := request["systemInstruction"].(map[string]any); ok {
-		if parts, ok := sysInst["parts"].([]any); ok {
-			for _, part := range parts {
-				if partMap, ok := part.(map[string]any); ok {
-					if text, ok := partMap["text"].(string); ok {
-						if strings.Contains(text, "You are Antigravity") {
-							// 已包含身份提示词，直接返回原始请求
-							return body, nil
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// 获取默认身份提示词
-	identityPatch := antigravity.GetDefaultIdentityPatch()
-
-	// 构建新的 systemInstruction
-	newPart := map[string]any{"text": identityPatch}
-
-	if existing, ok := request["systemInstruction"].(map[string]any); ok {
-		// 已有 systemInstruction，在开头插入身份提示词
-		if parts, ok := existing["parts"].([]any); ok {
-			existing["parts"] = append([]any{newPart}, parts...)
-		} else {
-			existing["parts"] = []any{newPart}
-		}
-	} else {
-		// 没有 systemInstruction，创建新的
-		request["systemInstruction"] = map[string]any{
-			"parts": []any{newPart},
-		}
-	}
-
-	return json.Marshal(request)
-}
-
 // wrapV1InternalRequest 包装请求为 v1internal 格式
 func (s *AntigravityGatewayService) wrapV1InternalRequest(projectID, model string, originalBody []byte) ([]byte, error) {
 	var request any

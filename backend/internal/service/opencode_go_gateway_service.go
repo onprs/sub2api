@@ -1218,18 +1218,6 @@ func newOpenCodeGoPipelineRequest(
 	return pipeline, converted.Body, nil
 }
 
-func convertChatCompletionsBodyToAnthropicBody(body []byte) ([]byte, error) {
-	model := gjson.GetBytes(body, "model").String()
-	_, converted, err := newOpenCodeGoPipelineRequest(body, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, nil, model, model)
-	return converted, err
-}
-
-func convertAnthropicBodyToChatCompletionsBody(body []byte) ([]byte, error) {
-	model := gjson.GetBytes(body, "model").String()
-	_, converted, err := newOpenCodeGoPipelineRequest(body, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, nil, model, model)
-	return converted, err
-}
-
 func claudeUsageFromChatBody(body []byte) ClaudeUsage {
 	return normalizeOpenCodeGoChatUsage(ClaudeUsage{
 		InputTokens:              int(gjson.GetBytes(body, "usage.prompt_tokens").Int()),

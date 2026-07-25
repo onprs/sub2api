@@ -1261,14 +1261,6 @@ func (s *OpenAIGatewayService) handleStructuredPassthroughSSEToJSONWithOutput(
 	return result, nil
 }
 
-// handlePassthroughSSEToJSON converts an SSE response body into a JSON
-// response for the passthrough path. It mirrors handleSSEToJSON while
-// preserving passthrough payloads, except compact-only model remapping may
-// rewrite model fields back to the original requested model.
-func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c *gin.Context, body []byte, originalModel string, mappedModel string) (*openaiNonStreamingResultPassthrough, error) {
-	return s.handlePassthroughSSEToJSONWithOutput(resp, c, body, originalModel, mappedModel, nil)
-}
-
 func (s *OpenAIGatewayService) handlePassthroughSSEToJSONWithOutput(resp *http.Response, c *gin.Context, body []byte, originalModel string, mappedModel string, output openAIProtocolOutput) (*openaiNonStreamingResultPassthrough, error) {
 	bodyText := string(body)
 	finalResponse, ok := extractCodexFinalResponse(bodyText)

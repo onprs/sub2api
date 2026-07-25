@@ -123,11 +123,11 @@ func requireStreamSemantics(t *testing.T, events []ir.StreamEvent) {
 	for _, event := range events {
 		switch event.Type {
 		case ir.EventTextDelta:
-			text.WriteString(event.Text)
+			_, _ = text.WriteString(event.Text)
 		case ir.EventReasoningDelta:
-			reasoning.WriteString(event.Reasoning)
+			_, _ = reasoning.WriteString(event.Reasoning)
 		case ir.EventToolCallDelta:
-			arguments.WriteString(event.ArgumentsDelta)
+			_, _ = arguments.WriteString(event.ArgumentsDelta)
 		case ir.EventFinish:
 			finishCount++
 		case ir.EventUsage:

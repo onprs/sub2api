@@ -83,11 +83,13 @@ func (s *Store) Put(key Key, data map[string]json.RawMessage) error {
 	now := s.now()
 	s.evictExpiredLocked(now)
 	if element := s.entries[key]; element != nil {
-		value := element.Value.(*entry)
-		value.data = cloned
-		value.expiresAt = now.Add(s.ttl)
-		s.lru.MoveToBack(element)
-		return nil
+		if value, ok := element.Value.(*entry); ok {
+			value.data = cloned
+			value.expiresAt = now.Add(s.ttl)
+			s.lru.MoveToBack(element)
+			return nil
+		}
+		s.removeElementLocked(element)
 	}
 	for len(s.entries) >= s.maxSize {
 		s.removeElementLocked(s.lru.Front())
@@ -111,8 +113,13 @@ func (s *Store) Get(key Key) (map[string]json.RawMessage, bool) {
 	if element == nil {
 		return nil, false
 	}
+	value, ok := element.Value.(*entry)
+	if !ok {
+		s.removeElementLocked(element)
+		return nil, false
+	}
 	s.lru.MoveToBack(element)
-	return cloneMetadata(element.Value.(*entry).data), true
+	return cloneMetadata(value.data), true
 }
 
 // DeleteScope removes every entry in an exact scope. Provider failover and
@@ -123,7 +130,8 @@ func (s *Store) DeleteScope(scope Scope) int {
 	removed := 0
 	for element := s.lru.Front(); element != nil; {
 		next := element.Next()
-		if element.Value.(*entry).key.Scope == scope {
+		value, ok := element.Value.(*entry)
+		if !ok || value.key.Scope == scope {
 			s.removeElementLocked(element)
 			removed++
 		}
@@ -146,7 +154,8 @@ func (s *Store) Len() int {
 func (s *Store) evictExpiredLocked(now time.Time) {
 	for element := s.lru.Front(); element != nil; {
 		next := element.Next()
-		if !now.Before(element.Value.(*entry).expiresAt) {
+		value, ok := element.Value.(*entry)
+		if !ok || !now.Before(value.expiresAt) {
 			s.removeElementLocked(element)
 		}
 		element = next
@@ -157,8 +166,16 @@ func (s *Store) removeElementLocked(element *list.Element) {
 	if element == nil {
 		return
 	}
-	value := element.Value.(*entry)
-	delete(s.entries, value.key)
+	if value, ok := element.Value.(*entry); ok {
+		delete(s.entries, value.key)
+	} else {
+		for key, candidate := range s.entries {
+			if candidate == element {
+				delete(s.entries, key)
+				break
+			}
+		}
+	}
 	s.lru.Remove(element)
 }
 

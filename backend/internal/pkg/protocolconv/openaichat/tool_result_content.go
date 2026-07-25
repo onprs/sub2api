@@ -44,7 +44,7 @@ func decodeChatToolContentMessage(message apicompat.ChatMessage) (map[string][]i
 		}
 		i++
 		var content []ir.ContentPart
-		for i < len(parts) && !(parts[i].Type == "text" && parts[i].Text == chatToolContentCloseTag) {
+		for i < len(parts) && (parts[i].Type != "text" || parts[i].Text != chatToolContentCloseTag) {
 			switch parts[i].Type {
 			case "text":
 				content = append(content, ir.ContentPart{Type: ir.ContentText, Text: parts[i].Text})

@@ -43,7 +43,12 @@ func TestHandleGeminiStreamToNonStreamingPreservesOrderedParts(t *testing.T) {
 	call, ok := parts[1]["functionCall"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "read_file", call["name"])
-	require.Equal(t, "STOP", body["candidates"].([]any)[0].(map[string]any)["finishReason"])
+	candidates, ok := body["candidates"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, candidates)
+	candidate, ok := candidates[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "STOP", candidate["finishReason"])
 }
 
 func TestMergeCollectedPartsPreservesMediaAndMergesAdjacentText(t *testing.T) {

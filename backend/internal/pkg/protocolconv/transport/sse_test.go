@@ -26,7 +26,7 @@ func TestSSEParserHandlesFieldsCommentsCRLFAndMultipleRecords(t *testing.T) {
 		"data: {\"type\":\"response.completed\"}\n\n",
 	}, "")
 	parser := NewSSEParser(io.NopCloser(strings.NewReader(body)), 1024)
-	defer parser.Close()
+	t.Cleanup(func() { require.NoError(t, parser.Close()) })
 
 	first, err := parser.Next(context.Background())
 	require.NoError(t, err)
@@ -49,7 +49,7 @@ func TestSSEParserHandlesSplitReads(t *testing.T) {
 		[]byte("\"message_start\"}\n\n"),
 	}}
 	parser := NewSSEParser(reader, 1024)
-	defer parser.Close()
+	t.Cleanup(func() { require.NoError(t, parser.Close()) })
 
 	record, err := parser.Next(context.Background())
 	require.NoError(t, err)
@@ -60,7 +60,7 @@ func TestSSEParserHandlesSplitReads(t *testing.T) {
 func TestSSEParserProgressTracksPartialRecord(t *testing.T) {
 	reader, writer := io.Pipe()
 	parser := NewSSEParser(reader, 1024)
-	defer parser.Close()
+	t.Cleanup(func() { require.NoError(t, parser.Close()) })
 
 	type result struct {
 		record SSERecord
@@ -90,7 +90,7 @@ func TestSSEParserProgressTracksPartialRecord(t *testing.T) {
 
 func TestSSEParserDoneSentinelIsTerminal(t *testing.T) {
 	parser := NewSSEParser(io.NopCloser(strings.NewReader("data: [DONE]\n\ndata: {}\n\n")), 1024)
-	defer parser.Close()
+	t.Cleanup(func() { require.NoError(t, parser.Close()) })
 
 	_, err := parser.Next(context.Background())
 	require.ErrorIs(t, err, ErrSSEDone)
@@ -105,7 +105,7 @@ func TestSSEParserNextRecordPreservesServicePolicyRecords(t *testing.T) {
 		"event: error\ndata: [DONE]\n\n",
 		"data: [DONE]\n\n",
 	}, ""))), 1024)
-	defer parser.Close()
+	t.Cleanup(func() { require.NoError(t, parser.Close()) })
 
 	emptyError, err := parser.NextRecord(context.Background())
 	require.NoError(t, err)
@@ -130,7 +130,7 @@ func TestSSEParserNextRecordPreservesServicePolicyRecords(t *testing.T) {
 
 func TestSSEParserNextRemainsStrictAfterRawRecordSupport(t *testing.T) {
 	parser := NewSSEParser(io.NopCloser(strings.NewReader("event: error\ndata: not-json\n\n")), 1024)
-	defer parser.Close()
+	t.Cleanup(func() { require.NoError(t, parser.Close()) })
 
 	_, err := parser.Next(context.Background())
 	require.ErrorContains(t, err, "malformed SSE JSON")
@@ -139,14 +139,14 @@ func TestSSEParserNextRemainsStrictAfterRawRecordSupport(t *testing.T) {
 func TestSSEParserRejectsMalformedJSONAndOversizedRecords(t *testing.T) {
 	t.Run("malformed JSON", func(t *testing.T) {
 		parser := NewSSEParser(io.NopCloser(strings.NewReader("data: {broken}\n\n")), 1024)
-		defer parser.Close()
+		t.Cleanup(func() { require.NoError(t, parser.Close()) })
 		_, err := parser.Next(context.Background())
 		require.ErrorContains(t, err, "malformed SSE JSON")
 	})
 
 	t.Run("oversized", func(t *testing.T) {
 		parser := NewSSEParser(io.NopCloser(strings.NewReader("data: {\"value\":\""+strings.Repeat("x", 64)+"\"}\n\n")), 32)
-		defer parser.Close()
+		t.Cleanup(func() { require.NoError(t, parser.Close()) })
 		_, err := parser.Next(context.Background())
 		require.ErrorContains(t, err, "exceeds 32 bytes")
 		var tooLarge *SSERecordTooLargeError
@@ -157,7 +157,7 @@ func TestSSEParserRejectsMalformedJSONAndOversizedRecords(t *testing.T) {
 
 func TestSSEParserReturnsPrematureEOFRecordThenEOF(t *testing.T) {
 	parser := NewSSEParser(io.NopCloser(strings.NewReader("data: {\"type\":\"partial\"}")), 1024)
-	defer parser.Close()
+	t.Cleanup(func() { require.NoError(t, parser.Close()) })
 
 	record, err := parser.Next(context.Background())
 	require.NoError(t, err)

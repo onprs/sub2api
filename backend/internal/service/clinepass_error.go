@@ -3,7 +3,6 @@ package service
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -190,11 +189,4 @@ func clinePassJSONInt(raw json.RawMessage) int {
 		return value
 	}
 	return 0
-}
-
-func clinePassSafeStatusMessage(status int) string {
-	if message := http.StatusText(status); message != "" {
-		return message
-	}
-	return fmt.Sprintf("HTTP %d", status)
 }

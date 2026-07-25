@@ -45,7 +45,7 @@ func encodeInstructions(parts []ir.ContentPart) (json.RawMessage, error) {
 		if part.Type != ir.ContentText {
 			return nil, &protocolconv.Error{Code: protocolconv.ErrorUnsupportedCapability, Protocol: protocolconv.ProtocolOpenAIResponses, Capability: protocolconv.CapabilitySystem, Path: "system_instruction"}
 		}
-		text.WriteString(part.Text)
+		_, _ = text.WriteString(part.Text)
 	}
 	return json.Marshal(text.String())
 }
@@ -90,7 +90,7 @@ func decodeInput(raw json.RawMessage, messages *[]ir.Message) error {
 		case "reasoning":
 			var text strings.Builder
 			for _, summary := range item.Summary {
-				text.WriteString(summary.Text)
+				_, _ = text.WriteString(summary.Text)
 			}
 			*messages = append(*messages, ir.Message{Role: ir.RoleAssistant, Content: []ir.ContentPart{{Type: ir.ContentReasoning, Reasoning: text.String(), Signature: item.EncryptedContent}}})
 		default:

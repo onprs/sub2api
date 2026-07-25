@@ -177,7 +177,7 @@ func send(registry *protocolconv.Registry, protocol protocolconv.Protocol, endpo
 	if err != nil {
 		return nil, 0, len(warnings), err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if readErr != nil {
 		return nil, resp.StatusCode, len(warnings), readErr

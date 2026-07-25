@@ -302,7 +302,7 @@ func TestHandleSSEToJSON_CompactRawOutputItemDoneRepairsEmptyTerminalOutput(t *t
 	require.Equal(t, 4, result.usage.OutputTokens)
 }
 
-// 同一形态经透传分支（handlePassthroughSSEToJSON）也必须修补。
+// 同一形态经透传 SSE-to-JSON 分支也必须修补。
 func TestHandlePassthroughSSEToJSON_CompactRawOutputItemDoneRepairsEmptyTerminalOutput(t *testing.T) {
 	svc := newCompactBridgeTestService()
 	c, rec := newCompactBridgeTestContext(t, true)

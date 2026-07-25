@@ -27,10 +27,10 @@ func (s *OpenAIGatewayService) ForwardGoogleGenAI(
 	body []byte,
 ) (*OpenAIForwardResult, error) {
 	if c == nil || c.Writer == nil {
-		return nil, errors.New("Google GenAI forward requires a response writer")
+		return nil, errors.New("response writer is required for Google GenAI forwarding")
 	}
 	if account == nil || account.Platform != PlatformOpenAI {
-		return nil, fmt.Errorf("Google GenAI OpenAI route requires an OpenAI account")
+		return nil, fmt.Errorf("an OpenAI account is required for Google GenAI forwarding")
 	}
 
 	upstreamModel := account.GetMappedModel(routingModel)
@@ -131,7 +131,7 @@ func newGoogleGenAIProtocolOutput(writer http.ResponseWriter, pipeline *protocol
 
 func (o *googleGenAIProtocolOutput) NewRetryAttempt() (openAIProtocolOutput, error) {
 	if len(o.requestBody) == 0 {
-		return nil, errors.New("Google GenAI retry output has no source request")
+		return nil, errors.New("source request is missing for Google GenAI retry output")
 	}
 	pipeline, _, err := newGoogleGenAIResponsesAttempt(o.requestBody, o.pipelineConfig, o.stream)
 	if err != nil {

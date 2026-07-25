@@ -518,7 +518,9 @@ func TestCollectGeminiSSEWithRaw_EOFWithoutDoneRemainsCompatible(t *testing.T) {
 	require.Equal(t, upstreamBody, string(raw))
 	require.Equal(t, 2, usage.InputTokens)
 	require.Equal(t, 1, usage.OutputTokens)
-	require.Equal(t, "ok", collected["candidates"].([]any)[0].(map[string]any)["content"].(map[string]any)["parts"].([]any)[0].(map[string]any)["text"])
+	encoded, err := json.Marshal(collected)
+	require.NoError(t, err)
+	require.Equal(t, "ok", gjson.GetBytes(encoded, "candidates.0.content.parts.0.text").String())
 }
 
 func TestCollectGeminiSSEWithRaw_RejectsMalformedAndOversizedInput(t *testing.T) {
@@ -628,7 +630,7 @@ func TestGeminiMessagesCompatServiceForwardNative_StreamUsesStructuredIdentityPi
 	require.NotContains(t, recorder.Body.String(), "data: [DONE]")
 
 	parser := protocoltransport.NewSSEParser(io.NopCloser(bytes.NewReader(recorder.Body.Bytes())), 0)
-	defer parser.Close()
+	t.Cleanup(func() { require.NoError(t, parser.Close()) })
 	record, err := parser.Next(context.Background())
 	require.NoError(t, err)
 	require.JSONEq(t, `{"responseId":"native-stream","candidates":[{"content":{"role":"model","parts":[{"text":"hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":3},"vendorExtension":{"kept":true}}`, string(record.Data))
@@ -660,7 +662,7 @@ func TestGeminiMessagesCompatServiceForwardNative_OAuthStreamUnwrapsEnvelope(t *
 	require.Equal(t, 2, result.Usage.OutputTokens)
 	require.Contains(t, upstream.lastReq.URL.String(), "/v1internal:streamGenerateContent?alt=sse")
 	parser := protocoltransport.NewSSEParser(io.NopCloser(bytes.NewReader(recorder.Body.Bytes())), 0)
-	defer parser.Close()
+	t.Cleanup(func() { require.NoError(t, parser.Close()) })
 	record, err := parser.Next(context.Background())
 	require.NoError(t, err)
 	require.JSONEq(t, inner, string(record.Data))
@@ -690,7 +692,7 @@ func TestGeminiMessagesCompatServiceForwardNative_OAuthAIStudioStreamDoesNotUnwr
 	require.NotNil(t, result)
 	require.Contains(t, upstream.lastReq.URL.String(), "/v1beta/models/gemini-client:streamGenerateContent?alt=sse")
 	parser := protocoltransport.NewSSEParser(io.NopCloser(bytes.NewReader(recorder.Body.Bytes())), 0)
-	defer parser.Close()
+	t.Cleanup(func() { require.NoError(t, parser.Close()) })
 	record, err := parser.Next(context.Background())
 	require.NoError(t, err)
 	require.JSONEq(t, payload, string(record.Data))

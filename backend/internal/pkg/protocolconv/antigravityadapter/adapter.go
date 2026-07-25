@@ -133,10 +133,10 @@ func validateOptions(options Options) error {
 		return fmt.Errorf("unsupported Antigravity family %q", options.Family)
 	}
 	if strings.TrimSpace(options.ProjectID) == "" {
-		return fmt.Errorf("Antigravity project ID is required")
+		return fmt.Errorf("project ID is required for Antigravity")
 	}
 	if strings.TrimSpace(options.MappedModel) == "" {
-		return fmt.Errorf("Antigravity mapped model is required")
+		return fmt.Errorf("mapped model is required for Antigravity")
 	}
 	return nil
 }

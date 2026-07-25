@@ -253,7 +253,7 @@ func sanitizeTicketAttachmentName(name string) string {
 		if unicode.IsControl(r) || r == '/' || r == '\\' {
 			continue
 		}
-		builder.WriteRune(r)
+		_, _ = builder.WriteRune(r)
 		if builder.Len() >= 240 {
 			break
 		}

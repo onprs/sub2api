@@ -345,17 +345,6 @@ func logCCStreamMissingDoneSentinel(logPrefix, requestID string) {
 	)
 }
 
-// readCCUpstreamJSONResponse 读取并解析 CC 非流式 JSON 响应，失败时以调用方
-// 端点格式回写错误；成功时顺带提取 usage。
-func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
-	c *gin.Context,
-	resp *http.Response,
-	writeError compatErrorWriter,
-) (*apicompat.ChatCompletionsResponse, OpenAIUsage, error) {
-	parsed, usage, _, err := s.readCCUpstreamJSONResult(c, resp, writeError)
-	return parsed, usage, err
-}
-
 func (s *OpenAIGatewayService) readCCUpstreamJSONResult(
 	c *gin.Context,
 	resp *http.Response,
