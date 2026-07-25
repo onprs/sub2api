@@ -85,11 +85,11 @@ func (r *Renderer) FrameStreamEvent(body []byte) ([]byte, error) {
 		}
 		var framed bytes.Buffer
 		framed.Grow(len(eventType) + len(body) + 16)
-		framed.WriteString("event: ")
-		framed.WriteString(eventType)
-		framed.WriteByte('\n')
+		_, _ = framed.WriteString("event: ")
+		_, _ = framed.WriteString(eventType)
+		_ = framed.WriteByte('\n')
 		writeSSEDataFields(&framed, body)
-		framed.WriteByte('\n')
+		_ = framed.WriteByte('\n')
 		return framed.Bytes(), nil
 	default:
 		return nil, &Error{Code: ErrorUnsupportedProtocol, Protocol: r.protocol, Message: "stream renderer is unavailable"}
@@ -173,16 +173,16 @@ func frameDataOnly(body []byte) []byte {
 	var framed bytes.Buffer
 	framed.Grow(len(body) + 8)
 	writeSSEDataFields(&framed, body)
-	framed.WriteByte('\n')
+	_ = framed.WriteByte('\n')
 	return framed.Bytes()
 }
 
 func writeSSEDataFields(framed *bytes.Buffer, body []byte) {
 	lines := bytes.Split(body, []byte{'\n'})
 	for _, line := range lines {
-		framed.WriteString("data: ")
-		framed.Write(line)
-		framed.WriteByte('\n')
+		_, _ = framed.WriteString("data: ")
+		_, _ = framed.Write(line)
+		_ = framed.WriteByte('\n')
 	}
 }
 

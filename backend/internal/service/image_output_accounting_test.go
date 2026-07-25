@@ -159,7 +159,7 @@ func TestOpenAIImageOutputCounter_JSONResponse_DataArray_FalsePositive(t *testin
 }
 
 func TestOpenAIImageOutputCounter_PassthroughSSEToJSON_Conversion(t *testing.T) {
-	// Simulate the scenario in handlePassthroughSSEToJSON where extractCodexFinalResponse
+	// Simulate the passthrough SSE-to-JSON path where extractCodexFinalResponse
 	// successfully extracts the response JSON, then countOpenAIResponseImageOutputsFromJSONBytes
 	// is called on the extracted response object.
 	//

@@ -471,7 +471,7 @@ func buildBedrockAnthropicEventStream(t *testing.T, events ...string) []byte {
 	var stream bytes.Buffer
 	for _, event := range events {
 		envelope := `{"bytes":"` + base64.StdEncoding.EncodeToString([]byte(event)) + `"}`
-		stream.Write(buildBedrockEventStreamFrame(t, "chunk", []byte(envelope)))
+		_, _ = stream.Write(buildBedrockEventStreamFrame(t, "chunk", []byte(envelope)))
 	}
 	return stream.Bytes()
 }

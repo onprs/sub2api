@@ -2,7 +2,6 @@ package standard
 
 import (
 	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
@@ -196,7 +195,7 @@ func messagesText(messages []ir.Message) string {
 	out := ""
 	for _, message := range messages {
 		for _, part := range message.Content {
-			out += part.Text + fmt.Sprint(part.ToolResult)
+			out += part.Text + string(part.ToolResult)
 		}
 	}
 	return out

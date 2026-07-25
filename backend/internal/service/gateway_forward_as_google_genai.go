@@ -30,10 +30,10 @@ func (s *GatewayService) ForwardGoogleGenAI(
 	body []byte,
 ) (*ForwardResult, error) {
 	if c == nil || c.Writer == nil {
-		return nil, errors.New("Google GenAI Anthropic route requires a response writer")
+		return nil, errors.New("response writer is required for Google GenAI forwarding")
 	}
 	if account == nil || account.Platform != PlatformAnthropic {
-		return nil, errors.New("Google GenAI Anthropic route requires an Anthropic account")
+		return nil, errors.New("an Anthropic account is required for Google GenAI forwarding")
 	}
 	startTime := time.Now()
 	mappedModel, err := resolveStandardAnthropicTargetModel(account, routedModel)
@@ -226,7 +226,7 @@ func (s *GatewayService) handleGoogleStreamingFromAnthropic(
 		}
 	}
 	if !terminalSeen {
-		return resultWithUsage(), errors.New("Anthropic stream ended without message_stop")
+		return resultWithUsage(), errors.New("stream ended without message_stop for Anthropic")
 	}
 	finalPayloads, _, err := session.Finalize()
 	if err != nil {

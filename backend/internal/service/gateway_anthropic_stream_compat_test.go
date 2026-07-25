@@ -186,7 +186,7 @@ func TestHandleStructuredStreamingResponseDataIntervalTimeout(t *testing.T) {
 	account := &Account{ID: 45, Platform: PlatformAnthropic}
 	pipeline := newAnthropicPassthroughTestPipeline(t, account)
 	reader, writer := io.Pipe()
-	defer writer.Close()
+	defer func() { _ = writer.Close() }()
 	resp := &http.Response{StatusCode: http.StatusOK, Body: reader}
 	svc := &GatewayService{
 		cfg:              &config.Config{Gateway: config.GatewayConfig{StreamDataIntervalTimeout: 1}},
@@ -249,7 +249,7 @@ func TestHandleStructuredStreamingResponseKeepaliveDoesNotSplitPartialRecord(t *
 	}
 
 	go func() {
-		defer writer.Close()
+		defer func() { _ = writer.Close() }()
 		_, _ = io.WriteString(writer, "event: message_start\n")
 		time.Sleep(1100 * time.Millisecond)
 		_, _ = io.WriteString(writer, "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1}}}\n\n")

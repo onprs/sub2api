@@ -122,7 +122,7 @@ func run(sourceID, targetID, endpoint, model, input string, stream bool) report 
 		result.Error = sanitize(err.Error())
 		return result
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	result.HTTPStatus = resp.StatusCode
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))

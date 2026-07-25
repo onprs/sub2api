@@ -577,11 +577,6 @@ func (s *OpenAIGatewayService) recordOpenAIMessagesStreamUpstreamError(c *gin.Co
 	appendOpsUpstreamError(c, event)
 }
 
-func isOpenAICompatDoneSentinelLine(line string) bool {
-	payload, ok := extractOpenAISSEDataLine(line)
-	return ok && strings.TrimSpace(payload) == "[DONE]"
-}
-
 type openAICompatBufferedTerminal struct {
 	Upstream    protocoltransport.Response
 	Response    *apicompat.ResponsesResponse

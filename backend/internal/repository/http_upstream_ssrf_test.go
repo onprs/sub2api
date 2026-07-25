@@ -89,14 +89,16 @@ func TestHTTPUpstreamProxyModeTrustsConfiguredProxyDialPath(t *testing.T) {
 }
 
 func TestHTTPUpstreamAllowPrivateHostsExplicitlyDisablesDialGuard(t *testing.T) {
-	upstream := NewHTTPUpstream(&config.Config{
+	rawUpstream := NewHTTPUpstream(&config.Config{
 		Security: config.SecurityConfig{
 			URLAllowlist: config.URLAllowlistConfig{
 				Enabled:           true,
 				AllowPrivateHosts: true,
 			},
 		},
-	}).(*httpUpstreamService)
+	})
+	upstream, ok := rawUpstream.(*httpUpstreamService)
+	require.True(t, ok)
 	entry, err := upstream.getClientEntry(
 		"",
 		1,

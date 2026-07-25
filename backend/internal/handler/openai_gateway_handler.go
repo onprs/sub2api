@@ -2358,9 +2358,10 @@ func (h *OpenAIGatewayHandler) rejectIfCyberSessionBlocked(c *gin.Context, apiKe
 		}
 	}
 	protocol := protocolconv.ProtocolOpenAIResponses
-	if format == cyberBlockFormatAnthropic {
+	switch format {
+	case cyberBlockFormatAnthropic:
 		protocol = protocolconv.ProtocolAnthropic
-	} else if format == cyberBlockFormatChat {
+	case cyberBlockFormatChat:
 		protocol = protocolconv.ProtocolOpenAIChat
 	}
 	writeProtocolError(c, protocol, http.StatusForbidden, "permission_error", "session_blocked_by_cyber_policy", cyberSessionBlockedClientMsg)

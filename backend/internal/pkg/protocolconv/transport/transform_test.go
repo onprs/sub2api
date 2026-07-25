@@ -22,7 +22,7 @@ func TestTransformEventStreamNormalizesPayloadAndPreservesMetadata(t *testing.T)
 		return wrapper.Response, nil
 	})
 	require.NoError(t, err)
-	defer stream.Close()
+	t.Cleanup(func() { require.NoError(t, stream.Close()) })
 
 	record, err := stream.Next(context.Background())
 	require.NoError(t, err)
@@ -40,7 +40,7 @@ func TestTransformEventStreamOmitsMetadataWhenPayloadIsUnchanged(t *testing.T) {
 	inner := NewSSEParser(io.NopCloser(strings.NewReader("data: {\"value\":1}\n\n")), 0)
 	stream, err := NewTransformEventStream(inner, func(body []byte) ([]byte, error) { return body, nil })
 	require.NoError(t, err)
-	defer stream.Close()
+	t.Cleanup(func() { require.NoError(t, stream.Close()) })
 
 	record, err := stream.Next(context.Background())
 	require.NoError(t, err)

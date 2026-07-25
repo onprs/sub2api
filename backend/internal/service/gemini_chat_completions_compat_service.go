@@ -165,7 +165,7 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 	startTime := input.StartTime
 	writeError := input.WriteError
 	if writeError == nil {
-		return nil, errors.New("Google protocol error writer is required")
+		return nil, errors.New("error writer is required for Google protocol forwarding")
 	}
 
 	proxyURL := ""

@@ -443,12 +443,3 @@ func effortToAnthropic(v string) string {
 	return v
 }
 func cloneRaw(raw json.RawMessage) json.RawMessage { return append(json.RawMessage(nil), raw...) }
-func joinText(parts []ir.ContentPart) string {
-	var b strings.Builder
-	for _, p := range parts {
-		if p.Type == ir.ContentText {
-			b.WriteString(p.Text)
-		}
-	}
-	return b.String()
-}
