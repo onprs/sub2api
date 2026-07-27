@@ -185,6 +185,17 @@ func TestClinePassChatCacheExtensionIsExplicitAndRejectsToolHints(t *testing.T) 
 	require.Error(t, err)
 }
 
+func TestNewClinePassPipelineRequestPreservesSecondSystemCacheBreakpoint(t *testing.T) {
+	body := []byte(`{"model":"client","max_tokens":64,"system":[{"type":"text","text":"base rules\n"},{"type":"text","text":"cached context","cache_control":{"type":"ephemeral"}}],"messages":[{"role":"user","content":"hi"}]}`)
+
+	_, converted, err := newClinePassPipelineRequest(body, protocolconv.ProtocolAnthropic, clinePassGatewayTestAccount(), "client", "cline-pass/glm-5.2")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), gjson.GetBytes(converted, "messages.0.content.#").Int())
+	require.Equal(t, "base rules\n", gjson.GetBytes(converted, "messages.0.content.0.text").String())
+	require.Equal(t, "cached context", gjson.GetBytes(converted, "messages.0.content.1.text").String())
+	require.Equal(t, "ephemeral", gjson.GetBytes(converted, "messages.0.content.1.cache_control.type").String())
+}
+
 func newClinePassGatewayForTest(upstream HTTPUpstream) *ClinePassGatewayService {
 	cfg := &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}
 	client := NewClinePassClient(upstream, cfg, nil)
