@@ -199,6 +199,28 @@ func TestAccountIsModelSupported(t *testing.T) {
 			expected:       true,
 		},
 		{
+			name:     "clinepass bare model matches full slug mapping",
+			platform: PlatformClinePass,
+			credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"cline-pass/glm-5.2": "cline-pass/glm-5.2",
+				},
+			},
+			requestedModel: "glm-5.2",
+			expected:       true,
+		},
+		{
+			name:     "clinepass unknown bare model stays unsupported",
+			platform: PlatformClinePass,
+			credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"cline-pass/glm-5.2": "cline-pass/glm-5.2",
+				},
+			},
+			requestedModel: "unknown-model",
+			expected:       false,
+		},
+		{
 			name: "wildcard match not supported",
 			credentials: map[string]any{
 				"model_mapping": map[string]any{
@@ -295,6 +317,17 @@ func TestAccountGetMappedModel(t *testing.T) {
 			},
 			requestedModel: "gemini-3.1-pro-preview-customtools",
 			expected:       "gemini-3.1-pro-preview-customtools",
+		},
+		{
+			name:     "clinepass bare model resolves through full slug mapping",
+			platform: PlatformClinePass,
+			credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"cline-pass/glm-5.2": "cline-pass/glm-5.2",
+				},
+			},
+			requestedModel: "glm-5.2",
+			expected:       "cline-pass/glm-5.2",
 		},
 		{
 			name: "no match returns original",

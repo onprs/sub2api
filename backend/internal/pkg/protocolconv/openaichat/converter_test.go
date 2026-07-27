@@ -47,6 +47,29 @@ func TestEncodeRequestPreservesMultiPartSystemCacheControl(t *testing.T) {
 	require.Equal(t, "1h", gjson.GetBytes(body, "messages.1.content.0.cache_control.ttl").String())
 }
 
+func TestEncodeRequestPreservesMergedMessageCacheControl(t *testing.T) {
+	request := &ir.Request{
+		Model: "model",
+		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.ContentPart{
+			{Type: ir.ContentText, Text: "first context block"},
+			{Type: ir.ContentText, Text: "cached tail", CacheHint: []byte(`{"type":"ephemeral"}`)},
+		}}},
+	}
+
+	body, warnings, err := New().EncodeRequest(request, protocolconv.Options{
+		LossPolicy:     protocolconv.LossError,
+		ChatExtensions: protocolconv.ChatExtensions{AnthropicCacheControl: true},
+	})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, "user", gjson.GetBytes(body, "messages.0.role").String())
+	require.Equal(t, int64(2), gjson.GetBytes(body, "messages.0.content.#").Int())
+	require.Equal(t, "first context block", gjson.GetBytes(body, "messages.0.content.0.text").String())
+	require.False(t, gjson.GetBytes(body, "messages.0.content.0.cache_control").Exists())
+	require.Equal(t, "cached tail", gjson.GetBytes(body, "messages.0.content.1.text").String())
+	require.Equal(t, "ephemeral", gjson.GetBytes(body, "messages.0.content.1.cache_control.type").String())
+}
+
 func TestStreamEncoderRejectsReasoningSignatureInStrictMode(t *testing.T) {
 	encoder := newStreamEncoderWithOptions(protocolconv.Options{LossPolicy: protocolconv.LossError})
 	_, warnings, err := encoder.Encode(ir.StreamEvent{
