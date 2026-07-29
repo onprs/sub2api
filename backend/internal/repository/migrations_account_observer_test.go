@@ -20,3 +20,13 @@ func TestAccountObserverMigrationSecurityContract(t *testing.T) {
 	require.NotContains(t, sql, "plaintext_token")
 	require.NotContains(t, sql, "credentials")
 }
+
+func TestAccountObserverDeleteScopeMigration(t *testing.T) {
+	content, err := migrations.FS.ReadFile("183_account_observer_delete_scope.sql")
+	require.NoError(t, err)
+	sql := strings.ToLower(string(content))
+
+	require.Contains(t, sql, "account_observer:read account_observer:delete")
+	require.Contains(t, sql, "account_observer_tokens_scope_check")
+	require.NotContains(t, sql, "admin")
+}

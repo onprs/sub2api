@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -13,18 +15,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type AccountObserverHandler struct {
-	service *service.AccountObserverService
+type accountObserverAccountDeleter interface {
+	DeleteAccount(context.Context, int64) error
 }
 
-func NewAccountObserverHandler(observerService *service.AccountObserverService) *AccountObserverHandler {
-	return &AccountObserverHandler{service: observerService}
+type AccountObserverHandler struct {
+	service      *service.AccountObserverService
+	adminService accountObserverAccountDeleter
+}
+
+func NewAccountObserverHandler(
+	observerService *service.AccountObserverService,
+	adminService service.AdminService,
+) *AccountObserverHandler {
+	return &AccountObserverHandler{service: observerService, adminService: adminService}
 }
 
 type createAccountObserverTokenRequest struct {
 	Name         string     `json:"name" binding:"required"`
 	AllowedCIDRs []string   `json:"allowed_cidrs"`
 	ExpiresAt    *time.Time `json:"expires_at"`
+	AllowDelete  bool       `json:"allow_delete"`
 }
 
 func (h *AccountObserverHandler) CreateToken(c *gin.Context) {
@@ -34,7 +45,8 @@ func (h *AccountObserverHandler) CreateToken(c *gin.Context) {
 		return
 	}
 	created, err := h.service.CreateToken(c.Request.Context(), service.CreateAccountObserverTokenInput{
-		Name: request.Name, AllowedCIDRs: request.AllowedCIDRs, ExpiresAt: request.ExpiresAt,
+		Name: request.Name, AllowedCIDRs: request.AllowedCIDRs,
+		ExpiresAt: request.ExpiresAt, AllowDelete: request.AllowDelete,
 	})
 	if err != nil {
 		if errors.Is(err, service.ErrAccountObserverInvalidInput) {
@@ -83,7 +95,7 @@ func (h *AccountObserverHandler) Authenticate() gin.HandlerFunc {
 		}
 		token := strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
 		remoteIP := net.ParseIP(c.ClientIP())
-		err := h.service.Authenticate(c.Request.Context(), token, remoteIP)
+		scope, err := h.service.Authenticate(c.Request.Context(), token, remoteIP)
 		if err != nil {
 			if errors.Is(err, service.ErrAccountObserverForbidden) {
 				response.Forbidden(c, "Integration token is not allowed from this address")
@@ -95,7 +107,8 @@ func (h *AccountObserverHandler) Authenticate() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		c.Set("integration_scope", service.AccountObserverReadScope)
+		c.Set("integration_scope", scope)
+		c.Header("X-Integration-Scope", scope)
 		c.Next()
 	}
 }
@@ -141,6 +154,25 @@ func (h *AccountObserverHandler) GetAccounts(c *gin.Context) {
 	c.JSON(http.StatusOK, page)
 }
 
+func (h *AccountObserverHandler) DeleteAccount(c *gin.Context) {
+	scope, _ := c.Get("integration_scope")
+	if !service.AccountObserverScopeAllows(fmt.Sprint(scope), service.AccountObserverDeleteScope) {
+		response.Forbidden(c, "Integration token cannot delete accounts")
+		return
+	}
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || accountID <= 0 {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if err := h.adminService.DeleteAccount(c.Request.Context(), accountID); err != nil &&
+		!errors.Is(err, service.ErrAccountNotFound) {
+		response.ErrorFrom(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 func (h *AccountObserverHandler) RejectWrite(c *gin.Context) {
-	response.Forbidden(c, "Account observer tokens are read-only")
+	response.Forbidden(c, "Account observer token does not allow this operation")
 }

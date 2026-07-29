@@ -19,10 +19,12 @@ import (
 )
 
 const (
-	AccountObserverReadScope = "account_observer:read"
-	accountObserverTokenTag  = "s2obs_"
-	observerDefaultPageSize  = 100
-	observerMaxPageSize      = 500
+	AccountObserverReadScope       = "account_observer:read"
+	AccountObserverDeleteScope     = "account_observer:delete"
+	AccountObserverReadDeleteScope = AccountObserverReadScope + " " + AccountObserverDeleteScope
+	accountObserverTokenTag        = "s2obs_"
+	observerDefaultPageSize        = 100
+	observerMaxPageSize            = 500
 )
 
 var (
@@ -50,6 +52,7 @@ type CreateAccountObserverTokenInput struct {
 	Name         string
 	AllowedCIDRs []string
 	ExpiresAt    *time.Time
+	AllowDelete  bool
 }
 
 type CreatedAccountObserverToken struct {
@@ -151,6 +154,10 @@ func (s *AccountObserverService) CreateToken(ctx context.Context, input CreateAc
 	if err != nil {
 		return nil, err
 	}
+	scope := AccountObserverReadScope
+	if input.AllowDelete {
+		scope = AccountObserverReadDeleteScope
+	}
 
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
@@ -168,7 +175,7 @@ func (s *AccountObserverService) CreateToken(ctx context.Context, input CreateAc
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, name, token_prefix, scope, allowed_cidrs, expires_at,
 			revoked_at, last_used_at, created_at`,
-		name, prefix, hash, AccountObserverReadScope, pq.Array(cidrs), input.ExpiresAt,
+		name, prefix, hash, scope, pq.Array(cidrs), input.ExpiresAt,
 	).Scan(
 		&record.ID, &record.Name, &record.TokenPrefix, &record.Scope, &allowed,
 		&record.ExpiresAt, &record.RevokedAt, &record.LastUsedAt, &record.CreatedAt,
@@ -228,10 +235,10 @@ func (s *AccountObserverService) RevokeToken(ctx context.Context, id int64) erro
 	return nil
 }
 
-func (s *AccountObserverService) Authenticate(ctx context.Context, plaintext string, remoteIP net.IP) error {
+func (s *AccountObserverService) Authenticate(ctx context.Context, plaintext string, remoteIP net.IP) (string, error) {
 	plaintext = strings.TrimSpace(plaintext)
 	if !strings.HasPrefix(plaintext, accountObserverTokenTag) || len(plaintext) < len(accountObserverTokenTag)+16 {
-		return ErrAccountObserverUnauthorized
+		return "", ErrAccountObserverUnauthorized
 	}
 	prefix := observerTokenPrefix(plaintext)
 	presentedHash := observerTokenHash(plaintext)
@@ -248,22 +255,35 @@ func (s *AccountObserverService) Authenticate(ctx context.Context, plaintext str
 		LIMIT 1`, prefix,
 	).Scan(&id, &storedHash, &scope, &allowed, &expiresAt, &revokedAt)
 	if err != nil {
-		return ErrAccountObserverUnauthorized
+		return "", ErrAccountObserverUnauthorized
 	}
-	if subtle.ConstantTimeCompare([]byte(storedHash), []byte(presentedHash)) != 1 || scope != AccountObserverReadScope {
-		return ErrAccountObserverUnauthorized
+	if subtle.ConstantTimeCompare([]byte(storedHash), []byte(presentedHash)) != 1 ||
+		!AccountObserverScopeAllows(scope, AccountObserverReadScope) {
+		return "", ErrAccountObserverUnauthorized
 	}
 	now := s.now()
 	if revokedAt.Valid || (expiresAt.Valid && !now.Before(expiresAt.Time)) {
-		return ErrAccountObserverUnauthorized
+		return "", ErrAccountObserverUnauthorized
 	}
 	if !observerIPAllowed(remoteIP, []string(allowed)) {
-		return ErrAccountObserverForbidden
+		return "", ErrAccountObserverForbidden
 	}
 	if _, err := s.db.ExecContext(ctx, `UPDATE account_observer_tokens SET last_used_at = $2, updated_at = $2 WHERE id = $1`, id, now); err != nil {
-		return fmt.Errorf("update account observer token usage: %w", err)
+		return "", fmt.Errorf("update account observer token usage: %w", err)
 	}
-	return nil
+	return scope, nil
+}
+
+func AccountObserverScopeAllows(scope, required string) bool {
+	if scope != AccountObserverReadScope && scope != AccountObserverReadDeleteScope {
+		return false
+	}
+	for _, granted := range strings.Fields(scope) {
+		if granted == required {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *AccountObserverService) ListAccounts(ctx context.Context, params ObserverListParams) (*ObserverAccountsPage, error) {

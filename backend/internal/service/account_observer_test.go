@@ -35,7 +35,37 @@ func TestAccountObserverAuthenticateValidReadToken(t *testing.T) {
 
 	service := NewAccountObserverService(db, nil)
 	service.now = func() time.Time { return now }
-	require.NoError(t, service.Authenticate(context.Background(), token, net.ParseIP("127.0.0.1")))
+	scope, err := service.Authenticate(context.Background(), token, net.ParseIP("127.0.0.1"))
+	require.NoError(t, err)
+	require.Equal(t, AccountObserverReadScope, scope)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestAccountObserverCreateTokenWithDeleteGrant(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		mock.ExpectClose()
+		require.NoError(t, db.Close())
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	now := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
+	mock.ExpectQuery("INSERT INTO account_observer_tokens").
+		WithArgs("account-vault", sqlmock.AnyArg(), sqlmock.AnyArg(), AccountObserverReadDeleteScope, sqlmock.AnyArg(), nil).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "token_prefix", "scope", "allowed_cidrs", "expires_at",
+			"revoked_at", "last_used_at", "created_at",
+		}).AddRow(9, "account-vault", "s2obs_prefix", AccountObserverReadDeleteScope, "{}", nil, nil, nil, now))
+
+	service := NewAccountObserverService(db, nil)
+	service.now = func() time.Time { return now }
+	created, err := service.CreateToken(context.Background(), CreateAccountObserverTokenInput{
+		Name: "account-vault", AllowDelete: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, AccountObserverReadDeleteScope, created.Scope)
+	require.True(t, strings.HasPrefix(created.Token, accountObserverTokenTag))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -57,7 +87,8 @@ func TestAccountObserverAuthenticateRejectsRevokedToken(t *testing.T) {
 
 	service := NewAccountObserverService(db, nil)
 	service.now = func() time.Time { return now }
-	require.ErrorIs(t, service.Authenticate(context.Background(), token, net.ParseIP("127.0.0.1")), ErrAccountObserverUnauthorized)
+	_, err = service.Authenticate(context.Background(), token, net.ParseIP("127.0.0.1"))
+	require.ErrorIs(t, err, ErrAccountObserverUnauthorized)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -120,6 +151,14 @@ func TestAccountObserverListAccountsNeverSerializesSecrets(t *testing.T) {
 		require.NotContains(t, body, forbidden)
 	}
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestAccountObserverScopeAllowsDeleteOnlyForExplicitGrant(t *testing.T) {
+	require.True(t, AccountObserverScopeAllows(AccountObserverReadScope, AccountObserverReadScope))
+	require.False(t, AccountObserverScopeAllows(AccountObserverReadScope, AccountObserverDeleteScope))
+	require.True(t, AccountObserverScopeAllows(AccountObserverReadDeleteScope, AccountObserverReadScope))
+	require.True(t, AccountObserverScopeAllows(AccountObserverReadDeleteScope, AccountObserverDeleteScope))
+	require.False(t, AccountObserverScopeAllows("account_observer:delete", AccountObserverDeleteScope))
 }
 
 func TestObserverCursorRoundTripAndValidation(t *testing.T) {
