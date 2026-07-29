@@ -284,7 +284,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	batchImageCleanupService := service.ProvideBatchImageCleanupService(batchImageRepository, accountRepository, configConfig)
 	batchImageHandler := handler.NewBatchImageHandler(batchImagePublicService, batchImageDownloadService, batchImageCleanupService)
 	accountObserverService := service.NewAccountObserverService(db, accountUsageService)
-	accountObserverHandler := handler.NewAccountObserverHandler(accountObserverService)
+	accountObserverHandler := handler.NewAccountObserverHandler(accountObserverService, adminService)
 	idempotencyCoordinator := service.ProvideIdempotencyCoordinator(idempotencyRepository, configConfig)
 	idempotencyCleanupService := service.ProvideIdempotencyCleanupService(idempotencyRepository, configConfig)
 	ticketMaintenanceService := service.ProvideTicketMaintenanceService(ticketRepository, ticketAttachmentService, leaderLockCache, db, configConfig)

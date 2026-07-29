@@ -10,9 +10,9 @@ func RegisterAccountObserverRoutes(v1 *gin.RouterGroup, h *handler.Handlers) {
 	observer.Use(h.AccountObserver.Authenticate())
 	{
 		observer.GET("/v1/accounts", h.AccountObserver.GetAccounts)
+		observer.DELETE("/v1/accounts/:id", h.AccountObserver.DeleteAccount)
 		observer.POST("/*path", h.AccountObserver.RejectWrite)
 		observer.PUT("/*path", h.AccountObserver.RejectWrite)
 		observer.PATCH("/*path", h.AccountObserver.RejectWrite)
-		observer.DELETE("/*path", h.AccountObserver.RejectWrite)
 	}
 }
