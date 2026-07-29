@@ -798,11 +798,23 @@ func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 	if trimmed == "" {
 		return ""
 	}
-	if platform != PlatformGemini && platform != PlatformAntigravity {
-		return trimmed
-	}
-	if trimmed == "gemini-3.1-pro-preview-customtools" {
-		return "gemini-3.1-pro-preview"
+	switch platform {
+	case PlatformClinePass:
+		lower := strings.ToLower(trimmed)
+		switch {
+		case strings.HasPrefix(lower, "cline-pass/"):
+			return trimmed
+		case strings.HasPrefix(lower, "clinepass/"):
+			return "cline-pass/" + trimmed[len("clinepass/"):]
+		case strings.Contains(trimmed, "/"):
+			return trimmed
+		default:
+			return "cline-pass/" + trimmed
+		}
+	case PlatformGemini, PlatformAntigravity:
+		if trimmed == "gemini-3.1-pro-preview-customtools" {
+			return "gemini-3.1-pro-preview"
+		}
 	}
 	return trimmed
 }

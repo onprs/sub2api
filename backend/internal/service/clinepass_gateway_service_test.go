@@ -54,6 +54,34 @@ func TestClinePassGatewayBufferedChatNormalizesTransport(t *testing.T) {
 	require.Equal(t, "system", gjson.GetBytes(requestBody, "messages.0.role").String())
 }
 
+func TestClinePassGatewayBareModelUsesFullUpstreamSlug(t *testing.T) {
+	upstream := &clinePassHTTPUpstreamStub{response: clinePassTestResponse(http.StatusOK, `{
+		"success":true,
+		"data":{
+			"id":"chatcmpl-cp",
+			"object":"chat.completion",
+			"model":"provider/glm-5.2",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}
+		}
+	}`)}
+	svc := newClinePassGatewayForTest(upstream)
+	recorder, c := newClinePassTestContext()
+
+	result, err := svc.ForwardMessages(context.Background(), c, clinePassGatewayTestAccount(), []byte(`{
+		"model":"glm-5.2","max_tokens":64,"messages":[{"role":"user","content":"hi"}]
+	}`))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "glm-5.2", result.Model)
+	require.Equal(t, "cline-pass/glm-5.2", result.UpstreamModel)
+	require.Equal(t, "glm-5.2", gjson.Get(recorder.Body.String(), "model").String())
+
+	requestBody, readErr := io.ReadAll(upstream.request.Body)
+	require.NoError(t, readErr)
+	require.Equal(t, "cline-pass/glm-5.2", gjson.GetBytes(requestBody, "model").String())
+}
+
 func TestClinePassGatewayStreamNormalizesToolFinishAndUsage(t *testing.T) {
 	streamBody := strings.Join([]string{
 		`data: {"id":"chatcmpl-cp","object":"chat.completion.chunk","model":"provider/model","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"id\":"}}]},"finish_reason":null}]}`,
@@ -185,6 +213,47 @@ func TestClinePassChatCacheExtensionIsExplicitAndRejectsToolHints(t *testing.T) 
 	require.Error(t, err)
 }
 
+func TestNewClinePassPipelineRequestPreservesSecondSystemCacheBreakpoint(t *testing.T) {
+	body := []byte(`{"model":"client","max_tokens":64,"system":[{"type":"text","text":"base rules\n"},{"type":"text","text":"cached context","cache_control":{"type":"ephemeral"}}],"messages":[{"role":"user","content":"hi"}]}`)
+
+	_, converted, err := newClinePassPipelineRequest(body, protocolconv.ProtocolAnthropic, clinePassGatewayTestAccount(), "client", "cline-pass/glm-5.2")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), gjson.GetBytes(converted, "messages.0.content.#").Int())
+	require.Equal(t, "base rules\n", gjson.GetBytes(converted, "messages.0.content.0.text").String())
+	require.Equal(t, "cached context", gjson.GetBytes(converted, "messages.0.content.1.text").String())
+	require.Equal(t, "ephemeral", gjson.GetBytes(converted, "messages.0.content.1.cache_control.type").String())
+}
+
+func TestNewClinePassPipelineRequestPreservesClaudeCodeMessageCacheBreakpoint(t *testing.T) {
+	body := []byte(`{
+		"model":"client",
+		"max_tokens":64,
+		"stream":true,
+		"messages":[
+			{"role":"user","content":"run both tools"},
+			{"role":"assistant","content":[
+				{"type":"tool_use","id":"call-1","name":"read_file","input":{"path":"one"}},
+				{"type":"tool_use","id":"call-2","name":"read_file","input":{"path":"two"}}
+			]},
+			{"role":"user","content":[
+				{"type":"tool_result","tool_use_id":"call-1","content":"one"},
+				{"type":"tool_result","tool_use_id":"call-2","content":"two"},
+				{"type":"text","text":"first context block"},
+				{"type":"text","text":"cached tail","cache_control":{"type":"ephemeral"}}
+			]}
+		]
+	}`)
+
+	_, converted, err := newClinePassPipelineRequest(body, protocolconv.ProtocolAnthropic, clinePassGatewayTestAccount(), "client", "cline-pass/glm-5.2")
+	require.NoError(t, err)
+	require.Equal(t, "client", gjson.GetBytes(converted, "model").String())
+	require.Equal(t, "user", gjson.GetBytes(converted, "messages.4.role").String())
+	require.Equal(t, int64(2), gjson.GetBytes(converted, "messages.4.content.#").Int())
+	require.Equal(t, "first context block", gjson.GetBytes(converted, "messages.4.content.0.text").String())
+	require.Equal(t, "cached tail", gjson.GetBytes(converted, "messages.4.content.1.text").String())
+	require.Equal(t, "ephemeral", gjson.GetBytes(converted, "messages.4.content.1.cache_control.type").String())
+}
+
 func newClinePassGatewayForTest(upstream HTTPUpstream) *ClinePassGatewayService {
 	cfg := &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}
 	client := NewClinePassClient(upstream, cfg, nil)
@@ -202,7 +271,8 @@ func clinePassGatewayTestAccount() *Account {
 			"api_key":  "cp-key",
 			"base_url": DefaultClinePassBaseURL,
 			"model_mapping": map[string]any{
-				"client-alias": "cline-pass/minimax-m3",
+				"client-alias":       "cline-pass/minimax-m3",
+				"cline-pass/glm-5.2": "cline-pass/glm-5.2",
 			},
 		},
 	}
