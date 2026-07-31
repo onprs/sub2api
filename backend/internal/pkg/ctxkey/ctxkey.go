@@ -63,4 +63,9 @@ const (
 
 	// ClaudeCodeVersion stores the extracted Claude Code version from User-Agent (e.g. "2.1.22")
 	ClaudeCodeVersion Key = "ctx_claude_code_version"
+
+	// ResolvedUpstreamModel 是 composite/路由解析将公开模型名解析到的上游模型名。
+	// 本分支尚未引入 composite 分组，该值默认不会被设置，仅用于兼容官方安全修复
+	// 在 handler 层读取“已解析上游模型”（若未设置则为 no-op）。
+	ResolvedUpstreamModel Key = "ctx_resolved_upstream_model"
 )
