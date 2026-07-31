@@ -8,7 +8,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -43,7 +42,7 @@ func (h *GatewayHandler) forwardGeminiIngressToStandardProvider(
 		return
 	}
 
-	subscription, _ := middleware.GetSubscriptionFromContext(c)
+	var subscription *service.UserSubscription
 	streamStarted := false
 	googleConcurrency := NewConcurrencyHelper(h.concurrencyHelper.concurrencyService, SSEPingFormatNone, 0)
 	userRelease, err := googleConcurrency.AcquireUserSlotWithWait(c, userID, userConcurrency, stream, &streamStarted)
@@ -58,7 +57,7 @@ func (h *GatewayHandler) forwardGeminiIngressToStandardProvider(
 	}
 
 	quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, quotaPlatform); err != nil {
+	if subscription, err = resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, userID, quotaPlatform); err != nil {
 		status, _, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
 			c.Header("Retry-After", strconv.Itoa(retryAfter))
@@ -133,6 +132,20 @@ func (h *GatewayHandler) forwardGeminiIngressToStandardProvider(
 			}
 		}
 		accountRelease = wrapReleaseOnDone(c.Request.Context(), accountRelease)
+		freshAccount, revalidateErr := h.gatewayService.RevalidateSelectedAccount(c.Request.Context(), account.ID, service.AccountEligibilityRequest{
+			GroupID:          apiKey.GroupID,
+			SessionHash:      sessionHash,
+			RequestedModel:   reqModel,
+			ExpectedPlatform: platform,
+		})
+		if revalidateErr != nil {
+			if accountRelease != nil {
+				accountRelease()
+			}
+			fs.FailedAccountIDs[account.ID] = struct{}{}
+			continue
+		}
+		account = freshAccount
 
 		writerSizeBefore := c.Writer.Size()
 		var openAIResult *service.OpenAIForwardResult

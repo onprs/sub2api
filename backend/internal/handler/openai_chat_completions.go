@@ -100,7 +100,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
 	}
 
-	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	var subscription *service.UserSubscription
 	requestPlatform := openAICompatibleRequestPlatform(apiKey)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
@@ -114,7 +114,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		defer userReleaseFunc()
 	}
 
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if subscription, err = resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, subject.UserID, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("openai_chat_completions.billing_eligibility_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -186,6 +186,17 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		accountReleaseFunc, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
 		if !acquired {
 			return
+		}
+		account, acquired = h.revalidateSelectedAccountAfterAcquire(c.Request.Context(), account, accountReleaseFunc, failedAccountIDs, service.OpenAIAccountEligibilityRequest{
+			GroupID:            apiKey.GroupID,
+			SessionHash:        sessionHash,
+			Platform:           requestPlatform,
+			RequestedModel:     reqModel,
+			RequiredCapability: service.OpenAIEndpointCapabilityChatCompletions,
+			RequiredTransport:  service.OpenAIUpstreamTransportAny,
+		}, reqLog)
+		if !acquired {
+			continue
 		}
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())

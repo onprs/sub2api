@@ -155,6 +155,34 @@ func NewConcurrencyHelper(concurrencyService *service.ConcurrencyService, pingFo
 	}
 }
 
+func resolveLatestBillingEligibility(
+	c *gin.Context,
+	resolver service.BillingEligibilityResolver,
+	apiKey *service.APIKey,
+	userID int64,
+	platform string,
+) (*service.UserSubscription, error) {
+	if c == nil || c.Request == nil || resolver == nil || apiKey == nil {
+		return nil, service.ErrBillingServiceUnavailable
+	}
+	subscription, err := resolver.ResolveUsableSubscriptionForRequest(
+		c.Request.Context(),
+		userID,
+		apiKey.ID,
+		apiKey.GroupID,
+		platform,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if subscription != nil {
+		c.Set(string(middleware2.ContextKeySubscription), subscription)
+	} else {
+		c.Set(string(middleware2.ContextKeySubscription), nil)
+	}
+	return subscription, nil
+}
+
 // wrapReleaseOnDone ensures release runs at most once and still triggers on context cancellation.
 // 用于避免客户端断开或上游超时导致的并发槽位泄漏。
 // 优化：基于 context.AfterFunc 注册回调，避免每请求额外守护 goroutine。

@@ -317,8 +317,8 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		return
 	}
 
-	// Get subscription (may be nil)
-	subscription, _ := middleware.GetSubscriptionFromContext(c)
+	// Resolve the authoritative subscription after the user wait.
+	var subscription *service.UserSubscription
 
 	// For Gemini native API, do not send Claude-style ping frames.
 	geminiConcurrency := NewConcurrencyHelper(h.concurrencyHelper.concurrencyService, SSEPingFormatNone, 0)
@@ -341,7 +341,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	}
 
 	// 2) billing eligibility check (after wait)
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if subscription, err = resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, authSubject.UserID, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("gemini.billing_eligibility_check_failed", zap.Error(err))
 		status, _, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -571,6 +571,24 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		}
 		// 账号槽位/等待计数需要在超时或断开时安全回收
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
+		expectedPlatform := service.PlatformGemini
+		if apiKey.Group != nil {
+			expectedPlatform = apiKey.Group.Platform
+		}
+		freshAccount, revalidateErr := h.gatewayService.RevalidateSelectedAccount(c.Request.Context(), account.ID, service.AccountEligibilityRequest{
+			GroupID:          apiKey.GroupID,
+			SessionHash:      sessionKey,
+			RequestedModel:   reqModel,
+			ExpectedPlatform: expectedPlatform,
+		})
+		if revalidateErr != nil {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			fs.FailedAccountIDs[account.ID] = struct{}{}
+			continue
+		}
+		account = freshAccount
 
 		// 5) forward (根据平台分流)
 		var result *service.ForwardResult

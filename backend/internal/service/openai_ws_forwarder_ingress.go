@@ -487,6 +487,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			if hooks != nil && hooks.AfterTurn != nil {
 				hooks.AfterTurn(turn, result, bridgeErr)
 			}
+			if hooks != nil && hooks.SettleTurn != nil {
+				if settleErr := hooks.SettleTurn(turn, result, bridgeErr); settleErr != nil {
+					return settleErr
+				}
+			}
 			if bridgeErr != nil {
 				return bridgeErr
 			}
@@ -1454,6 +1459,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			if hooks != nil && hooks.AfterTurn != nil {
 				hooks.AfterTurn(turn, nil, finalErr)
 			}
+			if hooks != nil && hooks.SettleTurn != nil {
+				if settleErr := hooks.SettleTurn(turn, nil, finalErr); settleErr != nil {
+					sessionLease.MarkBroken()
+					return settleErr
+				}
+			}
 			sessionLease.MarkBroken()
 			return finalErr
 		}
@@ -1463,6 +1474,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		lastTurnClean = true
 		if hooks != nil && hooks.AfterTurn != nil {
 			hooks.AfterTurn(turn, result, nil)
+		}
+		if hooks != nil && hooks.SettleTurn != nil {
+			if settleErr := hooks.SettleTurn(turn, result, nil); settleErr != nil {
+				sessionLease.MarkBroken()
+				return settleErr
+			}
 		}
 		if result == nil {
 			return errors.New("websocket turn result is nil")

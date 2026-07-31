@@ -1339,6 +1339,9 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 			Schedulable: true,
 			Concurrency: 1,
 			Priority:    1,
+			AccountGroups: []service.AccountGroup{
+				{AccountID: 9902, GroupID: groupID},
+			},
 			Credentials: map[string]any{
 				"api_key":  "sk-first",
 				"base_url": firstUpstream.URL,
@@ -1357,6 +1360,9 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 			Schedulable: true,
 			Concurrency: 1,
 			Priority:    2,
+			AccountGroups: []service.AccountGroup{
+				{AccountID: 9903, GroupID: groupID},
+			},
 			Credentials: map[string]any{
 				"api_key":  "sk-second",
 				"base_url": secondUpstream.URL,
@@ -1419,11 +1425,12 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 		},
 	}
 	h := &OpenAIGatewayHandler{
-		gatewayService:      gatewaySvc,
-		billingCacheService: billingCacheSvc,
-		apiKeyService:       &service.APIKeyService{},
-		concurrencyHelper:   NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
-		maxAccountSwitches:  3,
+		gatewayService:            gatewaySvc,
+		billingCacheService:       billingCacheSvc,
+		billingEligibilityService: allowBillingEligibilityResolver{},
+		apiKeyService:             &service.APIKeyService{},
+		concurrencyHelper:         NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
+		maxAccountSwitches:        3,
 	}
 
 	apiKey := &service.APIKey{
@@ -1531,6 +1538,9 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		Status:      service.StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
+		AccountGroups: []service.AccountGroup{
+			{AccountID: 9901, GroupID: groupID},
+		},
 		Credentials: map[string]any{
 			"api_key":  "sk-test",
 			"base_url": upstreamServer.URL,
@@ -1606,10 +1616,11 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		},
 	}
 	h := &OpenAIGatewayHandler{
-		gatewayService:      gatewaySvc,
-		billingCacheService: billingCacheSvc,
-		apiKeyService:       &service.APIKeyService{},
-		concurrencyHelper:   NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
+		gatewayService:            gatewaySvc,
+		billingCacheService:       billingCacheSvc,
+		billingEligibilityService: allowBillingEligibilityResolver{},
+		apiKeyService:             &service.APIKeyService{},
+		concurrencyHelper:         NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
 	}
 
 	apiKey := &service.APIKey{

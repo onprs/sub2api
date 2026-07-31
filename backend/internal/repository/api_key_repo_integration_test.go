@@ -54,6 +54,27 @@ func (s *APIKeyRepoSuite) TestCreate() {
 	s.Require().Equal("sk-create-test", got.Key)
 }
 
+func (s *APIKeyRepoSuite) TestGetByIDLoadsAllowedGroups() {
+	user := s.mustCreateUser("getbyid-allowed-groups@test.com")
+	group := s.mustCreateGroup("g-getbyid-allowed")
+	_, err := s.client.User.UpdateOneID(user.ID).AddAllowedGroupIDs(group.ID).Save(s.ctx)
+	s.Require().NoError(err)
+
+	key := &service.APIKey{
+		UserID:  user.ID,
+		Key:     "sk-getbyid-allowed-groups",
+		Name:    "Allowed Groups Key",
+		GroupID: &group.ID,
+		Status:  service.StatusActive,
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, key))
+
+	got, err := s.repo.GetByID(s.ctx, key.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(got.User)
+	s.Require().Contains(got.User.AllowedGroups, group.ID)
+}
+
 func (s *APIKeyRepoSuite) TestGetByID_NotFound() {
 	_, err := s.repo.GetByID(s.ctx, 999999)
 	s.Require().Error(err, "expected error for non-existent ID")

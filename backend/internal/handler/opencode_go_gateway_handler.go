@@ -31,17 +31,18 @@ type standardProtocolGateway interface {
 // OpenCodeGoGatewayHandler handles standard protocol gateway requests for
 // OpenCode Go and ClinePass groups.
 type OpenCodeGoGatewayHandler struct {
-	openCodeGoService        *service.OpenCodeGoGatewayService
-	clinePassService         *service.ClinePassGatewayService
-	gatewayService           *service.GatewayService
-	billingCacheService      *service.BillingCacheService
-	apiKeyService            *service.APIKeyService
-	usageRecordWorkerPool    *service.UsageRecordWorkerPool
-	errorPassthroughService  *service.ErrorPassthroughService
-	contentModerationService *service.ContentModerationService
-	concurrencyHelper        *ConcurrencyHelper
-	maxAccountSwitches       int
-	cfg                      *config.Config
+	openCodeGoService         *service.OpenCodeGoGatewayService
+	clinePassService          *service.ClinePassGatewayService
+	gatewayService            *service.GatewayService
+	billingCacheService       *service.BillingCacheService
+	billingEligibilityService service.BillingEligibilityResolver
+	apiKeyService             *service.APIKeyService
+	usageRecordWorkerPool     *service.UsageRecordWorkerPool
+	errorPassthroughService   *service.ErrorPassthroughService
+	contentModerationService  *service.ContentModerationService
+	concurrencyHelper         *ConcurrencyHelper
+	maxAccountSwitches        int
+	cfg                       *config.Config
 }
 
 // NewOpenCodeGoGatewayHandler creates an OpenCode Go gateway handler.
@@ -51,6 +52,7 @@ func NewOpenCodeGoGatewayHandler(
 	gatewayService *service.GatewayService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
+	billingEligibilityService service.BillingEligibilityResolver,
 	apiKeyService *service.APIKeyService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
 	errorPassthroughService *service.ErrorPassthroughService,
@@ -66,17 +68,18 @@ func NewOpenCodeGoGatewayHandler(
 		}
 	}
 	return &OpenCodeGoGatewayHandler{
-		openCodeGoService:        openCodeGoService,
-		clinePassService:         clinePassService,
-		gatewayService:           gatewayService,
-		billingCacheService:      billingCacheService,
-		apiKeyService:            apiKeyService,
-		usageRecordWorkerPool:    usageRecordWorkerPool,
-		errorPassthroughService:  errorPassthroughService,
-		contentModerationService: contentModerationService,
-		concurrencyHelper:        NewConcurrencyHelper(concurrencyService, SSEPingFormatClaude, pingInterval),
-		maxAccountSwitches:       maxAccountSwitches,
-		cfg:                      cfg,
+		openCodeGoService:         openCodeGoService,
+		clinePassService:          clinePassService,
+		gatewayService:            gatewayService,
+		billingCacheService:       billingCacheService,
+		billingEligibilityService: billingEligibilityService,
+		apiKeyService:             apiKeyService,
+		usageRecordWorkerPool:     usageRecordWorkerPool,
+		errorPassthroughService:   errorPassthroughService,
+		contentModerationService:  contentModerationService,
+		concurrencyHelper:         NewConcurrencyHelper(concurrencyService, SSEPingFormatClaude, pingInterval),
+		maxAccountSwitches:        maxAccountSwitches,
+		cfg:                       cfg,
 	}
 }
 
@@ -208,7 +211,7 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 	if h.errorPassthroughService != nil {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
 	}
-	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	var subscription *service.UserSubscription
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 
@@ -220,7 +223,7 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 		defer userReleaseFunc()
 	}
 
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if subscription, err = resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, subject.UserID, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("opencode_go.billing_eligibility_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -283,6 +286,20 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 		if !acquired {
 			return
 		}
+		freshAccount, revalidateErr := h.gatewayService.RevalidateSelectedAccount(c.Request.Context(), account.ID, service.AccountEligibilityRequest{
+			GroupID:          apiKey.GroupID,
+			SessionHash:      sessionHash,
+			RequestedModel:   reqModel,
+			ExpectedPlatform: platform,
+		})
+		if revalidateErr != nil {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			fs.FailedAccountIDs[account.ID] = struct{}{}
+			continue
+		}
+		account = freshAccount
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
@@ -470,32 +487,11 @@ func (h *OpenCodeGoGatewayHandler) buildParsedRequest(body []byte, model string,
 }
 
 func (h *OpenCodeGoGatewayHandler) acquireUserSlot(c *gin.Context, userID int64, concurrency int, stream bool, streamStarted *bool, reqLog *zap.Logger, format openCodeGoHandlerErrorFormat) (func(), bool) {
-	maxWait := service.CalculateMaxWait(concurrency)
-	canWait, err := h.concurrencyHelper.IncrementWaitCount(c.Request.Context(), userID, maxWait)
-	waitCounted := false
-	if err != nil {
-		reqLog.Warn("opencode_go.user_wait_counter_increment_failed", zap.Error(err))
-	} else if !canWait {
-		h.errorResponse(c, http.StatusTooManyRequests, format, "rate_limit_error", "Too many pending requests, please retry later")
-		return nil, false
-	}
-	if err == nil && canWait {
-		waitCounted = true
-	}
-	defer func() {
-		if waitCounted {
-			h.concurrencyHelper.DecrementWaitCount(c.Request.Context(), userID)
-		}
-	}()
 	release, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, userID, concurrency, stream, streamStarted)
 	if err != nil {
 		reqLog.Warn("opencode_go.user_slot_acquire_failed", zap.Error(err))
 		h.handleConcurrencyError(c, err, "user", streamStarted != nil && *streamStarted, format)
 		return nil, false
-	}
-	if waitCounted {
-		h.concurrencyHelper.DecrementWaitCount(c.Request.Context(), userID)
-		waitCounted = false
 	}
 	return wrapReleaseOnDone(c.Request.Context(), release), true
 }

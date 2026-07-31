@@ -1227,12 +1227,18 @@ func (s *OpenAIGatewayService) hydrateSelectedAccount(ctx context.Context, accou
 	if hydrated == nil {
 		return nil, fmt.Errorf("selected openai account %d not found during hydration", account.ID)
 	}
+	if !hydrated.IsSchedulable() || !hydrated.IsOpenAICompatible() {
+		return nil, ErrNoAvailableAccounts
+	}
 	return hydrated, nil
 }
 
 func (s *OpenAIGatewayService) newSelectionResult(ctx context.Context, account *Account, acquired bool, release func(), waitPlan *AccountWaitPlan) (*AccountSelectionResult, error) {
 	hydrated, err := s.hydrateSelectedAccount(ctx, account)
 	if err != nil {
+		if acquired && release != nil {
+			release()
+		}
 		return nil, err
 	}
 	return &AccountSelectionResult{
@@ -1244,11 +1250,7 @@ func (s *OpenAIGatewayService) newSelectionResult(ctx context.Context, account *
 }
 
 func (s *OpenAIGatewayService) newAcquiredSelectionResult(ctx context.Context, account *Account, release func()) (*AccountSelectionResult, error) {
-	selection, err := s.newSelectionResult(ctx, account, true, release, nil)
-	if err != nil && release != nil {
-		release()
-	}
-	return selection, err
+	return s.newSelectionResult(ctx, account, true, release, nil)
 }
 
 func (s *OpenAIGatewayService) schedulingConfig() config.GatewaySchedulingConfig {
