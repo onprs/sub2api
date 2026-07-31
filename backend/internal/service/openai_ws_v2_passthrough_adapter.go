@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -314,6 +315,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	// goroutine）之间同步当前 turn 的 usage metadata。
 	usageMeta.initFromFirstFrame(firstClientMessage, capturedSessionModel)
 	promptCacheKey := strings.TrimSpace(gjson.GetBytes(firstClientMessage, "prompt_cache_key").String())
+	if hooks != nil && hooks.BeforeTurn != nil {
+		if err := hooks.BeforeTurn(1); err != nil {
+			return err
+		}
+	}
 
 	wsURL, err := s.buildOpenAIResponsesWSURL(account)
 	if err != nil {
@@ -395,6 +401,30 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 
 	completedTurns := atomic.Int32{}
+	relayCtx, cancelRelay := context.WithCancelCause(ctx)
+	defer cancelRelay(nil)
+	var settlementMu sync.Mutex
+	var settlementErr error
+	settleTurn := func(turn int, result *OpenAIForwardResult, turnErr error) error {
+		if hooks == nil || hooks.SettleTurn == nil {
+			return nil
+		}
+		err := hooks.SettleTurn(turn, result, turnErr)
+		if err != nil {
+			settlementMu.Lock()
+			if settlementErr == nil {
+				settlementErr = err
+			}
+			settlementMu.Unlock()
+			cancelRelay(err)
+		}
+		return err
+	}
+	getSettlementErr := func() error {
+		settlementMu.Lock()
+		defer settlementMu.Unlock()
+		return settlementErr
+	}
 	policyClientConn := &openAIWSPolicyEnforcingFrameConn{
 		inner: &openAIWSClientFrameConn{conn: clientConn},
 		// 注意线程安全：filter 仅在 runClientToUpstream 这一条
@@ -405,17 +435,24 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if msgType != coderws.MessageText {
 				return payload, nil, nil
 			}
-			if strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.create" && hooks != nil && hooks.BeforeRequest != nil {
+			if strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.create" {
 				turnNo := int(completedTurns.Load()) + 1
 				if turnNo < 2 {
 					turnNo = 2
 				}
-				requestModel := usageMeta.requestModelForFrame(payload)
-				if requestModel == "" {
-					requestModel = capturedSessionModel
+				if hooks != nil && hooks.BeforeRequest != nil {
+					requestModel := usageMeta.requestModelForFrame(payload)
+					if requestModel == "" {
+						requestModel = capturedSessionModel
+					}
+					if err := hooks.BeforeRequest(turnNo, payload, requestModel); err != nil {
+						return payload, nil, err
+					}
 				}
-				if err := hooks.BeforeRequest(turnNo, payload, requestModel); err != nil {
-					return payload, nil, err
+				if hooks != nil && hooks.BeforeTurn != nil {
+					if err := hooks.BeforeTurn(turnNo); err != nil {
+						return payload, nil, err
+					}
 				}
 			}
 			// 在评估策略前先刷新 capturedSessionModel：客户端可能通过
@@ -503,7 +540,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 
 	relayResult, relayExit := openaiwsv2.RunEntry(openaiwsv2.EntryInput{
-		Ctx:                ctx,
+		Ctx:                relayCtx,
 		ClientConn:         policyClientConn,
 		UpstreamConn:       upstreamFrameConn,
 		FirstClientMessage: firstClientMessage,
@@ -559,6 +596,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				if hooks != nil && hooks.AfterTurn != nil {
 					hooks.AfterTurn(turnNo, turnResult, nil)
 				}
+				_ = settleTurn(turnNo, turnResult, nil)
 			},
 			BeforeWriteClient: func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error {
 				if msgType != coderws.MessageText || wroteDownstream {
@@ -624,6 +662,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 
 	turnCount := int(completedTurns.Load())
+	if err := getSettlementErr(); err != nil {
+		return err
+	}
 	if relayExit == nil {
 		logOpenAIWSV2Passthrough(
 			"relay_completed account_id=%d request_id=%s terminal_event=%s duration_ms=%d c2u_frames=%d u2c_frames=%d dropped_frames=%d turns=%d",
@@ -637,8 +678,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			turnCount,
 		)
 		// 正常路径按 terminal 事件逐 turn 已回调；仅在零 turn 场景兜底回调一次。
-		if turnCount == 0 && hooks != nil && hooks.AfterTurn != nil {
-			hooks.AfterTurn(1, result, nil)
+		if turnCount == 0 {
+			if hooks != nil && hooks.AfterTurn != nil {
+				hooks.AfterTurn(1, result, nil)
+			}
+			if err := settleTurn(1, result, nil); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -670,6 +716,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	)
 	if hooks != nil && hooks.AfterTurn != nil {
 		hooks.AfterTurn(turnCount+1, nil, turnErr)
+	}
+	if err := settleTurn(turnCount+1, nil, turnErr); err != nil {
+		return err
 	}
 	return turnErr
 }

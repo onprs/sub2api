@@ -107,7 +107,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
 	}
 
-	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	var subscription *service.UserSubscription
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 
@@ -122,8 +122,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		defer userReleaseFunc()
 	}
 
-	// 2. Re-check billing
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	// 2. Resolve fresh billing state after the user wait.
+	if subscription, err = resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, subject.UserID, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("gateway.cc.billing_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -216,6 +216,21 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			}
 		}
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
+
+		freshAccount, revalidateErr := h.gatewayService.RevalidateSelectedAccount(c.Request.Context(), account.ID, service.AccountEligibilityRequest{
+			GroupID:          apiKey.GroupID,
+			SessionHash:      selectionSessionHash,
+			RequestedModel:   reqModel,
+			ExpectedPlatform: groupPlatform,
+		})
+		if revalidateErr != nil {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			fs.FailedAccountIDs[account.ID] = struct{}{}
+			continue
+		}
+		account = freshAccount
 
 		if groupPlatform == service.PlatformGemini && !supportsGeminiStandardGenerationAccount(account) {
 			if accountReleaseFunc != nil {

@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -138,6 +139,37 @@ func TestOpenAINewAcquiredSelectionResult_ReleasesSlotWhenHydrationFails(t *test
 	}
 	if releaseCalls != 1 {
 		t.Fatalf("expected release to be called once, got %d", releaseCalls)
+	}
+}
+
+func TestOpenAINewAcquiredSelectionResult_RejectsDisabledHydratedAccount(t *testing.T) {
+	cache := &snapshotHydrationCache{
+		accounts: map[int64]*Account{
+			1002: {
+				ID:          1002,
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusDisabled,
+				Schedulable: false,
+			},
+		},
+	}
+	schedulerSnapshot := NewSchedulerSnapshotService(cache, nil, stubOpenAIAccountRepo{}, nil, nil)
+	svc := &OpenAIGatewayService{schedulerSnapshot: schedulerSnapshot}
+	releaseCalls := 0
+
+	selection, err := svc.newAcquiredSelectionResult(context.Background(), &Account{ID: 1002}, func() {
+		releaseCalls++
+	})
+
+	if !errors.Is(err, ErrNoAvailableAccounts) {
+		t.Fatalf("expected ErrNoAvailableAccounts, got %v", err)
+	}
+	if selection != nil {
+		t.Fatalf("expected nil selection")
+	}
+	if releaseCalls != 1 {
+		t.Fatalf("expected release once, got %d", releaseCalls)
 	}
 }
 

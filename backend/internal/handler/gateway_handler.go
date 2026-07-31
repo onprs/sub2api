@@ -48,6 +48,7 @@ type GatewayHandler struct {
 	openAIGatewayService      *service.OpenAIGatewayService
 	userService               *service.UserService
 	billingCacheService       *service.BillingCacheService
+	billingEligibilityService service.BillingEligibilityResolver
 	usageService              *service.UsageService
 	apiKeyService             *service.APIKeyService
 	usageRecordWorkerPool     *service.UsageRecordWorkerPool
@@ -70,6 +71,7 @@ func NewGatewayHandler(
 	userService *service.UserService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
+	billingEligibilityService service.BillingEligibilityResolver,
 	usageService *service.UsageService,
 	apiKeyService *service.APIKeyService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
@@ -105,6 +107,7 @@ func NewGatewayHandler(
 		openAIGatewayService:      openAIGatewayService,
 		userService:               userService,
 		billingCacheService:       billingCacheService,
+		billingEligibilityService: billingEligibilityService,
 		usageService:              usageService,
 		apiKeyService:             apiKeyService,
 		usageRecordWorkerPool:     usageRecordWorkerPool,
@@ -225,8 +228,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
 	}
 
-	// 获取订阅信息（可能为nil）- 提前获取用于后续检查
-	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	// The authoritative subscription is resolved after the user wait.
+	var subscription *service.UserSubscription
 
 	// 1. 首先获取用户并发槽位
 	userReleaseFunc, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted)
@@ -241,8 +244,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		defer userReleaseFunc()
 	}
 
-	// 2. 【新增】Wait后二次检查余额/订阅
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	// 2. Resolve fresh billing state after the user wait.
+	if subscription, err = resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, subject.UserID, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("gateway.billing_eligibility_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -429,6 +432,20 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 账号槽位/等待计数需要在超时或断开时安全回收
 			accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
+			freshAccount, revalidateErr := h.gatewayService.RevalidateSelectedAccount(c.Request.Context(), account.ID, service.AccountEligibilityRequest{
+				GroupID:          apiKey.GroupID,
+				SessionHash:      sessionKey,
+				RequestedModel:   reqModel,
+				ExpectedPlatform: platform,
+			})
+			if revalidateErr != nil {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				fs.FailedAccountIDs[account.ID] = struct{}{}
+				continue
+			}
+			account = freshAccount
 
 			// 转发请求 - 根据账号平台分流
 			var result *service.ForwardResult
@@ -721,6 +738,20 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 账号槽位/等待计数需要在超时或断开时安全回收
 			accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
+			freshAccount, revalidateErr := h.gatewayService.RevalidateSelectedAccount(c.Request.Context(), account.ID, service.AccountEligibilityRequest{
+				GroupID:          currentAPIKey.GroupID,
+				SessionHash:      sessionKey,
+				RequestedModel:   reqModel,
+				ExpectedPlatform: platform,
+			})
+			if revalidateErr != nil {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				fs.FailedAccountIDs[account.ID] = struct{}{}
+				continue
+			}
+			account = freshAccount
 
 			// ===== 用户消息串行队列 START =====
 			var queueRelease func()
@@ -849,6 +880,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 							return
 						}
 						fallbackAPIKey := cloneAPIKeyWithGroup(apiKey, fallbackGroup)
+						// This is an immediate fallback transition rather than a queued request.
+						// The cloned key intentionally targets a different group, so use the
+						// cache check with the already refreshed user balance here.
 						if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), fallbackAPIKey.User, fallbackAPIKey, fallbackGroup, nil, service.PlatformFromAPIKey(fallbackAPIKey)); err != nil {
 							status, code, message, retryAfter := billingErrorDetails(err)
 							if retryAfter > 0 {
@@ -1835,7 +1869,7 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		return
 	}
 
-	_, ok = middleware2.GetAuthSubjectFromContext(c)
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
 		h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
 		return
@@ -1888,12 +1922,10 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	setOpsRequestContext(c, parsedReq.Model, parsedReq.Stream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(parsedReq.Stream, false)))
 
-	// 获取订阅信息（可能为nil）
-	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-
-	// 校验 billing eligibility（订阅/余额）
-	// 【注意】不计算并发，但需要校验订阅/余额
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	// Count-tokens has no concurrency slot, but still requires the same fresh
+	// authorization gate immediately before account selection.
+	_, err = resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, subject.UserID, service.QuotaPlatform(c.Request.Context(), apiKey))
+	if err != nil {
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
 			c.Header("Retry-After", strconv.Itoa(retryAfter))

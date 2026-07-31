@@ -111,7 +111,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
 	}
 
-	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	var subscription *service.UserSubscription
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -124,7 +124,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		defer userReleaseFunc()
 	}
 
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if subscription, err = resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, subject.UserID, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("openai.images.billing_eligibility_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -207,6 +207,17 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		accountReleaseFunc, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, parsed.Stream, &streamStarted, reqLog)
 		if !acquired {
 			return
+		}
+		account, acquired = h.revalidateSelectedAccountAfterAcquire(requestCtx, account, accountReleaseFunc, failedAccountIDs, service.OpenAIAccountEligibilityRequest{
+			GroupID:                 apiKey.GroupID,
+			SessionHash:             sessionHash,
+			Platform:                service.PlatformOpenAI,
+			RequestedModel:          requestModel,
+			RequiredImageCapability: service.OpenAIImagesCapabilityBasic,
+			RequiredTransport:       service.OpenAIUpstreamTransportHTTPSSE,
+		}, reqLog)
+		if !acquired {
+			continue
 		}
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())

@@ -77,7 +77,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 
-	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	var subscription *service.UserSubscription
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 
 	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, false, &streamStarted, reqLog)
@@ -88,7 +88,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		defer userReleaseFunc()
 	}
 
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if subscription, err = resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, subject.UserID, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("openai_embeddings.billing_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -154,6 +154,16 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		accountReleaseFunc, accountAcquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, "", selection, false, &streamStarted, reqLog)
 		if !accountAcquired {
 			return
+		}
+		account, accountAcquired = h.revalidateSelectedAccountAfterAcquire(c.Request.Context(), account, accountReleaseFunc, failedAccountIDs, service.OpenAIAccountEligibilityRequest{
+			GroupID:            apiKey.GroupID,
+			Platform:           service.PlatformOpenAI,
+			RequestedModel:     reqModel,
+			RequiredCapability: service.OpenAIEndpointCapabilityEmbeddings,
+			RequiredTransport:  service.OpenAIUpstreamTransportHTTPSSE,
+		}, reqLog)
+		if !accountAcquired {
+			continue
 		}
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())

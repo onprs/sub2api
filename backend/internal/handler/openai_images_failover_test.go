@@ -19,6 +19,12 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+type openAIImagesBillingEligibilityStub struct{}
+
+func (openAIImagesBillingEligibilityStub) ResolveUsableSubscriptionForRequest(context.Context, int64, int64, *int64, string) (*service.UserSubscription, error) {
+	return nil, nil
+}
+
 type openAIImagesFailoverAccountRepo struct {
 	service.AccountRepository
 	accounts []service.Account
@@ -145,6 +151,7 @@ func TestOpenAIGatewayHandlerImages_ServerErrorFailsOverAndReturnsClearErrorWhen
 		gatewayService,
 		concurrencyService,
 		billingService,
+		openAIImagesBillingEligibilityStub{},
 		service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg),
 		nil,
 		nil,

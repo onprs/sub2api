@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -73,11 +74,28 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_KeepLeaseAcrossT
 
 	serverErrCh := make(chan error, 1)
 	turnWSModeCh := make(chan bool, 2)
+	var hookMu sync.Mutex
+	hookOrder := make([]string, 0, 6)
 	hooks := &OpenAIWSIngressHooks{
-		AfterTurn: func(_ int, result *OpenAIForwardResult, turnErr error) {
+		BeforeTurn: func(turn int) error {
+			hookMu.Lock()
+			hookOrder = append(hookOrder, fmt.Sprintf("before:%d", turn))
+			hookMu.Unlock()
+			return nil
+		},
+		AfterTurn: func(turn int, result *OpenAIForwardResult, turnErr error) {
+			hookMu.Lock()
+			hookOrder = append(hookOrder, fmt.Sprintf("after:%d", turn))
+			hookMu.Unlock()
 			if turnErr == nil && result != nil {
 				turnWSModeCh <- result.OpenAIWSMode
 			}
+		},
+		SettleTurn: func(turn int, _ *OpenAIForwardResult, _ error) error {
+			hookMu.Lock()
+			hookOrder = append(hookOrder, fmt.Sprintf("settle:%d", turn))
+			hookMu.Unlock()
+			return nil
 		},
 	}
 	wsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -162,6 +180,9 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_KeepLeaseAcrossT
 	require.Equal(t, int64(1), metrics.AcquireTotal, "同一 ingress 会话多 turn 应只获取一次上游 lease")
 	require.Equal(t, 1, captureDialer.DialCount(), "同一 ingress 会话应保持同一上游连接")
 	require.Len(t, captureConn.writes, 2, "应向同一上游连接发送两轮 response.create")
+	hookMu.Lock()
+	require.Equal(t, []string{"before:1", "after:1", "settle:1", "before:2", "after:2", "settle:2"}, hookOrder)
+	hookMu.Unlock()
 }
 
 func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_FollowupCreateCanOmitModel(t *testing.T) {

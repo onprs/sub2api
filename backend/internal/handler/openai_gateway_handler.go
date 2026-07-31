@@ -28,17 +28,18 @@ import (
 
 // OpenAIGatewayHandler handles OpenAI API gateway requests
 type OpenAIGatewayHandler struct {
-	gatewayService           *service.OpenAIGatewayService
-	billingCacheService      *service.BillingCacheService
-	apiKeyService            *service.APIKeyService
-	usageRecordWorkerPool    *service.UsageRecordWorkerPool
-	errorPassthroughService  *service.ErrorPassthroughService
-	contentModerationService *service.ContentModerationService
-	opsService               *service.OpsService
-	concurrencyHelper        *ConcurrencyHelper
-	imageLimiter             *imageConcurrencyLimiter
-	maxAccountSwitches       int
-	cfg                      *config.Config
+	gatewayService            *service.OpenAIGatewayService
+	billingCacheService       *service.BillingCacheService
+	billingEligibilityService service.BillingEligibilityResolver
+	apiKeyService             *service.APIKeyService
+	usageRecordWorkerPool     *service.UsageRecordWorkerPool
+	errorPassthroughService   *service.ErrorPassthroughService
+	contentModerationService  *service.ContentModerationService
+	opsService                *service.OpsService
+	concurrencyHelper         *ConcurrencyHelper
+	imageLimiter              *imageConcurrencyLimiter
+	maxAccountSwitches        int
+	cfg                       *config.Config
 }
 
 const maxOpenAIFirstOutputTimeoutSwitches = 1
@@ -111,6 +112,7 @@ func NewOpenAIGatewayHandler(
 	gatewayService *service.OpenAIGatewayService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
+	billingEligibilityService service.BillingEligibilityResolver,
 	apiKeyService *service.APIKeyService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
 	errorPassthroughService *service.ErrorPassthroughService,
@@ -127,17 +129,18 @@ func NewOpenAIGatewayHandler(
 		}
 	}
 	return &OpenAIGatewayHandler{
-		gatewayService:           gatewayService,
-		billingCacheService:      billingCacheService,
-		apiKeyService:            apiKeyService,
-		usageRecordWorkerPool:    usageRecordWorkerPool,
-		errorPassthroughService:  errorPassthroughService,
-		contentModerationService: contentModerationService,
-		opsService:               opsService,
-		concurrencyHelper:        NewConcurrencyHelper(concurrencyService, SSEPingFormatComment, pingInterval),
-		imageLimiter:             &imageConcurrencyLimiter{},
-		maxAccountSwitches:       maxAccountSwitches,
-		cfg:                      cfg,
+		gatewayService:            gatewayService,
+		billingCacheService:       billingCacheService,
+		billingEligibilityService: billingEligibilityService,
+		apiKeyService:             apiKeyService,
+		usageRecordWorkerPool:     usageRecordWorkerPool,
+		errorPassthroughService:   errorPassthroughService,
+		contentModerationService:  contentModerationService,
+		opsService:                opsService,
+		concurrencyHelper:         NewConcurrencyHelper(concurrencyService, SSEPingFormatComment, pingInterval),
+		imageLimiter:              &imageConcurrencyLimiter{},
+		maxAccountSwitches:        maxAccountSwitches,
+		cfg:                       cfg,
 	}
 }
 
@@ -286,8 +289,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
 	}
 
-	// Get subscription info (may be nil)
-	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	var subscription *service.UserSubscription
 	requestPlatform := openAICompatibleRequestPlatform(apiKey)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
@@ -302,8 +304,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		defer userReleaseFunc()
 	}
 
-	// 2. Re-check billing eligibility after wait
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	// 2. Resolve fresh billing state after the user wait.
+	if subscription, err = resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, subject.UserID, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("openai.billing_eligibility_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -402,6 +404,18 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		accountReleaseFunc, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
 		if !acquired {
 			return
+		}
+		account, acquired = h.revalidateSelectedAccountAfterAcquire(c.Request.Context(), account, accountReleaseFunc, failedAccountIDs, service.OpenAIAccountEligibilityRequest{
+			GroupID:            apiKey.GroupID,
+			SessionHash:        sessionHash,
+			Platform:           requestPlatform,
+			RequestedModel:     reqModel,
+			RequireCompact:     requireCompact,
+			RequiredCapability: service.OpenAIEndpointCapabilityChatCompletions,
+			RequiredTransport:  service.OpenAIUpstreamTransportAny,
+		}, reqLog)
+		if !acquired {
+			continue
 		}
 
 		// Forward request
@@ -791,7 +805,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
 	}
 
-	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	var subscription *service.UserSubscription
 	requestPlatform := openAICompatibleRequestPlatform(apiKey)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
@@ -805,7 +819,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		defer userReleaseFunc()
 	}
 
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if subscription, err = resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, subject.UserID, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("openai_messages.billing_eligibility_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -888,6 +902,17 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		accountReleaseFunc, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
 		if !acquired {
 			return
+		}
+		account, acquired = h.revalidateSelectedAccountAfterAcquire(c.Request.Context(), account, accountReleaseFunc, failedAccountIDs, service.OpenAIAccountEligibilityRequest{
+			GroupID:            apiKey.GroupID,
+			SessionHash:        sessionHash,
+			Platform:           requestPlatform,
+			RequestedModel:     currentRoutingModel,
+			RequiredCapability: service.OpenAIEndpointCapabilityChatCompletions,
+			RequiredTransport:  service.OpenAIUpstreamTransportAny,
+		}, reqLog)
+		if !acquired {
+			continue
 		}
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
@@ -1133,6 +1158,36 @@ func (h *OpenAIGatewayHandler) acquireResponsesUserSlot(
 		return nil, false
 	}
 	return wrapReleaseOnDone(ctx, userReleaseFunc), true
+}
+
+func (h *OpenAIGatewayHandler) revalidateSelectedAccountAfterAcquire(
+	ctx context.Context,
+	account *service.Account,
+	release func(),
+	failedAccountIDs map[int64]struct{},
+	req service.OpenAIAccountEligibilityRequest,
+	requestLog *zap.Logger,
+) (*service.Account, bool) {
+	if account == nil || h == nil || h.gatewayService == nil {
+		if release != nil {
+			release()
+		}
+		return nil, false
+	}
+	fresh, err := h.gatewayService.RevalidateSelectedAccount(ctx, account.ID, req)
+	if err != nil {
+		if release != nil {
+			release()
+		}
+		if failedAccountIDs != nil {
+			failedAccountIDs[account.ID] = struct{}{}
+		}
+		if requestLog != nil {
+			requestLog.Info("openai.account_post_wait_revalidation_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+		}
+		return nil, false
+	}
+	return fresh, true
 }
 
 func (h *OpenAIGatewayHandler) acquireResponsesAccountSlot(
@@ -1395,13 +1450,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return true
 	}
 
-	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	var subscription *service.UserSubscription
 	requestPlatform := openAICompatibleRequestPlatform(apiKey)
 	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
 	if requestPlatform == service.PlatformGrok {
 		requiredTransport = service.OpenAIUpstreamTransportHTTPSSE
 	}
-	if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if subscription, err = resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, subject.UserID, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("openai.websocket_billing_eligibility_check_failed", zap.Error(err))
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
 		return
@@ -1481,6 +1536,21 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			accountReleaseFunc = fastReleaseFunc
 		}
 		currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
+		freshAccount, revalidateErr := h.gatewayService.RevalidateSelectedAccount(ctx, account.ID, service.OpenAIAccountEligibilityRequest{
+			GroupID:            apiKey.GroupID,
+			SessionHash:        sessionHash,
+			Platform:           requestPlatform,
+			RequestedModel:     reqModel,
+			RequiredCapability: service.OpenAIEndpointCapabilityChatCompletions,
+			RequiredTransport:  requiredTransport,
+		})
+		if revalidateErr != nil {
+			releaseAccountSlot()
+			failedAccountIDs[account.ID] = struct{}{}
+			continue
+		}
+		account = freshAccount
+		accountMaxConcurrency = account.Concurrency
 		if err := h.gatewayService.BindStickySession(ctx, apiKey.GroupID, sessionHash, account.ID); err != nil {
 			reqLog.Warn("openai.websocket_bind_sticky_session_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 		}
@@ -1500,6 +1570,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		)
 
 		var requestPayloadHash string
+		currentTurnModel := reqModel
+		turnCyberBlocked := false
 		hooks := &service.OpenAIWSIngressHooks{
 			InitialRequestModel: reqModel,
 			BeforeRequest: func(turn int, payload []byte, originalModel string) error {
@@ -1516,6 +1588,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if model == "" {
 					model = reqModel
 				}
+				currentTurnModel = model
+				requestPayloadHash = service.HashUsageRequestPayload(payload)
 				if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, model, payload); decision != nil && decision.Blocked {
 					writeContentModerationWSError(ctx, wsConn, decision)
 					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, decision.Message, nil)
@@ -1523,29 +1597,34 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return nil
 			},
 			BeforeTurn: func(turn int) error {
-				// turn==1 的会话屏蔽已由握手层检查覆盖；连接内 flag 只拦截后续 turn。
 				if cyberBlockedThisConn {
 					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, cyberSessionBlockedClientMsg, nil)
 				}
 				if turn == 1 {
 					return nil
 				}
-				// 防御式清理：避免异常路径下旧槽位覆盖导致泄漏。
+
 				releaseTurnSlots()
-				// 非首轮 turn 需要重新抢占并发槽位，避免长连接空闲占槽。
-				userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlotForAPIKey(ctx, subject.UserID, subject.Concurrency, apiKey.ID)
-				if err != nil {
-					return service.NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to acquire user concurrency slot", err)
+				latestSubscription, eligibilityErr := resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, subject.UserID, service.QuotaPlatform(c.Request.Context(), apiKey))
+				if eligibilityErr != nil {
+					reqLog.Info("openai.websocket_turn_billing_eligibility_failed", zap.Int("turn", turn), zap.Error(eligibilityErr))
+					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "billing check failed", eligibilityErr)
+				}
+				subscription = latestSubscription
+
+				userReleaseFunc, userAcquired, acquireErr := h.concurrencyHelper.TryAcquireUserSlotForAPIKey(ctx, subject.UserID, subject.Concurrency, apiKey.ID)
+				if acquireErr != nil {
+					return service.NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to acquire user concurrency slot", acquireErr)
 				}
 				if !userAcquired {
 					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "too many concurrent requests, please retry later", nil)
 				}
-				accountReleaseFunc, accountAcquired, err := h.concurrencyHelper.TryAcquireAccountSlot(ctx, account.ID, accountMaxConcurrency)
-				if err != nil {
+				accountReleaseFunc, accountAcquired, acquireErr := h.concurrencyHelper.TryAcquireAccountSlot(ctx, account.ID, accountMaxConcurrency)
+				if acquireErr != nil {
 					if userReleaseFunc != nil {
 						userReleaseFunc()
 					}
-					return service.NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to acquire account concurrency slot", err)
+					return service.NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to acquire account concurrency slot", acquireErr)
 				}
 				if !accountAcquired {
 					if userReleaseFunc != nil {
@@ -1553,29 +1632,36 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					}
 					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "account is busy, please retry later", nil)
 				}
+				if _, revalidateErr := h.gatewayService.RevalidateSelectedAccount(ctx, account.ID, service.OpenAIAccountEligibilityRequest{
+					GroupID:            apiKey.GroupID,
+					SessionHash:        sessionHash,
+					Platform:           requestPlatform,
+					RequestedModel:     currentTurnModel,
+					RequiredCapability: service.OpenAIEndpointCapabilityChatCompletions,
+					RequiredTransport:  requiredTransport,
+				}); revalidateErr != nil {
+					if accountReleaseFunc != nil {
+						accountReleaseFunc()
+					}
+					if userReleaseFunc != nil {
+						userReleaseFunc()
+					}
+					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "selected account is no longer available", revalidateErr)
+				}
 				currentUserRelease = wrapReleaseOnDone(ctx, userReleaseFunc)
 				currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
 				return nil
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
-				// F1: cyber 标记按 turn 生命周期清理——defer 保证任意早返回路径都执行；
-				// CyberBlocked 必须在 submit 前同步预捕获（task 闭包由 worker 池异步执行，
-				// 届时 defer 已清除标记）。
+				turnCyberBlocked = false
 				defer clearCyberPolicyTurnState(c)
 				releaseTurnSlots()
-				h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, reqModel, turnErr != nil, cyberBlockKey, channelMappingWS.ToUsageFields(reqModel, ""), requestPayloadHash)
-				if service.GetOpsCyberPolicy(c) != nil {
+				h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, currentTurnModel, turnErr != nil, cyberBlockKey, channelMappingWS.ToUsageFields(reqModel, ""), requestPayloadHash)
+				turnCyberBlocked = service.GetOpsCyberPolicy(c) != nil
+				if turnCyberBlocked {
 					cyberBlockedThisConn = true
 				}
-				if turnErr != nil {
-					if result == nil || result.ImageCount <= 0 {
-						return
-					}
-					// cyber 命中时该 turn 的用量已由 recordCyberPolicyIfMarked(forwardErrored=true)
-					// 按真实 token 记录，这里不再走下方 RecordUsage，避免对同一 turn 双写/双扣费。
-					if service.GetOpsCyberPolicy(c) != nil {
-						return
-					}
+				if turnErr != nil && result != nil && result.ImageCount > 0 && !turnCyberBlocked {
 					reqLog.Warn("openai.websocket_partial_error_with_image_result",
 						zap.Int64("account_id", account.ID),
 						zap.Int("image_count", result.ImageCount),
@@ -1585,17 +1671,20 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if result == nil {
 					return
 				}
-				// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
 				if account.Type == service.AccountTypeOAuth && !account.IsShadow() {
 					h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(ctx, account.ID, result.ResponseHeaders)
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, result.FirstTokenMs)
+			},
+			SettleTurn: func(_ int, result *service.OpenAIForwardResult, turnErr error) error {
+				if turnCyberBlocked || result == nil || (turnErr != nil && result.ImageCount <= 0) {
+					return nil
+				}
 				inboundEndpoint := GetInboundEndpoint(c)
 				upstreamEndpoint := GetUpstreamEndpointForActualProtocol(c, account.Platform, result.ActualProtocol)
-				quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-				cyberBlocked := service.GetOpsCyberPolicy(c) != nil
-				h.submitOpenAIUsageRecordTask(ctx, result, func(taskCtx context.Context) {
-					if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
+				recordCtx := usageRecordContext(ctx, context.Background())
+				recordUsage := func(recordCtx context.Context) error {
+					return h.gatewayService.RecordUsage(recordCtx, &service.OpenAIRecordUsageInput{
 						Result:             result,
 						APIKey:             apiKey,
 						User:               apiKey.User,
@@ -1607,17 +1696,28 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 						IPAddress:          clientIP,
 						RequestPayloadHash: requestPayloadHash,
 						APIKeyService:      h.apiKeyService,
-						QuotaPlatform:      quotaPlatform,
-						ChannelUsageFields: channelMappingWS.ToUsageFields(reqModel, result.UpstreamModel),
-						CyberBlocked:       cyberBlocked,
-					}); err != nil {
-						reqLog.Error("openai.websocket_record_usage_failed",
-							zap.Int64("account_id", account.ID),
-							zap.String("request_id", result.RequestID),
-							zap.Error(err),
-						)
-					}
-				})
+						QuotaPlatform:      service.QuotaPlatform(c.Request.Context(), apiKey),
+						ChannelUsageFields: channelMappingWS.ToUsageFields(currentTurnModel, result.UpstreamModel),
+					})
+				}
+				if recordErr := recordUsage(recordCtx); recordErr != nil {
+					reqLog.Error("openai.websocket_record_usage_failed",
+						zap.Int64("account_id", account.ID),
+						zap.String("request_id", result.RequestID),
+						zap.Error(recordErr),
+					)
+					h.submitOpenAIUsageRecordTask(ctx, result, func(retryCtx context.Context) {
+						if retryErr := recordUsage(retryCtx); retryErr != nil {
+							reqLog.Error("openai.websocket_record_usage_retry_failed",
+								zap.Int64("account_id", account.ID),
+								zap.String("request_id", result.RequestID),
+								zap.Error(retryErr),
+							)
+						}
+					})
+					return service.NewOpenAIWSClientCloseError(coderws.StatusInternalError, "usage settlement failed", recordErr)
+				}
+				return nil
 			},
 		}
 
