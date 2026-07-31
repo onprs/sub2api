@@ -227,7 +227,10 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
-			fs.FailedAccountIDs[account.ID] = struct{}{}
+			if fs.HandlePostAcquireRevalidationFailure(account.ID) == FailoverExhausted {
+				h.chatCompletionsErrorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+				return
+			}
 			continue
 		}
 		account = freshAccount
@@ -236,7 +239,10 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
-			fs.FailedAccountIDs[account.ID] = struct{}{}
+			if fs.HandlePostAcquireRevalidationFailure(account.ID) == FailoverExhausted {
+				h.chatCompletionsErrorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+				return
+			}
 			continue
 		}
 

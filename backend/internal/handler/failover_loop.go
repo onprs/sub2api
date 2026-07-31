@@ -29,6 +29,9 @@ const (
 )
 
 const (
+	// maxPostAcquireRevalidationFailures bounds stale scheduler/account snapshots
+	// independently from real upstream failover attempts.
+	maxPostAcquireRevalidationFailures = 3
 	// maxSameAccountRetries 同账号重试次数上限（针对 RetryableOnSameAccount 错误）
 	maxSameAccountRetries = 3
 	// sameAccountRetryDelay 同账号重试间隔
@@ -41,23 +44,47 @@ const (
 
 // FailoverState 跨循环迭代共享的 failover 状态
 type FailoverState struct {
-	SwitchCount           int
-	MaxSwitches           int
-	FailedAccountIDs      map[int64]struct{}
-	SameAccountRetryCount map[int64]int
-	LastFailoverErr       *service.UpstreamFailoverError
-	ForceCacheBilling     bool
-	hasBoundSession       bool
+	SwitchCount                  int
+	MaxSwitches                  int
+	FailedAccountIDs             map[int64]struct{}
+	SameAccountRetryCount        map[int64]int
+	LastFailoverErr              *service.UpstreamFailoverError
+	ForceCacheBilling            bool
+	PostAcquireRevalidationCount int
+	MaxPostAcquireRevalidations  int
+	hasBoundSession              bool
 }
 
 // NewFailoverState 创建 failover 状态
 func NewFailoverState(maxSwitches int, hasBoundSession bool) *FailoverState {
 	return &FailoverState{
-		MaxSwitches:           maxSwitches,
-		FailedAccountIDs:      make(map[int64]struct{}),
-		SameAccountRetryCount: make(map[int64]int),
-		hasBoundSession:       hasBoundSession,
+		MaxSwitches:                 maxSwitches,
+		FailedAccountIDs:            make(map[int64]struct{}),
+		SameAccountRetryCount:       make(map[int64]int),
+		MaxPostAcquireRevalidations: maxPostAcquireRevalidationFailures,
+		hasBoundSession:             hasBoundSession,
 	}
+}
+
+// HandlePostAcquireRevalidationFailure excludes the stale account and returns
+// Exhausted when the independent revalidation budget has been consumed.
+func (s *FailoverState) HandlePostAcquireRevalidationFailure(accountID int64) FailoverAction {
+	if s == nil {
+		return FailoverExhausted
+	}
+	if s.FailedAccountIDs == nil {
+		s.FailedAccountIDs = make(map[int64]struct{})
+	}
+	s.FailedAccountIDs[accountID] = struct{}{}
+	s.PostAcquireRevalidationCount++
+	maxFailures := s.MaxPostAcquireRevalidations
+	if maxFailures <= 0 {
+		maxFailures = maxPostAcquireRevalidationFailures
+	}
+	if s.PostAcquireRevalidationCount >= maxFailures {
+		return FailoverExhausted
+	}
+	return FailoverContinue
 }
 
 // HandleFailoverError 处理 UpstreamFailoverError，返回下一步动作。

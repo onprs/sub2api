@@ -153,7 +153,8 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		sessionHash = service.GrokMediaVideoRequestSessionHash(requestID)
 	}
 	requestCtx := c.Request.Context()
-	failedAccountIDs := make(map[int64]struct{})
+	revalidationState := NewFailoverState(0, false)
+	failedAccountIDs := revalidationState.FailedAccountIDs
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	switchCount := 0
@@ -223,16 +224,21 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		if !accountAcquired {
 			return
 		}
-		account, accountAcquired = h.revalidateSelectedAccountAfterAcquire(requestCtx, account, accountReleaseFunc, failedAccountIDs, service.OpenAIAccountEligibilityRequest{
+		freshAccount, accountRevalidated, revalidationExhausted := h.revalidateSelectedAccountAfterAcquire(requestCtx, account, accountReleaseFunc, revalidationState, service.OpenAIAccountEligibilityRequest{
 			GroupID:           apiKey.GroupID,
 			SessionHash:       sessionHash,
 			Platform:          service.PlatformGrok,
 			RequestedModel:    requestModel,
 			RequiredTransport: service.OpenAIUpstreamTransportHTTPSSE,
 		}, reqLog)
-		if !accountAcquired {
+		if !accountRevalidated {
+			if revalidationExhausted {
+				h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+				return
+			}
 			continue
 		}
+		account = freshAccount
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()

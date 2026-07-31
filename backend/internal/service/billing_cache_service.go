@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -620,14 +621,31 @@ func (s *BillingCacheService) InvalidateAPIKeyRateLimit(ctx context.Context, key
 // resets expired windows in-memory and triggers async DB reset,
 // and returns an error if any window limit is exceeded.
 func (s *BillingCacheService) checkAPIKeyRateLimits(ctx context.Context, apiKey *APIKey) error {
+	return s.checkAPIKeyRateLimitsWithMode(ctx, apiKey, false)
+}
+
+func (s *BillingCacheService) checkAPIKeyRateLimitsStrict(ctx context.Context, apiKey *APIKey) error {
+	return s.checkAPIKeyRateLimitsWithMode(ctx, apiKey, true)
+}
+
+func (s *BillingCacheService) checkAPIKeyRateLimitsWithMode(ctx context.Context, apiKey *APIKey, failClosed bool) error {
+	unavailable := func(err error) error {
+		if !failClosed {
+			return nil
+		}
+		if err == nil {
+			err = errBillingCacheUnavailable
+		}
+		return ErrBillingServiceUnavailable.WithCause(err)
+	}
 	if s.cache == nil {
 		// No cache: fall back to reading from DB directly
 		if s.apiKeyRateLimitLoader == nil {
-			return nil
+			return unavailable(nil)
 		}
 		data, err := s.apiKeyRateLimitLoader.GetRateLimitData(ctx, apiKey.ID)
 		if err != nil {
-			return nil // Don't block requests on DB errors
+			return unavailable(err)
 		}
 		return s.evaluateRateLimits(ctx, apiKey, data.Usage5h, data.Usage1d, data.Usage7d,
 			data.Window5hStart, data.Window1dStart, data.Window7dStart)
@@ -637,11 +655,11 @@ func (s *BillingCacheService) checkAPIKeyRateLimits(ctx context.Context, apiKey 
 	if err != nil {
 		// Cache miss: load from DB and populate cache
 		if s.apiKeyRateLimitLoader == nil {
-			return nil
+			return unavailable(nil)
 		}
 		dbData, dbErr := s.apiKeyRateLimitLoader.GetRateLimitData(ctx, apiKey.ID)
 		if dbErr != nil {
-			return nil // Don't block requests on DB errors
+			return unavailable(dbErr)
 		}
 		// Build cache entry from DB data
 		cacheEntry := &APIKeyRateLimitCacheData{
@@ -780,6 +798,16 @@ func (s *BillingCacheService) IncrementUserPlatformQuotaUsage(userID int64, plat
 // 订阅模式：检查缓存用量未超过限额（Group限额从参数传入）
 // platform 为请求的目标平台（如 "anthropic"），传空串 "" 时跳过 user × platform quota 检查。
 func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, platform string) error {
+	return s.checkBillingEligibilityWithMode(ctx, user, apiKey, group, subscription, platform, false)
+}
+
+// CheckBillingEligibilityStrict is the final post-queue gate. Unlike the early
+// preflight, it fails closed when a dependency cannot authoritatively answer.
+func (s *BillingCacheService) CheckBillingEligibilityStrict(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, platform string) error {
+	return s.checkBillingEligibilityWithMode(ctx, user, apiKey, group, subscription, platform, true)
+}
+
+func (s *BillingCacheService) checkBillingEligibilityWithMode(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, platform string, failClosed bool) error {
 	// 简易模式：跳过所有计费检查
 	if s.cfg.RunMode == config.RunModeSimple {
 		return nil
@@ -803,21 +831,39 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 
 	// user × platform quota 仅在 standard（余额）模式生效；订阅模式豁免
 	if !isSubscriptionMode {
-		if err := s.checkUserPlatformQuotaEligibility(ctx, user.ID, platform); err != nil {
+		var err error
+		if failClosed {
+			err = s.checkUserPlatformQuotaEligibilityStrict(ctx, user.ID, platform)
+		} else {
+			err = s.checkUserPlatformQuotaEligibility(ctx, user.ID, platform)
+		}
+		if err != nil {
 			return err
 		}
 	}
 
 	// Check API Key rate limits (applies to both billing modes)
 	if apiKey != nil && apiKey.HasRateLimits() {
-		if err := s.checkAPIKeyRateLimits(ctx, apiKey); err != nil {
+		var err error
+		if failClosed {
+			err = s.checkAPIKeyRateLimitsStrict(ctx, apiKey)
+		} else {
+			err = s.checkAPIKeyRateLimits(ctx, apiKey)
+		}
+		if err != nil {
 			return err
 		}
 	}
 
 	// RPM 限流：级联回落（Override → Group → User），放在最后以避免为注定失败的请求增加计数。
-	if err := s.checkRPM(ctx, user, group); err != nil {
-		return err
+	var rpmErr error
+	if failClosed {
+		rpmErr = s.checkRPMStrict(ctx, user, group)
+	} else {
+		rpmErr = s.checkRPM(ctx, user, group)
+	}
+	if rpmErr != nil {
+		return rpmErr
 	}
 
 	return nil
@@ -831,10 +877,32 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 //  3. user.rpm_limit                  — 用户级全局硬上限：无论 override/group 如何配置，始终生效。
 //
 // 与旧版"级联互斥"设计不同，新版确保 user.rpm_limit 作为全局天花板不会被 group 或 override 覆盖。
-// Redis 故障一律 fail-open（打 warning，不阻塞业务）。
+// The regular preflight keeps the historical fail-open behavior. The strict
+// post-queue gate rejects dependency failures so an unknown RPM state cannot
+// authorize an upstream request.
 func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *Group) error {
-	if s == nil || s.userRPMCache == nil || user == nil {
+	return s.checkRPMWithMode(ctx, user, group, false)
+}
+
+func (s *BillingCacheService) checkRPMStrict(ctx context.Context, user *User, group *Group) error {
+	return s.checkRPMWithMode(ctx, user, group, true)
+}
+
+func (s *BillingCacheService) checkRPMWithMode(ctx context.Context, user *User, group *Group, failClosed bool) error {
+	if user == nil {
 		return nil
+	}
+	unavailable := func(err error) error {
+		if !failClosed {
+			return nil
+		}
+		if err == nil {
+			err = errBillingCacheUnavailable
+		}
+		return ErrBillingServiceUnavailable.WithCause(err)
+	}
+	if s == nil {
+		return unavailable(nil)
 	}
 
 	// ── 第一层：分组级检查（override 或 group.rpm_limit） ──
@@ -851,14 +919,22 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 					"Warning: rpm override lookup failed for user=%d group=%d: %v",
 					user.ID, group.ID, err,
 				)
+				if failClosed {
+					return unavailable(err)
+				}
 			} else {
 				override = dbOverride
 			}
+		} else if failClosed {
+			return unavailable(errors.New("user-group RPM override repository is unavailable"))
 		}
 
 		if override != nil {
 			// override=0 → 该用户在该分组免检（但 user 级仍会在下面检查）。
 			if *override > 0 {
+				if s.userRPMCache == nil {
+					return unavailable(nil)
+				}
 				count, incErr := s.userRPMCache.IncrementUserGroupRPM(ctx, user.ID, group.ID)
 				if incErr != nil {
 					logger.LegacyPrintf(
@@ -866,7 +942,9 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 						"Warning: rpm increment (override) failed for user=%d group=%d: %v",
 						user.ID, group.ID, incErr,
 					)
-					// fail-open
+					if failClosed {
+						return unavailable(incErr)
+					}
 				} else if count > *override {
 					return ErrGroupRPMExceeded
 				}
@@ -874,6 +952,9 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 			// override 命中后跳过 group.rpm_limit（override 替代 group），但不 return——继续检查 user 级。
 		} else if group.RPMLimit > 0 {
 			// 无 override，检查 group.rpm_limit。
+			if s.userRPMCache == nil {
+				return unavailable(nil)
+			}
 			count, err := s.userRPMCache.IncrementUserGroupRPM(ctx, user.ID, group.ID)
 			if err != nil {
 				logger.LegacyPrintf(
@@ -881,7 +962,9 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 					"Warning: rpm increment (group) failed for user=%d group=%d: %v",
 					user.ID, group.ID, err,
 				)
-				// fail-open
+				if failClosed {
+					return unavailable(err)
+				}
 			} else if count > group.RPMLimit {
 				return ErrGroupRPMExceeded
 			}
@@ -890,6 +973,9 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 
 	// ── 第二层：用户级全局硬上限（始终生效） ──
 	if user.RPMLimit > 0 {
+		if s.userRPMCache == nil {
+			return unavailable(nil)
+		}
 		count, err := s.userRPMCache.IncrementUserRPM(ctx, user.ID)
 		if err != nil {
 			logger.LegacyPrintf(
@@ -897,7 +983,7 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 				"Warning: rpm increment (user) failed for user=%d: %v",
 				user.ID, err,
 			)
-			return nil // fail-open
+			return unavailable(err)
 		}
 		if count > user.RPMLimit {
 			return ErrUserRPMExceeded
@@ -1110,7 +1196,30 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 	userID int64,
 	platform string,
 ) error {
-	if platform == "" || s.userPlatformQuotaRepo == nil {
+	return s.checkUserPlatformQuotaEligibilityWithMode(ctx, userID, platform, false)
+}
+
+func (s *BillingCacheService) checkUserPlatformQuotaEligibilityStrict(
+	ctx context.Context,
+	userID int64,
+	platform string,
+) error {
+	return s.checkUserPlatformQuotaEligibilityWithMode(ctx, userID, platform, true)
+}
+
+func (s *BillingCacheService) checkUserPlatformQuotaEligibilityWithMode(
+	ctx context.Context,
+	userID int64,
+	platform string,
+	failClosed bool,
+) error {
+	if platform == "" {
+		return nil
+	}
+	if s.userPlatformQuotaRepo == nil {
+		if failClosed {
+			return ErrBillingServiceUnavailable.WithCause(errors.New("user platform quota repository is unavailable"))
+		}
 		return nil
 	}
 
@@ -1225,12 +1334,17 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 	case res := <-ch:
 		v, dbErr = res.Val, res.Err
 	case <-ctx.Done():
-		// 当前 caller 的 ctx 被取消：fail-open，不阻断 (此请求已无意义)。
-		logger.LegacyPrintf("service.billing_cache", "Warning: user platform quota check ctx cancelled user=%d platform=%s: %v (fail-open)", userID, platform, ctx.Err())
+		logger.LegacyPrintf("service.billing_cache", "Warning: user platform quota check ctx cancelled user=%d platform=%s: %v", userID, platform, ctx.Err())
+		if failClosed {
+			return ErrBillingServiceUnavailable.WithCause(ctx.Err())
+		}
 		return nil
 	}
 	if dbErr != nil {
-		logger.LegacyPrintf("service.billing_cache", "Warning: load user platform quota failed user=%d platform=%s: %v (fail-open)", userID, platform, dbErr)
+		logger.LegacyPrintf("service.billing_cache", "Warning: load user platform quota failed user=%d platform=%s: %v", userID, platform, dbErr)
+		if failClosed {
+			return ErrBillingServiceUnavailable.WithCause(dbErr)
+		}
 		return nil
 	}
 	rec, _ := v.(*UserPlatformQuotaRecord)

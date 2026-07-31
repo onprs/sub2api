@@ -142,7 +142,10 @@ func (h *GatewayHandler) forwardGeminiIngressToStandardProvider(
 			if accountRelease != nil {
 				accountRelease()
 			}
-			fs.FailedAccountIDs[account.ID] = struct{}{}
+			if fs.HandlePostAcquireRevalidationFailure(account.ID) == FailoverExhausted {
+				googleError(c, http.StatusServiceUnavailable, "No available "+platform+" accounts")
+				return
+			}
 			continue
 		}
 		account = freshAccount

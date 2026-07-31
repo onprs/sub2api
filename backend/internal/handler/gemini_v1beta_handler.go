@@ -585,7 +585,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
-			fs.FailedAccountIDs[account.ID] = struct{}{}
+			if fs.HandlePostAcquireRevalidationFailure(account.ID) == FailoverExhausted {
+				googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts")
+				return
+			}
 			continue
 		}
 		account = freshAccount
