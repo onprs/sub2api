@@ -183,8 +183,8 @@ func (f fakeGoogleSubscriptionRepo) ExistsActiveByUserIDAndGroupID(ctx context.C
 func (f fakeGoogleSubscriptionRepo) ExtendExpiry(ctx context.Context, subscriptionID int64, newExpiresAt time.Time) error {
 	return errors.New("not implemented")
 }
-func (f fakeGoogleSubscriptionRepo) RenewTerm(ctx context.Context, input *service.RenewSubscriptionTermInput) error {
-	return errors.New("not implemented")
+func (f fakeGoogleSubscriptionRepo) RenewTerm(ctx context.Context, input *service.RenewSubscriptionTermInput) (*service.UserSubscription, error) {
+	return nil, errors.New("not implemented")
 }
 func (f fakeGoogleSubscriptionRepo) UpdateStatus(ctx context.Context, subscriptionID int64, status string) error {
 	if f.updateStatus != nil {

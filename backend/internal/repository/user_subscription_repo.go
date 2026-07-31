@@ -503,19 +503,47 @@ func (r *userSubscriptionRepository) ExtendExpiry(ctx context.Context, subscript
 	return translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
 }
 
-func (r *userSubscriptionRepository) RenewTerm(ctx context.Context, input *service.RenewSubscriptionTermInput) error {
+func (r *userSubscriptionRepository) RenewTerm(ctx context.Context, input *service.RenewSubscriptionTermInput) (*service.UserSubscription, error) {
 	if input == nil {
-		return service.ErrSubscriptionNilInput
+		return nil, service.ErrSubscriptionNilInput
 	}
-	client := clientFromContext(ctx, r.client)
-	existing, err := r.GetByID(ctx, input.SubscriptionID)
-	if err != nil {
-		return err
+	if dbent.TxFromContext(ctx) != nil {
+		return r.renewTermLocked(ctx, input)
 	}
 
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	txCtx := dbent.NewTxContext(ctx, tx)
+	renewed, err := r.renewTermLocked(txCtx, input)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return renewed, nil
+}
+
+func (r *userSubscriptionRepository) renewTermLocked(ctx context.Context, input *service.RenewSubscriptionTermInput) (*service.UserSubscription, error) {
+	client := clientFromContext(ctx, r.client)
+	existingEntity, err := client.UserSubscription.Query().
+		Where(usersubscription.IDEQ(input.SubscriptionID)).
+		ForUpdate().
+		Only(ctx)
+	if err != nil {
+		return nil, translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+	}
+	existing := userSubscriptionEntityToServicePreserveStatus(existingEntity)
+
+	activeTerm := existing.ExpiresAt.After(input.Now)
 	startsAt := existing.StartsAt
 	expiresAt := existing.ExpiresAt
-	if expiresAt.After(input.Now) {
+	if activeTerm {
 		expiresAt = expiresAt.AddDate(0, 0, input.ValidityDays)
 	} else {
 		startsAt = input.Now
@@ -524,21 +552,21 @@ func (r *userSubscriptionRepository) RenewTerm(ctx context.Context, input *servi
 	if expiresAt.After(input.MaxExpiresAt) {
 		expiresAt = input.MaxExpiresAt
 	}
-	notes := appendSubscriptionNotes(existing.Notes, input.Notes)
 
 	builder := client.UserSubscription.UpdateOneID(input.SubscriptionID).
 		SetStartsAt(startsAt).
 		SetExpiresAt(expiresAt).
 		SetStatus(service.SubscriptionStatusActive).
-		SetDailyUsageUsd(0).
-		SetWeeklyUsageUsd(0).
-		SetMonthlyUsageUsd(0).
-		SetFiveHourUsageUsd(0).
-		SetSevenDayUsageUsd(0).
-		SetThirtyDayUsageUsd(0).
-		SetNotes(notes)
-	if !existing.ExpiresAt.After(input.Now) {
-		builder.SetDailyWindowStart(input.LegacyWindowStart).
+		SetNotes(appendSubscriptionNotes(existing.Notes, input.Notes))
+	if !activeTerm {
+		builder.
+			SetDailyUsageUsd(0).
+			SetWeeklyUsageUsd(0).
+			SetMonthlyUsageUsd(0).
+			SetFiveHourUsageUsd(0).
+			SetSevenDayUsageUsd(0).
+			SetThirtyDayUsageUsd(0).
+			SetDailyWindowStart(input.LegacyWindowStart).
 			SetWeeklyWindowStart(input.LegacyWindowStart).
 			SetMonthlyWindowStart(input.LegacyWindowStart).
 			ClearFiveHourWindowStart().
@@ -548,8 +576,11 @@ func (r *userSubscriptionRepository) RenewTerm(ctx context.Context, input *servi
 	if input.HasRollingQuotaSnapshot {
 		setUserSubscriptionLimitSnapshotFields(builder, input.FiveHourLimitUSD, input.SevenDayLimitUSD, input.ThirtyDayLimitUSD)
 	}
-	_, err = builder.Save(ctx)
-	return translatePersistenceError(err, service.ErrSubscriptionNotFound, service.ErrSubscriptionAlreadyExists)
+	updated, err := builder.Save(ctx)
+	if err != nil {
+		return nil, translatePersistenceError(err, service.ErrSubscriptionNotFound, service.ErrSubscriptionAlreadyExists)
+	}
+	return userSubscriptionEntityToService(updated), nil
 }
 
 func appendSubscriptionNotes(existingNotes, newNotes string) string {

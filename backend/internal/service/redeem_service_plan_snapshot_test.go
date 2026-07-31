@@ -41,9 +41,9 @@ func (r *redeemPlanSnapshotUserSubRepo) GetByUserIDGroupIDAndPlanID(_ context.Co
 	return &cp, nil
 }
 
-func (r *redeemPlanSnapshotUserSubRepo) RenewTerm(_ context.Context, input *RenewSubscriptionTermInput) error {
-	cp := *input
-	r.renewInputs = append(r.renewInputs, &cp)
+func (r *redeemPlanSnapshotUserSubRepo) RenewTerm(_ context.Context, input *RenewSubscriptionTermInput) (*UserSubscription, error) {
+	inputCopy := *input
+	r.renewInputs = append(r.renewInputs, &inputCopy)
 
 	r.sub.ExpiresAt = r.sub.ExpiresAt.AddDate(0, 0, input.ValidityDays)
 	if input.HasRollingQuotaSnapshot {
@@ -51,7 +51,8 @@ func (r *redeemPlanSnapshotUserSubRepo) RenewTerm(_ context.Context, input *Rene
 		r.sub.SevenDayLimitUSD = input.SevenDayLimitUSD
 		r.sub.ThirtyDayLimitUSD = input.ThirtyDayLimitUSD
 	}
-	return nil
+	subscriptionCopy := *r.sub
+	return &subscriptionCopy, nil
 }
 
 func (r *redeemPlanSnapshotUserSubRepo) GetByID(_ context.Context, id int64) (*UserSubscription, error) {
