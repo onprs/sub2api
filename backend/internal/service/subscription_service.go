@@ -273,16 +273,15 @@ func (s *SubscriptionService) assignOrExtendSubscription(ctx context.Context, in
 	// 已有订阅，执行续期（在事务中完成所有更新）
 	if existingSub != nil {
 		now := time.Now()
-		if err := s.updateExistingSubscriptionTerm(ctx, existingSub.ID, input, now, validityDays); err != nil {
+		sub, err := s.updateExistingSubscriptionTerm(ctx, existingSub.ID, input, now, validityDays)
+		if err != nil {
 			return nil, false, err
 		}
 
 		// 失效订阅缓存
 		s.maybeInvalidateAssignmentCaches(input.UserID, input.GroupID, deferCacheInvalidation)
 
-		// 返回更新后的订阅
-		sub, err := s.userSubRepo.GetByID(ctx, existingSub.ID)
-		return sub, true, err // true 表示是续期
+		return sub, true, nil
 	}
 
 	// 没有订阅，创建新订阅
@@ -329,10 +328,7 @@ func (s *SubscriptionService) renewSubscriptionAfterCreateConflict(ctx context.C
 		return nil, fmt.Errorf("load subscription after create conflict: %w", err)
 	}
 	now := time.Now()
-	if err := s.updateExistingSubscriptionTerm(ctx, existingSub.ID, input, now, validityDays); err != nil {
-		return nil, err
-	}
-	return s.userSubRepo.GetByID(ctx, existingSub.ID)
+	return s.updateExistingSubscriptionTerm(ctx, existingSub.ID, input, now, validityDays)
 }
 
 func (s *SubscriptionService) updateExistingSubscriptionTerm(
@@ -341,9 +337,11 @@ func (s *SubscriptionService) updateExistingSubscriptionTerm(
 	input *AssignSubscriptionInput,
 	startsAt time.Time,
 	validityDays int,
-) error {
-	return s.withSubscriptionUpdateTx(ctx, func(txCtx context.Context) error {
-		if err := s.userSubRepo.RenewTerm(txCtx, &RenewSubscriptionTermInput{
+) (*UserSubscription, error) {
+	var renewed *UserSubscription
+	err := s.withSubscriptionUpdateTx(ctx, func(txCtx context.Context) error {
+		var err error
+		renewed, err = s.userSubRepo.RenewTerm(txCtx, &RenewSubscriptionTermInput{
 			SubscriptionID:          subscriptionID,
 			ValidityDays:            validityDays,
 			Now:                     startsAt,
@@ -354,12 +352,17 @@ func (s *SubscriptionService) updateExistingSubscriptionTerm(
 			ThirtyDayLimitUSD:       input.ThirtyDayLimitUSD,
 			HasRollingQuotaSnapshot: input.HasRollingQuotaSnapshot,
 			Notes:                   input.Notes,
-		}); err != nil {
+		})
+		if err != nil {
 			return fmt.Errorf("renew subscription term: %w", err)
 		}
 
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return renewed, nil
 }
 
 func (s *SubscriptionService) withSubscriptionUpdateTx(ctx context.Context, fn func(context.Context) error) error {

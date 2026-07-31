@@ -5,12 +5,14 @@ package repository
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -22,8 +24,8 @@ type UserSubscriptionRepoSuite struct {
 }
 
 func (s *UserSubscriptionRepoSuite) SetupTest() {
-	s.ctx = context.Background()
 	tx := testEntTx(s.T())
+	s.ctx = dbent.NewTxContext(context.Background(), tx)
 	s.client = tx.Client()
 	s.repo = NewUserSubscriptionRepository(s.client).(*userSubscriptionRepository)
 }
@@ -160,6 +162,144 @@ func (s *UserSubscriptionRepoSuite) TestUpdate() {
 	s.Require().Equal("updated notes", got.Notes)
 }
 
+func (s *UserSubscriptionRepoSuite) TestRenewTermActivePreservesUsageAndWindows() {
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	user := s.mustCreateUser("renew-active@test.com", service.RoleUser)
+	group := s.mustCreateGroup("g-renew-active")
+	startsAt := now.AddDate(0, 0, -20)
+	expiresAt := now.AddDate(0, 0, 10)
+	dailyStart := now.Add(-2 * time.Hour)
+	weeklyStart := now.Add(-48 * time.Hour)
+	monthlyStart := now.AddDate(0, 0, -15)
+	fiveStart := now.Add(-time.Hour)
+	sevenStart := now.AddDate(0, 0, -2)
+	thirtyStart := now.AddDate(0, 0, -12)
+	sub := s.mustCreateSubscription(user.ID, group.ID, func(c *dbent.UserSubscriptionCreate) {
+		c.SetStartsAt(startsAt).
+			SetExpiresAt(expiresAt).
+			SetDailyUsageUsd(1.1).
+			SetWeeklyUsageUsd(2.2).
+			SetMonthlyUsageUsd(3.3).
+			SetFiveHourUsageUsd(4.4).
+			SetSevenDayUsageUsd(5.5).
+			SetThirtyDayUsageUsd(6.6).
+			SetDailyWindowStart(dailyStart).
+			SetWeeklyWindowStart(weeklyStart).
+			SetMonthlyWindowStart(monthlyStart).
+			SetFiveHourWindowStart(fiveStart).
+			SetSevenDayWindowStart(sevenStart).
+			SetThirtyDayWindowStart(thirtyStart).
+			SetNotes("old")
+	})
+	fiveLimit, sevenLimit, thirtyLimit := 4.0, 5.0, 6.0
+
+	renewed, err := s.repo.RenewTerm(s.ctx, &service.RenewSubscriptionTermInput{
+		SubscriptionID:          sub.ID,
+		ValidityDays:            30,
+		Now:                     now,
+		MaxExpiresAt:            service.MaxExpiresAt,
+		LegacyWindowStart:       now,
+		FiveHourLimitUSD:        &fiveLimit,
+		SevenDayLimitUSD:        &sevenLimit,
+		ThirtyDayLimitUSD:       &thirtyLimit,
+		HasRollingQuotaSnapshot: true,
+		Notes:                   "new",
+	})
+	s.Require().NoError(err)
+	s.Require().Equal(expiresAt.AddDate(0, 0, 30), renewed.ExpiresAt)
+	s.Require().Equal(startsAt, renewed.StartsAt)
+	s.Require().Equal(1.1, renewed.DailyUsageUSD)
+	s.Require().Equal(2.2, renewed.WeeklyUsageUSD)
+	s.Require().Equal(3.3, renewed.MonthlyUsageUSD)
+	s.Require().Equal(4.4, renewed.FiveHourUsageUSD)
+	s.Require().Equal(5.5, renewed.SevenDayUsageUSD)
+	s.Require().Equal(6.6, renewed.ThirtyDayUsageUSD)
+	s.Require().Equal(dailyStart, *renewed.DailyWindowStart)
+	s.Require().Equal(weeklyStart, *renewed.WeeklyWindowStart)
+	s.Require().Equal(monthlyStart, *renewed.MonthlyWindowStart)
+	s.Require().Equal(fiveStart, *renewed.FiveHourWindowStart)
+	s.Require().Equal(sevenStart, *renewed.SevenDayWindowStart)
+	s.Require().Equal(thirtyStart, *renewed.ThirtyDayWindowStart)
+	s.Require().Equal(fiveLimit, *renewed.FiveHourLimitUSD)
+	s.Require().Equal(sevenLimit, *renewed.SevenDayLimitUSD)
+	s.Require().Equal(thirtyLimit, *renewed.ThirtyDayLimitUSD)
+	s.Require().Equal("old\nnew", renewed.Notes)
+}
+
+func (s *UserSubscriptionRepoSuite) TestRenewTermClampsExpirationAtMaximum() {
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	user := s.mustCreateUser("renew-max@test.com", service.RoleUser)
+	group := s.mustCreateGroup("g-renew-max")
+	expiresAt := now.AddDate(0, 0, 10)
+	sub := s.mustCreateSubscription(user.ID, group.ID, func(c *dbent.UserSubscriptionCreate) {
+		c.SetExpiresAt(expiresAt)
+	})
+	maxExpiresAt := expiresAt.AddDate(0, 0, 5)
+
+	renewed, err := s.repo.RenewTerm(s.ctx, &service.RenewSubscriptionTermInput{
+		SubscriptionID:    sub.ID,
+		ValidityDays:      30,
+		Now:               now,
+		MaxExpiresAt:      maxExpiresAt,
+		LegacyWindowStart: now,
+	})
+
+	s.Require().NoError(err)
+	s.Require().Equal(maxExpiresAt, renewed.ExpiresAt)
+}
+
+func (s *UserSubscriptionRepoSuite) TestRenewTermExpiredResetsUsageAndWindows() {
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	legacyStart := now.Add(-30 * time.Minute)
+	user := s.mustCreateUser("renew-expired@test.com", service.RoleUser)
+	group := s.mustCreateGroup("g-renew-expired")
+	sub := s.mustCreateSubscription(user.ID, group.ID, func(c *dbent.UserSubscriptionCreate) {
+		oldWindow := now.AddDate(0, 0, -10)
+		c.SetStartsAt(now.AddDate(0, 0, -40)).
+			SetExpiresAt(now.Add(-time.Hour)).
+			SetStatus(service.SubscriptionStatusExpired).
+			SetDailyUsageUsd(1.1).
+			SetWeeklyUsageUsd(2.2).
+			SetMonthlyUsageUsd(3.3).
+			SetFiveHourUsageUsd(4.4).
+			SetSevenDayUsageUsd(5.5).
+			SetThirtyDayUsageUsd(6.6).
+			SetDailyWindowStart(oldWindow).
+			SetWeeklyWindowStart(oldWindow).
+			SetMonthlyWindowStart(oldWindow).
+			SetFiveHourWindowStart(oldWindow).
+			SetSevenDayWindowStart(oldWindow).
+			SetThirtyDayWindowStart(oldWindow).
+			SetNotes("old")
+	})
+
+	renewed, err := s.repo.RenewTerm(s.ctx, &service.RenewSubscriptionTermInput{
+		SubscriptionID:    sub.ID,
+		ValidityDays:      30,
+		Now:               now,
+		MaxExpiresAt:      service.MaxExpiresAt,
+		LegacyWindowStart: legacyStart,
+		Notes:             "new",
+	})
+	s.Require().NoError(err)
+	s.Require().Equal(now, renewed.StartsAt)
+	s.Require().Equal(now.AddDate(0, 0, 30), renewed.ExpiresAt)
+	s.Require().Equal(service.SubscriptionStatusActive, renewed.Status)
+	s.Require().Zero(renewed.DailyUsageUSD)
+	s.Require().Zero(renewed.WeeklyUsageUSD)
+	s.Require().Zero(renewed.MonthlyUsageUSD)
+	s.Require().Zero(renewed.FiveHourUsageUSD)
+	s.Require().Zero(renewed.SevenDayUsageUSD)
+	s.Require().Zero(renewed.ThirtyDayUsageUSD)
+	s.Require().Equal(legacyStart, *renewed.DailyWindowStart)
+	s.Require().Equal(legacyStart, *renewed.WeeklyWindowStart)
+	s.Require().Equal(legacyStart, *renewed.MonthlyWindowStart)
+	s.Require().Nil(renewed.FiveHourWindowStart)
+	s.Require().Nil(renewed.SevenDayWindowStart)
+	s.Require().Nil(renewed.ThirtyDayWindowStart)
+	s.Require().Equal("old\nnew", renewed.Notes)
+}
+
 func (s *UserSubscriptionRepoSuite) TestDelete() {
 	user := s.mustCreateUser("delete@test.com", service.RoleUser)
 	group := s.mustCreateGroup("g-delete")
@@ -209,6 +349,71 @@ func (s *UserSubscriptionRepoSuite) TestRestore() {
 
 func (s *UserSubscriptionRepoSuite) TestDelete_Idempotent() {
 	s.Require().NoError(s.repo.Delete(s.ctx, 42424242), "Delete should be idempotent")
+}
+
+func TestUserSubscriptionRenewTermConcurrentExtensionsAccumulate(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	suffix := time.Now().UnixNano()
+	user, err := client.User.Create().
+		SetEmail(fmt.Sprintf("renew-concurrent-%d@test.com", suffix)).
+		SetPasswordHash("test-password-hash").
+		SetStatus(service.StatusActive).
+		SetRole(service.RoleUser).
+		Save(ctx)
+	require.NoError(t, err)
+	group, err := client.Group.Create().
+		SetName(fmt.Sprintf("g-renew-concurrent-%d", suffix)).
+		SetStatus(service.StatusActive).
+		SetSubscriptionType(service.SubscriptionTypeSubscription).
+		Save(ctx)
+	require.NoError(t, err)
+	baseExpiry := time.Now().UTC().AddDate(0, 0, 10).Truncate(time.Microsecond)
+	sub, err := client.UserSubscription.Create().
+		SetUserID(user.ID).
+		SetGroupID(group.ID).
+		SetStartsAt(baseExpiry.AddDate(0, 0, -20)).
+		SetExpiresAt(baseExpiry).
+		SetStatus(service.SubscriptionStatusActive).
+		SetAssignedAt(time.Now()).
+		SetNotes("").
+		Save(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = client.UserSubscription.DeleteOneID(sub.ID).Exec(context.Background())
+		_ = client.Group.DeleteOneID(group.ID).Exec(context.Background())
+		_ = client.User.DeleteOneID(user.ID).Exec(context.Background())
+	})
+
+	repo := NewUserSubscriptionRepository(client)
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, renewErr := repo.RenewTerm(context.Background(), &service.RenewSubscriptionTermInput{
+				SubscriptionID:    sub.ID,
+				ValidityDays:      30,
+				Now:               time.Now().UTC(),
+				MaxExpiresAt:      service.MaxExpiresAt,
+				LegacyWindowStart: time.Now().UTC(),
+			})
+			errs <- renewErr
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for renewErr := range errs {
+		require.NoError(t, renewErr)
+	}
+
+	renewed, err := repo.GetByID(ctx, sub.ID)
+	require.NoError(t, err)
+	require.Equal(t, baseExpiry.AddDate(0, 0, 60), renewed.ExpiresAt)
 }
 
 // --- GetByUserIDAndGroupID / GetActiveByUserIDAndGroupID ---

@@ -157,7 +157,7 @@ func (userSubRepoNoop) ExistsActiveByUserIDAndGroupID(context.Context, int64, in
 func (userSubRepoNoop) ExtendExpiry(context.Context, int64, time.Time) error {
 	panic("unexpected ExtendExpiry call")
 }
-func (userSubRepoNoop) RenewTerm(context.Context, *RenewSubscriptionTermInput) error {
+func (userSubRepoNoop) RenewTerm(context.Context, *RenewSubscriptionTermInput) (*UserSubscription, error) {
 	panic("unexpected RenewTerm call")
 }
 func (userSubRepoNoop) UpdateStatus(context.Context, int64, string) error {
@@ -357,13 +357,13 @@ func (s *subscriptionUserSubRepoStub) ExtendExpiry(_ context.Context, subscripti
 	return nil
 }
 
-func (s *subscriptionUserSubRepoStub) RenewTerm(_ context.Context, input *RenewSubscriptionTermInput) error {
+func (s *subscriptionUserSubRepoStub) RenewTerm(_ context.Context, input *RenewSubscriptionTermInput) (*UserSubscription, error) {
 	if input == nil {
-		return ErrSubscriptionNilInput
+		return nil, ErrSubscriptionNilInput
 	}
 	existing := s.byID[input.SubscriptionID]
 	if existing == nil {
-		return ErrSubscriptionNotFound
+		return nil, ErrSubscriptionNotFound
 	}
 	wasActive := existing.ExpiresAt.After(input.Now)
 	if wasActive {
@@ -394,7 +394,8 @@ func (s *subscriptionUserSubRepoStub) RenewTerm(_ context.Context, input *RenewS
 		existing.ThirtyDayLimitUSD = input.ThirtyDayLimitUSD
 	}
 	existing.Notes = appendSubscriptionNotes(existing.Notes, input.Notes)
-	return nil
+	copy := *existing
+	return &copy, nil
 }
 
 func (s *subscriptionUserSubRepoStub) UpdateRollingQuotaSnapshot(_ context.Context, subscriptionID int64, fiveHourLimitUSD, sevenDayLimitUSD, thirtyDayLimitUSD *float64) error {

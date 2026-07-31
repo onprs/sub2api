@@ -1475,8 +1475,8 @@ func (r *stubUserSubscriptionRepo) ExtendExpiry(ctx context.Context, subscriptio
 	return errors.New("not implemented")
 }
 
-func (r *stubUserSubscriptionRepo) RenewTerm(ctx context.Context, input *service.RenewSubscriptionTermInput) error {
-	return errors.New("not implemented")
+func (r *stubUserSubscriptionRepo) RenewTerm(ctx context.Context, input *service.RenewSubscriptionTermInput) (*service.UserSubscription, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (r *stubUserSubscriptionRepo) UpdateStatus(ctx context.Context, subscriptionID int64, status string) error {

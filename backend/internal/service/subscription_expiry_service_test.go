@@ -87,8 +87,8 @@ func (r *subscriptionExpiryRepoStub) ExtendExpiry(context.Context, int64, time.T
 	return nil
 }
 
-func (r *subscriptionExpiryRepoStub) RenewTerm(context.Context, *RenewSubscriptionTermInput) error {
-	return nil
+func (r *subscriptionExpiryRepoStub) RenewTerm(context.Context, *RenewSubscriptionTermInput) (*UserSubscription, error) {
+	return nil, nil
 }
 
 func (r *subscriptionExpiryRepoStub) UpdateStatus(context.Context, int64, string) error {
