@@ -140,6 +140,21 @@ func (f *fakeConcurrencyCache) CleanupExpiredAccountSlots(context.Context, int64
 func (f *fakeConcurrencyCache) CleanupExpiredAccountSlotKeys(context.Context) error     { return nil }
 func (f *fakeConcurrencyCache) CleanupStaleProcessSlots(context.Context, string) error  { return nil }
 
+type fakeWarmupAccountRepo struct {
+	service.AccountRepository
+	accounts []*service.Account
+}
+
+func (r *fakeWarmupAccountRepo) GetByID(_ context.Context, id int64) (*service.Account, error) {
+	for _, account := range r.accounts {
+		if account != nil && account.ID == id {
+			copy := *account
+			return &copy, nil
+		}
+	}
+	return nil, service.ErrAccountNotFound
+}
+
 func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*service.Account) (*GatewayHandler, func()) {
 	t.Helper()
 
@@ -147,7 +162,7 @@ func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*servi
 	schedulerSnapshot := service.NewSchedulerSnapshotService(schedulerCache, nil, nil, nil, nil)
 
 	gwSvc := service.NewGatewayService(
-		nil, // accountRepo (not used: scheduler snapshot hit)
+		&fakeWarmupAccountRepo{accounts: accounts},
 		&fakeGroupRepo{group: group},
 		nil, // usageLogRepo
 		nil, // usageBillingRepo
@@ -184,9 +199,10 @@ func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*servi
 	concurrencyHelper := NewConcurrencyHelper(concurrencySvc, SSEPingFormatClaude, 0)
 
 	h := &GatewayHandler{
-		gatewayService:      gwSvc,
-		billingCacheService: billingCacheSvc,
-		concurrencyHelper:   concurrencyHelper,
+		gatewayService:            gwSvc,
+		billingCacheService:       billingCacheSvc,
+		billingEligibilityService: allowBillingEligibilityResolver{},
+		concurrencyHelper:         concurrencyHelper,
 		// 这些字段对本测试不敏感，保持较小即可
 		maxAccountSwitches:       1,
 		maxAccountSwitchesGemini: 1,

@@ -129,7 +129,8 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
-	failedAccountIDs := make(map[int64]struct{})
+	revalidationState := NewFailoverState(0, false)
+	failedAccountIDs := revalidationState.FailedAccountIDs
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 
@@ -187,7 +188,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		if !acquired {
 			return
 		}
-		account, acquired = h.revalidateSelectedAccountAfterAcquire(c.Request.Context(), account, accountReleaseFunc, failedAccountIDs, service.OpenAIAccountEligibilityRequest{
+		freshAccount, accountRevalidated, revalidationExhausted := h.revalidateSelectedAccountAfterAcquire(c.Request.Context(), account, accountReleaseFunc, revalidationState, service.OpenAIAccountEligibilityRequest{
 			GroupID:            apiKey.GroupID,
 			SessionHash:        sessionHash,
 			Platform:           requestPlatform,
@@ -195,9 +196,14 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			RequiredCapability: service.OpenAIEndpointCapabilityChatCompletions,
 			RequiredTransport:  service.OpenAIUpstreamTransportAny,
 		}, reqLog)
-		if !acquired {
+		if !accountRevalidated {
+			if revalidationExhausted {
+				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+				return
+			}
 			continue
 		}
+		account = freshAccount
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()

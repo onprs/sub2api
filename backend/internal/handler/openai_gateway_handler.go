@@ -325,7 +325,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
 	firstOutputTimeoutSwitchCount := 0
-	failedAccountIDs := make(map[int64]struct{})
+	revalidationState := NewFailoverState(0, false)
+	failedAccountIDs := revalidationState.FailedAccountIDs
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 
@@ -405,7 +406,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		if !acquired {
 			return
 		}
-		account, acquired = h.revalidateSelectedAccountAfterAcquire(c.Request.Context(), account, accountReleaseFunc, failedAccountIDs, service.OpenAIAccountEligibilityRequest{
+		freshAccount, accountRevalidated, revalidationExhausted := h.revalidateSelectedAccountAfterAcquire(c.Request.Context(), account, accountReleaseFunc, revalidationState, service.OpenAIAccountEligibilityRequest{
 			GroupID:            apiKey.GroupID,
 			SessionHash:        sessionHash,
 			Platform:           requestPlatform,
@@ -414,9 +415,14 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			RequiredCapability: service.OpenAIEndpointCapabilityChatCompletions,
 			RequiredTransport:  service.OpenAIUpstreamTransportAny,
 		}, reqLog)
-		if !acquired {
+		if !accountRevalidated {
+			if revalidationExhausted {
+				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+				return
+			}
 			continue
 		}
+		account = freshAccount
 
 		// Forward request
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
@@ -838,7 +844,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
-	failedAccountIDs := make(map[int64]struct{})
+	revalidationState := NewFailoverState(0, false)
+	failedAccountIDs := revalidationState.FailedAccountIDs
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	effectiveMappedModel := preferredMappedModel
@@ -903,7 +910,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		if !acquired {
 			return
 		}
-		account, acquired = h.revalidateSelectedAccountAfterAcquire(c.Request.Context(), account, accountReleaseFunc, failedAccountIDs, service.OpenAIAccountEligibilityRequest{
+		freshAccount, accountRevalidated, revalidationExhausted := h.revalidateSelectedAccountAfterAcquire(c.Request.Context(), account, accountReleaseFunc, revalidationState, service.OpenAIAccountEligibilityRequest{
 			GroupID:            apiKey.GroupID,
 			SessionHash:        sessionHash,
 			Platform:           requestPlatform,
@@ -911,9 +918,14 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			RequiredCapability: service.OpenAIEndpointCapabilityChatCompletions,
 			RequiredTransport:  service.OpenAIUpstreamTransportAny,
 		}, reqLog)
-		if !acquired {
+		if !accountRevalidated {
+			if revalidationExhausted {
+				h.anthropicStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+				return
+			}
 			continue
 		}
+		account = freshAccount
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
@@ -1164,30 +1176,31 @@ func (h *OpenAIGatewayHandler) revalidateSelectedAccountAfterAcquire(
 	ctx context.Context,
 	account *service.Account,
 	release func(),
-	failedAccountIDs map[int64]struct{},
+	revalidationState *FailoverState,
 	req service.OpenAIAccountEligibilityRequest,
 	requestLog *zap.Logger,
-) (*service.Account, bool) {
+) (*service.Account, bool, bool) {
 	if account == nil || h == nil || h.gatewayService == nil {
 		if release != nil {
 			release()
 		}
-		return nil, false
+		return nil, false, true
 	}
 	fresh, err := h.gatewayService.RevalidateSelectedAccount(ctx, account.ID, req)
 	if err != nil {
 		if release != nil {
 			release()
 		}
-		if failedAccountIDs != nil {
-			failedAccountIDs[account.ID] = struct{}{}
+		exhausted := true
+		if revalidationState != nil {
+			exhausted = revalidationState.HandlePostAcquireRevalidationFailure(account.ID) == FailoverExhausted
 		}
 		if requestLog != nil {
-			requestLog.Info("openai.account_post_wait_revalidation_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			requestLog.Info("openai.account_post_wait_revalidation_failed", zap.Int64("account_id", account.ID), zap.Bool("revalidation_budget_exhausted", exhausted), zap.Error(err))
 		}
-		return nil, false
+		return nil, false, exhausted
 	}
-	return fresh, true
+	return fresh, true, false
 }
 
 func (h *OpenAIGatewayHandler) acquireResponsesAccountSlot(
@@ -1421,6 +1434,18 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	// 必须尽早注册，确保任何 early return 都能释放已获取的并发槽位。
 	defer releaseTurnSlots()
 
+	var subscription *service.UserSubscription
+	requestPlatform := openAICompatibleRequestPlatform(apiKey)
+	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
+	if requestPlatform == service.PlatformGrok {
+		requiredTransport = service.OpenAIUpstreamTransportHTTPSSE
+	}
+	if subscription, err = resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, subject.UserID, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+		reqLog.Info("openai.websocket_billing_eligibility_check_failed", zap.Error(err))
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
+		return
+	}
+
 	userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlotForAPIKey(ctx, subject.UserID, subject.Concurrency, apiKey.ID)
 	if err != nil {
 		reqLog.Warn("openai.websocket_user_slot_acquire_failed", zap.Error(err))
@@ -1450,18 +1475,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return true
 	}
 
-	var subscription *service.UserSubscription
-	requestPlatform := openAICompatibleRequestPlatform(apiKey)
-	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
-	if requestPlatform == service.PlatformGrok {
-		requiredTransport = service.OpenAIUpstreamTransportHTTPSSE
-	}
-	if subscription, err = resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, subject.UserID, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		reqLog.Info("openai.websocket_billing_eligibility_check_failed", zap.Error(err))
-		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
-		return
-	}
-
 	sessionHash := h.gatewayService.GenerateSessionHashWithFallback(
 		c,
 		firstMessage,
@@ -1469,7 +1482,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	)
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
-	failedAccountIDs := make(map[int64]struct{})
+	revalidationState := NewFailoverState(0, false)
+	failedAccountIDs := revalidationState.FailedAccountIDs
 	var lastFailoverErr *service.UpstreamFailoverError
 
 	for {
@@ -1546,7 +1560,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		})
 		if revalidateErr != nil {
 			releaseAccountSlot()
-			failedAccountIDs[account.ID] = struct{}{}
+			if revalidationState.HandlePostAcquireRevalidationFailure(account.ID) == FailoverExhausted {
+				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "no available account")
+				return
+			}
 			continue
 		}
 		account = freshAccount

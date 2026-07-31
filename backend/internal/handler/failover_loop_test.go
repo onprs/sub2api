@@ -657,6 +657,16 @@ func TestHandleFailoverError_EdgeCases(t *testing.T) {
 // HandleSelectionExhausted 测试
 // ---------------------------------------------------------------------------
 
+func TestFailoverStatePostAcquireRevalidationBudgetIsIndependent(t *testing.T) {
+	fs := NewFailoverState(10, false)
+
+	require.Equal(t, FailoverContinue, fs.HandlePostAcquireRevalidationFailure(1))
+	require.Equal(t, FailoverContinue, fs.HandlePostAcquireRevalidationFailure(2))
+	require.Equal(t, FailoverExhausted, fs.HandlePostAcquireRevalidationFailure(3))
+	require.Equal(t, 0, fs.SwitchCount, "revalidation failures must not consume upstream failover switches")
+	require.Len(t, fs.FailedAccountIDs, 3)
+}
+
 func TestHandleSelectionExhausted(t *testing.T) {
 	t.Run("无LastFailoverErr时返回Exhausted", func(t *testing.T) {
 		fs := NewFailoverState(3, false)

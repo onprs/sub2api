@@ -264,8 +264,37 @@ func TestGatewaySelectAccountWithLoadAwareness_SkipsAntigravityGeminiFamilyRateL
 			},
 		},
 		accounts: map[int64]*Account{
-			1: {ID: 1, Platform: PlatformAntigravity, Type: AccountTypeOAuth},
-			2: {ID: 2, Platform: PlatformAntigravity, Type: AccountTypeOAuth},
+			1: {
+				ID:          1,
+				Platform:    PlatformAntigravity,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 1,
+				AccountGroups: []AccountGroup{
+					{AccountID: 1, GroupID: 22},
+				},
+				Extra: map[string]any{
+					"mixed_scheduling": true,
+					modelRateLimitsKey: map[string]any{
+						antigravityGeminiModelRateLimitKey: map[string]any{
+							"rate_limit_reset_at": resetAt,
+						},
+					},
+				},
+			},
+			2: {
+				ID:          2,
+				Platform:    PlatformAntigravity,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 1,
+				AccountGroups: []AccountGroup{
+					{AccountID: 2, GroupID: 22},
+				},
+				Extra: map[string]any{"mixed_scheduling": true},
+			},
 		},
 	}
 	groupID := int64(22)

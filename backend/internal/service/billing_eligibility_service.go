@@ -98,7 +98,7 @@ func (s *BillingEligibilityService) ResolveUsableSubscriptionForRequest(
 		}
 	}
 
-	if err := s.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription, platform); err != nil {
+	if err := s.billingCacheService.CheckBillingEligibilityStrict(ctx, apiKey.User, apiKey, apiKey.Group, subscription, platform); err != nil {
 		return nil, err
 	}
 	return subscription, nil
@@ -107,7 +107,7 @@ func (s *BillingEligibilityService) ResolveUsableSubscriptionForRequest(
 func (s *BillingEligibilityService) resolveLatestSubscription(ctx context.Context, userID int64, group *Group) (*UserSubscription, error) {
 	subscription, needsMaintenance, err := s.subscriptionService.GetUsableActiveSubscription(ctx, userID, group.ID, group)
 	if err != nil {
-		return nil, err
+		return nil, normalizeBillingEligibilityError(err)
 	}
 	if needsMaintenance {
 		if _, err := s.subscriptionService.EnsureWindowMaintenance(ctx, subscription); err != nil {
@@ -117,13 +117,24 @@ func (s *BillingEligibilityService) resolveLatestSubscription(ctx context.Contex
 		// exhausted this package while maintenance was in progress.
 		subscription, needsMaintenance, err = s.subscriptionService.GetUsableActiveSubscription(ctx, userID, group.ID, group)
 		if err != nil {
-			return nil, err
+			return nil, normalizeBillingEligibilityError(err)
 		}
 		if needsMaintenance {
 			return nil, ErrBillingServiceUnavailable.WithCause(errors.New("subscription windows remained stale after maintenance"))
 		}
 	}
 	return subscription, nil
+}
+
+func normalizeBillingEligibilityError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var appErr *infraerrors.ApplicationError
+	if errors.As(err, &appErr) {
+		return err
+	}
+	return ErrBillingServiceUnavailable.WithCause(err)
 }
 
 func sameOptionalID(left, right *int64) bool {

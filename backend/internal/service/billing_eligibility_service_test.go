@@ -12,23 +12,44 @@ import (
 
 type billingEligibilityAPIKeyRepoStub struct {
 	APIKeyRepository
-	key *APIKey
-	err error
+	key          *APIKey
+	err          error
+	rateLimitErr error
 }
 
 func (s *billingEligibilityAPIKeyRepoStub) GetByID(context.Context, int64) (*APIKey, error) {
 	return s.key, s.err
 }
 
+func (s *billingEligibilityAPIKeyRepoStub) GetRateLimitData(context.Context, int64) (*APIKeyRateLimitData, error) {
+	if s.rateLimitErr != nil {
+		return nil, s.rateLimitErr
+	}
+	return &APIKeyRateLimitData{}, nil
+}
+
 type billingEligibilitySubscriptionRepoStub struct {
 	UserSubscriptionRepository
 	subscriptions []UserSubscription
+	err           error
 }
 
 func (s *billingEligibilitySubscriptionRepoStub) ListActiveByUserIDAndGroupID(context.Context, int64, int64) ([]UserSubscription, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
 	out := make([]UserSubscription, len(s.subscriptions))
 	copy(out, s.subscriptions)
 	return out, nil
+}
+
+type billingEligibilityGroupRateRepoStub struct {
+	UserGroupRateRepository
+	err error
+}
+
+func (s *billingEligibilityGroupRateRepoStub) GetRPMOverrideByUserAndGroup(context.Context, int64, int64) (*int, error) {
+	return nil, s.err
 }
 
 func newBillingEligibilityServiceForTest(t *testing.T, key *APIKey, subscriptions []UserSubscription) *BillingEligibilityService {
@@ -36,7 +57,7 @@ func newBillingEligibilityServiceForTest(t *testing.T, key *APIKey, subscription
 	cfg := &config.Config{RunMode: config.RunModeStandard}
 	apiKeyRepo := &billingEligibilityAPIKeyRepoStub{key: key}
 	subRepo := &billingEligibilitySubscriptionRepoStub{subscriptions: subscriptions}
-	billingCache := NewBillingCacheService(nil, nil, subRepo, apiKeyRepo, nil, nil, cfg, nil)
+	billingCache := NewBillingCacheService(nil, nil, subRepo, apiKeyRepo, nil, &billingEligibilityGroupRateRepoStub{}, cfg, nil)
 	t.Cleanup(billingCache.Stop)
 	subscriptionService := NewSubscriptionService(nil, subRepo, billingCache, nil, nil)
 	t.Cleanup(subscriptionService.Stop)
@@ -104,6 +125,83 @@ func TestBillingEligibilityResolveRejectsAPIKeyDisabledWhileQueued(t *testing.T)
 	_, err := svc.ResolveUsableSubscriptionForRequest(context.Background(), 11, 22, &groupID, PlatformAnthropic)
 
 	require.ErrorIs(t, err, ErrAPIKeyNotActive)
+}
+
+type billingEligibilityFailingRPMCache struct {
+	UserRPMCache
+	err error
+}
+
+func (s *billingEligibilityFailingRPMCache) IncrementUserGroupRPM(context.Context, int64, int64) (int, error) {
+	return 0, s.err
+}
+
+func (s *billingEligibilityFailingRPMCache) IncrementUserRPM(context.Context, int64) (int, error) {
+	return 0, s.err
+}
+
+func TestBillingEligibilityResolveFailsClosedOnAPIKeyRateLimitReloadError(t *testing.T) {
+	now := time.Now()
+	cfg := &config.Config{RunMode: config.RunModeStandard}
+	group := &Group{ID: 7, Status: StatusActive, SubscriptionType: SubscriptionTypeSubscription}
+	key := billingEligibilityKey(group)
+	key.RateLimit5h = 1
+	apiKeyRepo := &billingEligibilityAPIKeyRepoStub{key: key, rateLimitErr: errors.New("rate limit database unavailable")}
+	subRepo := &billingEligibilitySubscriptionRepoStub{subscriptions: []UserSubscription{{
+		ID:               1,
+		UserID:           11,
+		GroupID:          7,
+		Status:           SubscriptionStatusActive,
+		ExpiresAt:        now.Add(time.Hour),
+		DailyWindowStart: &now,
+	}}}
+	billingCache := NewBillingCacheService(nil, nil, subRepo, apiKeyRepo, nil, &billingEligibilityGroupRateRepoStub{}, cfg, nil)
+	t.Cleanup(billingCache.Stop)
+	subscriptionService := NewSubscriptionService(nil, subRepo, billingCache, nil, nil)
+	t.Cleanup(subscriptionService.Stop)
+	svc := NewBillingEligibilityService(subscriptionService, billingCache, apiKeyRepo, cfg)
+	groupID := int64(7)
+
+	_, err := svc.ResolveUsableSubscriptionForRequest(context.Background(), 11, 22, &groupID, PlatformAnthropic)
+
+	require.ErrorIs(t, err, ErrBillingServiceUnavailable)
+}
+
+func TestBillingEligibilityResolveFailsClosedOnRPMDependencyError(t *testing.T) {
+	now := time.Now()
+	group := &Group{ID: 7, Status: StatusActive, SubscriptionType: SubscriptionTypeSubscription, RPMLimit: 10}
+	svc := newBillingEligibilityServiceForTest(t, billingEligibilityKey(group), []UserSubscription{{
+		ID:               1,
+		UserID:           11,
+		GroupID:          7,
+		Status:           SubscriptionStatusActive,
+		ExpiresAt:        now.Add(time.Hour),
+		DailyWindowStart: &now,
+	}})
+	svc.billingCacheService.userRPMCache = &billingEligibilityFailingRPMCache{err: errors.New("redis unavailable")}
+	groupID := int64(7)
+
+	_, err := svc.ResolveUsableSubscriptionForRequest(context.Background(), 11, 22, &groupID, PlatformAnthropic)
+
+	require.ErrorIs(t, err, ErrBillingServiceUnavailable)
+}
+
+func TestBillingEligibilityResolveFailsClosedOnSubscriptionReloadError(t *testing.T) {
+	cfg := &config.Config{RunMode: config.RunModeStandard}
+	group := &Group{ID: 7, Status: StatusActive, SubscriptionType: SubscriptionTypeSubscription}
+	key := billingEligibilityKey(group)
+	apiKeyRepo := &billingEligibilityAPIKeyRepoStub{key: key}
+	subRepo := &billingEligibilitySubscriptionRepoStub{err: errors.New("database unavailable")}
+	billingCache := NewBillingCacheService(nil, nil, subRepo, apiKeyRepo, nil, &billingEligibilityGroupRateRepoStub{}, cfg, nil)
+	t.Cleanup(billingCache.Stop)
+	subscriptionService := NewSubscriptionService(nil, subRepo, billingCache, nil, nil)
+	t.Cleanup(subscriptionService.Stop)
+	svc := NewBillingEligibilityService(subscriptionService, billingCache, apiKeyRepo, cfg)
+	groupID := int64(7)
+
+	_, err := svc.ResolveUsableSubscriptionForRequest(context.Background(), 11, 22, &groupID, PlatformAnthropic)
+
+	require.ErrorIs(t, err, ErrBillingServiceUnavailable)
 }
 
 func TestBillingEligibilityResolveFailsClosedOnAPIKeyReloadError(t *testing.T) {

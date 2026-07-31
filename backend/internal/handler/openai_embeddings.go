@@ -98,7 +98,8 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		return
 	}
 
-	failedAccountIDs := make(map[int64]struct{})
+	revalidationState := NewFailoverState(0, false)
+	failedAccountIDs := revalidationState.FailedAccountIDs
 	var lastFailoverErr *service.UpstreamFailoverError
 	switchCount := 0
 	maxAccountSwitches := h.maxAccountSwitches
@@ -155,16 +156,21 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		if !accountAcquired {
 			return
 		}
-		account, accountAcquired = h.revalidateSelectedAccountAfterAcquire(c.Request.Context(), account, accountReleaseFunc, failedAccountIDs, service.OpenAIAccountEligibilityRequest{
+		freshAccount, accountRevalidated, revalidationExhausted := h.revalidateSelectedAccountAfterAcquire(c.Request.Context(), account, accountReleaseFunc, revalidationState, service.OpenAIAccountEligibilityRequest{
 			GroupID:            apiKey.GroupID,
 			Platform:           service.PlatformOpenAI,
 			RequestedModel:     reqModel,
 			RequiredCapability: service.OpenAIEndpointCapabilityEmbeddings,
 			RequiredTransport:  service.OpenAIUpstreamTransportHTTPSSE,
 		}, reqLog)
-		if !accountAcquired {
+		if !accountRevalidated {
+			if revalidationExhausted {
+				h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+				return
+			}
 			continue
 		}
+		account = freshAccount
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()

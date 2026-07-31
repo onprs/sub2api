@@ -745,6 +745,64 @@ func TestOpenAIResponsesWebSocket_RejectsMessageIDAsPreviousResponseID(t *testin
 	require.Contains(t, strings.ToLower(closeErr.Reason), "previous_response_id")
 }
 
+type openAIWSGateOrderRecorder struct {
+	mu     sync.Mutex
+	events []string
+}
+
+func (r *openAIWSGateOrderRecorder) add(event string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+}
+
+func (r *openAIWSGateOrderRecorder) snapshot() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.events...)
+}
+
+type openAIWSGateOrderResolver struct {
+	recorder *openAIWSGateOrderRecorder
+}
+
+func (r openAIWSGateOrderResolver) ResolveUsableSubscriptionForRequest(context.Context, int64, int64, *int64, string) (*service.UserSubscription, error) {
+	r.recorder.add("eligibility")
+	return nil, nil
+}
+
+func TestOpenAIResponsesWebSocket_FirstTurnChecksEligibilityBeforeUserSlot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := &openAIWSGateOrderRecorder{}
+	cache := &concurrencyCacheMock{
+		acquireUserSlotFn: func(context.Context, int64, int, string) (bool, error) {
+			recorder.add("user_slot")
+			return true, nil
+		},
+	}
+	h := newOpenAIHandlerForPreviousResponseIDValidation(t, cache)
+	h.billingEligibilityService = openAIWSGateOrderResolver{recorder: recorder}
+	wsServer := newOpenAIWSHandlerTestServer(t, h, middleware.AuthSubject{UserID: 1, Concurrency: 1})
+	defer wsServer.Close()
+
+	dialCtx, cancelDial := context.WithTimeout(context.Background(), 3*time.Second)
+	clientConn, _, err := coderws.Dial(dialCtx, "ws"+strings.TrimPrefix(wsServer.URL, "http")+"/openai/v1/responses", nil)
+	cancelDial()
+	require.NoError(t, err)
+	defer func() { _ = clientConn.CloseNow() }()
+
+	writeCtx, cancelWrite := context.WithTimeout(context.Background(), 3*time.Second)
+	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5.1","stream":false}`))
+	cancelWrite()
+	require.NoError(t, err)
+
+	readCtx, cancelRead := context.WithTimeout(context.Background(), 3*time.Second)
+	_, _, _ = clientConn.Read(readCtx)
+	cancelRead()
+
+	require.Equal(t, []string{"eligibility", "user_slot"}, recorder.snapshot())
+}
+
 func TestOpenAIResponsesWebSocket_PreviousResponseIDKindLoggedBeforeAcquireFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1143,10 +1201,11 @@ func newOpenAIHandlerForPreviousResponseIDValidation(t *testing.T, cache *concur
 		}
 	}
 	return &OpenAIGatewayHandler{
-		gatewayService:      &service.OpenAIGatewayService{},
-		billingCacheService: &service.BillingCacheService{},
-		apiKeyService:       &service.APIKeyService{},
-		concurrencyHelper:   NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
+		gatewayService:            &service.OpenAIGatewayService{},
+		billingCacheService:       &service.BillingCacheService{},
+		billingEligibilityService: allowBillingEligibilityResolver{},
+		apiKeyService:             &service.APIKeyService{},
+		concurrencyHelper:         NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
 	}
 }
 

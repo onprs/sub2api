@@ -442,7 +442,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
-				fs.FailedAccountIDs[account.ID] = struct{}{}
+				if fs.HandlePostAcquireRevalidationFailure(account.ID) == FailoverExhausted {
+					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+					return
+				}
 				continue
 			}
 			account = freshAccount
@@ -748,7 +751,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
-				fs.FailedAccountIDs[account.ID] = struct{}{}
+				if fs.HandlePostAcquireRevalidationFailure(account.ID) == FailoverExhausted {
+					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+					return
+				}
 				continue
 			}
 			account = freshAccount

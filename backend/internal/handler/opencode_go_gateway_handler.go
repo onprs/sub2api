@@ -296,7 +296,10 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
-			fs.FailedAccountIDs[account.ID] = struct{}{}
+			if fs.HandlePostAcquireRevalidationFailure(account.ID) == FailoverExhausted {
+				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, errorFormat, "api_error", "No available accounts", streamStarted)
+				return
+			}
 			continue
 		}
 		account = freshAccount
