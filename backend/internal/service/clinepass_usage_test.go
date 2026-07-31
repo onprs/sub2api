@@ -60,6 +60,65 @@ func TestAccountUsageServiceClinePassPersistsAuthoritativeWindowsAndKeepsLastGoo
 	require.Equal(t, "rate_limited", errorUpdate["clinepass_usage_auth_status"])
 }
 
+func TestAccountUsageServiceClinePassPromotesExhaustedUsageToUnifiedRateLimit(t *testing.T) {
+	now := time.Now().UTC()
+	reset := now.Add(2 * time.Hour).Truncate(time.Nanosecond)
+	upstream := &clinePassHTTPUpstreamStub{response: clinePassTestResponse(http.StatusOK, `{
+		"success":true,
+		"data":{"limits":[
+			{"type":"five_hour","percentUsed":100,"resetsAt":"`+reset.Format(time.RFC3339Nano)+`"}
+		]}
+	}`)}
+	repo := &accountUsageCodexProbeRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{{
+			ID: 92, Platform: PlatformClinePass, Type: AccountTypeAPIKey, Concurrency: 1,
+			Credentials: map[string]any{"api_key": "cp-key", "base_url": DefaultClinePassBaseURL},
+		}}},
+		updateExtraCh: make(chan map[string]any, 1),
+		rateLimitCh:   make(chan time.Time, 1),
+	}
+	client := NewClinePassClient(upstream, &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}, nil)
+	svc := &AccountUsageService{accountRepo: repo, clinePassClient: client}
+
+	usage, err := svc.GetUsage(context.Background(), 92, true)
+	require.NoError(t, err)
+	require.Equal(t, 100.0, usage.FiveHour.Utilization)
+	select {
+	case got := <-repo.rateLimitCh:
+		require.WithinDuration(t, reset, got, time.Second)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for ClinePass unified rate-limit update")
+	}
+}
+
+func TestAccountUsageServiceClinePassCachedExhaustionRepairsUnifiedRateLimit(t *testing.T) {
+	now := time.Now().UTC()
+	reset := now.Add(90 * time.Minute).Truncate(time.Nanosecond)
+	repo := &accountUsageCodexProbeRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{{
+			ID: 93, Platform: PlatformClinePass, Type: AccountTypeAPIKey, Concurrency: 1,
+			Extra: map[string]any{
+				"clinepass_usage_source":          clinePassUsageSourceOfficialAPI,
+				"clinepass_usage_updated_at":      now.Format(time.RFC3339Nano),
+				"clinepass_usage_7d_used_percent": 100.0,
+				"clinepass_usage_7d_resets_at":    reset.Format(time.RFC3339Nano),
+			},
+		}}},
+		rateLimitCh: make(chan time.Time, 1),
+	}
+	svc := &AccountUsageService{accountRepo: repo}
+
+	usage, err := svc.GetUsage(context.Background(), 93)
+	require.NoError(t, err)
+	require.Equal(t, 100.0, usage.SevenDay.Utilization)
+	select {
+	case got := <-repo.rateLimitCh:
+		require.WithinDuration(t, reset, got, time.Second)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for cached ClinePass rate-limit repair")
+	}
+}
+
 func TestClinePassUsageRateLimitResetUsesLatestWindowAndBoundedMissingReset(t *testing.T) {
 	now := time.Now().UTC()
 	account := &Account{
