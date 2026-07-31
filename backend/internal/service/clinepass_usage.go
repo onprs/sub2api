@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ func (s *AccountUsageService) getClinePassUsage(ctx context.Context, account *Ac
 	now := time.Now().UTC()
 	stored := buildClinePassUsageFromExtra(account.Extra, now)
 	if !forceRefresh && stored != nil && stored.UpdatedAt != nil && now.Sub(*stored.UpdatedAt) < clinePassUsageCacheTTL {
+		s.syncClinePassOfficialUsageRateLimit(ctx, account.ID, account.RateLimitResetAt, account.Extra)
 		return stored, nil
 	}
 	if s == nil || s.clinePassClient == nil {
@@ -41,7 +43,30 @@ func (s *AccountUsageService) getClinePassUsage(ctx context.Context, account *Ac
 		return nil, fmt.Errorf("persist ClinePass usage snapshot: %w", err)
 	}
 	mergeAccountExtra(account, updates)
+	s.syncClinePassOfficialUsageRateLimit(ctx, account.ID, account.RateLimitResetAt, account.Extra)
 	return buildClinePassUsageFromExtra(account.Extra, now), nil
+}
+
+func (s *AccountUsageService) syncClinePassOfficialUsageRateLimit(ctx context.Context, accountID int64, currentResetAt *time.Time, extra map[string]any) {
+	if s == nil || s.accountRepo == nil || accountID <= 0 || len(extra) == 0 {
+		return
+	}
+	now := time.Now().UTC()
+	resetAt := (&Account{
+		ID:       accountID,
+		Platform: PlatformClinePass,
+		Type:     AccountTypeAPIKey,
+		Extra:    extra,
+	}).ClinePassOfficialUsageRateLimitResetAt(now)
+	if resetAt == nil {
+		return
+	}
+	if currentResetAt != nil && now.Before(*currentResetAt) && !currentResetAt.Before(*resetAt) {
+		return
+	}
+	if err := s.accountRepo.SetRateLimited(ctx, accountID, *resetAt); err != nil {
+		slog.Warn("clinepass_official_usage_rate_limit_sync_failed", "account_id", accountID, "reset_at", *resetAt, "error", err)
+	}
 }
 
 func buildClinePassUsageExtra(snapshot *ClinePassUsageSnapshot) map[string]any {
