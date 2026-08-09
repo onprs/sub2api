@@ -141,6 +141,14 @@ security:
     # Allow explicitly allowlisted private hosts (default: false; trusted networks only)
     # 允许白名单内的私网主机（默认禁用；仅用于可信网络）
     allow_private_hosts: false
+    # Permit arbitrary public OpenAI-compatible HTTPS relays for OpenAI API-key
+    # accounts (default: true). Set false to keep the upstream_hosts allowlist as a
+    # strict boundary for OpenAI API-key base URLs too. Literal localhost/private-IP
+    # hosts and the final dial-time SSRF check are always enforced regardless.
+    # 是否允许 OpenAI API-Key 账号填写任意公网 HTTPS 中转地址（默认 true）。
+    # 设为 false 时，OpenAI API-Key 的 base_url 也强制受 upstream_hosts 白名单约束。
+    # 无论开关如何，localhost/私网字面量地址与最终拨号阶段的反 SSRF 校验始终生效。
+    allow_openai_apikey_custom_hosts: true
     # Allow http:// URLs when allowlist is disabled (default: false)
     # 白名单禁用时是否允许 http:// URL（默认禁用）
     allow_insecure_http: false

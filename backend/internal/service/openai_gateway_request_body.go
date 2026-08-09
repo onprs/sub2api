@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
@@ -17,19 +18,31 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-func (s *OpenAIGatewayService) validateUpstreamBaseURL(raw string) (string, error) {
-	if s.cfg != nil && !s.cfg.Security.URLAllowlist.Enabled {
-		normalized, err := urlvalidator.ValidateURLFormat(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP)
-		if err != nil {
-			return "", fmt.Errorf("invalid base_url: %w", err)
-		}
-		return normalized, nil
+func validateOpenAIAPIKeyBaseURL(raw string, cfg *config.Config) (string, error) {
+	if cfg == nil {
+		return "", errors.New("config is not available")
 	}
-	normalized, err := urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
-		AllowedHosts:     s.cfg.Security.URLAllowlist.UpstreamHosts,
-		RequireAllowlist: true,
-		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
-	})
+	policy := cfg.Security.URLAllowlist
+	if !policy.Enabled {
+		return urlvalidator.ValidateURLFormat(raw, policy.AllowInsecureHTTP)
+	}
+
+	options := urlvalidator.ValidationOptions{
+		AllowPrivate: policy.AllowPrivateHosts,
+	}
+	if !policy.AllowOpenAIAPIKeyCustomHosts {
+		options.AllowedHosts = policy.UpstreamHosts
+		options.RequireAllowlist = true
+	}
+
+	// The account base URL is an explicit administrator choice. By default,
+	// permit public OpenAI-compatible HTTPS relays while retaining literal-private-host
+	// checks; HTTPUpstream performs the final DNS/IP SSRF check before dialing.
+	return urlvalidator.ValidateHTTPSURL(raw, options)
+}
+
+func (s *OpenAIGatewayService) validateUpstreamBaseURL(raw string) (string, error) {
+	normalized, err := validateOpenAIAPIKeyBaseURL(raw, s.cfg)
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}

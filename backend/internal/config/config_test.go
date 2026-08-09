@@ -443,6 +443,9 @@ func TestLoadDefaultSecurityToggles(t *testing.T) {
 	if cfg.Security.URLAllowlist.AllowPrivateHosts {
 		t.Fatalf("URLAllowlist.AllowPrivateHosts = true, want false")
 	}
+	if !cfg.Security.URLAllowlist.AllowOpenAIAPIKeyCustomHosts {
+		t.Fatalf("URLAllowlist.AllowOpenAIAPIKeyCustomHosts = false, want true")
+	}
 	if !cfg.Security.ResponseHeaders.Enabled {
 		t.Fatalf("ResponseHeaders.Enabled = false, want true")
 	}
@@ -453,12 +456,14 @@ func TestLoadURLAllowlistCompatibilityOverrides(t *testing.T) {
 	t.Setenv("SECURITY_URL_ALLOWLIST_ENABLED", "false")
 	t.Setenv("SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP", "true")
 	t.Setenv("SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS", "true")
+	t.Setenv("SECURITY_URL_ALLOWLIST_ALLOW_OPENAI_APIKEY_CUSTOM_HOSTS", "false")
 
 	cfg, err := Load()
 	require.NoError(t, err)
 	require.False(t, cfg.Security.URLAllowlist.Enabled)
 	require.True(t, cfg.Security.URLAllowlist.AllowInsecureHTTP)
 	require.True(t, cfg.Security.URLAllowlist.AllowPrivateHosts)
+	require.False(t, cfg.Security.URLAllowlist.AllowOpenAIAPIKeyCustomHosts)
 }
 
 func TestLoadDefaultServerMode(t *testing.T) {

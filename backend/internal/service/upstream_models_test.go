@@ -214,6 +214,41 @@ func TestBuildUpstreamModelsRequestsForAPIKeyAccounts(t *testing.T) {
 	require.Equal(t, "Bearer opencode-go-key", openCodeGoReq.Header.Get("Authorization"))
 }
 
+func TestBuildOpenAIUpstreamModelsRequestAllowsPublicRelayWithStrictURLPolicy(t *testing.T) {
+	t.Parallel()
+
+	svc := &AccountTestService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{
+				Enabled:                      true,
+				UpstreamHosts:                []string{"api.openai.com", "api.anthropic.com"},
+				AllowOpenAIAPIKeyCustomHosts: true,
+			},
+		},
+	}}
+
+	req, err := svc.buildOpenAIUpstreamModelsRequest(context.Background(), &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "openai-key",
+			"base_url": "https://relay.example.com/openai/v1",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "https://relay.example.com/openai/v1/models", req.URL.String())
+
+	_, err = svc.buildAnthropicUpstreamModelsRequest(context.Background(), &Account{
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "anthropic-key",
+			"base_url": "https://relay.example.com/anthropic/v1",
+		},
+	})
+	require.Error(t, err, "non-OpenAI channels must retain the configured upstream allowlist")
+}
+
 func TestBuildAntigravityAPIKeyModelsRequestRejectsOfficialCloudCodeBase(t *testing.T) {
 	t.Parallel()
 

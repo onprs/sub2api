@@ -532,6 +532,7 @@ default:
 - `security.url_allowlist.enabled` - URL バリデーションの無効化（注意して使用）
 - `security.url_allowlist.allow_insecure_http` - バリデーション無効時に HTTP URL を許可
 - `security.url_allowlist.allow_private_hosts` - プライベート/ローカル IP アドレスを許可
+- `security.url_allowlist.allow_openai_apikey_custom_hosts` - OpenAI API キーアカウントが任意の公開 HTTPS 中継アドレスを使えるようにする（デフォルト true。false にすると base_url も upstream_hosts 許可リストの厳格な境界に従う）
 - `security.response_headers.enabled` - 設定可能なレスポンスヘッダーフィルタリングを有効化（無効時はデフォルトの許可リストを使用）
 - `security.csp` - Content-Security-Policy ヘッダーの制御
 - `billing.circuit_breaker` - 課金エラー時にフェイルクローズ

@@ -279,7 +279,7 @@ func (s *AccountTestService) buildOpenAIUpstreamModelsRequest(ctx context.Contex
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = "https://api.openai.com"
 	}
-	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+	normalizedBaseURL, err := s.validateOpenAIAPIKeyBaseURL(baseURL)
 	if err != nil {
 		return nil, newUpstreamModelSyncConfigError("Invalid OpenAI base URL", err)
 	}

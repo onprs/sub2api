@@ -571,6 +571,7 @@ gateway:
 - `security.url_allowlist.enabled` 可关闭 URL 校验（慎用）
 - `security.url_allowlist.allow_insecure_http` 关闭校验时允许 HTTP URL
 - `security.url_allowlist.allow_private_hosts` 允许私有/本地 IP 地址
+- `security.url_allowlist.allow_openai_apikey_custom_hosts` 允许 OpenAI API-Key 账号填写任意公网 HTTPS 中转地址（默认 true；设为 false 则其 base_url 也受 upstream_hosts 白名单约束）
 - `security.response_headers.enabled` 可启用可配置响应头过滤（关闭时使用默认白名单）
 - `security.csp` 配置 Content-Security-Policy
 - `billing.circuit_breaker` 计费异常时 fail-closed
