@@ -553,6 +553,16 @@ func (s *PaymentService) ensurePaymentSubscriptionAssigned(ctx context.Context, 
 			}, true); err != nil {
 				return fmt.Errorf("assign subscription: %w", err)
 			}
+
+			// Decrement the plan's finite stock exactly once per fresh assignment,
+			// inside the same transaction as the subscription assignment so the two
+			// are atomic. Orders without a plan (PlanID == 0) or with unlimited stock
+			// are no-ops.
+			if o.PlanID != nil && *o.PlanID > 0 {
+				if _, err := DecSubscriptionPlanStock(txCtx, txClient, *o.PlanID); err != nil {
+					return err
+				}
+			}
 		}
 
 		detail, _ := json.Marshal(map[string]any{

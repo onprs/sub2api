@@ -81,6 +81,70 @@ func SubscriptionPlanSoldOut(plan *dbent.SubscriptionPlan) bool {
 	return plan != nil && plan.Stock != nil && *plan.Stock == 0
 }
 
+// DecSubscriptionPlanStock atomically decrements a plan's finite stock by one
+// within the given client (which may be a transaction client). It returns:
+//   - (true, nil) when stock was decremented.
+//   - (false, nil) when the plan does not exist or has unlimited (NULL) stock
+//     — caller treats this as "no stock to decrement".
+//   - (false, err) when stock is finite but already 0 (sold out) or on a
+//     database error.
+func DecSubscriptionPlanStock(ctx context.Context, client *dbent.Client, planID int64) (bool, error) {
+	plan, err := client.SubscriptionPlan.Get(ctx, planID)
+	if err != nil {
+		if dbent.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("get subscription plan for stock: %w", err)
+	}
+	if plan.Stock == nil {
+		// Unlimited stock — nothing to decrement.
+		return false, nil
+	}
+	if *plan.Stock <= 0 {
+		return false, infraerrors.Conflict("PLAN_SOLD_OUT", "subscription plan is sold out")
+	}
+	n, err := client.SubscriptionPlan.Update().
+		Where(
+			subscriptionplan.IDEQ(planID),
+			subscriptionplan.StockNotNil(),
+			subscriptionplan.StockGT(0),
+		).
+		AddStock(-1).
+		Save(ctx)
+	if err != nil {
+		return false, fmt.Errorf("decrement subscription plan stock: %w", err)
+	}
+	if n == 0 {
+		return false, infraerrors.Conflict("PLAN_SOLD_OUT", "subscription plan is sold out")
+	}
+	return true, nil
+}
+
+// IncSubscriptionPlanStock atomically restores one unit of stock for a plan
+// with finite (NotNil) stock. No-op for unlimited-stock plans. It returns
+// (true, nil) when stock was restored, (false, nil) when the plan does not
+// exist or has unlimited stock.
+func IncSubscriptionPlanStock(ctx context.Context, client *dbent.Client, planID int64) (bool, error) {
+	plan, err := client.SubscriptionPlan.Get(ctx, planID)
+	if err != nil {
+		if dbent.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("get subscription plan for stock: %w", err)
+	}
+	if plan.Stock == nil {
+		return false, nil
+	}
+	_, err = client.SubscriptionPlan.Update().
+		Where(subscriptionplan.IDEQ(planID), subscriptionplan.StockNotNil()).
+		AddStock(1).
+		Save(ctx)
+	if err != nil {
+		return false, fmt.Errorf("increment subscription plan stock: %w", err)
+	}
+	return true, nil
+}
+
 func validatePlanRenewalDiscountPercentRange(value *float64) error {
 	if value == nil {
 		return nil

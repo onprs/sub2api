@@ -1074,3 +1074,248 @@ func TestExecuteSubscriptionFulfillmentDoesNotDuplicateWorkAfterLegacySuccessAud
 
 var _ AffiliateRepository = (*paymentFulfillmentAffiliateRepoStub)(nil)
 var _ SettingRepository = (*paymentFulfillmentSettingRepoStub)(nil)
+
+func TestExecuteSubscriptionFulfillmentDecrementsPlanStock(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+
+	stock := 5
+	plan, err := client.SubscriptionPlan.Create().
+		SetGroupID(7).
+		SetName("Stocked Plan").
+		SetPrice(9.99).
+		SetValidityDays(30).
+		SetValidityUnit("days").
+		SetStock(stock).
+		Save(ctx)
+	require.NoError(t, err)
+
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusPaid, time.Now())
+	order, err = client.PaymentOrder.UpdateOneID(order.ID).
+		SetPlanID(plan.ID).
+		Save(ctx)
+	require.NoError(t, err)
+
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription},
+	}
+	subRepo := newSubscriptionUserSubRepoStub()
+	svc := &PaymentService{
+		entClient:       client,
+		groupRepo:       groupRepo,
+		subscriptionSvc: NewSubscriptionService(groupRepo, subRepo, nil, nil, nil),
+	}
+
+	require.NoError(t, svc.ExecuteSubscriptionFulfillment(ctx, order.ID))
+
+	reloaded, err := client.SubscriptionPlan.Get(ctx, plan.ID)
+	require.NoError(t, err)
+	require.NotNil(t, reloaded.Stock)
+	require.Equal(t, stock-1, *reloaded.Stock)
+}
+
+func TestExecuteSubscriptionFulfillmentDoesNotDecrementStockOnReplay(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+
+	stock := 2
+	plan, err := client.SubscriptionPlan.Create().
+		SetGroupID(7).
+		SetName("Stocked Plan Replay").
+		SetPrice(9.99).
+		SetValidityDays(30).
+		SetValidityUnit("days").
+		SetStock(stock).
+		Save(ctx)
+	require.NoError(t, err)
+
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusPaid, time.Now())
+	_, err = client.PaymentOrder.UpdateOneID(order.ID).SetPlanID(plan.ID).Save(ctx)
+	require.NoError(t, err)
+
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription},
+	}
+	subRepo := newSubscriptionUserSubRepoStub()
+	svc := &PaymentService{
+		entClient:       client,
+		groupRepo:       groupRepo,
+		subscriptionSvc: NewSubscriptionService(groupRepo, subRepo, nil, nil, nil),
+	}
+
+	require.NoError(t, svc.ExecuteSubscriptionFulfillment(ctx, order.ID))
+	reloaded, err := client.SubscriptionPlan.Get(ctx, plan.ID)
+	require.NoError(t, err)
+	require.Equal(t, stock-1, *reloaded.Stock)
+
+	// Simulate stale recovery after completion: the durable SUBSCRIPTION_ASSIGNED
+	// audit makes the replay a no-op, so stock must not be decremented again.
+	_, err = client.PaymentOrder.UpdateOneID(order.ID).
+		SetStatus(OrderStatusRecharging).
+		SetUpdatedAt(time.Now().Add(-paymentFulfillmentLeaseDuration - time.Minute)).
+		ClearCompletedAt().
+		Save(ctx)
+	require.NoError(t, err)
+	require.NoError(t, svc.ExecuteSubscriptionFulfillment(ctx, order.ID))
+
+	reloaded, err = client.SubscriptionPlan.Get(ctx, plan.ID)
+	require.NoError(t, err)
+	require.Equal(t, stock-1, *reloaded.Stock)
+}
+
+func TestExecuteSubscriptionFulfillmentUnlimitedStockNoDecrement(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+
+	// stock == nil means unlimited.
+	plan, err := client.SubscriptionPlan.Create().
+		SetGroupID(7).
+		SetName("Unlimited Plan").
+		SetPrice(9.99).
+		SetValidityDays(30).
+		SetValidityUnit("days").
+		Save(ctx)
+	require.NoError(t, err)
+
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusPaid, time.Now())
+	_, err = client.PaymentOrder.UpdateOneID(order.ID).SetPlanID(plan.ID).Save(ctx)
+	require.NoError(t, err)
+
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription},
+	}
+	subRepo := newSubscriptionUserSubRepoStub()
+	svc := &PaymentService{
+		entClient:       client,
+		groupRepo:       groupRepo,
+		subscriptionSvc: NewSubscriptionService(groupRepo, subRepo, nil, nil, nil),
+	}
+
+	require.NoError(t, svc.ExecuteSubscriptionFulfillment(ctx, order.ID))
+
+	reloaded, err := client.SubscriptionPlan.Get(ctx, plan.ID)
+	require.NoError(t, err)
+	require.Nil(t, reloaded.Stock)
+}
+
+func TestExecuteSubscriptionFulfillmentRejectsSoldOutPlan(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+
+	stock := 0 // sold out
+	plan, err := client.SubscriptionPlan.Create().
+		SetGroupID(7).
+		SetName("Sold Out Plan").
+		SetPrice(9.99).
+		SetValidityDays(30).
+		SetValidityUnit("days").
+		SetStock(stock).
+		Save(ctx)
+	require.NoError(t, err)
+
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusPaid, time.Now())
+	_, err = client.PaymentOrder.UpdateOneID(order.ID).SetPlanID(plan.ID).Save(ctx)
+	require.NoError(t, err)
+
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription},
+	}
+	subRepo := newSubscriptionUserSubRepoStub()
+	svc := &PaymentService{
+		entClient:       client,
+		groupRepo:       groupRepo,
+		subscriptionSvc: NewSubscriptionService(groupRepo, subRepo, nil, nil, nil),
+	}
+
+	err = svc.ExecuteSubscriptionFulfillment(ctx, order.ID)
+	require.Error(t, err)
+	require.ErrorIs(t, err, infraerrors.Conflict("PLAN_SOLD_OUT", "subscription plan is sold out"))
+
+	// Order must not be marked completed, and stock stays 0.
+	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.NotEqual(t, OrderStatusCompleted, reloaded.Status)
+	planReloaded, err := client.SubscriptionPlan.Get(ctx, plan.ID)
+	require.NoError(t, err)
+	require.Equal(t, 0, *planReloaded.Stock)
+}
+
+func TestIncSubscriptionPlanStockRestoresOnlyFiniteStock(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+
+	plan, err := client.SubscriptionPlan.Create().
+		SetGroupID(7).
+		SetName("Restore Plan").
+		SetPrice(9.99).
+		SetValidityDays(30).
+		SetValidityUnit("days").
+		SetStock(0).
+		Save(ctx)
+	require.NoError(t, err)
+
+	restored, err := IncSubscriptionPlanStock(ctx, client, plan.ID)
+	require.NoError(t, err)
+	require.True(t, restored)
+	reloaded, err := client.SubscriptionPlan.Get(ctx, plan.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1, *reloaded.Stock)
+
+	// Unlimited plan: no-op.
+	unlimited, err := client.SubscriptionPlan.Create().
+		SetGroupID(7).
+		SetName("Unlimited Restore").
+		SetPrice(9.99).
+		SetValidityDays(30).
+		SetValidityUnit("days").
+		Save(ctx)
+	require.NoError(t, err)
+	restored, err = IncSubscriptionPlanStock(ctx, client, unlimited.ID)
+	require.NoError(t, err)
+	require.False(t, restored)
+
+	// Missing plan: no-op, no error.
+	restored, err = IncSubscriptionPlanStock(ctx, client, 999999)
+	require.NoError(t, err)
+	require.False(t, restored)
+}
+
+func TestDecSubscriptionPlanStockHandlesUnlimitedAndMissing(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+
+	unlimited, err := client.SubscriptionPlan.Create().
+		SetGroupID(7).
+		SetName("Unlimited Dec").
+		SetPrice(9.99).
+		SetValidityDays(30).
+		SetValidityUnit("days").
+		Save(ctx)
+	require.NoError(t, err)
+
+	decremented, err := DecSubscriptionPlanStock(ctx, client, unlimited.ID)
+	require.NoError(t, err)
+	require.False(t, decremented)
+
+	decremented, err = DecSubscriptionPlanStock(ctx, client, 999999)
+	require.NoError(t, err)
+	require.False(t, decremented)
+
+	// Sold out finite stock returns a conflict.
+	soldOut, err := client.SubscriptionPlan.Create().
+		SetGroupID(7).
+		SetName("Sold Out Dec").
+		SetPrice(9.99).
+		SetValidityDays(30).
+		SetValidityUnit("days").
+		SetStock(0).
+		Save(ctx)
+	require.NoError(t, err)
+	_, err = DecSubscriptionPlanStock(ctx, client, soldOut.ID)
+	require.Error(t, err)
+	require.ErrorIs(t, err, infraerrors.Conflict("PLAN_SOLD_OUT", "subscription plan is sold out"))
+}

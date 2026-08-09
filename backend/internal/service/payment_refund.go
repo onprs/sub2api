@@ -607,6 +607,19 @@ func (s *PaymentService) markRefundOk(ctx context.Context, p *RefundPlan) (*Refu
 	if err != nil {
 		return nil, fmt.Errorf("mark refund: %w", err)
 	}
+
+	// Restore one unit of plan stock for a full subscription refund, so the
+	// returned "seat" becomes purchasable again. Idempotent: only first time a
+	// REFUND_SUCCESS is written for this order.
+	if p.Order.OrderType == payment.OrderTypeSubscription &&
+		p.Order.PlanID != nil && *p.Order.PlanID > 0 &&
+		p.RefundAmount >= p.Order.Amount &&
+		!s.hasAuditLog(ctx, p.OrderID, "REFUND_SUCCESS") {
+		if _, err := IncSubscriptionPlanStock(ctx, s.entClient, *p.Order.PlanID); err != nil {
+			slog.Error("restore subscription plan stock failed", "orderID", p.OrderID, "planID", *p.Order.PlanID, "error", err)
+		}
+	}
+
 	s.writeAuditLog(ctx, p.OrderID, "REFUND_SUCCESS", "admin", map[string]any{"refundAmount": p.RefundAmount, "reason": p.Reason, "balanceDeducted": p.BalanceToDeduct, "force": p.Force})
 	return &RefundResult{Success: true, BalanceDeducted: p.BalanceToDeduct, SubDaysDeducted: p.SubDaysToDeduct}, nil
 }
