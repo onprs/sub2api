@@ -509,3 +509,143 @@ type refundQueryProviderTestDouble struct {
 func (p *refundQueryProviderTestDouble) QueryRefund(context.Context, payment.RefundQueryRequest) (*payment.RefundResponse, error) {
 	return p.refundResponse, nil
 }
+
+func TestMarkRefundOkRestoresSubscriptionPlanStock(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+
+	stock := 0 // sold out after a purchase
+	plan, err := client.SubscriptionPlan.Create().
+		SetGroupID(7).
+		SetName("Refund Stock Plan").
+		SetPrice(9.99).
+		SetValidityDays(30).
+		SetValidityUnit("days").
+		SetStock(stock).
+		Save(ctx)
+	require.NoError(t, err)
+
+	user, err := client.User.Create().
+		SetEmail("refund-sub-stock@example.com").
+		SetPasswordHash("hash").
+		SetUsername("refund-sub-stock-user").
+		Save(ctx)
+	require.NoError(t, err)
+
+	order, err := client.PaymentOrder.Create().
+		SetUserID(user.ID).
+		SetUserEmail(user.Email).
+		SetUserName(user.Username).
+		SetAmount(9.99).
+		SetPayAmount(9.99).
+		SetFeeRate(0).
+		SetRechargeCode("PAY-REFUND-SUB-STOCK").
+		SetOutTradeNo("sub2_refund_sub_stock").
+		SetPaymentType(payment.TypeStripe).
+		SetPaymentTradeNo("pi_refund_sub_stock").
+		SetOrderType(payment.OrderTypeSubscription).
+		SetPlanID(plan.ID).
+		SetSubscriptionGroupID(7).
+		SetSubscriptionDays(30).
+		SetStatus(OrderStatusRefunding).
+		SetExpiresAt(time.Now().Add(time.Hour)).
+		SetPaidAt(time.Now()).
+		SetClientIP("127.0.0.1").
+		SetSrcHost("api.example.com").
+		Save(ctx)
+	require.NoError(t, err)
+
+	svc := &PaymentService{entClient: client}
+	result, err := svc.markRefundOk(ctx, &RefundPlan{
+		OrderID:      order.ID,
+		Order:        order,
+		RefundAmount: 9.99,
+		Reason:       "full subscription refund",
+	})
+	require.NoError(t, err)
+	require.True(t, result.Success)
+
+	// Stock restored from 0 back to 1.
+	reloaded, err := client.SubscriptionPlan.Get(ctx, plan.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1, *reloaded.Stock)
+
+	// Calling markRefundOk again must not double-restore stock.
+	_, err = svc.markRefundOk(ctx, &RefundPlan{
+		OrderID:      order.ID,
+		Order:        order,
+		RefundAmount: 9.99,
+		Reason:       "duplicate refund",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, *reloaded.Stock)
+
+	reloaded, err = client.SubscriptionPlan.Get(ctx, plan.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1, *reloaded.Stock)
+}
+
+func TestMarkRefundOkDoesNotRestoreStockForPartialRefund(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+
+	stock := 0
+	plan, err := client.SubscriptionPlan.Create().
+		SetGroupID(7).
+		SetName("Refund Partial Plan").
+		SetPrice(9.99).
+		SetValidityDays(30).
+		SetValidityUnit("days").
+		SetStock(stock).
+		Save(ctx)
+	require.NoError(t, err)
+
+	user, err := client.User.Create().
+		SetEmail("refund-sub-partial@example.com").
+		SetPasswordHash("hash").
+		SetUsername("refund-sub-partial-user").
+		Save(ctx)
+	require.NoError(t, err)
+
+	order, err := client.PaymentOrder.Create().
+		SetUserID(user.ID).
+		SetUserEmail(user.Email).
+		SetUserName(user.Username).
+		SetAmount(9.99).
+		SetPayAmount(9.99).
+		SetFeeRate(0).
+		SetRechargeCode("PAY-REFUND-SUB-PARTIAL").
+		SetOutTradeNo("sub2_refund_sub_partial").
+		SetPaymentType(payment.TypeStripe).
+		SetPaymentTradeNo("pi_refund_sub_partial").
+		SetOrderType(payment.OrderTypeSubscription).
+		SetPlanID(plan.ID).
+		SetSubscriptionGroupID(7).
+		SetSubscriptionDays(30).
+		SetStatus(OrderStatusRefunding).
+		SetExpiresAt(time.Now().Add(time.Hour)).
+		SetPaidAt(time.Now()).
+		SetClientIP("127.0.0.1").
+		SetSrcHost("api.example.com").
+		Save(ctx)
+	require.NoError(t, err)
+
+	svc := &PaymentService{entClient: client}
+	result, err := svc.markRefundOk(ctx, &RefundPlan{
+		OrderID:      order.ID,
+		Order:        order,
+		RefundAmount: 5.00,
+		Reason:       "partial subscription refund",
+	})
+	require.NoError(t, err)
+	require.True(t, result.Success)
+
+	orderReloaded, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusPartiallyRefunded, orderReloaded.Status)
+
+	// Partial refund must not restore any stock.
+	reloaded, err := client.SubscriptionPlan.Get(ctx, plan.ID)
+	require.NoError(t, err)
+	require.Equal(t, 0, *reloaded.Stock)
+}
