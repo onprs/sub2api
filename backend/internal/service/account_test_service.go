@@ -121,6 +121,10 @@ func (s *AccountTestService) validateUpstreamBaseURL(raw string) (string, error)
 	return normalized, nil
 }
 
+func (s *AccountTestService) validateOpenAIAPIKeyBaseURL(raw string) (string, error) {
+	return validateOpenAIAPIKeyBaseURL(raw, s.cfg)
+}
+
 // generateSessionString generates a Claude Code style session string.
 // The output format is determined by the UA version in claude.DefaultHeaders,
 // ensuring consistency between the user_id format and the UA sent to upstream.
@@ -731,7 +735,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		if baseURL == "" {
 			baseURL = "https://api.openai.com"
 		}
-		normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+		normalizedBaseURL, err := s.validateOpenAIAPIKeyBaseURL(baseURL)
 		if err != nil {
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
 		}
@@ -994,7 +998,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 		if baseURL == "" {
 			baseURL = "https://api.openai.com"
 		}
-		normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+		normalizedBaseURL, err := s.validateOpenAIAPIKeyBaseURL(baseURL)
 		if err != nil {
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
 		}
@@ -1757,7 +1761,7 @@ func (s *AccountTestService) testOpenAIImageAPIKey(c *gin.Context, ctx context.C
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
 	}
-	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+	normalizedBaseURL, err := s.validateOpenAIAPIKeyBaseURL(baseURL)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
 	}

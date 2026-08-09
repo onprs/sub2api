@@ -2406,23 +2406,51 @@ func TestOpenAIValidateUpstreamBaseURLDisabledAllowsHTTP(t *testing.T) {
 	}
 }
 
-func TestOpenAIValidateUpstreamBaseURLEnabledEnforcesAllowlist(t *testing.T) {
+func TestOpenAIValidateUpstreamBaseURLEnabledAllowsPublicRelayAndBlocksPrivateHosts(t *testing.T) {
 	cfg := &config.Config{
 		Security: config.SecurityConfig{
 			URLAllowlist: config.URLAllowlistConfig{
-				Enabled:       true,
-				UpstreamHosts: []string{"example.com"},
+				Enabled:                      true,
+				UpstreamHosts:                []string{"api.openai.com"},
+				AllowOpenAIAPIKeyCustomHosts: true,
 			},
 		},
 	}
 	svc := &OpenAIGatewayService{cfg: cfg}
 
-	if _, err := svc.validateUpstreamBaseURL("https://example.com"); err != nil {
-		t.Fatalf("expected allowlisted host to pass, got %v", err)
+	normalized, err := svc.validateUpstreamBaseURL("https://relay.example.com/openai/v1/")
+	require.NoError(t, err)
+	require.Equal(t, "https://relay.example.com/openai/v1", normalized)
+
+	for _, raw := range []string{
+		"https://localhost/v1",
+		"https://127.0.0.1/v1",
+		"https://10.0.0.8/v1",
+		"https://[::1]/v1",
+	} {
+		_, err := svc.validateUpstreamBaseURL(raw)
+		require.Error(t, err, "expected private OpenAI relay %q to be rejected", raw)
 	}
-	if _, err := svc.validateUpstreamBaseURL("https://evil.com"); err == nil {
-		t.Fatalf("expected non-allowlisted host to fail")
+}
+
+func TestOpenAIValidateUpstreamBaseURLEnabledStrictBoundaryRejectsUnknownHost(t *testing.T) {
+	cfg := &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{
+				Enabled:                      true,
+				UpstreamHosts:                []string{"api.openai.com"},
+				AllowOpenAIAPIKeyCustomHosts: false,
+			},
+		},
 	}
+	svc := &OpenAIGatewayService{cfg: cfg}
+
+	normalized, err := svc.validateUpstreamBaseURL("https://api.openai.com")
+	require.NoError(t, err)
+	require.Equal(t, "https://api.openai.com", normalized)
+
+	_, err = svc.validateUpstreamBaseURL("https://relay.example.com/v1")
+	require.Error(t, err, "expected unknown OpenAI relay to be rejected in strict allowlist mode")
 }
 
 func TestOpenAIUpdateCodexUsageSnapshotFromHeaders(t *testing.T) {
