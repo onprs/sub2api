@@ -15,11 +15,13 @@ import (
 )
 
 func TestChannelMonitorOpenCodeGoEndpointAllowsVersionedBasePath(t *testing.T) {
-	require.NoError(t, validateEndpointForProvider(MonitorProviderOpenCodeGo, "https://opencode.ai/zen/go/v1"))
-	require.NoError(t, validateEndpointForProvider(MonitorProviderOpenCodeGo, "https://api.onprs.top/v1"))
-	require.Equal(t, "https://api.onprs.top/v1", normalizeEndpoint(" https://api.onprs.top/v1/ "))
+	const publicEndpoint = "https://8.8.8.8/v1"
 
-	require.ErrorIs(t, validateEndpointForProvider(MonitorProviderOpenAI, "https://api.onprs.top/v1"), ErrChannelMonitorEndpointPath)
+	// Use an IP literal so this validation test does not depend on local DNS.
+	require.NoError(t, validateEndpointForProvider(MonitorProviderOpenCodeGo, publicEndpoint))
+	require.Equal(t, publicEndpoint, normalizeEndpoint(" "+publicEndpoint+"/ "))
+
+	require.ErrorIs(t, validateEndpointForProvider(MonitorProviderOpenAI, publicEndpoint), ErrChannelMonitorEndpointPath)
 }
 
 func TestRunCheckForModel_OpenCodeGoEmptyExtractedTextHintsEndpointOrAPIMode(t *testing.T) {
