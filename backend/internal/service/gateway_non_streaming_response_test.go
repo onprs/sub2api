@@ -207,6 +207,31 @@ func TestHandleNonStreamingResponseAnthropicAPIKeyPassthrough_ValidJSONUnchanged
 	require.JSONEq(t, string(body), rec.Body.String())
 }
 
+func TestHandleNonStreamingResponseAnthropicAPIKeyPassthrough_ForceCacheBillingReclassifiesInput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"id":"msg_cache","type":"message","usage":{"input_tokens":5,"output_tokens":3}}`)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewReader(body)),
+	}
+	svc := &GatewayService{cfg: &config.Config{}}
+	account := &Account{ID: 2, Platform: PlatformAnthropic}
+	pipeline := newAnthropicPassthroughTestPipeline(t, account)
+
+	usage, err := svc.handleNonStreamingResponseAnthropicAPIKeyPassthrough(WithForceCacheBilling(context.Background()), resp, c, account, pipeline)
+
+	require.NoError(t, err)
+	require.NotNil(t, usage)
+	require.Equal(t, 5, usage.InputTokens)
+	require.Equal(t, int64(0), gjson.Get(rec.Body.String(), "usage.input_tokens").Int())
+	require.Equal(t, int64(5), gjson.Get(rec.Body.String(), "usage.cache_read_input_tokens").Int())
+}
+
 func TestHandleNonStreamingResponse_NonJSON2xxMatchesTempUnschedulableRule(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

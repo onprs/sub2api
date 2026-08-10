@@ -19,6 +19,7 @@ import (
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 
 	"github.com/gin-gonic/gin"
 )
@@ -566,6 +567,12 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	}
 
 	usage := parseClaudeUsageFromResponseBody(body)
+	if IsForceCacheBilling(ctx) && usage.InputTokens > 0 {
+		body, err = classifyAnthropicResponseInputAsCacheRead(body, usage)
+		if err != nil {
+			return nil, err
+		}
+	}
 	filteredHeaders := filterAnthropicPassthroughResponseHeaders(resp.Header, s.responseHeaderFilter)
 	structured := protocoltransport.Response{
 		StatusCode: resp.StatusCode, Headers: filteredHeaders,
@@ -588,6 +595,18 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 		return nil, fmt.Errorf("render Anthropic passthrough response: %w", err)
 	}
 	return usage, nil
+}
+
+func classifyAnthropicResponseInputAsCacheRead(body []byte, usage *ClaudeUsage) ([]byte, error) {
+	classified, err := sjson.SetBytes(body, "usage.input_tokens", 0)
+	if err != nil {
+		return nil, fmt.Errorf("classify forced cache billing input tokens: %w", err)
+	}
+	classified, err = sjson.SetBytes(classified, "usage.cache_read_input_tokens", usage.CacheReadInputTokens+usage.InputTokens)
+	if err != nil {
+		return nil, fmt.Errorf("classify forced cache billing cache read tokens: %w", err)
+	}
+	return classified, nil
 }
 
 func filterAnthropicPassthroughResponseHeaders(src http.Header, filter *responseheaders.CompiledHeaderFilter) http.Header {
