@@ -6,6 +6,7 @@ import (
 	"errors"
 	"hash/fnv"
 	"log/slog"
+	"net/url"
 	"reflect"
 	"sort"
 	"strconv"
@@ -1392,6 +1393,25 @@ func (a *Account) GetGrokBaseURL() string {
 		return baseURL
 	}
 	return xai.DefaultBaseURL
+}
+
+// GetGrokMediaBaseURL selects the upstream used by Grok Imagine APIs.
+// OAuth media configured for the official CLI proxy is routed through api.x.ai
+// because the CLI proxy rejects large Base64 image and video request bodies.
+// API-key accounts and explicit custom OAuth relays keep their configured URL.
+func (a *Account) GetGrokMediaBaseURL() string {
+	if !a.IsGrok() {
+		return ""
+	}
+	baseURL := a.GetGrokBaseURL()
+	if !a.IsGrokOAuth() {
+		return baseURL
+	}
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err == nil && parsed != nil && strings.EqualFold(parsed.Hostname(), "cli-chat-proxy.grok.com") {
+		return xai.DefaultBaseURL
+	}
+	return baseURL
 }
 
 func (a *Account) GetGrokAccessToken() string {

@@ -654,6 +654,11 @@ var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability
 		"DeepSeek V4 Pro", "deepseek-thinking", false, true, true, true,
 		[]string{"text"}, 1000000, 384000, 1.74, 3.48, cliImportFloat64Ptr(0.0145), nil,
 	),
+	"gpt-5.6-luna": newOpenCodeGoBuiltinCLIImportCapability(
+		// OpenCode Go docs: 1.05M context, 128K output, $0.20/$1.20 with cache read/write pricing.
+		"GPT-5.6 Luna", "gpt-5.6", true, true, false, true,
+		[]string{"text", "image"}, 1050000, 128000, 0.2, 1.2, cliImportFloat64Ptr(0.02), cliImportFloat64Ptr(0.25),
+	),
 	"glm-5": newOpenCodeGoBuiltinCLIImportCapability(
 		"GLM-5", "glm", false, true, true, true,
 		[]string{"text"}, 202752, 32768, 1, 3.2, cliImportFloat64Ptr(0.2), nil,
@@ -742,6 +747,11 @@ var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability
 	"qwen3.5-plus": newOpenCodeGoBuiltinCLIImportCapability(
 		"Qwen3.5 Plus", "qwen3.5", true, true, true, true,
 		[]string{"text", "image", "video"}, 262144, 65536, 0.2, 1.2, cliImportFloat64Ptr(0.02), cliImportFloat64Ptr(0.25),
+	),
+	"qwen3.8-max": newOpenCodeGoBuiltinCLIImportCapability(
+		// OpenCode Go docs: 1M context, 65K output, $2/$6 with cache read/write pricing.
+		"Qwen3.8 Max", "qwen3.8-max", false, true, true, true,
+		[]string{"text"}, 1000000, 65536, 2.0, 6.0, cliImportFloat64Ptr(0.25), cliImportFloat64Ptr(2.5),
 	),
 	"qwen3.7-max": newOpenCodeGoBuiltinCLIImportCapability(
 		"Qwen3.7 Max", "qwen3.7-max", false, true, true, true,
