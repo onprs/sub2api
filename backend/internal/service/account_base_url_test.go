@@ -77,6 +77,58 @@ func TestGetBaseURL(t *testing.T) {
 	}
 }
 
+func TestGetGrokMediaBaseURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		account  Account
+		expected string
+	}{
+		{
+			name: "oauth CLI proxy uses official media API",
+			account: Account{
+				Type:        AccountTypeOAuth,
+				Platform:    PlatformGrok,
+				Credentials: map[string]any{"base_url": "https://CLI-CHAT-PROXY.GROK.COM:443/v1/"},
+			},
+			expected: "https://api.x.ai/v1",
+		},
+		{
+			name: "oauth custom relay remains pinned",
+			account: Account{
+				Type:        AccountTypeOAuth,
+				Platform:    PlatformGrok,
+				Credentials: map[string]any{"base_url": "https://grok-relay.example.com/v1"},
+			},
+			expected: "https://grok-relay.example.com/v1",
+		},
+		{
+			name: "API key CLI URL remains pinned",
+			account: Account{
+				Type:        AccountTypeAPIKey,
+				Platform:    PlatformGrok,
+				Credentials: map[string]any{"base_url": "https://cli-chat-proxy.grok.com/v1"},
+			},
+			expected: "https://cli-chat-proxy.grok.com/v1",
+		},
+		{
+			name: "non-Grok account returns empty",
+			account: Account{
+				Type:     AccountTypeOAuth,
+				Platform: PlatformOpenAI,
+			},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if result := tt.account.GetGrokMediaBaseURL(); result != tt.expected {
+				t.Errorf("GetGrokMediaBaseURL() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestGetGeminiBaseURL(t *testing.T) {
 	const defaultGeminiURL = "https://generativelanguage.googleapis.com"
 
