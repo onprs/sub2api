@@ -11,6 +11,11 @@ const (
 	// DefaultContainerLogPath 为容器内默认日志文件路径。
 	DefaultContainerLogPath = "/app/data/logs/sub2api.log"
 	defaultLogFilename      = "sub2api.log"
+
+	// LogFilePathEnv 允许通过环境变量显式指定日志文件落盘路径，
+	// 优先级高于 DATA_DIR，且与 setup.GetDataDir() 解耦（避免 DATA_DIR
+	// 影响 config.yaml / .installed 等数据目录定位）。
+	LogFilePathEnv = "LOG_FILE_PATH"
 )
 
 type InitOptions struct {
@@ -95,6 +100,9 @@ func resolveLogFilePath(explicit string) string {
 	explicit = strings.TrimSpace(explicit)
 	if explicit != "" {
 		return explicit
+	}
+	if envPath := strings.TrimSpace(os.Getenv(LogFilePathEnv)); envPath != "" {
+		return envPath
 	}
 	dataDir := strings.TrimSpace(os.Getenv("DATA_DIR"))
 	if dataDir != "" {
