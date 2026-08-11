@@ -28,9 +28,28 @@ func TestResolveLogFilePath_WithDataDir(t *testing.T) {
 
 func TestResolveLogFilePath_ExplicitPath(t *testing.T) {
 	t.Setenv("DATA_DIR", "/tmp/ignore")
+	t.Setenv(LogFilePathEnv, "/var/log/also-ignore.log")
 	got := resolveLogFilePath("/var/log/custom.log")
 	if got != "/var/log/custom.log" {
 		t.Fatalf("resolveLogFilePath() = %q, want explicit path", got)
+	}
+}
+
+func TestResolveLogFilePath_LogFilePathEnv(t *testing.T) {
+	t.Setenv("DATA_DIR", "/tmp/sub2api-data")
+	t.Setenv(LogFilePathEnv, "/opt/sub2api/data/logs/sub2api.log")
+	got := resolveLogFilePath("")
+	if got != "/opt/sub2api/data/logs/sub2api.log" {
+		t.Fatalf("resolveLogFilePath() = %q, want LOG_FILE_PATH value", got)
+	}
+}
+
+func TestResolveLogFilePath_LogFilePathEnvTakesPrecedenceOverDataDir(t *testing.T) {
+	t.Setenv("DATA_DIR", "/tmp/sub2api-data")
+	t.Setenv(LogFilePathEnv, "/var/log/custom.log")
+	got := resolveLogFilePath("")
+	if got != "/var/log/custom.log" {
+		t.Fatalf("resolveLogFilePath() = %q, want LOG_FILE_PATH over DATA_DIR", got)
 	}
 }
 
