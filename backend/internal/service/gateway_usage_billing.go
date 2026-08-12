@@ -754,13 +754,22 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 
 	// 计算费用
-	cost, _, costErr := s.calculateRecordUsageCostFromCandidates(ctx, result, apiKey, billingModels, multiplier, imageMultiplier, opts)
+	cost, chargedBillingModel, costErr := s.calculateRecordUsageCostFromCandidates(ctx, result, apiKey, billingModels, multiplier, imageMultiplier, opts)
 	if costErr != nil {
 		if account != nil && (account.IsOpenCodeGo() || account.IsClinePass()) && isUsagePricingUnavailableError(costErr) {
 			return costErr
 		}
 		logger.LegacyPrintf("service.gateway", "Calculate cost failed for billing models %s: %v", strings.Join(billingModels, ","), costErr)
 		cost = &CostBreakdown{BillingMode: string(BillingModeToken)}
+	}
+	standardTotalCost := cost.TotalCost
+	promotionModel := strings.TrimSpace(result.UpstreamModel)
+	if promotionModel == "" {
+		promotionModel = strings.TrimSpace(chargedBillingModel)
+	}
+	promotionMultiplier := s.openCodeGoUsagePromotionMultiplier(account, promotionModel, timezone.Now())
+	if promotionMultiplier != 1 {
+		applyCostBreakdownMultiplier(cost, promotionMultiplier)
 	}
 
 	// 判断计费方式：订阅模式 vs 余额模式
@@ -788,8 +797,12 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 				CacheReadTokens:     result.Usage.CacheReadInputTokens,
 				ImageOutputTokens:   result.Usage.ImageOutputTokens,
 			},
-			cost.TotalCost,
+			standardTotalCost,
 		)
+		if promotionMultiplier != 1 && usageLog.AccountStatsCost != nil {
+			promotionalStatsCost := *usageLog.AccountStatsCost * promotionMultiplier
+			usageLog.AccountStatsCost = &promotionalStatsCost
+		}
 	}
 
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
@@ -829,6 +842,26 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
 
 	return nil
+}
+
+func (s *GatewayService) openCodeGoUsagePromotionMultiplier(account *Account, model string, now time.Time) float64 {
+	if s == nil || account == nil || !account.IsOpenCodeGo() || s.billingService == nil {
+		return 1
+	}
+	return s.billingService.OpenCodeGoUsagePromotionMultiplier(model, now)
+}
+
+func applyCostBreakdownMultiplier(cost *CostBreakdown, multiplier float64) {
+	if cost == nil || !isValidUsagePromotionMultiplier(multiplier) {
+		return
+	}
+	cost.InputCost *= multiplier
+	cost.OutputCost *= multiplier
+	cost.ImageOutputCost *= multiplier
+	cost.CacheCreationCost *= multiplier
+	cost.CacheReadCost *= multiplier
+	cost.TotalCost *= multiplier
+	cost.ActualCost *= multiplier
 }
 
 // calculateRecordUsageCost 根据请求类型和选项计算费用。

@@ -75,6 +75,23 @@ func TestLoadDefaultGatewayMaxLineSize(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultPricingConfig(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, "https://opencode.ai/go", cfg.Pricing.OpenCodeGoPromotionsURL)
+}
+
+func TestLoadOpenCodeGoPromotionsURLFromEnv(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("PRICING_OPENCODE_GO_PROMOTIONS_URL", "https://example.com/opencode-go-promotions")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, "https://example.com/opencode-go-promotions", cfg.Pricing.OpenCodeGoPromotionsURL)
+}
+
 func TestLoadDefaultSchedulingConfig(t *testing.T) {
 	resetViperWithJWTSecret(t)
 

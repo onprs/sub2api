@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -405,6 +406,237 @@ func TestGatewayServiceValidateGatewayTokenPricingAvailable_AllowsOpenCodeGoMode
 	})
 
 	require.NoError(t, err)
+}
+
+func TestGatewayServiceRecordUsage_OpenCodeGoDeepSeekFlashPromotionUsesAtomicBillingCosts(t *testing.T) {
+	pricingSvc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{},
+		openCodeGoPromotions: map[string]openCodeGoUsagePromotion{
+			openCodeGoDeepSeekFlashPromoModel: {multiplier: 0.5, confirmedAt: time.Now()},
+		},
+	}
+	usageRepo := &openAIRecordUsageLogRepoStub{}
+	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
+	svc := newGatewayRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+	svc.billingService = NewBillingService(svc.cfg, pricingSvc)
+	svc.channelService = newTestChannelServiceForStats(t, &Channel{ID: 1, Status: StatusActive}, 10, PlatformOpenCodeGo)
+
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}
+	standardBilling := NewBillingService(&config.Config{}, nil)
+	standardCost, err := standardBilling.CalculateCost(openCodeGoDeepSeekFlashPromoModel, tokens, 1.1)
+	require.NoError(t, err)
+	accountRateMultiplier := 1.25
+	groupID := int64(10)
+	quotaSvc := &openAIRecordUsageAPIKeyQuotaStub{}
+	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "opencode_go_deepseek_flash_promo_atomic",
+			Usage: ClaudeUsage{
+				InputTokens:          tokens.InputTokens,
+				OutputTokens:         tokens.OutputTokens,
+				CacheReadInputTokens: tokens.CacheReadTokens,
+			},
+			Model:    openCodeGoDeepSeekFlashPromoModel,
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{
+			ID:          501,
+			Quota:       100,
+			RateLimit5h: 100,
+			GroupID:     &groupID,
+			Group:       &Group{ID: 10, Platform: PlatformOpenCodeGo, RateMultiplier: 1.1},
+		},
+		User: &User{ID: 601},
+		Account: &Account{
+			ID:             701,
+			Platform:       PlatformOpenCodeGo,
+			Type:           AccountTypeAPIKey,
+			RateMultiplier: &accountRateMultiplier,
+			Extra:          map[string]any{"quota_limit": 100.0},
+		},
+		APIKeyService: quotaSvc,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, billingRepo.lastCmd)
+	require.InDelta(t, standardCost.ActualCost*0.5, billingRepo.lastCmd.BalanceCost, 1e-12)
+	require.InDelta(t, standardCost.ActualCost*0.5, billingRepo.lastCmd.APIKeyQuotaCost, 1e-12)
+	require.InDelta(t, standardCost.ActualCost*0.5, billingRepo.lastCmd.APIKeyRateLimitCost, 1e-12)
+	require.InDelta(t, standardCost.TotalCost*0.5*accountRateMultiplier, billingRepo.lastCmd.AccountQuotaCost, 1e-12)
+
+	subscriptionUsageRepo := &openAIRecordUsageLogRepoStub{}
+	subscriptionBillingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
+	subscriptionSvc := newGatewayRecordUsageServiceWithBillingRepoForTest(subscriptionUsageRepo, subscriptionBillingRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+	subscriptionSvc.billingService = NewBillingService(subscriptionSvc.cfg, pricingSvc)
+	subscriptionSvc.channelService = newTestChannelServiceForStats(t, &Channel{ID: 1, Status: StatusActive}, 10, PlatformOpenCodeGo)
+	err = subscriptionSvc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "opencode_go_deepseek_flash_promo_subscription_atomic",
+			Usage: ClaudeUsage{
+				InputTokens:          tokens.InputTokens,
+				OutputTokens:         tokens.OutputTokens,
+				CacheReadInputTokens: tokens.CacheReadTokens,
+			},
+			Model:    openCodeGoDeepSeekFlashPromoModel,
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{
+			ID:      502,
+			GroupID: &groupID,
+			Group: &Group{
+				ID:               groupID,
+				Platform:         PlatformOpenCodeGo,
+				RateMultiplier:   1.1,
+				SubscriptionType: SubscriptionTypeSubscription,
+			},
+		},
+		User:         &User{ID: 602},
+		Account:      &Account{ID: 702, Platform: PlatformOpenCodeGo},
+		Subscription: &UserSubscription{ID: 802},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, subscriptionBillingRepo.lastCmd)
+	require.Zero(t, subscriptionBillingRepo.lastCmd.BalanceCost)
+	require.InDelta(t, standardCost.ActualCost*0.5, subscriptionBillingRepo.lastCmd.SubscriptionCost, 1e-12)
+}
+
+func TestApplyCostBreakdownMultiplierScalesEveryCostBucket(t *testing.T) {
+	cost := &CostBreakdown{
+		InputCost:         1,
+		OutputCost:        2,
+		ImageOutputCost:   3,
+		CacheCreationCost: 4,
+		CacheReadCost:     5,
+		TotalCost:         15,
+		ActualCost:        16.5,
+		BillingMode:       string(BillingModeToken),
+	}
+
+	applyCostBreakdownMultiplier(cost, 0.5)
+
+	require.Equal(t, 0.5, cost.InputCost)
+	require.Equal(t, 1.0, cost.OutputCost)
+	require.Equal(t, 1.5, cost.ImageOutputCost)
+	require.Equal(t, 2.0, cost.CacheCreationCost)
+	require.Equal(t, 2.5, cost.CacheReadCost)
+	require.Equal(t, 7.5, cost.TotalCost)
+	require.Equal(t, 8.25, cost.ActualCost)
+	require.Equal(t, string(BillingModeToken), cost.BillingMode)
+
+	unchanged := *cost
+	applyCostBreakdownMultiplier(cost, math.NaN())
+	require.Equal(t, unchanged, *cost)
+	applyCostBreakdownMultiplier(cost, 1.5)
+	require.Equal(t, unchanged, *cost)
+}
+
+func TestGatewayServiceRecordUsage_OpenCodeGoDeepSeekFlashPromotionHalvesUsageCosts(t *testing.T) {
+	now := time.Now()
+	pricingSvc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{},
+		openCodeGoPromotions: map[string]openCodeGoUsagePromotion{
+			openCodeGoDeepSeekFlashPromoModel: {multiplier: 0.5, confirmedAt: now},
+		},
+	}
+
+	newService := func(platform string) (*GatewayService, *openAIRecordUsageLogRepoStub, *openAIRecordUsageUserRepoStub) {
+		usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+		userRepo := &openAIRecordUsageUserRepoStub{}
+		svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+		svc.billingService = NewBillingService(svc.cfg, pricingSvc)
+		svc.channelService = newTestChannelServiceForStats(t, &Channel{ID: 1, Status: StatusActive}, 10, platform)
+		return svc, usageRepo, userRepo
+	}
+
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}
+	standardBilling := NewBillingService(&config.Config{}, nil)
+	standardCost, err := standardBilling.CalculateCost(openCodeGoDeepSeekFlashPromoModel, tokens, 1.1)
+	require.NoError(t, err)
+
+	groupID := int64(10)
+	svc, usageRepo, userRepo := newService(PlatformOpenCodeGo)
+	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "opencode_go_deepseek_flash_promo",
+			Usage: ClaudeUsage{
+				InputTokens:          tokens.InputTokens,
+				OutputTokens:         tokens.OutputTokens,
+				CacheReadInputTokens: tokens.CacheReadTokens,
+			},
+			Model:    openCodeGoDeepSeekFlashPromoModel,
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{ID: 501, Quota: 100, GroupID: &groupID, Group: &Group{ID: 10, Platform: PlatformOpenCodeGo, RateMultiplier: 1.1}},
+		User:   &User{ID: 601},
+		Account: &Account{
+			ID:       701,
+			Platform: PlatformOpenCodeGo,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, standardCost.InputCost*0.5, usageRepo.lastLog.InputCost, 1e-12)
+	require.InDelta(t, standardCost.OutputCost*0.5, usageRepo.lastLog.OutputCost, 1e-12)
+	require.InDelta(t, standardCost.CacheReadCost*0.5, usageRepo.lastLog.CacheReadCost, 1e-12)
+	require.InDelta(t, standardCost.TotalCost*0.5, usageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, standardCost.ActualCost*0.5, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, standardCost.ActualCost*0.5, userRepo.lastAmount, 1e-12)
+	require.NotNil(t, usageRepo.lastLog.AccountStatsCost)
+	require.InDelta(t, standardCost.TotalCost*0.5, *usageRepo.lastLog.AccountStatsCost, 1e-12)
+
+	pricingSvc.replaceOpenCodeGoPromotions(nil, time.Now())
+	endedUsageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	endedUserRepo := &openAIRecordUsageUserRepoStub{}
+	svc.usageLogRepo = endedUsageRepo
+	svc.userRepo = endedUserRepo
+	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "opencode_go_deepseek_flash_promo_ended",
+			Usage: ClaudeUsage{
+				InputTokens:          tokens.InputTokens,
+				OutputTokens:         tokens.OutputTokens,
+				CacheReadInputTokens: tokens.CacheReadTokens,
+			},
+			Model:    openCodeGoDeepSeekFlashPromoModel,
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{ID: 503, Quota: 100, GroupID: &groupID, Group: &Group{ID: 10, Platform: PlatformOpenCodeGo, RateMultiplier: 1.1}},
+		User:   &User{ID: 603},
+		Account: &Account{
+			ID:       703,
+			Platform: PlatformOpenCodeGo,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, endedUsageRepo.lastLog)
+	require.InDelta(t, standardCost.TotalCost, endedUsageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, standardCost.ActualCost, endedUsageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, standardCost.ActualCost, endedUserRepo.lastAmount, 1e-12)
+
+	pricingSvc.replaceOpenCodeGoPromotions(map[string]float64{openCodeGoDeepSeekFlashPromoModel: 0.5}, time.Now())
+	otherSvc, otherUsageRepo, otherUserRepo := newService(PlatformAnthropic)
+	err = otherSvc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "anthropic_deepseek_flash_no_promo",
+			Usage: ClaudeUsage{
+				InputTokens:          tokens.InputTokens,
+				OutputTokens:         tokens.OutputTokens,
+				CacheReadInputTokens: tokens.CacheReadTokens,
+			},
+			Model:    openCodeGoDeepSeekFlashPromoModel,
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{ID: 502, Quota: 100, GroupID: &groupID, Group: &Group{ID: 10, Platform: PlatformAnthropic, RateMultiplier: 1.1}},
+		User:   &User{ID: 602},
+		Account: &Account{
+			ID:       702,
+			Platform: PlatformAnthropic,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, otherUsageRepo.lastLog)
+	require.InDelta(t, standardCost.TotalCost, otherUsageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, standardCost.ActualCost, otherUsageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, standardCost.ActualCost, otherUserRepo.lastAmount, 1e-12)
 }
 
 func TestGatewayServiceRecordUsage_AntigravityCacheReadWriteCostsPersisted(t *testing.T) {

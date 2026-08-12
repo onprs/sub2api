@@ -1056,6 +1056,9 @@ pricing:
   # OpenCode Go official pricing page; set empty to disable
   # OpenCode Go 官方价格页；置空则禁用
   opencode_go_docs_url: "https://opencode.ai/docs/go/"
+  # OpenCode Go official promotions page; set empty to disable dynamic usage bonuses
+  # OpenCode Go 官方活动页；置空则禁用动态用量优惠
+  opencode_go_promotions_url: "https://opencode.ai/go"
   # Local data directory for caching
   # 本地数据缓存目录
   data_dir: "./data"

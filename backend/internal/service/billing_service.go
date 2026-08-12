@@ -851,6 +851,13 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	return nil
 }
 
+func (s *BillingService) OpenCodeGoUsagePromotionMultiplier(model string, now time.Time) float64 {
+	if s == nil || s.pricingService == nil {
+		return 1
+	}
+	return s.pricingService.OpenCodeGoUsagePromotionMultiplier(model, now)
+}
+
 // GetModelPricing 获取模型价格配置
 func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	model = strings.ToLower(strings.TrimSpace(model))
