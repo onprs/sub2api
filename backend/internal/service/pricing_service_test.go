@@ -3,12 +3,15 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -16,6 +19,7 @@ import (
 
 type pricingTestRemoteClient struct {
 	pricingBodies map[string][]byte
+	pricingErrs   map[string]error
 	hashText      string
 	fetchedURLs   []string
 }
@@ -42,6 +46,12 @@ func (rt openCodeGoCatalogRoundTripper) RoundTrip(req *http.Request) (*http.Resp
 
 func (c *pricingTestRemoteClient) FetchPricingJSON(_ context.Context, url string) ([]byte, error) {
 	c.fetchedURLs = append(c.fetchedURLs, url)
+	if err, ok := c.pricingErrs[url]; ok {
+		return nil, err
+	}
+	if err, ok := c.pricingErrs[strings.TrimRight(url, "/")]; ok {
+		return nil, err
+	}
 	if body, ok := c.pricingBodies[url]; ok {
 		return body, nil
 	}
@@ -598,6 +608,107 @@ func TestOpenCodeGoCatalogFetchUsesOfficialModelsAsModelIDAuthority(t *testing.T
 	require.Equal(t, OpenCodeGoProtocolChatCompletions, refreshed["kimi-k2.8-code"].Protocol)
 	require.Equal(t, OpenCodeGoProtocolMessages, refreshed["qwen3.8-plus"].Protocol)
 	require.Empty(t, refreshed["hy3-preview"].Protocol)
+}
+
+func TestParseOpenCodeGoUsagePromotionsDocument(t *testing.T) {
+	activeBanner := []byte(`<html><body><main data-hk="page" data-page="go"><div>DeepSeek V4 Flash gets 2× usage limits for a limited time</div></main></body></html>`)
+	promotions, err := parseOpenCodeGoUsagePromotionsDocument(activeBanner)
+	require.NoError(t, err)
+	require.Equal(t, map[string]float64{openCodeGoDeepSeekFlashPromoModel: 0.5}, promotions)
+
+	activeBadge := []byte(`<html><body><main data-page="go"><div data-model="deepseek-v4-flash"><span>DeepSeek V4 Flash</span><span data-bonus>2x usage</span></div></main></body></html>`)
+	promotions, err = parseOpenCodeGoUsagePromotionsDocument(activeBadge)
+	require.NoError(t, err)
+	require.Equal(t, map[string]float64{openCodeGoDeepSeekFlashPromoModel: 0.5}, promotions)
+
+	endedWithStaleScript := []byte(`<html><body><main data-page="go"><script>DeepSeek V4 Flash gets 2x usage limits for a limited time</script><div>Low cost coding models for everyone</div></main></body></html>`)
+	promotions, err = parseOpenCodeGoUsagePromotionsDocument(endedWithStaleScript)
+	require.NoError(t, err)
+	require.Empty(t, promotions)
+
+	wrongModelBadge := []byte(`<html><body><main data-page="go"><div data-model="deepseek-v4-flash-preview"><span data-bonus>2x usage</span></div></main></body></html>`)
+	promotions, err = parseOpenCodeGoUsagePromotionsDocument(wrongModelBadge)
+	require.NoError(t, err)
+	require.Empty(t, promotions)
+
+	hiddenTemplateBadge := []byte(`<html><body><main data-page="go"><template><div data-model="deepseek-v4-flash"><span data-bonus>2x usage</span></div></template></main></body></html>`)
+	promotions, err = parseOpenCodeGoUsagePromotionsDocument(hiddenTemplateBadge)
+	require.NoError(t, err)
+	require.Empty(t, promotions)
+
+	_, err = parseOpenCodeGoUsagePromotionsDocument([]byte(`<html><body>Login</body></html>`))
+	require.Error(t, err)
+}
+
+func TestPricingServiceRefreshOpenCodeGoPromotionsAutomaticallyRestoresStandardUsage(t *testing.T) {
+	const promotionsURL = "https://opencode.ai/go"
+	remote := &pricingTestRemoteClient{pricingBodies: map[string][]byte{
+		promotionsURL: []byte(`<main data-page="go">DeepSeek V4 Flash gets 2x usage limits for a limited time</main>`),
+	}}
+	svc := &PricingService{
+		cfg: &config.Config{
+			Pricing:  config.PricingConfig{OpenCodeGoPromotionsURL: promotionsURL},
+			Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}},
+		},
+		remoteClient: remote,
+	}
+
+	svc.refreshOpenCodeGoPromotionsBestEffort(context.Background())
+	require.InDelta(t, 0.5, svc.OpenCodeGoUsagePromotionMultiplier("opencode-go/deepseek-v4-flash", time.Now()), 1e-12)
+	require.InDelta(t, 0.5, svc.OpenCodeGoUsagePromotionMultiplier("models/opencode_go/deepseek-v4-flash", time.Now()), 1e-12)
+	require.Equal(t, 1.0, svc.OpenCodeGoUsagePromotionMultiplier("deepseek-v4-pro", time.Now()))
+	require.Equal(t, 1.0, svc.OpenCodeGoUsagePromotionMultiplier("deepseek-v4-flash-preview", time.Now()))
+
+	remote.pricingBodies[promotionsURL] = []byte(`<main data-page="go">No active usage promotion</main>`)
+	svc.refreshOpenCodeGoPromotionsBestEffort(context.Background())
+	require.Equal(t, 1.0, svc.OpenCodeGoUsagePromotionMultiplier("deepseek-v4-flash", time.Now()))
+
+	svc.replaceOpenCodeGoPromotions(map[string]float64{openCodeGoDeepSeekFlashPromoModel: math.NaN()}, time.Now())
+	require.Equal(t, 1.0, svc.OpenCodeGoUsagePromotionMultiplier("deepseek-v4-flash", time.Now()))
+}
+
+func TestPricingServiceOpenCodeGoPromotionEvidenceExpiresAfterFetchFailures(t *testing.T) {
+	const promotionsURL = "https://opencode.ai/go"
+	remote := &pricingTestRemoteClient{pricingErrs: map[string]error{promotionsURL: errors.New("network down")}}
+	svc := &PricingService{
+		cfg: &config.Config{
+			Pricing:  config.PricingConfig{OpenCodeGoPromotionsURL: promotionsURL},
+			Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}},
+		},
+		remoteClient: remote,
+	}
+
+	now := time.Now()
+	svc.replaceOpenCodeGoPromotions(map[string]float64{openCodeGoDeepSeekFlashPromoModel: 0.5}, now.Add(-30*time.Minute))
+	svc.refreshOpenCodeGoPromotionsBestEffort(context.Background())
+	require.InDelta(t, 0.5, svc.OpenCodeGoUsagePromotionMultiplier("deepseek-v4-flash", now), 1e-12)
+
+	svc.replaceOpenCodeGoPromotions(map[string]float64{openCodeGoDeepSeekFlashPromoModel: 0.5}, now.Add(-openCodeGoPromotionEvidenceTTL-time.Minute))
+	svc.refreshOpenCodeGoPromotionsBestEffort(context.Background())
+	require.Equal(t, 1.0, svc.OpenCodeGoUsagePromotionMultiplier("deepseek-v4-flash", now))
+}
+
+func TestParseOpenCodeGoModelsDevPricingDocumentRestoresPrePromotionBasePrice(t *testing.T) {
+	body := []byte(`{
+		"opencode-go": {
+			"models": {
+				"deepseek-v4-flash": {
+					"id": "deepseek-v4-flash",
+					"name": "DeepSeek V4 Flash (2x usage)",
+					"cost": {"input": 0.07, "output": 0.14, "cache_read": 0.0014, "cache_write": 0}
+				}
+			}
+		}
+	}`)
+
+	pricing, err := parseOpenCodeGoModelsDevPricingDocument(body)
+	require.NoError(t, err)
+	flash := pricing[openCodeGoDeepSeekFlashPromoModel]
+	require.NotNil(t, flash)
+	require.InDelta(t, 0.14e-6, flash.InputCostPerToken, 1e-12)
+	require.InDelta(t, 0.28e-6, flash.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 0.0028e-6, flash.CacheReadInputTokenCost, 1e-12)
+	require.Zero(t, flash.CacheCreationInputTokenCost)
 }
 
 func TestSyncWithRemoteRefreshesOpenCodeGoPricingWhenBaseHashUnchanged(t *testing.T) {
