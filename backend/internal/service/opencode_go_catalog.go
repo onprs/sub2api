@@ -47,6 +47,7 @@ func newOpenCodeGoCatalog(seed map[string]OpenCodeGoCatalogEntry) *OpenCodeGoCat
 
 func openCodeGoSeedCatalog() map[string]OpenCodeGoCatalogEntry {
 	protocols := map[string]string{
+		"gpt-5.6-luna":      OpenCodeGoProtocolResponses,
 		"deepseek-v4-flash": OpenCodeGoProtocolChatCompletions,
 		"deepseek-v4-pro":   OpenCodeGoProtocolChatCompletions,
 		"glm-5":             OpenCodeGoProtocolChatCompletions,
@@ -69,8 +70,10 @@ func openCodeGoSeedCatalog() map[string]OpenCodeGoCatalogEntry {
 		"qwen3.6-plus":      OpenCodeGoProtocolMessages,
 		"qwen3.7-max":       OpenCodeGoProtocolMessages,
 		"qwen3.7-plus":      OpenCodeGoProtocolMessages,
+		"qwen3.8-max":       OpenCodeGoProtocolMessages,
 	}
 	models := []string{
+		"gpt-5.6-luna",
 		"deepseek-v4-flash",
 		"deepseek-v4-pro",
 		"glm-5",
@@ -92,6 +95,7 @@ func openCodeGoSeedCatalog() map[string]OpenCodeGoCatalogEntry {
 		"qwen3.6-plus",
 		"qwen3.7-max",
 		"qwen3.7-plus",
+		"qwen3.8-max",
 		"hy3",
 		"hy3-preview",
 	}
@@ -292,6 +296,8 @@ func parseOpenCodeGoCatalogDocument(body []byte) map[string]OpenCodeGoCatalogEnt
 		endpoint := strings.ToLower(cells[2])
 		protocol := ""
 		switch {
+		case strings.Contains(endpoint, "/responses"):
+			protocol = OpenCodeGoProtocolResponses
 		case strings.Contains(endpoint, "/chat/completions"):
 			protocol = OpenCodeGoProtocolChatCompletions
 		case strings.Contains(endpoint, "/messages"):

@@ -223,7 +223,7 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 			delete(d.reasoning, event.OutputIndex)
 			delete(d.toolArguments, event.OutputIndex)
 		}
-	case "response.completed", "response.done", "response.incomplete", "response.failed":
+	case "response.completed", "response.done", "response.incomplete", "response.failed", "response.cancelled", "response.canceled":
 		start(event.Response)
 		closeBlocks()
 		response := event.Response

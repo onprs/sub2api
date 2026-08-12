@@ -84,6 +84,9 @@ func TestRunCheckForModel_OpenCodeGoMessagesRequestUsesMonitorBudget(t *testing.
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, providerOpenCodeGoMessagesPath, r.URL.Path)
+		require.Equal(t, "sk-test", r.Header.Get("x-api-key"))
+		require.Equal(t, monitorAnthropicAPIVersion, r.Header.Get("anthropic-version"))
+		require.Empty(t, r.Header.Get("Authorization"))
 		defer func() { _ = r.Body.Close() }()
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 
@@ -105,6 +108,62 @@ func TestRunCheckForModel_OpenCodeGoMessagesRequestUsesMonitorBudget(t *testing.
 	require.Equal(t, float64(0), body["temperature"])
 }
 
+func TestRunCheckForModel_OpenCodeGoResponsesRequestUsesMonitorBudget(t *testing.T) {
+	orig := monitorHTTPClient
+	monitorHTTPClient = &http.Client{Timeout: 5 * time.Second}
+	t.Cleanup(func() { monitorHTTPClient = orig })
+
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, providerOpenCodeGoResponsesPath, r.URL.Path)
+		require.Equal(t, "Bearer sk-test", r.Header.Get("Authorization"))
+		defer func() { _ = r.Body.Close() }()
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+
+		answer := answerFromOpenCodeGoResponsesMonitorRequest(body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"output": []map[string]any{
+				{"type": "reasoning", "summary": []map[string]any{{"type": "summary_text", "text": "ignore"}}},
+				{"type": "message", "content": []map[string]any{{"type": "output_text", "text": answer}}},
+			},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	res := runCheckForModel(context.Background(), MonitorProviderOpenCodeGo, srv.URL, "sk-test", "gpt-5.6-luna", &CheckOptions{
+		APIMode: MonitorAPIModeResponses,
+	})
+
+	require.Equal(t, MonitorStatusOperational, res.Status)
+	require.Equal(t, float64(monitorOpenCodeGoChallengeMaxTokens), body["max_output_tokens"])
+	require.Equal(t, false, body["stream"])
+	require.NotEmpty(t, body["instructions"])
+}
+
+func TestRunCheckForModel_OpenCodeGoResponsesSemanticFailurePreservesMessage(t *testing.T) {
+	orig := monitorHTTPClient
+	monitorHTTPClient = &http.Client{Timeout: 5 * time.Second}
+	t.Cleanup(func() { monitorHTTPClient = orig })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, providerOpenCodeGoResponsesPath, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"resp_failed","status":"failed","output":[],"error":{"code":"server_is_overloaded","message":"provider overloaded"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	res := runCheckForModel(context.Background(), MonitorProviderOpenCodeGo, srv.URL, "sk-test", "gpt-5.6-luna", &CheckOptions{
+		APIMode: MonitorAPIModeResponses,
+	})
+
+	require.Equal(t, MonitorStatusFailed, res.Status)
+	require.Contains(t, res.Message, "OpenCode Go Responses failed")
+	require.Contains(t, res.Message, "provider overloaded")
+}
+
 func TestExtractOpenCodeGoChatTextAggregatesVisibleContentBlocks(t *testing.T) {
 	body := []byte(`{
 		"choices": [
@@ -121,6 +180,11 @@ func TestExtractOpenCodeGoChatTextAggregatesVisibleContentBlocks(t *testing.T) {
 
 var openCodeGoMonitorQuestionRegex = regexp.MustCompile(`Q: (\d+) ([+-]) (\d+) = \?\nA:$`)
 
+func answerFromOpenCodeGoResponsesMonitorRequest(body map[string]any) string {
+	prompt, _ := body["input"].(string)
+	return answerFromOpenCodeGoMonitorPrompt(prompt)
+}
+
 func answerFromOpenCodeGoMonitorRequest(body map[string]any) string {
 	messages, _ := body["messages"].([]any)
 	if len(messages) == 0 {
@@ -128,6 +192,10 @@ func answerFromOpenCodeGoMonitorRequest(body map[string]any) string {
 	}
 	msg, _ := messages[0].(map[string]any)
 	prompt, _ := msg["content"].(string)
+	return answerFromOpenCodeGoMonitorPrompt(prompt)
+}
+
+func answerFromOpenCodeGoMonitorPrompt(prompt string) string {
 	parts := openCodeGoMonitorQuestionRegex.FindStringSubmatch(prompt)
 	if len(parts) != 4 {
 		return "0"

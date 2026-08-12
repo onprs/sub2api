@@ -456,6 +456,8 @@ func openCodeGoActualUpstreamEndpoint(result *service.ForwardResult) string {
 	switch result.ActualProtocol {
 	case protocolconv.ProtocolOpenAIChat:
 		return EndpointChatCompletions
+	case protocolconv.ProtocolOpenAIResponses:
+		return EndpointResponses
 	case protocolconv.ProtocolAnthropic:
 		return EndpointMessages
 	default:
@@ -616,6 +618,9 @@ func (h *OpenCodeGoGatewayHandler) ensureForwardErrorResponse(c *gin.Context, fo
 	if c == nil || c.Writer == nil {
 		return false
 	}
+	if service.IsResponseCommitted(c) {
+		return false
+	}
 	if c.Writer.Written() {
 		streamStarted = true
 	}
@@ -625,6 +630,9 @@ func (h *OpenCodeGoGatewayHandler) ensureForwardErrorResponse(c *gin.Context, fo
 
 func (h *OpenCodeGoGatewayHandler) handleStreamingAwareError(c *gin.Context, status int, format openCodeGoHandlerErrorFormat, errType string, message string, streamStarted bool) {
 	if streamStarted || (c != nil && c.Writer != nil && c.Writer.Written()) {
+		if format == openCodeGoHandlerErrorResponses && writeResponsesFailedSSE(c, errType, message) {
+			return
+		}
 		writeProtocolStreamError(c, format.protocol(), status, errType, errType, message)
 		return
 	}

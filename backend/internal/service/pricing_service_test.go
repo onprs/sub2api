@@ -546,13 +546,17 @@ func TestParseOpenCodeGoPricingDocument_MapsOfficialModelIDsAndPrices(t *testing
 func TestParseOpenCodeGoCatalogDocument_MapsOfficialEndpointProtocols(t *testing.T) {
 	body := []byte(`
 <table><thead><tr><th>Model</th><th>Model ID</th><th>Endpoint</th></tr></thead><tbody>
+<tr><td>GPT 5.6 Luna</td><td>gpt-5.6-luna</td><td><code>https://opencode.ai/zen/go/v1/responses</code></td></tr>
 <tr><td>GLM-5.2</td><td>glm-5.2</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
+<tr><td>Qwen3.8 Max</td><td>qwen3.8-max</td><td><code>https://opencode.ai/zen/go/v1/messages</code></td></tr>
 <tr><td>Qwen3.7 Plus</td><td>qwen3.7-plus</td><td><code>https://opencode.ai/zen/go/v1/messages</code></td></tr>
 </tbody></table>`)
 
 	catalog := parseOpenCodeGoCatalogDocument(body)
 
+	require.Equal(t, OpenCodeGoProtocolResponses, catalog["gpt-5.6-luna"].Protocol)
 	require.Equal(t, OpenCodeGoProtocolChatCompletions, catalog["glm-5.2"].Protocol)
+	require.Equal(t, OpenCodeGoProtocolMessages, catalog["qwen3.8-max"].Protocol)
 	require.Equal(t, OpenCodeGoProtocolMessages, catalog["qwen3.7-plus"].Protocol)
 }
 

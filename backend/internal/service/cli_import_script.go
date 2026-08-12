@@ -97,19 +97,18 @@ type CLIImportCapabilityProvider interface {
 }
 
 type cliImportPayload struct {
-	KeyID          int64                `json:"key_id"`
-	KeyName        string               `json:"key_name"`
-	GroupID        int64                `json:"group_id"`
-	GroupName      string               `json:"group_name"`
-	Platform       string               `json:"platform"`
-	APIKey         string               `json:"api_key"`
-	BaseURL        string               `json:"base_url"`
-	EnvName        string               `json:"env_name"`
-	ProviderID     string               `json:"provider_id"`
-	ProviderName   string               `json:"provider_name"`
-	DefaultModel   string               `json:"default_model"`
-	CodexSupported bool                 `json:"codex_supported"`
-	Models         []cliImportModelSpec `json:"models"`
+	KeyID        int64                `json:"key_id"`
+	KeyName      string               `json:"key_name"`
+	GroupID      int64                `json:"group_id"`
+	GroupName    string               `json:"group_name"`
+	Platform     string               `json:"platform"`
+	APIKey       string               `json:"api_key"`
+	BaseURL      string               `json:"base_url"`
+	EnvName      string               `json:"env_name"`
+	ProviderID   string               `json:"provider_id"`
+	ProviderName string               `json:"provider_name"`
+	DefaultModel string               `json:"default_model"`
+	Models       []cliImportModelSpec `json:"models"`
 }
 
 type cliImportModelSpec struct {
@@ -888,19 +887,18 @@ func buildCLIImportPayload(key *APIKey, baseURL string, models []string, caps ma
 		specs = append(specs, buildCLIImportModelSpec(model, caps[model]))
 	}
 	return cliImportPayload{
-		KeyID:          key.ID,
-		KeyName:        strings.TrimSpace(key.Name),
-		GroupID:        group.ID,
-		GroupName:      strings.TrimSpace(group.Name),
-		Platform:       strings.TrimSpace(group.Platform),
-		APIKey:         key.Key,
-		BaseURL:        baseURL + "/v1",
-		EnvName:        fmt.Sprintf("SUB2API_KEY_%d", key.ID),
-		ProviderID:     providerID,
-		ProviderName:   cliImportProviderName,
-		DefaultModel:   defaultModel,
-		CodexSupported: group.Platform != PlatformOpenCodeGo,
-		Models:         specs,
+		KeyID:        key.ID,
+		KeyName:      strings.TrimSpace(key.Name),
+		GroupID:      group.ID,
+		GroupName:    strings.TrimSpace(group.Name),
+		Platform:     strings.TrimSpace(group.Platform),
+		APIKey:       key.Key,
+		BaseURL:      baseURL + "/v1",
+		EnvName:      fmt.Sprintf("SUB2API_KEY_%d", key.ID),
+		ProviderID:   providerID,
+		ProviderName: cliImportProviderName,
+		DefaultModel: defaultModel,
+		Models:       specs,
 	}
 }
 
@@ -1244,10 +1242,6 @@ function Upsert-TomlTable($Content, $Header, [string[]]$BlockLines) {
 }
 
 function Import-Codex($SetDefault) {
-  if (-not $payload.codex_supported) {
-    Write-Host "Codex CLI import is skipped: OpenCode Go groups do not support the Codex Responses API."
-    return
-  }
   $path = Join-Path $HOME ".codex\config.toml"
   Ensure-Directory $path
   $content = ""
@@ -1631,9 +1625,6 @@ def write_managed_env():
     print(f"Managed environment variable saved: {PAYLOAD['env_name']}")
 
 def import_codex(set_default: bool):
-    if not PAYLOAD["codex_supported"]:
-        print("Codex CLI import is skipped: OpenCode Go groups do not support the Codex Responses API.")
-        return
     path = Path.home() / ".codex" / "config.toml"
     content = path.read_text(encoding="utf-8") if path.exists() else ""
     header = f'[model_providers.{PAYLOAD["provider_id"]}]'

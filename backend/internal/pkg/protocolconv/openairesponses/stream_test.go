@@ -9,6 +9,18 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestStreamDecoderTreatsCancelledResponsesAsTerminal(t *testing.T) {
+	for _, eventType := range []string{"response.cancelled", "response.canceled"} {
+		t.Run(eventType, func(t *testing.T) {
+			decoder := newStreamDecoder()
+			events, _, err := decoder.Decode([]byte(`{"type":"` + eventType + `","response":{"id":"resp-cancelled","object":"response","model":"model","status":"cancelled","output":[]}}`))
+			require.NoError(t, err)
+			require.Equal(t, []ir.StreamEventType{ir.EventStreamStart, ir.EventFinish, ir.EventStreamEnd}, streamEventTypes(events))
+			require.NoError(t, func() error { _, _, err := decoder.Finalize(); return err }())
+		})
+	}
+}
+
 func TestStreamDecoderAllowsInProgressAfterCreated(t *testing.T) {
 	decoder := newStreamDecoder()
 	events, _, err := decoder.Decode([]byte(`{"type":"response.created","response":{"id":"resp-1","object":"response","model":"model","status":"in_progress","output":[]}}`))
