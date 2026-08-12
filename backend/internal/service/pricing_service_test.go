@@ -711,6 +711,50 @@ func TestParseOpenCodeGoModelsDevPricingDocumentRestoresPrePromotionBasePrice(t 
 	require.Zero(t, flash.CacheCreationInputTokenCost)
 }
 
+func TestDownloadPricingDataAndRefreshOpenCodeGoPricingSnapshot(t *testing.T) {
+	const (
+		remoteURL = "https://example.com/model_prices.json"
+		docsURL   = "https://opencode.ai/docs/go/"
+	)
+	remote := &pricingTestRemoteClient{pricingBodies: map[string][]byte{
+		remoteURL: []byte(`{
+			"unrelated-model": {
+				"input_cost_per_token": 0.000001,
+				"output_cost_per_token": 0.000002,
+				"litellm_provider": "unrelated-provider"
+			}
+		}`),
+		docsURL: []byte(`
+<table><tbody>
+<tr><td>GLM-5.2</td><td>$1.40</td><td>$4.40</td><td>$0.26</td><td>-</td></tr>
+</tbody></table>
+<table><tbody>
+<tr><td>GLM-5.2</td><td>glm-5.2</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
+</tbody></table>`),
+	}}
+	svc := &PricingService{
+		cfg: &config.Config{
+			Pricing: config.PricingConfig{
+				RemoteURL:         remoteURL,
+				OpenCodeGoDocsURL: docsURL,
+				DataDir:           t.TempDir(),
+			},
+			Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}},
+		},
+		remoteClient:      remote,
+		pricingData:       map[string]*LiteLLMModelPricing{},
+		openCodeGoPricing: map[string]*LiteLLMModelPricing{},
+	}
+
+	require.NoError(t, svc.downloadPricingDataAndRefreshOpenCodeGo())
+
+	pricing := svc.GetOpenCodeGoModelPricingExact("glm-5.2")
+	require.NotNil(t, pricing)
+	require.Equal(t, openCodeGoPricingAuthorityOfficial, pricing.OpenCodeGoPricingAuthority)
+	require.InDelta(t, 1.4e-6, pricing.InputCostPerToken, 1e-12)
+	require.Contains(t, remote.fetchedURLs, strings.TrimRight(docsURL, "/"))
+}
+
 func TestSyncWithRemoteRefreshesOpenCodeGoPricingWhenBaseHashUnchanged(t *testing.T) {
 	const docsURL = "https://opencode.ai/docs/go/"
 	remote := &pricingTestRemoteClient{
@@ -751,10 +795,55 @@ func TestSyncWithRemoteRefreshesOpenCodeGoPricingWhenBaseHashUnchanged(t *testin
 
 	require.NoError(t, svc.syncWithRemote())
 
-	pricing := svc.GetModelPricing("kimi-k2.7")
+	pricing := svc.GetOpenCodeGoModelPricingExact("kimi-k2.7")
 	require.NotNil(t, pricing)
 	require.InDelta(t, 0.95e-6, pricing.InputCostPerToken, 1e-12)
+
+	genericPricing := svc.GetModelPricing("kimi-k2.7")
+	require.NotNil(t, genericPricing)
+	require.InDelta(t, 99e-6, genericPricing.InputCostPerToken, 1e-12)
 	require.Contains(t, remote.fetchedURLs, strings.TrimRight(docsURL, "/"))
+}
+
+func TestRefreshOpenCodeGoPricingKeepsOfficialSnapshotWhenOnlyModelsDevSucceeds(t *testing.T) {
+	const docsURL = "https://opencode.ai/docs/go/"
+	remote := &pricingTestRemoteClient{
+		pricingErrs: map[string]error{docsURL: errors.New("official docs unavailable")},
+		pricingBodies: map[string][]byte{
+			cliImportModelsDevAPIURL: []byte(`{
+				"opencode-go": {
+					"models": {
+						"kimi-k2.5": {
+							"id": "kimi-k2.5",
+							"name": "Kimi K2.5",
+							"cost": {"input": 99, "output": 99}
+						}
+					}
+				}
+			}`),
+		},
+	}
+	existing := &LiteLLMModelPricing{
+		InputCostPerToken:          0.95e-6,
+		OutputCostPerToken:         4e-6,
+		LiteLLMProvider:            PlatformOpenCodeGo,
+		OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
+	}
+	svc := &PricingService{
+		cfg: &config.Config{
+			Pricing:  config.PricingConfig{OpenCodeGoDocsURL: docsURL},
+			Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}},
+		},
+		remoteClient: remote,
+		openCodeGoPricing: map[string]*LiteLLMModelPricing{
+			"kimi-k2.7-code": existing,
+		},
+	}
+
+	svc.refreshOpenCodeGoPricingBestEffort(context.Background())
+
+	require.Same(t, existing, svc.GetOpenCodeGoModelPricingExact("kimi-k2.7-code"))
+	require.Nil(t, svc.GetOpenCodeGoModelPricingExact("kimi-k2.5"))
 }
 
 func TestMergeOpenCodeGoPricingBestEffort_MergesModelsDevSupplementalPricing(t *testing.T) {

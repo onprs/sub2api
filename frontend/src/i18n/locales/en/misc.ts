@@ -6,8 +6,8 @@ export default {
     searchPlaceholder: 'Search channel, platform, model, group, or source...',
     empty: 'No model pricing data',
     modes: {
-      raw: 'Raw Pricing',
-      actual: 'Actual Pricing'
+      raw: 'Standard Price',
+      actual: 'Actual Price'
     },
     columns: {
       channel: 'Channel',
@@ -16,6 +16,9 @@ export default {
       contextTier: 'Context Tier',
       group: 'Group',
       multiplier: 'Multiplier',
+      groupMultiplier: 'Group Multiplier',
+      promotion: 'Limited Promotion',
+      finalMultiplier: 'Final Multiplier',
       source: 'Source',
       billingMode: 'Billing Mode',
       inputPerMillion: 'Input/M',
@@ -23,6 +26,11 @@ export default {
       cacheWritePerMillion: 'Cache Write/M',
       cacheReadPerMillion: 'Cache Read/M',
       unitPrice: 'Per Request/Image'
+    },
+    promotions: {
+      usageBonus: '{multiplier} usage',
+      priceMultiplier: 'Price {multiplier}',
+      detail: 'Standard price × group multiplier {group} × promotion price multiplier {promotion} = final multiplier {final}'
     },
     sources: {
       missing: 'Missing',

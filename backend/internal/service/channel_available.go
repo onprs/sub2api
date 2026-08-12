@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
@@ -93,6 +94,7 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 
 		supported := ch.SupportedModels()
 		s.fillGlobalPricingFallback(supported)
+		s.fillModelPricingPromotions(supported)
 
 		out = append(out, AvailableChannel{
 			ID:                 ch.ID,
@@ -126,7 +128,7 @@ func (s *ChannelService) fillGlobalPricingFallback(models []SupportedModel) {
 			}
 			continue
 		}
-		pricing, ok := s.displayPricingForModel(models[i].Name, models[i].Pricing)
+		pricing, ok := s.displayPricingForModel(models[i].Platform, models[i].Name, models[i].Pricing)
 		if !ok {
 			models[i].PricingSource = PricingSourceMissing
 			continue
@@ -150,32 +152,203 @@ func (s *ChannelService) BuildCatalogSupportedModel(displayName, platform string
 	}
 
 	for _, candidate := range catalogPricingLookupCandidates(platform, model.Name, pricingCandidates) {
-		pricing, ok := s.displayPricingForModel(candidate, nil)
+		pricing, ok := s.displayPricingForModel(platform, candidate, nil)
 		if !ok {
 			continue
 		}
 		model.Pricing = pricing
 		model.PricingSource = PricingSourceCatalog
+		s.fillModelPricingPromotionForName(&model, candidate)
+		return model
+	}
+	s.fillModelPricingPromotion(&model)
+	return model
+}
+
+// BuildSupportedModelForPricingGroup 为用户价格页构建分组感知的模型价格。
+// 渠道显式价格优先；未命中时再使用平台隔离的标准目录。
+func (s *ChannelService) BuildSupportedModelForPricingGroup(
+	ctx context.Context,
+	groupID int64,
+	displayName, platform string,
+	pricingCandidates []string,
+) SupportedModel {
+	model := SupportedModel{
+		Name:          strings.TrimSpace(displayName),
+		Platform:      platform,
+		PricingSource: PricingSourceMissing,
+	}
+	if model.Name == "" || s == nil {
+		return model
+	}
+
+	for _, candidate := range catalogPricingLookupCandidates(platform, model.Name, pricingCandidates) {
+		if groupID > 0 && s.channelPricingLookupAvailable() {
+			pricing := s.GetChannelModelPricing(ctx, groupID, candidate)
+			if !pricingNeedsFallback(pricing) {
+				model.Pricing = s.displayResolvedChannelPricing(ctx, groupID, platform, candidate, pricing)
+				model.PricingSource = PricingSourceChannel
+				s.fillModelPricingPromotionForName(&model, candidate)
+				return model
+			}
+		}
+		pricing, ok := s.displayPricingForModel(platform, candidate, nil)
+		if !ok {
+			continue
+		}
+		model.Pricing = pricing
+		model.PricingSource = PricingSourceCatalog
+		s.fillModelPricingPromotionForName(&model, candidate)
 		return model
 	}
 	return model
 }
 
-func (s *ChannelService) displayPricingForModel(model string, existing *ChannelModelPricing) (*ChannelModelPricing, bool) {
+func (s *ChannelService) channelPricingLookupAvailable() bool {
+	if s == nil {
+		return false
+	}
+	if s.repo != nil {
+		return true
+	}
+	cache, _ := s.cache.Load().(*channelCache)
+	return cache != nil
+}
+
+func (s *ChannelService) displayResolvedChannelPricing(
+	ctx context.Context,
+	groupID int64,
+	platform, model string,
+	existing *ChannelModelPricing,
+) *ChannelModelPricing {
+	if s == nil || s.billingService == nil || existing == nil {
+		return cloneChannelModelPricing(existing)
+	}
+	resolver := NewModelPricingResolver(s, s.billingService)
+	resolved := resolver.Resolve(ctx, PricingInput{Model: model, GroupID: &groupID, Platform: platform})
+	if resolved == nil || resolved.Source != PricingSourceChannel {
+		return cloneChannelModelPricing(existing)
+	}
+	return synthesizePricingFromResolved(resolved, existing)
+}
+
+func cloneChannelModelPricing(pricing *ChannelModelPricing) *ChannelModelPricing {
+	if pricing == nil {
+		return nil
+	}
+	cloned := pricing.Clone()
+	return &cloned
+}
+
+func synthesizePricingFromResolved(resolved *ResolvedPricing, existing *ChannelModelPricing) *ChannelModelPricing {
+	if resolved == nil {
+		return cloneChannelModelPricing(existing)
+	}
+	mode := resolved.Mode
+	if mode == "" {
+		mode = BillingModeToken
+	}
+	if mode == BillingModePerRequest || mode == BillingModeImage {
+		pricing := cloneChannelModelPricing(existing)
+		if pricing == nil {
+			pricing = &ChannelModelPricing{}
+		}
+		pricing.BillingMode = mode
+		return pricing
+	}
+
+	pricing := synthesizePricingFromModelPricing(resolved.BasePricing, existing)
+	if pricing == nil {
+		pricing = cloneChannelModelPricing(existing)
+	}
+	if pricing == nil {
+		pricing = &ChannelModelPricing{}
+	}
+	pricing.BillingMode = BillingModeToken
+	if len(resolved.Intervals) > 0 {
+		pricing.Intervals = append([]PricingInterval(nil), resolved.Intervals...)
+		if existing != nil && existing.ImageOutputPrice != nil {
+			pricing.ImageOutputPrice = existing.ImageOutputPrice
+		}
+	} else {
+		preserveExplicitDisplayPrices(pricing, existing)
+	}
+	return pricing
+}
+
+func preserveExplicitDisplayPrices(dst, src *ChannelModelPricing) {
+	if dst == nil || src == nil {
+		return
+	}
+	if src.InputPrice != nil {
+		dst.InputPrice = src.InputPrice
+	}
+	if src.OutputPrice != nil {
+		dst.OutputPrice = src.OutputPrice
+	}
+	if src.CacheWritePrice != nil {
+		dst.CacheWritePrice = src.CacheWritePrice
+	}
+	if src.CacheReadPrice != nil {
+		dst.CacheReadPrice = src.CacheReadPrice
+	}
+	if src.ImageOutputPrice != nil {
+		dst.ImageOutputPrice = src.ImageOutputPrice
+	}
+}
+
+func (s *ChannelService) displayPricingForModel(platform, model string, existing *ChannelModelPricing) (*ChannelModelPricing, bool) {
 	if s == nil {
 		return nil, false
 	}
 	if s.billingService != nil {
-		if pricing, err := s.billingService.GetModelPricing(model); err == nil && pricing != nil {
+		if pricing, err := s.billingService.GetModelPricingForPlatform(platform, model); err == nil && pricing != nil {
 			return synthesizePricingFromModelPricing(pricing, existing), true
 		}
 	}
 	if s.pricingService != nil {
-		if lp := s.pricingService.GetModelPricing(model); lp != nil {
+		if isOpenCodeGoPricingPlatform(platform) {
+			if lp := s.pricingService.GetOpenCodeGoModelPricingExact(model); lp != nil &&
+				isOpenCodeGoPricingPlatform(lp.LiteLLMProvider) &&
+				lp.OpenCodeGoPricingAuthority == openCodeGoPricingAuthorityOfficial {
+				return synthesizePricingFromLiteLLM(lp, existing), true
+			}
+			if pricing, ok := openCodeGoReferencePricing(model); ok {
+				return synthesizePricingFromModelPricing(pricing, existing), true
+			}
+		} else if lp := s.pricingService.GetModelPricing(model); lp != nil && !isOpenCodeGoPricingPlatform(lp.LiteLLMProvider) {
 			return synthesizePricingFromLiteLLM(lp, existing), true
 		}
 	}
 	return nil, false
+}
+
+func (s *ChannelService) fillModelPricingPromotions(models []SupportedModel) {
+	for i := range models {
+		s.fillModelPricingPromotion(&models[i])
+	}
+}
+
+func (s *ChannelService) fillModelPricingPromotion(model *SupportedModel) {
+	if model == nil {
+		return
+	}
+	s.fillModelPricingPromotionForName(model, model.Name)
+}
+
+func (s *ChannelService) fillModelPricingPromotionForName(model *SupportedModel, pricingModel string) {
+	if s == nil || model == nil || model.Pricing == nil || !isOpenCodeGoPricingPlatform(model.Platform) || s.pricingService == nil {
+		return
+	}
+	multiplier := s.pricingService.OpenCodeGoUsagePromotionMultiplier(pricingModel, time.Now())
+	if !isValidUsagePromotionMultiplier(multiplier) {
+		return
+	}
+	model.Promotion = &ModelPricingPromotion{
+		Code:            "opencode_go_usage_bonus",
+		CostMultiplier:  multiplier,
+		UsageMultiplier: 1 / multiplier,
+	}
 }
 
 func catalogPricingLookupCandidates(platform, displayName string, pricingCandidates []string) []string {

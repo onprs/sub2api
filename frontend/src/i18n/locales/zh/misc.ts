@@ -6,8 +6,8 @@ export default {
     searchPlaceholder: '搜索渠道、平台、模型、分组或来源...',
     empty: '暂无模型计费数据',
     modes: {
-      raw: '原始计费',
-      actual: '实际计费'
+      raw: '标准价格',
+      actual: '实际价格'
     },
     columns: {
       channel: '渠道',
@@ -16,6 +16,9 @@ export default {
       contextTier: '上下文档位',
       group: '分组',
       multiplier: '倍率',
+      groupMultiplier: '分组倍率',
+      promotion: '限时活动',
+      finalMultiplier: '最终倍率',
       source: '来源',
       billingMode: '计费模式',
       inputPerMillion: '输入/M',
@@ -23,6 +26,11 @@ export default {
       cacheWritePerMillion: '缓存写入/M',
       cacheReadPerMillion: '缓存读取/M',
       unitPrice: '按次/图片价'
+    },
+    promotions: {
+      usageBonus: '{multiplier} 用量',
+      priceMultiplier: '价格 {multiplier}',
+      detail: '标准价格 × 分组倍率 {group} × 活动价格倍率 {promotion} = 最终倍率 {final}'
     },
     sources: {
       missing: '未配置',

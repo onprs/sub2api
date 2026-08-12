@@ -581,10 +581,10 @@ func (s *PricingService) GetCLIImportModelCapability(ctx context.Context, platfo
 		return CLIImportModelCapability{}, false
 	}
 	if cap, ok := s.getCLIImportModelsDevCapability(ctx, platform, model); ok {
-		return cap, true
+		return applyOpenCodeGoCLIImportReferencePricing(platform, model, cap), true
 	}
 	if cap, ok := getOpenCodeGoBuiltinCLIImportCapability(platform, model); ok {
-		return cap, true
+		return applyOpenCodeGoCLIImportReferencePricing(platform, model, cap), true
 	}
 	pricing := s.GetModelPricing(model)
 	if pricing == nil {
@@ -641,7 +641,39 @@ func (s *PricingService) GetCLIImportModelCapability(ctx context.Context, platfo
 	if pricing.OutputCostPerImageToken != 0 {
 		cap.OutputCostPerImageToken = cliImportFloat64Ptr(pricing.OutputCostPerImageToken)
 	}
-	return cap, true
+	return applyOpenCodeGoCLIImportReferencePricing(platform, model, cap), true
+}
+
+func applyOpenCodeGoCLIImportReferencePricing(platform, model string, cap CLIImportModelCapability) CLIImportModelCapability {
+	if !isOpenCodeGoPricingPlatform(platform) {
+		return cap
+	}
+
+	cap.InputCostPerToken = nil
+	cap.OutputCostPerToken = nil
+	cap.CacheReadCostPerToken = nil
+	cap.CacheWriteCostPerToken = nil
+	cap.OutputCostPerImage = nil
+	cap.OutputCostPerImageToken = nil
+	cap.CostKnown = false
+
+	pricing, ok := openCodeGoReferencePricing(model)
+	if !ok {
+		return cap
+	}
+	cap.InputCostPerToken = cliImportFloat64Ptr(pricing.InputPricePerToken * 1_000_000)
+	cap.OutputCostPerToken = cliImportFloat64Ptr(pricing.OutputPricePerToken * 1_000_000)
+	if pricing.CacheReadPricePerToken > 0 {
+		cap.CacheReadCostPerToken = cliImportFloat64Ptr(pricing.CacheReadPricePerToken * 1_000_000)
+	}
+	if pricing.CacheCreationPricePerToken > 0 {
+		cap.CacheWriteCostPerToken = cliImportFloat64Ptr(pricing.CacheCreationPricePerToken * 1_000_000)
+	}
+	if pricing.ImageOutputPricePerToken > 0 {
+		cap.OutputCostPerImageToken = cliImportFloat64Ptr(pricing.ImageOutputPricePerToken)
+	}
+	cap.CostKnown = pricing.InputPricePerToken > 0 && pricing.OutputPricePerToken > 0
+	return cap
 }
 
 var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability{

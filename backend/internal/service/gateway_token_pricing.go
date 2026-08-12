@@ -33,7 +33,7 @@ func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Contex
 			if candidate == "" {
 				continue
 			}
-			resolved := s.resolver.Resolve(ctx, PricingInput{Model: candidate, GroupID: apiKey.GroupID})
+			resolved := s.resolver.Resolve(ctx, PricingInput{Model: candidate, GroupID: apiKey.GroupID, Platform: account.Platform})
 			if resolved == nil {
 				continue
 			}
@@ -53,7 +53,7 @@ func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Contex
 		billingService = NewBillingService(s.cfg, nil)
 	}
 	for _, candidate := range candidates {
-		pricing, err := billingService.GetModelPricing(candidate)
+		pricing, err := billingService.GetModelPricingForPlatform(account.Platform, candidate)
 		if err == nil && hasBillableTokenPricing(pricing) {
 			return nil
 		}

@@ -391,12 +391,21 @@ type ChannelUsageFields struct {
 	ModelMappingChain  string // 映射链描述，如 "a→b→c"
 }
 
+// ModelPricingPromotion 是用户价格页需要的模型级活动快照。
+// CostMultiplier 参与最终费用计算；UsageMultiplier 仅用于解释同一额度可用量的变化。
+type ModelPricingPromotion struct {
+	Code            string
+	CostMultiplier  float64
+	UsageMultiplier float64
+}
+
 // SupportedModel 渠道的一个支持模型条目（无通配符、可直接展示给用户）
 type SupportedModel struct {
-	Name          string               // 用户侧模型名
-	Platform      string               // 所属平台
-	Pricing       *ChannelModelPricing // 定价详情（nil 表示未配置定价）
-	PricingSource string               // channel/catalog/missing，仅用于用户侧展示来源
+	Name          string                 // 用户侧模型名
+	Platform      string                 // 所属平台
+	Pricing       *ChannelModelPricing   // 定价详情（nil 表示未配置定价）
+	PricingSource string                 // channel/catalog/missing，仅用于用户侧展示来源
+	Promotion     *ModelPricingPromotion // 当前有效的模型级活动；nil 表示无活动
 }
 
 // wildcardSuffix 是模型模式中的通配符后缀标记（仅支持尾部匹配）。
