@@ -122,6 +122,8 @@ const (
 	openCodeGoDeepSeekFlashPromoMultiplier = 0.5
 	openCodeGoPromotionRefreshInterval     = 10 * time.Minute
 	openCodeGoPromotionEvidenceTTL         = time.Hour
+	openCodeGoPricingAuthorityOfficial     = "official"
+	openCodeGoPricingAuthorityModelsDev    = "models_dev"
 )
 
 type openCodeGoUsagePromotion struct {
@@ -169,6 +171,7 @@ type LiteLLMModelPricing struct {
 	SupportsToolChoiceKnown                  bool    `json:"-"`
 	MaxInputTokensKnown                      bool    `json:"-"`
 	MaxOutputTokensKnown                     bool    `json:"-"`
+	OpenCodeGoPricingAuthority               string  `json:"-"`
 
 	// TokenPricingAbsent 表示源数据中 input/output token 价格均缺失（仅有图片价）。
 	// 此类条目只可用于图片计费，token 计费必须回退到 fallback 或 fail-closed，
@@ -217,6 +220,7 @@ type PricingService struct {
 	remoteClient           PricingRemoteClient
 	mu                     sync.RWMutex
 	pricingData            map[string]*LiteLLMModelPricing
+	openCodeGoPricing      map[string]*LiteLLMModelPricing
 	lastUpdated            time.Time
 	localHash              string
 	cliImportCatalogMu     sync.RWMutex
@@ -233,10 +237,11 @@ type PricingService struct {
 // NewPricingService 创建价格服务
 func NewPricingService(cfg *config.Config, remoteClient PricingRemoteClient) *PricingService {
 	s := &PricingService{
-		cfg:          cfg,
-		remoteClient: remoteClient,
-		pricingData:  make(map[string]*LiteLLMModelPricing),
-		stopCh:       make(chan struct{}),
+		cfg:               cfg,
+		remoteClient:      remoteClient,
+		pricingData:       make(map[string]*LiteLLMModelPricing),
+		openCodeGoPricing: make(map[string]*LiteLLMModelPricing),
+		stopCh:            make(chan struct{}),
 	}
 	return s
 }
@@ -255,6 +260,7 @@ func (s *PricingService) Initialize() error {
 			return fmt.Errorf("failed to load pricing data: %w", err)
 		}
 	}
+	s.refreshOpenCodeGoPricingBestEffortWithTimeout()
 	s.refreshOpenCodeGoPromotionsBestEffortWithTimeout()
 
 	// 启动定时更新
@@ -379,7 +385,7 @@ func (s *PricingService) syncWithRemote() error {
 		if localHash == "" || remoteHash != localHash {
 			logger.LegacyPrintf("service.pricing", "[Pricing] Remote hash differs (local=%s remote=%s), downloading new version...",
 				localHash[:min(8, len(localHash))], remoteHash[:min(8, len(remoteHash))])
-			return s.downloadPricingData()
+			return s.downloadPricingDataAndRefreshOpenCodeGo()
 		}
 		logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Hash check passed, no update needed")
 		s.refreshOpenCodeGoPricingBestEffortWithTimeout()
@@ -390,7 +396,7 @@ func (s *PricingService) syncWithRemote() error {
 	pricingFile := s.getPricingFilePath()
 	info, err := os.Stat(pricingFile)
 	if err != nil {
-		return s.downloadPricingData()
+		return s.downloadPricingDataAndRefreshOpenCodeGo()
 	}
 
 	fileAge := time.Since(info.ModTime())
@@ -398,7 +404,7 @@ func (s *PricingService) syncWithRemote() error {
 
 	if fileAge > maxAge {
 		logger.LegacyPrintf("service.pricing", "[Pricing] File is %v old, downloading...", fileAge.Round(time.Hour))
-		return s.downloadPricingData()
+		return s.downloadPricingDataAndRefreshOpenCodeGo()
 	}
 	s.refreshOpenCodeGoPricingBestEffortWithTimeout()
 
@@ -471,6 +477,14 @@ func (s *PricingService) downloadPricingData() error {
 	s.mu.Unlock()
 
 	logger.LegacyPrintf("service.pricing", "[Pricing] Downloaded %d models successfully", len(data))
+	return nil
+}
+
+func (s *PricingService) downloadPricingDataAndRefreshOpenCodeGo() error {
+	if err := s.downloadPricingData(); err != nil {
+		return err
+	}
+	s.refreshOpenCodeGoPricingBestEffortWithTimeout()
 	return nil
 }
 
@@ -687,6 +701,7 @@ func parseOpenCodeGoPricingDocument(body []byte) (map[string]*LiteLLMModelPricin
 			OutputCostPerTokenKnown:          true,
 			CacheReadInputTokenCostKnown:     row.CacheRead > 0,
 			CacheCreationInputTokenCostKnown: row.CacheWrite > 0,
+			OpenCodeGoPricingAuthority:       openCodeGoPricingAuthorityOfficial,
 		}
 		if above, ok := aboveRows[key]; ok && row.Threshold > 0 {
 			pricing.LongContextInputTokenThreshold = row.Threshold
@@ -734,12 +749,13 @@ func parseOpenCodeGoModelsDevPricingDocument(body []byte) (map[string]*LiteLLMMo
 			continue
 		}
 		pricing := &LiteLLMModelPricing{
-			InputCostPerToken:       input,
-			OutputCostPerToken:      output,
-			LiteLLMProvider:         PlatformOpenCodeGo,
-			Mode:                    "chat",
-			InputCostPerTokenKnown:  true,
-			OutputCostPerTokenKnown: true,
+			InputCostPerToken:          input,
+			OutputCostPerToken:         output,
+			LiteLLMProvider:            PlatformOpenCodeGo,
+			Mode:                       "chat",
+			InputCostPerTokenKnown:     true,
+			OutputCostPerTokenKnown:    true,
+			OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityModelsDev,
 		}
 		if model.Cost.CacheRead != nil {
 			pricing.CacheReadInputTokenCost = *model.Cost.CacheRead * basePriceMultiplier / 1_000_000
@@ -1175,6 +1191,9 @@ func (s *PricingService) mergeOpenCodeGoPricingBestEffort(ctx context.Context, p
 	}
 	modelsDevMerged := 0
 	for model, pricing := range modelsDevPricing {
+		if !isOpenCodeGoModelsDevSupplementalModel(model) {
+			continue
+		}
 		if _, exists := pricingData[model]; exists {
 			continue
 		}
@@ -1196,22 +1215,24 @@ func (s *PricingService) refreshOpenCodeGoPricingBestEffort(ctx context.Context)
 	if s == nil {
 		return
 	}
-	s.mu.RLock()
-	current := make(map[string]*LiteLLMModelPricing, len(s.pricingData))
-	for model, pricing := range s.pricingData {
-		current[model] = pricing
-	}
-	s.mu.RUnlock()
-	if len(current) == 0 {
-		return
-	}
-	if s.mergeOpenCodeGoPricingBestEffort(ctx, current) == 0 {
+	current := make(map[string]*LiteLLMModelPricing)
+	if s.mergeOpenCodeGoPricingBestEffort(ctx, current) == 0 || !hasOpenCodeGoOfficialPricing(current) {
 		return
 	}
 	s.mu.Lock()
-	s.pricingData = current
+	s.openCodeGoPricing = current
 	s.lastUpdated = time.Now()
 	s.mu.Unlock()
+}
+
+func hasOpenCodeGoOfficialPricing(data map[string]*LiteLLMModelPricing) bool {
+	for _, pricing := range data {
+		if pricing != nil && isOpenCodeGoPricingPlatform(pricing.LiteLLMProvider) &&
+			pricing.OpenCodeGoPricingAuthority == openCodeGoPricingAuthorityOfficial {
+			return true
+		}
+	}
+	return false
 }
 
 // loadPricingData 从本地文件加载价格数据
@@ -1343,6 +1364,37 @@ func (s *PricingService) validateSupplementalPricingURL(raw string, extraHosts [
 		return "", fmt.Errorf("invalid pricing url: %w", err)
 	}
 	return normalized, nil
+}
+
+// GetModelPricingExact 仅在通用价格目录中按标准化候选键精确读取，
+// 不执行版本、系列或厂商回落。
+func (s *PricingService) GetModelPricingExact(modelName string) *LiteLLMModelPricing {
+	if s == nil || strings.TrimSpace(modelName) == "" {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.getModelPricingExactLocked(s.pricingData, modelName)
+}
+
+// GetOpenCodeGoModelPricingExact 从平台隔离快照精确读取 OpenCode Go 价格。
+func (s *PricingService) GetOpenCodeGoModelPricingExact(modelName string) *LiteLLMModelPricing {
+	if s == nil || strings.TrimSpace(modelName) == "" {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.getModelPricingExactLocked(s.openCodeGoPricing, modelName)
+}
+
+func (s *PricingService) getModelPricingExactLocked(data map[string]*LiteLLMModelPricing, modelName string) *LiteLLMModelPricing {
+	modelLower := strings.ToLower(strings.TrimSpace(modelName))
+	for _, candidate := range s.buildModelLookupCandidates(modelLower) {
+		if pricing, ok := data[candidate]; ok {
+			return pricing
+		}
+	}
+	return nil
 }
 
 // GetModelPricing 获取模型价格（带模糊匹配）
@@ -1736,7 +1788,7 @@ func (s *PricingService) GetStatus() map[string]any {
 
 // ForceUpdate 强制更新
 func (s *PricingService) ForceUpdate() error {
-	return s.downloadPricingData()
+	return s.downloadPricingDataAndRefreshOpenCodeGo()
 }
 
 // getPricingFilePath 获取价格文件路径

@@ -35,7 +35,11 @@ export interface ModelPricingRow {
   isExclusive: boolean
   defaultMultiplier: number
   userMultiplier: number | null
-  effectiveMultiplier: number
+  groupMultiplier: number
+  promotionCode: string
+  promotionCostMultiplier: number
+  promotionUsageMultiplier: number
+  finalMultiplier: number
   pricingSource: string
   pricingSourceLabel: string
   pricingSourceDetail: string
@@ -127,22 +131,22 @@ function hasUserMultiplier(userGroupRates: Record<number, number>, groupId: numb
 }
 
 function clampMultiplier(value: number | null | undefined): number {
-  if (value == null || Number.isNaN(value)) {
+  if (value == null || !Number.isFinite(value)) {
     return 0
   }
   return Math.max(0, value)
 }
 
-function effectiveMultiplierForGroup(
+function groupMultiplierForGroup(
   group: UserAvailableGroup,
   userGroupRates: Record<number, number>,
-): Pick<ModelPricingRow, 'defaultMultiplier' | 'userMultiplier' | 'effectiveMultiplier'> {
+): Pick<ModelPricingRow, 'defaultMultiplier' | 'userMultiplier' | 'groupMultiplier'> {
   const defaultMultiplier = clampMultiplier(group.rate_multiplier)
   if (!hasUserMultiplier(userGroupRates, group.id)) {
     return {
       defaultMultiplier,
       userMultiplier: null,
-      effectiveMultiplier: defaultMultiplier,
+      groupMultiplier: defaultMultiplier,
     }
   }
 
@@ -150,7 +154,34 @@ function effectiveMultiplierForGroup(
   return {
     defaultMultiplier,
     userMultiplier,
-    effectiveMultiplier: userMultiplier,
+    groupMultiplier: userMultiplier,
+  }
+}
+
+function promotionFields(model: UserSupportedModel): Pick<
+  ModelPricingRow,
+  'promotionCode' | 'promotionCostMultiplier' | 'promotionUsageMultiplier'
+> {
+  const promotion = model.promotion
+  if (
+    !promotion ||
+    !promotion.code ||
+    !Number.isFinite(promotion.cost_multiplier) ||
+    promotion.cost_multiplier <= 0 ||
+    promotion.cost_multiplier >= 1 ||
+    !Number.isFinite(promotion.usage_multiplier) ||
+    promotion.usage_multiplier <= 1
+  ) {
+    return {
+      promotionCode: '',
+      promotionCostMultiplier: 1,
+      promotionUsageMultiplier: 1,
+    }
+  }
+  return {
+    promotionCode: promotion.code,
+    promotionCostMultiplier: promotion.cost_multiplier,
+    promotionUsageMultiplier: promotion.usage_multiplier,
   }
 }
 
@@ -181,7 +212,9 @@ function rowForModelGroup(
   group: UserAvailableGroup,
   userGroupRates: Record<number, number>,
 ): ModelPricingRow {
-  const multiplier = effectiveMultiplierForGroup(group, userGroupRates)
+  const groupMultiplier = groupMultiplierForGroup(group, userGroupRates)
+  const promotion = promotionFields(model)
+  const finalMultiplier = groupMultiplier.groupMultiplier * promotion.promotionCostMultiplier
   const source = pricingSourceFields(model.pricing)
 
   if (!model.pricing) {
@@ -195,7 +228,9 @@ function rowForModelGroup(
       groupName: group.name,
       subscriptionType: group.subscription_type || 'standard',
       isExclusive: group.is_exclusive,
-      ...multiplier,
+      ...groupMultiplier,
+      ...promotion,
+      finalMultiplier,
       ...source,
       billingMode: null,
       pricing: empty,
@@ -213,12 +248,14 @@ function rowForModelGroup(
     groupName: group.name,
     subscriptionType: group.subscription_type || 'standard',
     isExclusive: group.is_exclusive,
-    ...multiplier,
+    ...groupMultiplier,
+    ...promotion,
+    finalMultiplier,
     ...source,
     billingMode: model.pricing.billing_mode,
     pricing: pricingValues(model.pricing),
-    actualPricing: actualPricingValues(model.pricing, multiplier.effectiveMultiplier),
-    intervals: intervalRows(model.pricing, multiplier.effectiveMultiplier),
+    actualPricing: actualPricingValues(model.pricing, finalMultiplier),
+    intervals: intervalRows(model.pricing, finalMultiplier),
   }
 }
 

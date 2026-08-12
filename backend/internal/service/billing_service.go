@@ -858,6 +858,27 @@ func (s *BillingService) OpenCodeGoUsagePromotionMultiplier(model string, now ti
 	return s.pricingService.OpenCodeGoUsagePromotionMultiplier(model, now)
 }
 
+// GetModelPricingForPlatform 在需要平台隔离时解析模型价格。
+// OpenCode Go 只接受其官方动态目录中的精确条目，再回落到平台限定参考价；
+// 其他平台保持通用解析行为。
+func (s *BillingService) GetModelPricingForPlatform(platform, model string) (*ModelPricing, error) {
+	if !isOpenCodeGoPricingPlatform(platform) {
+		return s.GetModelPricing(model)
+	}
+	model = strings.ToLower(strings.TrimSpace(model))
+	for _, candidate := range billingModelPricingCandidates(model) {
+		if pricing, ok := s.getOpenCodeGoDynamicModelPricingExact(candidate); ok {
+			return pricing, nil
+		}
+	}
+	for _, candidate := range billingModelPricingCandidates(model) {
+		if pricing, ok := openCodeGoReferencePricing(candidate); ok {
+			return s.applyModelSpecificPricingPolicy(candidate, pricing), nil
+		}
+	}
+	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
+}
+
 // GetModelPricing 获取模型价格配置
 func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	model = strings.ToLower(strings.TrimSpace(model))
@@ -891,7 +912,28 @@ func (s *BillingService) getDynamicModelPricingExact(model string) (*ModelPricin
 	if s.pricingService == nil {
 		return nil, false
 	}
-	litellmPricing := s.pricingService.GetModelPricing(model)
+	pricing := s.pricingService.GetModelPricing(model)
+	if pricing != nil && isOpenCodeGoPricingPlatform(pricing.LiteLLMProvider) {
+		return nil, false
+	}
+	return s.modelPricingFromLiteLLM(model, pricing)
+}
+
+func (s *BillingService) getOpenCodeGoDynamicModelPricingExact(model string) (*ModelPricing, bool) {
+	if s.pricingService == nil {
+		return nil, false
+	}
+	pricing := s.pricingService.GetOpenCodeGoModelPricingExact(model)
+	if pricing == nil || !isOpenCodeGoPricingPlatform(pricing.LiteLLMProvider) {
+		return nil, false
+	}
+	if pricing.OpenCodeGoPricingAuthority != openCodeGoPricingAuthorityOfficial {
+		return nil, false
+	}
+	return s.modelPricingFromLiteLLM(model, pricing)
+}
+
+func (s *BillingService) modelPricingFromLiteLLM(model string, litellmPricing *LiteLLMModelPricing) (*ModelPricing, bool) {
 	// 仅有图片价、无 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
 	// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 fallback，
 	// 无 fallback 则 fail-closed（ErrModelPricingUnavailable）。
@@ -987,16 +1029,17 @@ func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing
 
 // CostInput 统一计费输入
 type CostInput struct {
-	Ctx            context.Context
-	Model          string
-	GroupID        *int64 // 用于渠道定价查找
-	Tokens         UsageTokens
-	RequestCount   int    // 按次计费时使用
-	SizeTier       string // 按次/图片模式的层级标签（"1K","2K","4K","HD" 等）
-	RateMultiplier float64
-	ServiceTier    string                // "priority","flex","" 等
-	Resolver       *ModelPricingResolver // 定价解析器
-	Resolved       *ResolvedPricing      // 可选：预解析的定价结果（避免重复 Resolve 调用）
+	Ctx             context.Context
+	Model           string
+	PricingPlatform string // 可选；限制基础定价到指定平台
+	GroupID         *int64 // 用于渠道定价查找
+	Tokens          UsageTokens
+	RequestCount    int    // 按次计费时使用
+	SizeTier        string // 按次/图片模式的层级标签（"1K","2K","4K","HD" 等）
+	RateMultiplier  float64
+	ServiceTier     string                // "priority","flex","" 等
+	Resolver        *ModelPricingResolver // 定价解析器
+	Resolved        *ResolvedPricing      // 可选：预解析的定价结果（避免重复 Resolve 调用）
 }
 
 // CalculateCostUnified 统一计费入口，支持三种计费模式。
@@ -1011,8 +1054,9 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 	resolved := input.Resolved
 	if resolved == nil {
 		resolved = input.Resolver.Resolve(input.Ctx, PricingInput{
-			Model:   input.Model,
-			GroupID: input.GroupID,
+			Model:    input.Model,
+			GroupID:  input.GroupID,
+			Platform: input.PricingPlatform,
 		})
 	}
 
@@ -1211,6 +1255,18 @@ func (s *BillingService) calculatePerRequestCost(resolved *ResolvedPricing, inpu
 // CalculateCost 计算使用费用
 func (s *BillingService) CalculateCost(model string, tokens UsageTokens, rateMultiplier float64) (*CostBreakdown, error) {
 	return s.calculateCostInternal(model, tokens, rateMultiplier, "", nil)
+}
+
+// CalculateCostForPlatform 使用平台隔离的标准价计算费用。
+func (s *BillingService) CalculateCostForPlatform(platform, model string, tokens UsageTokens, rateMultiplier float64) (*CostBreakdown, error) {
+	pricing, err := s.GetModelPricingForPlatform(platform, model)
+	if err != nil {
+		return nil, err
+	}
+	if !hasBillableTokenPricing(pricing) {
+		return nil, tokenPricingUnavailableError(model)
+	}
+	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, "", true), nil
 }
 
 func (s *BillingService) CalculateCostWithServiceTier(model string, tokens UsageTokens, rateMultiplier float64, serviceTier string) (*CostBreakdown, error) {

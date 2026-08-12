@@ -896,6 +896,11 @@ func TestPricingServiceGetCLIImportModelCapabilityUsesOpenCodeGoModelsDevProvide
 			require.True(t, ok)
 			require.True(t, capability.openCodeComplete())
 			require.NotEqual(t, "Wrong provider sentinel", capability.Name)
+
+			pricing, ok := openCodeGoReferencePricing(model)
+			require.True(t, ok)
+			require.InDelta(t, pricing.InputPricePerToken*1_000_000, *capability.InputCostPerToken, 1e-12)
+			require.InDelta(t, pricing.OutputPricePerToken*1_000_000, *capability.OutputCostPerToken, 1e-12)
 		})
 	}
 
@@ -904,10 +909,18 @@ func TestPricingServiceGetCLIImportModelCapabilityUsesOpenCodeGoModelsDevProvide
 	require.Equal(t, "Qwen3.7 Plus", qwen.Name)
 	require.Equal(t, 1000000, qwen.MaxInputTokens)
 	require.Equal(t, 65536, qwen.MaxOutputTokens)
-	require.Equal(t, 0.4, *qwen.InputCostPerToken)
-	require.Equal(t, 1.6, *qwen.OutputCostPerToken)
-	require.Equal(t, 0.04, *qwen.CacheReadCostPerToken)
-	require.Equal(t, 0.5, *qwen.CacheWriteCostPerToken)
+	require.InDelta(t, 0.4, *qwen.InputCostPerToken, 1e-12)
+	require.InDelta(t, 1.6, *qwen.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 0.04, *qwen.CacheReadCostPerToken, 1e-12)
+	require.InDelta(t, 0.5, *qwen.CacheWriteCostPerToken, 1e-12)
+
+	minimax, ok := svc.GetCLIImportModelCapability(context.Background(), PlatformOpenCodeGo, "minimax-m3")
+	require.True(t, ok)
+	require.Equal(t, "MiniMax M3 (3x usage)", minimax.Name)
+	require.InDelta(t, 0.3, *minimax.InputCostPerToken, 1e-12)
+	require.InDelta(t, 1.2, *minimax.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 0.06, *minimax.CacheReadCostPerToken, 1e-12)
+	require.Nil(t, minimax.CacheWriteCostPerToken)
 }
 
 func TestPricingServiceGetCLIImportModelCapabilityHasBuiltinFallbackForEveryOpenCodeGoDefault(t *testing.T) {
@@ -922,6 +935,23 @@ func TestPricingServiceGetCLIImportModelCapabilityHasBuiltinFallbackForEveryOpen
 			require.True(t, capability.openCodeComplete())
 			require.NotEmpty(t, capability.Name)
 			require.NotEmpty(t, capability.Family)
+
+			pricing, ok := openCodeGoReferencePricing(model)
+			require.True(t, ok)
+			require.InDelta(t, pricing.InputPricePerToken*1_000_000, *capability.InputCostPerToken, 1e-12)
+			require.InDelta(t, pricing.OutputPricePerToken*1_000_000, *capability.OutputCostPerToken, 1e-12)
+			if pricing.CacheReadPricePerToken > 0 {
+				require.NotNil(t, capability.CacheReadCostPerToken)
+				require.InDelta(t, pricing.CacheReadPricePerToken*1_000_000, *capability.CacheReadCostPerToken, 1e-12)
+			} else {
+				require.Nil(t, capability.CacheReadCostPerToken)
+			}
+			if pricing.CacheCreationPricePerToken > 0 {
+				require.NotNil(t, capability.CacheWriteCostPerToken)
+				require.InDelta(t, pricing.CacheCreationPricePerToken*1_000_000, *capability.CacheWriteCostPerToken, 1e-12)
+			} else {
+				require.Nil(t, capability.CacheWriteCostPerToken)
+			}
 		})
 	}
 }

@@ -376,8 +376,8 @@ func TestGatewayServiceValidateGatewayTokenPricingAvailable_AllowsPriceableModel
 	apiKey := &APIKey{ID: 501, Quota: 100}
 	account := &Account{ID: 701, Platform: PlatformOpenCodeGo}
 
-	err := svc.ValidateGatewayTokenPricingAvailable(context.Background(), apiKey, account, "claude-sonnet-4", ChannelMappingResult{
-		MappedModel:        "claude-sonnet-4",
+	err := svc.ValidateGatewayTokenPricingAvailable(context.Background(), apiKey, account, "deepseek-v4-pro", ChannelMappingResult{
+		MappedModel:        "deepseek-v4-pro",
 		BillingModelSource: BillingModelSourceChannelMapped,
 	})
 
@@ -406,6 +406,94 @@ func TestGatewayServiceValidateGatewayTokenPricingAvailable_AllowsOpenCodeGoMode
 	})
 
 	require.NoError(t, err)
+}
+
+func TestGatewayServiceRecordUsage_OpenCodeGoPricingPageMatchesChannelBillingPromotion(t *testing.T) {
+	groupID := int64(10)
+	groupMultiplier := 1.25
+	inputPrice := 0.4e-6
+	outputPrice := 0.8e-6
+	cacheReadPrice := 0.04e-6
+	pricingSvc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{},
+		openCodeGoPromotions: map[string]openCodeGoUsagePromotion{
+			openCodeGoDeepSeekFlashPromoModel: {multiplier: 0.5, confirmedAt: time.Now()},
+		},
+	}
+	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
+	channelSvc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
+	cache := newEmptyChannelCache()
+	cache.channelByGroupID[groupID] = &Channel{ID: 1, Status: StatusActive}
+	cache.groupPlatform[groupID] = PlatformOpenCodeGo
+	cache.pricingByGroupModel[channelModelKey{
+		groupID:  groupID,
+		platform: PlatformOpenCodeGo,
+		model:    openCodeGoDeepSeekFlashPromoModel,
+	}] = &ChannelModelPricing{
+		Platform:       PlatformOpenCodeGo,
+		Models:         []string{openCodeGoDeepSeekFlashPromoModel},
+		BillingMode:    BillingModeToken,
+		InputPrice:     &inputPrice,
+		OutputPrice:    &outputPrice,
+		CacheReadPrice: &cacheReadPrice,
+	}
+	cache.loadedAt = time.Now()
+	channelSvc.cache.Store(cache)
+
+	displayed := channelSvc.BuildSupportedModelForPricingGroup(
+		context.Background(),
+		groupID,
+		openCodeGoDeepSeekFlashPromoModel,
+		PlatformOpenCodeGo,
+		nil,
+	)
+	require.Equal(t, PricingSourceChannel, displayed.PricingSource)
+	require.NotNil(t, displayed.Pricing)
+	require.NotNil(t, displayed.Promotion)
+
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+	svc.billingService = billingSvc
+	svc.channelService = channelSvc
+	svc.resolver = NewModelPricingResolver(channelSvc, billingSvc)
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 500_000, CacheReadTokens: 250_000}
+
+	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "opencode_go_pricing_page_billing_match",
+			Usage: ClaudeUsage{
+				InputTokens:          tokens.InputTokens,
+				OutputTokens:         tokens.OutputTokens,
+				CacheReadInputTokens: tokens.CacheReadTokens,
+			},
+			Model:    openCodeGoDeepSeekFlashPromoModel,
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{
+			ID:      501,
+			Quota:   100,
+			GroupID: &groupID,
+			Group: &Group{
+				ID:             groupID,
+				Platform:       PlatformOpenCodeGo,
+				RateMultiplier: groupMultiplier,
+			},
+		},
+		User:    &User{ID: 601},
+		Account: &Account{ID: 701, Platform: PlatformOpenCodeGo},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+
+	standardTotal := float64(tokens.InputTokens)*(*displayed.Pricing.InputPrice) +
+		float64(tokens.OutputTokens)*(*displayed.Pricing.OutputPrice) +
+		float64(tokens.CacheReadTokens)*(*displayed.Pricing.CacheReadPrice)
+	expectedTotal := standardTotal * displayed.Promotion.CostMultiplier
+	expectedActual := expectedTotal * groupMultiplier
+	require.InDelta(t, expectedTotal, usageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, expectedActual, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, expectedActual, userRepo.lastAmount, 1e-12)
 }
 
 func TestGatewayServiceRecordUsage_OpenCodeGoDeepSeekFlashPromotionUsesAtomicBillingCosts(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -439,7 +440,7 @@ func TestBuildCatalogSupportedModel_ClinePassUsesReferencePricingAndContextTiers
 	require.InDelta(t, 0.12e-6, *longTier.CacheReadPrice, 1e-15)
 }
 
-func TestBuildCatalogSupportedModel_OpenCodeGoUsesModelsDevSupplementalPricing(t *testing.T) {
+func TestBuildCatalogSupportedModel_OpenCodeGoUsesSupplementalReferencePricing(t *testing.T) {
 	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
 		"kimi-k2.5": {
 			Mode:                    "chat",
@@ -477,6 +478,135 @@ func TestBuildCatalogSupportedModel_UsesBillingFallbackPricing(t *testing.T) {
 	require.NotNil(t, got.Pricing.OutputPrice)
 	require.InDelta(t, 12e-6, *got.Pricing.OutputPrice, 1e-12)
 	require.NotNil(t, got.Pricing.CacheReadPrice)
+}
+
+func TestBuildSupportedModelForPricingGroup_OpenCodeGoChannelPricingOverridesCatalogAndKeepsPromotion(t *testing.T) {
+	groupID := int64(10)
+	input := 0.9e-6
+	output := 1.8e-6
+	cacheRead := 0.09e-6
+	pricingSvc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{},
+		openCodeGoPromotions: map[string]openCodeGoUsagePromotion{
+			openCodeGoDeepSeekFlashPromoModel: {multiplier: 0.5, confirmedAt: time.Now()},
+		},
+	}
+	svc := &ChannelService{
+		pricingService: pricingSvc,
+		billingService: NewBillingService(&config.Config{}, pricingSvc),
+	}
+	cache := newEmptyChannelCache()
+	cache.channelByGroupID[groupID] = &Channel{ID: 1, Status: StatusActive}
+	cache.groupPlatform[groupID] = PlatformOpenCodeGo
+	cache.pricingByGroupModel[channelModelKey{
+		groupID:  groupID,
+		platform: PlatformOpenCodeGo,
+		model:    openCodeGoDeepSeekFlashPromoModel,
+	}] = &ChannelModelPricing{
+		Platform:       PlatformOpenCodeGo,
+		Models:         []string{openCodeGoDeepSeekFlashPromoModel},
+		BillingMode:    BillingModeToken,
+		InputPrice:     &input,
+		OutputPrice:    &output,
+		CacheReadPrice: &cacheRead,
+	}
+	cache.loadedAt = time.Now()
+	svc.cache.Store(cache)
+
+	model := svc.BuildSupportedModelForPricingGroup(
+		context.Background(),
+		groupID,
+		"flash-alias",
+		PlatformOpenCodeGo,
+		[]string{openCodeGoDeepSeekFlashPromoModel},
+	)
+
+	require.Equal(t, PricingSourceChannel, model.PricingSource)
+	require.NotNil(t, model.Pricing)
+	require.InDelta(t, input, *model.Pricing.InputPrice, 1e-15)
+	require.InDelta(t, output, *model.Pricing.OutputPrice, 1e-15)
+	require.InDelta(t, cacheRead, *model.Pricing.CacheReadPrice, 1e-15)
+	require.NotNil(t, model.Promotion)
+	require.InDelta(t, 0.5, model.Promotion.CostMultiplier, 1e-12)
+	require.InDelta(t, 2.0, model.Promotion.UsageMultiplier, 1e-12)
+}
+
+func TestBuildSupportedModelForPricingGroup_OpenCodeGoPartialChannelPricingUsesCatalogForRemainingFields(t *testing.T) {
+	groupID := int64(11)
+	input := 0.9e-6
+	pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{}}
+	svc := &ChannelService{
+		pricingService: pricingSvc,
+		billingService: NewBillingService(&config.Config{}, pricingSvc),
+	}
+	cache := newEmptyChannelCache()
+	cache.channelByGroupID[groupID] = &Channel{ID: 2, Status: StatusActive}
+	cache.groupPlatform[groupID] = PlatformOpenCodeGo
+	cache.pricingByGroupModel[channelModelKey{
+		groupID:  groupID,
+		platform: PlatformOpenCodeGo,
+		model:    "deepseek-v4-pro",
+	}] = &ChannelModelPricing{
+		Platform:    PlatformOpenCodeGo,
+		Models:      []string{"deepseek-v4-pro"},
+		BillingMode: BillingModeToken,
+		InputPrice:  &input,
+	}
+	cache.loadedAt = time.Now()
+	svc.cache.Store(cache)
+
+	model := svc.BuildSupportedModelForPricingGroup(
+		context.Background(),
+		groupID,
+		"deepseek-v4-pro",
+		PlatformOpenCodeGo,
+		nil,
+	)
+
+	require.Equal(t, PricingSourceChannel, model.PricingSource)
+	require.NotNil(t, model.Pricing)
+	require.InDelta(t, input, *model.Pricing.InputPrice, 1e-15)
+	require.InDelta(t, 0.87e-6, *model.Pricing.OutputPrice, 1e-15)
+	require.InDelta(t, 0.003625e-6, *model.Pricing.CacheReadPrice, 1e-15)
+}
+
+func TestBuildCatalogSupportedModel_OpenCodeGoPromotionIsSeparateFromStandardPricing(t *testing.T) {
+	pricingSvc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{},
+		openCodeGoPromotions: map[string]openCodeGoUsagePromotion{
+			openCodeGoDeepSeekFlashPromoModel: {multiplier: 0.5, confirmedAt: time.Now()},
+		},
+	}
+	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
+	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
+
+	flash := svc.BuildCatalogSupportedModel(openCodeGoDeepSeekFlashPromoModel, PlatformOpenCodeGo, nil)
+	require.NotNil(t, flash.Pricing)
+	require.NotNil(t, flash.Pricing.InputPrice)
+	require.InDelta(t, 0.14e-6, *flash.Pricing.InputPrice, 1e-15)
+	require.NotNil(t, flash.Promotion)
+	require.Equal(t, "opencode_go_usage_bonus", flash.Promotion.Code)
+	require.InDelta(t, 0.5, flash.Promotion.CostMultiplier, 1e-12)
+	require.InDelta(t, 2.0, flash.Promotion.UsageMultiplier, 1e-12)
+
+	preview := svc.BuildCatalogSupportedModel("deepseek-v4-flash-preview", PlatformOpenCodeGo, nil)
+	require.Nil(t, preview.Promotion)
+	otherPlatform := svc.BuildCatalogSupportedModel(openCodeGoDeepSeekFlashPromoModel, PlatformAnthropic, nil)
+	require.Nil(t, otherPlatform.Promotion)
+}
+
+func TestBuildCatalogSupportedModel_OpenCodeGoReferenceCatalogCoversEverySeedModel(t *testing.T) {
+	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{})
+	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
+	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
+
+	for modelID := range openCodeGoSeedCatalog() {
+		model := svc.BuildCatalogSupportedModel(modelID, PlatformOpenCodeGo, nil)
+		require.Equal(t, PricingSourceCatalog, model.PricingSource, modelID)
+		require.NotNil(t, model.Pricing, modelID)
+		require.NotNil(t, model.Pricing.InputPrice, modelID)
+		require.NotNil(t, model.Pricing.OutputPrice, modelID)
+	}
 }
 
 func newStubPricingServiceFromMap(data map[string]*LiteLLMModelPricing) *PricingService {

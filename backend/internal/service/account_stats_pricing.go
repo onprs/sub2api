@@ -53,15 +53,15 @@ func resolveAccountStatsCost(
 
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricing(billingService, upstreamModel, tokens)
+		return tryModelFilePricingForPlatform(billingService, platform, upstreamModel, tokens)
 	}
 
 	return nil
 }
 
-// tryModelFilePricing 使用模型定价文件（LiteLLM/fallback）中的标准价格计算费用。
-func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens) *float64 {
-	pricing, err := billingService.GetModelPricing(model)
+// tryModelFilePricingForPlatform 使用平台限定的模型定价文件（LiteLLM/fallback）标准价计算费用。
+func tryModelFilePricingForPlatform(billingService *BillingService, platform, model string, tokens UsageTokens) *float64 {
+	pricing, err := billingService.GetModelPricingForPlatform(platform, model)
 	if err != nil || pricing == nil {
 		return nil
 	}

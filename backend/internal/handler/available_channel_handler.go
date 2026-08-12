@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"math"
 	"sort"
 	"strings"
 
@@ -107,11 +108,19 @@ type userPricingIntervalDTO struct {
 	PerRequestPrice *float64 `json:"per_request_price"`
 }
 
+// userSupportedModelPromotion 用户可见的模型级活动快照。
+type userSupportedModelPromotion struct {
+	Code            string  `json:"code"`
+	CostMultiplier  float64 `json:"cost_multiplier"`
+	UsageMultiplier float64 `json:"usage_multiplier"`
+}
+
 // userSupportedModel 用户可见的支持模型条目。
 type userSupportedModel struct {
-	Name     string                     `json:"name"`
-	Platform string                     `json:"platform"`
-	Pricing  *userSupportedModelPricing `json:"pricing"`
+	Name      string                       `json:"name"`
+	Platform  string                       `json:"platform"`
+	Pricing   *userSupportedModelPricing   `json:"pricing"`
+	Promotion *userSupportedModelPromotion `json:"promotion,omitempty"`
 }
 
 // userChannelPlatformSection 单渠道内某个平台的子视图：用户可见的分组 + 该平台
@@ -360,7 +369,13 @@ func (h *AvailableChannelHandler) supportedModelsForPricingGroup(ctx context.Con
 		seen[key] = struct{}{}
 
 		if h != nil && h.channelService != nil {
-			out = append(out, h.channelService.BuildCatalogSupportedModel(modelID, group.Platform, candidates[modelID]))
+			out = append(out, h.channelService.BuildSupportedModelForPricingGroup(
+				ctx,
+				group.ID,
+				modelID,
+				group.Platform,
+				candidates[modelID],
+			))
 			continue
 		}
 		out = append(out, service.SupportedModel{
@@ -462,12 +477,26 @@ func toUserSupportedModels(
 			}
 		}
 		out = append(out, userSupportedModel{
-			Name:     m.Name,
-			Platform: m.Platform,
-			Pricing:  toUserPricing(m.Pricing, m.PricingSource),
+			Name:      m.Name,
+			Platform:  m.Platform,
+			Pricing:   toUserPricing(m.Pricing, m.PricingSource),
+			Promotion: toUserSupportedModelPromotion(m.Promotion),
 		})
 	}
 	return out
+}
+
+func toUserSupportedModelPromotion(p *service.ModelPricingPromotion) *userSupportedModelPromotion {
+	if p == nil || p.Code == "" || math.IsNaN(p.CostMultiplier) || math.IsInf(p.CostMultiplier, 0) ||
+		math.IsNaN(p.UsageMultiplier) || math.IsInf(p.UsageMultiplier, 0) ||
+		p.CostMultiplier <= 0 || p.CostMultiplier >= 1 || p.UsageMultiplier <= 1 {
+		return nil
+	}
+	return &userSupportedModelPromotion{
+		Code:            p.Code,
+		CostMultiplier:  p.CostMultiplier,
+		UsageMultiplier: p.UsageMultiplier,
+	}
 }
 
 // toUserPricing 将 service 层定价转换为用户 DTO；入参为 nil 时返回可检查的未配置对象。

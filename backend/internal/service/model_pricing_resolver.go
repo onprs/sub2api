@@ -58,8 +58,9 @@ func NewModelPricingResolver(channelService *ChannelService, billingService *Bil
 
 // PricingInput 定价解析输入
 type PricingInput struct {
-	Model   string
-	GroupID *int64 // nil 表示不检查渠道
+	Model    string
+	GroupID  *int64 // nil 表示不检查渠道
+	Platform string // 可选；用于 OpenCode Go 等平台隔离定价
 }
 
 // Resolve 解析模型定价。
@@ -87,7 +88,7 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	}
 
 	// 1. 获取基础定价
-	basePricing, source := r.resolveBasePricing(input.Model)
+	basePricing, source := r.resolveBasePricing(input.Platform, input.Model)
 
 	resolved := &ResolvedPricing{
 		Mode:                   BillingModeToken,
@@ -109,8 +110,8 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 }
 
 // resolveBasePricing 从 LiteLLM 或 Fallback 获取基础定价
-func (r *ModelPricingResolver) resolveBasePricing(model string) (*ModelPricing, string) {
-	pricing, err := r.billingService.GetModelPricing(model)
+func (r *ModelPricingResolver) resolveBasePricing(platform, model string) (*ModelPricing, string) {
+	pricing, err := r.billingService.GetModelPricingForPlatform(platform, model)
 	if err != nil {
 		slog.Debug("failed to get model pricing from LiteLLM, using fallback",
 			"model", model, "error", err)

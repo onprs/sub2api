@@ -16,14 +16,16 @@ const messages: Record<string, string> = {
   'common.refresh': 'Refresh',
   'modelPricing.searchPlaceholder': 'Search pricing',
   'modelPricing.empty': 'No model pricing data',
-  'modelPricing.modes.raw': 'Raw Pricing',
-  'modelPricing.modes.actual': 'Actual Pricing',
+  'modelPricing.modes.raw': 'Standard Price',
+  'modelPricing.modes.actual': 'Actual Price',
   'modelPricing.columns.channel': 'Channel',
   'modelPricing.columns.platform': 'Platform',
   'modelPricing.columns.model': 'Model',
   'modelPricing.columns.contextTier': 'Context Tier',
   'modelPricing.columns.group': 'Group',
-  'modelPricing.columns.multiplier': 'Multiplier',
+  'modelPricing.columns.groupMultiplier': 'Group Multiplier',
+  'modelPricing.columns.promotion': 'Limited Promotion',
+  'modelPricing.columns.finalMultiplier': 'Final Multiplier',
   'modelPricing.columns.source': 'Source',
   'modelPricing.columns.billingMode': 'Billing Mode',
   'modelPricing.columns.inputPerMillion': 'Input/M',
@@ -32,6 +34,9 @@ const messages: Record<string, string> = {
   'modelPricing.columns.cacheReadPerMillion': 'Cache Read/M',
   'modelPricing.columns.unitPrice': 'Per Request/Image',
   'modelPricing.sources.channel': 'Channel Pricing',
+  'modelPricing.promotions.usageBonus': '{multiplier} usage',
+  'modelPricing.promotions.priceMultiplier': 'Price {multiplier}',
+  'modelPricing.promotions.detail': 'Standard price × group multiplier {group} × promotion price multiplier {promotion} = final multiplier {final}',
   'modelPricing.billingModes.token': 'Per Token',
   'modelPricing.contextTiers.all': 'All contexts',
   'modelPricing.contextTiers.upTo': 'Up to {tokens}',
@@ -103,12 +108,12 @@ function makeChannel(): UserAvailableChannel[] {
       description: 'Primary channel',
       platforms: [
         {
-          platform: 'openai',
+          platform: 'opencode_go',
           groups: [
             {
               id: 20,
               name: 'Enterprise',
-              platform: 'openai',
+              platform: 'opencode_go',
               subscription_type: 'subscription',
               rate_multiplier: 2,
               peak_rate_enabled: false,
@@ -120,8 +125,8 @@ function makeChannel(): UserAvailableChannel[] {
           ],
           supported_models: [
             {
-              name: 'gpt-4o-mini',
-              platform: 'openai',
+              name: 'deepseek-v4-flash',
+              platform: 'opencode_go',
               pricing: {
                 billing_mode: BILLING_MODE_TOKEN,
                 input_price: 0.000001,
@@ -134,6 +139,11 @@ function makeChannel(): UserAvailableChannel[] {
                 pricing_source_label: 'modelPricing.sources.channel',
                 pricing_source_detail: 'channel_model_pricing',
                 intervals: [],
+              },
+              promotion: {
+                code: 'opencode_go_usage_bonus',
+                cost_multiplier: 0.5,
+                usage_multiplier: 2,
               },
             },
           ],
@@ -177,10 +187,13 @@ describe('ModelPricingView', () => {
     expect(getAvailable).toHaveBeenLastCalledWith({ purpose: 'model_pricing' })
     expect(getUserGroupRates).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('Gateway A')
-    expect(wrapper.text()).toContain('gpt-4o-mini')
+    expect(wrapper.text()).toContain('deepseek-v4-flash')
     expect(wrapper.text()).toContain('Enterprise')
     expect(wrapper.text()).toContain('Channel Pricing')
-    expect(wrapper.text()).toContain('$0.5')
+    expect(wrapper.text()).toContain('2x usage')
+    expect(wrapper.text()).toContain('Price 0.5x')
+    expect(wrapper.text()).toContain('0.25x')
+    expect(wrapper.text()).toContain('$0.25')
 
     await wrapper.get('button[title="Refresh"]').trigger('click')
     await flushPromises()
@@ -195,6 +208,7 @@ describe('ModelPricingView', () => {
   it('renders every context tier and its token prices', async () => {
     const channels = makeChannel()
     const pricing = channels[0].platforms[0].supported_models[0].pricing
+    channels[0].platforms[0].supported_models[0].promotion = null
     if (!pricing) throw new Error('test pricing is required')
     pricing.intervals = [
       {

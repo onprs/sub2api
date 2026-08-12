@@ -47,10 +47,17 @@ export interface UserSupportedModelPricing {
   intervals: UserPricingInterval[]
 }
 
+export interface UserSupportedModelPromotion {
+  code: string
+  cost_multiplier: number
+  usage_multiplier: number
+}
+
 export interface UserSupportedModel {
   name: string
   platform: string
   pricing: UserSupportedModelPricing | null
+  promotion?: UserSupportedModelPromotion | null
 }
 
 /**
