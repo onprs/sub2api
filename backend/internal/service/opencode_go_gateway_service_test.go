@@ -679,6 +679,270 @@ func TestOpenCodeGoGatewayServiceForwardChatCompletionsDirectUsesOpenCodeGoEndpo
 	}
 }
 
+func newOpenCodeGoResponsesTestAccount() *Account {
+	return &Account{
+		ID: 42, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key": "ocg-secret", "base_url": "https://opencode.ai/zen/go/v1",
+			"model_protocols": map[string]any{"gpt-5.6-luna": OpenCodeGoProtocolResponses},
+		},
+	}
+}
+
+func TestOpenCodeGoGatewayServiceResponsesUpstreamBufferedMatrix(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstreamBody := `{"id":"resp_luna","object":"response","model":"gpt-5.6-luna","status":"completed","output":[{"type":"message","id":"msg_luna","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":100,"output_tokens":20,"total_tokens":120,"input_tokens_details":{"cached_tokens":60,"cache_write_tokens":10}}}`
+	tests := []struct {
+		name         string
+		source       protocolconv.Protocol
+		requestBody  string
+		responsePath string
+	}{
+		{name: "chat", source: protocolconv.ProtocolOpenAIChat, requestBody: `{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hello"}],"stream":false}`, responsePath: "choices.0.message.content"},
+		{name: "responses", source: protocolconv.ProtocolOpenAIResponses, requestBody: `{"model":"gpt-5.6-luna","input":"hello","stream":false}`, responsePath: "output.0.content.0.text"},
+		{name: "messages", source: protocolconv.ProtocolAnthropic, requestBody: `{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hello"}],"max_tokens":32,"stream":false}`, responsePath: "content.0.text"},
+		{name: "google", source: protocolconv.ProtocolGoogleGenAI, requestBody: `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`, responsePath: "candidates.0.content.parts.0.text"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"rid-luna-buffered"}},
+				Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+			}}
+			svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+			account := newOpenCodeGoResponsesTestAccount()
+			rec := newTestGinContextRecorder(http.MethodPost, "/matrix", tt.requestBody)
+
+			var result *ForwardResult
+			var err error
+			switch tt.source {
+			case protocolconv.ProtocolOpenAIChat:
+				result, err = svc.ForwardChatCompletions(context.Background(), rec.Context, account, []byte(tt.requestBody))
+			case protocolconv.ProtocolOpenAIResponses:
+				result, err = svc.ForwardResponses(context.Background(), rec.Context, account, []byte(tt.requestBody), "gpt-5.6-luna")
+			case protocolconv.ProtocolAnthropic:
+				result, err = svc.ForwardMessages(context.Background(), rec.Context, account, []byte(tt.requestBody))
+			case protocolconv.ProtocolGoogleGenAI:
+				result, err = svc.ForwardGoogleGenAI(context.Background(), rec.Context, account, []byte(tt.requestBody), "gpt-5.6-luna", "gpt-5.6-luna", false)
+			}
+			if err != nil {
+				t.Fatalf("forward error: %v", err)
+			}
+			if got := upstream.req.URL.String(); got != "https://opencode.ai/zen/go/v1/responses" {
+				t.Fatalf("unexpected upstream URL: %s", got)
+			}
+			if got := upstream.req.Header.Get("Authorization"); got != "Bearer ocg-secret" {
+				t.Fatalf("unexpected authorization header: %q", got)
+			}
+			if upstream.req.Header.Get("x-api-key") != "" || upstream.req.Header.Get("anthropic-version") != "" {
+				t.Fatalf("Responses upstream must not receive Messages auth headers: %v", upstream.req.Header)
+			}
+			if gjson.Get(upstream.body, "model").String() != "gpt-5.6-luna" || !gjson.Get(upstream.body, "input").Exists() || !strings.Contains(upstream.body, "hello") {
+				t.Fatalf("unexpected Responses request body: %s", upstream.body)
+			}
+			if got := gjson.GetBytes(rec.Recorder.Body.Bytes(), tt.responsePath).String(); got != "ok" {
+				t.Fatalf("response semantic mismatch at %s: got=%q body=%s", tt.responsePath, got, rec.Recorder.Body.String())
+			}
+			if result == nil || result.ActualProtocol != protocolconv.ProtocolOpenAIResponses || result.RequestID != "rid-luna-buffered" {
+				t.Fatalf("unexpected result: %+v", result)
+			}
+			if result.Usage.InputTokens != 30 || result.Usage.CacheReadInputTokens != 60 || result.Usage.CacheCreationInputTokens != 10 || result.Usage.OutputTokens != 20 {
+				t.Fatalf("Responses usage buckets must be mutually exclusive: %+v", result.Usage)
+			}
+		})
+	}
+}
+
+func TestOpenCodeGoGatewayServiceResponsesFailedBufferedTriggersFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstreamBody := `{"id":"resp_failed_buffered","object":"response","model":"gpt-5.6-luna","status":"failed","output":[],"error":{"code":"server_is_overloaded","message":"provider overloaded"},"usage":{"input_tokens":12,"output_tokens":0,"total_tokens":12}}`
+	upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"rid-luna-failed-buffered"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+	requestBody := `{"model":"gpt-5.6-luna","input":"hello","stream":false}`
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/responses", requestBody)
+
+	result, err := svc.ForwardResponses(context.Background(), rec.Context, newOpenCodeGoResponsesTestAccount(), []byte(requestBody), "gpt-5.6-luna")
+	var failoverErr *UpstreamFailoverError
+	if !errors.As(err, &failoverErr) {
+		t.Fatalf("expected UpstreamFailoverError, got result=%+v err=%T %v", result, err, err)
+	}
+	if failoverErr.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(failoverErr.ResponseBody), "provider overloaded") {
+		t.Fatalf("unexpected failover error: %+v body=%s", failoverErr, failoverErr.ResponseBody)
+	}
+	if result != nil {
+		t.Fatalf("failed buffered response must not return a successful result: %+v", result)
+	}
+	if rec.Context.Writer.Written() || rec.Recorder.Body.Len() != 0 {
+		t.Fatalf("buffered semantic failure must remain uncommitted before failover: status=%d body=%q", rec.Recorder.Code, rec.Recorder.Body.String())
+	}
+}
+
+func TestOpenCodeGoGatewayServiceResponsesUpstreamStreamingMatrix(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstreamWire := strings.Join([]string{
+		`event: response.created`,
+		`data: {"type":"response.created","response":{"id":"resp_luna_stream","object":"response","model":"gpt-5.6-luna","status":"in_progress","output":[]}}`,
+		"",
+		`event: response.output_item.added`,
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_luna_stream","role":"assistant","status":"in_progress","content":[]}}`,
+		"",
+		`event: response.output_text.delta`,
+		`data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"item_id":"msg_luna_stream","delta":"ok"}`,
+		"",
+		`event: response.output_item.done`,
+		`data: {"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg_luna_stream","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}}`,
+		"",
+		`event: response.completed`,
+		`data: {"type":"response.completed","response":{"id":"resp_luna_stream","object":"response","model":"gpt-5.6-luna","status":"completed","output":[{"type":"message","id":"msg_luna_stream","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":100,"output_tokens":20,"total_tokens":120,"input_tokens_details":{"cached_tokens":60,"cache_write_tokens":10}}}}`,
+		"",
+		`data: [DONE]`,
+		"",
+	}, "\n")
+	tests := []struct {
+		name        string
+		source      protocolconv.Protocol
+		requestBody string
+		want        []string
+		forbid      []string
+	}{
+		{name: "chat", source: protocolconv.ProtocolOpenAIChat, requestBody: `{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hello"}],"stream":true}`, want: []string{`"content":"ok"`, "data: [DONE]"}},
+		{name: "responses", source: protocolconv.ProtocolOpenAIResponses, requestBody: `{"model":"gpt-5.6-luna","input":"hello","stream":true}`, want: []string{"event: response.created", `"delta":"ok"`, "event: response.completed", "data: [DONE]"}},
+		{name: "messages", source: protocolconv.ProtocolAnthropic, requestBody: `{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hello"}],"max_tokens":32,"stream":true}`, want: []string{"event: message_start", `"text":"ok"`, "event: message_stop"}, forbid: []string{"data: [DONE]"}},
+		{name: "google", source: protocolconv.ProtocolGoogleGenAI, requestBody: `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`, want: []string{`"text":"ok"`, `"finishReason":"STOP"`, `"usageMetadata"`}, forbid: []string{"event:", "data: [DONE]"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid-luna-stream"}},
+				Body:       io.NopCloser(strings.NewReader(upstreamWire)),
+			}}
+			svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+			account := newOpenCodeGoResponsesTestAccount()
+			rec := newTestGinContextRecorder(http.MethodPost, "/matrix", tt.requestBody)
+
+			var result *ForwardResult
+			var err error
+			switch tt.source {
+			case protocolconv.ProtocolOpenAIChat:
+				result, err = svc.ForwardChatCompletions(context.Background(), rec.Context, account, []byte(tt.requestBody))
+			case protocolconv.ProtocolOpenAIResponses:
+				result, err = svc.ForwardResponses(context.Background(), rec.Context, account, []byte(tt.requestBody), "gpt-5.6-luna")
+			case protocolconv.ProtocolAnthropic:
+				result, err = svc.ForwardMessages(context.Background(), rec.Context, account, []byte(tt.requestBody))
+			case protocolconv.ProtocolGoogleGenAI:
+				result, err = svc.ForwardGoogleGenAI(context.Background(), rec.Context, account, []byte(tt.requestBody), "gpt-5.6-luna", "gpt-5.6-luna", true)
+			}
+			if err != nil {
+				t.Fatalf("forward error: %v\nwire=%s", err, rec.Recorder.Body.String())
+			}
+			wire := rec.Recorder.Body.String()
+			for _, fragment := range tt.want {
+				if !strings.Contains(wire, fragment) {
+					t.Fatalf("missing %q in stream: %s", fragment, wire)
+				}
+			}
+			for _, fragment := range tt.forbid {
+				if strings.Contains(wire, fragment) {
+					t.Fatalf("unexpected %q in stream: %s", fragment, wire)
+				}
+			}
+			if result == nil || !result.Stream || result.ActualProtocol != protocolconv.ProtocolOpenAIResponses || result.FirstTokenMs == nil {
+				t.Fatalf("unexpected result: %+v", result)
+			}
+			if result.Usage.InputTokens != 30 || result.Usage.CacheReadInputTokens != 60 || result.Usage.CacheCreationInputTokens != 10 || result.Usage.OutputTokens != 20 {
+				t.Fatalf("Responses stream usage buckets must be mutually exclusive: %+v", result.Usage)
+			}
+		})
+	}
+}
+
+func TestOpenCodeGoGatewayServiceResponsesFailedBeforeOutputTriggersFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstreamWire := strings.Join([]string{
+		`event: response.created`,
+		`data: {"type":"response.created","response":{"id":"resp_failed","object":"response","model":"gpt-5.6-luna","status":"in_progress","output":[]}}`,
+		"",
+		`event: response.failed`,
+		`data: {"type":"response.failed","response":{"id":"resp_failed","object":"response","model":"gpt-5.6-luna","status":"failed","output":[],"error":{"code":"server_is_overloaded","message":"provider overloaded"},"usage":{"input_tokens":12,"output_tokens":0,"total_tokens":12}}}`,
+		"",
+	}, "\n")
+	upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid-luna-failed"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamWire)),
+	}}
+	svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+	requestBody := `{"model":"gpt-5.6-luna","input":"hello","stream":true}`
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/responses", requestBody)
+
+	result, err := svc.ForwardResponses(context.Background(), rec.Context, newOpenCodeGoResponsesTestAccount(), []byte(requestBody), "gpt-5.6-luna")
+	var failoverErr *UpstreamFailoverError
+	if !errors.As(err, &failoverErr) {
+		t.Fatalf("expected UpstreamFailoverError, got result=%+v err=%T %v", result, err, err)
+	}
+	if failoverErr.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(failoverErr.ResponseBody), "provider overloaded") {
+		t.Fatalf("unexpected failover error: %+v body=%s", failoverErr, failoverErr.ResponseBody)
+	}
+	if rec.Context.Writer.Written() || rec.Recorder.Body.Len() != 0 {
+		t.Fatalf("preamble must remain attempt-local before failover: status=%d body=%q", rec.Recorder.Code, rec.Recorder.Body.String())
+	}
+	if result == nil || result.Usage.InputTokens != 12 {
+		t.Fatalf("failed Responses usage should still be captured for diagnostics: %+v", result)
+	}
+}
+
+func TestOpenCodeGoGatewayServiceResponsesFailedAfterOutputPreservesUpstreamTerminal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstreamWire := strings.Join([]string{
+		`event: response.created`,
+		`data: {"type":"response.created","response":{"id":"resp_failed_after_output","object":"response","model":"gpt-5.6-luna","status":"in_progress","output":[]}}`,
+		"",
+		`event: response.output_text.delta`,
+		`data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"item_id":"msg_failed","delta":"partial"}`,
+		"",
+		`event: response.failed`,
+		`data: {"type":"response.failed","response":{"id":"resp_failed_after_output","object":"response","model":"gpt-5.6-luna","status":"failed","output":[],"error":{"code":"server_error","message":"specific upstream failure"},"usage":{"input_tokens":12,"output_tokens":1,"total_tokens":13}}}`,
+		"",
+	}, "\n")
+	upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamWire)),
+	}}
+	svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+	requestBody := `{"model":"gpt-5.6-luna","input":"hello","stream":true}`
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/responses", requestBody)
+
+	result, err := svc.ForwardResponses(context.Background(), rec.Context, newOpenCodeGoResponsesTestAccount(), []byte(requestBody), "gpt-5.6-luna")
+	if err == nil {
+		t.Fatal("expected semantic failure after output")
+	}
+	wire := rec.Recorder.Body.String()
+	if !strings.Contains(wire, `"delta":"partial"`) || !strings.Contains(wire, "specific upstream failure") {
+		t.Fatalf("expected partial output and upstream failure message: %s", wire)
+	}
+	if got := strings.Count(wire, `"type":"response.failed"`); got != 1 {
+		t.Fatalf("expected exactly one response.failed event, got %d: %s", got, wire)
+	}
+	if strings.Contains(wire, "Upstream request failed") {
+		t.Fatalf("generic handler error must not replace upstream failure: %s", wire)
+	}
+	if !IsResponseCommitted(rec.Context) {
+		t.Fatal("service must mark the in-band failure as communicated")
+	}
+	if result == nil || result.Usage.InputTokens != 12 || result.Usage.OutputTokens != 1 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
 func TestOpenCodeGoGatewayServiceResponsesAndGoogleBufferedMatrix(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tests := []struct {

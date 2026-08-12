@@ -420,7 +420,7 @@ func TestBuildCLIImportWindowsBatWrapperExecutesHelper(t *testing.T) {
 	require.Contains(t, readTestFile(t, filepath.Join(home, ".codex", "config.toml")), envName)
 }
 
-func TestBuildCLIImportScript_WindowsSkipsCodexForOpenCodeGo(t *testing.T) {
+func TestBuildCLIImportScript_WindowsSupportsCodexForOpenCodeGo(t *testing.T) {
 	groupID := int64(8)
 	input := CLIImportScriptInput{
 		OS:         CLIImportOSWindows,
@@ -453,9 +453,10 @@ func TestBuildCLIImportScript_WindowsSkipsCodexForOpenCodeGo(t *testing.T) {
 	require.Contains(t, body, "@echo off")
 	require.Contains(t, body, "SUB2API_KEY_99")
 	require.Contains(t, body, "https://api.example.com/v1")
-	require.Contains(t, body, "\"codex_supported\":false")
-	require.Contains(t, body, "Codex CLI import is skipped")
-	require.NotContains(t, body, "wire_api = \"chat\"")
+	require.NotContains(t, body, "codex_supported")
+	require.NotContains(t, body, "Codex CLI import is skipped")
+	require.Contains(t, body, `wire_api = "responses"`)
+	require.NotContains(t, body, `wire_api = "chat"`)
 }
 
 func TestBuildCLIImportShellHelperWritesOpenCodeGoModelsInTempHome(t *testing.T) {

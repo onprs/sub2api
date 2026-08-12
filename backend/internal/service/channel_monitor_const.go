@@ -57,6 +57,8 @@ const (
 	providerOpenCodeGoChatPath = "/chat/completions"
 	// providerOpenCodeGoMessagesPath OpenCode Go Anthropic-style Messages path.
 	providerOpenCodeGoMessagesPath = "/messages"
+	// providerOpenCodeGoResponsesPath OpenCode Go OpenAI Responses path.
+	providerOpenCodeGoResponsesPath = "/responses"
 	// providerClinePassChatPath works with both the local gateway root and Cline's /api/v1 root.
 	providerClinePassChatPath = "/chat/completions"
 
@@ -134,7 +136,7 @@ var (
 		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/opencode_go/clinepass/antigravity_claude/antigravity_gemini",
 	)
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, messages, or responses; responses is only supported for openai and messages is only supported for opencode_go",
+		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, messages, or responses; responses is supported for openai/opencode_go and messages is supported for opencode_go",
 	)
 	ErrChannelMonitorInvalidRequestBody = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_REQUEST_BODY", "replace-mode body_override must include non-empty messages for chat_completions/messages or non-empty instructions and input for responses",

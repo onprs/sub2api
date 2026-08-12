@@ -40,7 +40,7 @@ func newSSRFSafeHTTPClient(timeout time.Duration) *http.Client {
 // CheckOptions 承载一次检测的自定义入参。
 // 所有字段都是可选（零值即等价于"用默认行为"）。
 type CheckOptions struct {
-	// APIMode 仅对 OpenAI provider 生效；空串等同 chat_completions。
+	// APIMode 对 OpenAI/OpenCode Go 生效；空串等同 chat_completions。
 	APIMode string
 	// ExtraHeaders 用户自定义 HTTP 头（merge 到 adapter 默认 headers，用户优先）。
 	ExtraHeaders map[string]string
@@ -99,7 +99,7 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 
 	if strings.TrimSpace(respText) == "" {
 		res.Status = MonitorStatusFailed
-		res.Message = truncateMessage(emptyMonitorResponseMessage(provider, rawBody))
+		res.Message = truncateMessage(sanitizeErrorMessage(emptyMonitorResponseMessage(provider, rawBody)))
 		return res
 	}
 
@@ -321,9 +321,30 @@ var providerOpenCodeGoMessagesAdapter = providerAdapter{
 		})
 	},
 	buildHeaders: func(apiKey string) map[string]string {
-		return map[string]string{"Authorization": "Bearer " + apiKey}
+		return map[string]string{
+			"x-api-key":         apiKey,
+			"anthropic-version": monitorAnthropicAPIVersion,
+		}
 	},
 	textPath: "content.0.text",
+}
+
+//nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
+var providerOpenCodeGoResponsesAdapter = providerAdapter{
+	buildPath: func(string) string { return providerOpenCodeGoResponsesPath },
+	buildBody: func(model, prompt string) ([]byte, error) {
+		return json.Marshal(map[string]any{
+			"model":             model,
+			"instructions":      "You are a channel health-check endpoint. Answer the arithmetic challenge exactly and briefly.",
+			"input":             prompt,
+			"max_output_tokens": monitorOpenCodeGoChallengeMaxTokens,
+			"stream":            false,
+		})
+	},
+	buildHeaders: func(apiKey string) map[string]string {
+		return map[string]string{"Authorization": "Bearer " + apiKey}
+	},
+	textPath: "output.0.content.0.text",
 }
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
@@ -346,11 +367,17 @@ var providerOpenAIResponsesAdapter = providerAdapter{
 
 // providerAdapterFor 按 provider + api_mode 选择具体 adapter。
 func providerAdapterFor(provider, apiMode string) (providerAdapter, string, bool) {
-	if provider == MonitorProviderOpenAI && defaultAPIMode(apiMode) == MonitorAPIModeResponses {
+	mode := defaultAPIMode(apiMode)
+	if provider == MonitorProviderOpenAI && mode == MonitorAPIModeResponses {
 		return providerOpenAIResponsesAdapter, MonitorAPIModeResponses, true
 	}
-	if provider == MonitorProviderOpenCodeGo && defaultAPIMode(apiMode) == MonitorAPIModeMessages {
-		return providerOpenCodeGoMessagesAdapter, MonitorAPIModeMessages, true
+	if provider == MonitorProviderOpenCodeGo {
+		switch mode {
+		case MonitorAPIModeMessages:
+			return providerOpenCodeGoMessagesAdapter, MonitorAPIModeMessages, true
+		case MonitorAPIModeResponses:
+			return providerOpenCodeGoResponsesAdapter, MonitorAPIModeResponses, true
+		}
 	}
 	adapter, ok := providerAdapters[provider]
 	return adapter, MonitorAPIModeChatCompletions, ok
@@ -390,7 +417,7 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	if err != nil {
 		return "", "", status, err
 	}
-	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
+	if (provider == MonitorProviderOpenAI || provider == MonitorProviderOpenCodeGo) && apiMode == MonitorAPIModeResponses {
 		return extractOpenAIResponsesText(respBytes), string(respBytes), status, nil
 	}
 	if provider == MonitorProviderGemini || provider == MonitorProviderAntigravityGemini {
@@ -582,6 +609,13 @@ func clinePassMonitorResponsePayload(respBytes []byte) []byte {
 }
 
 func emptyMonitorResponseMessage(provider, rawBody string) string {
+	if provider == MonitorProviderOpenCodeGo && openCodeGoMonitorResponseFailed([]byte(rawBody)) {
+		message := strings.TrimSpace(extractUpstreamErrorMessage([]byte(rawBody)))
+		if message != "" {
+			return "OpenCode Go Responses failed: " + message
+		}
+		return "OpenCode Go Responses returned status=failed"
+	}
 	if provider != MonitorProviderClinePass {
 		return "upstream returned 2xx but response text was empty; check endpoint, api_mode, and response format"
 	}
@@ -593,6 +627,14 @@ func emptyMonitorResponseMessage(provider, rawBody string) string {
 		return "ClinePass returned reasoning but no final response text"
 	}
 	return "ClinePass returned 2xx but response text was empty; verify that the endpoint and API key belong to the same service"
+}
+
+func openCodeGoMonitorResponseFailed(body []byte) bool {
+	status := strings.TrimSpace(gjson.GetBytes(body, "status").String())
+	if status == "" {
+		status = strings.TrimSpace(gjson.GetBytes(body, "response.status").String())
+	}
+	return strings.EqualFold(status, "failed")
 }
 
 func clinePassMonitorResponseMetadata(respBytes []byte) (string, string) {
@@ -807,6 +849,7 @@ var bodyMergeKeyDenyList = map[string]map[string]bool{
 	MonitorProviderGemini:                                           {"contents": true},
 	MonitorProviderOpenCodeGo + ":" + MonitorAPIModeChatCompletions: {"model": true, "messages": true, "stream": true},
 	MonitorProviderOpenCodeGo + ":" + MonitorAPIModeMessages:        {"model": true, "messages": true},
+	MonitorProviderOpenCodeGo + ":" + MonitorAPIModeResponses:       {"model": true, "instructions": true, "input": true, "stream": true},
 	MonitorProviderClinePass + ":" + MonitorAPIModeChatCompletions:  {"model": true, "messages": true, "stream": true},
 	MonitorProviderAntigravityClaude:                                {"model": true, "messages": true},
 	MonitorProviderAntigravityGemini:                                {"contents": true},
@@ -829,7 +872,7 @@ func bodyMergeDenyKey(provider, apiMode string) string {
 func validateReplaceRequestBody(provider, apiMode string, body map[string]any) error {
 	switch defaultAPIMode(apiMode) {
 	case MonitorAPIModeResponses:
-		if provider != MonitorProviderOpenAI {
+		if provider != MonitorProviderOpenAI && provider != MonitorProviderOpenCodeGo {
 			return nil
 		}
 		if strings.TrimSpace(stringFromAny(body["instructions"])) == "" || !hasNonEmptyBodyValue(body["input"]) {

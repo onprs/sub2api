@@ -301,11 +301,12 @@ const bodyModeHint = computed(() => {
 })
 
 const bodyPlaceholder = computed(() => {
-  if (props.provider === PROVIDER_OPENAI && props.apiMode === API_MODE_RESPONSES) {
+  if ((props.provider === PROVIDER_OPENAI || props.provider === PROVIDER_OPENCODE_GO) && props.apiMode === API_MODE_RESPONSES) {
     if (props.bodyOverrideMode === 'merge') {
       return '{\n  "max_output_tokens": 20\n}'
     }
-    return '{\n  "model": "gpt-4o-mini",\n  "instructions": "You are a health check endpoint. Reply briefly.",\n  "input": "Reply with exactly: ok",\n  "max_output_tokens": 20,\n  "stream": false\n}'
+    const model = props.provider === PROVIDER_OPENCODE_GO ? 'gpt-5.6-luna' : 'gpt-4o-mini'
+    return `{\n  "model": "${model}",\n  "instructions": "You are a health check endpoint. Reply briefly.",\n  "input": "Reply with exactly: ok",\n  "max_output_tokens": 20,\n  "stream": false\n}`
   }
   if (props.provider === PROVIDER_OPENAI) {
     if (props.bodyOverrideMode === 'merge') {

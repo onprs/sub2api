@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
@@ -82,10 +83,42 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 // DeriveUpstreamEndpoint
 // ──────────────────────────────────────────────────────────
 
+func TestOpenCodeGoEnsureForwardErrorResponse_ResponsesRouteAfterWrittenEmitsResponseFailed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, EndpointResponses, nil)
+	_, _ = c.Writer.WriteString(":\n\n")
+
+	h := &OpenCodeGoGatewayHandler{}
+	require.True(t, h.ensureForwardErrorResponse(c, openCodeGoHandlerErrorResponses, false))
+
+	body := recorder.Body.String()
+	require.Contains(t, body, ":\n\n")
+	require.Contains(t, body, "event: response.failed\n")
+	require.Contains(t, body, `"type":"response.failed"`)
+	require.Contains(t, body, `"status":"failed"`)
+	require.NotContains(t, body, "event: error\n")
+}
+
+func TestOpenCodeGoEnsureForwardErrorResponse_SkipsCommittedResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, EndpointResponses, nil)
+	_, _ = c.Writer.WriteString("event: response.failed\ndata: {\"type\":\"response.failed\"}\n\n")
+	service.MarkResponseCommitted(c)
+
+	h := &OpenCodeGoGatewayHandler{}
+	require.False(t, h.ensureForwardErrorResponse(c, openCodeGoHandlerErrorResponses, true))
+	require.Equal(t, 1, strings.Count(recorder.Body.String(), `"type":"response.failed"`))
+}
+
 func TestOpenCodeGoActualUpstreamEndpoint(t *testing.T) {
 	require.Equal(t, "", openCodeGoActualUpstreamEndpoint(nil))
 	require.Equal(t, "", openCodeGoActualUpstreamEndpoint(&service.ForwardResult{}))
 	require.Equal(t, EndpointChatCompletions, openCodeGoActualUpstreamEndpoint(&service.ForwardResult{ActualProtocol: protocolconv.ProtocolOpenAIChat}))
+	require.Equal(t, EndpointResponses, openCodeGoActualUpstreamEndpoint(&service.ForwardResult{ActualProtocol: protocolconv.ProtocolOpenAIResponses}))
 	require.Equal(t, EndpointMessages, openCodeGoActualUpstreamEndpoint(&service.ForwardResult{ActualProtocol: protocolconv.ProtocolAnthropic}))
 }
 

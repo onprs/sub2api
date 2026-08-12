@@ -80,7 +80,9 @@ export function monitorPayloadAPIMode(provider: Provider, apiMode: APIMode): API
     return apiMode === API_MODE_RESPONSES ? API_MODE_RESPONSES : API_MODE_CHAT_COMPLETIONS
   }
   if (provider === PROVIDER_OPENCODE_GO) {
-    return apiMode === API_MODE_MESSAGES ? API_MODE_MESSAGES : API_MODE_CHAT_COMPLETIONS
+    if (apiMode === API_MODE_MESSAGES) return API_MODE_MESSAGES
+    if (apiMode === API_MODE_RESPONSES) return API_MODE_RESPONSES
+    return API_MODE_CHAT_COMPLETIONS
   }
   return API_MODE_CHAT_COMPLETIONS
 }
@@ -90,7 +92,7 @@ export function monitorSelectableAPIModes(provider: Provider): readonly APIMode[
     return [API_MODE_CHAT_COMPLETIONS, API_MODE_RESPONSES]
   }
   if (provider === PROVIDER_OPENCODE_GO) {
-    return [API_MODE_CHAT_COMPLETIONS, API_MODE_MESSAGES]
+    return [API_MODE_CHAT_COMPLETIONS, API_MODE_RESPONSES, API_MODE_MESSAGES]
   }
   return [API_MODE_CHAT_COMPLETIONS]
 }

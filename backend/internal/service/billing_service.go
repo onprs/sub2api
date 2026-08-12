@@ -623,6 +623,15 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown: false,
 	}
 
+	// OpenCode Go Qwen3.8 Max 官方价格（USD/token）。
+	s.fallbackPrices["qwen3.8-max"] = &ModelPricing{
+		InputPricePerToken:         2e-6,
+		OutputPricePerToken:        6e-6,
+		CacheReadPricePerToken:     0.25e-6,
+		CacheCreationPricePerToken: 2.5e-6,
+		SupportsCacheBreakdown:     false,
+	}
+
 	// ---- 火山方舟 豆包 Embedding（多模态向量化）----
 	// doubao-embedding-vision 图文向量化：上游 usage 回传 prompt_tokens_details.{text_tokens,image_tokens}，
 	// 按量付费官方价 文本 ¥0.7/MTok、图片 ¥1.8/MTok；汇率口径 ÷7.14（与本表其他国产模型一致，¥1≈$0.14）。
@@ -790,6 +799,11 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	}
 	if strings.Contains(modelLower, "minimax-m2") || strings.Contains(modelLower, "minimax-m-2") {
 		return s.fallbackPrices["minimax-m2"]
+	}
+
+	// OpenCode Go Qwen 型号保持精确白名单，避免未知 Qwen SKU 被误计价。
+	if modelLower == "qwen3.8-max" {
+		return s.fallbackPrices["qwen3.8-max"]
 	}
 
 	// 火山方舟 豆包 Embedding（多模态向量化）。

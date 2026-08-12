@@ -25,6 +25,16 @@ func TestChannelMonitorOpenCodeGoProviderAdapters(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, MonitorAPIModeMessages, apiMode)
 	require.Equal(t, "/messages", messagesAdapter.buildPath("qwen3.7-plus"))
-	require.Equal(t, "Bearer ocg-key", messagesAdapter.buildHeaders("ocg-key")["Authorization"])
+	messagesHeaders := messagesAdapter.buildHeaders("ocg-key")
+	require.Equal(t, "ocg-key", messagesHeaders["x-api-key"])
+	require.Equal(t, monitorAnthropicAPIVersion, messagesHeaders["anthropic-version"])
+	require.Empty(t, messagesHeaders["Authorization"])
 	require.Equal(t, "content.0.text", messagesAdapter.textPath)
+
+	responsesAdapter, apiMode, ok := providerAdapterFor(MonitorProviderOpenCodeGo, MonitorAPIModeResponses)
+	require.True(t, ok)
+	require.Equal(t, MonitorAPIModeResponses, apiMode)
+	require.Equal(t, "/responses", responsesAdapter.buildPath("gpt-5.6-luna"))
+	require.Equal(t, "Bearer ocg-key", responsesAdapter.buildHeaders("ocg-key")["Authorization"])
+	require.Equal(t, "output.0.content.0.text", responsesAdapter.textPath)
 }

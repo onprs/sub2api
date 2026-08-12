@@ -831,6 +831,14 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 			expectedCacheRead: floatPtr(0.03e-6),
 		},
 
+		{
+			name:              "qwen3.8 max official OpenCode Go rate",
+			model:             "qwen3.8-max",
+			expectedInput:     2e-6,
+			expectedOutput:    floatPtr(6e-6),
+			expectedCacheRead: floatPtr(0.25e-6),
+		},
+
 		// ---- 火山方舟 豆包 Embedding（多模态向量化）----
 		{
 			name:           "doubao embedding vision text rate",
@@ -880,6 +888,31 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 					"CacheReadPricePerToken mismatch for %s", tt.model)
 			}
 		})
+	}
+}
+
+func TestGetModelPricing_Qwen38MaxFallbackIncludesCacheWrite(t *testing.T) {
+	svc := newTestBillingService()
+
+	for _, model := range []string{"qwen3.8-max", "opencode-go/qwen3.8-max"} {
+		pricing, err := svc.GetModelPricing(model)
+		require.NoError(t, err)
+		require.InDelta(t, 2e-6, pricing.InputPricePerToken, 1e-12)
+		require.InDelta(t, 6e-6, pricing.OutputPricePerToken, 1e-12)
+		require.InDelta(t, 0.25e-6, pricing.CacheReadPricePerToken, 1e-12)
+		require.InDelta(t, 2.5e-6, pricing.CacheCreationPricePerToken, 1e-12)
+
+		cost, err := svc.CalculateCost(model, UsageTokens{
+			InputTokens:         30,
+			OutputTokens:        20,
+			CacheReadTokens:     60,
+			CacheCreationTokens: 10,
+		}, 1)
+		require.NoError(t, err)
+		require.InDelta(t, 30*2e-6, cost.InputCost, 1e-12)
+		require.InDelta(t, 20*6e-6, cost.OutputCost, 1e-12)
+		require.InDelta(t, 60*0.25e-6, cost.CacheReadCost, 1e-12)
+		require.InDelta(t, 10*2.5e-6, cost.CacheCreationCost, 1e-12)
 	}
 }
 

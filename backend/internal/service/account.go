@@ -94,11 +94,13 @@ const (
 	DefaultOpenCodeGoBaseURL           = "https://opencode.ai/zen/go/v1"
 	DefaultClinePassBaseURL            = "https://api.cline.bot/api/v1"
 	OpenCodeGoProtocolChatCompletions  = "chat_completions"
+	OpenCodeGoProtocolResponses        = "responses"
 	OpenCodeGoProtocolMessages         = "messages"
 	openCodeGoModelProtocolsCredential = "model_protocols"
 )
 
 var openCodeGoBuiltinModelProtocols = map[string]string{
+	"gpt-5.6-luna":      OpenCodeGoProtocolResponses,
 	"glm-5.1":           OpenCodeGoProtocolChatCompletions,
 	"glm-5.2":           OpenCodeGoProtocolChatCompletions,
 	"glm-5":             OpenCodeGoProtocolChatCompletions,
@@ -119,6 +121,7 @@ var openCodeGoBuiltinModelProtocols = map[string]string{
 	"minimax-m2.7":      OpenCodeGoProtocolMessages,
 	"minimax-m2.5":      OpenCodeGoProtocolMessages,
 	"qwen3.5-plus":      OpenCodeGoProtocolMessages,
+	"qwen3.8-max":       OpenCodeGoProtocolMessages,
 	"qwen3.7-max":       OpenCodeGoProtocolMessages,
 	"qwen3.7-plus":      OpenCodeGoProtocolMessages,
 	"qwen3.6-plus":      OpenCodeGoProtocolMessages,
@@ -131,6 +134,8 @@ func inferOpenCodeGoModelFamilyProtocol(model string) string {
 	}
 
 	switch {
+	case strings.EqualFold(model, "gpt-5.6-luna"):
+		return OpenCodeGoProtocolResponses
 	case openCodeGoHasVersionedPrefix(model, "glm-"),
 		openCodeGoHasVersionedPrefix(model, "deepseek-v"),
 		openCodeGoHasVersionedPrefix(model, "mimo-v"),
@@ -587,6 +592,8 @@ func normalizeOpenCodeGoModelProtocol(protocol string) string {
 	switch strings.ToLower(strings.TrimSpace(protocol)) {
 	case OpenCodeGoProtocolChatCompletions:
 		return OpenCodeGoProtocolChatCompletions
+	case OpenCodeGoProtocolResponses:
+		return OpenCodeGoProtocolResponses
 	case OpenCodeGoProtocolMessages:
 		return OpenCodeGoProtocolMessages
 	default:

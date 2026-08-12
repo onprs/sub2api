@@ -16,6 +16,7 @@ func TestOpenCodeGoAccountHelpers(t *testing.T) {
 			"api_key":  "ocg-secret",
 			"base_url": "https://proxy.example.com/zen/go/v1/",
 			"model_protocols": map[string]any{
+				"gpt-5.6-luna":   "responses",
 				"kimi-k2.7-code": "chat_completions",
 				"qwen3.7-plus":   "messages",
 				"bad":            "not-a-protocol",
@@ -27,11 +28,16 @@ func TestOpenCodeGoAccountHelpers(t *testing.T) {
 	require.Equal(t, "ocg-secret", account.GetOpenCodeGoAPIKey())
 	require.Equal(t, "https://proxy.example.com/zen/go/v1", account.GetOpenCodeGoBaseURL())
 	require.Equal(t, map[string]string{
+		"gpt-5.6-luna":   "responses",
 		"kimi-k2.7-code": "chat_completions",
 		"qwen3.7-plus":   "messages",
 	}, account.GetOpenCodeGoModelProtocols())
 
-	protocol, ok := account.ResolveOpenCodeGoModelProtocol("kimi-k2.7")
+	protocol, ok := account.ResolveOpenCodeGoModelProtocol("gpt-5.6-luna")
+	require.True(t, ok)
+	require.Equal(t, OpenCodeGoProtocolResponses, protocol)
+
+	protocol, ok = account.ResolveOpenCodeGoModelProtocol("kimi-k2.7")
 	require.True(t, ok)
 	require.Equal(t, OpenCodeGoProtocolChatCompletions, protocol)
 
@@ -47,8 +53,10 @@ func TestOpenCodeGoAccountHelpers(t *testing.T) {
 func TestOpenCodeGoDefaultCatalogIncludesCurrentOfficialModels(t *testing.T) {
 	models := OpenCodeGoDefaultModelIDs()
 
+	require.Contains(t, models, "gpt-5.6-luna")
 	require.Contains(t, models, "glm-5.2")
 	require.Contains(t, models, "kimi-k2.5")
+	require.Contains(t, models, "qwen3.8-max")
 	require.Contains(t, models, "qwen3.5-plus")
 	require.Contains(t, models, "mimo-v2-pro")
 	require.Contains(t, models, "mimo-v2-omni")
@@ -61,13 +69,21 @@ func TestOpenCodeGoAccountProtocolFallbackCoversNewOfficialModels(t *testing.T) 
 		Type:     AccountTypeAPIKey,
 	}
 
-	protocol, ok := account.ResolveOpenCodeGoModelProtocol("glm-5.2")
+	protocol, ok := account.ResolveOpenCodeGoModelProtocol("gpt-5.6-luna")
+	require.True(t, ok)
+	require.Equal(t, OpenCodeGoProtocolResponses, protocol)
+
+	protocol, ok = account.ResolveOpenCodeGoModelProtocol("glm-5.2")
 	require.True(t, ok)
 	require.Equal(t, OpenCodeGoProtocolChatCompletions, protocol)
 
 	protocol, ok = account.ResolveOpenCodeGoModelProtocol("kimi-k2.5")
 	require.True(t, ok)
 	require.Equal(t, OpenCodeGoProtocolChatCompletions, protocol)
+
+	protocol, ok = account.ResolveOpenCodeGoModelProtocol("qwen3.8-max")
+	require.True(t, ok)
+	require.Equal(t, OpenCodeGoProtocolMessages, protocol)
 
 	protocol, ok = account.ResolveOpenCodeGoModelProtocol("qwen3.5-plus")
 	require.True(t, ok)
