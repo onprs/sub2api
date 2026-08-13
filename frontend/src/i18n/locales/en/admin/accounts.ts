@@ -422,7 +422,7 @@ export default {
       apiKeyHint: 'Your Claude Console API Key',
       // OpenAI specific hints
       openai: {
-        baseUrlHint: 'Leave default for official OpenAI API',
+        baseUrlHint: 'Leave default for the official OpenAI API. A sub2api upstream balance is queried automatically through /v1/usage.',
         apiKeyHint: 'Your OpenAI API Key',
         oauthPassthrough: 'Auto passthrough (auth only)',
         oauthPassthroughDesc:
@@ -1231,6 +1231,23 @@ export default {
         todayCost: 'Today Cost',
         usageTrend: '30-Day Cost & Request Trend',
         noData: 'No usage data available for this account'
+      },
+      upstreamBalance: {
+        wallet: 'Upstream balance',
+        quotaRemaining: 'Key quota remaining',
+        subscriptionRemaining: 'Subscription remaining',
+        rateLimitStatus: 'Key limits',
+        rateLimited: 'Usage windows configured',
+        unlimitedSubscription: 'Unlimited subscription',
+        keyUnavailable: 'Key unavailable',
+        source: 'Live sub2api data',
+        quotaDetail: '{used} used / {limit} total',
+        unauthorized: 'The upstream API key is invalid or cannot query balance',
+        queryRateLimited: 'The upstream temporarily rate-limited balance queries',
+        invalidBaseUrl: 'The upstream Base URL is invalid',
+        proxyUnavailable: 'The account proxy is unavailable',
+        queryFailed: 'Failed to query upstream balance',
+        retry: 'Retry'
       },
       usageWindow: {
         statsTitle: '5-Hour Window Usage Statistics',

@@ -1348,16 +1348,21 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Invalid days, allowed range is 1-90")
 		return
 	}
+	summaryOnly := c.Query("summary_only") == "true"
 
-	// Best-effort: 获取用量统计（按当前 API Key 过滤），失败不影响基础响应
-	usageData := h.buildUsageData(ctx, apiKey.ID)
-	dailyUsage := h.buildAPIKeyDailyUsage(c, subject.UserID, apiKey.ID, days)
-
-	// Best-effort: 获取模型统计
+	var usageData gin.H
+	var dailyUsage any
 	var modelStats any
-	if h.usageService != nil {
-		if stats, err := h.usageService.GetAPIKeyModelStats(ctx, apiKey.ID, startTime, endTime); err == nil && len(stats) > 0 {
-			modelStats = stats
+	if !summaryOnly {
+		// Best-effort: 获取用量统计（按当前 API Key 过滤），失败不影响基础响应
+		usageData = h.buildUsageData(ctx, apiKey.ID)
+		dailyUsage = h.buildAPIKeyDailyUsage(c, subject.UserID, apiKey.ID, days)
+
+		// Best-effort: 获取模型统计
+		if h.usageService != nil {
+			if stats, err := h.usageService.GetAPIKeyModelStats(ctx, apiKey.ID, startTime, endTime); err == nil && len(stats) > 0 {
+				modelStats = stats
+			}
 		}
 	}
 
@@ -1442,9 +1447,11 @@ func (h *GatewayHandler) buildAPIKeyDailyUsage(c *gin.Context, userID, apiKeyID 
 // usageQuotaLimited 处理 quota_limited 模式的响应
 func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, apiKey *service.APIKey, usageData gin.H, dailyUsage any, modelStats any) {
 	resp := gin.H{
-		"mode":    "quota_limited",
-		"isValid": apiKey.Status == service.StatusAPIKeyActive || apiKey.Status == service.StatusAPIKeyQuotaExhausted || apiKey.Status == service.StatusAPIKeyExpired,
-		"status":  apiKey.Status,
+		"mode":           "quota_limited",
+		"isValid":        apiKey.Status == service.StatusAPIKeyActive || apiKey.Status == service.StatusAPIKeyQuotaExhausted || apiKey.Status == service.StatusAPIKeyExpired,
+		"status":         apiKey.Status,
+		"object":         "sub2api.usage",
+		"schema_version": 1,
 	}
 
 	// 总额度信息
@@ -1537,10 +1544,12 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 	// 订阅模式
 	if apiKey.Group != nil && apiKey.Group.IsSubscriptionType() {
 		resp := gin.H{
-			"mode":     "unrestricted",
-			"isValid":  true,
-			"planName": apiKey.Group.Name,
-			"unit":     "USD",
+			"mode":           "unrestricted",
+			"isValid":        true,
+			"planName":       apiKey.Group.Name,
+			"unit":           "USD",
+			"object":         "sub2api.usage",
+			"schema_version": 1,
 		}
 
 		// 订阅信息可能不在 context 中（/v1/usage 路径跳过了中间件的计费检查）
@@ -1572,12 +1581,14 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 	}
 
 	resp := gin.H{
-		"mode":      "unrestricted",
-		"isValid":   true,
-		"planName":  "钱包余额",
-		"remaining": latestUser.Balance,
-		"unit":      "USD",
-		"balance":   latestUser.Balance,
+		"mode":           "unrestricted",
+		"isValid":        true,
+		"planName":       "钱包余额",
+		"remaining":      latestUser.Balance,
+		"unit":           "USD",
+		"balance":        latestUser.Balance,
+		"object":         "sub2api.usage",
+		"schema_version": 1,
 	}
 	if usageData != nil {
 		resp["usage"] = usageData

@@ -1,7 +1,38 @@
 import { describe, expect, it } from 'vitest'
-import { buildAccountUsageRefreshKey, buildOpenAIUsageRefreshKey } from '../accountUsageRefresh'
+import { buildAccountUsageRefreshKey, buildOpenAIAPIKeyBalanceRefreshKey, buildOpenAIUsageRefreshKey } from '../accountUsageRefresh'
 
 describe('buildOpenAIUsageRefreshKey', () => {
+  it('OpenAI API Key 的 Base URL 或代理变化时会生成不同余额刷新 key', () => {
+    const base = {
+      id: 8,
+      platform: 'openai',
+      type: 'apikey',
+      updated_at: '2026-08-13T10:00:00Z',
+      proxy_id: null,
+      credentials: { base_url: 'https://upstream-a.example/v1' },
+      credentials_status: { has_api_key: true }
+    } as any
+    const next = {
+      ...base,
+      updated_at: '2026-08-13T10:01:00Z',
+      proxy_id: 3,
+      credentials: { base_url: 'https://upstream-b.example' }
+    }
+
+    expect(buildOpenAIAPIKeyBalanceRefreshKey(base)).not.toBe(buildOpenAIAPIKeyBalanceRefreshKey(next))
+    expect(buildAccountUsageRefreshKey(base)).not.toBe(buildAccountUsageRefreshKey(next))
+  })
+
+  it('非 OpenAI API Key 不生成余额刷新 key', () => {
+    expect(buildOpenAIAPIKeyBalanceRefreshKey({
+      id: 9,
+      platform: 'openai',
+      type: 'oauth',
+      updated_at: '2026-08-13T10:00:00Z',
+      proxy_id: null
+    } as any)).toBe('')
+  })
+
   it('会在 codex 快照变化时生成不同 key', () => {
     const base = {
       id: 1,

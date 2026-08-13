@@ -82,6 +82,222 @@ describe('AccountUsageCell', () => {
     })
   })
 
+  it('OpenAI API Key 会实时展示 sub2api 钱包余额并支持手动刷新', async () => {
+    getUsage
+      .mockResolvedValueOnce({
+        updated_at: '2026-08-13T10:00:00Z',
+        upstream_balance: {
+          status: 'available',
+          source: 'sub2api',
+          kind: 'wallet',
+          amount: 12.34,
+          unit: 'USD',
+          plan_name: '钱包余额',
+          is_valid: true,
+          updated_at: null
+        }
+      })
+      .mockResolvedValueOnce({
+        upstream_balance: {
+          status: 'available',
+          source: 'sub2api',
+          kind: 'wallet',
+          amount: 9.87,
+          unit: 'USD',
+          is_valid: true,
+          updated_at: null
+        }
+      })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 8101,
+          platform: 'openai',
+          type: 'apikey',
+          credentials: { base_url: 'https://sub2api.example/v1' },
+          credentials_status: { has_api_key: true }
+        })
+      },
+      global: { stubs: { UsageProgressBar: true, AccountQuotaInfo: true } }
+    })
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledWith(8101)
+    expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.wallet')
+    expect(wrapper.text()).toMatch(/12[.,]34/)
+    expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.source')
+
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenLastCalledWith(8101, 'active', true)
+    expect(wrapper.text()).toMatch(/9[.,]87/)
+  })
+
+  it('OpenAI API Key 会正确显示 0 余额和 Key 配额详情', async () => {
+    getUsage.mockResolvedValue({
+      upstream_balance: {
+        status: 'available',
+        source: 'sub2api',
+        kind: 'api_key_quota',
+        amount: 0,
+        limit: 20,
+        used: 20,
+        unit: 'USD',
+        is_valid: false
+      }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({ id: 8102, platform: 'openai', type: 'apikey' })
+      },
+      global: { stubs: { UsageProgressBar: true, AccountQuotaInfo: true } }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.quotaRemaining')
+    expect(wrapper.text()).toMatch(/0[.,]00/)
+    expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.keyUnavailable')
+    expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.quotaDetail')
+  })
+
+  it('OpenAI API Key 会区分无限订阅和滚动限额', async () => {
+    getUsage.mockResolvedValue({
+      upstream_balance: {
+        status: 'available',
+        source: 'sub2api',
+        kind: 'subscription',
+        amount: null,
+        unit: 'USD',
+        plan_name: '无限套餐'
+      }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({ id: 8107, platform: 'openai', type: 'apikey' })
+      },
+      global: { stubs: { UsageProgressBar: true, AccountQuotaInfo: true } }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.subscriptionRemaining')
+    expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.unlimitedSubscription')
+    expect(wrapper.text()).not.toContain('admin.accounts.upstreamBalance.rateLimited')
+  })
+
+  it('普通 OpenAI 兼容上游不支持余额接口时静默显示占位符', async () => {
+    getUsage.mockResolvedValue({
+      upstream_balance: { status: 'unsupported', error_code: 'unsupported' }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({ id: 8103, platform: 'openai', type: 'apikey' })
+      },
+      global: { stubs: { UsageProgressBar: true, AccountQuotaInfo: true } }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toBe('-')
+    expect(wrapper.text()).not.toContain('admin.accounts.upstreamBalance.queryFailed')
+
+    await wrapper.setProps({ liveBalanceRefreshToken: 1 })
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(1)
+  })
+
+  it('OpenAI API Key 上游鉴权失败时展示可重试错误', async () => {
+    getUsage.mockResolvedValue({
+      upstream_balance: { status: 'error', error_code: 'unauthorized' }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({ id: 8104, platform: 'openai', type: 'apikey' })
+      },
+      global: { stubs: { UsageProgressBar: true, AccountQuotaInfo: true } }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.unauthorized')
+    expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.retry')
+  })
+
+  it('OpenAI API Key 展示上游余额时保留原有今日统计和本地配额', async () => {
+    getUsage.mockResolvedValue({
+      upstream_balance: {
+        status: 'available',
+        source: 'sub2api',
+        kind: 'wallet',
+        amount: 5,
+        unit: 'USD'
+      }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 8105,
+          platform: 'openai',
+          type: 'apikey',
+          quota_daily_limit: 10,
+          quota_daily_used: 2
+        }),
+        todayStats: {
+          requests: 3,
+          tokens: 1200,
+          cost: 0.5,
+          user_cost: 0.75
+        }
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('3 req')
+    expect(wrapper.text()).toContain('1.2K')
+    expect(wrapper.text()).toContain('A $0.50')
+    expect(wrapper.text()).toContain('U $0.75')
+    expect(wrapper.text()).toContain('1d|20')
+    expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.wallet')
+  })
+
+  it('余额专用刷新信号会刷新已识别的 OpenAI API Key 上游', async () => {
+    getUsage.mockResolvedValue({
+      upstream_balance: {
+        status: 'available',
+        source: 'sub2api',
+        kind: 'wallet',
+        amount: 5,
+        unit: 'USD'
+      }
+    })
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({ id: 8106, platform: 'openai', type: 'apikey' }),
+        liveBalanceRefreshToken: 0
+      },
+      global: { stubs: { UsageProgressBar: true, AccountQuotaInfo: true } }
+    })
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(1)
+
+    await wrapper.setProps({ liveBalanceRefreshToken: 1 })
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledTimes(2)
+  })
+
   it('renders ClinePass official 5h/7d/30d windows without an estimated label', async () => {
     getUsage.mockResolvedValue({
       source: 'official_api',

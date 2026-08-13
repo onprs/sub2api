@@ -307,6 +307,23 @@ export default {
           unavailableDesc: '服务不可用 - 暂停 30 分钟'
         }
       },
+      upstreamBalance: {
+        wallet: '上游余额',
+        quotaRemaining: 'Key 剩余额度',
+        subscriptionRemaining: '订阅剩余额度',
+        rateLimitStatus: 'Key 限额',
+        rateLimited: '已配置用量窗口',
+        unlimitedSubscription: '订阅无限制',
+        keyUnavailable: 'Key 不可用',
+        source: 'sub2api 实时数据',
+        quotaDetail: '已用 {used} / 总额 {limit}',
+        unauthorized: '上游 API Key 无效或无权查询余额',
+        queryRateLimited: '上游暂时限制余额查询，请稍后重试',
+        invalidBaseUrl: '上游 Base URL 无效',
+        proxyUnavailable: '账户代理不可用，无法查询上游余额',
+        queryFailed: '上游余额查询失败',
+        retry: '重试'
+      },
       usageWindow: {
         statsTitle: '5小时窗口用量统计',
         statsTitleDaily: '每日用量统计',
@@ -488,7 +505,7 @@ export default {
       apiKeyHint: '您的 Claude Console API Key',
       // OpenAI specific hints
       openai: {
-        baseUrlHint: '留空使用官方 OpenAI API',
+        baseUrlHint: '留空使用官方 OpenAI API；若上游为 sub2api，将自动通过 /v1/usage 查询余额',
         apiKeyHint: '您的 OpenAI API Key',
         oauthPassthrough: '自动透传（仅替换认证）',
         oauthPassthroughDesc:

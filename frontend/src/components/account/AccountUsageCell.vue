@@ -675,8 +675,81 @@
         color="purple"
       />
 
+      <div v-if="isOpenAIUpstreamBalanceAccount && loading" class="space-y-1.5">
+        <div class="flex items-center gap-1">
+          <div class="h-3 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+          <div class="h-4 w-16 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+        </div>
+      </div>
+      <div v-else-if="isOpenAIUpstreamBalanceAccount && openAIUpstreamBalanceAvailable" class="space-y-1">
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="text-[10px] text-gray-500 dark:text-gray-400">
+            {{ openAIUpstreamBalanceLabel }}
+          </span>
+          <span
+            v-if="openAIUpstreamBalanceAmount != null"
+            class="rounded bg-emerald-50 px-1.5 py-0.5 font-mono text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+          >
+            {{ formatCurrency(openAIUpstreamBalanceAmount, openAIUpstreamBalanceUnit) }}
+          </span>
+          <span
+            v-else
+            class="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+          >
+            {{ openAIUpstreamBalanceNoAmountLabel }}
+          </span>
+          <span
+            v-if="usageInfo?.upstream_balance?.is_valid === false"
+            class="rounded bg-amber-50 px-1 py-0.5 text-[9px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+          >
+            {{ t('admin.accounts.upstreamBalance.keyUnavailable') }}
+          </span>
+        </div>
+        <div
+          v-if="openAIUpstreamBalanceDetail"
+          class="max-w-[220px] truncate text-[9px] text-gray-400 dark:text-gray-500"
+          :title="openAIUpstreamBalanceDetail"
+        >
+          {{ openAIUpstreamBalanceDetail }}
+        </div>
+        <button
+          type="button"
+          class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-medium text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+          :disabled="activeQueryLoading"
+          @click="loadActiveUsage"
+        >
+          <Icon
+            name="refresh"
+            size="xs"
+            :class="{ 'animate-spin': activeQueryLoading }"
+          />
+          {{ t('admin.accounts.usageWindow.activeQuery') }}
+        </button>
+      </div>
+      <div v-else-if="isOpenAIUpstreamBalanceAccount && openAIUpstreamBalanceError" class="space-y-1">
+        <div
+          class="max-w-[220px] truncate text-xs text-amber-600 dark:text-amber-400"
+          :title="openAIUpstreamBalanceError"
+        >
+          {{ openAIUpstreamBalanceError }}
+        </div>
+        <button
+          type="button"
+          class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+          :disabled="activeQueryLoading"
+          @click="loadActiveUsage"
+        >
+          <Icon
+            name="refresh"
+            size="xs"
+            :class="{ 'animate-spin': activeQueryLoading }"
+          />
+          {{ t('admin.accounts.upstreamBalance.retry') }}
+        </button>
+      </div>
+
       <!-- No data at all -->
-      <div v-if="!todayStats && !todayStatsLoading && !hasApiKeyQuota" class="text-xs text-gray-400">-</div>
+      <div v-if="!todayStats && !todayStatsLoading && !hasApiKeyQuota && !openAIUpstreamBalanceVisible" class="text-xs text-gray-400">-</div>
     </div>
   </div>
 </template>
@@ -688,7 +761,8 @@ import { adminAPI } from '@/api/admin'
 import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '@/types'
 import { buildAccountUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
-import { formatCompactNumber, formatRelativeTime } from '@/utils/format'
+import { formatCompactNumber, formatCurrency, formatRelativeTime } from '@/utils/format'
+import Icon from '@/components/icons/Icon.vue'
 import UsageProgressBar from './UsageProgressBar.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
@@ -704,11 +778,13 @@ const props = withDefaults(
     todayStats?: WindowStats | null
     todayStatsLoading?: boolean
     manualRefreshToken?: number
+    liveBalanceRefreshToken?: number
   }>(),
   {
     todayStats: null,
     todayStatsLoading: false,
-    manualRefreshToken: 0
+    manualRefreshToken: 0,
+    liveBalanceRefreshToken: 0
   }
 )
 
@@ -758,7 +834,7 @@ const shouldFetchUsage = computed(() => {
     return props.account.type === 'oauth'
   }
   if (props.account.platform === 'openai') {
-    return props.account.type === 'oauth'
+    return props.account.type === 'oauth' || props.account.type === 'apikey'
   }
   if (props.account.platform === 'opencode_go' || props.account.platform === 'clinepass') {
     return props.account.type === 'apikey'
@@ -784,6 +860,82 @@ const geminiUsageAvailable = computed(() => {
 const hasOpenAIUsageFallback = computed(() => {
   if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return false
   return !!usageInfo.value?.five_hour || !!usageInfo.value?.seven_day
+})
+
+const openAIUpstreamBalance = computed(() => {
+  if (props.account.platform !== 'openai' || props.account.type !== 'apikey') return null
+  return usageInfo.value?.upstream_balance ?? null
+})
+
+const openAIUpstreamBalanceAvailable = computed(() => {
+  return openAIUpstreamBalance.value?.status === 'available'
+})
+
+const openAIUpstreamBalanceAmount = computed(() => {
+  const amount = openAIUpstreamBalance.value?.amount
+  return typeof amount === 'number' && Number.isFinite(amount) ? amount : null
+})
+
+const openAIUpstreamBalanceUnit = computed(() => {
+  return openAIUpstreamBalance.value?.unit || 'USD'
+})
+
+const openAIUpstreamBalanceLabel = computed(() => {
+  switch (openAIUpstreamBalance.value?.kind) {
+    case 'api_key_quota':
+      return t('admin.accounts.upstreamBalance.quotaRemaining')
+    case 'subscription':
+      return t('admin.accounts.upstreamBalance.subscriptionRemaining')
+    case 'rate_limits':
+      return t('admin.accounts.upstreamBalance.rateLimitStatus')
+    default:
+      return t('admin.accounts.upstreamBalance.wallet')
+  }
+})
+
+const openAIUpstreamBalanceNoAmountLabel = computed(() => {
+  return openAIUpstreamBalance.value?.kind === 'subscription'
+    ? t('admin.accounts.upstreamBalance.unlimitedSubscription')
+    : t('admin.accounts.upstreamBalance.rateLimited')
+})
+
+const openAIUpstreamBalanceDetail = computed(() => {
+  const balance = openAIUpstreamBalance.value
+  if (!balance) return ''
+  const parts = [t('admin.accounts.upstreamBalance.source')]
+  if (balance.kind === 'api_key_quota' && balance.used != null && balance.limit != null) {
+    parts.push(t('admin.accounts.upstreamBalance.quotaDetail', {
+      used: formatCurrency(balance.used, balance.unit || 'USD'),
+      limit: formatCurrency(balance.limit, balance.unit || 'USD')
+    }))
+  } else if (balance.plan_name) {
+    parts.push(balance.plan_name)
+  }
+  if (balance.updated_at) {
+    parts.push(formatRelativeTime(balance.updated_at))
+  }
+  return parts.join(' · ')
+})
+
+const openAIUpstreamBalanceError = computed(() => {
+  const balance = openAIUpstreamBalance.value
+  if (!balance || balance.status !== 'error') return ''
+  switch (balance.error_code) {
+    case 'unauthorized':
+      return t('admin.accounts.upstreamBalance.unauthorized')
+    case 'rate_limited':
+      return t('admin.accounts.upstreamBalance.queryRateLimited')
+    case 'invalid_base_url':
+      return t('admin.accounts.upstreamBalance.invalidBaseUrl')
+    case 'proxy_unavailable':
+      return t('admin.accounts.upstreamBalance.proxyUnavailable')
+    default:
+      return t('admin.accounts.upstreamBalance.queryFailed')
+  }
+})
+
+const openAIUpstreamBalanceVisible = computed(() => {
+  return loading.value || openAIUpstreamBalanceAvailable.value || openAIUpstreamBalanceError.value !== ''
 })
 
 const openCodeGoUsageWindows = computed(() => [
@@ -1302,13 +1454,17 @@ const isAnthropicOAuthOrSetupToken = computed(() => {
   return props.account.platform === 'anthropic' && (props.account.type === 'oauth' || props.account.type === 'setup-token')
 })
 
+const isOpenAIUpstreamBalanceAccount = computed(() => {
+  return props.account.platform === 'openai' && props.account.type === 'apikey'
+})
+
 const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?: boolean }) => {
   if (!shouldFetchUsage.value) return
 
   const requestSeq = ++usageRequestSeq
 
-  // Check cache
-  if (!options?.bypassCache) {
+  // sub2api 上游余额必须实时查询；其他平台继续使用共享缓存。
+  if (!options?.bypassCache && !isOpenAIUpstreamBalanceAccount.value) {
     const cached = _usageCache.get(props.account.id)
     if (cached && Date.now() - cached.ts < USAGE_CACHE_TTL) {
       usageInfo.value = cached.data
@@ -1327,7 +1483,9 @@ const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?
     const result = await enqueueUsageRequest(props.account, fetchFn)
     if (!unmounted.value && requestSeq === usageRequestSeq) {
       usageInfo.value = result
-      _usageCache.set(props.account.id, { data: result, ts: Date.now() })
+      if (!isOpenAIUpstreamBalanceAccount.value) {
+        _usageCache.set(props.account.id, { data: result, ts: Date.now() })
+      }
     }
   } catch (e: any) {
     if (!unmounted.value && requestSeq === usageRequestSeq) {
@@ -1399,7 +1557,9 @@ const loadActiveUsage = async () => {
     const result = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
     if (!unmounted.value && requestSeq === usageRequestSeq) {
       usageInfo.value = result
-      _usageCache.set(props.account.id, { data: result, ts: Date.now() })
+      if (!isOpenAIUpstreamBalanceAccount.value) {
+        _usageCache.set(props.account.id, { data: result, ts: Date.now() })
+      }
     }
   } catch (e: any) {
     if (requestSeq === usageRequestSeq) {
@@ -1537,6 +1697,16 @@ watch(
     loadUsage({ source, bypassCache: true }).catch((e) => {
       console.error('Failed to refresh usage after manual refresh:', e)
     })
+  }
+)
+
+watch(
+  () => props.liveBalanceRefreshToken,
+  (nextToken, prevToken) => {
+    if (nextToken === prevToken || !isOpenAIUpstreamBalanceAccount.value) return
+    if (loading.value || openAIUpstreamBalance.value?.status === 'unsupported') return
+
+    requestAutoLoad(undefined, { bypassCache: true })
   }
 )
 

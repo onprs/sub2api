@@ -1,9 +1,11 @@
 package repository
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -444,6 +446,47 @@ func (r *trackedTestReadCloser) Close() error {
 		r.onClose()
 	}
 	return nil
+}
+
+func TestHTTPUpstreamRedirectsDisabled(t *testing.T) {
+	t.Parallel()
+
+	var finalCalls atomic.Int32
+	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		finalCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer final.Close()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, final.URL, http.StatusFound)
+	}))
+	defer origin.Close()
+
+	cfg := &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+		Enabled:           false,
+		AllowInsecureHTTP: true,
+	}}}
+	upstream := NewHTTPUpstream(cfg)
+
+	makeRequest := func(ctx context.Context) *http.Request {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, origin.URL, nil)
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer secret-upstream-key")
+		return req
+	}
+
+	resp, err := upstream.Do(makeRequest(service.WithHTTPUpstreamRedirectsDisabled(context.Background())), "", 1, 1)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusFound, resp.StatusCode)
+	require.NoError(t, resp.Body.Close())
+	require.Zero(t, finalCalls.Load())
+
+	resp, err = upstream.Do(makeRequest(context.Background()), "", 2, 1)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, int32(1), finalCalls.Load())
 }
 
 // TestHTTPUpstreamSuite 运行测试套件
