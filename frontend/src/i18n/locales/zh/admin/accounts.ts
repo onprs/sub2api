@@ -315,8 +315,6 @@ export default {
         rateLimited: '已配置用量窗口',
         unlimitedSubscription: '订阅无限制',
         keyUnavailable: 'Key 不可用',
-        source: 'sub2api 实时数据',
-        quotaDetail: '已用 {used} / 总额 {limit}',
         unauthorized: '上游 API Key 无效或无权查询余额',
         queryRateLimited: '上游暂时限制余额查询，请稍后重试',
         invalidBaseUrl: '上游 Base URL 无效',
