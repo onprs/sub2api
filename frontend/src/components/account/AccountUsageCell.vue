@@ -705,13 +705,6 @@
             {{ t('admin.accounts.upstreamBalance.keyUnavailable') }}
           </span>
         </div>
-        <div
-          v-if="openAIUpstreamBalanceDetail"
-          class="max-w-[220px] truncate text-[9px] text-gray-400 dark:text-gray-500"
-          :title="openAIUpstreamBalanceDetail"
-        >
-          {{ openAIUpstreamBalanceDetail }}
-        </div>
         <button
           type="button"
           class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-medium text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
@@ -897,24 +890,6 @@ const openAIUpstreamBalanceNoAmountLabel = computed(() => {
   return openAIUpstreamBalance.value?.kind === 'subscription'
     ? t('admin.accounts.upstreamBalance.unlimitedSubscription')
     : t('admin.accounts.upstreamBalance.rateLimited')
-})
-
-const openAIUpstreamBalanceDetail = computed(() => {
-  const balance = openAIUpstreamBalance.value
-  if (!balance) return ''
-  const parts = [t('admin.accounts.upstreamBalance.source')]
-  if (balance.kind === 'api_key_quota' && balance.used != null && balance.limit != null) {
-    parts.push(t('admin.accounts.upstreamBalance.quotaDetail', {
-      used: formatCurrency(balance.used, balance.unit || 'USD'),
-      limit: formatCurrency(balance.limit, balance.unit || 'USD')
-    }))
-  } else if (balance.plan_name) {
-    parts.push(balance.plan_name)
-  }
-  if (balance.updated_at) {
-    parts.push(formatRelativeTime(balance.updated_at))
-  }
-  return parts.join(' · ')
 })
 
 const openAIUpstreamBalanceError = computed(() => {

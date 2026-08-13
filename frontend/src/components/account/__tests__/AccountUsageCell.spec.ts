@@ -94,7 +94,7 @@ describe('AccountUsageCell', () => {
           unit: 'USD',
           plan_name: '钱包余额',
           is_valid: true,
-          updated_at: null
+          updated_at: '2026-08-13T10:00:00Z'
         }
       })
       .mockResolvedValueOnce({
@@ -126,7 +126,8 @@ describe('AccountUsageCell', () => {
     expect(getUsage).toHaveBeenCalledWith(8101)
     expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.wallet')
     expect(wrapper.text()).toMatch(/12[.,]34/)
-    expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.source')
+    expect(wrapper.text()).not.toContain('admin.accounts.upstreamBalance.source')
+    expect(wrapper.text()).not.toContain('钱包余额')
 
     await wrapper.find('button').trigger('click')
     await flushPromises()
@@ -160,7 +161,7 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.quotaRemaining')
     expect(wrapper.text()).toMatch(/0[.,]00/)
     expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.keyUnavailable')
-    expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.quotaDetail')
+    expect(wrapper.text()).not.toContain('admin.accounts.upstreamBalance.quotaDetail')
   })
 
   it('OpenAI API Key 会区分无限订阅和滚动限额', async () => {

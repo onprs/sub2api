@@ -1240,8 +1240,6 @@ export default {
         rateLimited: 'Usage windows configured',
         unlimitedSubscription: 'Unlimited subscription',
         keyUnavailable: 'Key unavailable',
-        source: 'Live sub2api data',
-        quotaDetail: '{used} used / {limit} total',
         unauthorized: 'The upstream API key is invalid or cannot query balance',
         queryRateLimited: 'The upstream temporarily rate-limited balance queries',
         invalidBaseUrl: 'The upstream Base URL is invalid',
