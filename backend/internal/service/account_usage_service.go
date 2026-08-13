@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	httppool "github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	openaipkg "github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -240,6 +241,9 @@ type UsageInfo struct {
 	// 错误码（机器可读）：forbidden / unauthenticated / rate_limited / network_error
 	ErrorCode string `json:"error_code,omitempty"`
 
+	// OpenAI API Key 上游 sub2api 余额或 Key 配额（实时查询，不持久化）。
+	UpstreamBalance *UpstreamBalanceInfo `json:"upstream_balance,omitempty"`
+
 	// 获取 usage 时的错误信息（降级返回，而非 500）
 	Error string `json:"error,omitempty"`
 }
@@ -304,6 +308,8 @@ type AccountUsageService struct {
 	tlsFPProfileService           *TLSFingerprintProfileService
 	clinePassClient               *ClinePassClient
 	openCodeGoConsoleSummaryFetch OpenCodeGoConsoleSummaryFetcher
+	httpUpstream                  HTTPUpstream
+	cfg                           *config.Config
 }
 
 // NewAccountUsageService 创建AccountUsageService实例
@@ -319,6 +325,8 @@ func NewAccountUsageService(
 	identityCache IdentityCache,
 	tlsFPProfileService *TLSFingerprintProfileService,
 	clinePassClient *ClinePassClient,
+	httpUpstream HTTPUpstream,
+	cfg *config.Config,
 ) *AccountUsageService {
 	return &AccountUsageService{
 		accountRepo:             accountRepo,
@@ -332,19 +340,25 @@ func NewAccountUsageService(
 		identityCache:           identityCache,
 		tlsFPProfileService:     tlsFPProfileService,
 		clinePassClient:         clinePassClient,
+		httpUpstream:            httpUpstream,
+		cfg:                     cfg,
 	}
 }
 
 // GetUsage 获取账号使用量
-// OAuth账号: 调用Anthropic API获取真实数据（需要profile scope），API响应缓存10分钟，窗口统计缓存1分钟
+// OAuth账号: 调用对应上游 API 获取真实数据，并按平台策略缓存或持久化快照
 // Setup Token账号: 根据session_window推算5h窗口，7d数据不可用（没有profile scope）
-// API Key账号: 不支持usage查询
+// API Key账号: OpenAI 自定义上游实时探测 sub2api `/v1/usage`；OpenCode Go/ClinePass 使用各自用量接口
 func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, force ...bool) (*UsageInfo, error) {
 	forceProbe := len(force) > 0 && force[0]
 
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("get account failed: %w", err)
+	}
+
+	if account.IsOpenAIApiKey() {
+		return s.getOpenAIAPIKeyUpstreamBalance(ctx, account)
 	}
 
 	if account.IsOpenCodeGoAPIKey() {

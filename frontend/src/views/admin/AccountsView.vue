@@ -292,6 +292,7 @@
               :today-stats="todayStatsByAccountId[String(row.id)] ?? null"
               :today-stats-loading="todayStatsLoading"
               :manual-refresh-token="usageManualRefreshToken"
+              :live-balance-refresh-token="liveBalanceRefreshToken"
             />
           </template>
           <template #cell-proxy="{ row }">
@@ -619,6 +620,7 @@ const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
+const liveBalanceRefreshToken = ref(0)
 
 const buildDefaultTodayStats = (): WindowStats => ({
   requests: 0,
@@ -1048,6 +1050,18 @@ const mergeAccountsIncrementally = (nextRows: Account[]) => {
   }
 }
 
+const AUTO_REFRESH_BALANCE_PROBE_INTERVAL_MS = 30_000
+const lastAutoRefreshBalanceProbeAt = ref(Date.now())
+
+const shouldRefreshLiveUpstreamBalances = () => {
+  const now = Date.now()
+  if (now - lastAutoRefreshBalanceProbeAt.value < AUTO_REFRESH_BALANCE_PROBE_INTERVAL_MS) {
+    return false
+  }
+  lastAutoRefreshBalanceProbeAt.value = now
+  return true
+}
+
 const refreshAccountsIncrementally = async () => {
   if (autoRefreshFetching.value) return
   syncAccountListDerivedParams()
@@ -1081,6 +1095,9 @@ const refreshAccountsIncrementally = async () => {
     }
 
     await refreshTodayStatsBatch()
+    if (shouldRefreshLiveUpstreamBalances()) {
+      liveBalanceRefreshToken.value += 1
+    }
   } catch (error) {
     console.error('Auto refresh failed:', error)
   } finally {

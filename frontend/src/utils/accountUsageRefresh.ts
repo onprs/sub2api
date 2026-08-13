@@ -5,6 +5,18 @@ const normalizeUsageRefreshValue = (value: unknown): string => {
   return String(value)
 }
 
+export const buildOpenAIAPIKeyBalanceRefreshKey = (account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'credentials' | 'credentials_status' | 'proxy_id'>): string => {
+  if (account.platform !== 'openai' || account.type !== 'apikey') return ''
+
+  return [
+    account.id,
+    account.updated_at,
+    account.proxy_id,
+    account.credentials?.base_url,
+    account.credentials_status?.has_api_key
+  ].map(normalizeUsageRefreshValue).join('|')
+}
+
 export const buildOpenAIUsageRefreshKey = (account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'last_used_at' | 'rate_limit_reset_at' | 'extra'>): string => {
   if (account.platform !== 'openai' || account.type !== 'oauth') {
     return ''
@@ -75,7 +87,7 @@ export const buildClinePassUsageRefreshKey = (account: Pick<Account, 'id' | 'pla
 }
 
 export const buildAccountUsageRefreshKey = (
-  account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'last_used_at' | 'rate_limit_reset_at' | 'extra'>
+  account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'last_used_at' | 'rate_limit_reset_at' | 'extra' | 'credentials' | 'credentials_status' | 'proxy_id'>
 ): string => {
-  return buildOpenAIUsageRefreshKey(account) || buildOpenCodeGoUsageRefreshKey(account) || buildClinePassUsageRefreshKey(account)
+  return buildOpenAIUsageRefreshKey(account) || buildOpenAIAPIKeyBalanceRefreshKey(account) || buildOpenCodeGoUsageRefreshKey(account) || buildClinePassUsageRefreshKey(account)
 }

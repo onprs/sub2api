@@ -1029,6 +1029,22 @@ export interface GrokQuotaWindow {
   reset_at?: string
 }
 
+export interface UpstreamBalanceInfo {
+  status: 'available' | 'unsupported' | 'error'
+  source?: 'sub2api' | string
+  kind?: 'wallet' | 'api_key_quota' | 'subscription' | 'rate_limits' | string
+  amount?: number | null
+  limit?: number | null
+  used?: number | null
+  unit?: string
+  mode?: string
+  plan_name?: string
+  is_valid?: boolean
+  remote_status?: string
+  updated_at?: string | null
+  error_code?: string
+}
+
 export interface AccountUsageInfo {
   source?: 'passive' | 'active' | 'estimated' | 'official_console'
   updated_at: string | null
@@ -1058,6 +1074,7 @@ export interface AccountUsageInfo {
     amount?: number
     minimum_balance?: number
   }> | null
+  upstream_balance?: UpstreamBalanceInfo | null
   // Antigravity 403 forbidden 状态
   is_forbidden?: boolean
   forbidden_reason?: string
