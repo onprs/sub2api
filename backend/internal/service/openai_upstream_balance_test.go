@@ -134,7 +134,7 @@ func TestAccountUsageServiceGetUsageOpenAIAPIKeyReadsQuotaRemainingAndUsesProxy(
 	require.False(t, *usage.UpstreamBalance.IsValid)
 	require.Equal(t, "quota_exhausted", usage.UpstreamBalance.RemoteStatus)
 	require.Equal(t, "http://proxy-user:proxy-pass@proxy.example:8080", upstream.lastProxyURL)
-	require.Equal(t, "balance-probe", upstream.lastReq.Header["x-relay-client"][0])
+	require.Equal(t, []string{"balance-probe"}, upstream.lastReq.Header.Values("x-relay-client"))
 }
 
 func TestAccountUsageServiceGetUsageOpenAIAPIKeyUnsupportedResponsesAreSilent(t *testing.T) {

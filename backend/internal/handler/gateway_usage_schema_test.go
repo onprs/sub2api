@@ -96,6 +96,8 @@ func TestGatewayUsageResponsesExposeSub2APIUsageSchema(t *testing.T) {
 		require.Equal(t, "sub2api.usage", payload["object"])
 		require.Equal(t, float64(1), payload["schema_version"])
 		require.Equal(t, "unrestricted", payload["mode"])
-		require.InDelta(t, 18, payload["remaining"].(float64), 1e-9)
+		remaining, ok := payload["remaining"].(float64)
+		require.True(t, ok)
+		require.InDelta(t, 18, remaining, 1e-9)
 	})
 }
