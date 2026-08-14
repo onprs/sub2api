@@ -11,7 +11,7 @@ import (
 
 func TestOpenCodeGoReferencePricingCoversSeedCatalog(t *testing.T) {
 	catalog := openCodeGoSeedCatalog()
-	require.Len(t, catalog, 25)
+	require.Len(t, catalog, 26)
 	require.Len(t, openCodeGoReferencePrices, len(catalog))
 
 	for modelID := range catalog {
@@ -36,11 +36,21 @@ func TestOpenCodeGoModelsDevSupplementalModelsAreExplicit(t *testing.T) {
 		"deepseek-v4-flash",
 		"deepseek-v4-pro",
 		"glm-5.2",
+		"glm-5.3",
 		"gpt-5.6-luna",
 		"qwen3.8-max",
 	} {
 		require.False(t, isOpenCodeGoModelsDevSupplementalModel(modelID), modelID)
 	}
+}
+
+func TestOpenCodeGoReferencePricingLocksGLM53Rate(t *testing.T) {
+	pricing, ok := openCodeGoReferencePricing("glm-5.3")
+	require.True(t, ok)
+	require.InDelta(t, 1.4e-6, pricing.InputPricePerToken, 1e-15)
+	require.InDelta(t, 4.4e-6, pricing.OutputPricePerToken, 1e-15)
+	require.InDelta(t, 0.26e-6, pricing.CacheReadPricePerToken, 1e-15)
+	require.Zero(t, pricing.CacheCreationPricePerToken)
 }
 
 func TestOpenCodeGoReferencePricingLocksSupplementalRates(t *testing.T) {

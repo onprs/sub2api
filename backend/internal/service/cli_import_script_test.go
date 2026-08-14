@@ -954,6 +954,16 @@ func TestPricingServiceGetCLIImportModelCapabilityHasBuiltinFallbackForEveryOpen
 			}
 		})
 	}
+
+	glm, ok := svc.GetCLIImportModelCapability(context.Background(), PlatformOpenCodeGo, "glm-5.3")
+	require.True(t, ok)
+	require.Equal(t, "GLM-5.3", glm.Name)
+	require.Equal(t, "glm", glm.Family)
+	require.Equal(t, 1000000, glm.MaxInputTokens)
+	require.Equal(t, 131072, glm.MaxOutputTokens)
+	require.True(t, glm.SupportsReasoning)
+	require.True(t, glm.SupportsFunctionCalling)
+	require.Equal(t, []string{"text"}, glm.InputModalities)
 }
 
 func TestParsePricingDataTracksCapabilityFieldPresence(t *testing.T) {

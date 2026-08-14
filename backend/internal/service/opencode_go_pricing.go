@@ -35,6 +35,11 @@ var openCodeGoReferencePrices = map[string]ModelPricing{
 		OutputPricePerToken:    4.4e-6,
 		CacheReadPricePerToken: 0.26e-6,
 	},
+	"glm-5.3": {
+		InputPricePerToken:     1.4e-6,
+		OutputPricePerToken:    4.4e-6,
+		CacheReadPricePerToken: 0.26e-6,
+	},
 	"gpt-5.6-luna": {
 		InputPricePerToken:          0.2e-6,
 		OutputPricePerToken:         1.2e-6,
