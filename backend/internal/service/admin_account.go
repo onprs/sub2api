@@ -92,11 +92,39 @@ func normalizeAccountConcurrency(platform, accountType string, concurrency int) 
 	return concurrency
 }
 
+func normalizeFirstOutputFailoverTimeout(platform, accountType string, seconds *int) (*int, error) {
+	if seconds == nil || *seconds == 0 {
+		return nil, nil
+	}
+	if *seconds < 0 {
+		return nil, infraerrors.BadRequest(
+			"FIRST_OUTPUT_FAILOVER_TIMEOUT_INVALID",
+			"first_output_failover_timeout_seconds must be greater than zero or omitted",
+		)
+	}
+	if platform != PlatformOpenAI || accountType != AccountTypeAPIKey {
+		return nil, infraerrors.BadRequest(
+			"FIRST_OUTPUT_FAILOVER_TIMEOUT_UNSUPPORTED_ACCOUNT",
+			"first_output_failover_timeout_seconds is only supported for OpenAI API key accounts",
+		)
+	}
+	normalized := *seconds
+	return &normalized, nil
+}
+
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
 	if input == nil {
 		return nil, ErrAccountNilInput
 	}
 	if err := normalizeAndValidateClinePassAccount(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
+	firstOutputFailoverTimeout, err := normalizeFirstOutputFailoverTimeout(
+		input.Platform,
+		input.Type,
+		input.FirstOutputFailoverTimeoutSeconds,
+	)
+	if err != nil {
 		return nil, err
 	}
 	// 绑定分组
@@ -128,17 +156,18 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	}
 
 	account := &Account{
-		Name:        input.Name,
-		Notes:       normalizeAccountNotes(input.Notes),
-		Platform:    input.Platform,
-		Type:        input.Type,
-		Credentials: input.Credentials,
-		Extra:       input.Extra,
-		ProxyID:     input.ProxyID,
-		Concurrency: normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
-		Priority:    input.Priority,
-		Status:      StatusActive,
-		Schedulable: true,
+		Name:                              input.Name,
+		Notes:                             normalizeAccountNotes(input.Notes),
+		Platform:                          input.Platform,
+		Type:                              input.Type,
+		Credentials:                       input.Credentials,
+		Extra:                             input.Extra,
+		ProxyID:                           input.ProxyID,
+		Concurrency:                       normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
+		Priority:                          input.Priority,
+		FirstOutputFailoverTimeoutSeconds: firstOutputFailoverTimeout,
+		Status:                            StatusActive,
+		Schedulable:                       true,
 	}
 	// 预计算固定时间重置的下次重置时间
 	if account.Extra != nil {
@@ -247,6 +276,20 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	if input.Type != "" {
 		account.Type = input.Type
+	}
+	if input.FirstOutputFailoverTimeoutSeconds != nil {
+		firstOutputFailoverTimeout, normalizeErr := normalizeFirstOutputFailoverTimeout(
+			account.Platform,
+			account.Type,
+			input.FirstOutputFailoverTimeoutSeconds,
+		)
+		if normalizeErr != nil {
+			return nil, normalizeErr
+		}
+		account.FirstOutputFailoverTimeoutSeconds = firstOutputFailoverTimeout
+	} else if account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
+		// 账号类型切出 OpenAI API Key 时同步清理该专用配置。
+		account.FirstOutputFailoverTimeoutSeconds = nil
 	}
 	if input.Notes != nil {
 		account.Notes = normalizeAccountNotes(input.Notes)

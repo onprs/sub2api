@@ -37,6 +37,20 @@ func TestBuildSchedulerMetadataAccount_KeepsOpenAIWSFlags(t *testing.T) {
 	require.Nil(t, got.Extra["unused_large_field"])
 }
 
+func TestBuildSchedulerMetadataAccount_KeepsOpenAIFirstOutputFailoverTimeout(t *testing.T) {
+	seconds := 15
+	account := service.Account{
+		ID:                                42,
+		Platform:                          service.PlatformOpenAI,
+		Type:                              service.AccountTypeAPIKey,
+		FirstOutputFailoverTimeoutSeconds: &seconds,
+	}
+
+	got := buildSchedulerMetadataAccount(account)
+
+	require.Equal(t, &seconds, got.FirstOutputFailoverTimeoutSeconds)
+}
+
 func TestBuildSchedulerMetadataAccount_KeepsSlimGroupMembership(t *testing.T) {
 	account := service.Account{
 		ID:       42,

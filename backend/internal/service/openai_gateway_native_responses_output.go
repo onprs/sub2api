@@ -355,7 +355,7 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStreamWithReasoning(
 	nativeOutput, nativeResponses := output.(*nativeResponsesProtocolOutput)
 	guardFirstOutput := account != nil && account.Platform == PlatformOpenAI && nativeResponses
 	if guardFirstOutput {
-		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffort)
+		firstOutputTimeout = s.openAIEffectiveFirstOutputTimeout(account, reasoningEffort)
 		guardFirstOutput = firstOutputTimeout > 0
 	}
 	if guardFirstOutput {

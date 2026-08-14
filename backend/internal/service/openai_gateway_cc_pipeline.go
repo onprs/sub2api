@@ -170,6 +170,13 @@ func (s *OpenAIGatewayService) resolveCCFallbackTarget(account *Account) (apiKey
 	return apiKey, targetURL, nil
 }
 
+type openAICCUpstreamRequestOptions struct {
+	StartTime          time.Time
+	FirstOutputTimeout time.Duration
+	OriginalModel      string
+	ReasoningEffort    string
+}
+
 // sendCCUpstreamRequest 构建并发送 CC 上游请求：分离的上游 context、OpenAI HTTP
 // profile、标准头（含流式 Accept 切换）、客户端 header 白名单透传、自定义 UA 与
 // 账号级 header 覆写，最后经代理发出。传输层失败（DNS/TCP/TLS，无 HTTP 响应）
@@ -185,11 +192,29 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	stream bool,
 	bearerToken string,
 	userAgent string,
+	options openAICCUpstreamRequestOptions,
 ) (*http.Response, error) {
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	var headerGuard *openAIFirstOutputHeaderGuard
+	firstOutputStartTime := options.StartTime
+	if options.FirstOutputTimeout > 0 {
+		if firstOutputStartTime.IsZero() {
+			firstOutputStartTime = time.Now()
+		}
+		upstreamCtx, headerGuard = newOpenAIFirstOutputHeaderGuard(
+			upstreamCtx,
+			releaseUpstreamCtx,
+			firstOutputStartTime.Add(options.FirstOutputTimeout),
+		)
+	}
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
-	releaseUpstreamCtx()
+	if headerGuard == nil {
+		releaseUpstreamCtx()
+	}
 	if err != nil {
+		if headerGuard != nil {
+			headerGuard.close()
+		}
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 	upstreamReq = upstreamReq.WithContext(WithHTTPUpstreamProfile(upstreamReq.Context(), HTTPUpstreamProfileOpenAI))
@@ -222,8 +247,34 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 		proxyURL = account.Proxy.URL()
 	}
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	if headerGuard != nil && headerGuard.stopHeaderWait() {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		headerGuard.close()
+		return nil, s.newOpenAIFirstOutputTimeoutError(
+			ctx,
+			c,
+			account,
+			firstOutputStartTime,
+			options.OriginalModel,
+			options.ReasoningEffort,
+			options.FirstOutputTimeout,
+			"response_headers",
+			nil,
+		)
+	}
 	if err != nil {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		if headerGuard != nil {
+			headerGuard.close()
+		}
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+	}
+	if headerGuard != nil {
+		resp.Body = &openAIRequestContextReadCloser{ReadCloser: resp.Body, cleanup: headerGuard.close}
 	}
 	return resp, nil
 }

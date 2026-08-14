@@ -1594,6 +1594,22 @@
           <p class="input-hint">{{ t('admin.accounts.billingRateMultiplierHint') }}</p>
         </div>
       </div>
+      <div
+        v-if="account?.platform === 'openai' && account?.type === 'apikey'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <label class="input-label">{{ t('admin.accounts.firstOutputFailoverTimeout') }}</label>
+        <input
+          v-model.number="form.first_output_failover_timeout_seconds"
+          data-testid="first-output-failover-timeout-input"
+          type="number"
+          min="1"
+          step="1"
+          class="input"
+          :placeholder="t('admin.accounts.firstOutputFailoverTimeoutPlaceholder')"
+        />
+        <p class="input-hint">{{ t('admin.accounts.firstOutputFailoverTimeoutHint') }}</p>
+      </div>
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
         <input v-model="expiresAtInput" type="datetime-local" class="input" />
@@ -3320,6 +3336,7 @@ const form = reactive({
   proxy_id: null as number | null,
   concurrency: 1,
   load_factor: null as number | null,
+  first_output_failover_timeout_seconds: null as number | null,
   priority: 1,
   rate_multiplier: 1,
   status: 'active' as 'active' | 'inactive' | 'error',
@@ -3557,6 +3574,7 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
   form.proxy_id = newAccount.proxy_id
   form.concurrency = newAccount.concurrency
   form.load_factor = newAccount.load_factor ?? null
+  form.first_output_failover_timeout_seconds = newAccount.first_output_failover_timeout_seconds ?? null
   form.priority = newAccount.priority
   form.rate_multiplier = newAccount.rate_multiplier ?? 1
   form.status = (newAccount.status === 'active' || newAccount.status === 'inactive' || newAccount.status === 'error')
@@ -4373,6 +4391,13 @@ const handleSubmit = async () => {
     const lf = form.load_factor
     if (lf == null || Number.isNaN(lf) || lf <= 0) {
       updatePayload.load_factor = 0
+    }
+    if (props.account.platform === 'openai' && props.account.type === 'apikey') {
+      const rawTimeout = Number(form.first_output_failover_timeout_seconds)
+      updatePayload.first_output_failover_timeout_seconds =
+        Number.isFinite(rawTimeout) && rawTimeout > 0 ? Math.trunc(rawTimeout) : 0
+    } else {
+      delete updatePayload.first_output_failover_timeout_seconds
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
 

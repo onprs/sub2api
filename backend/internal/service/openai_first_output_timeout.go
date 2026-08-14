@@ -30,6 +30,7 @@ const (
 var (
 	errOpenAIFirstOutputStageLimit   = errors.New("openai first-output staging limit exceeded")
 	errOpenAIFirstOutputScannerLimit = errors.New("openai pre-output scanner token limit exceeded")
+	errOpenAIFirstOutputDeadline     = errors.New("openai first-output deadline exceeded")
 )
 
 type openAIFirstOutputStage struct {
@@ -241,6 +242,21 @@ func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string) 
 		}
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+func openAIAccountFirstOutputFailoverTimeout(account *Account) time.Duration {
+	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey ||
+		account.FirstOutputFailoverTimeoutSeconds == nil || *account.FirstOutputFailoverTimeoutSeconds <= 0 {
+		return 0
+	}
+	return time.Duration(*account.FirstOutputFailoverTimeoutSeconds) * time.Second
+}
+
+func (s *OpenAIGatewayService) openAIEffectiveFirstOutputTimeout(account *Account, reasoningEffort string) time.Duration {
+	if accountTimeout := openAIAccountFirstOutputFailoverTimeout(account); accountTimeout > 0 {
+		return accountTimeout
+	}
+	return s.openAIFirstOutputTimeout(reasoningEffort)
 }
 
 func (s *OpenAIGatewayService) newOpenAIFirstOutputTimeoutError(
