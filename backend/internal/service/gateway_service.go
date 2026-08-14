@@ -20,6 +20,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
@@ -1189,9 +1190,9 @@ func (s *GatewayService) getOAuthToken(ctx context.Context, account *Account) (s
 	return accessToken, "oauth", nil
 }
 
-// GetAvailableModels returns the user-request model IDs available for a group.
-// It aggregates model_mapping keys from schedulable accounts, except that official
-// Antigravity OAuth/Setup Token accounts expose only the curated agy user catalog.
+// GetAvailableModels 返回分组可接受的用户请求模型 ID。
+// 通常聚合可调度账号的 model_mapping 键；无显式映射的 OpenAI 和 Gemini 账号按账户能力补充默认目录，
+// 官方 Antigravity OAuth/Setup Token 账号则只公开经过整理的 agy 用户目录。
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
 	cacheKey := modelsListCacheKey(groupID, platform)
 	if s.modelsListCache != nil {
@@ -1217,7 +1218,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		return nil
 	}
 
-	// Filter by platform if specified
+	// 指定平台时只聚合该平台账号。
 	if platform != "" {
 		filtered := make([]Account, 0)
 		for _, acc := range accounts {
@@ -1228,9 +1229,9 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		accounts = filtered
 	}
 
-	// Collect unique user-request model IDs from all accounts.
+	// 汇总所有账号可接受的用户请求模型 ID。
 	modelSet := make(map[string]struct{})
-	hasAnyMapping := false
+	hasResolvedModels := false
 	hasOpenAIEmptyMappingAccount := false
 
 	for _, acc := range accounts {
@@ -1238,7 +1239,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		// 它们可继续参与路由，但用户模型目录和价格列表只能公开 agy 的 14 个请求 ID。
 		// 账号中遗留的旧显式 mapping 同样不能重新污染该公开目录。
 		if acc.Platform == PlatformAntigravity && acc.IsOAuth() {
-			hasAnyMapping = true
+			hasResolvedModels = true
 			for _, model := range DefaultAntigravityRouteModelIDs() {
 				modelSet[model] = struct{}{}
 			}
@@ -1250,22 +1251,30 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 			if platform == PlatformOpenAI && acc.Platform == PlatformOpenAI {
 				hasOpenAIEmptyMappingAccount = true
 			}
+			if platform == PlatformGemini && acc.Platform == PlatformGemini {
+				hasResolvedModels = true
+				catalog := geminicli.DefaultModels
+				if acc.Type == AccountTypeAPIKey {
+					catalog = geminicli.ModelsForAIStudioTier(acc.GeminiTierID())
+				}
+				for _, model := range catalog {
+					modelSet[model.ID] = struct{}{}
+				}
+			}
 			continue
 		}
 
-		hasAnyMapping = true
+		hasResolvedModels = true
 		for model := range mapping {
 			modelSet[model] = struct{}{}
 		}
 	}
 
-	// OpenAI OAuth accounts without explicit model_mapping are intentionally
-	// treated as default OpenAI/Codex-capable by account.IsModelSupported. When
-	// such accounts coexist with explicitly mapped accounts, include the curated
-	// default OpenAI list so /v1/models reflects the actual scheduler surface
-	// without adding mappings to accounts that have not been individually probed.
+	// 无显式 model_mapping 的 OpenAI OAuth 账号由 IsModelSupported 按默认 Codex 能力判断。
+	// 当它与显式映射账号共存时补入整理后的默认目录，使 /v1/models 与实际调度面一致，
+	// 同时不向尚未逐账号探测的账号写入模型映射。
 	if hasOpenAIEmptyMappingAccount {
-		hasAnyMapping = true
+		hasResolvedModels = true
 		for _, model := range openai.DefaultModelIDs() {
 			for i := range accounts {
 				account := &accounts[i]
@@ -1277,8 +1286,8 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		}
 	}
 
-	// If no account has model_mapping, return nil (use default)
-	if !hasAnyMapping {
+	// 没有账号产生模型目录时返回 nil，由调用方使用平台默认目录。
+	if !hasResolvedModels {
 		if platform == PlatformOpenCodeGo || platform == PlatformClinePass {
 			models := OpenCodeGoDefaultModelIDs()
 			if platform == PlatformClinePass {
@@ -1297,7 +1306,6 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		return nil
 	}
 
-	// Convert to slice
 	models := make([]string, 0, len(modelSet))
 	for model := range modelSet {
 		models = append(models, model)

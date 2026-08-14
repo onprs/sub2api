@@ -165,6 +165,42 @@ describe('AccountTestModal', () => {
     expect(preview.attributes('src')).toBe('data:image/png;base64,QUJD')
   })
 
+  it('Gemini Free Tier 测试优先使用 AI Studio 目录首项', async () => {
+    getAvailableModels.mockResolvedValue([
+      { id: 'gemma-4-31b-it', display_name: 'Gemma 4 31B' },
+      { id: 'gemini-3.7-flash', display_name: 'Gemini 3.7 Flash' },
+      { id: 'gemini-2.5-flash', display_name: 'Gemini 2.5 Flash' },
+      { id: 'gemini-3-flash-preview', display_name: 'Gemini 3 Flash' }
+    ])
+    global.fetch = vi.fn().mockResolvedValue(
+      createStreamResponse([
+        'data: {"type":"test_start","model":"gemini-3-flash-preview"}\n',
+        'data: {"type":"content","text":"ok"}\n',
+        'data: {"type":"test_complete","success":true}\n'
+      ])
+    ) as any
+
+    const wrapper = mountModal({
+      id: 43,
+      name: 'Gemini Free Test',
+      platform: 'gemini',
+      type: 'apikey',
+      status: 'active',
+      credentials: { tier_id: 'aistudio_free' }
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+
+    const [, request] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(request.body)).toEqual({
+      model_id: 'gemini-3-flash-preview',
+      prompt: ''
+    })
+  })
+
   it('grok 账号测试默认选择 Grok 模型', async () => {
     getAvailableModels.mockResolvedValue([
       { id: 'grok-4.3', display_name: 'Grok 4.3' },

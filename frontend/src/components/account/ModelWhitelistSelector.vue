@@ -145,6 +145,8 @@ const props = defineProps<{
   platform?: string
   platforms?: string[]
   accountId?: number
+  accountType?: string
+  tierId?: string
   syncCredentials?: {
     platform: string
     type: string
@@ -181,6 +183,11 @@ const normalizedPlatforms = computed(() => {
   )
 })
 
+const modelCatalogContext = computed(() => ({
+  accountType: props.accountType,
+  tierId: props.tierId
+}))
+
 const upstreamSyncPlatforms = new Set(['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'opencode_go', 'clinepass'])
 const canSyncUpstream = computed(() => {
   if (props.accountId) {
@@ -200,7 +207,7 @@ const availableOptions = computed(() => {
 
   const allowedModels = new Set<string>()
   for (const platform of normalizedPlatforms.value) {
-    for (const model of getModelsByPlatform(platform)) {
+    for (const model of getModelsByPlatform(platform, modelCatalogContext.value)) {
       allowedModels.add(model)
     }
   }
@@ -251,7 +258,7 @@ const handleEnter = () => {
 const fillRelated = () => {
   const newModels = [...props.modelValue]
   for (const platform of normalizedPlatforms.value) {
-    for (const model of getModelsByPlatform(platform)) {
+    for (const model of getModelsByPlatform(platform, modelCatalogContext.value)) {
       if (!newModels.includes(model)) {
         newModels.push(model)
       }

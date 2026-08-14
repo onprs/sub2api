@@ -1222,7 +1222,13 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist' && form.platform !== 'opencode_go'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" :sync-credentials="syncPreviewCredentials" />
+              <ModelWhitelistSelector
+                v-model="allowedModels"
+                :platform="form.platform"
+                :account-type="form.type"
+                :tier-id="geminiSelectedTier"
+                :sync-credentials="syncPreviewCredentials"
+              />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0">{{
@@ -3971,6 +3977,11 @@ const geminiSelectedTier = computed(() => {
   }
 })
 
+const currentPlatformModels = () => getModelsByPlatform(form.platform, {
+  accountType: form.type,
+  tierId: geminiSelectedTier.value
+})
+
 const openAIWSModeOptions = computed(() => [
   { value: OPENAI_WS_MODE_OFF, label: t('admin.accounts.openai.wsModeOff') },
   { value: OPENAI_WS_MODE_CTX_POOL, label: t('admin.accounts.openai.wsModeCtxPool') },
@@ -4136,8 +4147,8 @@ watch(
       adminAPI.tlsFingerprintProfiles.list()
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
         .catch(() => { tlsFingerprintProfiles.value = [] })
-      // Modal opened - fill related models
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      // 打开弹窗时填充当前账户上下文对应的模型。
+      allowedModels.value = [...currentPlatformModels()]
       // Antigravity: 默认使用映射模式并填充默认映射
       if (form.platform === 'antigravity') {
         antigravityModelRestrictionMode.value = 'mapping'
@@ -4327,12 +4338,12 @@ const handleSelectGeminiOAuthType = (oauthType: 'code_assist' | 'google_one' | '
   geminiOAuthType.value = oauthType
 }
 
-// Auto-fill related models when switching to whitelist mode or changing platform
+// 切换白名单模式、平台、账户方式或等级时自动填充对应模型。
 watch(
-  [modelRestrictionMode, () => form.platform],
+  [modelRestrictionMode, () => form.platform, () => form.type, geminiSelectedTier],
   ([newMode]) => {
     if (newMode === 'whitelist') {
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      allowedModels.value = [...currentPlatformModels()]
     }
   }
 )

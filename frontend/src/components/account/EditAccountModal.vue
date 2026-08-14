@@ -286,7 +286,13 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist' && account.platform !== 'opencode_go'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+              <ModelWhitelistSelector
+                v-model="allowedModels"
+                :platform="account?.platform || 'anthropic'"
+                :account-id="account?.id"
+                :account-type="accountModelCatalogType"
+                :tier-id="accountModelCatalogTierId"
+              />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -2779,6 +2785,12 @@ const CLINEPASS_DEFAULT_BASE_URL = 'https://api.cline.bot/api/v1'
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。
 const isSparkShadow = computed(() => props.account?.parent_account_id != null)
+
+const accountModelCatalogType = computed(() => props.account?.type)
+const accountModelCatalogTierId = computed(() => {
+  const credentials = props.account?.credentials as Record<string, unknown> | undefined
+  return typeof credentials?.tier_id === 'string' ? credentials.tier_id : undefined
+})
 
 // Platform-specific hint for Base URL
 const baseUrlHint = computed(() => {

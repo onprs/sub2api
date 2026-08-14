@@ -249,6 +249,7 @@ import Select from '@/components/common/Select.vue'
 import TextArea from '@/components/common/TextArea.vue'
 import { Icon } from '@/components/icons'
 import { useClipboard } from '@/composables/useClipboard'
+import { GEMINI_AI_STUDIO_FREE_MODELS } from '@/constants/geminiModels'
 import { buildApiUrl } from '@/api/client'
 import { adminAPI } from '@/api/admin'
 import type { Account, ClaudeModel } from '@/types'
@@ -297,7 +298,15 @@ const openAITestModeOptions = computed(() => [
   { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
   { value: 'compact', label: t('admin.accounts.openai.testModeCompact') }
 ])
-const prioritizedGeminiModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.0-flash']
+const prioritizedGeminiModels = [
+  'gemini-3.1-flash-image',
+  'gemini-2.5-flash-image',
+  ...GEMINI_AI_STUDIO_FREE_MODELS,
+  'gemini-2.5-pro',
+  'gemini-3-pro-preview',
+  'gemini-3.1-pro-preview',
+  'gemini-2.0-flash'
+]
 const supportsGeminiImageTest = computed(() => {
   const modelID = selectedModelId.value.toLowerCase()
   if (!modelID.startsWith('gemini-') || !modelID.includes('-image')) return false

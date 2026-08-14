@@ -2317,25 +2317,29 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	// Handle Gemini accounts
+	// Gemini 账户按认证方式和等级选择静态目录；显式 model_mapping 仍决定最终可测试的请求模型。
 	if account.IsGemini() {
-		// For OAuth accounts: return default Gemini models
+		catalog := geminicli.DefaultModels
+		if account.Type == service.AccountTypeAPIKey {
+			catalog = geminicli.ModelsForAIStudioTier(account.GeminiTierID())
+		}
+
+		// OAuth 与 Vertex 不使用 AI Studio API Key Free Tier 的限制目录。
 		if account.IsOAuth() {
-			response.Success(c, geminicli.DefaultModels)
+			response.Success(c, catalog)
 			return
 		}
 
-		// For API Key accounts: return models based on model_mapping
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, geminicli.DefaultModels)
+			response.Success(c, catalog)
 			return
 		}
 
 		var models []geminicli.Model
 		for requestedModel := range mapping {
 			var found bool
-			for _, dm := range geminicli.DefaultModels {
+			for _, dm := range catalog {
 				if dm.ID == requestedModel {
 					models = append(models, dm)
 					found = true

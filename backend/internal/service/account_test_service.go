@@ -1122,15 +1122,22 @@ func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, accoun
 	}
 }
 
-// testGeminiAccountConnection tests a Gemini account's connection
+func geminiAccountTestModel(account *Account, requestedModel string) string {
+	if strings.TrimSpace(requestedModel) != "" {
+		return requestedModel
+	}
+	if account != nil && account.Type == AccountTypeAPIKey {
+		return geminicli.DefaultModelForAIStudioTier(account.GeminiTierID())
+	}
+	return geminicli.DefaultTestModel
+}
+
+// testGeminiAccountConnection 测试 Gemini 账户连接。
 func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	ctx := c.Request.Context()
 
-	// Determine the model to use
-	testModelID := modelID
-	if testModelID == "" {
-		testModelID = geminicli.DefaultTestModel
-	}
+	// 根据账户等级选择未显式指定时的测试模型，Free Tier 不再回落到已下线的 2.0。
+	testModelID := geminiAccountTestModel(account, modelID)
 
 	// For static upstream credentials with model mapping, map the model
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {

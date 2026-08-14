@@ -11,6 +11,51 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGeminiAccountTestModel_SelectsTierDefault(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		account   *Account
+		requested string
+		want      string
+	}{
+		{
+			name:      "显式模型优先",
+			account:   &Account{Type: AccountTypeAPIKey, Credentials: map[string]any{"tier_id": "aistudio_free"}},
+			requested: "gemma-4-31b-it",
+			want:      "gemma-4-31b-it",
+		},
+		{
+			name:    "Free Tier 使用当前目录首项",
+			account: &Account{Type: AccountTypeAPIKey, Credentials: map[string]any{"tier_id": "aistudio_free"}},
+			want:    "gemini-3-flash-preview",
+		},
+		{
+			name:    "历史 API Key 缺失等级按 Free Tier 处理",
+			account: &Account{Type: AccountTypeAPIKey},
+			want:    "gemini-3-flash-preview",
+		},
+		{
+			name:    "Paid Tier 保留原有默认模型",
+			account: &Account{Type: AccountTypeAPIKey, Credentials: map[string]any{"tier_id": "aistudio_paid"}},
+			want:    "gemini-2.0-flash",
+		},
+		{
+			name:    "OAuth 保留原有默认模型",
+			account: &Account{Type: AccountTypeOAuth},
+			want:    "gemini-2.0-flash",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, geminiAccountTestModel(tt.account, tt.requested))
+		})
+	}
+}
+
 func TestCreateGeminiTestPayload_ImageModel(t *testing.T) {
 	t.Parallel()
 
