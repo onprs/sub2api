@@ -50,14 +50,19 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	}
 
 	originalModel := claudeReq.Model
-	mappedModel := s.getMappedModel(account, claudeReq.Model)
-	if mappedModel == "" {
+	route, supported := account.ResolveAntigravityRoute(claudeReq.Model)
+	if !supported {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
 		return nil, s.writeClaudeError(c, http.StatusForbidden, "permission_error", fmt.Sprintf("model %s not in whitelist", claudeReq.Model))
 	}
+	sourceModel := route.ModelID
+	mappedModel := route.WireModel
 	// 应用 thinking 模式自动后缀：如果 thinking 开启且目标是 claude-sonnet-4-5，自动改为 thinking 版本
 	thinkingEnabled := claudeReq.Thinking != nil && (claudeReq.Thinking.Type == "enabled" || claudeReq.Thinking.Type == "adaptive")
 	mappedModel = applyThinkingModelSuffix(mappedModel, thinkingEnabled)
+	if sourceModel == "" {
+		sourceModel = mappedModel
+	}
 	billingModel := mappedModel
 
 	// 获取 access_token
@@ -91,7 +96,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 
 	// Convert through the explicit Antigravity Claude-family adapter.
 	geminiBody, _, err := antigravityadapter.ConvertRequest(body, protocolconv.ProtocolAnthropic, antigravityadapter.Options{
-		Family: antigravityadapter.FamilyClaude, ProjectID: projectID, MappedModel: mappedModel, TransformOptions: transformOpts,
+		Family: antigravityadapter.FamilyClaude, ProjectID: projectID, SourceModel: sourceModel, WireModel: mappedModel, TransformOptions: transformOpts,
 	})
 	if err != nil {
 		return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", "Invalid request")
@@ -187,7 +192,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 					continue
 				}
 				retryGeminiBody, _, txErr := antigravityadapter.ConvertRequest(retryClaudeBody, protocolconv.ProtocolAnthropic, antigravityadapter.Options{
-					Family: antigravityadapter.FamilyClaude, ProjectID: projectID, MappedModel: mappedModel, TransformOptions: s.getClaudeTransformOptions(ctx),
+					Family: antigravityadapter.FamilyClaude, ProjectID: projectID, SourceModel: sourceModel, WireModel: mappedModel, TransformOptions: s.getClaudeTransformOptions(ctx),
 				})
 				if txErr != nil {
 					continue
@@ -317,7 +322,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 					txErr := marshalErr
 					if txErr == nil {
 						retryGeminiBody, _, txErr = antigravityadapter.ConvertRequest(retryClaudeBody, protocolconv.ProtocolAnthropic, antigravityadapter.Options{
-							Family: antigravityadapter.FamilyClaude, ProjectID: projectID, MappedModel: mappedModel, TransformOptions: transformOpts,
+							Family: antigravityadapter.FamilyClaude, ProjectID: projectID, SourceModel: sourceModel, WireModel: mappedModel, TransformOptions: transformOpts,
 						})
 					}
 					if txErr == nil {

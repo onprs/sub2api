@@ -203,7 +203,7 @@ func TestTryCustomRules_GeminiAliasCanonicalFallback(t *testing.T) {
 		AccountStatsPricingRules: []AccountStatsPricingRule{{
 			GroupIDs: []int64{10},
 			Pricing: []ChannelModelPricing{
-				{ID: 1, Models: []string{"gemini-3-flash"}, InputPrice: testPtrFloat64(0.03)},
+				{ID: 1, Models: []string{"gemini-3.5-flash"}, InputPrice: testPtrFloat64(0.03)},
 			},
 		}},
 	}

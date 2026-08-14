@@ -28,19 +28,32 @@ describe('useModelWhitelist', () => {
     expect(models).not.toContain('gpt-5.2-codex')
   })
 
-  it('antigravity 模型列表包含图片模型兼容项', () => {
+  it('antigravity 模型列表与 agy 的 14 项用户目录一致', () => {
     const models = getModelsByPlatform('antigravity')
 
-    expect(models).toContain('gemini-2.5-flash-image')
-    expect(models).toContain('gemini-3.1-flash-image')
-    expect(models).toContain('gemini-3-pro-image')
+    expect(models).toEqual([
+      'gemini-3.7-flash-high',
+      'gemini-3.7-flash-medium',
+      'gemini-3.7-flash-low',
+      'gemini-3.6-flash-high',
+      'gemini-3.6-flash-medium',
+      'gemini-3.6-flash-low',
+      'gemini-3.5-flash-high',
+      'gemini-3.5-flash-medium',
+      'gemini-3.5-flash-low',
+      'gemini-3.1-pro-high',
+      'gemini-3.1-pro-low',
+      'claude-sonnet-4-6',
+      'claude-opus-4-6-thinking',
+      'gpt-oss-120b-medium'
+    ])
   })
 
   it('Claude 模型列表包含新发布的 Claude 模型', () => {
     expect(getModelsByPlatform('claude')).toContain('claude-fable-5')
-    expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5')
     expect(getModelsByPlatform('claude')).toContain('claude-opus-4-8')
-    expect(getModelsByPlatform('antigravity')).toContain('claude-opus-4-8')
+    expect(getModelsByPlatform('antigravity')).toContain('claude-sonnet-4-6')
+    expect(getModelsByPlatform('antigravity')).toContain('claude-opus-4-6-thinking')
   })
 
   it('xAI 模型列表包含 Grok 4.5 官方模型和别名', () => {
@@ -87,17 +100,20 @@ describe('useModelWhitelist', () => {
     expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
   })
 
-  it('antigravity 模型列表会把新的 Gemini 图片模型排在前面', () => {
+  it('antigravity 模型列表隐藏 raw wire 和辅助模型', () => {
     const models = getModelsByPlatform('antigravity')
 
-    expect(models.indexOf('gemini-3.1-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
-    expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash-lite'))
+    expect(models).not.toContain('gemini-3-flash-agent')
+    expect(models).not.toContain('gemini-pro-agent')
+    expect(models).not.toContain('gemini-3.7-flash-tiered')
+    expect(models).not.toContain('tab_flash_lite_preview')
   })
 
-  it('antigravity 模型列表包含 Gemini 3.1 Pro 通用别名', () => {
+  it('antigravity 模型列表隐藏旧通用别名', () => {
     const models = getModelsByPlatform('antigravity')
 
-    expect(models).toContain('gemini-3.1-pro')
+    expect(models).not.toContain('gemini-3.1-pro')
+    expect(models).not.toContain('gemini-3.5-flash-extra-low')
   })
 
   it('whitelist 模式会忽略通配符条目', () => {

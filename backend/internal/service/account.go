@@ -644,49 +644,50 @@ func (a *Account) GetModelMapping() map[string]string {
 }
 
 func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]string {
-	if a.Credentials == nil {
-		// Antigravity 平台使用默认映射
-		if a.Platform == domain.PlatformAntigravity {
-			return domain.DefaultAntigravityModelMapping
+	if a.Platform == domain.PlatformAntigravity && a.IsOAuth() {
+		explicit := stringMappingFromRaw(rawMapping)
+		result := make(map[string]string, len(domain.DefaultAntigravityModelMapping)+len(explicit))
+		for model, wireModel := range domain.DefaultAntigravityModelMapping {
+			result[model] = wireModel
 		}
-		if a.Platform == domain.PlatformGrok {
-			return xai.DefaultModelMapping()
-		}
-		// Bedrock 默认映射由 forwardBedrock 统一处理（需配合 region prefix 调整）
-		return nil
-	}
-	if len(rawMapping) == 0 {
-		// Antigravity 平台使用默认映射
-		if a.Platform == domain.PlatformAntigravity {
-			return domain.DefaultAntigravityModelMapping
-		}
-		if a.Platform == domain.PlatformGrok {
-			return xai.DefaultModelMapping()
-		}
-		return nil
-	}
 
-	result := make(map[string]string)
-	for k, v := range rawMapping {
-		if s, ok := v.(string); ok {
-			result[k] = s
+		// 显式通配符代表账号级路由覆盖，不能被系统默认精确项抢先命中。
+		for pattern, wireModel := range explicit {
+			if !strings.Contains(pattern, "*") {
+				continue
+			}
+			for model := range result {
+				if matchWildcard(pattern, model) {
+					delete(result, model)
+				}
+			}
+			result[pattern] = wireModel
 		}
-	}
-	if len(result) > 0 {
-		if a.Platform == domain.PlatformAntigravity {
-			ensureAntigravityDefaultPassthroughs(result, []string{
-				"gemini-3-flash",
-				"gemini-3.1-pro-high",
-				"gemini-3.1-pro-low",
-			})
-			applyAntigravityGemini31ProAliases(result)
+		for model, wireModel := range explicit {
+			if strings.Contains(model, "*") {
+				continue
+			}
+			result[model] = wireModel
 		}
+		applyAntigravityGemini31ProAliases(result)
 		return result
 	}
 
-	// Antigravity 平台使用默认映射
-	if a.Platform == domain.PlatformAntigravity {
-		return domain.DefaultAntigravityModelMapping
+	if a.Platform == domain.PlatformGrok && len(rawMapping) == 0 {
+		return xai.DefaultModelMapping()
+	}
+	if len(rawMapping) == 0 {
+		return nil
+	}
+
+	result := make(map[string]string, len(rawMapping))
+	for model, wireModel := range rawMapping {
+		if value, ok := wireModel.(string); ok {
+			result[model] = value
+		}
+	}
+	if len(result) > 0 {
+		return result
 	}
 	if a.Platform == domain.PlatformGrok {
 		return xai.DefaultModelMapping()
@@ -723,27 +724,6 @@ func modelMappingSignature(rawMapping map[string]any) uint64 {
 		_, _ = h.Write([]byte{0xff})
 	}
 	return h.Sum64()
-}
-
-func ensureAntigravityDefaultPassthrough(mapping map[string]string, model string) {
-	if mapping == nil || model == "" {
-		return
-	}
-	if _, exists := mapping[model]; exists {
-		return
-	}
-	for pattern := range mapping {
-		if matchWildcard(pattern, model) {
-			return
-		}
-	}
-	mapping[model] = model
-}
-
-func ensureAntigravityDefaultPassthroughs(mapping map[string]string, models []string) {
-	for _, model := range models {
-		ensureAntigravityDefaultPassthrough(mapping, model)
-	}
 }
 
 func applyAntigravityGemini31ProAliases(mapping map[string]string) {
@@ -850,6 +830,77 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 		return mappedModel, true
 	}
 	return matchWildcardMappingResult(mapping, requestedModel)
+}
+
+// ResolveExplicitMappedModel 只解析账号显式配置的 model_mapping。
+func (a *Account) ResolveExplicitMappedModel(requestedModel string) (mappedModel string, matched bool) {
+	mapping := a.GetExplicitModelMapping()
+	if len(mapping) == 0 {
+		return requestedModel, false
+	}
+	if mappedModel, matched := resolveRequestedModelInMapping(mapping, requestedModel); matched {
+		return mappedModel, true
+	}
+	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
+	if normalized != requestedModel {
+		if mappedModel, matched := resolveRequestedModelInMapping(mapping, normalized); matched {
+			return mappedModel, true
+		}
+	}
+	return requestedModel, false
+}
+
+// ResolveAntigravityRoute 解析客户端模型到独立的协议 source model 和 Cloud Code wire model。
+// OAuth/Setup Token 在显式映射未命中时使用官方路由；API-Key/upstream 仅使用账号显式映射。
+func (a *Account) ResolveAntigravityRoute(requestedModel string) (domain.AntigravityModelRoute, bool) {
+	if a == nil || a.Platform != domain.PlatformAntigravity {
+		return domain.AntigravityModelRoute{}, false
+	}
+
+	requestedModel = strings.TrimPrefix(strings.TrimSpace(requestedModel), "models/")
+	if requestedModel == "" {
+		return domain.AntigravityModelRoute{}, false
+	}
+	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
+
+	if explicit := a.GetExplicitModelMapping(); len(explicit) > 0 {
+		if mapped, matched := resolveRequestedModelInMapping(explicit, requestedModel); matched {
+			return a.normalizeAntigravityRouteTarget(mapped)
+		}
+		if normalized != requestedModel {
+			if mapped, matched := resolveRequestedModelInMapping(explicit, normalized); matched {
+				return a.normalizeAntigravityRouteTarget(mapped)
+			}
+		}
+	}
+
+	if !a.IsOAuth() {
+		return domain.AntigravityModelRoute{}, false
+	}
+	return domain.ResolveDefaultAntigravityModelRoute(normalized)
+}
+
+// ResolveAntigravityModel 保留字符串接口，返回实际发送给上游 envelope 的 wire model。
+func (a *Account) ResolveAntigravityModel(requestedModel string) (string, bool) {
+	route, ok := a.ResolveAntigravityRoute(requestedModel)
+	if !ok {
+		return "", false
+	}
+	wireModel := strings.TrimSpace(route.WireModel)
+	return wireModel, wireModel != ""
+}
+
+func (a *Account) normalizeAntigravityRouteTarget(target string) (domain.AntigravityModelRoute, bool) {
+	target = strings.TrimPrefix(strings.TrimSpace(target), "models/")
+	if target == "" {
+		return domain.AntigravityModelRoute{}, false
+	}
+	if a.IsOAuth() {
+		if route, ok := domain.ResolveDefaultAntigravityModelRoute(target); ok {
+			return route, true
+		}
+	}
+	return domain.AntigravityModelRoute{ModelID: target, WireModel: target}, true
 }
 
 // IsModelSupported 检查模型是否在 model_mapping 中（支持通配符）

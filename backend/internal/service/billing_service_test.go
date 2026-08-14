@@ -226,6 +226,16 @@ func TestGetModelPricing_GeminiAntigravityPricingAliases(t *testing.T) {
 				CacheCreationInputTokenCost: 2.2e-6,
 				CacheReadInputTokenCost:     0.2e-6,
 			},
+			"gemini-3.7-flash": {
+				InputCostPerToken:       0.75e-6,
+				OutputCostPerToken:      3.75e-6,
+				CacheReadInputTokenCost: 0.075e-6,
+			},
+			"gemini-3.6-flash": {
+				InputCostPerToken:       1.5e-6,
+				OutputCostPerToken:      7.5e-6,
+				CacheReadInputTokenCost: 0.15e-6,
+			},
 			"gemini-2.5-flash": {
 				InputCostPerToken:           3e-6,
 				OutputCostPerToken:          5e-6,
@@ -240,11 +250,19 @@ func TestGetModelPricing_GeminiAntigravityPricingAliases(t *testing.T) {
 		canonical string
 	}{
 		{"gemini-pro-agent", "gemini-3.1-pro-high"},
-		{"gemini-3-flash-agent", "gemini-3-flash"},
+		{"gemini-3-flash-agent", "gemini-3.5-flash"},
+		{"gemini-3.7-flash-high", "gemini-3.7-flash"},
+		{"gemini-3.7-flash-medium", "gemini-3.7-flash"},
+		{"gemini-3.7-flash-low", "gemini-3.7-flash"},
+		{"gemini-3.7-flash-tiered", "gemini-3.7-flash"},
 		{"gemini-3.5-flash-high", "gemini-3.5-flash"},
 		{"gemini-3.5-flash-medium", "gemini-3.5-flash"},
 		{"gemini-3.5-flash-low", "gemini-3.5-flash"},
 		{"gemini-3.5-flash-extra-low", "gemini-3.5-flash"},
+		{"gemini-3.6-flash-high", "gemini-3.6-flash"},
+		{"gemini-3.6-flash-medium", "gemini-3.6-flash"},
+		{"gemini-3.6-flash-low", "gemini-3.6-flash"},
+		{"gemini-3.6-flash-tiered", "gemini-3.6-flash"},
 		{"gemini-2.5-flash-thinking", "gemini-2.5-flash"},
 	}
 
@@ -261,6 +279,58 @@ func TestGetModelPricing_GeminiAntigravityPricingAliases(t *testing.T) {
 			require.Equal(t, canonicalPricing.CacheCreationPricePerToken, aliasPricing.CacheCreationPricePerToken)
 			require.Equal(t, canonicalPricing.CacheReadPricePerToken, aliasPricing.CacheReadPricePerToken)
 			require.Equal(t, canonicalPricing.LongContextInputThreshold, aliasPricing.LongContextInputThreshold)
+		})
+	}
+}
+
+func TestBillingService_Gemini37FlashFallbackIsBillable(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, nil)
+	tokens := UsageTokens{
+		InputTokens:     1_000_000,
+		OutputTokens:    1_000_000,
+		CacheReadTokens: 1_000_000,
+	}
+
+	for _, model := range []string{
+		"gemini-3.7-flash",
+		"gemini-3.7-flash-high",
+		"gemini-3.7-flash-medium",
+		"gemini-3.7-flash-low",
+		"gemini-3.7-flash-tiered",
+	} {
+		t.Run(model, func(t *testing.T) {
+			cost, err := svc.CalculateCost(model, tokens, 1)
+			require.NoError(t, err)
+			require.InDelta(t, 0.75, cost.InputCost, 1e-12)
+			require.InDelta(t, 3.75, cost.OutputCost, 1e-12)
+			require.InDelta(t, 0.075, cost.CacheReadCost, 1e-12)
+			require.InDelta(t, 4.575, cost.TotalCost, 1e-12)
+		})
+	}
+}
+
+func TestBillingService_Gemini36FlashFallbackIsBillable(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, nil)
+	tokens := UsageTokens{
+		InputTokens:     1_000_000,
+		OutputTokens:    1_000_000,
+		CacheReadTokens: 1_000_000,
+	}
+
+	for _, model := range []string{
+		"gemini-3.6-flash",
+		"gemini-3.6-flash-high",
+		"gemini-3.6-flash-medium",
+		"gemini-3.6-flash-low",
+		"gemini-3.6-flash-tiered",
+	} {
+		t.Run(model, func(t *testing.T) {
+			cost, err := svc.CalculateCost(model, tokens, 1)
+			require.NoError(t, err)
+			require.InDelta(t, 1.5, cost.InputCost, 1e-12)
+			require.InDelta(t, 7.5, cost.OutputCost, 1e-12)
+			require.InDelta(t, 0.15, cost.CacheReadCost, 1e-12)
+			require.InDelta(t, 9.15, cost.TotalCost, 1e-12)
 		})
 	}
 }

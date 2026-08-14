@@ -478,6 +478,97 @@ func TestGetModelPricing_OpenAICompactAliasUsesStaticFallback(t *testing.T) {
 	require.InDelta(t, 1.5e-5, got.OutputCostPerToken, 1e-12)
 }
 
+func TestPricingService_Gemini37FlashTiersUseBasePricing(t *testing.T) {
+	basePricing := &LiteLLMModelPricing{
+		InputCostPerToken:       0.75e-6,
+		OutputCostPerToken:      3.75e-6,
+		CacheReadInputTokenCost: 0.075e-6,
+	}
+	svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"gemini-3.7-flash": basePricing,
+	}}
+
+	for _, model := range []string{
+		"gemini-3.7-flash",
+		"gemini-3.7-flash-high",
+		"gemini-3.7-flash-medium",
+		"gemini-3.7-flash-low",
+		"gemini-3.7-flash-tiered",
+		"models/gemini-3.7-flash-low",
+	} {
+		t.Run(model, func(t *testing.T) {
+			require.Same(t, basePricing, svc.GetModelPricing(model))
+		})
+	}
+}
+
+func TestPricingService_Gemini36FlashTiersUseBasePricing(t *testing.T) {
+	basePricing := &LiteLLMModelPricing{
+		InputCostPerToken:       1.5e-6,
+		OutputCostPerToken:      7.5e-6,
+		CacheReadInputTokenCost: 0.15e-6,
+	}
+	svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"gemini-3.6-flash": basePricing,
+	}}
+
+	for _, model := range []string{
+		"gemini-3.6-flash",
+		"gemini-3.6-flash-high",
+		"gemini-3.6-flash-medium",
+		"gemini-3.6-flash-low",
+		"gemini-3.6-flash-tiered",
+		"models/gemini-3.6-flash-low",
+	} {
+		t.Run(model, func(t *testing.T) {
+			require.Same(t, basePricing, svc.GetModelPricing(model))
+		})
+	}
+}
+
+func TestPricingService_Gemini36FlashExactTierPriceWins(t *testing.T) {
+	basePricing := &LiteLLMModelPricing{InputCostPerToken: 1.5e-6}
+	tierPricing := &LiteLLMModelPricing{InputCostPerToken: 2e-6}
+	svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"gemini-3.6-flash":     basePricing,
+		"gemini-3.6-flash-low": tierPricing,
+	}}
+
+	require.Same(t, tierPricing, svc.GetModelPricing("models/gemini-3.6-flash-low"))
+}
+
+func TestDefaultPricingIncludesGemini37Flash(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
+	require.NoError(t, err)
+
+	svc := &PricingService{}
+	pricingData, err := svc.parsePricingData(data)
+	require.NoError(t, err)
+	svc.pricingData = pricingData
+
+	got := svc.GetModelPricing("gemini-3.7-flash-medium")
+	require.NotNil(t, got)
+	require.InDelta(t, 0.75e-6, got.InputCostPerToken, 1e-12)
+	require.InDelta(t, 3.75e-6, got.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 0.075e-6, got.CacheReadInputTokenCost, 1e-12)
+}
+
+func TestDefaultPricingIncludesGemini36Flash(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
+	require.NoError(t, err)
+
+	svc := &PricingService{}
+	pricingData, err := svc.parsePricingData(data)
+	require.NoError(t, err)
+	svc.pricingData = pricingData
+
+	got := svc.GetModelPricing("gemini-3.6-flash-high")
+	require.NotNil(t, got)
+	require.InDelta(t, 1.5e-6, got.InputCostPerToken, 1e-12)
+	require.InDelta(t, 7.5e-6, got.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 0.15e-6, got.CacheReadInputTokenCost, 1e-12)
+}
+
 func TestDefaultPricingIncludesCodexAutoReview(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
 	require.NoError(t, err)

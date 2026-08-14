@@ -127,6 +127,7 @@ security:
       - "opencode.ai"
       - "api.cline.bot"
       - "generativelanguage.googleapis.com"
+      - "daily-cloudcode-pa.googleapis.com"
       - "cloudcode-pa.googleapis.com"
       - "*.openai.azure.com"
     # Allowed hosts for pricing data download

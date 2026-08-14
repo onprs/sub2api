@@ -412,8 +412,8 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_Antigra
 
 	repo := &mockAccountRepoForGemini{
 		accounts: []Account{
-			{ID: 1, Platform: PlatformGemini, Priority: 1, Status: StatusActive, Schedulable: true},      // 应被隔离
-			{ID: 2, Platform: PlatformAntigravity, Priority: 1, Status: StatusActive, Schedulable: true}, // 应被选择
+			{ID: 1, Platform: PlatformGemini, Priority: 1, Status: StatusActive, Schedulable: true},                              // 应被隔离
+			{ID: 2, Platform: PlatformAntigravity, Type: AccountTypeOAuth, Priority: 1, Status: StatusActive, Schedulable: true}, // 应被选择
 		},
 		accountsByID: map[int64]*Account{},
 	}
@@ -636,11 +636,11 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_ForcePl
 		},
 		listByPlatformFunc: func(ctx context.Context, platforms []string) ([]Account, error) {
 			return []Account{
-				{ID: 1, Platform: PlatformAntigravity, Priority: 1, Status: StatusActive, Schedulable: true},
+				{ID: 1, Platform: PlatformAntigravity, Type: AccountTypeOAuth, Priority: 1, Status: StatusActive, Schedulable: true},
 			}, nil
 		},
 		accountsByID: map[int64]*Account{
-			1: {ID: 1, Platform: PlatformAntigravity, Priority: 1, Status: StatusActive, Schedulable: true},
+			1: {ID: 1, Platform: PlatformAntigravity, Type: AccountTypeOAuth, Priority: 1, Status: StatusActive, Schedulable: true},
 		},
 	}
 
@@ -698,7 +698,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_StickyM
 	ctx := context.Background()
 	repo := &mockAccountRepoForGemini{
 		accounts: []Account{
-			{ID: 1, Platform: PlatformAntigravity, Priority: 1, Status: StatusActive, Schedulable: true, Extra: map[string]any{"mixed_scheduling": true}},
+			{ID: 1, Platform: PlatformAntigravity, Type: AccountTypeOAuth, Priority: 1, Status: StatusActive, Schedulable: true, Extra: map[string]any{"mixed_scheduling": true}},
 			{ID: 2, Platform: PlatformGemini, Priority: 2, Status: StatusActive, Schedulable: true},
 		},
 		accountsByID: map[int64]*Account{},
@@ -910,25 +910,25 @@ func TestGeminiMessagesCompatService_isModelSupportedByAccount(t *testing.T) {
 	}{
 		{
 			name:     "Antigravity平台-支持gemini模型",
-			account:  &Account{Platform: PlatformAntigravity},
+			account:  &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth},
 			model:    "gemini-2.5-flash",
 			expected: true,
 		},
 		{
 			name:     "Antigravity平台-支持claude模型",
-			account:  &Account{Platform: PlatformAntigravity},
+			account:  &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth},
 			model:    "claude-sonnet-4-5",
 			expected: true,
 		},
 		{
 			name:     "Antigravity平台-不支持gpt模型",
-			account:  &Account{Platform: PlatformAntigravity},
+			account:  &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth},
 			model:    "gpt-4",
 			expected: false,
 		},
 		{
 			name:     "Antigravity平台-空模型允许",
-			account:  &Account{Platform: PlatformAntigravity},
+			account:  &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth},
 			model:    "",
 			expected: true,
 		},

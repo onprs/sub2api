@@ -6,8 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -96,8 +98,8 @@ func TestForwardBaseURLs_Daily优先(t *testing.T) {
 	}
 
 	// daily URL 应排在第一位
-	if urls[0] != antigravityDailyBaseURL {
-		t.Errorf("第一个 URL 应为 daily: got %s, want %s", urls[0], antigravityDailyBaseURL)
+	if urls[0] != DailyBaseURL {
+		t.Errorf("第一个 URL 应为 daily: got %s, want %s", urls[0], DailyBaseURL)
 	}
 
 	// 应包含所有 URL
@@ -108,7 +110,7 @@ func TestForwardBaseURLs_Daily优先(t *testing.T) {
 	// 验证 prod URL 也在列表中
 	found := false
 	for _, u := range urls {
-		if u == antigravityProdBaseURL {
+		if u == ProductionBaseURL {
 			found = true
 			break
 		}
@@ -690,8 +692,21 @@ func TestConstants_值正确(t *testing.T) {
 	if RedirectURI != "http://localhost:8085/callback" {
 		t.Errorf("RedirectURI 不匹配: got %s", RedirectURI)
 	}
-	if GetUserAgent() != "antigravity/1.23.2 windows/amd64" {
-		t.Errorf("UserAgent 不匹配: got %s", GetUserAgent())
+	wantDefaultUA := fmt.Sprintf(
+		"antigravity/cli/1.1.13 (aidev_client; os_type=%s; arch=%s; cl=964361259; auth_method=consumer)",
+		runtime.GOOS,
+		runtime.GOARCH,
+	)
+	if GetUserAgent() != wantDefaultUA {
+		t.Errorf("UserAgent 不匹配: got %s, want %s", GetUserAgent(), wantDefaultUA)
+	}
+	wantCustomUA := fmt.Sprintf(
+		"antigravity/cli/2.0.0 (aidev_client; os_type=%s; arch=%s; cl=964361259; auth_method=consumer)",
+		runtime.GOOS,
+		runtime.GOARCH,
+	)
+	if got := BuildUserAgent("2.0.0"); got != wantCustomUA {
+		t.Errorf("自定义 UserAgent 不匹配: got %s, want %s", got, wantCustomUA)
 	}
 	if SessionTTL != 30*time.Minute {
 		t.Errorf("SessionTTL 不匹配: got %v", SessionTTL)

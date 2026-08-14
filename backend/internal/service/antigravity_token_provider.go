@@ -81,8 +81,8 @@ func (p *AntigravityTokenProvider) GetAccessToken(ctx context.Context, account *
 		}
 		return apiKey, nil
 	}
-	if account.Type != AccountTypeOAuth {
-		return "", errors.New("not an antigravity oauth account")
+	if account.Type != AccountTypeOAuth && account.Type != AccountTypeSetupToken {
+		return "", errors.New("not an antigravity oauth or setup-token account")
 	}
 
 	cacheKey := AntigravityTokenCacheKey(account)
@@ -94,9 +94,9 @@ func (p *AntigravityTokenProvider) GetAccessToken(ctx context.Context, account *
 		}
 	}
 
-	// 2) Refresh if needed (pre-expiry skew).
+	// 2) OAuth 账号按过期窗口刷新；Setup Token 没有 refresh_token，直接使用现有 access_token。
 	expiresAt := account.GetCredentialAsTime("expires_at")
-	needsRefresh := expiresAt == nil || time.Until(*expiresAt) <= antigravityTokenRefreshSkew
+	needsRefresh := account.Type == AccountTypeOAuth && (expiresAt == nil || time.Until(*expiresAt) <= antigravityTokenRefreshSkew)
 	if needsRefresh && p.refreshAPI != nil && p.executor != nil {
 		// 请求路径使用短超时，避免代理不通时阻塞过久（后台刷新服务会继续重试）
 		refreshCtx, cancel := context.WithTimeout(ctx, antigravityRequestRefreshTimeout)

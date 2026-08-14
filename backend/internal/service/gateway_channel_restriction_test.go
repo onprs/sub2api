@@ -41,8 +41,9 @@ func TestResolveAccountUpstreamModel_Antigravity(t *testing.T) {
 	t.Parallel()
 	account := &Account{
 		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
 	}
-	// Antigravity 平台使用 DefaultAntigravityModelMapping
+	// 官方 OAuth 账号使用 DefaultAntigravityModelMapping
 	got := resolveAccountUpstreamModel(account, "claude-sonnet-4-6")
 	require.Equal(t, "claude-sonnet-4-6", got)
 }
@@ -51,6 +52,7 @@ func TestResolveAccountUpstreamModel_Antigravity_Unsupported(t *testing.T) {
 	t.Parallel()
 	account := &Account{
 		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
 	}
 	got := resolveAccountUpstreamModel(account, "totally-unknown-model")
 	require.Equal(t, "", got, "unsupported model should return empty")
@@ -246,8 +248,8 @@ func TestIsUpstreamModelRestrictedByChannel_Restricted(t *testing.T) {
 	channelSvc := newTestChannelService(makeStandardRepo(ch, map[int64]string{10: "anthropic"}))
 	svc := &GatewayService{channelService: channelSvc}
 
-	account := &Account{Platform: PlatformAntigravity}
-	// claude-sonnet-4-6 在 DefaultAntigravityModelMapping 中，映射后仍为 claude-sonnet-4-6
+	account := &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth}
+	// claude-sonnet-4-6 在官方 OAuth 默认映射中，映射后仍为 claude-sonnet-4-6
 	// 但定价列表只有 claude-opus-4-6
 	require.True(t, svc.isUpstreamModelRestrictedByChannel(context.Background(), 10, account, "claude-sonnet-4-6"),
 		"upstream model claude-sonnet-4-6 NOT in pricing → restricted")
@@ -267,7 +269,7 @@ func TestIsUpstreamModelRestrictedByChannel_Allowed(t *testing.T) {
 	channelSvc := newTestChannelService(makeStandardRepo(ch, map[int64]string{10: "anthropic"}))
 	svc := &GatewayService{channelService: channelSvc}
 
-	account := &Account{Platform: PlatformAntigravity}
+	account := &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth}
 	require.False(t, svc.isUpstreamModelRestrictedByChannel(context.Background(), 10, account, "claude-sonnet-4-6"),
 		"upstream model claude-sonnet-4-6 IS in pricing → allowed")
 }
@@ -286,8 +288,8 @@ func TestIsUpstreamModelRestrictedByChannel_UnsupportedModel(t *testing.T) {
 	channelSvc := newTestChannelService(makeStandardRepo(ch, map[int64]string{10: "anthropic"}))
 	svc := &GatewayService{channelService: channelSvc}
 
-	account := &Account{Platform: PlatformAntigravity}
-	// totally-unknown-model 不在 DefaultAntigravityModelMapping 中 → 映射结果为空
+	account := &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth}
+	// totally-unknown-model 不在官方 OAuth 默认映射中 → 映射结果为空
 	require.False(t, svc.isUpstreamModelRestrictedByChannel(context.Background(), 10, account, "totally-unknown-model"),
 		"unmappable model → upstream model empty → not restricted (account filter handles this)")
 }

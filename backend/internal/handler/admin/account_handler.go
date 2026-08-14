@@ -2355,10 +2355,10 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	// Handle Antigravity accounts: return Claude + Gemini models
+	// Antigravity 账号按类型读取目录：官方 OAuth/Setup Token 使用 daily 实时目录，
+	// API-Key/upstream 转发账号使用自身兼容上游的 /v1/models。
 	if account.Platform == service.PlatformAntigravity {
-		// 直接复用 antigravity.DefaultModels()，与 /v1/models 端点保持同步
-		response.Success(c, antigravity.DefaultModels())
+		response.Success(c, h.antigravityAccountModels(c.Request.Context(), account))
 		return
 	}
 
@@ -2461,6 +2461,96 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	}
 
 	response.Success(c, models)
+}
+
+func (h *AccountHandler) antigravityAccountModels(ctx context.Context, account *service.Account) []antigravity.CatalogModel {
+	if account == nil {
+		return nil
+	}
+	if account.IsOAuth() {
+		if h.accountTestService != nil {
+			models, err := h.accountTestService.FetchAntigravityAccountCatalog(ctx, account)
+			if err == nil && len(models) > 0 {
+				return models
+			}
+			if err != nil {
+				slog.Warn("antigravity_account_catalog_fallback", "account_id", account.ID)
+			}
+		}
+		return applyAntigravityCatalogRoutes(account, antigravity.FallbackCatalogModels())
+	}
+
+	if h.accountTestService != nil {
+		ids, err := h.accountTestService.FetchUpstreamSupportedModels(ctx, account)
+		if err == nil && len(ids) > 0 {
+			models := make([]antigravity.CatalogModel, 0, len(ids))
+			for _, id := range ids {
+				id = strings.TrimSpace(id)
+				if id == "" {
+					continue
+				}
+				wireModel := id
+				if mapped, matched := account.ResolveExplicitMappedModel(id); matched {
+					wireModel = mapped
+				}
+				models = append(models, antigravity.CatalogModel{
+					ID:          id,
+					CatalogID:   id,
+					Type:        "model",
+					DisplayName: id,
+					WireModel:   strings.TrimSpace(wireModel),
+					Source:      antigravity.CatalogSourceUpstream,
+				})
+			}
+			return models
+		}
+	}
+
+	mapping := account.GetExplicitModelMapping()
+	ids := make([]string, 0, len(mapping))
+	for id := range mapping {
+		if !strings.Contains(id, "*") {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	models := make([]antigravity.CatalogModel, 0, len(ids))
+	for _, id := range ids {
+		wireModel, _ := account.ResolveExplicitMappedModel(id)
+		models = append(models, antigravity.CatalogModel{
+			ID:          id,
+			CatalogID:   id,
+			Type:        "model",
+			DisplayName: id,
+			WireModel:   strings.TrimSpace(wireModel),
+			Source:      antigravity.CatalogSourceMapping,
+		})
+	}
+	return models
+}
+
+func applyAntigravityCatalogRoutes(account *service.Account, models []antigravity.CatalogModel) []antigravity.CatalogModel {
+	for i := range models {
+		route, ok := account.ResolveAntigravityRoute(models[i].ID)
+		if !ok {
+			models[i].WireModel = ""
+			continue
+		}
+		originalWire := models[i].WireModel
+		models[i].WireModel = route.WireModel
+		if originalWire == "" || originalWire == route.WireModel {
+			continue
+		}
+		models[i].InternalModel = route.InternalModel
+		models[i].ResponseModel = route.ResponseModel
+		models[i].BackendModel = route.BackendModel
+		models[i].ThinkingBudget = nil
+		if route.HasThinkingBudget {
+			budget := route.ThinkingBudget
+			models[i].ThinkingBudget = &budget
+		}
+	}
+	return models
 }
 
 func clinePassAvailableModels(account *service.Account) []openai.Model {

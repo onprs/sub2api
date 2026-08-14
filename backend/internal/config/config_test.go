@@ -463,6 +463,8 @@ func TestLoadDefaultSecurityToggles(t *testing.T) {
 	if !cfg.Security.URLAllowlist.AllowOpenAIAPIKeyCustomHosts {
 		t.Fatalf("URLAllowlist.AllowOpenAIAPIKeyCustomHosts = false, want true")
 	}
+	require.Contains(t, cfg.Security.URLAllowlist.UpstreamHosts, "daily-cloudcode-pa.googleapis.com")
+	require.Contains(t, cfg.Security.URLAllowlist.UpstreamHosts, "cloudcode-pa.googleapis.com")
 	if !cfg.Security.ResponseHeaders.Enabled {
 		t.Fatalf("ResponseHeaders.Enabled = false, want true")
 	}

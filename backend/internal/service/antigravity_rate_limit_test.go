@@ -23,9 +23,11 @@ var _ AccountRepository = (*stubAntigravityAccountRepo)(nil)
 var _ SchedulerCache = (*stubSchedulerCache)(nil)
 
 type stubAntigravityUpstream struct {
-	firstBase  string
-	secondBase string
-	calls      []string
+	firstBase   string
+	secondBase  string
+	firstBody   string
+	firstStatus int
+	calls       []string
 }
 
 type recordingOKUpstream struct {
@@ -49,10 +51,18 @@ func (s *stubAntigravityUpstream) Do(req *http.Request, proxyURL string, account
 	url := req.URL.String()
 	s.calls = append(s.calls, url)
 	if strings.HasPrefix(url, s.firstBase) {
+		status := s.firstStatus
+		if status == 0 {
+			status = http.StatusTooManyRequests
+		}
+		body := s.firstBody
+		if body == "" {
+			body = `{"error":{"message":"Resource has been exhausted"}}`
+		}
 		return &http.Response{
-			StatusCode: http.StatusTooManyRequests,
+			StatusCode: status,
 			Header:     http.Header{},
-			Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"Resource has been exhausted"}}`)),
+			Body:       io.NopCloser(strings.NewReader(body)),
 		}, nil
 	}
 	return &http.Response{
@@ -104,7 +114,54 @@ func (s *stubAntigravityAccountRepo) UpdateExtra(ctx context.Context, id int64, 
 	return nil
 }
 
-func TestAntigravityRetryLoop_NoURLFallback_UsesConfiguredBaseURL(t *testing.T) {
+func TestAntigravityRetryLoop_Generic429FallbackPrecedesCustomErrorPolicy(t *testing.T) {
+	t.Setenv(antigravityForwardBaseURLEnv, "")
+
+	oldBaseURLs := append([]string(nil), antigravity.BaseURLs...)
+	t.Cleanup(func() { antigravity.BaseURLs = oldBaseURLs })
+	base1 := "https://daily.test"
+	base2 := "https://production.test"
+	antigravity.BaseURLs = []string{base1, base2}
+
+	upstream := &stubAntigravityUpstream{firstBase: base1, secondBase: base2}
+	account := &Account{
+		ID:          2,
+		Name:        "custom-policy",
+		Platform:    PlatformAntigravity,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"custom_error_codes_enabled": true,
+			"custom_error_codes":         []any{float64(http.StatusTooManyRequests)},
+		},
+	}
+
+	svc := &AntigravityGatewayService{rateLimitService: &RateLimitService{}}
+	result, err := svc.antigravityRetryLoop(antigravityRetryLoopParams{
+		prefix:         "[test]",
+		ctx:            context.Background(),
+		account:        account,
+		accessToken:    "token",
+		action:         "generateContent",
+		body:           []byte(`{"input":"test"}`),
+		httpUpstream:   upstream,
+		requestedModel: "claude-sonnet-4-5",
+		handleError: func(context.Context, string, *Account, int, http.Header, []byte, string, int64, string, bool) *handleModelRateLimitResult {
+			return nil
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.resp)
+	defer func() { _ = result.resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, result.resp.StatusCode)
+	require.Len(t, upstream.calls, 2)
+	require.True(t, strings.HasPrefix(upstream.calls[0], base1))
+	require.True(t, strings.HasPrefix(upstream.calls[1], base2))
+}
+
+func TestAntigravityRetryLoop_Detailed429DoesNotFallback(t *testing.T) {
 	t.Setenv(antigravityForwardBaseURLEnv, "")
 
 	oldBaseURLs := append([]string(nil), antigravity.BaseURLs...)
@@ -119,7 +176,12 @@ func TestAntigravityRetryLoop_NoURLFallback_UsesConfiguredBaseURL(t *testing.T) 
 	antigravity.BaseURLs = []string{base1, base2}
 	antigravity.DefaultURLAvailability = antigravity.NewURLAvailability(time.Minute)
 
-	upstream := &stubAntigravityUpstream{firstBase: base1, secondBase: base2}
+	upstream := &stubAntigravityUpstream{
+		firstBase:   base1,
+		secondBase:  base2,
+		firstBody:   `{"error":{"code":429,"message":"Resource has been exhausted","status":"RESOURCE_EXHAUSTED","details":[{"quotaMetric":"generativelanguage.googleapis.com/generate_content"}]}}`,
+		firstStatus: http.StatusTooManyRequests,
+	}
 	account := &Account{
 		ID:          1,
 		Name:        "acc-1",
@@ -214,7 +276,7 @@ func TestHandleUpstreamError_429_NonModelRateLimit(t *testing.T) {
 func TestHandleUpstreamError_429_NonModelRateLimit_UsesMappedModelKey(t *testing.T) {
 	repo := &stubAntigravityAccountRepo{}
 	svc := &AntigravityGatewayService{accountRepo: repo}
-	account := &Account{ID: 20, Name: "acc-20", Platform: PlatformAntigravity}
+	account := &Account{ID: 20, Name: "acc-20", Platform: PlatformAntigravity, Type: AccountTypeOAuth}
 
 	body := buildGeminiRateLimitBody("5s")
 
@@ -872,6 +934,7 @@ func TestAntigravityRetryLoop_PreCheck_SwitchesWhenRateLimited(t *testing.T) {
 		ID:          1,
 		Name:        "acc-1",
 		Platform:    PlatformAntigravity,
+		Type:        AccountTypeOAuth,
 		Schedulable: true,
 		Status:      StatusActive,
 		Concurrency: 1,
@@ -915,6 +978,7 @@ func TestAntigravityRetryLoop_PreCheck_SwitchesWhenRemainingLong(t *testing.T) {
 		ID:          2,
 		Name:        "acc-2",
 		Platform:    PlatformAntigravity,
+		Type:        AccountTypeOAuth,
 		Schedulable: true,
 		Status:      StatusActive,
 		Concurrency: 1,
@@ -1005,6 +1069,25 @@ func TestIsAntigravityAccountSwitchError(t *testing.T) {
 			} else {
 				require.Nil(t, switchErr)
 			}
+		})
+	}
+}
+
+func TestResolveAntigravityForwardBaseURLs_ExplicitModesDoNotFallback(t *testing.T) {
+	tests := []struct {
+		mode string
+		want string
+	}{
+		{mode: "daily", want: antigravity.DailyBaseURL},
+		{mode: "prod", want: antigravity.ProductionBaseURL},
+		{mode: "production", want: antigravity.ProductionBaseURL},
+		{mode: "sandbox", want: antigravity.SandboxBaseURL},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.mode, func(t *testing.T) {
+			t.Setenv(antigravityForwardBaseURLEnv, tt.mode)
+			require.Equal(t, []string{tt.want}, resolveAntigravityForwardBaseURLs())
 		})
 	}
 }

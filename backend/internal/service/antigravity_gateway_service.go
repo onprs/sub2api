@@ -258,44 +258,20 @@ func (s *AntigravityGatewayService) handleAntigravityModelRateLimitBeforePolicy(
 	return true
 }
 
-// mapAntigravityModel 获取映射后的模型名
-// 完全依赖映射配置：账户映射（通配符）→ 默认映射兜底（DefaultAntigravityModelMapping）
-// 注意：返回空字符串表示模型不被支持，调度时会过滤掉该账号
+// mapAntigravityModel 获取实际发送给官方 Antigravity 上游的 wire model。
+// 官方目录路由由系统内置，账号 model_mapping 只用于自定义别名或显式覆盖。
 func mapAntigravityModel(account *Account, requestedModel string) string {
 	if account == nil {
 		return ""
 	}
-	requestedModel = strings.TrimPrefix(requestedModel, "models/")
-
-	// 获取映射表（未配置时自动使用 DefaultAntigravityModelMapping）
-	mapping := account.GetModelMapping()
-	if len(mapping) == 0 {
-		return "" // 无映射配置（非 Antigravity 平台）
+	mapped, ok := account.ResolveAntigravityModel(requestedModel)
+	if !ok {
+		return ""
 	}
-
-	// 通过映射表查询（支持精确匹配 + 通配符）
-	mapped := account.GetMappedModel(requestedModel)
-
-	// 判断是否映射成功（mapped != requestedModel 说明找到了映射规则）
-	if mapped != requestedModel {
-		return mapped
-	}
-
-	// 如果 mapped == requestedModel，检查是否在映射表中配置（精确或通配符）
-	// 这区分两种情况：
-	// 1. 映射表中有 "model-a": "model-a"（显式透传）→ 返回 model-a
-	// 2. 通配符匹配 "claude-*": "claude-sonnet-4-5" 恰好目标等于请求名 → 返回 model-a
-	// 3. 映射表中没有 model-a 的配置 → 返回空（不支持）
-	if account.IsModelSupported(requestedModel) {
-		return requestedModel
-	}
-
-	// 未在映射表中配置的模型，返回空字符串（不支持）
-	return ""
+	return mapped
 }
 
 // getMappedModel 获取映射后的模型名
-// 完全依赖映射配置：账户映射（通配符）→ 默认映射兜底
 func (s *AntigravityGatewayService) getMappedModel(account *Account, requestedModel string) string {
 	return mapAntigravityModel(account, requestedModel)
 }

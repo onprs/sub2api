@@ -21,7 +21,7 @@ func TestConvertRequestRequiresExplicitFamilyAndEnvelopeFields(t *testing.T) {
 func TestConvertClaudeFamilyUsesVendorTransformer(t *testing.T) {
 	body := []byte(`{"model":"client-model","max_tokens":100,"system":"stable","messages":[{"role":"user","content":"hello"}]}`)
 	converted, warnings, err := ConvertRequest(body, protocolconv.ProtocolAnthropic, Options{
-		Family: FamilyClaude, ProjectID: "project-1", MappedModel: "claude-sonnet-4-6",
+		Family: FamilyClaude, ProjectID: "project-1", SourceModel: "claude-sonnet-4-6", WireModel: "claude-sonnet-4-6",
 	})
 	require.NoError(t, err)
 	require.Empty(t, warnings)
@@ -45,7 +45,7 @@ func TestConvertClaudeFamilyRestoresGoogleToolSignaturesByID(t *testing.T) {
 		]
 	}`)
 	converted, warnings, err := ConvertRequest(body, protocolconv.ProtocolGoogleGenAI, Options{
-		Family: FamilyClaude, ProjectID: "project-1", MappedModel: "claude-sonnet-4-6",
+		Family: FamilyClaude, ProjectID: "project-1", SourceModel: "claude-sonnet-4-6", WireModel: "claude-sonnet-4-6",
 	})
 	require.NoError(t, err)
 	require.Empty(t, warnings)
@@ -53,7 +53,7 @@ func TestConvertClaudeFamilyRestoresGoogleToolSignaturesByID(t *testing.T) {
 	require.Equal(t, "signature-b", gjson.GetBytes(converted, "request.contents.0.parts.1.thoughtSignature").String())
 
 	converted, warnings, err = ConvertRequest(body, protocolconv.ProtocolGoogleGenAI, Options{
-		Family: FamilyClaude, ProjectID: "project-1", MappedModel: "claude-sonnet-4-6", RectifySignatures: true,
+		Family: FamilyClaude, ProjectID: "project-1", SourceModel: "claude-sonnet-4-6", WireModel: "claude-sonnet-4-6", RectifySignatures: true,
 	})
 	require.NoError(t, err)
 	require.Empty(t, warnings)
@@ -70,13 +70,14 @@ func TestConvertGeminiFamilyAppliesVendorPolicyOnlyInAdapter(t *testing.T) {
 		"tools":[{"functionDeclarations":[{"name":"read","parameters":{"type":"object","$defs":{"unused":{"type":"string"}},"additionalProperties":false}}]}]
 	}`)
 	converted, warnings, err := ConvertRequest(body, protocolconv.ProtocolGoogleGenAI, Options{
-		Family: FamilyGemini, ProjectID: "project-1", MappedModel: "gemini-3.1-pro-high",
+		Family: FamilyGemini, ProjectID: "project-1", SourceModel: "gemini-3.1-pro-high", WireModel: "gemini-pro-agent",
 		RectifySignatures: true, RequestID: "request-1", UserAgent: "test-agent",
 	})
 	require.NoError(t, err)
 	require.Empty(t, warnings)
 	require.Equal(t, "request-1", gjson.GetBytes(converted, "requestId").String())
 	require.Equal(t, "test-agent", gjson.GetBytes(converted, "userAgent").String())
+	require.Equal(t, "gemini-pro-agent", gjson.GetBytes(converted, "model").String())
 	require.Contains(t, gjson.GetBytes(converted, "request.systemInstruction.parts.0.text").String(), "<identity>")
 	require.Equal(t, dummyThoughtSignature, gjson.GetBytes(converted, "request.contents.1.parts.0.thoughtSignature").String())
 	require.False(t, gjson.GetBytes(converted, "request.tools.0.functionDeclarations.0.parameters.$defs").Exists())
@@ -91,7 +92,7 @@ func TestConvertGeminiFamilyAppliesVendorPolicyOnlyInAdapter(t *testing.T) {
 
 func TestConvertRequestFromChatToGeminiFamily(t *testing.T) {
 	body := []byte(`{"model":"alias","messages":[{"role":"user","content":"hello"}]}`)
-	converted, _, err := ConvertRequest(body, protocolconv.ProtocolOpenAIChat, Options{Family: FamilyGemini, ProjectID: "project-1", MappedModel: "gemini-3-flash", RequestID: "request-1", UserAgent: "test"})
+	converted, _, err := ConvertRequest(body, protocolconv.ProtocolOpenAIChat, Options{Family: FamilyGemini, ProjectID: "project-1", SourceModel: "gemini-3-flash", WireModel: "gemini-3-flash", RequestID: "request-1", UserAgent: "test"})
 	require.NoError(t, err)
 	var value map[string]any
 	require.NoError(t, json.Unmarshal(converted, &value))

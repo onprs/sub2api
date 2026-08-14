@@ -81,7 +81,7 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 		return nil, newUpstreamModelSyncConfigError("Account is required", nil)
 	}
 
-	if account.Platform == PlatformAntigravity && account.Type != AccountTypeAPIKey {
+	if account.Platform == PlatformAntigravity && account.IsOAuth() {
 		return s.fetchAntigravityOAuthUpstreamModels(ctx, account)
 	}
 	if account.IsClinePassAPIKey() {
@@ -225,7 +225,7 @@ func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Con
 }
 
 func (s *AccountTestService) buildAntigravityAPIKeyModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
-	if account.Type != AccountTypeAPIKey {
+	if account.Type != AccountTypeAPIKey && account.Type != AccountTypeUpstream {
 		return nil, newUpstreamModelSyncUnsupportedError(
 			fmt.Sprintf("Unsupported Antigravity account type for upstream model sync: %s", account.Type), nil,
 		)
@@ -237,9 +237,9 @@ func (s *AccountTestService) buildAntigravityAPIKeyModelsRequest(ctx context.Con
 
 	baseURL := strings.TrimRight(strings.TrimSpace(account.GetCredential("base_url")), "/")
 	if baseURL == "" {
-		return nil, newUpstreamModelSyncConfigError("Antigravity API-key base URL is required for upstream model sync", nil)
+		return nil, newUpstreamModelSyncConfigError("Antigravity base URL is required for upstream model sync", nil)
 	}
-	if !strings.HasSuffix(strings.ToLower(baseURL), "/antigravity") {
+	if account.Type == AccountTypeAPIKey && !strings.HasSuffix(strings.ToLower(baseURL), "/antigravity") {
 		return nil, newUpstreamModelSyncUnsupportedError(
 			"Antigravity API-key upstream model sync requires a compatible gateway base URL ending in /antigravity; use Antigravity OAuth for official Cloud Code upstreams",
 			nil,
@@ -368,7 +368,13 @@ func (s *AccountTestService) buildGeminiUpstreamModelsRequest(ctx context.Contex
 	return req, nil
 }
 
-func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Context, account *Account) ([]string, error) {
+func (s *AccountTestService) FetchAntigravityAccountCatalog(ctx context.Context, account *Account) ([]antigravity.CatalogModel, error) {
+	if s == nil {
+		return nil, newUpstreamModelSyncConfigError("Account test service is not configured", nil)
+	}
+	if account == nil || account.Platform != PlatformAntigravity || !account.IsOAuth() {
+		return nil, newUpstreamModelSyncUnsupportedError("Antigravity live catalog requires an OAuth or setup-token account", nil)
+	}
 	if s.antigravityGatewayService == nil || s.antigravityGatewayService.GetTokenProvider() == nil {
 		return nil, newUpstreamModelSyncConfigError("Antigravity token provider is not configured", nil)
 	}
@@ -382,21 +388,54 @@ func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Con
 		return nil, newUpstreamModelSyncConfigError("No Antigravity access token is available", nil)
 	}
 
+	projectID, err := resolveAntigravityProjectID(account)
+	if err != nil {
+		return nil, newUpstreamModelSyncConfigError("Antigravity project ID is required", err)
+	}
 	client, err := antigravity.NewClient(upstreamModelsProxyURL(account))
 	if err != nil {
 		return nil, newUpstreamModelSyncConfigError("Failed to configure Antigravity client", err)
 	}
-	modelsResp, _, err := client.FetchAvailableModels(ctx, accessToken, strings.TrimSpace(account.GetCredential("project_id")))
+	modelsResp, raw, err := client.FetchAvailableModels(ctx, accessToken, projectID)
 	if err != nil {
 		return nil, newUpstreamModelSyncUpstreamError("Failed to fetch Antigravity available models", err)
 	}
-	if modelsResp == nil || len(modelsResp.Models) == 0 {
+
+	models := antigravity.CatalogModelsFromResponse(modelsResp, raw)
+	if len(models) == 0 {
 		return nil, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", nil)
 	}
+	for i := range models {
+		route, ok := account.ResolveAntigravityRoute(models[i].ID)
+		if !ok {
+			models[i].WireModel = ""
+			continue
+		}
+		originalWire := models[i].WireModel
+		models[i].WireModel = route.WireModel
+		if originalWire == route.WireModel {
+			continue
+		}
+		models[i].InternalModel = route.InternalModel
+		models[i].ResponseModel = route.ResponseModel
+		models[i].BackendModel = route.BackendModel
+		models[i].ThinkingBudget = nil
+		if route.HasThinkingBudget {
+			budget := route.ThinkingBudget
+			models[i].ThinkingBudget = &budget
+		}
+	}
+	return models, nil
+}
 
-	models := make([]string, 0, len(modelsResp.Models))
-	for modelID := range modelsResp.Models {
-		models = append(models, strings.TrimSpace(modelID))
+func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Context, account *Account) ([]string, error) {
+	catalog, err := s.FetchAntigravityAccountCatalog(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	models := make([]string, 0, len(catalog))
+	for _, model := range catalog {
+		models = append(models, model.ID)
 	}
 	return dedupeAndSortModelIDs(models), nil
 }

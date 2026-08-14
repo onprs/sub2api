@@ -65,6 +65,34 @@ func TestDefaultAntigravityModelMapping_Gemini31ProAliases(t *testing.T) {
 	}
 }
 
+func TestAntigravityUserModelRoutes_SeparatesCatalogWireAndFingerprint(t *testing.T) {
+	t.Parallel()
+
+	routes := AntigravityUserModelRoutes()
+	if len(routes) != 14 {
+		t.Fatalf("unexpected agy route count: got %d want 14", len(routes))
+	}
+
+	byID := make(map[string]AntigravityModelRoute, len(routes))
+	for _, route := range routes {
+		byID[route.ModelID] = route
+	}
+
+	high := byID["gemini-3.7-flash-high"]
+	if high.CatalogIDs[0] != "gemini-3.7-flash-tiered" || high.WireModel != "gemini-3.7-flash-high" || high.InternalModel != "MODEL_PLACEHOLDER_M298" {
+		t.Fatalf("unexpected Gemini 3.7 High route: %+v", high)
+	}
+	if got := byID["gemini-3.5-flash-medium"].WireModel; got != "gemini-3.5-flash-low" {
+		t.Fatalf("unexpected Gemini 3.5 Medium wire: %q", got)
+	}
+	if got := DefaultAntigravityModelMapping["gemini-3.5-flash-low"]; got != "gemini-3.5-flash-extra-low" {
+		t.Fatalf("public Gemini 3.5 Low must win over the historical raw key: %q", got)
+	}
+	if _, ok := DefaultAntigravityModelMapping["MODEL_PLACEHOLDER_M298"]; ok {
+		t.Fatal("internal model fingerprint must not become a request alias")
+	}
+}
+
 func TestDefaultBedrockModelMapping_ContainsNewClaudeModels(t *testing.T) {
 	t.Parallel()
 

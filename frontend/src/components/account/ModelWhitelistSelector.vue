@@ -205,7 +205,7 @@ const availableOptions = computed(() => {
     }
   }
 
-  return allModels.filter(model => allowedModels.has(model.value))
+  return Array.from(allowedModels, model => ({ value: model, label: model }))
 })
 
 const filteredModels = computed(() => {

@@ -1691,6 +1691,7 @@ func setDefaults() {
 		"opencode.ai",
 		"api.cline.bot",
 		"generativelanguage.googleapis.com",
+		"daily-cloudcode-pa.googleapis.com",
 		"cloudcode-pa.googleapis.com",
 		"*.openai.azure.com",
 	})

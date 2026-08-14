@@ -1453,16 +1453,22 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 }
 
 func (s *PricingService) buildModelLookupCandidates(modelLower string) []string {
-	// Prefer canonical model name first (this also improves billing compatibility with "models/xxx").
-	candidates := []string{
-		normalizeModelNameForPricing(modelLower),
+	rawCandidates := []string{
 		modelLower,
-	}
-	candidates = append(candidates,
 		strings.TrimPrefix(modelLower, "models/"),
 		lastSegment(modelLower),
 		lastSegment(strings.TrimPrefix(modelLower, "models/")),
-	)
+	}
+	normalized := normalizeModelNameForPricing(modelLower)
+
+	// 平台计费 alias 的精确定价优先；其他规范化（例如 OpenAI 拼写）保持原有优先级。
+	candidates := rawCandidates
+	rawLastSegment := lastSegment(strings.TrimPrefix(modelLower, "models/"))
+	if canonicalBillingModelForPricing(rawLastSegment) != rawLastSegment {
+		candidates = append(candidates, normalized)
+	} else {
+		candidates = append([]string{normalized}, candidates...)
+	}
 
 	seen := make(map[string]struct{}, len(candidates))
 	out := make([]string, 0, len(candidates))
@@ -1510,7 +1516,7 @@ func normalizeModelNameForPricing(model string) string {
 		}
 		return canonical
 	}
-	return model
+	return canonicalBillingModelForPricing(model)
 }
 
 func lastSegment(model string) string {

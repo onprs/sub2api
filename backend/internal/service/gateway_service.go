@@ -1340,7 +1340,9 @@ func (s *GatewayService) GetAvailableModelPricingCandidates(ctx context.Context,
 			candidates = appendPricingCandidate(candidates, mapped)
 		}
 		if platform == PlatformAntigravity {
-			candidates = appendPricingCandidate(candidates, domain.DefaultAntigravityModelMapping[model])
+			if route, ok := domain.ResolveDefaultAntigravityModelRoute(model); ok {
+				candidates = appendPricingCandidate(candidates, route.ModelID)
+			}
 		}
 		candidates = appendPricingCandidate(candidates, model)
 		result[model] = candidates
