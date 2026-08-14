@@ -1,3 +1,5 @@
+import { GEMINI_AI_STUDIO_FREE_MODELS } from '@/constants/geminiModels'
+
 // =====================
 // 模型列表（硬编码，与 new-api 一致）
 // =====================
@@ -37,10 +39,11 @@ export const claudeModels = [
   'claude-fable-5'
 ]
 
-// Google Gemini
+// Google Gemini 模型
+const geminiAIStudioFreeModels = [...GEMINI_AI_STUDIO_FREE_MODELS]
+
+// 非 AI Studio API Key Free Tier 账户保留原有 OAuth、付费和原生生图兜底目录。
 const geminiModels = [
-  // Keep in sync with backend curated Gemini lists.
-  // This list is intentionally conservative (models commonly available across OAuth/API key).
   'gemini-3.1-flash-image',
   'gemini-2.5-flash-image',
   'gemini-2.0-flash',
@@ -409,13 +412,24 @@ export const commonErrorCodes = [
 // 辅助函数
 // =====================
 
-// 按平台获取模型
-export function getModelsByPlatform(platform: string): string[] {
+export interface ModelCatalogContext {
+  accountType?: string
+  tierId?: string
+}
+
+function isGeminiAIStudioFreeContext(context: ModelCatalogContext): boolean {
+  if (context.accountType?.trim().toLowerCase() !== 'apikey') return false
+  const tierId = context.tierId?.trim().toLowerCase() || ''
+  return tierId === '' || tierId === 'free' || tierId === 'aistudio_free'
+}
+
+// 按平台和账户上下文获取模型。
+export function getModelsByPlatform(platform: string, context: ModelCatalogContext = {}): string[] {
   switch (platform) {
     case 'openai': return openaiModels
     case 'anthropic':
     case 'claude': return claudeModels
-    case 'gemini': return geminiModels
+    case 'gemini': return isGeminiAIStudioFreeContext(context) ? geminiAIStudioFreeModels : geminiModels
     case 'antigravity': return antigravityModels
     case 'opencode_go': return opencodeGoModels
     case 'clinepass': return clinePassModels

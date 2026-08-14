@@ -104,6 +104,7 @@ const BaseDialogStub = defineComponent({
 
 const ModelWhitelistSelectorStub = defineComponent({
   name: 'ModelWhitelistSelector',
+  props: ['modelValue', 'platform', 'accountType', 'tierId'],
   emits: ['update:modelValue'],
   template: '<div data-testid="model-whitelist-selector" />',
 })
@@ -153,6 +154,39 @@ beforeEach(() => {
 })
 
 describe('CreateAccountModal', () => {
+  it('Gemini API Key Free Tier 默认使用 AI Studio 实际请求 ID', async () => {
+    const wrapper = mountModal()
+
+    const geminiButton = wrapper.findAll('button').find((button) => button.text().trim() === 'Gemini')
+    expect(geminiButton).toBeDefined()
+    await geminiButton!.trigger('click')
+    await flushPromises()
+
+    const apiKeyButton = wrapper.findAll('button').find((button) =>
+      button.text().includes('admin.accounts.gemini.accountType.apiKeyTitle')
+    )
+    expect(apiKeyButton).toBeDefined()
+    await apiKeyButton!.trigger('click')
+    await flushPromises()
+
+    const selector = wrapper.getComponent(ModelWhitelistSelectorStub)
+    expect(selector.props('platform')).toBe('gemini')
+    expect(selector.props('accountType')).toBe('apikey')
+    expect(selector.props('tierId')).toBe('aistudio_free')
+    expect(selector.props('modelValue')).toEqual([
+      'gemini-3-flash-preview',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-3.1-flash-lite',
+      'gemini-3.5-flash',
+      'gemini-3.5-flash-lite',
+      'gemini-3.6-flash',
+      'gemini-3.7-flash',
+      'gemma-4-26b-a4b-it',
+      'gemma-4-31b-it',
+    ])
+  })
+
   it('creates OpenCode Go as an API key account with the default upstream base URL', async () => {
     const wrapper = mountModal()
 

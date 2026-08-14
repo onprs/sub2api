@@ -265,6 +265,125 @@ func TestAccountHandlerGetAvailableModels_OpenAISparkShadowReturnsMappingModels(
 	}, ids, "影子可用模型由 model_mapping 派生（非写死）")
 }
 
+func TestAccountHandlerGetAvailableModels_GeminiAPIKeyFreeUsesAIStudioCatalog(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       45,
+			Name:     "gemini-aistudio-free",
+			Platform: service.PlatformGemini,
+			Type:     service.AccountTypeAPIKey,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"tier_id": "aistudio_free",
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/45/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	ids := make([]string, 0, len(resp.Data))
+	for _, model := range resp.Data {
+		ids = append(ids, model.ID)
+		require.NotEmpty(t, model.DisplayName)
+	}
+	require.Equal(t, []string{
+		"gemini-3-flash-preview",
+		"gemini-2.5-flash",
+		"gemini-2.5-flash-lite",
+		"gemini-3.1-flash-lite",
+		"gemini-3.5-flash",
+		"gemini-3.5-flash-lite",
+		"gemini-3.6-flash",
+		"gemini-3.7-flash",
+		"gemma-4-26b-a4b-it",
+		"gemma-4-31b-it",
+	}, ids)
+	require.NotContains(t, ids, "gemma-4-26b-it")
+	require.NotContains(t, ids, "gemini-2.5-pro")
+}
+
+func TestAccountHandlerGetAvailableModels_GeminiAPIKeyPaidRetainsExtendedCatalog(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       46,
+			Name:     "gemini-aistudio-paid",
+			Platform: service.PlatformGemini,
+			Type:     service.AccountTypeAPIKey,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"tier_id": "aistudio_paid",
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/46/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	ids := make([]string, 0, len(resp.Data))
+	for _, model := range resp.Data {
+		ids = append(ids, model.ID)
+	}
+	require.Contains(t, ids, "gemini-2.5-pro")
+	require.Contains(t, ids, "gemini-3.1-flash-image")
+}
+
+func TestAccountHandlerGetAvailableModels_GeminiAPIKeyFreeKeepsExplicitMapping(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       47,
+			Name:     "gemini-aistudio-free-mapped",
+			Platform: service.PlatformGemini,
+			Type:     service.AccountTypeAPIKey,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"tier_id": "aistudio_free",
+				"model_mapping": map[string]any{
+					"free-flash": "gemini-3.7-flash",
+				},
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/47/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Data, 1)
+	require.Equal(t, []string{"free-flash"}, []string{resp.Data[0].ID})
+}
+
 func TestAccountHandlerGetAvailableModels_ClinePassUsesCatalogWithoutMapping(t *testing.T) {
 	expectedModels := service.ClinePassDefaultModelIDs()
 	svc := &availableModelsAdminService{

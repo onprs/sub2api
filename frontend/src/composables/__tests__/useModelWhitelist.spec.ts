@@ -100,6 +100,40 @@ describe('useModelWhitelist', () => {
     expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
   })
 
+  it('Gemini API Key Free Tier 使用 AI Studio 的实际请求 ID', () => {
+    const models = getModelsByPlatform('gemini', {
+      accountType: 'apikey',
+      tierId: 'aistudio_free'
+    })
+
+    expect(models).toEqual([
+      'gemini-3-flash-preview',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-3.1-flash-lite',
+      'gemini-3.5-flash',
+      'gemini-3.5-flash-lite',
+      'gemini-3.6-flash',
+      'gemini-3.7-flash',
+      'gemma-4-26b-a4b-it',
+      'gemma-4-31b-it'
+    ])
+    expect(models).not.toContain('gemma-4-26b-it')
+    expect(models).not.toContain('gemini-2.5-pro')
+    expect(models).not.toContain('gemini-3.1-flash-image')
+  })
+
+  it('Gemini API Key Paid Tier 保留扩展目录', () => {
+    const models = getModelsByPlatform('gemini', {
+      accountType: 'apikey',
+      tierId: 'aistudio_paid'
+    })
+
+    expect(models).toContain('gemini-2.5-pro')
+    expect(models).toContain('gemini-3.1-flash-image')
+    expect(models).not.toContain('gemma-4-31b-it')
+  })
+
   it('antigravity 模型列表隐藏 raw wire 和辅助模型', () => {
     const models = getModelsByPlatform('antigravity')
 

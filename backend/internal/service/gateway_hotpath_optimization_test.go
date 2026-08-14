@@ -10,6 +10,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/stretchr/testify/require"
@@ -664,6 +665,58 @@ func TestGetAvailableModels_OpenAIExplicitMappingsDoNotForceDefaultModels(t *tes
 
 	models := svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI)
 	require.Equal(t, []string{"gpt-5.5"}, models)
+}
+
+func TestGetAvailableModels_GeminiAPIKeyFreeEmptyMappingUsesAIStudioCatalog(t *testing.T) {
+	groupID := int64(58)
+	repo := &modelsListAccountRepoStub{
+		byGroup: map[int64][]Account{
+			groupID: {
+				{
+					ID:       1,
+					Platform: PlatformGemini,
+					Type:     AccountTypeAPIKey,
+					Credentials: map[string]any{
+						"tier_id": "aistudio_free",
+					},
+				},
+			},
+		},
+	}
+	svc := &GatewayService{accountRepo: repo}
+
+	models := svc.GetAvailableModels(context.Background(), &groupID, PlatformGemini)
+	require.Len(t, models, len(geminicli.AIStudioFreeModels))
+	for _, model := range geminicli.AIStudioFreeModels {
+		require.Contains(t, models, model.ID)
+	}
+	require.NotContains(t, models, "gemini-2.5-pro")
+	require.NotContains(t, models, "gemini-3.1-flash-image")
+	require.NotContains(t, models, "gemma-4-26b-it")
+}
+
+func TestGetAvailableModels_GeminiAPIKeyPaidEmptyMappingUsesExtendedCatalog(t *testing.T) {
+	groupID := int64(59)
+	repo := &modelsListAccountRepoStub{
+		byGroup: map[int64][]Account{
+			groupID: {
+				{
+					ID:       1,
+					Platform: PlatformGemini,
+					Type:     AccountTypeAPIKey,
+					Credentials: map[string]any{
+						"tier_id": "aistudio_paid",
+					},
+				},
+			},
+		},
+	}
+	svc := &GatewayService{accountRepo: repo}
+
+	models := svc.GetAvailableModels(context.Background(), &groupID, PlatformGemini)
+	require.Len(t, models, len(geminicli.DefaultModels))
+	require.Contains(t, models, "gemini-2.5-pro")
+	require.Contains(t, models, "gemini-3.1-flash-image")
 }
 
 func TestGetAvailableModels_ErrorAndGlobalListBranches(t *testing.T) {
