@@ -226,6 +226,33 @@ func (_u *AccountUpdate) ClearLoadFactor() *AccountUpdate {
 	return _u
 }
 
+// SetFirstOutputFailoverTimeoutSeconds sets the "first_output_failover_timeout_seconds" field.
+func (_u *AccountUpdate) SetFirstOutputFailoverTimeoutSeconds(v int) *AccountUpdate {
+	_u.mutation.ResetFirstOutputFailoverTimeoutSeconds()
+	_u.mutation.SetFirstOutputFailoverTimeoutSeconds(v)
+	return _u
+}
+
+// SetNillableFirstOutputFailoverTimeoutSeconds sets the "first_output_failover_timeout_seconds" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableFirstOutputFailoverTimeoutSeconds(v *int) *AccountUpdate {
+	if v != nil {
+		_u.SetFirstOutputFailoverTimeoutSeconds(*v)
+	}
+	return _u
+}
+
+// AddFirstOutputFailoverTimeoutSeconds adds value to the "first_output_failover_timeout_seconds" field.
+func (_u *AccountUpdate) AddFirstOutputFailoverTimeoutSeconds(v int) *AccountUpdate {
+	_u.mutation.AddFirstOutputFailoverTimeoutSeconds(v)
+	return _u
+}
+
+// ClearFirstOutputFailoverTimeoutSeconds clears the value of the "first_output_failover_timeout_seconds" field.
+func (_u *AccountUpdate) ClearFirstOutputFailoverTimeoutSeconds() *AccountUpdate {
+	_u.mutation.ClearFirstOutputFailoverTimeoutSeconds()
+	return _u
+}
+
 // SetPriority sets the "priority" field.
 func (_u *AccountUpdate) SetPriority(v int) *AccountUpdate {
 	_u.mutation.ResetPriority()
@@ -772,6 +799,11 @@ func (_u *AccountUpdate) check() error {
 			return &ValidationError{Name: "type", err: fmt.Errorf(`ent: validator failed for field "Account.type": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.FirstOutputFailoverTimeoutSeconds(); ok {
+		if err := account.FirstOutputFailoverTimeoutSecondsValidator(v); err != nil {
+			return &ValidationError{Name: "first_output_failover_timeout_seconds", err: fmt.Errorf(`ent: validator failed for field "Account.first_output_failover_timeout_seconds": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := account.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "Account.status": %w`, err)}
@@ -855,6 +887,15 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.LoadFactorCleared() {
 		_spec.ClearField(account.FieldLoadFactor, field.TypeInt)
+	}
+	if value, ok := _u.mutation.FirstOutputFailoverTimeoutSeconds(); ok {
+		_spec.SetField(account.FieldFirstOutputFailoverTimeoutSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedFirstOutputFailoverTimeoutSeconds(); ok {
+		_spec.AddField(account.FieldFirstOutputFailoverTimeoutSeconds, field.TypeInt, value)
+	}
+	if _u.mutation.FirstOutputFailoverTimeoutSecondsCleared() {
+		_spec.ClearField(account.FieldFirstOutputFailoverTimeoutSeconds, field.TypeInt)
 	}
 	if value, ok := _u.mutation.Priority(); ok {
 		_spec.SetField(account.FieldPriority, field.TypeInt, value)
@@ -1363,6 +1404,33 @@ func (_u *AccountUpdateOne) AddLoadFactor(v int) *AccountUpdateOne {
 // ClearLoadFactor clears the value of the "load_factor" field.
 func (_u *AccountUpdateOne) ClearLoadFactor() *AccountUpdateOne {
 	_u.mutation.ClearLoadFactor()
+	return _u
+}
+
+// SetFirstOutputFailoverTimeoutSeconds sets the "first_output_failover_timeout_seconds" field.
+func (_u *AccountUpdateOne) SetFirstOutputFailoverTimeoutSeconds(v int) *AccountUpdateOne {
+	_u.mutation.ResetFirstOutputFailoverTimeoutSeconds()
+	_u.mutation.SetFirstOutputFailoverTimeoutSeconds(v)
+	return _u
+}
+
+// SetNillableFirstOutputFailoverTimeoutSeconds sets the "first_output_failover_timeout_seconds" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableFirstOutputFailoverTimeoutSeconds(v *int) *AccountUpdateOne {
+	if v != nil {
+		_u.SetFirstOutputFailoverTimeoutSeconds(*v)
+	}
+	return _u
+}
+
+// AddFirstOutputFailoverTimeoutSeconds adds value to the "first_output_failover_timeout_seconds" field.
+func (_u *AccountUpdateOne) AddFirstOutputFailoverTimeoutSeconds(v int) *AccountUpdateOne {
+	_u.mutation.AddFirstOutputFailoverTimeoutSeconds(v)
+	return _u
+}
+
+// ClearFirstOutputFailoverTimeoutSeconds clears the value of the "first_output_failover_timeout_seconds" field.
+func (_u *AccountUpdateOne) ClearFirstOutputFailoverTimeoutSeconds() *AccountUpdateOne {
+	_u.mutation.ClearFirstOutputFailoverTimeoutSeconds()
 	return _u
 }
 
@@ -1925,6 +1993,11 @@ func (_u *AccountUpdateOne) check() error {
 			return &ValidationError{Name: "type", err: fmt.Errorf(`ent: validator failed for field "Account.type": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.FirstOutputFailoverTimeoutSeconds(); ok {
+		if err := account.FirstOutputFailoverTimeoutSecondsValidator(v); err != nil {
+			return &ValidationError{Name: "first_output_failover_timeout_seconds", err: fmt.Errorf(`ent: validator failed for field "Account.first_output_failover_timeout_seconds": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := account.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "Account.status": %w`, err)}
@@ -2025,6 +2098,15 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if _u.mutation.LoadFactorCleared() {
 		_spec.ClearField(account.FieldLoadFactor, field.TypeInt)
+	}
+	if value, ok := _u.mutation.FirstOutputFailoverTimeoutSeconds(); ok {
+		_spec.SetField(account.FieldFirstOutputFailoverTimeoutSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedFirstOutputFailoverTimeoutSeconds(); ok {
+		_spec.AddField(account.FieldFirstOutputFailoverTimeoutSeconds, field.TypeInt, value)
+	}
+	if _u.mutation.FirstOutputFailoverTimeoutSecondsCleared() {
+		_spec.ClearField(account.FieldFirstOutputFailoverTimeoutSeconds, field.TypeInt)
 	}
 	if value, ok := _u.mutation.Priority(); ok {
 		_spec.SetField(account.FieldPriority, field.TypeInt, value)

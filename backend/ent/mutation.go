@@ -2288,60 +2288,62 @@ func (m *APIKeyMutation) ResetEdge(name string) error {
 // AccountMutation represents an operation that mutates the Account nodes in the graph.
 type AccountMutation struct {
 	config
-	op                          Op
-	typ                         string
-	id                          *int64
-	created_at                  *time.Time
-	updated_at                  *time.Time
-	deleted_at                  *time.Time
-	name                        *string
-	notes                       *string
-	platform                    *string
-	_type                       *string
-	credentials                 *map[string]interface{}
-	extra                       *map[string]interface{}
-	proxy_fallback_origin_id    *int64
-	addproxy_fallback_origin_id *int64
-	concurrency                 *int
-	addconcurrency              *int
-	load_factor                 *int
-	addload_factor              *int
-	priority                    *int
-	addpriority                 *int
-	rate_multiplier             *float64
-	addrate_multiplier          *float64
-	status                      *string
-	error_message               *string
-	last_used_at                *time.Time
-	expires_at                  *time.Time
-	auto_pause_on_expired       *bool
-	schedulable                 *bool
-	rate_limited_at             *time.Time
-	rate_limit_reset_at         *time.Time
-	overload_until              *time.Time
-	temp_unschedulable_until    *time.Time
-	temp_unschedulable_reason   *string
-	session_window_start        *time.Time
-	session_window_end          *time.Time
-	session_window_status       *string
-	quota_dimension             *account.QuotaDimension
-	clearedFields               map[string]struct{}
-	groups                      map[int64]struct{}
-	removedgroups               map[int64]struct{}
-	clearedgroups               bool
-	proxy                       *int64
-	clearedproxy                bool
-	parent                      *int64
-	clearedparent               bool
-	children                    map[int64]struct{}
-	removedchildren             map[int64]struct{}
-	clearedchildren             bool
-	usage_logs                  map[int64]struct{}
-	removedusage_logs           map[int64]struct{}
-	clearedusage_logs           bool
-	done                        bool
-	oldValue                    func(context.Context) (*Account, error)
-	predicates                  []predicate.Account
+	op                                       Op
+	typ                                      string
+	id                                       *int64
+	created_at                               *time.Time
+	updated_at                               *time.Time
+	deleted_at                               *time.Time
+	name                                     *string
+	notes                                    *string
+	platform                                 *string
+	_type                                    *string
+	credentials                              *map[string]interface{}
+	extra                                    *map[string]interface{}
+	proxy_fallback_origin_id                 *int64
+	addproxy_fallback_origin_id              *int64
+	concurrency                              *int
+	addconcurrency                           *int
+	load_factor                              *int
+	addload_factor                           *int
+	first_output_failover_timeout_seconds    *int
+	addfirst_output_failover_timeout_seconds *int
+	priority                                 *int
+	addpriority                              *int
+	rate_multiplier                          *float64
+	addrate_multiplier                       *float64
+	status                                   *string
+	error_message                            *string
+	last_used_at                             *time.Time
+	expires_at                               *time.Time
+	auto_pause_on_expired                    *bool
+	schedulable                              *bool
+	rate_limited_at                          *time.Time
+	rate_limit_reset_at                      *time.Time
+	overload_until                           *time.Time
+	temp_unschedulable_until                 *time.Time
+	temp_unschedulable_reason                *string
+	session_window_start                     *time.Time
+	session_window_end                       *time.Time
+	session_window_status                    *string
+	quota_dimension                          *account.QuotaDimension
+	clearedFields                            map[string]struct{}
+	groups                                   map[int64]struct{}
+	removedgroups                            map[int64]struct{}
+	clearedgroups                            bool
+	proxy                                    *int64
+	clearedproxy                             bool
+	parent                                   *int64
+	clearedparent                            bool
+	children                                 map[int64]struct{}
+	removedchildren                          map[int64]struct{}
+	clearedchildren                          bool
+	usage_logs                               map[int64]struct{}
+	removedusage_logs                        map[int64]struct{}
+	clearedusage_logs                        bool
+	done                                     bool
+	oldValue                                 func(context.Context) (*Account, error)
+	predicates                               []predicate.Account
 }
 
 var _ ent.Mutation = (*AccountMutation)(nil)
@@ -3035,6 +3037,76 @@ func (m *AccountMutation) ResetLoadFactor() {
 	m.load_factor = nil
 	m.addload_factor = nil
 	delete(m.clearedFields, account.FieldLoadFactor)
+}
+
+// SetFirstOutputFailoverTimeoutSeconds sets the "first_output_failover_timeout_seconds" field.
+func (m *AccountMutation) SetFirstOutputFailoverTimeoutSeconds(i int) {
+	m.first_output_failover_timeout_seconds = &i
+	m.addfirst_output_failover_timeout_seconds = nil
+}
+
+// FirstOutputFailoverTimeoutSeconds returns the value of the "first_output_failover_timeout_seconds" field in the mutation.
+func (m *AccountMutation) FirstOutputFailoverTimeoutSeconds() (r int, exists bool) {
+	v := m.first_output_failover_timeout_seconds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFirstOutputFailoverTimeoutSeconds returns the old "first_output_failover_timeout_seconds" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldFirstOutputFailoverTimeoutSeconds(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFirstOutputFailoverTimeoutSeconds is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFirstOutputFailoverTimeoutSeconds requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFirstOutputFailoverTimeoutSeconds: %w", err)
+	}
+	return oldValue.FirstOutputFailoverTimeoutSeconds, nil
+}
+
+// AddFirstOutputFailoverTimeoutSeconds adds i to the "first_output_failover_timeout_seconds" field.
+func (m *AccountMutation) AddFirstOutputFailoverTimeoutSeconds(i int) {
+	if m.addfirst_output_failover_timeout_seconds != nil {
+		*m.addfirst_output_failover_timeout_seconds += i
+	} else {
+		m.addfirst_output_failover_timeout_seconds = &i
+	}
+}
+
+// AddedFirstOutputFailoverTimeoutSeconds returns the value that was added to the "first_output_failover_timeout_seconds" field in this mutation.
+func (m *AccountMutation) AddedFirstOutputFailoverTimeoutSeconds() (r int, exists bool) {
+	v := m.addfirst_output_failover_timeout_seconds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearFirstOutputFailoverTimeoutSeconds clears the value of the "first_output_failover_timeout_seconds" field.
+func (m *AccountMutation) ClearFirstOutputFailoverTimeoutSeconds() {
+	m.first_output_failover_timeout_seconds = nil
+	m.addfirst_output_failover_timeout_seconds = nil
+	m.clearedFields[account.FieldFirstOutputFailoverTimeoutSeconds] = struct{}{}
+}
+
+// FirstOutputFailoverTimeoutSecondsCleared returns if the "first_output_failover_timeout_seconds" field was cleared in this mutation.
+func (m *AccountMutation) FirstOutputFailoverTimeoutSecondsCleared() bool {
+	_, ok := m.clearedFields[account.FieldFirstOutputFailoverTimeoutSeconds]
+	return ok
+}
+
+// ResetFirstOutputFailoverTimeoutSeconds resets all changes to the "first_output_failover_timeout_seconds" field.
+func (m *AccountMutation) ResetFirstOutputFailoverTimeoutSeconds() {
+	m.first_output_failover_timeout_seconds = nil
+	m.addfirst_output_failover_timeout_seconds = nil
+	delete(m.clearedFields, account.FieldFirstOutputFailoverTimeoutSeconds)
 }
 
 // SetPriority sets the "priority" field.
@@ -4144,7 +4216,7 @@ func (m *AccountMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountMutation) Fields() []string {
-	fields := make([]string, 0, 31)
+	fields := make([]string, 0, 32)
 	if m.created_at != nil {
 		fields = append(fields, account.FieldCreatedAt)
 	}
@@ -4183,6 +4255,9 @@ func (m *AccountMutation) Fields() []string {
 	}
 	if m.load_factor != nil {
 		fields = append(fields, account.FieldLoadFactor)
+	}
+	if m.first_output_failover_timeout_seconds != nil {
+		fields = append(fields, account.FieldFirstOutputFailoverTimeoutSeconds)
 	}
 	if m.priority != nil {
 		fields = append(fields, account.FieldPriority)
@@ -4272,6 +4347,8 @@ func (m *AccountMutation) Field(name string) (ent.Value, bool) {
 		return m.Concurrency()
 	case account.FieldLoadFactor:
 		return m.LoadFactor()
+	case account.FieldFirstOutputFailoverTimeoutSeconds:
+		return m.FirstOutputFailoverTimeoutSeconds()
 	case account.FieldPriority:
 		return m.Priority()
 	case account.FieldRateMultiplier:
@@ -4343,6 +4420,8 @@ func (m *AccountMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldConcurrency(ctx)
 	case account.FieldLoadFactor:
 		return m.OldLoadFactor(ctx)
+	case account.FieldFirstOutputFailoverTimeoutSeconds:
+		return m.OldFirstOutputFailoverTimeoutSeconds(ctx)
 	case account.FieldPriority:
 		return m.OldPriority(ctx)
 	case account.FieldRateMultiplier:
@@ -4478,6 +4557,13 @@ func (m *AccountMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetLoadFactor(v)
+		return nil
+	case account.FieldFirstOutputFailoverTimeoutSeconds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFirstOutputFailoverTimeoutSeconds(v)
 		return nil
 	case account.FieldPriority:
 		v, ok := value.(int)
@@ -4622,6 +4708,9 @@ func (m *AccountMutation) AddedFields() []string {
 	if m.addload_factor != nil {
 		fields = append(fields, account.FieldLoadFactor)
 	}
+	if m.addfirst_output_failover_timeout_seconds != nil {
+		fields = append(fields, account.FieldFirstOutputFailoverTimeoutSeconds)
+	}
 	if m.addpriority != nil {
 		fields = append(fields, account.FieldPriority)
 	}
@@ -4642,6 +4731,8 @@ func (m *AccountMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedConcurrency()
 	case account.FieldLoadFactor:
 		return m.AddedLoadFactor()
+	case account.FieldFirstOutputFailoverTimeoutSeconds:
+		return m.AddedFirstOutputFailoverTimeoutSeconds()
 	case account.FieldPriority:
 		return m.AddedPriority()
 	case account.FieldRateMultiplier:
@@ -4675,6 +4766,13 @@ func (m *AccountMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddLoadFactor(v)
+		return nil
+	case account.FieldFirstOutputFailoverTimeoutSeconds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddFirstOutputFailoverTimeoutSeconds(v)
 		return nil
 	case account.FieldPriority:
 		v, ok := value.(int)
@@ -4712,6 +4810,9 @@ func (m *AccountMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(account.FieldLoadFactor) {
 		fields = append(fields, account.FieldLoadFactor)
+	}
+	if m.FieldCleared(account.FieldFirstOutputFailoverTimeoutSeconds) {
+		fields = append(fields, account.FieldFirstOutputFailoverTimeoutSeconds)
 	}
 	if m.FieldCleared(account.FieldErrorMessage) {
 		fields = append(fields, account.FieldErrorMessage)
@@ -4777,6 +4878,9 @@ func (m *AccountMutation) ClearField(name string) error {
 		return nil
 	case account.FieldLoadFactor:
 		m.ClearLoadFactor()
+		return nil
+	case account.FieldFirstOutputFailoverTimeoutSeconds:
+		m.ClearFirstOutputFailoverTimeoutSeconds()
 		return nil
 	case account.FieldErrorMessage:
 		m.ClearErrorMessage()
@@ -4860,6 +4964,9 @@ func (m *AccountMutation) ResetField(name string) error {
 		return nil
 	case account.FieldLoadFactor:
 		m.ResetLoadFactor()
+		return nil
+	case account.FieldFirstOutputFailoverTimeoutSeconds:
+		m.ResetFirstOutputFailoverTimeoutSeconds()
 		return nil
 	case account.FieldPriority:
 		m.ResetPriority()

@@ -104,7 +104,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletionsWithOutput(
 	if err != nil {
 		return nil, err
 	}
-	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, chatBody, clientStream, apiKey, account.GetOpenAIUserAgent())
+	resp, err := s.sendCCUpstreamRequest(
+		ctx, c, account, targetURL, chatBody, clientStream, apiKey, account.GetOpenAIUserAgent(), openAICCUpstreamRequestOptions{},
+	)
 	if err != nil {
 		return nil, err
 	}

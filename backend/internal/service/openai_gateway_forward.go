@@ -728,7 +728,7 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 		}
 		firstOutputTimeout := time.Duration(0)
 		if reqStream && account.Platform == PlatformOpenAI && (attemptOutput == nil || isNativeResponsesProtocolOutput(attemptOutput)) {
-			firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffortValue)
+			firstOutputTimeout = s.openAIEffectiveFirstOutputTimeout(account, reasoningEffortValue)
 		}
 
 		// Build upstream request. The first-output budget starts at the original
