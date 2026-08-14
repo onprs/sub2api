@@ -1189,8 +1189,9 @@ func (s *GatewayService) getOAuthToken(ctx context.Context, account *Account) (s
 	return accessToken, "oauth", nil
 }
 
-// GetAvailableModels returns the list of models available for a group
-// It aggregates model_mapping keys from all schedulable accounts in the group
+// GetAvailableModels returns the user-request model IDs available for a group.
+// It aggregates model_mapping keys from schedulable accounts, except that official
+// Antigravity OAuth/Setup Token accounts expose only the curated agy user catalog.
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
 	cacheKey := modelsListCacheKey(groupID, platform)
 	if s.modelsListCache != nil {
@@ -1227,12 +1228,23 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		accounts = filtered
 	}
 
-	// Collect unique models from all accounts
+	// Collect unique user-request model IDs from all accounts.
 	modelSet := make(map[string]struct{})
 	hasAnyMapping := false
 	hasOpenAIEmptyMappingAccount := false
 
 	for _, acc := range accounts {
+		// OAuth/Setup Token 的默认 mapping 还包含 wire ID 和历史兼容 alias。
+		// 它们可继续参与路由，但用户模型目录和价格列表只能公开 agy 的 14 个请求 ID。
+		// 账号中遗留的旧显式 mapping 同样不能重新污染该公开目录。
+		if acc.Platform == PlatformAntigravity && acc.IsOAuth() {
+			hasAnyMapping = true
+			for _, model := range DefaultAntigravityRouteModelIDs() {
+				modelSet[model] = struct{}{}
+			}
+			continue
+		}
+
 		mapping := acc.GetModelMapping()
 		if len(mapping) == 0 {
 			if platform == PlatformOpenAI && acc.Platform == PlatformOpenAI {

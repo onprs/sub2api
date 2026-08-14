@@ -535,6 +535,79 @@ func TestGetAvailableModels_UsesShortCacheAndSupportsInvalidation(t *testing.T) 
 	require.Equal(t, int64(2), store)
 }
 
+func TestGetAvailableModels_AntigravityOAuthPublishesOnlyUserRequestIDs(t *testing.T) {
+	for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken} {
+		t.Run(accountType, func(t *testing.T) {
+			groupID := int64(58)
+			repo := &modelsListAccountRepoStub{
+				byGroup: map[int64][]Account{
+					groupID: {
+						{
+							ID:       1,
+							Platform: PlatformAntigravity,
+							Type:     accountType,
+							Credentials: map[string]any{
+								"model_mapping": map[string]any{
+									"claude-opus-4-6":           "claude-opus-4-6-thinking",
+									"gemini-2.5-flash":          "gemini-2.5-flash",
+									"gemini-3-flash-agent":      "gemini-3-flash-agent",
+									"gemini-3.7-flash-tiered":   "gemini-3.7-flash-tiered",
+									"custom-client-model-alias": "gemini-3.7-flash-high",
+								},
+							},
+						},
+					},
+				},
+			}
+			svc := &GatewayService{accountRepo: repo}
+
+			models := svc.GetAvailableModels(context.Background(), &groupID, PlatformAntigravity)
+
+			require.Len(t, models, 14)
+			require.ElementsMatch(t, DefaultAntigravityRouteModelIDs(), models)
+			for _, hidden := range []string{
+				"claude-opus-4-6",
+				"gemini-2.5-flash",
+				"gemini-3-flash-agent",
+				"gemini-pro-agent",
+				"gemini-3.7-flash-tiered",
+				"custom-client-model-alias",
+			} {
+				require.NotContains(t, models, hidden)
+			}
+		})
+	}
+}
+
+func TestGetAvailableModels_AntigravityNonOAuthKeepsExplicitRequestIDs(t *testing.T) {
+	for _, accountType := range []string{AccountTypeAPIKey, AccountTypeUpstream} {
+		t.Run(accountType, func(t *testing.T) {
+			groupID := int64(59)
+			repo := &modelsListAccountRepoStub{
+				byGroup: map[int64][]Account{
+					groupID: {
+						{
+							ID:       1,
+							Platform: PlatformAntigravity,
+							Type:     accountType,
+							Credentials: map[string]any{
+								"model_mapping": map[string]any{
+									"custom-client-model": "upstream-model",
+								},
+							},
+						},
+					},
+				},
+			}
+			svc := &GatewayService{accountRepo: repo}
+
+			models := svc.GetAvailableModels(context.Background(), &groupID, PlatformAntigravity)
+
+			require.Equal(t, []string{"custom-client-model"}, models)
+		})
+	}
+}
+
 func TestGetAvailableModels_OpenAIEmptyMappingAccountMergesDefaultModels(t *testing.T) {
 	groupID := int64(56)
 	repo := &modelsListAccountRepoStub{
