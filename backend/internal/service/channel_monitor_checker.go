@@ -194,12 +194,12 @@ var providerAdapters = map[string]providerAdapter{
 	MonitorProviderGemini: {
 		// Gemini 把 model 名写在 URL path 上：/v1beta/models/{model}:generateContent
 		buildPath: func(model string) string { return fmt.Sprintf(providerGeminiPathTemplate, model) },
-		buildBody: func(_, prompt string) ([]byte, error) {
+		buildBody: func(model, prompt string) ([]byte, error) {
 			return json.Marshal(map[string]any{
 				"contents": []map[string]any{
 					{"parts": []map[string]any{{"text": prompt}}},
 				},
-				"generationConfig": map[string]any{"maxOutputTokens": monitorChallengeMaxTokens},
+				"generationConfig": geminiMonitorGenerationConfig(model),
 			})
 		},
 		// 使用 x-goog-api-key header 而不是 ?key= query，避免 *url.Error 把 key 回填到错误日志。
@@ -747,6 +747,25 @@ func firstNonEmptyMonitorText(block gjson.Result) string {
 		}
 	}
 	return ""
+}
+
+func geminiMonitorGenerationConfig(model string) map[string]any {
+	config := map[string]any{"maxOutputTokens": monitorChallengeMaxTokens}
+	if !isGemma4MonitorModel(model) {
+		return config
+	}
+	config["maxOutputTokens"] = monitorGemma4ChallengeMaxTokens
+	config["temperature"] = 0
+	config["thinkingConfig"] = map[string]any{
+		"thinkingLevel": monitorGemma4ThinkingLevel,
+	}
+	return config
+}
+
+func isGemma4MonitorModel(model string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	normalized = strings.TrimPrefix(normalized, "models/")
+	return strings.HasPrefix(normalized, "gemma-4-")
 }
 
 func antigravityGeminiMonitorGenerationConfig(model string) map[string]any {
