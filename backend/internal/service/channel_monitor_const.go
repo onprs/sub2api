@@ -97,8 +97,12 @@ const (
 
 	// monitorAnthropicAPIVersion Anthropic Messages API 版本头。
 	monitorAnthropicAPIVersion = "2023-06-01"
-	// monitorChallengeMaxTokens 单次 challenge 请求的 max_tokens（足够回答个位数算术）。
+	// monitorChallengeMaxTokens 普通模型单次 challenge 请求的输出上限。
 	monitorChallengeMaxTokens = 50
+	// monitorGemma4ChallengeMaxTokens 为 Gemma 4 的可见分析和最终答案预留空间。
+	monitorGemma4ChallengeMaxTokens = 512
+	// monitorGemma4ThinkingLevel 关闭 Gemma 4 的扩展思考，降低探活延迟和输出消耗。
+	monitorGemma4ThinkingLevel = "MINIMAL"
 	// monitorOpenCodeGoChallengeMaxTokens 为 OpenCode Go 推理/转换链路保留更宽的输出预算，避免 final content 偶发为空。
 	monitorOpenCodeGoChallengeMaxTokens = 512
 	// monitorClinePassChallengeMaxTokens 为 ClinePass reasoning 模型保留最终答案预算。
