@@ -696,6 +696,10 @@ var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability
 		"GLM-5.2", "glm", false, true, true, true,
 		[]string{"text"}, 1000000, 131072, 1.4, 4.4, cliImportFloat64Ptr(0.26), nil,
 	),
+	"glm-5.3": newOpenCodeGoBuiltinCLIImportCapability(
+		"GLM-5.3", "glm", false, true, true, true,
+		[]string{"text"}, 1000000, 131072, 1.4, 4.4, cliImportFloat64Ptr(0.26), nil,
+	),
 	"hy3-preview": newOpenCodeGoBuiltinCLIImportCapability(
 		"HY3 Preview", "hy3", false, true, true, true,
 		[]string{"text"}, 262144, 65536, 0, 0, nil, nil,

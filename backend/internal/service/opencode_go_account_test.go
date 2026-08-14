@@ -54,6 +54,7 @@ func TestOpenCodeGoDefaultCatalogIncludesCurrentOfficialModels(t *testing.T) {
 	models := OpenCodeGoDefaultModelIDs()
 
 	require.Contains(t, models, "gpt-5.6-luna")
+	require.Contains(t, models, "glm-5.3")
 	require.Contains(t, models, "glm-5.2")
 	require.Contains(t, models, "kimi-k2.5")
 	require.Contains(t, models, "qwen3.8-max")
@@ -72,6 +73,10 @@ func TestOpenCodeGoAccountProtocolFallbackCoversNewOfficialModels(t *testing.T) 
 	protocol, ok := account.ResolveOpenCodeGoModelProtocol("gpt-5.6-luna")
 	require.True(t, ok)
 	require.Equal(t, OpenCodeGoProtocolResponses, protocol)
+
+	protocol, ok = account.ResolveOpenCodeGoModelProtocol("glm-5.3")
+	require.True(t, ok)
+	require.Equal(t, OpenCodeGoProtocolChatCompletions, protocol)
 
 	protocol, ok = account.ResolveOpenCodeGoModelProtocol("glm-5.2")
 	require.True(t, ok)
