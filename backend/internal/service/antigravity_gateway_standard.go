@@ -74,14 +74,14 @@ func (s *AntigravityGatewayService) forwardStandardProtocol(
 		return nil, s.writeStandardProtocolError(c, source, http.StatusForbidden, "permission_error", fmt.Sprintf("model %s not in whitelist", request.Model))
 	}
 
-	pipelineFactory := func(attemptModel string) (*protocolconv.Pipeline, []byte, error) {
+	pipelineFactory := func(sourceModel, wireModel string) (*protocolconv.Pipeline, []byte, error) {
 		pipelineConfig := protocolconv.PipelineConfig{
 			Route: protocolconv.Route{
 				Source: source, IntendedTarget: protocolconv.ProtocolGoogleGenAI,
-				ClientModel: clientModel, UpstreamModel: attemptModel,
+				ClientModel: clientModel, UpstreamModel: wireModel,
 				Provider: account.Platform, AccountID: account.ID,
 			},
-			Options: protocolconv.Options{SourceModel: attemptModel, ResponseModel: clientModel, LossPolicy: protocolconv.LossError},
+			Options: protocolconv.Options{SourceModel: sourceModel, ResponseModel: clientModel, LossPolicy: protocolconv.LossError},
 		}
 		s.configureStandardMetadataBridge(ctx, account, &pipelineConfig)
 		pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, pipelineConfig)
@@ -111,14 +111,15 @@ func (s *AntigravityGatewayService) forwardGeminiAdapterOptions(
 	ctx context.Context,
 	opts forwardGeminiOptions,
 	projectID string,
-	mappedModel string,
+	sourceModel string,
+	wireModel string,
 ) antigravityadapter.Options {
 	family := antigravityadapter.FamilyGemini
 	if opts.pipelineFactory != nil {
-		family = antigravityFamilyForMappedModel(mappedModel)
+		family = antigravityFamilyForMappedModel(wireModel)
 	}
 	adapterOptions := antigravityadapter.Options{
-		Family: family, ProjectID: projectID, MappedModel: mappedModel, UserAgent: "antigravity",
+		Family: family, ProjectID: projectID, SourceModel: sourceModel, WireModel: wireModel, UserAgent: "antigravity",
 	}
 	if family == antigravityadapter.FamilyClaude {
 		adapterOptions.TransformOptions = s.getClaudeTransformOptions(ctx)

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -388,8 +389,21 @@ func TestIsConnectionError_urlError(t *testing.T) {
 		URL: "https://example.com",
 		Err: fmt.Errorf("some error"),
 	}
-	if !IsConnectionError(err) {
-		t.Error("url.Error 应判定为连接错误")
+	if IsConnectionError(err) {
+		t.Error("不含网络错误的 url.Error 不应触发 URL 降级")
+	}
+}
+
+func TestIsConnectionError_请求取消(t *testing.T) {
+	err := &url.Error{Op: "Post", URL: "https://example.com", Err: context.Canceled}
+	if IsConnectionError(err) {
+		t.Error("调用方取消请求不应触发 URL 降级")
+	}
+}
+
+func TestIsConnectionError_连接提前断开(t *testing.T) {
+	if !IsConnectionError(fmt.Errorf("read response: %w", io.ErrUnexpectedEOF)) {
+		t.Error("连接提前断开应触发 URL 降级")
 	}
 }
 
@@ -418,42 +432,56 @@ func TestIsConnectionError_包装的netOpError(t *testing.T) {
 
 func TestShouldFallbackToNextURL_连接错误(t *testing.T) {
 	err := &net.OpError{Op: "dial", Net: "tcp", Err: fmt.Errorf("refused")}
-	if !shouldFallbackToNextURL(err, 0) {
+	if !shouldFallbackToNextURL(err, 0, nil) {
 		t.Error("连接错误应触发 URL 降级")
 	}
 }
 
 func TestShouldFallbackToNextURL_状态码(t *testing.T) {
+	generic429 := []byte(`{"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota).","status":"RESOURCE_EXHAUSTED"}}`)
+	detailed429 := []byte(`{"error":{"code":429,"message":"Resource has been exhausted","status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"15s"}]}}`)
+	model429 := []byte(`{"error":{"code":429,"message":"Resource has been exhausted for model gemini-3.6-flash-high","status":"RESOURCE_EXHAUSTED"}}`)
+	quota429 := []byte(`{"error":{"code":429,"message":"Resource has been exhausted for quota generate_content","status":"RESOURCE_EXHAUSTED"}}`)
+	metadata429 := []byte(`{"error":{"code":429,"message":"Resource has been exhausted","status":"RESOURCE_EXHAUSTED","metadata":{"quota":"generate_content"}}}`)
+	rootMetadata429 := []byte(`{"error":{"code":429,"message":"Resource has been exhausted","status":"RESOURCE_EXHAUSTED"},"requestId":"req-1"}`)
 	tests := []struct {
 		name       string
 		statusCode int
+		body       []byte
 		want       bool
 	}{
-		{"429 Too Many Requests", http.StatusTooManyRequests, true},
-		{"408 Request Timeout", http.StatusRequestTimeout, true},
-		{"404 Not Found", http.StatusNotFound, true},
-		{"500 Internal Server Error", http.StatusInternalServerError, true},
-		{"502 Bad Gateway", http.StatusBadGateway, true},
-		{"503 Service Unavailable", http.StatusServiceUnavailable, true},
-		{"200 OK", http.StatusOK, false},
-		{"201 Created", http.StatusCreated, false},
-		{"400 Bad Request", http.StatusBadRequest, false},
-		{"401 Unauthorized", http.StatusUnauthorized, false},
-		{"403 Forbidden", http.StatusForbidden, false},
+		{"generic 429", http.StatusTooManyRequests, generic429, true},
+		{"plain generic 429", http.StatusTooManyRequests, []byte(`Resource has been exhausted`), true},
+		{"detailed 429", http.StatusTooManyRequests, detailed429, false},
+		{"model-specific message", http.StatusTooManyRequests, model429, false},
+		{"quota-specific message", http.StatusTooManyRequests, quota429, false},
+		{"error metadata", http.StatusTooManyRequests, metadata429, false},
+		{"root metadata", http.StatusTooManyRequests, rootMetadata429, false},
+		{"wrong embedded code", http.StatusTooManyRequests, []byte(`{"error":{"code":503,"message":"Resource has been exhausted","status":"RESOURCE_EXHAUSTED"}}`), false},
+		{"empty 429", http.StatusTooManyRequests, nil, false},
+		{"408 Request Timeout", http.StatusRequestTimeout, nil, false},
+		{"404 Not Found", http.StatusNotFound, nil, false},
+		{"500 Internal Server Error", http.StatusInternalServerError, nil, false},
+		{"502 Bad Gateway", http.StatusBadGateway, nil, false},
+		{"503 Service Unavailable", http.StatusServiceUnavailable, nil, false},
+		{"200 OK", http.StatusOK, nil, false},
+		{"400 Bad Request", http.StatusBadRequest, nil, false},
+		{"401 Unauthorized", http.StatusUnauthorized, nil, false},
+		{"403 Forbidden", http.StatusForbidden, nil, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := shouldFallbackToNextURL(nil, tt.statusCode)
+			got := shouldFallbackToNextURL(nil, tt.statusCode, tt.body)
 			if got != tt.want {
-				t.Errorf("shouldFallbackToNextURL(nil, %d) = %v, want %v", tt.statusCode, got, tt.want)
+				t.Errorf("shouldFallbackToNextURL(nil, %d, body) = %v, want %v", tt.statusCode, got, tt.want)
 			}
 		})
 	}
 }
 
 func TestShouldFallbackToNextURL_无错误且200(t *testing.T) {
-	if shouldFallbackToNextURL(nil, http.StatusOK) {
+	if shouldFallbackToNextURL(nil, http.StatusOK, nil) {
 		t.Error("无错误且 200 不应触发 URL 降级")
 	}
 }
@@ -1385,8 +1413,7 @@ func TestClient_LoadCodeAssist_InvalidJSON_RealCall(t *testing.T) {
 	}
 }
 
-func TestClient_LoadCodeAssist_URLFallback_RealCall(t *testing.T) {
-	// 第一个 server 返回 500，第二个 server 返回成功
+func TestClient_LoadCodeAssist_HTTP500DoesNotFallback_RealCall(t *testing.T) {
 	callCount := 0
 	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
@@ -1397,27 +1424,20 @@ func TestClient_LoadCodeAssist_URLFallback_RealCall(t *testing.T) {
 
 	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
-		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{
-			"cloudaicompanionProject": "fallback-project",
-			"currentTier": {"id": "free-tier", "name": "Free"}
-		}`))
+		_, _ = w.Write([]byte(`{"cloudaicompanionProject":"unexpected"}`))
 	}))
 	defer server2.Close()
 
 	withMockBaseURLs(t, []string{server1.URL, server2.URL})
 
 	client := mustNewClient(t, "")
-	resp, _, err := client.LoadCodeAssist(context.Background(), "token")
-	if err != nil {
-		t.Fatalf("LoadCodeAssist 应在 fallback 后成功: %v", err)
+	_, _, err := client.LoadCodeAssist(context.Background(), "token")
+	if err == nil || !strings.Contains(err.Error(), "500") {
+		t.Fatalf("LoadCodeAssist 应直接返回首个端点的 500，got %v", err)
 	}
-	if resp.CloudAICompanionProject != "fallback-project" {
-		t.Errorf("CloudAICompanionProject 不匹配: got %s", resp.CloudAICompanionProject)
-	}
-	if callCount != 2 {
-		t.Errorf("应该调用了 2 个 server，实际调用 %d 次", callCount)
+	if callCount != 1 {
+		t.Errorf("500 不应跨端点回退，实际调用 %d 次", callCount)
 	}
 }
 
@@ -1603,11 +1623,11 @@ func TestClient_FetchAvailableModels_InvalidJSON_RealCall(t *testing.T) {
 
 func TestClient_FetchAvailableModels_URLFallback_RealCall(t *testing.T) {
 	callCount := 0
-	// 第一个 server 返回 429，第二个 server 返回成功
+	// 第一个 server 返回无明细通用 429，第二个 server 返回成功
 	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write([]byte(`{"error":"rate_limited"}`))
+		_, _ = w.Write([]byte(`{"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota).","status":"RESOURCE_EXHAUSTED"}}`))
 	}))
 	defer server1.Close()
 
@@ -1701,59 +1721,59 @@ func TestClient_FetchAvailableModels_EmptyModels_RealCall(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// LoadCodeAssist 和 FetchAvailableModels 的 408 fallback 测试
-// ---------------------------------------------------------------------------
-
-func TestClient_LoadCodeAssist_408Fallback_RealCall(t *testing.T) {
+func TestClient_LoadCodeAssist_408DoesNotFallback_RealCall(t *testing.T) {
+	callCount := 0
 	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
 		w.WriteHeader(http.StatusRequestTimeout)
 		_, _ = w.Write([]byte(`timeout`))
 	}))
 	defer server1.Close()
 
 	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+		callCount++
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"cloudaicompanionProject":"p2","currentTier":"free-tier"}`))
+		_, _ = w.Write([]byte(`{"cloudaicompanionProject":"unexpected"}`))
 	}))
 	defer server2.Close()
 
 	withMockBaseURLs(t, []string{server1.URL, server2.URL})
 
 	client := mustNewClient(t, "")
-	resp, _, err := client.LoadCodeAssist(context.Background(), "token")
-	if err != nil {
-		t.Fatalf("LoadCodeAssist 应在 408 fallback 后成功: %v", err)
+	_, _, err := client.LoadCodeAssist(context.Background(), "token")
+	if err == nil || !strings.Contains(err.Error(), "408") {
+		t.Fatalf("LoadCodeAssist 应直接返回首个端点的 408，got %v", err)
 	}
-	if resp.CloudAICompanionProject != "p2" {
-		t.Errorf("CloudAICompanionProject 不匹配: got %s", resp.CloudAICompanionProject)
+	if callCount != 1 {
+		t.Errorf("408 不应跨端点回退，实际调用 %d 次", callCount)
 	}
 }
 
-func TestClient_FetchAvailableModels_404Fallback_RealCall(t *testing.T) {
+func TestClient_FetchAvailableModels_404DoesNotFallback_RealCall(t *testing.T) {
+	callCount := 0
 	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`not found`))
 	}))
 	defer server1.Close()
 
 	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+		callCount++
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"models":{"m1":{"quotaInfo":{"remainingFraction":1.0}}}}`))
+		_, _ = w.Write([]byte(`{"models":{"unexpected":{}}}`))
 	}))
 	defer server2.Close()
 
 	withMockBaseURLs(t, []string{server1.URL, server2.URL})
 
 	client := mustNewClient(t, "")
-	resp, _, err := client.FetchAvailableModels(context.Background(), "token", "proj")
-	if err != nil {
-		t.Fatalf("FetchAvailableModels 应在 404 fallback 后成功: %v", err)
+	_, _, err := client.FetchAvailableModels(context.Background(), "token", "proj")
+	if err == nil || !strings.Contains(err.Error(), "404") {
+		t.Fatalf("FetchAvailableModels 应直接返回首个端点的 404，got %v", err)
 	}
-	if _, ok := resp.Models["m1"]; !ok {
-		t.Error("应返回 fallback server 的模型 m1")
+	if callCount != 1 {
+		t.Errorf("404 不应跨端点回退，实际调用 %d 次", callCount)
 	}
 }
 

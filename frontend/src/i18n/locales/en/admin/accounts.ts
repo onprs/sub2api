@@ -772,7 +772,7 @@ export default {
       // Upstream type
       upstream: {
         baseUrl: 'Upstream Base URL',
-        baseUrlHint: 'The address of the upstream Antigravity service, e.g., https://cloudcode-pa.googleapis.com',
+        baseUrlHint: 'Compatible upstream gateway address, e.g. https://gateway.example.com/antigravity',
         apiKey: 'Upstream API Key',
         apiKeyHint: 'API Key for the upstream service',
         pleaseEnterBaseUrl: 'Please enter upstream Base URL',

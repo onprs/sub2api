@@ -201,13 +201,20 @@ func (c *recordingInternal500CounterCache) ResetInternal500Count(_ context.Conte
 	return nil
 }
 
-type antigravitySettingRepoStub struct{}
+type antigravitySettingRepoStub struct {
+	values map[string]string
+}
 
 func (s *antigravitySettingRepoStub) Get(ctx context.Context, key string) (*Setting, error) {
 	panic("unexpected Get call")
 }
 
 func (s *antigravitySettingRepoStub) GetValue(ctx context.Context, key string) (string, error) {
+	if s != nil {
+		if value, ok := s.values[key]; ok {
+			return value, nil
+		}
+	}
 	return "", ErrSettingNotFound
 }
 
@@ -864,6 +871,83 @@ func TestAntigravityGatewayService_ForwardGemini_BillsWithMappedModel(t *testing
 	require.Equal(t, mappedModel, result.UpstreamModel)
 }
 
+func TestAntigravityGatewayService_ForwardGemini_FallbackAliasUsesUnifiedEndpointRetry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv(antigravityForwardBaseURLEnv, "")
+
+	oldBaseURLs := append([]string(nil), antigravity.BaseURLs...)
+	antigravity.BaseURLs = []string{"https://daily.test", "https://production.test"}
+	t.Cleanup(func() { antigravity.BaseURLs = oldBaseURLs })
+
+	writer := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(writer)
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3.6-flash-high:generateContent", bytes.NewReader(body))
+
+	successBody := []byte("data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":8,\"candidatesTokenCount\":3}}}\n\n")
+	var requestURLs []string
+	upstream := &queuedHTTPUpstreamStub{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusNotFound,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"code":404,"message":"Model not found","status":"NOT_FOUND"}}`)),
+			},
+			{
+				StatusCode: http.StatusTooManyRequests,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota).","status":"RESOURCE_EXHAUSTED"}}`)),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body:       io.NopCloser(bytes.NewReader(successBody)),
+			},
+		},
+		onCall: func(req *http.Request, _ *queuedHTTPUpstreamStub) {
+			requestURLs = append(requestURLs, req.URL.Scheme+"://"+req.URL.Host)
+		},
+	}
+	settingService := NewSettingService(&antigravitySettingRepoStub{values: map[string]string{
+		SettingKeyEnableModelFallback:      "true",
+		SettingKeyFallbackModelAntigravity: "gemini-3.1-pro-high",
+	}}, &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}})
+	svc := &AntigravityGatewayService{
+		settingService: settingService,
+		tokenProvider:  &AntigravityTokenProvider{},
+		httpUpstream:   upstream,
+	}
+	account := &Account{
+		ID:          66,
+		Name:        "fallback-alias",
+		Platform:    PlatformAntigravity,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "token",
+			"project_id":   "proj",
+		},
+	}
+
+	result, err := svc.ForwardGemini(context.Background(), c, account, "gemini-3.6-flash-high", "generateContent", true, body, false)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "gemini-pro-agent", result.UpstreamModel)
+	require.Equal(t, []string{"https://daily.test", "https://daily.test", "https://production.test"}, requestURLs)
+	require.Len(t, upstream.requestBodies, 3)
+
+	var firstEnvelope, fallbackDailyEnvelope, fallbackProductionEnvelope struct {
+		Model string `json:"model"`
+	}
+	require.NoError(t, json.Unmarshal(upstream.requestBodies[0], &firstEnvelope))
+	require.NoError(t, json.Unmarshal(upstream.requestBodies[1], &fallbackDailyEnvelope))
+	require.NoError(t, json.Unmarshal(upstream.requestBodies[2], &fallbackProductionEnvelope))
+	require.Equal(t, "gemini-3.6-flash-high", firstEnvelope.Model)
+	require.Equal(t, "gemini-pro-agent", fallbackDailyEnvelope.Model)
+	require.Equal(t, "gemini-pro-agent", fallbackProductionEnvelope.Model)
+}
+
 func TestAntigravityGatewayService_ForwardGemini_RetriesCorruptedThoughtSignature(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	writer := httptest.NewRecorder()
@@ -912,7 +996,7 @@ func TestAntigravityGatewayService_ForwardGemini_RetriesCorruptedThoughtSignatur
 	}
 
 	const originalModel = "gemini-3.1-pro-preview"
-	const mappedModel = "gemini-3.1-pro-high"
+	const mappedModel = "gemini-pro-agent"
 	account := &Account{
 		ID:          7,
 		Name:        "acc-gemini-signature",
@@ -971,7 +1055,7 @@ func TestAntigravityGatewayService_ForwardGemini_SignatureRetryPropagatesFailove
 	firstRespBody := []byte(`{"response":{"error":{"code":400,"message":"Corrupted thought signature.","status":"INVALID_ARGUMENT"}}}`)
 
 	const originalModel = "gemini-3.1-pro-preview"
-	const mappedModel = "gemini-3.1-pro-high"
+	const mappedModel = "gemini-pro-agent"
 	account := &Account{
 		ID:          8,
 		Name:        "acc-gemini-signature-failover",

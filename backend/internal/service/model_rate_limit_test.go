@@ -111,6 +111,7 @@ func TestIsModelRateLimited(t *testing.T) {
 			name: "antigravity platform - gemini-3-pro-preview mapped to gemini-3-pro-high",
 			account: &Account{
 				Platform: PlatformAntigravity,
+				Type:     AccountTypeOAuth,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
 						"gemini-3-pro-high": map[string]any{
@@ -126,6 +127,7 @@ func TestIsModelRateLimited(t *testing.T) {
 			name: "antigravity platform - gemini family rate limit blocks mapped preview",
 			account: &Account{
 				Platform: PlatformAntigravity,
+				Type:     AccountTypeOAuth,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
 						antigravityGeminiModelRateLimitKey: map[string]any{
@@ -141,6 +143,7 @@ func TestIsModelRateLimited(t *testing.T) {
 			name: "antigravity platform - gemini family rate limit does not block claude",
 			account: &Account{
 				Platform: PlatformAntigravity,
+				Type:     AccountTypeOAuth,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
 						antigravityGeminiModelRateLimitKey: map[string]any{
@@ -171,6 +174,7 @@ func TestIsModelRateLimited(t *testing.T) {
 			name: "antigravity platform - claude-opus-4-5-thinking mapped to opus-4-6-thinking",
 			account: &Account{
 				Platform: PlatformAntigravity,
+				Type:     AccountTypeOAuth,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
 						"claude-opus-4-6-thinking": map[string]any{
@@ -261,6 +265,7 @@ func TestIsModelRateLimited_Antigravity_ThinkingAffectsModelKey(t *testing.T) {
 
 	account := &Account{
 		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
 				"claude-sonnet-4-5-thinking": map[string]any{
@@ -372,6 +377,7 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 			name: "antigravity platform - claude-opus-4-5-thinking mapped to opus-4-6-thinking",
 			account: &Account{
 				Platform: PlatformAntigravity,
+				Type:     AccountTypeOAuth,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
 						"claude-opus-4-6-thinking": map[string]any{
@@ -388,6 +394,7 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 			name: "antigravity platform - gemini family rate limit remaining",
 			account: &Account{
 				Platform: PlatformAntigravity,
+				Type:     AccountTypeOAuth,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
 						antigravityGeminiModelRateLimitKey: map[string]any{
@@ -404,6 +411,7 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 			name: "antigravity platform - gemini family remaining ignored for claude",
 			account: &Account{
 				Platform: PlatformAntigravity,
+				Type:     AccountTypeOAuth,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
 						antigravityGeminiModelRateLimitKey: map[string]any{
@@ -451,6 +459,7 @@ func TestGetRateLimitRemainingTime(t *testing.T) {
 			name: "model rate limited - 15 minutes",
 			account: &Account{
 				Platform: PlatformAntigravity,
+				Type:     AccountTypeOAuth,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
 						"claude-sonnet-4-5": map[string]any{
@@ -467,6 +476,7 @@ func TestGetRateLimitRemainingTime(t *testing.T) {
 			name: "only model rate limited",
 			account: &Account{
 				Platform: PlatformAntigravity,
+				Type:     AccountTypeOAuth,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
 						"claude-sonnet-4-5": map[string]any{

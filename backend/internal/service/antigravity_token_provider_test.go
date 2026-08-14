@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -63,6 +64,28 @@ func TestAntigravityTokenProvider_GetAccessToken_Upstream(t *testing.T) {
 	})
 }
 
+func TestAntigravityTokenProvider_GetAccessToken_SetupTokenUsesAccessTokenWithoutRefresh(t *testing.T) {
+	account := &Account{
+		ID:       88,
+		Platform: PlatformAntigravity,
+		Type:     AccountTypeSetupToken,
+		Credentials: map[string]any{
+			"access_token": "setup-access-token",
+			"project_id":   "setup-project",
+		},
+	}
+	repo := &refreshAPIAccountRepo{account: account}
+	cache := &refreshAPICacheStub{lockResult: true}
+	executor := &refreshAPIExecutorStub{needsRefresh: true, err: errors.New("must not refresh")}
+	provider := NewAntigravityTokenProvider(repo, cache, nil)
+	provider.SetRefreshAPI(NewOAuthRefreshAPI(repo, cache), executor)
+
+	token, err := provider.GetAccessToken(context.Background(), account)
+	require.NoError(t, err)
+	require.Equal(t, "setup-access-token", token)
+	require.Zero(t, executor.refreshCalls)
+}
+
 func TestAntigravityTokenProvider_GetAccessToken_Guards(t *testing.T) {
 	provider := &AntigravityTokenProvider{}
 
@@ -91,7 +114,7 @@ func TestAntigravityTokenProvider_GetAccessToken_Guards(t *testing.T) {
 		}
 		token, err := provider.GetAccessToken(context.Background(), account)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "not an antigravity oauth account")
+		require.Contains(t, err.Error(), "not an antigravity oauth or setup-token account")
 		require.Empty(t, token)
 	})
 }

@@ -360,6 +360,7 @@ func TestAccountGetModelMapping_AntigravityNormalizesGemini31ProAliases(t *testi
 
 	account := &Account{
 		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
 		Credentials: map[string]any{
 			"model_mapping": map[string]any{
 				domain.AntigravityGemini31ProAgentModel: domain.AntigravityGemini31ProAgentModel,
@@ -387,6 +388,7 @@ func TestAccountGetModelMapping_AntigravityPreservesGemini31ProOverrides(t *test
 
 	account := &Account{
 		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
 		Credentials: map[string]any{
 			"model_mapping": map[string]any{
 				domain.AntigravityGemini31ProAgentModel: domain.AntigravityGemini31ProAgentModel,
@@ -414,6 +416,7 @@ func TestAccountGetModelMapping_AntigravityGemini31ProAliasesRespectWildcard(t *
 
 	account := &Account{
 		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
 		Credentials: map[string]any{
 			"model_mapping": map[string]any{
 				domain.AntigravityGemini31ProAgentModel: domain.AntigravityGemini31ProAgentModel,
@@ -525,9 +528,10 @@ func TestAccountResolveMappedModel(t *testing.T) {
 	}
 }
 
-func TestAccountGetModelMapping_AntigravityEnsuresGeminiDefaultPassthroughs(t *testing.T) {
+func TestAccountGetModelMapping_AntigravityIncludesOfficialRoutes(t *testing.T) {
 	account := &Account{
 		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
 		Credentials: map[string]any{
 			"model_mapping": map[string]any{
 				"gemini-3-pro-high": "gemini-3.1-pro-high",
@@ -537,19 +541,20 @@ func TestAccountGetModelMapping_AntigravityEnsuresGeminiDefaultPassthroughs(t *t
 
 	mapping := account.GetModelMapping()
 	if mapping["gemini-3-flash"] != "gemini-3-flash" {
-		t.Fatalf("expected gemini-3-flash passthrough to be auto-filled, got: %q", mapping["gemini-3-flash"])
+		t.Fatalf("expected gemini-3-flash official route, got: %q", mapping["gemini-3-flash"])
 	}
-	if mapping["gemini-3.1-pro-high"] != "gemini-3.1-pro-high" {
-		t.Fatalf("expected gemini-3.1-pro-high passthrough to be auto-filled, got: %q", mapping["gemini-3.1-pro-high"])
+	if mapping["gemini-3.1-pro-high"] != domain.AntigravityGemini31ProAgentModel {
+		t.Fatalf("expected gemini-3.1-pro-high official route to %q, got: %q", domain.AntigravityGemini31ProAgentModel, mapping["gemini-3.1-pro-high"])
 	}
 	if mapping["gemini-3.1-pro-low"] != "gemini-3.1-pro-low" {
-		t.Fatalf("expected gemini-3.1-pro-low passthrough to be auto-filled, got: %q", mapping["gemini-3.1-pro-low"])
+		t.Fatalf("expected gemini-3.1-pro-low official route, got: %q", mapping["gemini-3.1-pro-low"])
 	}
 }
 
 func TestAccountGetModelMapping_AntigravityRespectsWildcardOverride(t *testing.T) {
 	account := &Account{
 		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
 		Credentials: map[string]any{
 			"model_mapping": map[string]any{
 				"gemini-3*": "gemini-3.1-pro-high",

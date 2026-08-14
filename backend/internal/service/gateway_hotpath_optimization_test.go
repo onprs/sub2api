@@ -686,7 +686,7 @@ func TestGetAntigravityMappedModels_FiltersExplicitMappingsByProtocol(t *testing
 
 func TestGetAntigravityMappedModels_IgnoresDefaultAntigravityMapping(t *testing.T) {
 	groupID := int64(91)
-	account := Account{ID: 1, Platform: PlatformAntigravity}
+	account := Account{ID: 1, Platform: PlatformAntigravity, Type: AccountTypeOAuth}
 	require.NotEmpty(t, account.GetModelMapping(), "Antigravity default mapping must not drive the models list")
 
 	repo := &modelsListAccountRepoStub{

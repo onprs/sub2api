@@ -40,7 +40,7 @@
                 : account.platform === 'gemini'
                   ? 'https://generativelanguage.googleapis.com'
                   : account.platform === 'antigravity'
-                    ? 'https://cloudcode-pa.googleapis.com'
+                    ? 'https://gateway.example.com/antigravity'
                     : account.platform === 'opencode_go'
                       ? OPENCODE_GO_DEFAULT_BASE_URL
                       : account.platform === 'clinepass'
@@ -817,7 +817,7 @@
             v-model="editBaseUrl"
             type="text"
             class="input"
-            placeholder="https://cloudcode-pa.googleapis.com"
+            placeholder="https://gateway.example.com/antigravity"
           />
           <p class="input-hint">{{ t('admin.accounts.upstream.baseUrlHint') }}</p>
         </div>

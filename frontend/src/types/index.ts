@@ -749,6 +749,14 @@ export interface ClaudeModel {
   type: string
   display_name: string
   created_at: string
+  catalog_id?: string
+  wire_model?: string
+  internal_model?: string
+  response_model?: string
+  backend_model?: string
+  thinking_budget?: number
+  source?: 'live' | 'fallback' | 'upstream' | 'mapping'
+  metadata?: Record<string, unknown>
 }
 
 export interface Proxy {

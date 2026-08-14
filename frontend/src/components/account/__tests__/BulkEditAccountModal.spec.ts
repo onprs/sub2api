@@ -88,15 +88,17 @@ describe('BulkEditAccountModal', () => {
     } as any)
   })
 
-  it('antigravity 白名单包含 Gemini 图片模型且过滤掉普通 GPT 模型', async () => {
+  it('antigravity 白名单只展示 agy 用户目录并过滤辅助图片模型和普通 GPT 模型', async () => {
     const wrapper = mountModal()
     const selector = wrapper.findComponent(ModelWhitelistSelector)
     expect(selector.exists()).toBe(true)
 
     await selector.find('div.cursor-pointer').trigger('click')
 
-    expect(wrapper.text()).toContain('gemini-3.1-flash-image')
-    expect(wrapper.text()).toContain('gemini-2.5-flash-image')
+    expect(wrapper.text()).toContain('gemini-3.7-flash-high')
+    expect(wrapper.text()).toContain('gemini-3.5-flash-low')
+    expect(wrapper.text()).not.toContain('gemini-3.1-flash-image')
+    expect(wrapper.text()).not.toContain('gemini-2.5-flash-image')
     expect(wrapper.text()).not.toContain('gpt-5.3-codex')
   })
 

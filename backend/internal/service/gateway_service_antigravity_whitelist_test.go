@@ -51,6 +51,7 @@ func TestGatewayService_isModelSupportedByAccount_AntigravityNoMapping(t *testin
 	// 只有默认映射中的模型才被支持
 	account := &Account{
 		Platform:    PlatformAntigravity,
+		Type:        AccountTypeOAuth,
 		Credentials: map[string]any{},
 	}
 

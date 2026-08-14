@@ -1,5 +1,7 @@
 package domain
 
+import "strings"
+
 // Status constants
 const (
 	StatusActive   = "active"
@@ -70,60 +72,136 @@ const (
 	SubscriptionStatusSuspended = "suspended"
 )
 
-// AntigravityGemini31ProAgentModel is the upstream route for Gemini 3.1 Pro High.
+// AntigravityGemini31ProAgentModel 是 Gemini 3.1 Pro High 的历史 Cloud Code wire ID。
 const AntigravityGemini31ProAgentModel = "gemini-pro-agent"
 
-// DefaultAntigravityModelMapping 是 Antigravity 平台的默认模型映射
-// 当账号未配置 model_mapping 时使用此默认值
-// 与前端 useModelWhitelist.ts 中的 antigravityDefaultMappings 保持一致
-var DefaultAntigravityModelMapping = map[string]string{
-	// Claude 白名单
-	"claude-fable-5":             "claude-fable-5",           // 官方模型
-	"claude-opus-4-8":            "claude-opus-4-8",          // 官方模型
-	"claude-opus-4-7":            "claude-opus-4-7",          // 官方模型
-	"claude-opus-4-6-thinking":   "claude-opus-4-6-thinking", // 官方模型
-	"claude-opus-4-6":            "claude-opus-4-6-thinking", // 简称映射
-	"claude-opus-4-5-thinking":   "claude-opus-4-6-thinking", // 迁移旧模型
-	"claude-sonnet-4-6":          "claude-sonnet-4-6",
+// AntigravityModelRoute 将 agy 用户模型与 Cloud Code 目录、wire 和诊断指纹分开。
+// InternalModel 只用于观测，MODEL_PLACEHOLDER_* 可能随服务端版本漂移，绝不能作为请求 model。
+type AntigravityModelRoute struct {
+	ModelID           string
+	DisplayName       string
+	CatalogIDs        []string
+	WireModel         string
+	InternalModel     string
+	ResponseModel     string
+	BackendModel      string
+	ThinkingBudget    int
+	HasThinkingBudget bool
+	TierGroup         string
+}
+
+var antigravityUserModelRoutes = []AntigravityModelRoute{
+	{ModelID: "gemini-3.7-flash-high", DisplayName: "Gemini 3.7 Flash (High)", CatalogIDs: []string{"gemini-3.7-flash-tiered"}, WireModel: "gemini-3.7-flash-high", InternalModel: "MODEL_PLACEHOLDER_M298", ResponseModel: "gemini-3.7-flash", ThinkingBudget: -1, HasThinkingBudget: true, TierGroup: "flash"},
+	{ModelID: "gemini-3.7-flash-medium", DisplayName: "Gemini 3.7 Flash (Medium)", CatalogIDs: []string{"gemini-3.7-flash-tiered"}, WireModel: "gemini-3.7-flash-medium", InternalModel: "MODEL_PLACEHOLDER_M299", ResponseModel: "gemini-3.7-flash", ThinkingBudget: 4000, HasThinkingBudget: true, TierGroup: "flash"},
+	{ModelID: "gemini-3.7-flash-low", DisplayName: "Gemini 3.7 Flash (Low)", CatalogIDs: []string{"gemini-3.7-flash-tiered"}, WireModel: "gemini-3.7-flash-low", InternalModel: "MODEL_PLACEHOLDER_M300", ResponseModel: "gemini-3.7-flash", ThinkingBudget: 1000, HasThinkingBudget: true, TierGroup: "flash"},
+	{ModelID: "gemini-3.6-flash-high", DisplayName: "Gemini 3.6 Flash (High)", CatalogIDs: []string{"gemini-3.6-flash-high"}, WireModel: "gemini-3.6-flash-high", InternalModel: "MODEL_PLACEHOLDER_M71", ThinkingBudget: -1, HasThinkingBudget: true},
+	{ModelID: "gemini-3.6-flash-medium", DisplayName: "Gemini 3.6 Flash (Medium)", CatalogIDs: []string{"gemini-3.6-flash-medium"}, WireModel: "gemini-3.6-flash-medium", InternalModel: "MODEL_PLACEHOLDER_M72", ThinkingBudget: 4000, HasThinkingBudget: true},
+	{ModelID: "gemini-3.6-flash-low", DisplayName: "Gemini 3.6 Flash (Low)", CatalogIDs: []string{"gemini-3.6-flash-low"}, WireModel: "gemini-3.6-flash-low", InternalModel: "MODEL_PLACEHOLDER_M73", ThinkingBudget: 1000, HasThinkingBudget: true},
+	{ModelID: "gemini-3.5-flash-high", DisplayName: "Gemini 3.5 Flash (High)", CatalogIDs: []string{"gemini-3-flash-agent"}, WireModel: "gemini-3-flash-agent", InternalModel: "MODEL_PLACEHOLDER_M84", ResponseModel: "gemini-default", ThinkingBudget: -1, HasThinkingBudget: true},
+	{ModelID: "gemini-3.5-flash-medium", DisplayName: "Gemini 3.5 Flash (Medium)", CatalogIDs: []string{"gemini-3.5-flash-low"}, WireModel: "gemini-3.5-flash-low", InternalModel: "MODEL_PLACEHOLDER_M20", ThinkingBudget: 4000, HasThinkingBudget: true},
+	{ModelID: "gemini-3.5-flash-low", DisplayName: "Gemini 3.5 Flash (Low)", CatalogIDs: []string{"gemini-3.5-flash-extra-low"}, WireModel: "gemini-3.5-flash-extra-low", InternalModel: "MODEL_PLACEHOLDER_M187", ThinkingBudget: 1000, HasThinkingBudget: true},
+	{ModelID: "gemini-3.1-pro-high", DisplayName: "Gemini 3.1 Pro (High)", CatalogIDs: []string{"gemini-pro-agent", "gemini-3.1-pro-high"}, WireModel: AntigravityGemini31ProAgentModel, InternalModel: "MODEL_PLACEHOLDER_M16", ResponseModel: "gemini-pro-default", ThinkingBudget: 10001, HasThinkingBudget: true},
+	{ModelID: "gemini-3.1-pro-low", DisplayName: "Gemini 3.1 Pro (Low)", CatalogIDs: []string{"gemini-3.1-pro-low"}, WireModel: "gemini-3.1-pro-low", InternalModel: "MODEL_PLACEHOLDER_M36", ThinkingBudget: 1001, HasThinkingBudget: true},
+	{ModelID: "claude-sonnet-4-6", DisplayName: "Claude Sonnet 4.6 (Thinking)", CatalogIDs: []string{"claude-sonnet-4-6"}, WireModel: "claude-sonnet-4-6", InternalModel: "MODEL_PLACEHOLDER_M35", BackendModel: "claude-sonnet-4-6@default", ThinkingBudget: 1024, HasThinkingBudget: true},
+	{ModelID: "claude-opus-4-6-thinking", DisplayName: "Claude Opus 4.6 (Thinking)", CatalogIDs: []string{"claude-opus-4-6-thinking"}, WireModel: "claude-opus-4-6-thinking", InternalModel: "MODEL_PLACEHOLDER_M26", BackendModel: "claude-opus-4-6@default", ThinkingBudget: 1024, HasThinkingBudget: true},
+	{ModelID: "gpt-oss-120b-medium", DisplayName: "GPT-OSS 120B (Medium)", CatalogIDs: []string{"gpt-oss-120b-medium"}, WireModel: "gpt-oss-120b-medium", InternalModel: "MODEL_OPENAI_GPT_OSS_120B_MEDIUM", BackendModel: "openai/gpt-oss-120b-maas", ThinkingBudget: 8192, HasThinkingBudget: true},
+}
+
+// AntigravityUserModelRoutes 返回 agy 用户目录定义的深拷贝。
+func AntigravityUserModelRoutes() []AntigravityModelRoute {
+	routes := make([]AntigravityModelRoute, len(antigravityUserModelRoutes))
+	for i, route := range antigravityUserModelRoutes {
+		route.CatalogIDs = append([]string(nil), route.CatalogIDs...)
+		routes[i] = route
+	}
+	return routes
+}
+
+var antigravityCompatibilityModelMapping = map[string]string{
+	// Claude 兼容别名。
+	"claude-fable-5":             "claude-fable-5",
+	"claude-opus-4-8":            "claude-opus-4-8",
+	"claude-opus-4-7":            "claude-opus-4-7",
+	"claude-opus-4-6":            "claude-opus-4-6-thinking",
+	"claude-opus-4-5-thinking":   "claude-opus-4-6-thinking",
 	"claude-sonnet-4-5":          "claude-sonnet-4-5",
 	"claude-sonnet-4-5-thinking": "claude-sonnet-4-5-thinking",
-	// Claude 详细版本 ID 映射
-	"claude-opus-4-5-20251101":   "claude-opus-4-6-thinking", // 迁移旧模型
+	"claude-opus-4-5-20251101":   "claude-opus-4-6-thinking",
 	"claude-sonnet-4-5-20250929": "claude-sonnet-4-5",
-	// Claude Haiku → Sonnet（无 Haiku 支持）
-	"claude-haiku-4-5":          "claude-sonnet-4-6",
-	"claude-haiku-4-5-20251001": "claude-sonnet-4-6",
-	// Gemini 2.5 白名单
+	"claude-haiku-4-5":           "claude-sonnet-4-6",
+	"claude-haiku-4-5-20251001":  "claude-sonnet-4-6",
+
+	// 旧 Gemini、图片和辅助模型仍可作为隐藏兼容输入。
 	"gemini-2.5-flash":               "gemini-2.5-flash",
 	"gemini-2.5-flash-image":         "gemini-2.5-flash-image",
 	"gemini-2.5-flash-image-preview": "gemini-2.5-flash-image",
 	"gemini-2.5-flash-lite":          "gemini-2.5-flash-lite",
 	"gemini-2.5-flash-thinking":      "gemini-2.5-flash-thinking",
 	"gemini-2.5-pro":                 "gemini-2.5-pro",
-	// Gemini 3 白名单
-	"gemini-3-flash":    "gemini-3-flash",
-	"gemini-3-pro-high": "gemini-3-pro-high",
-	"gemini-3-pro-low":  "gemini-3-pro-low",
-	// Gemini 3 preview 映射
-	"gemini-3-flash-preview": "gemini-3-flash",
-	"gemini-3-pro-preview":   "gemini-3-pro-high",
-	// Gemini 3.1 白名单
+	"gemini-3-flash":                 "gemini-3-flash",
+	"gemini-3-flash-preview":         "gemini-3-flash",
+	"gemini-3-pro-high":              "gemini-3-pro-high",
+	"gemini-3-pro-low":               "gemini-3-pro-low",
+	"gemini-3-pro-preview":           "gemini-3-pro-high",
 	AntigravityGemini31ProAgentModel: AntigravityGemini31ProAgentModel,
 	"gemini-3.1-pro":                 AntigravityGemini31ProAgentModel,
-	"gemini-3.1-pro-high":            AntigravityGemini31ProAgentModel,
-	"gemini-3.1-pro-low":             "gemini-3.1-pro-low",
-	// Gemini 3.1 preview 映射
-	"gemini-3.1-pro-preview": AntigravityGemini31ProAgentModel,
-	// Gemini 3.1 image 白名单
-	"gemini-3.1-flash-image": "gemini-3.1-flash-image",
-	// Gemini 3.1 image preview 映射
+	"gemini-3.1-pro-preview":         AntigravityGemini31ProAgentModel,
+	"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
 	"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
-	// Gemini 3 image 兼容映射（向 3.1 image 迁移）
-	"gemini-3-pro-image":         "gemini-3.1-flash-image",
-	"gemini-3-pro-image-preview": "gemini-3.1-flash-image",
-	// 其他官方模型
-	"gpt-oss-120b-medium":    "gpt-oss-120b-medium",
-	"tab_flash_lite_preview": "tab_flash_lite_preview",
+	"gemini-3.1-flash-lite":          "gemini-3.1-flash-lite",
+	"gemini-3.6-flash-tiered":        "gemini-3.6-flash-tiered",
+	"gemini-3.7-flash-tiered":        "gemini-3.7-flash-tiered",
+	"gemini-3-flash-agent":           "gemini-3-flash-agent",
+	"gemini-3.5-flash-extra-low":     "gemini-3.5-flash-extra-low",
+	"gemini-3-pro-image":             "gemini-3.1-flash-image",
+	"gemini-3-pro-image-preview":     "gemini-3.1-flash-image",
+	"tab_flash_lite_preview":         "tab_flash_lite_preview",
+}
+
+// DefaultAntigravityModelMapping 是官方 Cloud Code OAuth/Setup Token 账号的内置路由表。
+// 14 个公开用户 ID 覆盖同名历史 raw key；例如 gemini-3.5-flash-low 现在明确表示 Low。
+var DefaultAntigravityModelMapping = buildDefaultAntigravityModelMapping()
+
+func buildDefaultAntigravityModelMapping() map[string]string {
+	mapping := make(map[string]string, len(antigravityCompatibilityModelMapping)+len(antigravityUserModelRoutes)*2)
+	for model, wireModel := range antigravityCompatibilityModelMapping {
+		mapping[model] = wireModel
+	}
+	for _, route := range antigravityUserModelRoutes {
+		for _, catalogID := range route.CatalogIDs {
+			if _, exists := mapping[catalogID]; !exists {
+				mapping[catalogID] = catalogID
+			}
+		}
+	}
+	// 用户目录契约优先，解决 3.5 Low 与历史 Medium raw key 的同名冲突。
+	for _, route := range antigravityUserModelRoutes {
+		mapping[route.ModelID] = route.WireModel
+	}
+	return mapping
+}
+
+// ResolveDefaultAntigravityModelRoute 返回官方路由的结构化结果。
+func ResolveDefaultAntigravityModelRoute(model string) (AntigravityModelRoute, bool) {
+	model = strings.TrimPrefix(strings.TrimSpace(model), "models/")
+	if model == "" {
+		return AntigravityModelRoute{}, false
+	}
+	for _, route := range antigravityUserModelRoutes {
+		if route.ModelID == model {
+			return route, true
+		}
+	}
+	wireModel, ok := DefaultAntigravityModelMapping[model]
+	if !ok || strings.TrimSpace(wireModel) == "" {
+		return AntigravityModelRoute{}, false
+	}
+	for _, route := range antigravityUserModelRoutes {
+		if route.ModelID == wireModel || route.WireModel == wireModel {
+			return route, true
+		}
+	}
+	return AntigravityModelRoute{ModelID: wireModel, WireModel: wireModel}, true
 }
 
 // DefaultBedrockModelMapping 是 AWS Bedrock 平台的默认模型映射

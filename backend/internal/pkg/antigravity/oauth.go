@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -33,8 +34,9 @@ const (
 	// AntigravityUserAgentVersionEnv 是 Antigravity User-Agent 版本号的环境变量名。
 	AntigravityUserAgentVersionEnv = "ANTIGRAVITY_USER_AGENT_VERSION"
 
-	// DefaultUserAgentVersion 是未通过环境变量或后台设置覆盖时使用的默认版本号。
-	DefaultUserAgentVersion = "1.23.2"
+	// DefaultUserAgentVersion 和 DefaultUserAgentBuild 对应已验证可访问 3.7 路由的官方 CLI 构建。
+	DefaultUserAgentVersion = "1.1.13"
+	DefaultUserAgentBuild   = "964361259"
 
 	// 固定的 redirect_uri（用户需手动复制 code）
 	RedirectURI = "http://localhost:8085/callback"
@@ -52,9 +54,11 @@ const (
 	// URL 可用性 TTL（不可用 URL 的恢复时间）
 	URLAvailabilityTTL = 5 * time.Minute
 
-	// Antigravity API 端点
-	antigravityProdBaseURL  = "https://cloudcode-pa.googleapis.com"
-	antigravityDailyBaseURL = "https://daily-cloudcode-pa.sandbox.googleapis.com"
+	// Antigravity API 端点。正式 daily 是当前官方 CLI 使用的入口；
+	// production 仅作为兼容回退，sandbox 不进入默认请求链。
+	DailyBaseURL      = "https://daily-cloudcode-pa.googleapis.com"
+	ProductionBaseURL = "https://cloudcode-pa.googleapis.com"
+	SandboxBaseURL    = "https://daily-cloudcode-pa.sandbox.googleapis.com"
 )
 
 var userAgentVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
@@ -120,12 +124,19 @@ func GetUserAgentVersionForContext(ctx context.Context) string {
 	return defaultUserAgentVersion
 }
 
-// BuildUserAgent 使用指定版本号构造 User-Agent；版本为空或非法时回退默认值。
+// BuildUserAgent 使用指定版本号构造官方 aidev_client User-Agent；版本非法时回退默认值。
 func BuildUserAgent(version string) string {
-	if normalized := NormalizeUserAgentVersion(version); normalized != "" {
-		return fmt.Sprintf("antigravity/%s windows/amd64", normalized)
+	normalized := NormalizeUserAgentVersion(version)
+	if normalized == "" {
+		normalized = defaultUserAgentVersion
 	}
-	return fmt.Sprintf("antigravity/%s windows/amd64", defaultUserAgentVersion)
+	return fmt.Sprintf(
+		"antigravity/cli/%s (aidev_client; os_type=%s; arch=%s; cl=%s; auth_method=consumer)",
+		normalized,
+		runtime.GOOS,
+		runtime.GOARCH,
+		DefaultUserAgentBuild,
+	)
 }
 
 // GetUserAgentForContext 返回当前请求应使用的 User-Agent。
@@ -145,40 +156,19 @@ func getClientSecret() (string, error) {
 	return "", infraerrors.Newf(http.StatusBadRequest, "ANTIGRAVITY_OAUTH_CLIENT_SECRET_MISSING", "missing antigravity oauth client_secret; set %s", AntigravityOAuthClientSecretEnv)
 }
 
-// BaseURLs 定义 Antigravity API 端点（与 Antigravity-Manager 保持一致）
+// BaseURLs 定义 Antigravity 正式 API 端点的默认顺序。
+// sandbox 使用不同的令牌验证环境，只能通过网关环境变量显式启用。
 var BaseURLs = []string{
-	antigravityProdBaseURL,  // prod (优先)
-	antigravityDailyBaseURL, // daily sandbox (备用)
+	DailyBaseURL,
+	ProductionBaseURL,
 }
 
 // BaseURL 默认 URL（保持向后兼容）
 var BaseURL = BaseURLs[0]
 
-// ForwardBaseURLs 返回 API 转发用的 URL 顺序（daily 优先）
+// ForwardBaseURLs 返回转发端点清单的副本，避免调用方修改全局顺序。
 func ForwardBaseURLs() []string {
-	if len(BaseURLs) == 0 {
-		return nil
-	}
-	urls := append([]string(nil), BaseURLs...)
-	dailyIndex := -1
-	for i, url := range urls {
-		if url == antigravityDailyBaseURL {
-			dailyIndex = i
-			break
-		}
-	}
-	if dailyIndex <= 0 {
-		return urls
-	}
-	reordered := make([]string, 0, len(urls))
-	reordered = append(reordered, urls[dailyIndex])
-	for i, url := range urls {
-		if i == dailyIndex {
-			continue
-		}
-		reordered = append(reordered, url)
-	}
-	return reordered
+	return append([]string(nil), BaseURLs...)
 }
 
 // URLAvailability 管理 URL 可用性状态（带 TTL 自动恢复和动态优先级）

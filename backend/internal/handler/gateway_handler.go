@@ -15,7 +15,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -1231,21 +1230,13 @@ func defaultModelIDsForPlatform(platform string) []string {
 	case service.PlatformClinePass:
 		return service.ClinePassDefaultModelIDs()
 	case service.PlatformAntigravity:
-		models := antigravity.DefaultModels()
-		ids := make([]string, 0, len(models))
-		for _, model := range models {
-			ids = append(ids, model.ID)
-		}
-		return ids
+		return service.DefaultAntigravityRouteModelIDs()
 	case service.PlatformAnthropic:
-		ids := make([]string, 0, len(claude.DefaultModels)+len(antigravity.DefaultModels()))
+		ids := make([]string, 0, len(claude.DefaultModels))
 		for _, model := range claude.DefaultModels {
 			ids = append(ids, model.ID)
 		}
-		for _, model := range antigravity.DefaultModels() {
-			ids = append(ids, model.ID)
-		}
-		return mergeModelIDs(ids, nil)
+		return mergeModelIDs(ids, service.DefaultAntigravityRouteModelIDs())
 	case service.PlatformGrok:
 		return xai.DefaultModelIDs()
 	default:

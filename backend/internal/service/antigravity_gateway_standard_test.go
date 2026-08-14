@@ -56,7 +56,7 @@ func TestAntigravityForwardAsChatCompletionsUsesVendorWire(t *testing.T) {
 	require.Equal(t, 2, result.Usage.OutputTokens)
 
 	require.NotNil(t, upstreamRequest)
-	require.Equal(t, "cloudcode-pa.googleapis.com", upstreamRequest.URL.Host)
+	require.Equal(t, "daily-cloudcode-pa.googleapis.com", upstreamRequest.URL.Host)
 	require.Equal(t, "/v1internal:streamGenerateContent", upstreamRequest.URL.Path)
 	require.Equal(t, "alt=sse", upstreamRequest.URL.RawQuery)
 	require.Equal(t, "Bearer antigravity-token", upstreamRequest.Header.Get("Authorization"))

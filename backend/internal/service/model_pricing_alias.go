@@ -14,7 +14,11 @@ func canonicalBillingModelForPricing(model string) string {
 	case "gemini-pro-agent":
 		return "gemini-3.1-pro-high"
 	case "gemini-3-flash-agent":
-		return "gemini-3-flash"
+		return "gemini-3.5-flash"
+	case "gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-3.7-flash-low", "gemini-3.7-flash-tiered":
+		return "gemini-3.7-flash"
+	case "gemini-3.6-flash-high", "gemini-3.6-flash-medium", "gemini-3.6-flash-low", "gemini-3.6-flash-tiered":
+		return "gemini-3.6-flash"
 	case "gemini-3.5-flash-high", "gemini-3.5-flash-medium", "gemini-3.5-flash-low", "gemini-3.5-flash-extra-low":
 		return "gemini-3.5-flash"
 	case "gemini-2.5-flash-thinking":

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/antigravityadapter"
@@ -35,7 +35,7 @@ type forwardGeminiOptions struct {
 	groupID         int64
 	sessionHash     string
 	source          protocolconv.Protocol
-	pipelineFactory func(mappedModel string) (*protocolconv.Pipeline, []byte, error)
+	pipelineFactory func(sourceModel, wireModel string) (*protocolconv.Pipeline, []byte, error)
 	includeUsage    bool
 }
 
@@ -51,7 +51,7 @@ func WithForwardGeminiSession(groupID int64, sessionHash string) ForwardGeminiOp
 // in AntigravityGatewayService.
 func WithForwardGeminiProtocol(
 	source protocolconv.Protocol,
-	pipelineFactory func(mappedModel string) (*protocolconv.Pipeline, []byte, error),
+	pipelineFactory func(sourceModel, wireModel string) (*protocolconv.Pipeline, []byte, error),
 	includeUsage bool,
 ) ForwardGeminiOption {
 	return func(opts *forwardGeminiOptions) {
@@ -105,11 +105,12 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusNotFound, "Unsupported action: "+action)
 	}
 
-	mappedModel := s.getMappedModel(account, originalModel)
-	if mappedModel == "" {
+	route, supported := account.ResolveAntigravityRoute(originalModel)
+	if !supported {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
 		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusForbidden, fmt.Sprintf("model %s not in whitelist", originalModel))
 	}
+	mappedModel := route.WireModel
 	billingModel := mappedModel
 
 	// 获取 access_token
@@ -138,18 +139,18 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 
 	// Each actual HTTP attempt receives fresh conversion state. Identity,
 	// schema cleanup, signatures, and the v1internal envelope remain vendor policy.
-	newAttemptFactory := func(attemptModel string, rectifySignatures bool) func() (*antigravityRetryAttempt, error) {
+	newAttemptFactory := func(attemptRoute domain.AntigravityModelRoute, rectifySignatures bool) func() (*antigravityRetryAttempt, error) {
 		return func() (*antigravityRetryAttempt, error) {
 			googleBody := body
 			var pipeline *protocolconv.Pipeline
 			if forwardOpts.pipelineFactory != nil {
 				var convertErr error
-				pipeline, googleBody, convertErr = forwardOpts.pipelineFactory(attemptModel)
+				pipeline, googleBody, convertErr = forwardOpts.pipelineFactory(attemptRoute.ModelID, attemptRoute.WireModel)
 				if convertErr != nil {
 					return nil, convertErr
 				}
 			}
-			adapterOptions := s.forwardGeminiAdapterOptions(ctx, forwardOpts, projectID, attemptModel)
+			adapterOptions := s.forwardGeminiAdapterOptions(ctx, forwardOpts, projectID, attemptRoute.ModelID, attemptRoute.WireModel)
 			adapterOptions.RectifySignatures = rectifySignatures
 			wrappedBody, _, convertErr := antigravityadapter.ConvertRequest(googleBody, protocolconv.ProtocolGoogleGenAI, adapterOptions)
 			if convertErr != nil {
@@ -158,7 +159,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			return &antigravityRetryAttempt{body: wrappedBody, pipeline: pipeline}, nil
 		}
 	}
-	initialBodyFactory := newAttemptFactory(mappedModel, false)
+	initialBodyFactory := newAttemptFactory(route, false)
 	initialAttempt, err := initialBodyFactory()
 	if err != nil {
 		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusBadRequest, "Invalid request body")
@@ -223,26 +224,57 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
-		// 模型兜底：模型不存在且开启 fallback 时，自动用 fallback 模型重试一次
+		// 模型兜底：模型不存在且开启 fallback 时，自动用 fallback 模型重试一次。
+		// 备用配置使用客户端模型 ID，必须先经过账号路由解析，再复用统一端点回退与错误策略。
 		if s.settingService != nil && s.settingService.IsModelFallbackEnabled(ctx) &&
 			isModelNotFoundError(resp.StatusCode, respBody) {
-			fallbackModel := s.settingService.GetFallbackModel(ctx, PlatformAntigravity)
-			if fallbackModel != "" && fallbackModel != mappedModel {
-				logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Model not found (%s), retrying with fallback model %s (account: %s)", mappedModel, fallbackModel, account.Name)
+			fallbackClientModel := strings.TrimSpace(s.settingService.GetFallbackModel(ctx, PlatformAntigravity))
+			fallbackRoute, fallbackSupported := account.ResolveAntigravityRoute(fallbackClientModel)
+			fallbackModel := fallbackRoute.WireModel
+			if fallbackSupported && fallbackModel != mappedModel {
+				logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Model not found (%s), retrying with fallback model %s -> %s (account: %s)", mappedModel, fallbackClientModel, fallbackModel, account.Name)
 
-				fallbackFactory := newAttemptFactory(fallbackModel, false)
-				fallbackAttempt, err := fallbackFactory()
-				if err == nil {
-					fallbackReq, err := antigravity.NewAPIRequest(ctx, upstreamAction, accessToken, fallbackAttempt.body)
-					if err == nil {
-						fallbackResp, err := s.httpUpstream.Do(fallbackReq, proxyURL, account.ID, account.Concurrency)
-						if err == nil && fallbackResp.StatusCode < 400 {
+				fallbackFactory := newAttemptFactory(fallbackRoute, false)
+				fallbackAttempt, fallbackBuildErr := fallbackFactory()
+				if fallbackBuildErr == nil {
+					var fallbackBodyFactory func() (*antigravityRetryAttempt, error)
+					if forwardOpts.pipelineFactory != nil {
+						fallbackBodyFactory = fallbackFactory
+					}
+					fallbackResult, fallbackErr := s.antigravityRetryLoop(antigravityRetryLoopParams{
+						ctx:             ctx,
+						prefix:          prefix,
+						account:         account,
+						proxyURL:        proxyURL,
+						accessToken:     accessToken,
+						action:          upstreamAction,
+						body:            fallbackAttempt.body,
+						firstAttempt:    fallbackAttempt,
+						bodyFactory:     fallbackBodyFactory,
+						c:               c,
+						httpUpstream:    s.httpUpstream,
+						settingService:  s.settingService,
+						accountRepo:     s.accountRepo,
+						handleError:     s.handleUpstreamError,
+						requestedModel:  fallbackClientModel,
+						isStickySession: isStickySession,
+						groupID:         forwardOpts.groupID,
+						sessionHash:     forwardOpts.sessionHash,
+					})
+					if fallbackErr == nil && fallbackResult != nil && fallbackResult.resp != nil {
+						fallbackResp := fallbackResult.resp
+						if fallbackResp.StatusCode < 400 {
 							_ = resp.Body.Close()
 							resp = fallbackResp
 							billingModel = fallbackModel
-							successfulPipeline = fallbackAttempt.pipeline
-						} else if fallbackResp != nil {
+							successfulPipeline = fallbackResult.pipeline
+						} else {
 							_ = fallbackResp.Body.Close()
+						}
+					} else if switchErr, ok := IsAntigravityAccountSwitchError(fallbackErr); ok {
+						return nil, &UpstreamFailoverError{
+							StatusCode:        http.StatusServiceUnavailable,
+							ForceCacheBilling: switchErr.IsStickySession,
 						}
 					}
 				}
@@ -275,7 +307,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 
 			logger.LegacyPrintf("service.antigravity_gateway", "Antigravity Gemini account %d: detected signature-related 400, retrying with cleaned thought signatures", account.ID)
 
-			retryFactory := newAttemptFactory(mappedModel, true)
+			retryFactory := newAttemptFactory(route, true)
 			retryAttempt, wrapErr := retryFactory()
 			if wrapErr == nil {
 				var signatureRetryBodyFactory func() (*antigravityRetryAttempt, error)
@@ -484,7 +516,7 @@ handleSuccess:
 
 	// 判断是否为图片生成模型
 	imageCount := 0
-	if isImageGenerationModel(mappedModel) {
+	if isImageGenerationModel(billingModel) {
 		// Gemini 图片生成 API 每次请求只生成一张图片（API 限制）
 		imageCount = 1
 	}

@@ -174,6 +174,7 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			account := &Account{
 				Platform: PlatformAntigravity,
+				Type:     AccountTypeOAuth,
 			}
 			if tt.accountMapping != nil {
 				// GetModelMapping 期望 model_mapping 是 map[string]any 格式
@@ -208,7 +209,7 @@ func TestAntigravityGatewayService_GetMappedModel_EdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			account := &Account{Platform: PlatformAntigravity}
+			account := &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth}
 			got := svc.getMappedModel(account, tt.requestedModel)
 			require.Equal(t, tt.expected, got)
 		})

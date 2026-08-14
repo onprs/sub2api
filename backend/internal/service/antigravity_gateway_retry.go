@@ -9,7 +9,6 @@ import (
 	"io"
 	"log"
 	mathrand "math/rand"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -85,26 +84,33 @@ type antigravityRetryLoopResult struct {
 	pipeline *protocolconv.Pipeline
 }
 
-// resolveAntigravityForwardBaseURL 解析转发用 base URL。
+// resolveAntigravityForwardBaseURLs 解析转发端点。
 //
-// 默认使用生产端点 cloudcode-pa.googleapis.com（antigravity.BaseURLs 的首个地址，
-// 与账号 OAuth 登录/测试连接所用的 antigravity.BaseURL 一致）。
+// 官方 CLI 当前使用 daily-cloudcode-pa.googleapis.com。默认请求先走正式 daily，
+// 仅在连接错误或 URL 级 429 时回退 production。历史上的
+// daily-cloudcode-pa.sandbox.googleapis.com 属于独立 sandbox 环境，生产 OAuth
+// token 可能被其拒绝，因此永远不进入默认回退链。
 //
-// 历史上这里改用 ForwardBaseURLs()（把 daily/sandbox 排到首位）并默认取首个地址，
-// 导致网关把带生产 OAuth token 的请求发到 daily-cloudcode-pa.sandbox.googleapis.com，
-// 上游拒绝 → 账号被 401「Invalid bearer token」/502 打入临时不可调度且无法恢复
-// （见 #3611 / #2962）。后台「测试连接」用的是生产端点，所以「测试成功但网关 401」。
-//
-// daily/sandbox 端点仅供内部联调，需显式设置
-// GATEWAY_ANTIGRAVITY_FORWARD_BASE_URL=daily（或 sandbox）才启用。
+// GATEWAY_ANTIGRAVITY_FORWARD_BASE_URL 可显式固定为 daily、prod/production 或
+// sandbox；固定模式不会跨环境回退。
+func resolveAntigravityForwardBaseURLs() []string {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityForwardBaseURLEnv)))
+	switch mode {
+	case "daily":
+		return []string{antigravity.DailyBaseURL}
+	case "prod", "production":
+		return []string{antigravity.ProductionBaseURL}
+	case "sandbox":
+		return []string{antigravity.SandboxBaseURL}
+	}
+	return append([]string(nil), antigravity.BaseURLs...)
+}
+
+// resolveAntigravityForwardBaseURL 返回首选转发端点，保留给单端点调用方使用。
 func resolveAntigravityForwardBaseURL() string {
-	baseURLs := antigravity.BaseURLs
+	baseURLs := resolveAntigravityForwardBaseURLs()
 	if len(baseURLs) == 0 {
 		return ""
-	}
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityForwardBaseURLEnv)))
-	if (mode == "daily" || mode == "sandbox") && len(baseURLs) > 1 {
-		return baseURLs[1]
 	}
 	return baseURLs[0]
 }
@@ -130,9 +136,9 @@ type smartRetryResult struct {
 // handleSmartRetry 处理 OAuth 账号的智能重试逻辑
 // 将 429/503 限流处理逻辑抽取为独立函数，减少 antigravityRetryLoop 的复杂度
 func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParams, resp *http.Response, respBody []byte, baseURL string, urlIdx int, availableURLs []string) *smartRetryResult {
-	// "Resource has been exhausted" 是 URL 级别限流，切换 URL（仅 429）
+	// 重试循环会在错误策略前处理该分支；保留这里的判定供独立调用方使用。
 	if resp.StatusCode == http.StatusTooManyRequests && isURLLevelRateLimit(respBody) && urlIdx < len(availableURLs)-1 {
-		logger.LegacyPrintf("service.antigravity_gateway", "%s URL fallback (429): %s -> %s", p.prefix, baseURL, availableURLs[urlIdx+1])
+		logger.LegacyPrintf("service.antigravity_gateway", "%s URL fallback (generic 429): %s -> %s", p.prefix, baseURL, availableURLs[urlIdx+1])
 		return &smartRetryResult{action: smartRetryActionContinueURL}
 	}
 
@@ -539,11 +545,10 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 		}
 	}
 
-	baseURL := resolveAntigravityForwardBaseURL()
-	if baseURL == "" {
+	availableURLs := resolveAntigravityForwardBaseURLs()
+	if len(availableURLs) == 0 {
 		return nil, errors.New("no antigravity forward base url configured")
 	}
-	availableURLs := []string{baseURL}
 
 	var resp *http.Response
 	var successfulPipeline *protocolconv.Pipeline
@@ -596,7 +601,7 @@ urlFallbackLoop:
 					Kind:               "request_error",
 					Message:            safeErr,
 				})
-				if shouldAntigravityFallbackToNextURL(err, 0) && urlIdx < len(availableURLs)-1 {
+				if shouldAntigravityFallbackToNextURL(err) && urlIdx < len(availableURLs)-1 {
 					logger.LegacyPrintf("service.antigravity_gateway", "%s URL fallback (connection error): %s -> %s", p.prefix, baseURL, availableURLs[urlIdx+1])
 					continue urlFallbackLoop
 				}
@@ -617,6 +622,13 @@ urlFallbackLoop:
 			if resp.StatusCode >= 400 {
 				respBody := s.readUpstreamErrorBody(resp)
 				_ = resp.Body.Close()
+
+				if resp.StatusCode == http.StatusTooManyRequests &&
+					antigravity.IsGenericEndpointRateLimit(respBody) &&
+					urlIdx < len(availableURLs)-1 {
+					logger.LegacyPrintf("service.antigravity_gateway", "%s URL fallback (generic 429): %s -> %s", p.prefix, baseURL, availableURLs[urlIdx+1])
+					continue urlFallbackLoop
+				}
 
 				if overagesInjected && shouldMarkCreditsExhausted(resp, respBody, nil) {
 					modelKey := resolveCreditsOveragesModelKey(p.ctx, p.account, "", p.requestedModel)
@@ -766,40 +778,19 @@ func shouldRetryAntigravityError(statusCode int) bool {
 	}
 }
 
-// isURLLevelRateLimit 判断是否为 URL 级别的限流（应切换 URL 重试）
-// "Resource has been exhausted" 是 URL/节点级别限流，切换 URL 可能成功
-// "exhausted your capacity on this model" 是账户/模型配额限流，切换 URL 无效
+// isURLLevelRateLimit 判断 429 是否为可跨端点回退的通用节点错误。
 func isURLLevelRateLimit(body []byte) bool {
-	// 快速检查：包含 "Resource has been exhausted" 且不包含 "capacity on this model"
-	bodyStr := string(body)
-	return strings.Contains(bodyStr, "Resource has been exhausted") &&
-		!strings.Contains(bodyStr, "capacity on this model")
+	return antigravity.IsGenericEndpointRateLimit(body)
 }
 
-// isAntigravityConnectionError 判断是否为连接错误（网络超时、DNS 失败、连接拒绝）
+// isAntigravityConnectionError 判断是否为可跨端点重试的连接错误。
 func isAntigravityConnectionError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	// 检查超时错误
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		return true
-	}
-
-	// 检查连接错误（DNS 失败、连接拒绝）
-	var opErr *net.OpError
-	return errors.As(err, &opErr)
+	return antigravity.IsConnectionError(err)
 }
 
-// shouldAntigravityFallbackToNextURL 判断是否应切换到下一个 URL
-// 仅连接错误和 HTTP 429 触发 URL 降级
-func shouldAntigravityFallbackToNextURL(err error, statusCode int) bool {
-	if isAntigravityConnectionError(err) {
-		return true
-	}
-	return statusCode == http.StatusTooManyRequests
+// shouldAntigravityFallbackToNextURL 判断连接错误是否应切换到下一个 URL。
+func shouldAntigravityFallbackToNextURL(err error) bool {
+	return isAntigravityConnectionError(err)
 }
 
 // getSessionID 从 gin.Context 获取 session_id（用于日志追踪）

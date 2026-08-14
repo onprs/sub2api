@@ -29,7 +29,8 @@ const dummyThoughtSignature = "skip_thought_signature_validator"
 type Options struct {
 	Family      Family
 	ProjectID   string
-	MappedModel string
+	SourceModel string
+	WireModel   string
 
 	TransformOptions  vendor.TransformOptions
 	IdentityPatch     string
@@ -51,7 +52,7 @@ func ConvertRequest(body []byte, source protocolconv.Protocol, options Options) 
 
 	switch options.Family {
 	case FamilyClaude:
-		standardBody, warnings, err := registry.ConvertRequest(body, source, protocolconv.ProtocolAnthropic, protocolconv.Options{SourceModel: options.MappedModel, LossPolicy: protocolconv.LossError})
+		standardBody, warnings, err := registry.ConvertRequest(body, source, protocolconv.ProtocolAnthropic, protocolconv.Options{SourceModel: options.SourceModel, LossPolicy: protocolconv.LossError})
 		if err != nil {
 			return nil, warnings, err
 		}
@@ -59,19 +60,19 @@ func ConvertRequest(body []byte, source protocolconv.Protocol, options Options) 
 		if err := json.Unmarshal(standardBody, &request); err != nil {
 			return nil, warnings, fmt.Errorf("decode standard Anthropic request: %w", err)
 		}
-		request.Model = options.MappedModel
+		request.Model = options.SourceModel
 		transform := options.TransformOptions
 		if transform == (vendor.TransformOptions{}) {
 			transform = vendor.DefaultTransformOptions()
 		}
-		converted, err := vendor.TransformClaudeToGeminiWithOptions(&request, options.ProjectID, options.MappedModel, transform)
+		converted, err := vendor.TransformClaudeToGeminiWithOptions(&request, options.ProjectID, options.WireModel, transform)
 		if err != nil || source != protocolconv.ProtocolGoogleGenAI || options.RectifySignatures {
 			return converted, warnings, err
 		}
 		converted, err = restoreGoogleToolCallSignatures(body, converted)
 		return converted, warnings, err
 	case FamilyGemini:
-		standardBody, warnings, err := registry.ConvertRequest(body, source, protocolconv.ProtocolGoogleGenAI, protocolconv.Options{SourceModel: options.MappedModel, LossPolicy: protocolconv.LossError})
+		standardBody, warnings, err := registry.ConvertRequest(body, source, protocolconv.ProtocolGoogleGenAI, protocolconv.Options{SourceModel: options.SourceModel, LossPolicy: protocolconv.LossError})
 		if err != nil {
 			return nil, warnings, err
 		}
@@ -135,8 +136,11 @@ func validateOptions(options Options) error {
 	if strings.TrimSpace(options.ProjectID) == "" {
 		return fmt.Errorf("project ID is required for Antigravity")
 	}
-	if strings.TrimSpace(options.MappedModel) == "" {
-		return fmt.Errorf("mapped model is required for Antigravity")
+	if strings.TrimSpace(options.SourceModel) == "" {
+		return fmt.Errorf("source model is required for Antigravity")
+	}
+	if strings.TrimSpace(options.WireModel) == "" {
+		return fmt.Errorf("wire model is required for Antigravity")
 	}
 	return nil
 }
@@ -166,7 +170,7 @@ func adaptGemini(body []byte, options Options) ([]byte, error) {
 		"requestId":   requestID,
 		"userAgent":   userAgent,
 		"requestType": "agent",
-		"model":       options.MappedModel,
+		"model":       options.WireModel,
 		"request":     request,
 	}
 	return json.Marshal(wrapped)

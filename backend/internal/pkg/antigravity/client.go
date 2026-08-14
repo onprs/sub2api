@@ -285,39 +285,103 @@ func NewClient(proxyURL string) (*Client, error) {
 	}, nil
 }
 
-// IsConnectionError 判断是否为连接错误（网络超时、DNS 失败、连接拒绝）
+// IsConnectionError 判断是否为可跨端点重试的连接错误。
 func IsConnectionError(err error) bool {
-	if err == nil {
+	if err == nil || errors.Is(err, context.Canceled) {
 		return false
 	}
 
-	// 检查超时错误
+	// HTTP client 自身超时仍可尝试备用端点；调用方主动取消不能重试。
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
 	}
 
-	// 检查连接错误（DNS 失败、连接拒绝）
+	// DNS、拨号、TLS 握手和连接读写错误通常由 net.OpError 包装。
 	var opErr *net.OpError
 	if errors.As(err, &opErr) {
 		return true
 	}
 
-	// 检查 URL 错误
-	var urlErr *url.Error
-	return errors.As(err, &urlErr)
+	// 建连后在收到完整响应前断开也属于连接错误。
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
-// shouldFallbackToNextURL 判断是否应切换到下一个 URL
-// 与 Antigravity-Manager 保持一致：连接错误、429、408、404、5xx 触发 URL 降级
-func shouldFallbackToNextURL(err error, statusCode int) bool {
+// IsGenericEndpointRateLimit 判断 429 是否仅包含已知的通用节点耗尽语义。
+// 只有标准错误对象没有 details/metadata 等额外字段，且 message 精确匹配通用文案时，
+// 才允许跨端点回退。任何模型、quota 或重试明细都会使判定失败。
+func IsGenericEndpointRateLimit(body []byte) bool {
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return false
+	}
+
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return isGenericEndpointRateLimitMessage(string(body))
+	}
+	if len(envelope) != 1 {
+		return false
+	}
+	errorRaw, ok := envelope["error"]
+	if !ok {
+		return false
+	}
+
+	var errorObject map[string]json.RawMessage
+	if err := json.Unmarshal(errorRaw, &errorObject); err != nil {
+		return false
+	}
+	for field, value := range errorObject {
+		switch field {
+		case "code":
+			var code int
+			if err := json.Unmarshal(value, &code); err != nil || code != http.StatusTooManyRequests {
+				return false
+			}
+		case "message":
+			// 在下方统一校验。
+		case "status":
+			var status string
+			if err := json.Unmarshal(value, &status); err != nil || !strings.EqualFold(status, "RESOURCE_EXHAUSTED") {
+				return false
+			}
+		case "details":
+			trimmed := bytes.TrimSpace(value)
+			if !bytes.Equal(trimmed, []byte("null")) && !bytes.Equal(trimmed, []byte("[]")) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+
+	var message string
+	if rawMessage, ok := errorObject["message"]; !ok || json.Unmarshal(rawMessage, &message) != nil {
+		return false
+	}
+	return isGenericEndpointRateLimitMessage(message)
+}
+
+func isGenericEndpointRateLimitMessage(message string) bool {
+	message = strings.ToLower(strings.TrimSpace(message))
+	switch message {
+	case "resource has been exhausted", "resource has been exhausted.",
+		"resource has been exhausted (e.g. check quota)",
+		"resource has been exhausted (e.g. check quota).":
+		return true
+	default:
+		return false
+	}
+}
+
+// shouldFallbackToNextURL 判断是否应切换到下一个 URL。
+// HTTP 响应只有无配额明细的通用 429 可以回退；请求连接错误始终可以回退。
+func shouldFallbackToNextURL(err error, statusCode int, body []byte) bool {
 	if IsConnectionError(err) {
 		return true
 	}
-	return statusCode == http.StatusTooManyRequests ||
-		statusCode == http.StatusRequestTimeout ||
-		statusCode == http.StatusNotFound ||
-		statusCode >= 500
+	return statusCode == http.StatusTooManyRequests && IsGenericEndpointRateLimit(body)
 }
 
 // ExchangeCode 用 authorization code 交换 token
@@ -438,7 +502,7 @@ func (c *Client) GetUserInfo(ctx context.Context, accessToken string) (*UserInfo
 }
 
 // LoadCodeAssist 获取账户信息，返回解析后的结构体和原始 JSON
-// 支持 URL fallback：sandbox → daily → prod
+// 默认按正式 daily → production 顺序回退。
 func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadCodeAssistResponse, map[string]any, error) {
 	reqBody := LoadCodeAssistRequest{}
 	reqBody.Metadata.IDEType = "ANTIGRAVITY"
@@ -450,8 +514,7 @@ func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadC
 		return nil, nil, fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	// 固定顺序：prod -> daily
-	availableURLs := BaseURLs
+	availableURLs := append([]string(nil), BaseURLs...)
 
 	var lastErr error
 	for urlIdx, baseURL := range availableURLs {
@@ -468,7 +531,7 @@ func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadC
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
 			lastErr = fmt.Errorf("loadCodeAssist 请求失败: %w", err)
-			if shouldFallbackToNextURL(err, 0) && urlIdx < len(availableURLs)-1 {
+			if shouldFallbackToNextURL(err, 0, nil) && urlIdx < len(availableURLs)-1 {
 				log.Printf("[antigravity] loadCodeAssist URL fallback: %s -> %s", baseURL, availableURLs[urlIdx+1])
 				continue
 			}
@@ -482,7 +545,7 @@ func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadC
 		}
 
 		// 检查是否需要 URL 降级
-		if shouldFallbackToNextURL(nil, resp.StatusCode) && urlIdx < len(availableURLs)-1 {
+		if shouldFallbackToNextURL(nil, resp.StatusCode, respBodyBytes) && urlIdx < len(availableURLs)-1 {
 			log.Printf("[antigravity] loadCodeAssist URL fallback (HTTP %d): %s -> %s", resp.StatusCode, baseURL, availableURLs[urlIdx+1])
 			continue
 		}
@@ -528,7 +591,7 @@ func (c *Client) OnboardUser(ctx context.Context, accessToken, tierID string) (s
 		return "", fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	availableURLs := BaseURLs
+	availableURLs := append([]string(nil), BaseURLs...)
 	var lastErr error
 
 	for urlIdx, baseURL := range availableURLs {
@@ -547,7 +610,7 @@ func (c *Client) OnboardUser(ctx context.Context, accessToken, tierID string) (s
 			resp, err := c.httpClient.Do(req)
 			if err != nil {
 				lastErr = fmt.Errorf("onboardUser 请求失败: %w", err)
-				if shouldFallbackToNextURL(err, 0) && urlIdx < len(availableURLs)-1 {
+				if shouldFallbackToNextURL(err, 0, nil) && urlIdx < len(availableURLs)-1 {
 					log.Printf("[antigravity] onboardUser URL fallback: %s -> %s", baseURL, availableURLs[urlIdx+1])
 					break
 				}
@@ -560,7 +623,7 @@ func (c *Client) OnboardUser(ctx context.Context, accessToken, tierID string) (s
 				return "", fmt.Errorf("读取响应失败: %w", err)
 			}
 
-			if shouldFallbackToNextURL(nil, resp.StatusCode) && urlIdx < len(availableURLs)-1 {
+			if shouldFallbackToNextURL(nil, resp.StatusCode, respBodyBytes) && urlIdx < len(availableURLs)-1 {
 				log.Printf("[antigravity] onboardUser URL fallback (HTTP %d): %s -> %s", resp.StatusCode, baseURL, availableURLs[urlIdx+1])
 				break
 			}
@@ -629,18 +692,37 @@ type ModelQuotaInfo struct {
 type ModelInfo struct {
 	QuotaInfo          *ModelQuotaInfo `json:"quotaInfo,omitempty"`
 	DisplayName        string          `json:"displayName,omitempty"`
+	Model              string          `json:"model,omitempty"`
+	APIProvider        string          `json:"apiProvider,omitempty"`
+	ModelProvider      string          `json:"modelProvider,omitempty"`
 	SupportsImages     *bool           `json:"supportsImages,omitempty"`
 	SupportsThinking   *bool           `json:"supportsThinking,omitempty"`
+	SupportsVideo      *bool           `json:"supportsVideo,omitempty"`
 	ThinkingBudget     *int            `json:"thinkingBudget,omitempty"`
+	MinThinkingBudget  *int            `json:"minThinkingBudget,omitempty"`
 	Recommended        *bool           `json:"recommended,omitempty"`
 	MaxTokens          *int            `json:"maxTokens,omitempty"`
 	MaxOutputTokens    *int            `json:"maxOutputTokens,omitempty"`
 	SupportedMimeTypes map[string]bool `json:"supportedMimeTypes,omitempty"`
+	TagTitle           string          `json:"tagTitle,omitempty"`
+	TagDescription     string          `json:"tagDescription,omitempty"`
 }
 
-// DeprecatedModelInfo 废弃模型转发信息
+// DeprecatedModelInfo 废弃模型转发信息。
 type DeprecatedModelInfo struct {
-	NewModelID string `json:"newModelId"`
+	NewModelID   string `json:"newModelId"`
+	NewModelEnum string `json:"newModelEnum,omitempty"`
+	OldModelEnum string `json:"oldModelEnum,omitempty"`
+}
+
+// AgentModelSort 是 raw 目录中的展示分组证据，不等同于 agy 最终用户目录。
+type AgentModelSort struct {
+	DisplayName string                `json:"displayName,omitempty"`
+	Groups      []AgentModelSortGroup `json:"groups,omitempty"`
+}
+
+type AgentModelSortGroup struct {
+	ModelIDs []string `json:"modelIds,omitempty"`
 }
 
 // FetchAvailableModelsRequest fetchAvailableModels 请求
@@ -648,14 +730,24 @@ type FetchAvailableModelsRequest struct {
 	Project string `json:"project"`
 }
 
-// FetchAvailableModelsResponse fetchAvailableModels 响应
+// FetchAvailableModelsResponse 同时保留 raw 模型、tier 展开入口和辅助角色字段。
 type FetchAvailableModelsResponse struct {
-	Models             map[string]ModelInfo           `json:"models"`
-	DeprecatedModelIDs map[string]DeprecatedModelInfo `json:"deprecatedModelIds,omitempty"`
+	Models                     map[string]ModelInfo           `json:"models"`
+	DeprecatedModelIDs         map[string]DeprecatedModelInfo `json:"deprecatedModelIds,omitempty"`
+	AgentModelSorts            []AgentModelSort               `json:"agentModelSorts,omitempty"`
+	DefaultAgentModelID        string                         `json:"defaultAgentModelId,omitempty"`
+	TieredModelIDs             map[string][]string            `json:"tieredModelIds,omitempty"`
+	CommandModelIDs            []string                       `json:"commandModelIds,omitempty"`
+	CommitMessageModelIDs      []string                       `json:"commitMessageModelIds,omitempty"`
+	ImageGenerationModelIDs    []string                       `json:"imageGenerationModelIds,omitempty"`
+	MQueryModelIDs             []string                       `json:"mqueryModelIds,omitempty"`
+	TabModelIDs                []string                       `json:"tabModelIds,omitempty"`
+	WebSearchModelIDs          []string                       `json:"webSearchModelIds,omitempty"`
+	AudioTranscriptionModelIDs []string                       `json:"audioTranscriptionModelIds,omitempty"`
 }
 
-// FetchAvailableModels 获取可用模型和配额信息，返回解析后的结构体和原始 JSON
-// 支持 URL fallback：sandbox → daily → prod
+// FetchAvailableModels 获取可用模型和配额信息，返回解析后的结构体和原始 JSON。
+// 默认按正式 daily → production 顺序回退。
 func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectID string) (*FetchAvailableModelsResponse, map[string]any, error) {
 	if c == nil || c.httpClient == nil {
 		return nil, nil, errors.New("antigravity client is not configured")
@@ -667,8 +759,7 @@ func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectI
 		return nil, nil, fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	// 固定顺序：prod -> daily
-	availableURLs := BaseURLs
+	availableURLs := append([]string(nil), BaseURLs...)
 
 	fetchClient := c.fetchAvailableModelsHTTPClient()
 	var lastErr error
@@ -686,7 +777,7 @@ func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectI
 		resp, err := fetchClient.Do(req)
 		if err != nil {
 			lastErr = fmt.Errorf("fetchAvailableModels 请求失败: %w", err)
-			if shouldFallbackToNextURL(err, 0) && urlIdx < len(availableURLs)-1 {
+			if shouldFallbackToNextURL(err, 0, nil) && urlIdx < len(availableURLs)-1 {
 				log.Printf("[antigravity] fetchAvailableModels URL fallback: %s -> %s", baseURL, availableURLs[urlIdx+1])
 				continue
 			}
@@ -703,7 +794,7 @@ func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectI
 		}
 
 		// 检查是否需要 URL 降级
-		if shouldFallbackToNextURL(nil, resp.StatusCode) && urlIdx < len(availableURLs)-1 {
+		if shouldFallbackToNextURL(nil, resp.StatusCode, respBodyBytes) && urlIdx < len(availableURLs)-1 {
 			log.Printf("[antigravity] fetchAvailableModels URL fallback (HTTP %d): %s -> %s", resp.StatusCode, baseURL, availableURLs[urlIdx+1])
 			continue
 		}
@@ -775,7 +866,7 @@ func isAllowedFetchAvailableModelsRedirectHost(host string) bool {
 // ── Privacy API ──────────────────────────────────────────────────────
 
 // privacyBaseURL 隐私设置 API 仅使用 daily 端点（与 Antigravity 客户端行为一致）
-const privacyBaseURL = antigravityDailyBaseURL
+const privacyBaseURL = DailyBaseURL
 
 // SetUserSettingsRequest setUserSettings 请求体
 type SetUserSettingsRequest struct {
