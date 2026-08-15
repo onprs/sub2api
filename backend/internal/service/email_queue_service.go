@@ -99,8 +99,22 @@ func (s *EmailQueueService) processTask(workerID int, task EmailTask) {
 	}
 }
 
+// enqueueWaitTimeout 队列满时的最大等待时间（替代立即失败，提升容错）。
+const enqueueWaitTimeout = 2 * time.Second
+
 // EnqueueVerifyCode 将验证码发送任务加入队列
 func (s *EmailQueueService) EnqueueVerifyCode(email, siteName string, locale ...string) error {
+	// 入队前检查冷却期，避免同一邮箱重复入队产生多个任务
+	// （worker 并发处理时除首个外全部 429 失败，造成噪音与浪费）。
+	// emailService 未注入时跳过检查，保证队列基本功能可用。
+	if s.emailService != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := s.emailService.CheckVerifyCodeCooldown(ctx, email); err != nil {
+			return err
+		}
+	}
+
 	task := EmailTask{
 		Email:    email,
 		SiteName: siteName,
@@ -112,7 +126,7 @@ func (s *EmailQueueService) EnqueueVerifyCode(email, siteName string, locale ...
 	case s.taskChan <- task:
 		logger.LegacyPrintf("service.email_queue", "[EmailQueue] Enqueued verify code task for %s", email)
 		return nil
-	default:
+	case <-time.After(enqueueWaitTimeout):
 		return fmt.Errorf("email queue is full")
 	}
 }
@@ -131,7 +145,7 @@ func (s *EmailQueueService) EnqueuePasswordReset(email, siteName, resetURL strin
 	case s.taskChan <- task:
 		logger.LegacyPrintf("service.email_queue", "[EmailQueue] Enqueued password reset task for %s", email)
 		return nil
-	default:
+	case <-time.After(enqueueWaitTimeout):
 		return fmt.Errorf("email queue is full")
 	}
 }

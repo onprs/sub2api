@@ -5,14 +5,18 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
 	"math/big"
 	"net"
 	"net/smtp"
+	"net/textproto"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -184,6 +188,9 @@ func (s *EmailService) SendEmail(ctx context.Context, to, subject, body string) 
 const smtpDialTimeout = 10 * time.Second
 const smtpIOTimeout = 20 * time.Second
 
+// smtpSendBackoffs SMTP 发送重试退避间隔（第一次立即发送，随后递增）。
+var smtpSendBackoffs = []time.Duration{0, 400 * time.Millisecond, 1200 * time.Millisecond}
+
 // SendEmailWithConfig 使用指定配置发送邮件
 func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body string) error {
 	// Sanitize all SMTP header fields to prevent header injection (CR/LF removal).
@@ -195,17 +202,40 @@ func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body
 		from = fmt.Sprintf("%s <%s>", sanitizeEmailHeader(config.FromName), sanitizeEmailHeader(config.From))
 	}
 
-	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n%s",
-		from, to, subject, body)
+	// 构造标准 RFC 5322 消息：补全 Date/Message-ID 必需头，并使用
+	// multipart/alternative（base64 编码的 text/plain + text/html），
+	// 避免因缺失必需头或纯 HTML 被收件方判定为垃圾邮件而拦截。
+	msg, err := s.buildMessage(from, to, subject, body, config.Host)
+	if err != nil {
+		return fmt.Errorf("build message: %w", err)
+	}
 
 	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
 	auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
 
-	if config.UseTLS {
-		return s.sendMailTLS(addr, auth, config.From, to, []byte(msg), config.Host)
+	// 临时性错误（网络抖动、DNS 解析超时、SMTP 4xx）自动重试；
+	// 5xx 永久错误（如收件人被拒收）不重试。
+	var lastErr error
+	for i, backoff := range smtpSendBackoffs {
+		if i > 0 {
+			time.Sleep(backoff)
+		}
+		var sendErr error
+		if config.UseTLS {
+			sendErr = s.sendMailTLS(addr, auth, config.From, to, []byte(msg), config.Host)
+		} else {
+			sendErr = s.sendMailPlain(addr, auth, config.From, to, []byte(msg), config.Host)
+		}
+		if sendErr == nil {
+			return nil
+		}
+		lastErr = sendErr
+		if isPermanentSMTPSendError(sendErr) {
+			break
+		}
+		slog.Warn("smtp send attempt failed, retrying", "host", config.Host, "attempt", i+1, "error", sendErr)
 	}
-
-	return s.sendMailPlain(addr, auth, config.From, to, []byte(msg), config.Host)
+	return lastErr
 }
 
 // sendMailPlain sends mail without TLS using a dialer with timeout.
@@ -253,6 +283,114 @@ func (s *EmailService) sendMailPlain(addr string, auth smtp.Auth, from, to strin
 	}
 	_ = client.Quit()
 	return nil
+}
+
+// buildMessage 构造带标准头的 multipart/alternative 邮件消息。
+func (s *EmailService) buildMessage(from, to, subject, htmlBody, host string) (string, error) {
+	boundary, err := generateMailBoundary()
+	if err != nil {
+		return "", err
+	}
+	messageID, err := generateMessageID(host)
+	if err != nil {
+		return "", err
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "From: %s\r\n", from)
+	fmt.Fprintf(&b, "To: %s\r\n", to)
+	fmt.Fprintf(&b, "Subject: %s\r\n", subject)
+	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().Format(time.RFC1123Z))
+	fmt.Fprintf(&b, "Message-ID: %s\r\n", messageID)
+	fmt.Fprintf(&b, "MIME-Version: 1.0\r\n")
+	fmt.Fprintf(&b, "Content-Type: multipart/alternative; boundary=\"%s\"\r\n", boundary)
+	fmt.Fprintf(&b, "\r\n")
+
+	// text/plain 部分（base64，避免非 ASCII 内容乱码）
+	fmt.Fprintf(&b, "--%s\r\n", boundary)
+	fmt.Fprintf(&b, "Content-Type: text/plain; charset=UTF-8\r\n")
+	fmt.Fprintf(&b, "Content-Transfer-Encoding: base64\r\n")
+	fmt.Fprintf(&b, "\r\n")
+	writeMIMEBase64(&b, htmlToPlainText(htmlBody))
+
+	// text/html 部分
+	fmt.Fprintf(&b, "--%s\r\n", boundary)
+	fmt.Fprintf(&b, "Content-Type: text/html; charset=UTF-8\r\n")
+	fmt.Fprintf(&b, "Content-Transfer-Encoding: base64\r\n")
+	fmt.Fprintf(&b, "\r\n")
+	writeMIMEBase64(&b, htmlBody)
+
+	fmt.Fprintf(&b, "--%s--\r\n", boundary)
+	return b.String(), nil
+}
+
+// generateMessageID 生成 RFC 5322 要求的 Message-ID。
+func generateMessageID(host string) (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	domain := strings.TrimSpace(host)
+	if domain == "" {
+		domain = "localhost"
+	}
+	return fmt.Sprintf("<%s.%s@%s>", strconv.FormatInt(time.Now().UnixNano(), 36), hex.EncodeToString(buf), domain), nil
+}
+
+// generateMailBoundary 生成 multipart boundary。
+func generateMailBoundary() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return "----=_Sub2API_" + hex.EncodeToString(buf), nil
+}
+
+// writeMIMEBase64 将内容 base64 编码后按 76 字符折行写入（RFC 2045）。
+func writeMIMEBase64(b *strings.Builder, raw string) {
+	encoded := base64.StdEncoding.EncodeToString([]byte(raw))
+	for len(encoded) > mimeBase64LineLen {
+		_, _ = b.WriteString(encoded[:mimeBase64LineLen])
+		_, _ = b.WriteString("\r\n")
+		encoded = encoded[mimeBase64LineLen:]
+	}
+	_, _ = b.WriteString(encoded)
+	_, _ = b.WriteString("\r\n")
+}
+
+const mimeBase64LineLen = 76
+
+var (
+	mailScriptBlockPattern  = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script\s*>`)
+	mailStyleBlockPattern   = regexp.MustCompile(`(?is)<style\b[^>]*>.*?</style\s*>`)
+	mailBlockTagPattern     = regexp.MustCompile(`(?i)<\s*/?\s*(p|div|br|tr|li|h[1-6]|table)\b[^>]*>`)
+	mailRemainingTagPattern = regexp.MustCompile(`<[^>]*>`)
+)
+
+// htmlToPlainText 将 HTML 简化为纯文本，供 multipart/alternative 的 text/plain 部分使用。
+func htmlToPlainText(htmlBody string) string {
+	strip := mailScriptBlockPattern.ReplaceAllString(htmlBody, "")
+	strip = mailStyleBlockPattern.ReplaceAllString(strip, "")
+	strip = mailBlockTagPattern.ReplaceAllString(strip, "\n")
+	strip = mailRemainingTagPattern.ReplaceAllString(strip, "")
+	plain := html.UnescapeString(strip)
+	lines := strings.Split(plain, "\n")
+	var out []string
+	for _, line := range lines {
+		if line = strings.TrimSpace(line); line != "" {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// isPermanentSMTPSendError 判断是否为 SMTP 5xx 永久错误（5xx 重试无意义）。
+func isPermanentSMTPSendError(err error) bool {
+	var protoErr *textproto.Error
+	if errors.As(err, &protoErr) {
+		return protoErr.Code >= 500
+	}
+	return false
 }
 
 // sendMailTLS 使用TLS发送邮件
@@ -322,6 +460,19 @@ func (s *EmailService) GenerateVerifyCode() (string, error) {
 		code[i] = digits[num.Int64()]
 	}
 	return string(code), nil
+}
+
+// CheckVerifyCodeCooldown 检查邮箱验证码是否处于冷却期（供入队前调用，避免同一邮箱重复入队）。
+// Redis 读取异常时放行，由发送侧兜底，避免缓存抖动导致验证码完全无法发送。
+func (s *EmailService) CheckVerifyCodeCooldown(ctx context.Context, email string) error {
+	existing, err := s.cache.GetVerificationCode(ctx, email)
+	if err != nil {
+		return nil
+	}
+	if existing != nil && time.Since(existing.CreatedAt) < verifyCodeCooldown {
+		return ErrVerifyCodeTooFrequent
+	}
+	return nil
 }
 
 // SendVerifyCode 发送验证码邮件
