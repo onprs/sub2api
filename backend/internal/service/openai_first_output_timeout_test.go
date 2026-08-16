@@ -250,22 +250,32 @@ func TestOpenAIEffectiveFirstOutputTimeoutUsesExplicitAPIKeyAccountBudget(t *tes
 		OpenAIHighEffortFirstOutputTimeoutSeconds: 300,
 	}}}
 	seconds := 15
+	cooldownMinutes := 10
 	account := &Account{
-		Platform:                          PlatformOpenAI,
-		Type:                              AccountTypeAPIKey,
-		FirstOutputFailoverTimeoutSeconds: &seconds,
+		Platform:                           PlatformOpenAI,
+		Type:                               AccountTypeAPIKey,
+		FirstOutputFailoverTimeoutSeconds:  &seconds,
+		FirstOutputFailoverCooldownMinutes: &cooldownMinutes,
 	}
 
 	require.Equal(t, 15*time.Second, openAIAccountFirstOutputFailoverTimeout(account))
+	require.Equal(t, 10*time.Minute, openAIAccountFirstOutputFailoverCooldown(account))
 	require.Equal(t, 15*time.Second, svc.openAIEffectiveFirstOutputTimeout(account, "high"))
 
 	account.FirstOutputFailoverTimeoutSeconds = nil
 	require.Zero(t, openAIAccountFirstOutputFailoverTimeout(account))
+	require.Zero(t, openAIAccountFirstOutputFailoverCooldown(account))
 	require.Equal(t, 300*time.Second, svc.openAIEffectiveFirstOutputTimeout(account, "high"))
 
 	account.Type = AccountTypeOAuth
 	account.FirstOutputFailoverTimeoutSeconds = &seconds
 	require.Zero(t, openAIAccountFirstOutputFailoverTimeout(account))
+	require.Zero(t, openAIAccountFirstOutputFailoverCooldown(account))
+
+	tooLong := FirstOutputFailoverCooldownMaxMinutes + 1
+	account.Type = AccountTypeAPIKey
+	account.FirstOutputFailoverCooldownMinutes = &tooLong
+	require.Zero(t, openAIAccountFirstOutputFailoverCooldown(account))
 }
 
 func TestOpenAIFirstOutputStageDefaultLimitIsIndependentFromScannerLimit(t *testing.T) {

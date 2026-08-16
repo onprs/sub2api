@@ -44,6 +44,8 @@ const (
 	FieldLoadFactor = "load_factor"
 	// FieldFirstOutputFailoverTimeoutSeconds holds the string denoting the first_output_failover_timeout_seconds field in the database.
 	FieldFirstOutputFailoverTimeoutSeconds = "first_output_failover_timeout_seconds"
+	// FieldFirstOutputFailoverCooldownMinutes holds the string denoting the first_output_failover_cooldown_minutes field in the database.
+	FieldFirstOutputFailoverCooldownMinutes = "first_output_failover_cooldown_minutes"
 	// FieldPriority holds the string denoting the priority field in the database.
 	FieldPriority = "priority"
 	// FieldRateMultiplier holds the string denoting the rate_multiplier field in the database.
@@ -147,6 +149,7 @@ var Columns = []string{
 	FieldConcurrency,
 	FieldLoadFactor,
 	FieldFirstOutputFailoverTimeoutSeconds,
+	FieldFirstOutputFailoverCooldownMinutes,
 	FieldPriority,
 	FieldRateMultiplier,
 	FieldStatus,
@@ -211,6 +214,8 @@ var (
 	DefaultConcurrency int
 	// FirstOutputFailoverTimeoutSecondsValidator is a validator for the "first_output_failover_timeout_seconds" field. It is called by the builders before save.
 	FirstOutputFailoverTimeoutSecondsValidator func(int) error
+	// FirstOutputFailoverCooldownMinutesValidator is a validator for the "first_output_failover_cooldown_minutes" field. It is called by the builders before save.
+	FirstOutputFailoverCooldownMinutesValidator func(int) error
 	// DefaultPriority holds the default value on creation for the "priority" field.
 	DefaultPriority int
 	// DefaultRateMultiplier holds the default value on creation for the "rate_multiplier" field.
@@ -319,6 +324,11 @@ func ByLoadFactor(opts ...sql.OrderTermOption) OrderOption {
 // ByFirstOutputFailoverTimeoutSeconds orders the results by the first_output_failover_timeout_seconds field.
 func ByFirstOutputFailoverTimeoutSeconds(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldFirstOutputFailoverTimeoutSeconds, opts...).ToFunc()
+}
+
+// ByFirstOutputFailoverCooldownMinutes orders the results by the first_output_failover_cooldown_minutes field.
+func ByFirstOutputFailoverCooldownMinutes(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldFirstOutputFailoverCooldownMinutes, opts...).ToFunc()
 }
 
 // ByPriority orders the results by the priority field.

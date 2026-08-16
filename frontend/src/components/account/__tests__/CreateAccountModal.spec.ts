@@ -199,6 +199,7 @@ describe('CreateAccountModal', () => {
     expect(wrapper.text()).not.toContain('admin.accounts.types.responsesApi')
     expect(wrapper.find('[data-testid="openai-responses-mode-select"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="first-output-failover-timeout-input"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="first-output-failover-cooldown-input"]').exists()).toBe(false)
 
     await wrapper.get('[data-tour="account-form-name"]').setValue('OpenCode Go Key')
     const keyInput = wrapper.findAll('input[type="password"]').find((input) =>
@@ -241,6 +242,7 @@ describe('CreateAccountModal', () => {
     expect(keyInput).toBeDefined()
     await keyInput!.setValue('sk-openai')
     await wrapper.get('[data-testid="first-output-failover-timeout-input"]').setValue('15')
+    await wrapper.get('[data-testid="first-output-failover-cooldown-input"]').setValue('10')
 
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -250,6 +252,7 @@ describe('CreateAccountModal', () => {
     expect(payload.platform).toBe('openai')
     expect(payload.type).toBe('apikey')
     expect(payload.first_output_failover_timeout_seconds).toBe(15)
+    expect(payload.first_output_failover_cooldown_minutes).toBe(10)
   })
 
   it('creates ClinePass as API key only with the official API root and no console flow', async () => {

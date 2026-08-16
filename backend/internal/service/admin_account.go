@@ -112,6 +112,32 @@ func normalizeFirstOutputFailoverTimeout(platform, accountType string, seconds *
 	return &normalized, nil
 }
 
+func normalizeFirstOutputFailoverCooldown(platform, accountType string, timeoutSeconds, cooldownMinutes *int) (*int, error) {
+	if cooldownMinutes == nil || *cooldownMinutes == 0 {
+		return nil, nil
+	}
+	if *cooldownMinutes < 0 || *cooldownMinutes > FirstOutputFailoverCooldownMaxMinutes {
+		return nil, infraerrors.BadRequest(
+			"FIRST_OUTPUT_FAILOVER_COOLDOWN_INVALID",
+			"first_output_failover_cooldown_minutes must be between 1 and 10080 or omitted",
+		)
+	}
+	if platform != PlatformOpenAI || accountType != AccountTypeAPIKey {
+		return nil, infraerrors.BadRequest(
+			"FIRST_OUTPUT_FAILOVER_COOLDOWN_UNSUPPORTED_ACCOUNT",
+			"first_output_failover_cooldown_minutes is only supported for OpenAI API key accounts",
+		)
+	}
+	if timeoutSeconds == nil || *timeoutSeconds <= 0 {
+		return nil, infraerrors.BadRequest(
+			"FIRST_OUTPUT_FAILOVER_COOLDOWN_REQUIRES_TIMEOUT",
+			"first_output_failover_cooldown_minutes requires first_output_failover_timeout_seconds",
+		)
+	}
+	normalized := *cooldownMinutes
+	return &normalized, nil
+}
+
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
 	if input == nil {
 		return nil, ErrAccountNilInput
@@ -123,6 +149,15 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		input.Platform,
 		input.Type,
 		input.FirstOutputFailoverTimeoutSeconds,
+	)
+	if err != nil {
+		return nil, err
+	}
+	firstOutputFailoverCooldown, err := normalizeFirstOutputFailoverCooldown(
+		input.Platform,
+		input.Type,
+		firstOutputFailoverTimeout,
+		input.FirstOutputFailoverCooldownMinutes,
 	)
 	if err != nil {
 		return nil, err
@@ -156,18 +191,19 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	}
 
 	account := &Account{
-		Name:                              input.Name,
-		Notes:                             normalizeAccountNotes(input.Notes),
-		Platform:                          input.Platform,
-		Type:                              input.Type,
-		Credentials:                       input.Credentials,
-		Extra:                             input.Extra,
-		ProxyID:                           input.ProxyID,
-		Concurrency:                       normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
-		Priority:                          input.Priority,
-		FirstOutputFailoverTimeoutSeconds: firstOutputFailoverTimeout,
-		Status:                            StatusActive,
-		Schedulable:                       true,
+		Name:                               input.Name,
+		Notes:                              normalizeAccountNotes(input.Notes),
+		Platform:                           input.Platform,
+		Type:                               input.Type,
+		Credentials:                        input.Credentials,
+		Extra:                              input.Extra,
+		ProxyID:                            input.ProxyID,
+		Concurrency:                        normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
+		Priority:                           input.Priority,
+		FirstOutputFailoverTimeoutSeconds:  firstOutputFailoverTimeout,
+		FirstOutputFailoverCooldownMinutes: firstOutputFailoverCooldown,
+		Status:                             StatusActive,
+		Schedulable:                        true,
 	}
 	// 预计算固定时间重置的下次重置时间
 	if account.Extra != nil {
@@ -290,6 +326,22 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	} else if account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
 		// 账号类型切出 OpenAI API Key 时同步清理该专用配置。
 		account.FirstOutputFailoverTimeoutSeconds = nil
+	}
+	if input.FirstOutputFailoverCooldownMinutes != nil {
+		firstOutputFailoverCooldown, normalizeErr := normalizeFirstOutputFailoverCooldown(
+			account.Platform,
+			account.Type,
+			account.FirstOutputFailoverTimeoutSeconds,
+			input.FirstOutputFailoverCooldownMinutes,
+		)
+		if normalizeErr != nil {
+			return nil, normalizeErr
+		}
+		account.FirstOutputFailoverCooldownMinutes = firstOutputFailoverCooldown
+	} else if account.FirstOutputFailoverTimeoutSeconds == nil ||
+		account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
+		// 清空换号预算或切换账号类型时，冷却配置不再有触发条件。
+		account.FirstOutputFailoverCooldownMinutes = nil
 	}
 	if input.Notes != nil {
 		account.Notes = normalizeAccountNotes(input.Notes)

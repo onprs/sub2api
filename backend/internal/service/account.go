@@ -18,6 +18,9 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
+// FirstOutputFailoverCooldownMaxMinutes 限制账号级首输出超时冷却最长为 7 天。
+const FirstOutputFailoverCooldownMaxMinutes = 7 * 24 * 60
+
 type Account struct {
 	ID                      int64
 	Name                    string
@@ -38,13 +41,16 @@ type Account struct {
 	// FirstOutputFailoverTimeoutSeconds 仅用于 OpenAI API Key 账号。
 	// nil 表示不启用账号级首输出换号预算。
 	FirstOutputFailoverTimeoutSeconds *int
-	Status                            string
-	ErrorMessage                      string
-	LastUsedAt                        *time.Time
-	ExpiresAt                         *time.Time
-	AutoPauseOnExpired                bool
-	CreatedAt                         time.Time
-	UpdatedAt                         time.Time
+	// FirstOutputFailoverCooldownMinutes 命中账号级预算后的立即冷却时长。
+	// nil 表示继续沿用原有超时处理策略。
+	FirstOutputFailoverCooldownMinutes *int
+	Status                             string
+	ErrorMessage                       string
+	LastUsedAt                         *time.Time
+	ExpiresAt                          *time.Time
+	AutoPauseOnExpired                 bool
+	CreatedAt                          time.Time
+	UpdatedAt                          time.Time
 
 	Schedulable bool
 

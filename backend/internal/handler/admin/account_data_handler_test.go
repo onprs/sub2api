@@ -37,15 +37,16 @@ type dataProxy struct {
 }
 
 type dataAccount struct {
-	Name                              string         `json:"name"`
-	Platform                          string         `json:"platform"`
-	Type                              string         `json:"type"`
-	Credentials                       map[string]any `json:"credentials"`
-	Extra                             map[string]any `json:"extra"`
-	ProxyKey                          *string        `json:"proxy_key"`
-	Concurrency                       int            `json:"concurrency"`
-	Priority                          int            `json:"priority"`
-	FirstOutputFailoverTimeoutSeconds *int           `json:"first_output_failover_timeout_seconds"`
+	Name                               string         `json:"name"`
+	Platform                           string         `json:"platform"`
+	Type                               string         `json:"type"`
+	Credentials                        map[string]any `json:"credentials"`
+	Extra                              map[string]any `json:"extra"`
+	ProxyKey                           *string        `json:"proxy_key"`
+	Concurrency                        int            `json:"concurrency"`
+	Priority                           int            `json:"priority"`
+	FirstOutputFailoverTimeoutSeconds  *int           `json:"first_output_failover_timeout_seconds"`
+	FirstOutputFailoverCooldownMinutes *int           `json:"first_output_failover_cooldown_minutes"`
 }
 
 func setupAccountDataRouter() (*gin.Engine, *stubAdminService) {
@@ -101,19 +102,21 @@ func TestExportDataIncludesSecrets(t *testing.T) {
 		},
 	}
 	timeoutSeconds := 15
+	cooldownMinutes := 10
 	adminSvc.accounts = []service.Account{
 		{
-			ID:                                21,
-			Name:                              "account",
-			Platform:                          service.PlatformOpenAI,
-			Type:                              service.AccountTypeAPIKey,
-			Credentials:                       map[string]any{"token": "secret"},
-			Extra:                             map[string]any{"note": "x"},
-			ProxyID:                           &proxyID,
-			Concurrency:                       3,
-			Priority:                          50,
-			FirstOutputFailoverTimeoutSeconds: &timeoutSeconds,
-			Status:                            service.StatusDisabled,
+			ID:                                 21,
+			Name:                               "account",
+			Platform:                           service.PlatformOpenAI,
+			Type:                               service.AccountTypeAPIKey,
+			Credentials:                        map[string]any{"token": "secret"},
+			Extra:                              map[string]any{"note": "x"},
+			ProxyID:                            &proxyID,
+			Concurrency:                        3,
+			Priority:                           50,
+			FirstOutputFailoverTimeoutSeconds:  &timeoutSeconds,
+			FirstOutputFailoverCooldownMinutes: &cooldownMinutes,
+			Status:                             service.StatusDisabled,
 		},
 	}
 
@@ -132,6 +135,20 @@ func TestExportDataIncludesSecrets(t *testing.T) {
 	require.Len(t, resp.Data.Accounts, 1)
 	require.Equal(t, "secret", resp.Data.Accounts[0].Credentials["token"])
 	require.Equal(t, &timeoutSeconds, resp.Data.Accounts[0].FirstOutputFailoverTimeoutSeconds)
+	require.Equal(t, &cooldownMinutes, resp.Data.Accounts[0].FirstOutputFailoverCooldownMinutes)
+}
+
+func TestValidateDataAccountRejectsFirstOutputCooldownWithoutBudget(t *testing.T) {
+	cooldownMinutes := 10
+	err := validateDataAccount(DataAccount{
+		Name:                               "openai-key",
+		Platform:                           service.PlatformOpenAI,
+		Type:                               service.AccountTypeAPIKey,
+		Credentials:                        map[string]any{"api_key": "sk-test"},
+		FirstOutputFailoverCooldownMinutes: &cooldownMinutes,
+	})
+
+	require.ErrorContains(t, err, "requires first_output_failover_timeout_seconds")
 }
 
 func TestExportDataWithoutProxies(t *testing.T) {
@@ -296,14 +313,15 @@ func TestImportDataReusesProxyAndSkipsDefaultGroup(t *testing.T) {
 			},
 			"accounts": []map[string]any{
 				{
-					"name":                                  "acc",
-					"platform":                              service.PlatformOpenAI,
-					"type":                                  service.AccountTypeAPIKey,
-					"credentials":                           map[string]any{"token": "x"},
-					"proxy_key":                             "socks5|1.2.3.4|1080|u|p",
-					"concurrency":                           3,
-					"priority":                              50,
-					"first_output_failover_timeout_seconds": 15,
+					"name":                                   "acc",
+					"platform":                               service.PlatformOpenAI,
+					"type":                                   service.AccountTypeAPIKey,
+					"credentials":                            map[string]any{"token": "x"},
+					"proxy_key":                              "socks5|1.2.3.4|1080|u|p",
+					"concurrency":                            3,
+					"priority":                               50,
+					"first_output_failover_timeout_seconds":  15,
+					"first_output_failover_cooldown_minutes": 10,
 				},
 			},
 		},
@@ -322,4 +340,6 @@ func TestImportDataReusesProxyAndSkipsDefaultGroup(t *testing.T) {
 	require.True(t, adminSvc.createdAccounts[0].SkipDefaultGroupBind)
 	require.NotNil(t, adminSvc.createdAccounts[0].FirstOutputFailoverTimeoutSeconds)
 	require.Equal(t, 15, *adminSvc.createdAccounts[0].FirstOutputFailoverTimeoutSeconds)
+	require.NotNil(t, adminSvc.createdAccounts[0].FirstOutputFailoverCooldownMinutes)
+	require.Equal(t, 10, *adminSvc.createdAccounts[0].FirstOutputFailoverCooldownMinutes)
 }

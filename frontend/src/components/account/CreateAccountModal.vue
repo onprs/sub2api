@@ -2723,6 +2723,20 @@
           :placeholder="t('admin.accounts.firstOutputFailoverTimeoutPlaceholder')"
         />
         <p class="input-hint">{{ t('admin.accounts.firstOutputFailoverTimeoutHint') }}</p>
+        <div class="mt-4">
+          <label class="input-label">{{ t('admin.accounts.firstOutputFailoverCooldown') }}</label>
+          <input
+            v-model.number="form.first_output_failover_cooldown_minutes"
+            data-testid="first-output-failover-cooldown-input"
+            type="number"
+            min="1"
+            max="10080"
+            step="1"
+            class="input"
+            :placeholder="t('admin.accounts.firstOutputFailoverCooldownPlaceholder')"
+          />
+          <p class="input-hint">{{ t('admin.accounts.firstOutputFailoverCooldownHint') }}</p>
+        </div>
       </div>
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
@@ -4093,6 +4107,7 @@ const form = reactive({
   concurrency: 10,
   load_factor: null as number | null,
   first_output_failover_timeout_seconds: null as number | null,
+  first_output_failover_cooldown_minutes: null as number | null,
   priority: 1,
   rate_multiplier: 1,
   group_ids: [] as number[],
@@ -4635,8 +4650,15 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
     } else {
       delete requestPayload.first_output_failover_timeout_seconds
     }
+    const rawCooldown = Number(form.first_output_failover_cooldown_minutes)
+    if (Number.isFinite(rawCooldown) && rawCooldown > 0) {
+      requestPayload.first_output_failover_cooldown_minutes = Math.trunc(rawCooldown)
+    } else {
+      delete requestPayload.first_output_failover_cooldown_minutes
+    }
   } else {
     delete requestPayload.first_output_failover_timeout_seconds
+    delete requestPayload.first_output_failover_cooldown_minutes
   }
 
   submitting.value = true
@@ -4737,6 +4759,7 @@ const resetForm = () => {
   form.concurrency = 10
   form.load_factor = null
   form.first_output_failover_timeout_seconds = null
+  form.first_output_failover_cooldown_minutes = null
   form.priority = 1
   form.rate_multiplier = 1
   form.group_ids = []

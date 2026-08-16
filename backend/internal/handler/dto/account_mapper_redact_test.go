@@ -66,18 +66,22 @@ func TestAccountFromServiceShallow_NilCredentialsOmitsStatus(t *testing.T) {
 	require.Nil(t, got.CredentialsStatus)
 }
 
-func TestAccountFromServiceShallow_IncludesFirstOutputFailoverTimeout(t *testing.T) {
+func TestAccountFromServiceShallow_IncludesFirstOutputFailoverSettings(t *testing.T) {
 	seconds := 15
+	cooldownMinutes := 10
 	src := &service.Account{
 		ID: 2, Name: "openai-key", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
-		FirstOutputFailoverTimeoutSeconds: &seconds,
+		FirstOutputFailoverTimeoutSeconds:  &seconds,
+		FirstOutputFailoverCooldownMinutes: &cooldownMinutes,
 	}
 
 	got := AccountFromServiceShallow(src)
 	require.NotNil(t, got)
 	require.Equal(t, &seconds, got.FirstOutputFailoverTimeoutSeconds)
+	require.Equal(t, &cooldownMinutes, got.FirstOutputFailoverCooldownMinutes)
 
 	raw, err := json.Marshal(got)
 	require.NoError(t, err)
 	require.Contains(t, string(raw), `"first_output_failover_timeout_seconds":15`)
+	require.Contains(t, string(raw), `"first_output_failover_cooldown_minutes":10`)
 }

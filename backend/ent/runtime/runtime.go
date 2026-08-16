@@ -237,30 +237,48 @@ func init() {
 	accountDescFirstOutputFailoverTimeoutSeconds := accountFields[10].Descriptor()
 	// account.FirstOutputFailoverTimeoutSecondsValidator is a validator for the "first_output_failover_timeout_seconds" field. It is called by the builders before save.
 	account.FirstOutputFailoverTimeoutSecondsValidator = accountDescFirstOutputFailoverTimeoutSeconds.Validators[0].(func(int) error)
+	// accountDescFirstOutputFailoverCooldownMinutes is the schema descriptor for first_output_failover_cooldown_minutes field.
+	accountDescFirstOutputFailoverCooldownMinutes := accountFields[11].Descriptor()
+	// account.FirstOutputFailoverCooldownMinutesValidator is a validator for the "first_output_failover_cooldown_minutes" field. It is called by the builders before save.
+	account.FirstOutputFailoverCooldownMinutesValidator = func() func(int) error {
+		validators := accountDescFirstOutputFailoverCooldownMinutes.Validators
+		fns := [...]func(int) error{
+			validators[0].(func(int) error),
+			validators[1].(func(int) error),
+		}
+		return func(first_output_failover_cooldown_minutes int) error {
+			for _, fn := range fns {
+				if err := fn(first_output_failover_cooldown_minutes); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
 	// accountDescPriority is the schema descriptor for priority field.
-	accountDescPriority := accountFields[11].Descriptor()
+	accountDescPriority := accountFields[12].Descriptor()
 	// account.DefaultPriority holds the default value on creation for the priority field.
 	account.DefaultPriority = accountDescPriority.Default.(int)
 	// accountDescRateMultiplier is the schema descriptor for rate_multiplier field.
-	accountDescRateMultiplier := accountFields[12].Descriptor()
+	accountDescRateMultiplier := accountFields[13].Descriptor()
 	// account.DefaultRateMultiplier holds the default value on creation for the rate_multiplier field.
 	account.DefaultRateMultiplier = accountDescRateMultiplier.Default.(float64)
 	// accountDescStatus is the schema descriptor for status field.
-	accountDescStatus := accountFields[13].Descriptor()
+	accountDescStatus := accountFields[14].Descriptor()
 	// account.DefaultStatus holds the default value on creation for the status field.
 	account.DefaultStatus = accountDescStatus.Default.(string)
 	// account.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	account.StatusValidator = accountDescStatus.Validators[0].(func(string) error)
 	// accountDescAutoPauseOnExpired is the schema descriptor for auto_pause_on_expired field.
-	accountDescAutoPauseOnExpired := accountFields[17].Descriptor()
+	accountDescAutoPauseOnExpired := accountFields[18].Descriptor()
 	// account.DefaultAutoPauseOnExpired holds the default value on creation for the auto_pause_on_expired field.
 	account.DefaultAutoPauseOnExpired = accountDescAutoPauseOnExpired.Default.(bool)
 	// accountDescSchedulable is the schema descriptor for schedulable field.
-	accountDescSchedulable := accountFields[18].Descriptor()
+	accountDescSchedulable := accountFields[19].Descriptor()
 	// account.DefaultSchedulable holds the default value on creation for the schedulable field.
 	account.DefaultSchedulable = accountDescSchedulable.Default.(bool)
 	// accountDescSessionWindowStatus is the schema descriptor for session_window_status field.
-	accountDescSessionWindowStatus := accountFields[26].Descriptor()
+	accountDescSessionWindowStatus := accountFields[27].Descriptor()
 	// account.SessionWindowStatusValidator is a validator for the "session_window_status" field. It is called by the builders before save.
 	account.SessionWindowStatusValidator = accountDescSessionWindowStatus.Validators[0].(func(string) error)
 	accountgroupFields := schema.AccountGroup{}.Fields()

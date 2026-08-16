@@ -25,6 +25,8 @@ type rateLimitAccountRepoStub struct {
 	lastTempReason         string
 	lastErrorID            int64
 	lastTempID             int64
+	lastTempUntil          time.Time
+	lastTempContextErr     error
 }
 
 func (r *rateLimitAccountRepoStub) SetError(ctx context.Context, id int64, errorMsg string) error {
@@ -37,7 +39,9 @@ func (r *rateLimitAccountRepoStub) SetError(ctx context.Context, id int64, error
 func (r *rateLimitAccountRepoStub) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
 	r.tempCalls++
 	r.lastTempID = id
+	r.lastTempUntil = until
 	r.lastTempReason = reason
+	r.lastTempContextErr = ctx.Err()
 	return nil
 }
 

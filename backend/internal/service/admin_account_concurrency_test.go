@@ -48,3 +48,55 @@ func TestNormalizeFirstOutputFailoverTimeoutRejectsUnsupportedValues(t *testing.
 	_, err = normalizeFirstOutputFailoverTimeout(PlatformAnthropic, AccountTypeAPIKey, &seconds)
 	require.Error(t, err)
 }
+
+func TestNormalizeFirstOutputFailoverCooldown(t *testing.T) {
+	timeoutSeconds := 15
+	zero := 0
+
+	normalized, err := normalizeFirstOutputFailoverCooldown(
+		PlatformOpenAI, AccountTypeAPIKey, &timeoutSeconds, nil,
+	)
+	require.NoError(t, err)
+	require.Nil(t, normalized)
+
+	normalized, err = normalizeFirstOutputFailoverCooldown(
+		PlatformOpenAI, AccountTypeAPIKey, &timeoutSeconds, &zero,
+	)
+	require.NoError(t, err)
+	require.Nil(t, normalized)
+
+	minutes := 10
+	normalized, err = normalizeFirstOutputFailoverCooldown(
+		PlatformOpenAI, AccountTypeAPIKey, &timeoutSeconds, &minutes,
+	)
+	require.NoError(t, err)
+	require.NotSame(t, &minutes, normalized)
+	require.Equal(t, 10, *normalized)
+}
+
+func TestNormalizeFirstOutputFailoverCooldownRejectsInvalidConfiguration(t *testing.T) {
+	timeoutSeconds := 15
+	minutes := 10
+	negative := -1
+	tooLong := FirstOutputFailoverCooldownMaxMinutes + 1
+
+	_, err := normalizeFirstOutputFailoverCooldown(
+		PlatformOpenAI, AccountTypeAPIKey, &timeoutSeconds, &negative,
+	)
+	require.Error(t, err)
+
+	_, err = normalizeFirstOutputFailoverCooldown(
+		PlatformOpenAI, AccountTypeAPIKey, &timeoutSeconds, &tooLong,
+	)
+	require.Error(t, err)
+
+	_, err = normalizeFirstOutputFailoverCooldown(
+		PlatformOpenAI, AccountTypeOAuth, &timeoutSeconds, &minutes,
+	)
+	require.Error(t, err)
+
+	_, err = normalizeFirstOutputFailoverCooldown(
+		PlatformOpenAI, AccountTypeAPIKey, nil, &minutes,
+	)
+	require.Error(t, err)
+}
