@@ -41,8 +41,8 @@ type Account struct {
 	// FirstOutputFailoverTimeoutSeconds 仅用于 OpenAI API Key 账号。
 	// nil 表示不启用账号级首输出换号预算。
 	FirstOutputFailoverTimeoutSeconds *int
-	// FirstOutputFailoverCooldownMinutes 命中账号级预算后的立即冷却时长。
-	// nil 表示继续沿用原有超时处理策略。
+	// FirstOutputFailoverCooldownMinutes 命中账号级预算或上游 502/503/504 后的立即冷却时长。
+	// nil 表示继续沿用原有错误与超时处理策略。
 	FirstOutputFailoverCooldownMinutes *int
 	Status                             string
 	ErrorMessage                       string

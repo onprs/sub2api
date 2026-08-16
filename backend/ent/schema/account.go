@@ -110,8 +110,8 @@ func (Account) Fields() []ent.Field {
 			Positive().
 			Comment("Optional OpenAI API key first-output failover timeout in seconds."),
 
-		// first_output_failover_cooldown_minutes: 命中账号级首输出预算后的临时不可调度时长
-		// NULL 表示不启用立即冷却，继续沿用原有超时处理策略
+		// first_output_failover_cooldown_minutes: 命中账号级首输出预算或上游 502/503/504 后的临时不可调度时长
+		// NULL 表示不启用立即冷却，继续沿用原有错误与超时处理策略
 		field.Int("first_output_failover_cooldown_minutes").
 			Optional().
 			Nillable().
