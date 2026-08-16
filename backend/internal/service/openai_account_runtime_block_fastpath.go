@@ -56,7 +56,14 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	if s == nil || account == nil || s.rateLimitService == nil {
 		return false
 	}
-	if len(requestedModel) > 0 && s.rateLimitService.HandleUpstreamModelNotFound(stateCtx, account, requestedModel[0], statusCode, responseBody) {
+	model := ""
+	if len(requestedModel) > 0 {
+		model = requestedModel[0]
+	}
+	if s.rateLimitService.HandleOpenAIUpstreamFailoverCooldown(stateCtx, account, model, statusCode) {
+		return true
+	}
+	if model != "" && s.rateLimitService.HandleUpstreamModelNotFound(stateCtx, account, model, statusCode, responseBody) {
 		return true
 	}
 	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody)
