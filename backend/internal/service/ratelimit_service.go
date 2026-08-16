@@ -2201,6 +2201,50 @@ func truncateTempUnschedMessage(body []byte, maxBytes int) string {
 	return strings.TrimSpace(string(body))
 }
 
+// HandleFirstOutputFailoverTimeout 在首次命中账号级首输出预算时立即冷却账号。
+// 该路径不使用全局流超时阈值；后续请求由现有临时不可调度状态直接跳过该账号。
+func (s *RateLimitService) HandleFirstOutputFailoverTimeout(ctx context.Context, account *Account, model string, cooldown time.Duration) bool {
+	maxCooldown := time.Duration(FirstOutputFailoverCooldownMaxMinutes) * time.Minute
+	if s == nil || s.accountRepo == nil || account == nil || account.ID <= 0 ||
+		account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey ||
+		cooldown <= 0 || cooldown > maxCooldown {
+		return false
+	}
+
+	now := time.Now()
+	until := now.Add(cooldown)
+	state := &TempUnschedState{
+		UntilUnix:       until.Unix(),
+		TriggeredAtUnix: now.Unix(),
+		StatusCode:      http.StatusGatewayTimeout,
+		MatchedKeyword:  "first_output_timeout",
+		RuleIndex:       -1,
+		ErrorMessage:    "OpenAI first-output failover timeout for model: " + model,
+	}
+
+	reason := ""
+	if raw, err := json.Marshal(state); err == nil {
+		reason = string(raw)
+	}
+	if reason == "" {
+		reason = state.ErrorMessage
+	}
+
+	s.notifyAccountSchedulingBlocked(account, until, "openai_first_output_timeout_cooldown")
+	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
+		slog.Warn("first_output_timeout_set_temp_unsched_failed", "account_id", account.ID, "error", err)
+		return false
+	}
+	if s.tempUnschedCache != nil {
+		if err := s.tempUnschedCache.SetTempUnsched(ctx, account.ID, state); err != nil {
+			slog.Warn("first_output_timeout_set_temp_unsched_cache_failed", "account_id", account.ID, "error", err)
+		}
+	}
+
+	slog.Info("first_output_timeout_temp_unschedulable", "account_id", account.ID, "until", until, "model", model)
+	return true
+}
+
 // HandleStreamTimeout 处理流数据超时
 // 根据系统设置决定是否标记账户为临时不可调度或错误状态
 // 返回是否应该停止该账号的调度

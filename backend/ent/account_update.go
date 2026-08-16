@@ -253,6 +253,33 @@ func (_u *AccountUpdate) ClearFirstOutputFailoverTimeoutSeconds() *AccountUpdate
 	return _u
 }
 
+// SetFirstOutputFailoverCooldownMinutes sets the "first_output_failover_cooldown_minutes" field.
+func (_u *AccountUpdate) SetFirstOutputFailoverCooldownMinutes(v int) *AccountUpdate {
+	_u.mutation.ResetFirstOutputFailoverCooldownMinutes()
+	_u.mutation.SetFirstOutputFailoverCooldownMinutes(v)
+	return _u
+}
+
+// SetNillableFirstOutputFailoverCooldownMinutes sets the "first_output_failover_cooldown_minutes" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableFirstOutputFailoverCooldownMinutes(v *int) *AccountUpdate {
+	if v != nil {
+		_u.SetFirstOutputFailoverCooldownMinutes(*v)
+	}
+	return _u
+}
+
+// AddFirstOutputFailoverCooldownMinutes adds value to the "first_output_failover_cooldown_minutes" field.
+func (_u *AccountUpdate) AddFirstOutputFailoverCooldownMinutes(v int) *AccountUpdate {
+	_u.mutation.AddFirstOutputFailoverCooldownMinutes(v)
+	return _u
+}
+
+// ClearFirstOutputFailoverCooldownMinutes clears the value of the "first_output_failover_cooldown_minutes" field.
+func (_u *AccountUpdate) ClearFirstOutputFailoverCooldownMinutes() *AccountUpdate {
+	_u.mutation.ClearFirstOutputFailoverCooldownMinutes()
+	return _u
+}
+
 // SetPriority sets the "priority" field.
 func (_u *AccountUpdate) SetPriority(v int) *AccountUpdate {
 	_u.mutation.ResetPriority()
@@ -804,6 +831,11 @@ func (_u *AccountUpdate) check() error {
 			return &ValidationError{Name: "first_output_failover_timeout_seconds", err: fmt.Errorf(`ent: validator failed for field "Account.first_output_failover_timeout_seconds": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.FirstOutputFailoverCooldownMinutes(); ok {
+		if err := account.FirstOutputFailoverCooldownMinutesValidator(v); err != nil {
+			return &ValidationError{Name: "first_output_failover_cooldown_minutes", err: fmt.Errorf(`ent: validator failed for field "Account.first_output_failover_cooldown_minutes": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := account.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "Account.status": %w`, err)}
@@ -896,6 +928,15 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.FirstOutputFailoverTimeoutSecondsCleared() {
 		_spec.ClearField(account.FieldFirstOutputFailoverTimeoutSeconds, field.TypeInt)
+	}
+	if value, ok := _u.mutation.FirstOutputFailoverCooldownMinutes(); ok {
+		_spec.SetField(account.FieldFirstOutputFailoverCooldownMinutes, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedFirstOutputFailoverCooldownMinutes(); ok {
+		_spec.AddField(account.FieldFirstOutputFailoverCooldownMinutes, field.TypeInt, value)
+	}
+	if _u.mutation.FirstOutputFailoverCooldownMinutesCleared() {
+		_spec.ClearField(account.FieldFirstOutputFailoverCooldownMinutes, field.TypeInt)
 	}
 	if value, ok := _u.mutation.Priority(); ok {
 		_spec.SetField(account.FieldPriority, field.TypeInt, value)
@@ -1431,6 +1472,33 @@ func (_u *AccountUpdateOne) AddFirstOutputFailoverTimeoutSeconds(v int) *Account
 // ClearFirstOutputFailoverTimeoutSeconds clears the value of the "first_output_failover_timeout_seconds" field.
 func (_u *AccountUpdateOne) ClearFirstOutputFailoverTimeoutSeconds() *AccountUpdateOne {
 	_u.mutation.ClearFirstOutputFailoverTimeoutSeconds()
+	return _u
+}
+
+// SetFirstOutputFailoverCooldownMinutes sets the "first_output_failover_cooldown_minutes" field.
+func (_u *AccountUpdateOne) SetFirstOutputFailoverCooldownMinutes(v int) *AccountUpdateOne {
+	_u.mutation.ResetFirstOutputFailoverCooldownMinutes()
+	_u.mutation.SetFirstOutputFailoverCooldownMinutes(v)
+	return _u
+}
+
+// SetNillableFirstOutputFailoverCooldownMinutes sets the "first_output_failover_cooldown_minutes" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableFirstOutputFailoverCooldownMinutes(v *int) *AccountUpdateOne {
+	if v != nil {
+		_u.SetFirstOutputFailoverCooldownMinutes(*v)
+	}
+	return _u
+}
+
+// AddFirstOutputFailoverCooldownMinutes adds value to the "first_output_failover_cooldown_minutes" field.
+func (_u *AccountUpdateOne) AddFirstOutputFailoverCooldownMinutes(v int) *AccountUpdateOne {
+	_u.mutation.AddFirstOutputFailoverCooldownMinutes(v)
+	return _u
+}
+
+// ClearFirstOutputFailoverCooldownMinutes clears the value of the "first_output_failover_cooldown_minutes" field.
+func (_u *AccountUpdateOne) ClearFirstOutputFailoverCooldownMinutes() *AccountUpdateOne {
+	_u.mutation.ClearFirstOutputFailoverCooldownMinutes()
 	return _u
 }
 
@@ -1998,6 +2066,11 @@ func (_u *AccountUpdateOne) check() error {
 			return &ValidationError{Name: "first_output_failover_timeout_seconds", err: fmt.Errorf(`ent: validator failed for field "Account.first_output_failover_timeout_seconds": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.FirstOutputFailoverCooldownMinutes(); ok {
+		if err := account.FirstOutputFailoverCooldownMinutesValidator(v); err != nil {
+			return &ValidationError{Name: "first_output_failover_cooldown_minutes", err: fmt.Errorf(`ent: validator failed for field "Account.first_output_failover_cooldown_minutes": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := account.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "Account.status": %w`, err)}
@@ -2107,6 +2180,15 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if _u.mutation.FirstOutputFailoverTimeoutSecondsCleared() {
 		_spec.ClearField(account.FieldFirstOutputFailoverTimeoutSeconds, field.TypeInt)
+	}
+	if value, ok := _u.mutation.FirstOutputFailoverCooldownMinutes(); ok {
+		_spec.SetField(account.FieldFirstOutputFailoverCooldownMinutes, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedFirstOutputFailoverCooldownMinutes(); ok {
+		_spec.AddField(account.FieldFirstOutputFailoverCooldownMinutes, field.TypeInt, value)
+	}
+	if _u.mutation.FirstOutputFailoverCooldownMinutesCleared() {
+		_spec.ClearField(account.FieldFirstOutputFailoverCooldownMinutes, field.TypeInt)
 	}
 	if value, ok := _u.mutation.Priority(); ok {
 		_spec.SetField(account.FieldPriority, field.TypeInt, value)

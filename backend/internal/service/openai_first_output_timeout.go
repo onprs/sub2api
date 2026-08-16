@@ -252,6 +252,15 @@ func openAIAccountFirstOutputFailoverTimeout(account *Account) time.Duration {
 	return time.Duration(*account.FirstOutputFailoverTimeoutSeconds) * time.Second
 }
 
+func openAIAccountFirstOutputFailoverCooldown(account *Account) time.Duration {
+	if openAIAccountFirstOutputFailoverTimeout(account) <= 0 ||
+		account.FirstOutputFailoverCooldownMinutes == nil || *account.FirstOutputFailoverCooldownMinutes <= 0 ||
+		*account.FirstOutputFailoverCooldownMinutes > FirstOutputFailoverCooldownMaxMinutes {
+		return 0
+	}
+	return time.Duration(*account.FirstOutputFailoverCooldownMinutes) * time.Minute
+}
+
 func (s *OpenAIGatewayService) openAIEffectiveFirstOutputTimeout(account *Account, reasoningEffort string) time.Duration {
 	if accountTimeout := openAIAccountFirstOutputFailoverTimeout(account); accountTimeout > 0 {
 		return accountTimeout
@@ -284,7 +293,13 @@ func (s *OpenAIGatewayService) newOpenAIFirstOutputTimeoutError(
 		Detail: fmt.Sprintf("phase=%s elapsed_ms=%d timeout_ms=%d", phase, elapsed.Milliseconds(), timeout.Milliseconds()),
 	})
 	if s.rateLimitService != nil {
-		s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
+		if cooldown := openAIAccountFirstOutputFailoverCooldown(account); cooldown > 0 {
+			stateCtx, cancel := openAIAccountStateContext(ctx)
+			s.rateLimitService.HandleFirstOutputFailoverTimeout(stateCtx, account, originalModel, cooldown)
+			cancel()
+		} else {
+			s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
+		}
 	}
 	return &UpstreamFailoverError{
 		StatusCode:      http.StatusGatewayTimeout,
