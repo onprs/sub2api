@@ -38,9 +38,13 @@ func userErrorCategorySQL(alias string) string {
 	END`, alias)
 }
 
+// userRequestHistoryUsageFilterUL 保留原有正费用行，并额外纳入非 cyber 的零费用成功请求。
+// cyber 零费用行是失败记录，由 ops_error_logs 分支展示，不能在成功分支重复显示。
+const userRequestHistoryUsageFilterUL = "(ul.actual_cost > 0 OR COALESCE(ul.request_type, 0) <> 4)"
+
 func buildUserRequestHistoryCTE(filter service.UserRequestHistoryFilter) (string, []any) {
 	args := []any{filter.UserID}
-	successWhere := []string{"ul.user_id = $1", usageLogSuccessFilterUL}
+	successWhere := []string{"ul.user_id = $1", userRequestHistoryUsageFilterUL}
 	errorWhere := []string{
 		"(e.user_id = $1 OR e.deleted_key_owner_user_id = $1)",
 		"(COALESCE(e.status_code, 0) >= 400 OR e.error_type = 'cyber_policy')",
