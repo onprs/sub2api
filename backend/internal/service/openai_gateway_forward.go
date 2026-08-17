@@ -57,7 +57,7 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 		return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)
 	}
 
-	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
+	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		return s.forwardResponsesViaRawChatCompletionsWithOutput(ctx, c, account, body, output)
 	}
 
@@ -902,6 +902,12 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 	}
 }
 
+func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
+	return account != nil &&
+		account.Type == AccountTypeAPIKey &&
+		!openai_compat.ShouldUseResponsesAPI(account.Extra)
+}
+
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
 	// Determine target URL based on account type
 	var targetURL string
@@ -1019,6 +1025,8 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)
+	// 在账号覆写后恢复 Codex 会话级能力声明，避免中继链裁剪原生 v2 标志。
+	applyOpenAICodexBetaFeatures(c, account, req.Header)
 
 	return req, nil
 }

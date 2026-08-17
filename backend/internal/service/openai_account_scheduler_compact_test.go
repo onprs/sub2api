@@ -170,6 +170,48 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactFallsBackToUnkno
 	require.Equal(t, int64(71021), selection.Account.ID, "unknown account should be picked when no supported account available")
 }
 
+func TestOpenAIGatewayService_SelectAccountWithScheduler_NativeV2IgnoresLegacyCompactSupport(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	ctx := context.Background()
+	groupID := int64(91004)
+	accounts := []Account{{
+		ID: 71030, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1,
+		Extra: map[string]any{
+			"openai_responses_supported": true,
+			"openai_compact_supported":   false,
+		},
+	}}
+	cfg := &config.Config{}
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cache:              &schedulerTestGatewayCache{},
+		cfg:                cfg,
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+
+	selection, _, err := svc.SelectAccountWithSchedulerForCapability(
+		ctx, &groupID, "", "", "gpt-5.6-sol", nil,
+		OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityResponses,
+		false, false,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, int64(71030), selection.Account.ID,
+		"原生 v2 只要求 Responses，不应读取旧式 compact 支持状态")
+
+	legacySelection, _, legacyErr := svc.SelectAccountWithSchedulerForCapability(
+		ctx, &groupID, "", "", "gpt-5.6-sol", nil,
+		OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityResponses,
+		true, false,
+	)
+	require.Error(t, legacyErr)
+	require.ErrorIs(t, legacyErr, ErrNoAvailableCompactAccounts)
+	require.Nil(t, legacySelection)
+}
+
 // TestOpenAICompactSupportTier 验证 tier 分类逻辑。
 func TestOpenAICompactSupportTier(t *testing.T) {
 	tests := []struct {

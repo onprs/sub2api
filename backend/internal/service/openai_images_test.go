@@ -537,6 +537,24 @@ func TestAccountSupportsOpenAIEndpointCapability(t *testing.T) {
 		require.True(t, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityEmbeddings))
 	})
 
+	t.Run("Responses 能力遵循上游探测结果", func(t *testing.T) {
+		apiKeySupported := &Account{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Extra:    map[string]any{"openai_responses_supported": true},
+		}
+		apiKeyUnsupported := &Account{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Extra:    map[string]any{"openai_responses_supported": false},
+		}
+		oauth := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+		require.True(t, apiKeySupported.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityResponses))
+		require.False(t, apiKeyUnsupported.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityResponses))
+		require.True(t, oauth.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityResponses))
+	})
+
 	t.Run("未知能力不应默认放行", func(t *testing.T) {
 		account := &Account{
 			Platform: PlatformOpenAI,

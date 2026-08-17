@@ -67,6 +67,7 @@ var openaiAllowedHeaders = map[string]bool{
 	"user-agent":            true,
 	"originator":            true,
 	"session_id":            true,
+	"x-codex-beta-features": true,
 	"x-codex-turn-state":    true,
 	"x-codex-turn-metadata": true,
 }
@@ -82,6 +83,7 @@ var openaiPassthroughAllowedHeaders = map[string]bool{
 	"user-agent":            true,
 	"originator":            true,
 	"session_id":            true,
+	"x-codex-beta-features": true,
 	"x-codex-turn-state":    true,
 	"x-codex-turn-metadata": true,
 }
@@ -502,6 +504,10 @@ func (s *OpenAIGatewayService) checkChannelPricingRestriction(ctx context.Contex
 func (s *OpenAIGatewayService) isUpstreamModelRestrictedByChannel(ctx context.Context, groupID int64, account *Account, requestedModel string, requireCompact bool) bool {
 	if s.channelService == nil {
 		return false
+	}
+	if forwardModel, ok := openAIForwardModelFromContext(ctx); ok {
+		requestedModel = forwardModel.model
+		requireCompact = forwardModel.useCompactModelMapping
 	}
 	upstreamModel := resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, requireCompact)
 	if upstreamModel == "" {
