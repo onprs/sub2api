@@ -18,7 +18,7 @@ func TestBuildUserRequestHistoryCTEScopesBothSources(t *testing.T) {
 
 	require.Equal(t, []any{int64(42)}, args)
 	require.Contains(t, cte, "ul.user_id = $1")
-	require.Contains(t, cte, "ul.actual_cost > 0")
+	require.Contains(t, cte, "(ul.actual_cost > 0 OR COALESCE(ul.request_type, 0) <> 4)")
 	require.Contains(t, cte, "e.user_id = $1 OR e.deleted_key_owner_user_id = $1")
 	require.Contains(t, cte, "COALESCE(e.is_count_tokens, false) = false")
 	require.NotContains(t, cte, "AND FALSE")
