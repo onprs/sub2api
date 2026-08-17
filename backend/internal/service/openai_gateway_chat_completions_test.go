@@ -13,6 +13,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -23,6 +24,19 @@ type openAIChatFailingWriter struct {
 	failAfter int
 	writes    int
 }
+
+const openAIChatResponsesSignatureTestResponse = `{
+	"id":"resp_signature",
+	"object":"response",
+	"model":"upstream-model",
+	"status":"completed",
+	"output":[
+		{"id":"reasoning_signature","type":"reasoning","status":"completed","summary":[{"type":"summary_text","text":"plan"}],"encrypted_content":"provider-signature"},
+		{"id":"message_signature","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]},
+		{"id":"function_signature","type":"function_call","status":"completed","call_id":"call_lookup","name":"lookup","arguments":"{\"q\":\"x\"}"}
+	],
+	"usage":{"input_tokens":4,"output_tokens":2,"total_tokens":6}
+}`
 
 func (w *openAIChatFailingWriter) Write(p []byte) (int, error) {
 	if w.writes >= w.failAfter {
@@ -96,6 +110,103 @@ func TestNormalizeResponsesBodyServiceTier(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, tier)
 	require.False(t, gjson.GetBytes(body, "service_tier").Exists())
+}
+
+func TestOpenAIChatResponsesPipeline_APIKeyBufferedResponseDropsReasoningSignatureWithWarning(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{ID: 301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	pipeline, err := newOpenAIChatResponsesPipeline(account, "client-model", "upstream-model")
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{"model":"client-model","messages":[{"role":"user","content":"hi"}],"stream":false}`))
+	require.NoError(t, err)
+	require.Empty(t, pipeline.Warnings())
+
+	converted, err := pipeline.ConvertResponse([]byte(openAIChatResponsesSignatureTestResponse), protocolconv.ProtocolOpenAIResponses)
+	require.NoError(t, err)
+	require.Equal(t, "client-model", gjson.GetBytes(converted.Body, "model").String())
+	require.Equal(t, "plan", gjson.GetBytes(converted.Body, "choices.0.message.reasoning_content").String())
+	require.Equal(t, "ok", gjson.GetBytes(converted.Body, "choices.0.message.content").String())
+	require.Equal(t, "lookup", gjson.GetBytes(converted.Body, "choices.0.message.tool_calls.0.function.name").String())
+	require.JSONEq(t, `{"q":"x"}`, gjson.GetBytes(converted.Body, "choices.0.message.tool_calls.0.function.arguments").String())
+	require.Equal(t, int64(4), gjson.GetBytes(converted.Body, "usage.prompt_tokens").Int())
+	require.Equal(t, int64(2), gjson.GetBytes(converted.Body, "usage.completion_tokens").Int())
+	require.NotContains(t, string(converted.Body), "provider-signature")
+	require.NotContains(t, string(converted.Body), "encrypted_content")
+
+	warnings := pipeline.Warnings()
+	require.Len(t, warnings, 1)
+	require.Equal(t, protocolconv.WarningDroppedField, warnings[0].Code)
+	require.Equal(t, protocolconv.CapabilitySignature, warnings[0].Capability)
+}
+
+func TestOpenAIChatResponsesPipeline_APIKeyStreamingResponseDropsReasoningSignatureWithWarning(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{ID: 302, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	pipeline, err := newOpenAIChatResponsesPipeline(account, "client-model", "upstream-model")
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{"model":"client-model","messages":[{"role":"user","content":"hi"}],"stream":true}`))
+	require.NoError(t, err)
+
+	session, err := pipeline.NewStreamProcessor(protocolconv.ProtocolOpenAIResponses)
+	require.NoError(t, err)
+	events := [][]byte{
+		[]byte(`{"type":"response.created","response":{"id":"resp_signature_stream","object":"response","model":"upstream-model","status":"in_progress","output":[]}}`),
+		[]byte(`{"type":"response.output_item.added","output_index":0,"item":{"id":"reasoning_signature_stream","type":"reasoning","status":"in_progress","encrypted_content":"provider-signature-added"}}`),
+		[]byte(`{"type":"response.reasoning_summary_text.delta","output_index":0,"item_id":"reasoning_signature_stream","summary_index":0,"delta":"plan"}`),
+		[]byte(`{"type":"response.output_item.done","output_index":0,"item":{"id":"reasoning_signature_stream","type":"reasoning","status":"completed","summary":[{"type":"summary_text","text":"plan"}],"encrypted_content":"provider-signature-final"}}`),
+		[]byte(`{"type":"response.output_text.delta","output_index":1,"item_id":"message_signature_stream","content_index":0,"delta":"ok"}`),
+		[]byte(`{"type":"response.completed","response":{"id":"resp_signature_stream","object":"response","model":"upstream-model","status":"completed","output":[],"usage":{"input_tokens":4,"output_tokens":2,"total_tokens":6}}}`),
+	}
+	var payloads [][]byte
+	for _, event := range events {
+		converted, _, convertErr := session.Convert(event)
+		require.NoError(t, convertErr)
+		payloads = append(payloads, converted...)
+	}
+	final, _, err := session.Finalize()
+	require.NoError(t, err)
+	payloads = append(payloads, final...)
+
+	wire := string(bytes.Join(payloads, []byte("\n")))
+	require.Contains(t, wire, `"reasoning_content":"plan"`)
+	require.Contains(t, wire, `"content":"ok"`)
+	require.Contains(t, wire, `"prompt_tokens":4`)
+	require.Contains(t, wire, `"completion_tokens":2`)
+	require.NotContains(t, wire, "provider-signature")
+	require.NotContains(t, wire, "encrypted_content")
+
+	warnings := pipeline.Warnings()
+	require.Len(t, warnings, 1)
+	require.Equal(t, protocolconv.WarningDroppedField, warnings[0].Code)
+	require.Equal(t, protocolconv.CapabilitySignature, warnings[0].Capability)
+}
+
+func TestOpenAIChatResponsesPipeline_NonOpenAIAPIKeyKeepsStrictResponseLoss(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		account *Account
+	}{
+		{name: "OpenAI OAuth", account: &Account{ID: 303, Platform: PlatformOpenAI, Type: AccountTypeOAuth}},
+		{name: "Grok API Key", account: &Account{ID: 304, Platform: PlatformGrok, Type: AccountTypeAPIKey}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pipeline, err := newOpenAIChatResponsesPipeline(tt.account, "client-model", "upstream-model")
+			require.NoError(t, err)
+			_, err = pipeline.ConvertRequest([]byte(`{"model":"client-model","messages":[{"role":"user","content":"hi"}],"stream":false}`))
+			require.NoError(t, err)
+
+			_, err = pipeline.ConvertResponse([]byte(openAIChatResponsesSignatureTestResponse), protocolconv.ProtocolOpenAIResponses)
+			var conversionErr *protocolconv.Error
+			require.ErrorAs(t, err, &conversionErr)
+			require.Equal(t, protocolconv.ErrorUnsupportedCapability, conversionErr.Code)
+			require.Equal(t, protocolconv.CapabilitySignature, conversionErr.Capability)
+		})
+	}
 }
 
 func TestForwardAsChatCompletions_UnknownModelDoesNotUseDefaultMappedModel(t *testing.T) {

@@ -38,6 +38,26 @@ var cursorResponsesUnsupportedFields = []string{
 	"stream_options",
 }
 
+// newOpenAIChatResponsesPipeline 保持请求转换严格，同时允许 OpenAI API Key
+// 的 Responses 响应丢弃标准 Chat Completions 无法表达的 provider 专属字段。
+func newOpenAIChatResponsesPipeline(account *Account, clientModel string, upstreamModel string) (*protocolconv.Pipeline, error) {
+	config := protocolconv.PipelineConfig{
+		Route: protocolconv.Route{
+			Source:         protocolconv.ProtocolOpenAIChat,
+			IntendedTarget: protocolconv.ProtocolOpenAIResponses,
+			ClientModel:    clientModel,
+			UpstreamModel:  upstreamModel,
+			Provider:       account.Platform,
+			AccountID:      account.ID,
+		},
+		Options: protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossError},
+	}
+	if account.IsOpenAIApiKey() {
+		config.ResponseOptions = &protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossWarn}
+	}
+	return protocolconv.NewPipeline(standardProtocolRegistry, config)
+}
+
 // ForwardAsChatCompletions accepts a Chat Completions request body, converts it
 // to OpenAI Responses API format, forwards to the OpenAI upstream, and converts
 // the response back to Chat Completions format.
@@ -157,17 +177,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		// Normal path: keep one request-scoped pipeline for request conversion and
 		// the non-stream response conversion. Streaming retains its characterized
 		// service policy loop until that transport boundary is structured.
-		pipeline, err = protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
-			Route: protocolconv.Route{
-				Source:         protocolconv.ProtocolOpenAIChat,
-				IntendedTarget: protocolconv.ProtocolOpenAIResponses,
-				ClientModel:    originalModel,
-				UpstreamModel:  upstreamModel,
-				Provider:       account.Platform,
-				AccountID:      account.ID,
-			},
-			Options: protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossError},
-		})
+		pipeline, err = newOpenAIChatResponsesPipeline(account, originalModel, upstreamModel)
 		if err != nil {
 			return nil, fmt.Errorf("create chat responses pipeline: %w", err)
 		}
