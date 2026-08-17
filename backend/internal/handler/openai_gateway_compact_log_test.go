@@ -91,21 +91,21 @@ func captureHandlerStructuredLog(t *testing.T) (*handlerInMemoryLogSink, func())
 	}
 }
 
-func TestIsOpenAIRemoteCompactPath(t *testing.T) {
-	require.False(t, isOpenAIRemoteCompactPath(nil))
+func TestIsOpenAILegacyCompactPath(t *testing.T) {
+	require.False(t, isOpenAILegacyCompactPath(nil))
 
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses/compact", nil)
-	require.True(t, isOpenAIRemoteCompactPath(c))
+	require.True(t, isOpenAILegacyCompactPath(c))
 
 	c.Request = httptest.NewRequest(http.MethodPost, "/responses/compact/", nil)
-	require.True(t, isOpenAIRemoteCompactPath(c))
+	require.True(t, isOpenAILegacyCompactPath(c))
 
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-	require.False(t, isOpenAIRemoteCompactPath(c))
+	require.False(t, isOpenAILegacyCompactPath(c))
 }
 
 func TestLogOpenAIRemoteCompactOutcome_Succeeded(t *testing.T) {
