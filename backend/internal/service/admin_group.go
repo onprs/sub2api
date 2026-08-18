@@ -223,6 +223,11 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 
 	allowImageGeneration := input.AllowImageGeneration || defaultAllowImageGenerationForPlatform(platform)
 	allowBatchImageGeneration := input.AllowBatchImageGeneration && allowImageGeneration && platform == PlatformGemini
+	inferGPT56CacheWrite, inferGPT56CacheWriteMinTokens := normalizeGroupGPT56CacheWriteInference(
+		platform,
+		input.InferGPT56CacheWrite,
+		input.InferGPT56CacheWriteMinTokens,
+	)
 
 	// 如果指定了复制账号的源分组，先获取账号 ID 列表
 	var accountIDsToCopy []int64
@@ -297,6 +302,8 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		DefaultMappedModel:              input.DefaultMappedModel,
 		MessagesDispatchModelConfig:     normalizeOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
 		ModelsListConfig:                normalizeGroupModelsListConfig(input.ModelsListConfig),
+		InferGPT56CacheWrite:            inferGPT56CacheWrite,
+		InferGPT56CacheWriteMinTokens:   inferGPT56CacheWriteMinTokens,
 		RPMLimit:                        input.RPMLimit,
 	}
 	sanitizeGroupMessagesDispatchFields(group)
@@ -608,6 +615,17 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.ModelsListConfig != nil {
 		group.ModelsListConfig = normalizeGroupModelsListConfig(*input.ModelsListConfig)
 	}
+	if input.InferGPT56CacheWrite != nil {
+		group.InferGPT56CacheWrite = *input.InferGPT56CacheWrite
+	}
+	if input.InferGPT56CacheWriteMinTokens != nil {
+		group.InferGPT56CacheWriteMinTokens = *input.InferGPT56CacheWriteMinTokens
+	}
+	group.InferGPT56CacheWrite, group.InferGPT56CacheWriteMinTokens = normalizeGroupGPT56CacheWriteInference(
+		group.Platform,
+		group.InferGPT56CacheWrite,
+		group.InferGPT56CacheWriteMinTokens,
+	)
 	if input.RPMLimit != nil {
 		group.RPMLimit = *input.RPMLimit
 	}

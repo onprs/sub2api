@@ -2000,44 +2000,6 @@
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
-        <div class="flex items-center justify-between gap-4">
-          <div>
-            <label class="input-label mb-0">{{ t('admin.accounts.openai.inferGPT56CacheWrite') }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.openai.inferGPT56CacheWriteDesc') }}
-            </p>
-          </div>
-          <button
-            type="button"
-            data-testid="infer-gpt56-cache-write-toggle"
-            @click="inferGPT56CacheWrite = !inferGPT56CacheWrite"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              inferGPT56CacheWrite ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                inferGPT56CacheWrite ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
-        </div>
-        <div v-if="inferGPT56CacheWrite" class="flex items-center justify-between gap-4">
-          <label class="input-label mb-0" for="infer-gpt56-cache-write-min-tokens">
-            {{ t('admin.accounts.openai.inferGPT56CacheWriteMinTokens') }}
-          </label>
-          <input
-            id="infer-gpt56-cache-write-min-tokens"
-            v-model.number="inferGPT56CacheWriteMinTokens"
-            data-testid="infer-gpt56-cache-write-min-tokens"
-            type="number"
-            min="1"
-            step="1"
-            class="input w-32"
-          />
-        </div>
         <div class="flex items-center justify-between">
           <div>
             <label class="input-label mb-0">{{ t('admin.accounts.openai.compactMode') }}</label>
@@ -2962,8 +2924,6 @@ const customBaseUrl = ref('')
 
 // OpenAI 自动透传开关（OAuth/API Key）
 const openaiPassthroughEnabled = ref(false)
-const inferGPT56CacheWrite = ref(false)
-const inferGPT56CacheWriteMinTokens = ref(1024)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
@@ -3560,8 +3520,6 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
-  inferGPT56CacheWrite.value = false
-  inferGPT56CacheWriteMinTokens.value = 1024
   openAICompactMode.value = 'auto'
   openAIResponsesMode.value = 'auto'
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
@@ -3576,10 +3534,6 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
   webSearchEmulationMode.value = 'default'
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
-    inferGPT56CacheWrite.value = extra?.infer_gpt56_cache_write === true
-    inferGPT56CacheWriteMinTokens.value = typeof extra?.infer_gpt56_cache_write_min_tokens === 'number' && extra.infer_gpt56_cache_write_min_tokens > 0
-      ? Math.floor(extra.infer_gpt56_cache_write_min_tokens)
-      : 1024
     openAICompactMode.value = (extra?.openai_compact_mode as OpenAICompactMode) || 'auto'
     if (newAccount.type === 'apikey') {
       openAIResponsesMode.value = normalizeOpenAIResponsesMode(extra?.openai_responses_mode)
@@ -4767,13 +4721,6 @@ const handleSubmit = async () => {
       } else {
         delete newExtra.openai_passthrough
         delete newExtra.openai_oauth_passthrough
-      }
-      if (inferGPT56CacheWrite.value) {
-        newExtra.infer_gpt56_cache_write = true
-        newExtra.infer_gpt56_cache_write_min_tokens = Math.max(1, Math.floor(Number(inferGPT56CacheWriteMinTokens.value) || 1024))
-      } else {
-        delete newExtra.infer_gpt56_cache_write
-        delete newExtra.infer_gpt56_cache_write_min_tokens
       }
       if (openAICompactMode.value === 'auto') {
         delete newExtra.openai_compact_mode

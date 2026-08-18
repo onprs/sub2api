@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 14 // v14: include group video pricing fields
+const apiKeyAuthSnapshotVersion = 15 // v15：加入分组级 GPT-5.6 缓存写入推断字段
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -281,6 +281,8 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			DefaultMappedModel:              apiKey.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     apiKey.Group.MessagesDispatchModelConfig,
 			ModelsListConfig:                apiKey.Group.ModelsListConfig,
+			InferGPT56CacheWrite:            apiKey.Group.InferGPT56CacheWrite,
+			InferGPT56CacheWriteMinTokens:   apiKey.Group.GPT56CacheWriteInferenceMinTokens(),
 			RPMLimit:                        apiKey.Group.RPMLimit,
 			PeakRateEnabled:                 apiKey.Group.PeakRateEnabled,
 			PeakStart:                       apiKey.Group.PeakStart,
@@ -364,6 +366,8 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			DefaultMappedModel:              snapshot.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     snapshot.Group.MessagesDispatchModelConfig,
 			ModelsListConfig:                snapshot.Group.ModelsListConfig,
+			InferGPT56CacheWrite:            snapshot.Group.InferGPT56CacheWrite,
+			InferGPT56CacheWriteMinTokens:   snapshot.Group.InferGPT56CacheWriteMinTokens,
 			RPMLimit:                        snapshot.Group.RPMLimit,
 			PeakRateEnabled:                 snapshot.Group.PeakRateEnabled,
 			PeakStart:                       snapshot.Group.PeakStart,

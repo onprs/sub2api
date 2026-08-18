@@ -1315,6 +1315,13 @@
           </div>
         </div>
 
+        <GroupGPT56CacheWriteInferenceFields
+          v-if="createForm.platform === 'openai'"
+          v-model:enabled="createForm.infer_gpt56_cache_write"
+          v-model:min-tokens="createForm.infer_gpt56_cache_write_min_tokens"
+          test-id-prefix="create-group"
+        />
+
         <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
         <div
           v-if="createForm.platform === 'openai'"
@@ -2762,6 +2769,13 @@
           </div>
         </div>
 
+        <GroupGPT56CacheWriteInferenceFields
+          v-if="editForm.platform === 'openai'"
+          v-model:enabled="editForm.infer_gpt56_cache_write"
+          v-model:min-tokens="editForm.infer_gpt56_cache_write_min_tokens"
+          test-id-prefix="edit-group"
+        />
+
         <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
         <div
           v-if="editForm.platform === 'openai'"
@@ -3448,6 +3462,7 @@ import PlatformIcon from "@/components/common/PlatformIcon.vue";
 import Icon from "@/components/icons/Icon.vue";
 import GroupRateMultipliersModal from "@/components/admin/group/GroupRateMultipliersModal.vue";
 import GroupRPMOverridesModal from "@/components/admin/group/GroupRPMOverridesModal.vue";
+import GroupGPT56CacheWriteInferenceFields from "@/components/admin/group/GroupGPT56CacheWriteInferenceFields.vue";
 import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
 import { VueDraggable } from "vue-draggable-plus";
 import { createStableObjectKeyResolver } from "@/utils/stableObjectKey";
@@ -3845,6 +3860,9 @@ const createForm = reactive({
   claude_code_only: false,
   fallback_group_id: null as number | null,
   fallback_group_id_on_invalid_request: null as number | null,
+  // GPT-5.6 缓存写入推断（仅 OpenAI 分组）
+  infer_gpt56_cache_write: false,
+  infer_gpt56_cache_write_min_tokens: 1024,
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   allow_messages_dispatch: false,
   opus_mapped_model: createMessagesDispatchDefaults.opus_mapped_model,
@@ -4190,6 +4208,9 @@ const editForm = reactive({
   claude_code_only: false,
   fallback_group_id: null as number | null,
   fallback_group_id_on_invalid_request: null as number | null,
+  // GPT-5.6 缓存写入推断（仅 OpenAI 分组）
+  infer_gpt56_cache_write: false,
+  infer_gpt56_cache_write_min_tokens: 1024,
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   allow_messages_dispatch: false,
   default_mapped_model: '',
@@ -4570,6 +4591,8 @@ const closeCreateModal = () => {
   createForm.claude_code_only = false;
   createForm.fallback_group_id = null;
   createForm.fallback_group_id_on_invalid_request = null;
+  createForm.infer_gpt56_cache_write = false;
+  createForm.infer_gpt56_cache_write_min_tokens = 1024;
   resetMessagesDispatchFormState(createForm);
   createForm.require_oauth_only = false;
   createForm.require_privacy_set = false;
@@ -4735,6 +4758,9 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.fallback_group_id = group.fallback_group_id;
   editForm.fallback_group_id_on_invalid_request =
     group.fallback_group_id_on_invalid_request;
+  editForm.infer_gpt56_cache_write = group.infer_gpt56_cache_write ?? false;
+  editForm.infer_gpt56_cache_write_min_tokens =
+    group.infer_gpt56_cache_write_min_tokens ?? 1024;
   const messagesDispatchFormState = messagesDispatchConfigToFormState(
     group.messages_dispatch_model_config,
   );
@@ -4784,6 +4810,8 @@ const closeEditModal = () => {
   editForm.video_price_480p = null;
   editForm.video_price_720p = null;
   editForm.video_price_1080p = null;
+  editForm.infer_gpt56_cache_write = false;
+  editForm.infer_gpt56_cache_write_min_tokens = 1024;
   resetMessagesDispatchFormState(editForm);
   resetModelsListState(editModelsListState);
 };
@@ -4974,6 +5002,8 @@ watch(
       createForm.fallback_group_id_on_invalid_request = null;
     }
     if (newVal !== "openai") {
+      createForm.infer_gpt56_cache_write = false;
+      createForm.infer_gpt56_cache_write_min_tokens = 1024;
       resetMessagesDispatchFormState(createForm);
     }
     if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
@@ -5007,6 +5037,8 @@ watch(
       editForm.fallback_group_id_on_invalid_request = null;
     }
     if (newVal !== "openai") {
+      editForm.infer_gpt56_cache_write = false;
+      editForm.infer_gpt56_cache_write_min_tokens = 1024;
       resetMessagesDispatchFormState(editForm);
     }
     if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {

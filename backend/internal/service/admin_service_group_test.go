@@ -1379,3 +1379,74 @@ func TestAdminService_UpdateGroup_InvalidRequestFallbackAllowsAntigravity(t *tes
 	require.NotNil(t, repo.updated)
 	require.Equal(t, fallbackID, *repo.updated.FallbackGroupIDOnInvalidRequest)
 }
+
+func TestAdminService_CreateGroup_ConfiguresGPT56CacheWriteInference(t *testing.T) {
+	repo := &groupRepoStubForAdmin{}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:                          "openai-cache-write",
+		Platform:                      PlatformOpenAI,
+		RateMultiplier:                1,
+		InferGPT56CacheWrite:          true,
+		InferGPT56CacheWriteMinTokens: 2048,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	require.True(t, group.InferGPT56CacheWrite)
+	require.Equal(t, 2048, group.InferGPT56CacheWriteMinTokens)
+}
+
+func TestAdminService_CreateGroup_DefaultsAndScopesGPT56CacheWriteInference(t *testing.T) {
+	tests := []struct {
+		name       string
+		platform   string
+		enabled    bool
+		minTokens  int
+		wantEnable bool
+		wantMin    int
+	}{
+		{name: "openai default threshold", platform: PlatformOpenAI, enabled: true, wantEnable: true, wantMin: 1024},
+		{name: "non openai sanitized", platform: PlatformAnthropic, enabled: true, minTokens: 4096, wantMin: 1024},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &groupRepoStubForAdmin{}
+			svc := &adminServiceImpl{groupRepo: repo}
+			group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+				Name:                          tt.name,
+				Platform:                      tt.platform,
+				RateMultiplier:                1,
+				InferGPT56CacheWrite:          tt.enabled,
+				InferGPT56CacheWriteMinTokens: tt.minTokens,
+			})
+			require.NoError(t, err)
+			require.Equal(t, tt.wantEnable, group.InferGPT56CacheWrite)
+			require.Equal(t, tt.wantMin, group.InferGPT56CacheWriteMinTokens)
+		})
+	}
+}
+
+func TestAdminService_UpdateGroup_ConfiguresGPT56CacheWriteInference(t *testing.T) {
+	existing := &Group{
+		ID:                            1,
+		Name:                          "openai-cache-write",
+		Platform:                      PlatformOpenAI,
+		Status:                        StatusActive,
+		InferGPT56CacheWriteMinTokens: 1024,
+	}
+	repo := &groupRepoStubForAdmin{getByID: existing}
+	svc := &adminServiceImpl{groupRepo: repo}
+	enabled := true
+	minTokens := 3072
+
+	group, err := svc.UpdateGroup(context.Background(), existing.ID, &UpdateGroupInput{
+		InferGPT56CacheWrite:          &enabled,
+		InferGPT56CacheWriteMinTokens: &minTokens,
+	})
+	require.NoError(t, err)
+	require.True(t, group.InferGPT56CacheWrite)
+	require.Equal(t, 3072, group.InferGPT56CacheWriteMinTokens)
+	require.Same(t, group, repo.updated)
+}

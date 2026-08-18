@@ -108,6 +108,10 @@ const (
 	FieldMessagesDispatchModelConfig = "messages_dispatch_model_config"
 	// FieldModelsListConfig holds the string denoting the models_list_config field in the database.
 	FieldModelsListConfig = "models_list_config"
+	// FieldInferGpt56CacheWrite holds the string denoting the infer_gpt56_cache_write field in the database.
+	FieldInferGpt56CacheWrite = "infer_gpt56_cache_write"
+	// FieldInferGpt56CacheWriteMinTokens holds the string denoting the infer_gpt56_cache_write_min_tokens field in the database.
+	FieldInferGpt56CacheWriteMinTokens = "infer_gpt56_cache_write_min_tokens"
 	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
 	FieldRpmLimit = "rpm_limit"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
@@ -231,6 +235,8 @@ var Columns = []string{
 	FieldDefaultMappedModel,
 	FieldMessagesDispatchModelConfig,
 	FieldModelsListConfig,
+	FieldInferGpt56CacheWrite,
+	FieldInferGpt56CacheWriteMinTokens,
 	FieldRpmLimit,
 }
 
@@ -339,6 +345,10 @@ var (
 	DefaultMessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig
 	// DefaultModelsListConfig holds the default value on creation for the "models_list_config" field.
 	DefaultModelsListConfig domain.GroupModelsListConfig
+	// DefaultInferGpt56CacheWrite holds the default value on creation for the "infer_gpt56_cache_write" field.
+	DefaultInferGpt56CacheWrite bool
+	// DefaultInferGpt56CacheWriteMinTokens holds the default value on creation for the "infer_gpt56_cache_write_min_tokens" field.
+	DefaultInferGpt56CacheWriteMinTokens int
 	// DefaultRpmLimit holds the default value on creation for the "rpm_limit" field.
 	DefaultRpmLimit int
 )
@@ -559,6 +569,16 @@ func ByRequirePrivacySet(opts ...sql.OrderTermOption) OrderOption {
 // ByDefaultMappedModel orders the results by the default_mapped_model field.
 func ByDefaultMappedModel(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDefaultMappedModel, opts...).ToFunc()
+}
+
+// ByInferGpt56CacheWrite orders the results by the infer_gpt56_cache_write field.
+func ByInferGpt56CacheWrite(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldInferGpt56CacheWrite, opts...).ToFunc()
+}
+
+// ByInferGpt56CacheWriteMinTokens orders the results by the infer_gpt56_cache_write_min_tokens field.
+func ByInferGpt56CacheWriteMinTokens(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldInferGpt56CacheWriteMinTokens, opts...).ToFunc()
 }
 
 // ByRpmLimit orders the results by the rpm_limit field.

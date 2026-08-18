@@ -946,69 +946,6 @@
         </div>
       </div>
 
-      <!-- GPT-5.6 cache-write inference -->
-      <div v-if="allOpenAIPassthroughCapable" class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <div class="mb-3 flex items-center justify-between">
-          <div class="flex-1 pr-4">
-            <label
-              id="bulk-edit-infer-gpt56-cache-write-label"
-              class="input-label mb-0"
-              for="bulk-edit-infer-gpt56-cache-write-enabled"
-            >
-              {{ t('admin.accounts.openai.inferGPT56CacheWrite') }}
-            </label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.openai.inferGPT56CacheWriteDesc') }}
-            </p>
-          </div>
-          <input
-            id="bulk-edit-infer-gpt56-cache-write-enabled"
-            v-model="enableInferGPT56CacheWrite"
-            type="checkbox"
-            aria-controls="bulk-edit-infer-gpt56-cache-write"
-            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-          />
-        </div>
-        <div
-          id="bulk-edit-infer-gpt56-cache-write"
-          class="space-y-4"
-          :class="!enableInferGPT56CacheWrite && 'pointer-events-none opacity-50'"
-          role="group"
-          aria-labelledby="bulk-edit-infer-gpt56-cache-write-label"
-        >
-          <button
-            type="button"
-            data-testid="bulk-edit-infer-gpt56-cache-write-toggle"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              inferGPT56CacheWrite ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-            @click="inferGPT56CacheWrite = !inferGPT56CacheWrite"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                inferGPT56CacheWrite ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
-          <div v-if="inferGPT56CacheWrite" class="flex items-center justify-between gap-4">
-            <label class="input-label mb-0" for="bulk-edit-infer-gpt56-cache-write-min-tokens">
-              {{ t('admin.accounts.openai.inferGPT56CacheWriteMinTokens') }}
-            </label>
-            <input
-              id="bulk-edit-infer-gpt56-cache-write-min-tokens"
-              v-model.number="inferGPT56CacheWriteMinTokens"
-              data-testid="bulk-edit-infer-gpt56-cache-write-min-tokens"
-              type="number"
-              min="1"
-              step="1"
-              class="input w-32"
-            />
-          </div>
-        </div>
-      </div>
-
       <!-- OpenAI Compact mode -->
       <div v-if="allOpenAIPassthroughCapable" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
@@ -1472,7 +1409,6 @@ const enableOpenAIWSMode = ref(false)
 const enableOpenAIAPIKeyWSMode = ref(false)
 const enableCodexCLIOnly = ref(false)
 const enableCodexCLIOnlyAppServer = ref(false)
-const enableInferGPT56CacheWrite = ref(false)
 const enableOpenAICompactMode = ref(false)
 const enableOpenAICompactModelMapping = ref(false)
 const enableRpmLimit = ref(false)
@@ -1534,8 +1470,6 @@ const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
-const inferGPT56CacheWrite = ref(false)
-const inferGPT56CacheWriteMinTokens = ref(1024)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const rpmLimitEnabled = ref(false)
@@ -1807,14 +1741,6 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     extra.codex_cli_only_allow_app_server = codexCLIOnlyAppServerEnabled.value
   }
 
-  if (enableInferGPT56CacheWrite.value) {
-    const extra = ensureExtra()
-    extra.infer_gpt56_cache_write = inferGPT56CacheWrite.value
-    extra.infer_gpt56_cache_write_min_tokens = inferGPT56CacheWrite.value
-      ? Math.max(1, Math.floor(Number(inferGPT56CacheWriteMinTokens.value) || 1024))
-      : 0
-  }
-
   if (enableOpenAICompactMode.value) {
     const extra = ensureExtra()
     extra.openai_compact_mode = openAICompactMode.value
@@ -1923,7 +1849,6 @@ const handleSubmit = async () => {
     enableOpenAIAPIKeyWSMode.value ||
     enableCodexCLIOnly.value ||
     enableCodexCLIOnlyAppServer.value ||
-    enableInferGPT56CacheWrite.value ||
     enableOpenAICompactMode.value ||
     enableOpenAICompactModelMapping.value ||
     enableRpmLimit.value ||
@@ -2042,7 +1967,6 @@ watch(
       enableOpenAIAPIKeyWSMode.value = false
       enableCodexCLIOnly.value = false
       enableCodexCLIOnlyAppServer.value = false
-      enableInferGPT56CacheWrite.value = false
       enableOpenAICompactMode.value = false
       enableOpenAICompactModelMapping.value = false
       enableRpmLimit.value = false
@@ -2069,8 +1993,6 @@ watch(
       openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       codexCLIOnlyEnabled.value = false
       codexCLIOnlyAppServerEnabled.value = false
-      inferGPT56CacheWrite.value = false
-      inferGPT56CacheWriteMinTokens.value = 1024
       openAICompactMode.value = 'auto'
       openAICompactModelMappings.value = []
       rpmLimitEnabled.value = false

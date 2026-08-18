@@ -119,7 +119,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ApplyOpenAIImageBillingResolution(result)
 	}
 
-	cacheWriteInferred := inferMissingGPT56CacheWrite(result, account)
+	cacheWriteInferred := inferMissingGPT56CacheWrite(result, apiKey.Group)
 
 	// OpenAI input_tokens 是总输入，包含缓存读取和缓存写入明细。
 	// 将三类 token 拆成互斥桶，避免缓存写入同时按普通输入和 cache_write 重复计费。
@@ -371,8 +371,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	return nil
 }
 
-func inferMissingGPT56CacheWrite(result *OpenAIForwardResult, account *Account) bool {
-	if result == nil || account == nil || !account.ShouldInferGPT56CacheWrite() {
+func inferMissingGPT56CacheWrite(result *OpenAIForwardResult, group *Group) bool {
+	if result == nil || group == nil || !group.ShouldInferGPT56CacheWrite() {
 		return false
 	}
 	effectiveModel := strings.TrimSpace(result.UpstreamModel)
@@ -390,7 +390,7 @@ func inferMissingGPT56CacheWrite(result *OpenAIForwardResult, account *Account) 
 		return false
 	}
 	uncachedInput := usage.InputTokens - usage.CacheReadInputTokens
-	if uncachedInput < account.GPT56CacheWriteInferenceMinTokens() {
+	if uncachedInput < group.GPT56CacheWriteInferenceMinTokens() {
 		return false
 	}
 	usage.CacheCreationInputTokens = uncachedInput

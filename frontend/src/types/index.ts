@@ -575,6 +575,10 @@ export interface AdminGroup extends Group {
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
   models_list_config?: ModelsListConfig
 
+  // GPT-5.6 缓存写入推断（仅 OpenAI 分组）
+  infer_gpt56_cache_write?: boolean
+  infer_gpt56_cache_write_min_tokens?: number
+
   // 分组排序
   sort_order: number
 }
@@ -681,6 +685,8 @@ export interface CreateGroupRequest {
   allow_messages_dispatch?: boolean
   default_mapped_model?: string
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
+  infer_gpt56_cache_write?: boolean
+  infer_gpt56_cache_write_min_tokens?: number
   model_routing?: Record<string, number[]> | null
   model_routing_enabled?: boolean
   rpm_limit?: number
@@ -728,6 +734,8 @@ export interface UpdateGroupRequest {
   allow_messages_dispatch?: boolean
   default_mapped_model?: string
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
+  infer_gpt56_cache_write?: boolean
+  infer_gpt56_cache_write_min_tokens?: number
   model_routing?: Record<string, number[]> | null
   model_routing_enabled?: boolean
   rpm_limit?: number
@@ -1130,8 +1138,6 @@ export type OpenAIResponsesMode = 'auto' | 'force_responses' | 'force_chat_compl
 export type OpenAIEndpointCapability = 'chat_completions' | 'embeddings'
 
 export interface OpenAICompactState {
-  infer_gpt56_cache_write?: boolean
-  infer_gpt56_cache_write_min_tokens?: number
   openai_compact_mode?: OpenAICompactMode
   openai_compact_supported?: boolean
   openai_compact_checked_at?: string

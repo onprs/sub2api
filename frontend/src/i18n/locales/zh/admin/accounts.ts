@@ -576,10 +576,6 @@ export default {
         codexImageToolBadgeEnabled: '强制注入',
         codexImageToolBadgeDisabled: '关闭注入',
         codexImageToolBadgeBlock: '完全阻断',
-        inferGPT56CacheWrite: '推断 GPT-5.6 系列缓存写入',
-        inferGPT56CacheWriteDesc:
-          '应急计费开关。仅当上游未报告缓存写入且未缓存输入达到阈值时，将未缓存输入按缓存写入计费；上游真实写入数据始终优先。',
-        inferGPT56CacheWriteMinTokens: '最小未缓存输入 tokens',
         compactMode: 'Compact 模式',
         compactModeDesc:
           '控制本账号在 /responses/compact 调度中的参与方式。Auto 跟随探测结果，Force On 强制允许，Force Off 强制排除。',

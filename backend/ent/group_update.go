@@ -865,6 +865,41 @@ func (_u *GroupUpdate) SetNillableModelsListConfig(v *domain.GroupModelsListConf
 	return _u
 }
 
+// SetInferGpt56CacheWrite sets the "infer_gpt56_cache_write" field.
+func (_u *GroupUpdate) SetInferGpt56CacheWrite(v bool) *GroupUpdate {
+	_u.mutation.SetInferGpt56CacheWrite(v)
+	return _u
+}
+
+// SetNillableInferGpt56CacheWrite sets the "infer_gpt56_cache_write" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableInferGpt56CacheWrite(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetInferGpt56CacheWrite(*v)
+	}
+	return _u
+}
+
+// SetInferGpt56CacheWriteMinTokens sets the "infer_gpt56_cache_write_min_tokens" field.
+func (_u *GroupUpdate) SetInferGpt56CacheWriteMinTokens(v int) *GroupUpdate {
+	_u.mutation.ResetInferGpt56CacheWriteMinTokens()
+	_u.mutation.SetInferGpt56CacheWriteMinTokens(v)
+	return _u
+}
+
+// SetNillableInferGpt56CacheWriteMinTokens sets the "infer_gpt56_cache_write_min_tokens" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableInferGpt56CacheWriteMinTokens(v *int) *GroupUpdate {
+	if v != nil {
+		_u.SetInferGpt56CacheWriteMinTokens(*v)
+	}
+	return _u
+}
+
+// AddInferGpt56CacheWriteMinTokens adds value to the "infer_gpt56_cache_write_min_tokens" field.
+func (_u *GroupUpdate) AddInferGpt56CacheWriteMinTokens(v int) *GroupUpdate {
+	_u.mutation.AddInferGpt56CacheWriteMinTokens(v)
+	return _u
+}
+
 // SetRpmLimit sets the "rpm_limit" field.
 func (_u *GroupUpdate) SetRpmLimit(v int) *GroupUpdate {
 	_u.mutation.ResetRpmLimit()
@@ -1439,6 +1474,15 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.ModelsListConfig(); ok {
 		_spec.SetField(group.FieldModelsListConfig, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.InferGpt56CacheWrite(); ok {
+		_spec.SetField(group.FieldInferGpt56CacheWrite, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.InferGpt56CacheWriteMinTokens(); ok {
+		_spec.SetField(group.FieldInferGpt56CacheWriteMinTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedInferGpt56CacheWriteMinTokens(); ok {
+		_spec.AddField(group.FieldInferGpt56CacheWriteMinTokens, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.RpmLimit(); ok {
 		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
@@ -2589,6 +2633,41 @@ func (_u *GroupUpdateOne) SetNillableModelsListConfig(v *domain.GroupModelsListC
 	return _u
 }
 
+// SetInferGpt56CacheWrite sets the "infer_gpt56_cache_write" field.
+func (_u *GroupUpdateOne) SetInferGpt56CacheWrite(v bool) *GroupUpdateOne {
+	_u.mutation.SetInferGpt56CacheWrite(v)
+	return _u
+}
+
+// SetNillableInferGpt56CacheWrite sets the "infer_gpt56_cache_write" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableInferGpt56CacheWrite(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetInferGpt56CacheWrite(*v)
+	}
+	return _u
+}
+
+// SetInferGpt56CacheWriteMinTokens sets the "infer_gpt56_cache_write_min_tokens" field.
+func (_u *GroupUpdateOne) SetInferGpt56CacheWriteMinTokens(v int) *GroupUpdateOne {
+	_u.mutation.ResetInferGpt56CacheWriteMinTokens()
+	_u.mutation.SetInferGpt56CacheWriteMinTokens(v)
+	return _u
+}
+
+// SetNillableInferGpt56CacheWriteMinTokens sets the "infer_gpt56_cache_write_min_tokens" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableInferGpt56CacheWriteMinTokens(v *int) *GroupUpdateOne {
+	if v != nil {
+		_u.SetInferGpt56CacheWriteMinTokens(*v)
+	}
+	return _u
+}
+
+// AddInferGpt56CacheWriteMinTokens adds value to the "infer_gpt56_cache_write_min_tokens" field.
+func (_u *GroupUpdateOne) AddInferGpt56CacheWriteMinTokens(v int) *GroupUpdateOne {
+	_u.mutation.AddInferGpt56CacheWriteMinTokens(v)
+	return _u
+}
+
 // SetRpmLimit sets the "rpm_limit" field.
 func (_u *GroupUpdateOne) SetRpmLimit(v int) *GroupUpdateOne {
 	_u.mutation.ResetRpmLimit()
@@ -3193,6 +3272,15 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.ModelsListConfig(); ok {
 		_spec.SetField(group.FieldModelsListConfig, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.InferGpt56CacheWrite(); ok {
+		_spec.SetField(group.FieldInferGpt56CacheWrite, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.InferGpt56CacheWriteMinTokens(); ok {
+		_spec.SetField(group.FieldInferGpt56CacheWriteMinTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedInferGpt56CacheWriteMinTokens(); ok {
+		_spec.AddField(group.FieldInferGpt56CacheWriteMinTokens, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.RpmLimit(); ok {
 		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)

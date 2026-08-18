@@ -20868,6 +20868,9 @@ type GroupMutation struct {
 	default_mapped_model                    *string
 	messages_dispatch_model_config          *domain.OpenAIMessagesDispatchModelConfig
 	models_list_config                      *domain.GroupModelsListConfig
+	infer_gpt56_cache_write                 *bool
+	infer_gpt56_cache_write_min_tokens      *int
+	addinfer_gpt56_cache_write_min_tokens   *int
 	rpm_limit                               *int
 	addrpm_limit                            *int
 	clearedFields                           map[string]struct{}
@@ -23236,6 +23239,98 @@ func (m *GroupMutation) ResetModelsListConfig() {
 	m.models_list_config = nil
 }
 
+// SetInferGpt56CacheWrite sets the "infer_gpt56_cache_write" field.
+func (m *GroupMutation) SetInferGpt56CacheWrite(b bool) {
+	m.infer_gpt56_cache_write = &b
+}
+
+// InferGpt56CacheWrite returns the value of the "infer_gpt56_cache_write" field in the mutation.
+func (m *GroupMutation) InferGpt56CacheWrite() (r bool, exists bool) {
+	v := m.infer_gpt56_cache_write
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInferGpt56CacheWrite returns the old "infer_gpt56_cache_write" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldInferGpt56CacheWrite(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInferGpt56CacheWrite is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInferGpt56CacheWrite requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInferGpt56CacheWrite: %w", err)
+	}
+	return oldValue.InferGpt56CacheWrite, nil
+}
+
+// ResetInferGpt56CacheWrite resets all changes to the "infer_gpt56_cache_write" field.
+func (m *GroupMutation) ResetInferGpt56CacheWrite() {
+	m.infer_gpt56_cache_write = nil
+}
+
+// SetInferGpt56CacheWriteMinTokens sets the "infer_gpt56_cache_write_min_tokens" field.
+func (m *GroupMutation) SetInferGpt56CacheWriteMinTokens(i int) {
+	m.infer_gpt56_cache_write_min_tokens = &i
+	m.addinfer_gpt56_cache_write_min_tokens = nil
+}
+
+// InferGpt56CacheWriteMinTokens returns the value of the "infer_gpt56_cache_write_min_tokens" field in the mutation.
+func (m *GroupMutation) InferGpt56CacheWriteMinTokens() (r int, exists bool) {
+	v := m.infer_gpt56_cache_write_min_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInferGpt56CacheWriteMinTokens returns the old "infer_gpt56_cache_write_min_tokens" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldInferGpt56CacheWriteMinTokens(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInferGpt56CacheWriteMinTokens is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInferGpt56CacheWriteMinTokens requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInferGpt56CacheWriteMinTokens: %w", err)
+	}
+	return oldValue.InferGpt56CacheWriteMinTokens, nil
+}
+
+// AddInferGpt56CacheWriteMinTokens adds i to the "infer_gpt56_cache_write_min_tokens" field.
+func (m *GroupMutation) AddInferGpt56CacheWriteMinTokens(i int) {
+	if m.addinfer_gpt56_cache_write_min_tokens != nil {
+		*m.addinfer_gpt56_cache_write_min_tokens += i
+	} else {
+		m.addinfer_gpt56_cache_write_min_tokens = &i
+	}
+}
+
+// AddedInferGpt56CacheWriteMinTokens returns the value that was added to the "infer_gpt56_cache_write_min_tokens" field in this mutation.
+func (m *GroupMutation) AddedInferGpt56CacheWriteMinTokens() (r int, exists bool) {
+	v := m.addinfer_gpt56_cache_write_min_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetInferGpt56CacheWriteMinTokens resets all changes to the "infer_gpt56_cache_write_min_tokens" field.
+func (m *GroupMutation) ResetInferGpt56CacheWriteMinTokens() {
+	m.infer_gpt56_cache_write_min_tokens = nil
+	m.addinfer_gpt56_cache_write_min_tokens = nil
+}
+
 // SetRpmLimit sets the "rpm_limit" field.
 func (m *GroupMutation) SetRpmLimit(i int) {
 	m.rpm_limit = &i
@@ -23650,7 +23745,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 47)
+	fields := make([]string, 0, 49)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -23789,6 +23884,12 @@ func (m *GroupMutation) Fields() []string {
 	if m.models_list_config != nil {
 		fields = append(fields, group.FieldModelsListConfig)
 	}
+	if m.infer_gpt56_cache_write != nil {
+		fields = append(fields, group.FieldInferGpt56CacheWrite)
+	}
+	if m.infer_gpt56_cache_write_min_tokens != nil {
+		fields = append(fields, group.FieldInferGpt56CacheWriteMinTokens)
+	}
 	if m.rpm_limit != nil {
 		fields = append(fields, group.FieldRpmLimit)
 	}
@@ -23892,6 +23993,10 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.MessagesDispatchModelConfig()
 	case group.FieldModelsListConfig:
 		return m.ModelsListConfig()
+	case group.FieldInferGpt56CacheWrite:
+		return m.InferGpt56CacheWrite()
+	case group.FieldInferGpt56CacheWriteMinTokens:
+		return m.InferGpt56CacheWriteMinTokens()
 	case group.FieldRpmLimit:
 		return m.RpmLimit()
 	}
@@ -23995,6 +24100,10 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldMessagesDispatchModelConfig(ctx)
 	case group.FieldModelsListConfig:
 		return m.OldModelsListConfig(ctx)
+	case group.FieldInferGpt56CacheWrite:
+		return m.OldInferGpt56CacheWrite(ctx)
+	case group.FieldInferGpt56CacheWriteMinTokens:
+		return m.OldInferGpt56CacheWriteMinTokens(ctx)
 	case group.FieldRpmLimit:
 		return m.OldRpmLimit(ctx)
 	}
@@ -24328,6 +24437,20 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetModelsListConfig(v)
 		return nil
+	case group.FieldInferGpt56CacheWrite:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInferGpt56CacheWrite(v)
+		return nil
+	case group.FieldInferGpt56CacheWriteMinTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInferGpt56CacheWriteMinTokens(v)
+		return nil
 	case group.FieldRpmLimit:
 		v, ok := value.(int)
 		if !ok {
@@ -24400,6 +24523,9 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addsort_order != nil {
 		fields = append(fields, group.FieldSortOrder)
 	}
+	if m.addinfer_gpt56_cache_write_min_tokens != nil {
+		fields = append(fields, group.FieldInferGpt56CacheWriteMinTokens)
+	}
 	if m.addrpm_limit != nil {
 		fields = append(fields, group.FieldRpmLimit)
 	}
@@ -24449,6 +24575,8 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedFallbackGroupIDOnInvalidRequest()
 	case group.FieldSortOrder:
 		return m.AddedSortOrder()
+	case group.FieldInferGpt56CacheWriteMinTokens:
+		return m.AddedInferGpt56CacheWriteMinTokens()
 	case group.FieldRpmLimit:
 		return m.AddedRpmLimit()
 	}
@@ -24592,6 +24720,13 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddSortOrder(v)
+		return nil
+	case group.FieldInferGpt56CacheWriteMinTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddInferGpt56CacheWriteMinTokens(v)
 		return nil
 	case group.FieldRpmLimit:
 		v, ok := value.(int)
@@ -24851,6 +24986,12 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldModelsListConfig:
 		m.ResetModelsListConfig()
+		return nil
+	case group.FieldInferGpt56CacheWrite:
+		m.ResetInferGpt56CacheWrite()
+		return nil
+	case group.FieldInferGpt56CacheWriteMinTokens:
+		m.ResetInferGpt56CacheWriteMinTokens()
 		return nil
 	case group.FieldRpmLimit:
 		m.ResetRpmLimit()

@@ -500,10 +500,6 @@ export default {
         codexImageToolBadgeEnabled: 'Force inject',
         codexImageToolBadgeDisabled: 'No injection',
         codexImageToolBadgeBlock: 'Blocked',
-        inferGPT56CacheWrite: 'Infer GPT-5.6 cache writes',
-        inferGPT56CacheWriteDesc:
-          'Emergency billing fallback. When upstream omits cache-write usage, uncached input at or above the threshold is billed as cache creation. Reported upstream writes always take precedence.',
-        inferGPT56CacheWriteMinTokens: 'Minimum uncached input tokens',
         compactMode: 'Compact mode',
         compactModeDesc:
           'Controls how this account participates in /responses/compact routing. Auto follows probe results, Force On always allows, Force Off always excludes.',
