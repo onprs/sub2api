@@ -267,6 +267,8 @@ export default {
           unavailableDesc: 'Unavailable - pause 30 minutes',
           gatewayTimeoutLabel: '504 Gateway Timeout',
           gatewayTimeoutDesc: 'Upstream response timed out - pause 10 minutes',
+          cloudflareTimeoutLabel: '524 Gateway Timeout',
+          cloudflareTimeoutDesc: 'Cloudflare 524 timeout - pause 10 minutes',
           overloadLabel: '529 Overloaded',
           overloadDesc: 'Overloaded - pause 60 minutes'
         }

@@ -315,6 +315,8 @@ export default {
           unavailableDesc: '服务不可用 - 暂停 30 分钟',
           gatewayTimeoutLabel: '504 网关超时',
           gatewayTimeoutDesc: '上游响应超时 - 暂停 10 分钟',
+          cloudflareTimeoutLabel: '524 网关超时',
+          cloudflareTimeoutDesc: 'Cloudflare 524 超时 - 暂停 10 分钟',
           overloadLabel: '529 过载',
           overloadDesc: '服务过载 - 暂停 60 分钟'
         }

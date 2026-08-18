@@ -787,14 +787,27 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				effectiveUpstreamStatus = *upstreamStatusCode
 			}
 
-			recoveredMsg := "Recovered upstream error"
-			if effectiveUpstreamStatus > 0 {
-				recoveredMsg += " " + strconvItoa(effectiveUpstreamStatus)
+			isClientDisconnected := c.Request != nil && c.Request.Context() != nil && c.Request.Context().Err() != nil
+			var errorMsg string
+			if isClientDisconnected {
+				errorMsg = "Upstream error"
+				if effectiveUpstreamStatus > 0 {
+					errorMsg += " " + strconvItoa(effectiveUpstreamStatus)
+				}
+				if upstreamErrorMessage != nil && strings.TrimSpace(*upstreamErrorMessage) != "" {
+					errorMsg += ": " + strings.TrimSpace(*upstreamErrorMessage)
+				}
+				errorMsg += " (client disconnected)"
+			} else {
+				errorMsg = "Recovered upstream error"
+				if effectiveUpstreamStatus > 0 {
+					errorMsg += " " + strconvItoa(effectiveUpstreamStatus)
+				}
+				if upstreamErrorMessage != nil && strings.TrimSpace(*upstreamErrorMessage) != "" {
+					errorMsg += ": " + strings.TrimSpace(*upstreamErrorMessage)
+				}
 			}
-			if upstreamErrorMessage != nil && strings.TrimSpace(*upstreamErrorMessage) != "" {
-				recoveredMsg += ": " + strings.TrimSpace(*upstreamErrorMessage)
-			}
-			recoveredMsg = truncateString(recoveredMsg, 2048)
+			errorMsg = truncateString(errorMsg, 2048)
 
 			entry := &service.OpsInsertErrorLogInput{
 				RequestID:       requestID,
@@ -843,7 +856,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				IsBusinessLimited: false,
 				IsCountTokens:     isCountTokensRequest(c),
 
-				ErrorMessage: recoveredMsg,
+				ErrorMessage: errorMsg,
 				ErrorBody:    "",
 
 				ErrorSource: "upstream_http",

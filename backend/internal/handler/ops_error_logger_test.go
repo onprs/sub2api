@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -1064,3 +1065,62 @@ func TestGetOpsAPIKeyPrefersPrimaryContextKey(t *testing.T) {
 	require.NotNil(t, got)
 	require.Equal(t, int64(1), got.ID, "已鉴权请求应优先使用正式 api key")
 }
+
+func TestOpsErrorLoggerMiddleware_ClientDisconnectedUpstreamErrorNotRecovered(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 4)
+
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	// 创建已取消的 context（模拟客户端已断开）
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
+	c.Set(opsModelKey, "gpt-5.6-sol")
+	c.Set(opsStreamKey, true)
+	c.Set(service.OpsUpstreamStatusCodeKey, 524)
+	c.Set(service.OpsUpstreamErrorMessageKey, "error code: 524")
+
+	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	mw := OpsErrorLoggerMiddleware(ops)
+
+	// 模拟流式处理在 200 下断开
+	c.Writer.WriteHeader(http.StatusOK)
+	mw(c)
+
+	require.Equal(t, int64(1), OpsErrorLogEnqueuedTotal())
+	job := <-opsErrorLogQueue
+	require.NotNil(t, job.entry)
+	require.Contains(t, job.entry.ErrorMessage, "Upstream error 524")
+	require.Contains(t, job.entry.ErrorMessage, "(client disconnected)")
+	require.NotContains(t, job.entry.ErrorMessage, "Recovered")
+	require.Equal(t, http.StatusOK, job.entry.StatusCode)
+}
+
+func TestOpsErrorLoggerMiddleware_NormalRecoveredUpstreamError(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 4)
+
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Set(opsModelKey, "gpt-5.6-sol")
+	c.Set(opsStreamKey, true)
+	c.Set(service.OpsUpstreamStatusCodeKey, 502)
+	c.Set(service.OpsUpstreamErrorMessageKey, "bad gateway")
+
+	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	mw := OpsErrorLoggerMiddleware(ops)
+
+	c.Writer.WriteHeader(http.StatusOK)
+	mw(c)
+
+	require.Equal(t, int64(1), OpsErrorLogEnqueuedTotal())
+	job := <-opsErrorLogQueue
+	require.NotNil(t, job.entry)
+	require.Contains(t, job.entry.ErrorMessage, "Recovered upstream error 502")
+	require.NotContains(t, job.entry.ErrorMessage, "(client disconnected)")
+}
+

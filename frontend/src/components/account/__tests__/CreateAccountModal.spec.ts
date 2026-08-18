@@ -166,6 +166,7 @@ describe('CreateAccountModal', () => {
       'temp-unsched-preset-bad-gateway',
       'temp-unsched-preset-service-unavailable',
       'temp-unsched-preset-gateway-timeout',
+      'temp-unsched-preset-cloudflare-timeout',
       'temp-unsched-preset-overload'
     ])
 

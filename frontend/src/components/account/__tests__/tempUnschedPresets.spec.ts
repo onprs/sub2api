@@ -14,6 +14,7 @@ describe('tempUnschedPresets', () => {
       502,
       503,
       504,
+      524,
       529
     ])
   })

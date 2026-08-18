@@ -71,15 +71,18 @@ func TestBuildOpsErrorLogsWhere_ModelFuzzy(t *testing.T) {
 }
 
 // TestBuildOpsErrorLogsWhere_CyberPolicyStatusExemption verifies that streaming
-// cyber_policy hits (status_code=200) remain visible in admin + user error-request
-// lists.  The repository filter must emit an OR exemption for error_type='cyber_policy'
-// so that stream-path cyber rows (upstream delivers 200 with a failed SSE event) are
+// cyber_policy hits and unrecovered stream/upstream errors (status_code=200) remain visible in admin + user error-request
+// lists.  The repository filter must emit an OR exemption for error_type='cyber_policy' and unrecovered stream errors
+// so that stream-path failures (in-band SSE error / upstream 524 with disconnected client) are
 // not silently excluded by the COALESCE(status_code,0) >= 400 guard.
 func TestBuildOpsErrorLogsWhere_CyberPolicyStatusExemption(t *testing.T) {
-	// Default filter (no phase) must include the cyber_policy exemption.
+	// Default filter (no phase) must include the cyber_policy exemption and unrecovered stream error exemption.
 	where, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{})
 	if !strings.Contains(where, "e.error_type = 'cyber_policy'") {
 		t.Fatalf("default filter must exempt cyber_policy from status >= 400 guard\nfull: %s", where)
+	}
+	if !strings.Contains(where, "COALESCE(e.error_message, '') NOT LIKE 'Recovered%'") {
+		t.Fatalf("default filter must exempt unrecovered stream errors from status >= 400 guard\nfull: %s", where)
 	}
 	if !strings.Contains(where, "COALESCE(e.status_code, 0) >= 400") {
 		t.Fatalf("default filter must still include the status >= 400 guard for non-cyber rows\nfull: %s", where)

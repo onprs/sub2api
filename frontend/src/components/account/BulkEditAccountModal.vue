@@ -1585,10 +1585,7 @@ const allAnthropicOAuthOrSetupToken = computed(() => {
   )
 })
 
-const canEditTempUnschedulable = computed(() =>
-  targetSelectedPlatforms.value.length > 0 &&
-  targetSelectedPlatforms.value.every(platform => platform !== 'opencode_go')
-)
+const canEditTempUnschedulable = computed(() => true)
 
 const filteredPresets = computed(() => {
   if (targetSelectedPlatforms.value.length === 0) return []

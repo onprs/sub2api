@@ -134,6 +134,7 @@ describe('BulkEditAccountModal', () => {
       'bulk-edit-temp-unsched-preset-bad-gateway',
       'bulk-edit-temp-unsched-preset-service-unavailable',
       'bulk-edit-temp-unsched-preset-gateway-timeout',
+      'bulk-edit-temp-unsched-preset-cloudflare-timeout',
       'bulk-edit-temp-unsched-preset-overload'
     ])
 
@@ -214,13 +215,13 @@ describe('BulkEditAccountModal', () => {
     )
   })
 
-  it('OpenCode Go 批量编辑不显示临时不可调度规则入口', () => {
+  it('OpenCode Go 批量编辑也支持配置临时不可调度规则入口', () => {
     const wrapper = mountModal({
       selectedPlatforms: ['opencode_go'],
       selectedTypes: ['apikey']
     })
 
-    expect(wrapper.find('#bulk-edit-temp-unsched-enabled').exists()).toBe(false)
+    expect(wrapper.find('#bulk-edit-temp-unsched-enabled').exists()).toBe(true)
   })
 
   it('仅勾选模型限制且白名单留空时，应提交空 model_mapping 以支持所有模型', async () => {

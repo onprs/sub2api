@@ -368,7 +368,7 @@ describe('EditAccountModal', () => {
 
     await wrapper.get('[data-testid="temp-unsched-toggle"]').trigger('click')
     const presetButtons = wrapper.findAll('[data-testid^="temp-unsched-preset-"]')
-    expect(presetButtons).toHaveLength(7)
+    expect(presetButtons).toHaveLength(8)
 
     await wrapper.get('[data-testid="temp-unsched-preset-gateway-timeout"]').trigger('click')
     const inputValues = wrapper.findAll('input').map((input) => input.element.value)

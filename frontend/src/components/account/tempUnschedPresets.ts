@@ -70,6 +70,14 @@ export const TEMP_UNSCHED_PRESET_DEFINITIONS: readonly TempUnschedPresetDefiniti
     durationMinutes: 10
   },
   {
+    id: 'cloudflare-timeout',
+    labelKey: 'admin.accounts.tempUnschedulable.presets.cloudflareTimeoutLabel',
+    descriptionKey: 'admin.accounts.tempUnschedulable.presets.cloudflareTimeoutDesc',
+    errorCode: 524,
+    keywords: 'a timeout occurred, error code: 524, error code 524, 524 gateway timeout, cloudflare, upstream timeout, request timed out',
+    durationMinutes: 10
+  },
+  {
     id: 'overload',
     labelKey: 'admin.accounts.tempUnschedulable.presets.overloadLabel',
     descriptionKey: 'admin.accounts.tempUnschedulable.presets.overloadDesc',
