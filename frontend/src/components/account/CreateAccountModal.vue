@@ -2708,36 +2708,6 @@
           <p class="input-hint">{{ t('admin.accounts.billingRateMultiplierHint') }}</p>
         </div>
       </div>
-      <div
-        v-if="form.platform === 'openai' && form.type === 'apikey'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
-      >
-        <label class="input-label">{{ t('admin.accounts.firstOutputFailoverTimeout') }}</label>
-        <input
-          v-model.number="form.first_output_failover_timeout_seconds"
-          data-testid="first-output-failover-timeout-input"
-          type="number"
-          min="1"
-          step="1"
-          class="input"
-          :placeholder="t('admin.accounts.firstOutputFailoverTimeoutPlaceholder')"
-        />
-        <p class="input-hint">{{ t('admin.accounts.firstOutputFailoverTimeoutHint') }}</p>
-        <div class="mt-4">
-          <label class="input-label">{{ t('admin.accounts.firstOutputFailoverCooldown') }}</label>
-          <input
-            v-model.number="form.first_output_failover_cooldown_minutes"
-            data-testid="first-output-failover-cooldown-input"
-            type="number"
-            min="1"
-            max="10080"
-            step="1"
-            class="input"
-            :placeholder="t('admin.accounts.firstOutputFailoverCooldownPlaceholder')"
-          />
-          <p class="input-hint">{{ t('admin.accounts.firstOutputFailoverCooldownHint') }}</p>
-        </div>
-      </div>
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
         <input v-model="expiresAtInput" type="datetime-local" class="input" />
@@ -4106,8 +4076,6 @@ const form = reactive({
   proxy_id: null as number | null,
   concurrency: 10,
   load_factor: null as number | null,
-  first_output_failover_timeout_seconds: null as number | null,
-  first_output_failover_cooldown_minutes: null as number | null,
   priority: 1,
   rate_multiplier: 1,
   group_ids: [] as number[],
@@ -4642,28 +4610,9 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
 }
 
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
-  const requestPayload: CreateAccountRequest = { ...payload }
-  if (requestPayload.platform === 'openai' && requestPayload.type === 'apikey') {
-    const rawTimeout = Number(form.first_output_failover_timeout_seconds)
-    if (Number.isFinite(rawTimeout) && rawTimeout > 0) {
-      requestPayload.first_output_failover_timeout_seconds = Math.trunc(rawTimeout)
-    } else {
-      delete requestPayload.first_output_failover_timeout_seconds
-    }
-    const rawCooldown = Number(form.first_output_failover_cooldown_minutes)
-    if (Number.isFinite(rawCooldown) && rawCooldown > 0) {
-      requestPayload.first_output_failover_cooldown_minutes = Math.trunc(rawCooldown)
-    } else {
-      delete requestPayload.first_output_failover_cooldown_minutes
-    }
-  } else {
-    delete requestPayload.first_output_failover_timeout_seconds
-    delete requestPayload.first_output_failover_cooldown_minutes
-  }
-
   submitting.value = true
   try {
-    await adminAPI.accounts.create(withAntigravityConfirmFlag(requestPayload))
+    await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
     appStore.showSuccess(t('admin.accounts.accountCreated'))
     emit('created')
     handleClose()
@@ -4758,8 +4707,6 @@ const resetForm = () => {
   form.proxy_id = null
   form.concurrency = 10
   form.load_factor = null
-  form.first_output_failover_timeout_seconds = null
-  form.first_output_failover_cooldown_minutes = null
   form.priority = 1
   form.rate_multiplier = 1
   form.group_ids = []

@@ -621,15 +621,6 @@ func (s *OpenAIGatewayService) collectOpenAICompatBufferedTerminal(
 	logPrefix string,
 	startTime time.Time,
 ) (*openAICompatBufferedTerminal, error) {
-	return s.collectOpenAICompatBufferedTerminalWithDeadline(resp, logPrefix, startTime, time.Time{})
-}
-
-func (s *OpenAIGatewayService) collectOpenAICompatBufferedTerminalWithDeadline(
-	resp *http.Response,
-	logPrefix string,
-	startTime time.Time,
-	firstOutputDeadline time.Time,
-) (*openAICompatBufferedTerminal, error) {
 	acc := apicompat.NewBufferedResponseAccumulator()
 	result := &openAICompatBufferedTerminal{Accumulator: acc}
 	stream, parser, err := s.collectOpenAICompatResponsesStream(resp, startTime)
@@ -670,31 +661,6 @@ func (s *OpenAIGatewayService) collectOpenAICompatBufferedTerminalWithDeadline(
 		intervalCh = intervalTicker.C
 	}
 
-	var firstOutputTimer *time.Timer
-	var firstOutputCh <-chan time.Time
-	if !firstOutputDeadline.IsZero() {
-		remaining := time.Until(firstOutputDeadline)
-		if remaining <= 0 {
-			remaining = time.Nanosecond
-		}
-		firstOutputTimer = time.NewTimer(remaining)
-		firstOutputCh = firstOutputTimer.C
-		defer firstOutputTimer.Stop()
-	}
-	stopFirstOutputTimer := func() {
-		if firstOutputTimer == nil {
-			return
-		}
-		if !firstOutputTimer.Stop() {
-			select {
-			case <-firstOutputTimer.C:
-			default:
-			}
-		}
-		firstOutputTimer = nil
-		firstOutputCh = nil
-	}
-
 	for {
 		select {
 		case event, ok := <-events:
@@ -723,9 +689,6 @@ func (s *OpenAIGatewayService) collectOpenAICompatBufferedTerminalWithDeadline(
 				)
 				continue
 			}
-			if firstOutputTimer != nil && openAIStreamDataStartsClientOutput(payload, parsed.Type) {
-				stopFirstOutputTimer()
-			}
 			acc.ProcessEvent(&parsed)
 			if !isOpenAICompatResponsesTerminalEvent(parsed.Type) || parsed.Response == nil {
 				continue
@@ -749,10 +712,6 @@ func (s *OpenAIGatewayService) collectOpenAICompatBufferedTerminalWithDeadline(
 				return result, fmt.Errorf("validate buffered Responses terminal: %w", err)
 			}
 			return result, nil
-
-		case <-firstOutputCh:
-			_ = stream.Close()
-			return result, errOpenAIFirstOutputDeadline
 
 		case <-intervalCh:
 			if time.Since(parser.Progress().LastReadAt) < streamInterval {

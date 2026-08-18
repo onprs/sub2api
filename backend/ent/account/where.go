@@ -110,16 +110,6 @@ func LoadFactor(v int) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldLoadFactor, v))
 }
 
-// FirstOutputFailoverTimeoutSeconds applies equality check predicate on the "first_output_failover_timeout_seconds" field. It's identical to FirstOutputFailoverTimeoutSecondsEQ.
-func FirstOutputFailoverTimeoutSeconds(v int) predicate.Account {
-	return predicate.Account(sql.FieldEQ(FieldFirstOutputFailoverTimeoutSeconds, v))
-}
-
-// FirstOutputFailoverCooldownMinutes applies equality check predicate on the "first_output_failover_cooldown_minutes" field. It's identical to FirstOutputFailoverCooldownMinutesEQ.
-func FirstOutputFailoverCooldownMinutes(v int) predicate.Account {
-	return predicate.Account(sql.FieldEQ(FieldFirstOutputFailoverCooldownMinutes, v))
-}
-
 // Priority applies equality check predicate on the "priority" field. It's identical to PriorityEQ.
 func Priority(v int) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldPriority, v))
@@ -773,106 +763,6 @@ func LoadFactorIsNil() predicate.Account {
 // LoadFactorNotNil applies the NotNil predicate on the "load_factor" field.
 func LoadFactorNotNil() predicate.Account {
 	return predicate.Account(sql.FieldNotNull(FieldLoadFactor))
-}
-
-// FirstOutputFailoverTimeoutSecondsEQ applies the EQ predicate on the "first_output_failover_timeout_seconds" field.
-func FirstOutputFailoverTimeoutSecondsEQ(v int) predicate.Account {
-	return predicate.Account(sql.FieldEQ(FieldFirstOutputFailoverTimeoutSeconds, v))
-}
-
-// FirstOutputFailoverTimeoutSecondsNEQ applies the NEQ predicate on the "first_output_failover_timeout_seconds" field.
-func FirstOutputFailoverTimeoutSecondsNEQ(v int) predicate.Account {
-	return predicate.Account(sql.FieldNEQ(FieldFirstOutputFailoverTimeoutSeconds, v))
-}
-
-// FirstOutputFailoverTimeoutSecondsIn applies the In predicate on the "first_output_failover_timeout_seconds" field.
-func FirstOutputFailoverTimeoutSecondsIn(vs ...int) predicate.Account {
-	return predicate.Account(sql.FieldIn(FieldFirstOutputFailoverTimeoutSeconds, vs...))
-}
-
-// FirstOutputFailoverTimeoutSecondsNotIn applies the NotIn predicate on the "first_output_failover_timeout_seconds" field.
-func FirstOutputFailoverTimeoutSecondsNotIn(vs ...int) predicate.Account {
-	return predicate.Account(sql.FieldNotIn(FieldFirstOutputFailoverTimeoutSeconds, vs...))
-}
-
-// FirstOutputFailoverTimeoutSecondsGT applies the GT predicate on the "first_output_failover_timeout_seconds" field.
-func FirstOutputFailoverTimeoutSecondsGT(v int) predicate.Account {
-	return predicate.Account(sql.FieldGT(FieldFirstOutputFailoverTimeoutSeconds, v))
-}
-
-// FirstOutputFailoverTimeoutSecondsGTE applies the GTE predicate on the "first_output_failover_timeout_seconds" field.
-func FirstOutputFailoverTimeoutSecondsGTE(v int) predicate.Account {
-	return predicate.Account(sql.FieldGTE(FieldFirstOutputFailoverTimeoutSeconds, v))
-}
-
-// FirstOutputFailoverTimeoutSecondsLT applies the LT predicate on the "first_output_failover_timeout_seconds" field.
-func FirstOutputFailoverTimeoutSecondsLT(v int) predicate.Account {
-	return predicate.Account(sql.FieldLT(FieldFirstOutputFailoverTimeoutSeconds, v))
-}
-
-// FirstOutputFailoverTimeoutSecondsLTE applies the LTE predicate on the "first_output_failover_timeout_seconds" field.
-func FirstOutputFailoverTimeoutSecondsLTE(v int) predicate.Account {
-	return predicate.Account(sql.FieldLTE(FieldFirstOutputFailoverTimeoutSeconds, v))
-}
-
-// FirstOutputFailoverTimeoutSecondsIsNil applies the IsNil predicate on the "first_output_failover_timeout_seconds" field.
-func FirstOutputFailoverTimeoutSecondsIsNil() predicate.Account {
-	return predicate.Account(sql.FieldIsNull(FieldFirstOutputFailoverTimeoutSeconds))
-}
-
-// FirstOutputFailoverTimeoutSecondsNotNil applies the NotNil predicate on the "first_output_failover_timeout_seconds" field.
-func FirstOutputFailoverTimeoutSecondsNotNil() predicate.Account {
-	return predicate.Account(sql.FieldNotNull(FieldFirstOutputFailoverTimeoutSeconds))
-}
-
-// FirstOutputFailoverCooldownMinutesEQ applies the EQ predicate on the "first_output_failover_cooldown_minutes" field.
-func FirstOutputFailoverCooldownMinutesEQ(v int) predicate.Account {
-	return predicate.Account(sql.FieldEQ(FieldFirstOutputFailoverCooldownMinutes, v))
-}
-
-// FirstOutputFailoverCooldownMinutesNEQ applies the NEQ predicate on the "first_output_failover_cooldown_minutes" field.
-func FirstOutputFailoverCooldownMinutesNEQ(v int) predicate.Account {
-	return predicate.Account(sql.FieldNEQ(FieldFirstOutputFailoverCooldownMinutes, v))
-}
-
-// FirstOutputFailoverCooldownMinutesIn applies the In predicate on the "first_output_failover_cooldown_minutes" field.
-func FirstOutputFailoverCooldownMinutesIn(vs ...int) predicate.Account {
-	return predicate.Account(sql.FieldIn(FieldFirstOutputFailoverCooldownMinutes, vs...))
-}
-
-// FirstOutputFailoverCooldownMinutesNotIn applies the NotIn predicate on the "first_output_failover_cooldown_minutes" field.
-func FirstOutputFailoverCooldownMinutesNotIn(vs ...int) predicate.Account {
-	return predicate.Account(sql.FieldNotIn(FieldFirstOutputFailoverCooldownMinutes, vs...))
-}
-
-// FirstOutputFailoverCooldownMinutesGT applies the GT predicate on the "first_output_failover_cooldown_minutes" field.
-func FirstOutputFailoverCooldownMinutesGT(v int) predicate.Account {
-	return predicate.Account(sql.FieldGT(FieldFirstOutputFailoverCooldownMinutes, v))
-}
-
-// FirstOutputFailoverCooldownMinutesGTE applies the GTE predicate on the "first_output_failover_cooldown_minutes" field.
-func FirstOutputFailoverCooldownMinutesGTE(v int) predicate.Account {
-	return predicate.Account(sql.FieldGTE(FieldFirstOutputFailoverCooldownMinutes, v))
-}
-
-// FirstOutputFailoverCooldownMinutesLT applies the LT predicate on the "first_output_failover_cooldown_minutes" field.
-func FirstOutputFailoverCooldownMinutesLT(v int) predicate.Account {
-	return predicate.Account(sql.FieldLT(FieldFirstOutputFailoverCooldownMinutes, v))
-}
-
-// FirstOutputFailoverCooldownMinutesLTE applies the LTE predicate on the "first_output_failover_cooldown_minutes" field.
-func FirstOutputFailoverCooldownMinutesLTE(v int) predicate.Account {
-	return predicate.Account(sql.FieldLTE(FieldFirstOutputFailoverCooldownMinutes, v))
-}
-
-// FirstOutputFailoverCooldownMinutesIsNil applies the IsNil predicate on the "first_output_failover_cooldown_minutes" field.
-func FirstOutputFailoverCooldownMinutesIsNil() predicate.Account {
-	return predicate.Account(sql.FieldIsNull(FieldFirstOutputFailoverCooldownMinutes))
-}
-
-// FirstOutputFailoverCooldownMinutesNotNil applies the NotNil predicate on the "first_output_failover_cooldown_minutes" field.
-func FirstOutputFailoverCooldownMinutesNotNil() predicate.Account {
-	return predicate.Account(sql.FieldNotNull(FieldFirstOutputFailoverCooldownMinutes))
 }
 
 // PriorityEQ applies the EQ predicate on the "priority" field.

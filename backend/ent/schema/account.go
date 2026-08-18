@@ -102,23 +102,6 @@ func (Account) Fields() []ent.Field {
 
 		field.Int("load_factor").Optional().Nillable(),
 
-		// first_output_failover_timeout_seconds: OpenAI API Key 账号在首个有效输出前的换号预算
-		// NULL 表示不启用账号级预算，继续沿用原有网关行为
-		field.Int("first_output_failover_timeout_seconds").
-			Optional().
-			Nillable().
-			Positive().
-			Comment("Optional OpenAI API key first-output failover timeout in seconds."),
-
-		// first_output_failover_cooldown_minutes: 命中账号级首输出预算或上游 502/503/504 后的临时不可调度时长
-		// NULL 表示不启用立即冷却，继续沿用原有错误与超时处理策略
-		field.Int("first_output_failover_cooldown_minutes").
-			Optional().
-			Nillable().
-			Positive().
-			Max(7 * 24 * 60).
-			Comment("Optional cooldown after an OpenAI API key first-output failover timeout, in minutes."),
-
 		// priority: 账户优先级，数值越小优先级越高
 		// 调度器会优先使用高优先级的账户
 		field.Int("priority").

@@ -104,12 +104,6 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 	if account.LoadFactor != nil {
 		builder.SetLoadFactor(*account.LoadFactor)
 	}
-	if account.FirstOutputFailoverTimeoutSeconds != nil {
-		builder.SetFirstOutputFailoverTimeoutSeconds(*account.FirstOutputFailoverTimeoutSeconds)
-	}
-	if account.FirstOutputFailoverCooldownMinutes != nil {
-		builder.SetFirstOutputFailoverCooldownMinutes(*account.FirstOutputFailoverCooldownMinutes)
-	}
 
 	if account.ProxyID != nil {
 		builder.SetProxyID(*account.ProxyID)
@@ -364,16 +358,6 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 		builder.SetLoadFactor(*account.LoadFactor)
 	} else {
 		builder.ClearLoadFactor()
-	}
-	if account.FirstOutputFailoverTimeoutSeconds != nil {
-		builder.SetFirstOutputFailoverTimeoutSeconds(*account.FirstOutputFailoverTimeoutSeconds)
-	} else {
-		builder.ClearFirstOutputFailoverTimeoutSeconds()
-	}
-	if account.FirstOutputFailoverCooldownMinutes != nil {
-		builder.SetFirstOutputFailoverCooldownMinutes(*account.FirstOutputFailoverCooldownMinutes)
-	} else {
-		builder.ClearFirstOutputFailoverCooldownMinutes()
 	}
 
 	if account.ProxyID != nil {
@@ -2069,39 +2053,37 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 	rateMultiplier := m.RateMultiplier
 
 	return &service.Account{
-		ID:                                 m.ID,
-		Name:                               m.Name,
-		Notes:                              m.Notes,
-		Platform:                           m.Platform,
-		Type:                               m.Type,
-		Credentials:                        copyJSONMap(m.Credentials),
-		Extra:                              copyJSONMap(m.Extra),
-		ProxyID:                            m.ProxyID,
-		ProxyFallbackOriginID:              m.ProxyFallbackOriginID,
-		Concurrency:                        m.Concurrency,
-		Priority:                           m.Priority,
-		RateMultiplier:                     &rateMultiplier,
-		LoadFactor:                         m.LoadFactor,
-		FirstOutputFailoverTimeoutSeconds:  m.FirstOutputFailoverTimeoutSeconds,
-		FirstOutputFailoverCooldownMinutes: m.FirstOutputFailoverCooldownMinutes,
-		Status:                             m.Status,
-		ErrorMessage:                       derefString(m.ErrorMessage),
-		LastUsedAt:                         m.LastUsedAt,
-		ExpiresAt:                          m.ExpiresAt,
-		AutoPauseOnExpired:                 m.AutoPauseOnExpired,
-		CreatedAt:                          m.CreatedAt,
-		UpdatedAt:                          m.UpdatedAt,
-		Schedulable:                        m.Schedulable,
-		RateLimitedAt:                      m.RateLimitedAt,
-		RateLimitResetAt:                   m.RateLimitResetAt,
-		OverloadUntil:                      m.OverloadUntil,
-		TempUnschedulableUntil:             m.TempUnschedulableUntil,
-		TempUnschedulableReason:            derefString(m.TempUnschedulableReason),
-		SessionWindowStart:                 m.SessionWindowStart,
-		SessionWindowEnd:                   m.SessionWindowEnd,
-		SessionWindowStatus:                derefString(m.SessionWindowStatus),
-		ParentAccountID:                    m.ParentAccountID,
-		QuotaDimension:                     string(m.QuotaDimension),
+		ID:                      m.ID,
+		Name:                    m.Name,
+		Notes:                   m.Notes,
+		Platform:                m.Platform,
+		Type:                    m.Type,
+		Credentials:             copyJSONMap(m.Credentials),
+		Extra:                   copyJSONMap(m.Extra),
+		ProxyID:                 m.ProxyID,
+		ProxyFallbackOriginID:   m.ProxyFallbackOriginID,
+		Concurrency:             m.Concurrency,
+		Priority:                m.Priority,
+		RateMultiplier:          &rateMultiplier,
+		LoadFactor:              m.LoadFactor,
+		Status:                  m.Status,
+		ErrorMessage:            derefString(m.ErrorMessage),
+		LastUsedAt:              m.LastUsedAt,
+		ExpiresAt:               m.ExpiresAt,
+		AutoPauseOnExpired:      m.AutoPauseOnExpired,
+		CreatedAt:               m.CreatedAt,
+		UpdatedAt:               m.UpdatedAt,
+		Schedulable:             m.Schedulable,
+		RateLimitedAt:           m.RateLimitedAt,
+		RateLimitResetAt:        m.RateLimitResetAt,
+		OverloadUntil:           m.OverloadUntil,
+		TempUnschedulableUntil:  m.TempUnschedulableUntil,
+		TempUnschedulableReason: derefString(m.TempUnschedulableReason),
+		SessionWindowStart:      m.SessionWindowStart,
+		SessionWindowEnd:        m.SessionWindowEnd,
+		SessionWindowStatus:     derefString(m.SessionWindowStatus),
+		ParentAccountID:         m.ParentAccountID,
+		QuotaDimension:          string(m.QuotaDimension),
 	}
 }
 
