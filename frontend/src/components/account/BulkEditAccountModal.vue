@@ -444,6 +444,221 @@
         </div>
       </div>
 
+      <!-- Temp Unschedulable Rules -->
+      <div
+        v-if="canEditTempUnschedulable"
+        class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <label
+              id="bulk-edit-temp-unsched-label"
+              class="input-label mb-0"
+              for="bulk-edit-temp-unsched-enabled"
+            >
+              {{ t('admin.accounts.tempUnschedulable.title') }}
+            </label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.tempUnschedulable.hint') }}
+            </p>
+          </div>
+          <input
+            v-model="enableTempUnschedulable"
+            id="bulk-edit-temp-unsched-enabled"
+            type="checkbox"
+            aria-controls="bulk-edit-temp-unsched-body"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+
+        <div
+          id="bulk-edit-temp-unsched-body"
+          class="space-y-3"
+          :class="!enableTempUnschedulable && 'pointer-events-none opacity-50'"
+          role="group"
+          aria-labelledby="bulk-edit-temp-unsched-label"
+        >
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t(tempUnschedulableEnabled ? 'common.enabled' : 'common.disabled') }}
+            </span>
+            <button
+              id="bulk-edit-temp-unsched-toggle"
+              type="button"
+              role="switch"
+              :aria-label="t('admin.accounts.tempUnschedulable.title')"
+              :aria-checked="tempUnschedulableEnabled"
+              :disabled="!enableTempUnschedulable"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed',
+                tempUnschedulableEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+              @click="tempUnschedulableEnabled = !tempUnschedulableEnabled"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  tempUnschedulableEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+
+          <p
+            v-if="!tempUnschedulableEnabled"
+            class="text-xs text-amber-600 dark:text-amber-400"
+          >
+            {{ t('admin.accounts.tempUnschedulable.bulkDisableHint') }}
+          </p>
+
+          <template v-else>
+            <div class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
+              <p class="text-xs text-blue-700 dark:text-blue-400">
+                <Icon
+                  name="exclamationTriangle"
+                  size="sm"
+                  class="mr-1 inline"
+                  :stroke-width="2"
+                />
+                {{ t('admin.accounts.tempUnschedulable.notice') }}
+              </p>
+            </div>
+
+            <p class="text-xs text-amber-600 dark:text-amber-400">
+              {{ t('admin.accounts.tempUnschedulable.bulkReplaceHint') }}
+            </p>
+
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="preset in tempUnschedulablePresets"
+                :key="preset.id"
+                type="button"
+                :data-testid="`bulk-edit-temp-unsched-preset-${preset.id}`"
+                class="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500"
+                @click="addTempUnschedulableRule(preset.rule)"
+              >
+                <Icon name="plus" size="xs" class="mr-1 inline" :stroke-width="2" />
+                {{ preset.label }}
+              </button>
+            </div>
+
+            <div v-if="tempUnschedulableRules.length > 0" class="space-y-3">
+              <div
+                v-for="(rule, index) in tempUnschedulableRules"
+                :key="getTempUnschedulableRuleKey(rule)"
+                class="rounded-lg border border-gray-200 p-3 dark:border-dark-600"
+              >
+                <div class="mb-2 flex items-center justify-between">
+                  <span class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                    {{ t('admin.accounts.tempUnschedulable.ruleIndex', { index: index + 1 }) }}
+                  </span>
+                  <div class="flex items-center gap-2">
+                    <button
+                      type="button"
+                      :disabled="index === 0"
+                      :aria-label="t('admin.accounts.tempUnschedulable.moveUp')"
+                      :title="t('admin.accounts.tempUnschedulable.moveUp')"
+                      :data-testid="`bulk-edit-temp-unsched-move-up-${index}`"
+                      class="rounded p-1 text-gray-400 transition-colors hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-gray-200"
+                      @click="moveTempUnschedulableRule(index, -1)"
+                    >
+                      <Icon name="chevronUp" size="sm" :stroke-width="2" />
+                    </button>
+                    <button
+                      type="button"
+                      :disabled="index === tempUnschedulableRules.length - 1"
+                      :aria-label="t('admin.accounts.tempUnschedulable.moveDown')"
+                      :title="t('admin.accounts.tempUnschedulable.moveDown')"
+                      :data-testid="`bulk-edit-temp-unsched-move-down-${index}`"
+                      class="rounded p-1 text-gray-400 transition-colors hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-gray-200"
+                      @click="moveTempUnschedulableRule(index, 1)"
+                    >
+                      <Icon name="chevronDown" size="sm" :stroke-width="2" />
+                    </button>
+                    <button
+                      type="button"
+                      :aria-label="t('common.delete')"
+                      :title="t('common.delete')"
+                      :data-testid="`bulk-edit-temp-unsched-remove-${index}`"
+                      class="rounded p-1 text-red-500 transition-colors hover:text-red-600"
+                      @click="removeTempUnschedulableRule(index)"
+                    >
+                      <Icon name="x" size="sm" :stroke-width="2" />
+                    </button>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label class="input-label">
+                      {{ t('admin.accounts.tempUnschedulable.errorCode') }}
+                    </label>
+                    <input
+                      v-model.number="rule.error_code"
+                      type="number"
+                      min="100"
+                      max="599"
+                      class="input"
+                      :data-testid="`bulk-edit-temp-unsched-error-code-${index}`"
+                      :placeholder="t('admin.accounts.tempUnschedulable.errorCodePlaceholder')"
+                    />
+                  </div>
+                  <div>
+                    <label class="input-label">
+                      {{ t('admin.accounts.tempUnschedulable.durationMinutes') }}
+                    </label>
+                    <input
+                      v-model.number="rule.duration_minutes"
+                      type="number"
+                      min="1"
+                      class="input"
+                      :data-testid="`bulk-edit-temp-unsched-duration-${index}`"
+                      :placeholder="t('admin.accounts.tempUnschedulable.durationPlaceholder')"
+                    />
+                  </div>
+                  <div class="sm:col-span-2">
+                    <label class="input-label">
+                      {{ t('admin.accounts.tempUnschedulable.keywords') }}
+                    </label>
+                    <input
+                      v-model="rule.keywords"
+                      type="text"
+                      class="input"
+                      :data-testid="`bulk-edit-temp-unsched-keywords-${index}`"
+                      :placeholder="t('admin.accounts.tempUnschedulable.keywordsPlaceholder')"
+                    />
+                    <p class="input-hint">
+                      {{ t('admin.accounts.tempUnschedulable.keywordsHint') }}
+                    </p>
+                  </div>
+                  <div class="sm:col-span-2">
+                    <label class="input-label">
+                      {{ t('admin.accounts.tempUnschedulable.description') }}
+                    </label>
+                    <input
+                      v-model="rule.description"
+                      type="text"
+                      class="input"
+                      :placeholder="t('admin.accounts.tempUnschedulable.descriptionPlaceholder')"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              data-testid="bulk-edit-temp-unsched-add-rule"
+              class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-sm text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
+              @click="addTempUnschedulableRule()"
+            >
+              <Icon name="plus" size="sm" class="mr-1 inline" :stroke-width="2" />
+              {{ t('admin.accounts.tempUnschedulable.addRule') }}
+            </button>
+          </template>
+        </div>
+      </div>
+
       <!-- Intercept warmup requests (Anthropic only) -->
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="flex items-center justify-between">
@@ -1282,6 +1497,7 @@ import {
   type HeaderOverrideRow
 } from '@/components/account/credentialsBuilder'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
+import { buildTempUnschedPresets, type TempUnschedRuleForm } from './tempUnschedPresets'
 import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
@@ -1369,6 +1585,11 @@ const allAnthropicOAuthOrSetupToken = computed(() => {
   )
 })
 
+const canEditTempUnschedulable = computed(() =>
+  targetSelectedPlatforms.value.length > 0 &&
+  targetSelectedPlatforms.value.every(platform => platform !== 'opencode_go')
+)
+
 const filteredPresets = computed(() => {
   if (targetSelectedPlatforms.value.length === 0) return []
 
@@ -1395,6 +1616,7 @@ interface ModelMapping {
 const enableBaseUrl = ref(false)
 const enableModelRestriction = ref(false)
 const enableCustomErrorCodes = ref(false)
+const enableTempUnschedulable = ref(false)
 const enableInterceptWarmup = ref(false)
 const enableHeaderOverride = ref(false)
 const enableProxy = ref(false)
@@ -1424,6 +1646,14 @@ const allowedModels = ref<string[]>([])
 const modelMappings = ref<ModelMapping[]>([])
 const selectedErrorCodes = ref<number[]>([])
 const customErrorCodeInput = ref<number | null>(null)
+const tempUnschedulableEnabled = ref(false)
+const tempUnschedulableRules = ref<TempUnschedRuleForm[]>([])
+const getTempUnschedulableRuleKey = createStableObjectKeyResolver<TempUnschedRuleForm>(
+  'bulk-temp-unsched-rule'
+)
+const tempUnschedulablePresets = computed(() =>
+  buildTempUnschedPresets((key) => t(key))
+)
 const interceptWarmupRequests = ref(false)
 const headerOverrideEnabled = ref(false)
 const headerOverrideRows = ref<HeaderOverrideRow[]>([])
@@ -1600,6 +1830,65 @@ const removeErrorCode = (code: number) => {
   }
 }
 
+const addTempUnschedulableRule = (preset?: TempUnschedRuleForm) => {
+  if (preset) {
+    tempUnschedulableRules.value.push({ ...preset })
+    return
+  }
+  tempUnschedulableRules.value.push({
+    error_code: null,
+    keywords: '',
+    duration_minutes: 30,
+    description: ''
+  })
+}
+
+const removeTempUnschedulableRule = (index: number) => {
+  tempUnschedulableRules.value.splice(index, 1)
+}
+
+const moveTempUnschedulableRule = (index: number, direction: number) => {
+  const target = index + direction
+  if (target < 0 || target >= tempUnschedulableRules.value.length) return
+  const rules = tempUnschedulableRules.value
+  const current = rules[index]
+  rules[index] = rules[target]
+  rules[target] = current
+}
+
+const splitTempUnschedulableKeywords = (value: string) =>
+  value
+    .split(/[,;]/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+
+const buildTempUnschedulableRules = (rules: TempUnschedRuleForm[]) => {
+  const normalizedRules: Array<{
+    error_code: number
+    keywords: string[]
+    duration_minutes: number
+    description: string
+  }> = []
+
+  for (const rule of rules) {
+    const errorCode = Number(rule.error_code)
+    const durationMinutes = Number(rule.duration_minutes)
+    const keywords = splitTempUnschedulableKeywords(rule.keywords)
+    if (!Number.isFinite(errorCode) || errorCode < 100 || errorCode > 599) continue
+    if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) continue
+    if (keywords.length === 0) continue
+
+    normalizedRules.push({
+      error_code: Math.trunc(errorCode),
+      keywords,
+      duration_minutes: Math.trunc(durationMinutes),
+      description: rule.description.trim()
+    })
+  }
+
+  return normalizedRules
+}
+
 const buildModelMappingObject = (): Record<string, string> | null => {
   return buildModelMappingPayload(
     modelRestrictionMode.value,
@@ -1692,6 +1981,14 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
   if (enableCustomErrorCodes.value) {
     credentials.custom_error_codes_enabled = true
     credentials.custom_error_codes = [...selectedErrorCodes.value]
+    credentialsChanged = true
+  }
+
+  if (enableTempUnschedulable.value) {
+    credentials.temp_unschedulable_enabled = tempUnschedulableEnabled.value
+    credentials.temp_unschedulable_rules = tempUnschedulableEnabled.value
+      ? buildTempUnschedulableRules(tempUnschedulableRules.value)
+      : []
     credentialsChanged = true
   }
 
@@ -1836,6 +2133,7 @@ const handleSubmit = async () => {
     enableOpenAIPassthrough.value ||
     enableModelRestriction.value ||
     enableCustomErrorCodes.value ||
+    enableTempUnschedulable.value ||
     enableInterceptWarmup.value ||
     enableHeaderOverride.value ||
     enableProxy.value ||
@@ -1857,6 +2155,20 @@ const handleSubmit = async () => {
   if (!hasAnyFieldEnabled) {
     appStore.showError(t('admin.accounts.bulkEdit.noFieldsSelected'))
     return
+  }
+
+  if (
+    enableTempUnschedulable.value &&
+    tempUnschedulableEnabled.value
+  ) {
+    const normalizedRules = buildTempUnschedulableRules(tempUnschedulableRules.value)
+    if (
+      normalizedRules.length === 0 ||
+      normalizedRules.length !== tempUnschedulableRules.value.length
+    ) {
+      appStore.showError(t('admin.accounts.tempUnschedulable.rulesInvalid'))
+      return
+    }
   }
 
   if (enableHeaderOverride.value && headerOverrideEnabled.value) {
@@ -1953,6 +2265,7 @@ watch(
       enableBaseUrl.value = false
       enableModelRestriction.value = false
       enableCustomErrorCodes.value = false
+      enableTempUnschedulable.value = false
       enableInterceptWarmup.value = false
       enableHeaderOverride.value = false
       enableProxy.value = false
@@ -1979,6 +2292,8 @@ watch(
       modelMappings.value = []
       selectedErrorCodes.value = []
       customErrorCodeInput.value = null
+      tempUnschedulableEnabled.value = false
+      tempUnschedulableRules.value = []
       interceptWarmupRequests.value = false
       headerOverrideEnabled.value = false
       headerOverrideRows.value = []
