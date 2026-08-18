@@ -251,12 +251,20 @@ export default {
         remainingHours: 'About {hours} hours',
         remainingHoursMinutes: 'About {hours} hours {minutes} minutes',
         presets: {
-          overloadLabel: '529 Overloaded',
-          overloadDesc: 'Overloaded - pause 60 minutes',
+          requestTimeoutLabel: '408 Request Timeout',
+          requestTimeoutDesc: 'Request timed out - pause 5 minutes',
           rateLimitLabel: '429 Rate Limit',
           rateLimitDesc: 'Rate limited - pause 10 minutes',
+          internalErrorLabel: '500 Internal Error',
+          internalErrorDesc: 'Upstream internal error - pause 10 minutes',
+          badGatewayLabel: '502 Bad Gateway',
+          badGatewayDesc: 'Upstream gateway error - pause 10 minutes',
           unavailableLabel: '503 Unavailable',
-          unavailableDesc: 'Unavailable - pause 30 minutes'
+          unavailableDesc: 'Unavailable - pause 30 minutes',
+          gatewayTimeoutLabel: '504 Gateway Timeout',
+          gatewayTimeoutDesc: 'Upstream response timed out - pause 10 minutes',
+          overloadLabel: '529 Overloaded',
+          overloadDesc: 'Overloaded - pause 60 minutes'
         }
       },
       clearRateLimit: 'Clear Rate Limit',

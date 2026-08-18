@@ -154,6 +154,29 @@ beforeEach(() => {
 })
 
 describe('CreateAccountModal', () => {
+  it('提供完整的临时不可调度快捷规则并可填入网关异常', async () => {
+    const wrapper = mountModal()
+
+    await wrapper.get('[data-testid="temp-unsched-toggle"]').trigger('click')
+    const presetButtons = wrapper.findAll('[data-testid^="temp-unsched-preset-"]')
+    expect(presetButtons.map((button) => button.attributes('data-testid'))).toEqual([
+      'temp-unsched-preset-request-timeout',
+      'temp-unsched-preset-rate-limit',
+      'temp-unsched-preset-internal-error',
+      'temp-unsched-preset-bad-gateway',
+      'temp-unsched-preset-service-unavailable',
+      'temp-unsched-preset-gateway-timeout',
+      'temp-unsched-preset-overload'
+    ])
+
+    await wrapper.get('[data-testid="temp-unsched-preset-bad-gateway"]').trigger('click')
+    const inputValues = wrapper.findAll('input').map((input) => input.element.value)
+    expect(inputValues).toContain('502')
+    expect(inputValues).toContain('10')
+    expect(inputValues).toContain('bad gateway, bad_gateway, upstream error, upstream_error, upstream connect error, upstream reset, connection reset, upstream service temporarily unavailable')
+    expect(inputValues).toContain('admin.accounts.tempUnschedulable.presets.badGatewayDesc')
+  })
+
   it('Gemini API Key Free Tier 默认使用 AI Studio 实际请求 ID', async () => {
     const wrapper = mountModal()
 

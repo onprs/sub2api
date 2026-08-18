@@ -363,6 +363,21 @@ describe('EditAccountModal', () => {
     authIsSimpleMode.value = true
   })
 
+  it('提供完整的临时不可调度快捷规则并可填入网关超时', async () => {
+    const wrapper = mountModal()
+
+    await wrapper.get('[data-testid="temp-unsched-toggle"]').trigger('click')
+    const presetButtons = wrapper.findAll('[data-testid^="temp-unsched-preset-"]')
+    expect(presetButtons).toHaveLength(7)
+
+    await wrapper.get('[data-testid="temp-unsched-preset-gateway-timeout"]').trigger('click')
+    const inputValues = wrapper.findAll('input').map((input) => input.element.value)
+    expect(inputValues).toContain('504')
+    expect(inputValues).toContain('10')
+    expect(inputValues).toContain('gateway timeout, gateway_timeout, upstream timeout, upstream_timeout, upstream request timeout, timed out')
+    expect(inputValues).toContain('admin.accounts.tempUnschedulable.presets.gatewayTimeoutDesc')
+  })
+
   it('edits ClinePass API key settings without exposing OpenCode Console controls', async () => {
     const account = buildClinePassAccount()
     updateAccountMock.mockReset()
