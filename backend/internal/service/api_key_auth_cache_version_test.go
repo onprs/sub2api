@@ -41,3 +41,17 @@ func TestAPIKeyService_RejectsV10AuthSnapshotWithoutModelsListConfig(t *testing.
 		t.Fatalf("expected no API key from stale snapshot, got %#v", apiKey)
 	}
 }
+
+func TestAPIKeyServiceRejectsV14SnapshotWithoutGroupGPT56Inference(t *testing.T) {
+	svc := &APIKeyService{}
+
+	apiKey, ok, err := svc.applyAuthCacheEntry("k-v14", &APIKeyAuthCacheEntry{
+		Snapshot: &APIKeyAuthSnapshot{Version: 14},
+	})
+	if err != nil {
+		t.Fatalf("expected stale snapshot to be ignored without error, got %v", err)
+	}
+	if ok || apiKey != nil {
+		t.Fatalf("expected v14 auth snapshot to be rejected, got ok=%v apiKey=%#v", ok, apiKey)
+	}
+}

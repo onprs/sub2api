@@ -1093,8 +1093,16 @@ func init() {
 	groupDescModelsListConfig := groupFields[42].Descriptor()
 	// group.DefaultModelsListConfig holds the default value on creation for the models_list_config field.
 	group.DefaultModelsListConfig = groupDescModelsListConfig.Default.(domain.GroupModelsListConfig)
+	// groupDescInferGpt56CacheWrite is the schema descriptor for infer_gpt56_cache_write field.
+	groupDescInferGpt56CacheWrite := groupFields[43].Descriptor()
+	// group.DefaultInferGpt56CacheWrite holds the default value on creation for the infer_gpt56_cache_write field.
+	group.DefaultInferGpt56CacheWrite = groupDescInferGpt56CacheWrite.Default.(bool)
+	// groupDescInferGpt56CacheWriteMinTokens is the schema descriptor for infer_gpt56_cache_write_min_tokens field.
+	groupDescInferGpt56CacheWriteMinTokens := groupFields[44].Descriptor()
+	// group.DefaultInferGpt56CacheWriteMinTokens holds the default value on creation for the infer_gpt56_cache_write_min_tokens field.
+	group.DefaultInferGpt56CacheWriteMinTokens = groupDescInferGpt56CacheWriteMinTokens.Default.(int)
 	// groupDescRpmLimit is the schema descriptor for rpm_limit field.
-	groupDescRpmLimit := groupFields[43].Descriptor()
+	groupDescRpmLimit := groupFields[45].Descriptor()
 	// group.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
 	group.DefaultRpmLimit = groupDescRpmLimit.Default.(int)
 	idempotencyrecordMixin := schema.IdempotencyRecord{}.Mixin()

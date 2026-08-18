@@ -206,6 +206,14 @@ func (Group) Fields() []ent.Field {
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
 			Comment("自定义 /v1/models 展示列表配置；仅影响模型列表响应，不影响调度"),
 
+		// GPT-5.6 缓存写入推断（仅 OpenAI 分组使用）
+		field.Bool("infer_gpt56_cache_write").
+			Default(false).
+			Comment("上游未报告 GPT-5.6 缓存写入时，是否按未缓存输入量推断"),
+		field.Int("infer_gpt56_cache_write_min_tokens").
+			Default(1024).
+			Comment("触发 GPT-5.6 缓存写入推断所需的最小未缓存输入 token 数"),
+
 		// 分组级每分钟请求数上限（0 = 不限制）。设置后优先于用户级兜底生效。
 		field.Int("rpm_limit").
 			Default(0).

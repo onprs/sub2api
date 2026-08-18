@@ -961,6 +961,11 @@ export default {
         fallbackHint: '非 Claude Code 请求将使用此分组，留空则直接拒绝',
         noFallback: '不降级（直接拒绝）'
       },
+      gpt56CacheWriteInference: {
+        title: '推断 GPT-5.6 系列缓存写入',
+        description: '上游未报告缓存写入时，达到阈值的未缓存输入将按缓存写入计费；上游真实写入数据始终优先。',
+        minTokens: '最小未缓存输入 tokens'
+      },
       openaiMessages: {
         title: 'OpenAI Messages 模型映射',
         alwaysAvailableHint: 'OpenAI 分组始终接受 /v1/messages 生成与 token 计数请求；这里只配置 Claude 模型到上游模型的映射。',

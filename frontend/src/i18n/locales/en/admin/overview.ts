@@ -963,6 +963,11 @@ export default {
         fallbackHint: 'Non-Claude Code requests will use this group. Leave empty to reject directly.',
         noFallback: 'No Fallback (Reject)'
       },
+      gpt56CacheWriteInference: {
+        title: 'Infer GPT-5.6 cache writes',
+        description: 'When upstream omits cache-write usage, uncached input at or above the threshold is billed as cache creation. Reported upstream writes always take precedence.',
+        minTokens: 'Minimum uncached input tokens'
+      },
       openaiMessages: {
         title: 'OpenAI Messages Model Mapping',
         alwaysAvailableHint: 'OpenAI groups always accept /v1/messages generation and token-count requests. Configure only the Claude-to-upstream model mapping here.',

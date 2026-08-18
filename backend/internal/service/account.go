@@ -1066,28 +1066,6 @@ func (a *Account) GetExtraString(key string) string {
 	return ""
 }
 
-const (
-	openAIGPT56CacheWriteInferenceExtraKey          = "infer_gpt56_cache_write"
-	openAIGPT56CacheWriteInferenceMinTokensExtraKey = "infer_gpt56_cache_write_min_tokens"
-	defaultOpenAIGPT56CacheWriteInferenceMinTokens  = 1024
-)
-
-// ShouldInferGPT56CacheWrite enables the account-scoped emergency fallback for
-// upstreams that create prompt caches but omit cache-write usage.
-func (a *Account) ShouldInferGPT56CacheWrite() bool {
-	return a != nil && a.getExtraBool(openAIGPT56CacheWriteInferenceExtraKey)
-}
-
-func (a *Account) GPT56CacheWriteInferenceMinTokens() int {
-	if a == nil {
-		return defaultOpenAIGPT56CacheWriteInferenceMinTokens
-	}
-	if value := a.getExtraInt(openAIGPT56CacheWriteInferenceMinTokensExtraKey); value > 0 {
-		return value
-	}
-	return defaultOpenAIGPT56CacheWriteInferenceMinTokens
-}
-
 func (a *Account) GetClaudeUserID() string {
 	if v := strings.TrimSpace(a.GetExtraString("claude_user_id")); v != "" {
 		return v

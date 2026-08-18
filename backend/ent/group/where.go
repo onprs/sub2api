@@ -265,6 +265,16 @@ func DefaultMappedModel(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDefaultMappedModel, v))
 }
 
+// InferGpt56CacheWrite applies equality check predicate on the "infer_gpt56_cache_write" field. It's identical to InferGpt56CacheWriteEQ.
+func InferGpt56CacheWrite(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldInferGpt56CacheWrite, v))
+}
+
+// InferGpt56CacheWriteMinTokens applies equality check predicate on the "infer_gpt56_cache_write_min_tokens" field. It's identical to InferGpt56CacheWriteMinTokensEQ.
+func InferGpt56CacheWriteMinTokens(v int) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldInferGpt56CacheWriteMinTokens, v))
+}
+
 // RpmLimit applies equality check predicate on the "rpm_limit" field. It's identical to RpmLimitEQ.
 func RpmLimit(v int) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRpmLimit, v))
@@ -1928,6 +1938,56 @@ func DefaultMappedModelEqualFold(v string) predicate.Group {
 // DefaultMappedModelContainsFold applies the ContainsFold predicate on the "default_mapped_model" field.
 func DefaultMappedModelContainsFold(v string) predicate.Group {
 	return predicate.Group(sql.FieldContainsFold(FieldDefaultMappedModel, v))
+}
+
+// InferGpt56CacheWriteEQ applies the EQ predicate on the "infer_gpt56_cache_write" field.
+func InferGpt56CacheWriteEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldInferGpt56CacheWrite, v))
+}
+
+// InferGpt56CacheWriteNEQ applies the NEQ predicate on the "infer_gpt56_cache_write" field.
+func InferGpt56CacheWriteNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldInferGpt56CacheWrite, v))
+}
+
+// InferGpt56CacheWriteMinTokensEQ applies the EQ predicate on the "infer_gpt56_cache_write_min_tokens" field.
+func InferGpt56CacheWriteMinTokensEQ(v int) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldInferGpt56CacheWriteMinTokens, v))
+}
+
+// InferGpt56CacheWriteMinTokensNEQ applies the NEQ predicate on the "infer_gpt56_cache_write_min_tokens" field.
+func InferGpt56CacheWriteMinTokensNEQ(v int) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldInferGpt56CacheWriteMinTokens, v))
+}
+
+// InferGpt56CacheWriteMinTokensIn applies the In predicate on the "infer_gpt56_cache_write_min_tokens" field.
+func InferGpt56CacheWriteMinTokensIn(vs ...int) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldInferGpt56CacheWriteMinTokens, vs...))
+}
+
+// InferGpt56CacheWriteMinTokensNotIn applies the NotIn predicate on the "infer_gpt56_cache_write_min_tokens" field.
+func InferGpt56CacheWriteMinTokensNotIn(vs ...int) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldInferGpt56CacheWriteMinTokens, vs...))
+}
+
+// InferGpt56CacheWriteMinTokensGT applies the GT predicate on the "infer_gpt56_cache_write_min_tokens" field.
+func InferGpt56CacheWriteMinTokensGT(v int) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldInferGpt56CacheWriteMinTokens, v))
+}
+
+// InferGpt56CacheWriteMinTokensGTE applies the GTE predicate on the "infer_gpt56_cache_write_min_tokens" field.
+func InferGpt56CacheWriteMinTokensGTE(v int) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldInferGpt56CacheWriteMinTokens, v))
+}
+
+// InferGpt56CacheWriteMinTokensLT applies the LT predicate on the "infer_gpt56_cache_write_min_tokens" field.
+func InferGpt56CacheWriteMinTokensLT(v int) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldInferGpt56CacheWriteMinTokens, v))
+}
+
+// InferGpt56CacheWriteMinTokensLTE applies the LTE predicate on the "infer_gpt56_cache_write_min_tokens" field.
+func InferGpt56CacheWriteMinTokensLTE(v int) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldInferGpt56CacheWriteMinTokens, v))
 }
 
 // RpmLimitEQ applies the EQ predicate on the "rpm_limit" field.

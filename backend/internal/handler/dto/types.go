@@ -158,6 +158,10 @@ type AdminGroup struct {
 	MessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
 	ModelsListConfig            domain.GroupModelsListConfig             `json:"models_list_config"`
 
+	// GPT-5.6 缓存写入推断（仅管理员可配置）
+	InferGPT56CacheWrite          bool `json:"infer_gpt56_cache_write"`
+	InferGPT56CacheWriteMinTokens int  `json:"infer_gpt56_cache_write_min_tokens"`
+
 	// 支持的模型系列（仅 antigravity 平台使用）
 	SupportedModelScopes    []string       `json:"supported_model_scopes"`
 	AccountGroups           []AccountGroup `json:"account_groups,omitempty"`

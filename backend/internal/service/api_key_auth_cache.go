@@ -97,6 +97,10 @@ type APIKeyAuthGroupSnapshot struct {
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config,omitempty"`
 	ModelsListConfig            GroupModelsListConfig             `json:"models_list_config,omitempty"`
 
+	// GPT-5.6 缓存写入推断必须进入认证快照，计费异步路径直接读取 apiKey.Group。
+	InferGPT56CacheWrite          bool `json:"infer_gpt56_cache_write"`
+	InferGPT56CacheWriteMinTokens int  `json:"infer_gpt56_cache_write_min_tokens"`
+
 	// RPMLimit 分组级每分钟请求数上限（0 = 不限制）；用于 billing_cache_service.checkRPM 级联判断。
 	RPMLimit int `json:"rpm_limit"`
 

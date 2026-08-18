@@ -81,6 +81,10 @@ type Group struct {
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
 	ModelsListConfig            GroupModelsListConfig
 
+	// GPT-5.6 缓存写入推断（仅 OpenAI 分组使用）
+	InferGPT56CacheWrite          bool
+	InferGPT56CacheWriteMinTokens int
+
 	// RPMLimit 分组级每分钟请求数上限（0 = 不限制）。
 	// 一旦设置即接管该分组用户的限流（覆盖用户级 rpm_limit），可被 user-group rpm_override 进一步覆盖。
 	RPMLimit int
@@ -100,6 +104,30 @@ func (g *Group) IsActive() bool {
 
 func (g *Group) IsSubscriptionType() bool {
 	return g.SubscriptionType == SubscriptionTypeSubscription
+}
+
+const defaultOpenAIGPT56CacheWriteInferenceMinTokens = 1024
+
+// ShouldInferGPT56CacheWrite 表示当前 OpenAI 分组是否启用缺失缓存写入量推断。
+func (g *Group) ShouldInferGPT56CacheWrite() bool {
+	return g != nil && g.Platform == PlatformOpenAI && g.InferGPT56CacheWrite
+}
+
+func (g *Group) GPT56CacheWriteInferenceMinTokens() int {
+	if g != nil && g.InferGPT56CacheWriteMinTokens > 0 {
+		return g.InferGPT56CacheWriteMinTokens
+	}
+	return defaultOpenAIGPT56CacheWriteInferenceMinTokens
+}
+
+func normalizeGroupGPT56CacheWriteInference(platform string, enabled bool, minTokens int) (bool, int) {
+	if platform != PlatformOpenAI {
+		return false, defaultOpenAIGPT56CacheWriteInferenceMinTokens
+	}
+	if minTokens <= 0 {
+		minTokens = defaultOpenAIGPT56CacheWriteInferenceMinTokens
+	}
+	return enabled, minTokens
 }
 
 func (g *Group) HasDailyLimit() bool {

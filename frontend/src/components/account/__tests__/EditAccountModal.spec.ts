@@ -478,28 +478,6 @@ describe('EditAccountModal', () => {
     })
   })
 
-  it('loads and submits GPT-5.6 cache-write inference settings', async () => {
-    const account = buildAccount()
-    account.extra = {
-      infer_gpt56_cache_write: true,
-      infer_gpt56_cache_write_min_tokens: 1536
-    }
-    updateAccountMock.mockReset()
-    checkMixedChannelRiskMock.mockReset()
-    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
-    updateAccountMock.mockResolvedValue(account)
-
-    const wrapper = mountModal(account)
-    const threshold = wrapper.get('[data-testid="infer-gpt56-cache-write-min-tokens"]')
-    expect((threshold.element as HTMLInputElement).value).toBe('1536')
-    await threshold.setValue('2048')
-    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
-
-    expect(updateAccountMock).toHaveBeenCalledTimes(1)
-    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.infer_gpt56_cache_write).toBe(true)
-    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.infer_gpt56_cache_write_min_tokens).toBe(2048)
-  })
-
   it('loads and submits Grok OAuth model mapping edits', async () => {
     const account = buildGrokOAuthAccount()
     updateAccountMock.mockReset()
