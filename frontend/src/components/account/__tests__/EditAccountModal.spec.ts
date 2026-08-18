@@ -374,8 +374,6 @@ describe('EditAccountModal', () => {
     await flushPromises()
     expect(wrapper.findAll('input').some((input) => input.element.value === 'https://api.cline.bot/api/v1')).toBe(true)
     expect(wrapper.find('[data-testid="opencode-go-console-panel"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="first-output-failover-timeout-input"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="first-output-failover-cooldown-input"]').exists()).toBe(false)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
@@ -384,38 +382,6 @@ describe('EditAccountModal', () => {
     expect(credentials.model_mapping).toEqual({
       'cline-pass/glm-5.2': 'cline-pass/glm-5.2'
     })
-  })
-
-  it('updates and clears the OpenAI API key first-output failover settings', async () => {
-    const account = {
-      ...buildAccount(),
-      first_output_failover_timeout_seconds: 15,
-      first_output_failover_cooldown_minutes: 10
-    }
-    updateAccountMock.mockReset()
-    checkMixedChannelRiskMock.mockReset()
-    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
-    updateAccountMock.mockResolvedValue(account)
-
-    const wrapper = mountModal(account)
-    const timeoutInput = wrapper.get('[data-testid="first-output-failover-timeout-input"]')
-    const cooldownInput = wrapper.get('[data-testid="first-output-failover-cooldown-input"]')
-    expect((timeoutInput.element as HTMLInputElement).value).toBe('15')
-    expect((cooldownInput.element as HTMLInputElement).value).toBe('10')
-    await timeoutInput.setValue('20')
-    await cooldownInput.setValue('30')
-    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
-
-    expect(updateAccountMock.mock.calls[0]?.[1]?.first_output_failover_timeout_seconds).toBe(20)
-    expect(updateAccountMock.mock.calls[0]?.[1]?.first_output_failover_cooldown_minutes).toBe(30)
-
-    updateAccountMock.mockReset()
-    const clearWrapper = mountModal(account)
-    await clearWrapper.get('[data-testid="first-output-failover-timeout-input"]').setValue('')
-    await clearWrapper.get('form#edit-account-form').trigger('submit.prevent')
-
-    expect(updateAccountMock.mock.calls[0]?.[1]?.first_output_failover_timeout_seconds).toBe(0)
-    expect(updateAccountMock.mock.calls[0]?.[1]?.first_output_failover_cooldown_minutes).toBe(0)
   })
 
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {

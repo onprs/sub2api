@@ -45,10 +45,6 @@ type Account struct {
 	Concurrency int `json:"concurrency,omitempty"`
 	// LoadFactor holds the value of the "load_factor" field.
 	LoadFactor *int `json:"load_factor,omitempty"`
-	// Optional OpenAI API key first-output failover timeout in seconds.
-	FirstOutputFailoverTimeoutSeconds *int `json:"first_output_failover_timeout_seconds,omitempty"`
-	// Optional cooldown after an OpenAI API key first-output failover timeout, in minutes.
-	FirstOutputFailoverCooldownMinutes *int `json:"first_output_failover_cooldown_minutes,omitempty"`
 	// Priority holds the value of the "priority" field.
 	Priority int `json:"priority,omitempty"`
 	// RateMultiplier holds the value of the "rate_multiplier" field.
@@ -179,7 +175,7 @@ func (*Account) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case account.FieldRateMultiplier:
 			values[i] = new(sql.NullFloat64)
-		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldFirstOutputFailoverTimeoutSeconds, account.FieldFirstOutputFailoverCooldownMinutes, account.FieldPriority, account.FieldParentAccountID:
+		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldPriority, account.FieldParentAccountID:
 			values[i] = new(sql.NullInt64)
 		case account.FieldName, account.FieldNotes, account.FieldPlatform, account.FieldType, account.FieldStatus, account.FieldErrorMessage, account.FieldTempUnschedulableReason, account.FieldSessionWindowStatus, account.FieldQuotaDimension:
 			values[i] = new(sql.NullString)
@@ -292,20 +288,6 @@ func (_m *Account) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.LoadFactor = new(int)
 				*_m.LoadFactor = int(value.Int64)
-			}
-		case account.FieldFirstOutputFailoverTimeoutSeconds:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for field first_output_failover_timeout_seconds", values[i])
-			} else if value.Valid {
-				_m.FirstOutputFailoverTimeoutSeconds = new(int)
-				*_m.FirstOutputFailoverTimeoutSeconds = int(value.Int64)
-			}
-		case account.FieldFirstOutputFailoverCooldownMinutes:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for field first_output_failover_cooldown_minutes", values[i])
-			} else if value.Valid {
-				_m.FirstOutputFailoverCooldownMinutes = new(int)
-				*_m.FirstOutputFailoverCooldownMinutes = int(value.Int64)
 			}
 		case account.FieldPriority:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -539,16 +521,6 @@ func (_m *Account) String() string {
 	builder.WriteString(", ")
 	if v := _m.LoadFactor; v != nil {
 		builder.WriteString("load_factor=")
-		builder.WriteString(fmt.Sprintf("%v", *v))
-	}
-	builder.WriteString(", ")
-	if v := _m.FirstOutputFailoverTimeoutSeconds; v != nil {
-		builder.WriteString("first_output_failover_timeout_seconds=")
-		builder.WriteString(fmt.Sprintf("%v", *v))
-	}
-	builder.WriteString(", ")
-	if v := _m.FirstOutputFailoverCooldownMinutes; v != nil {
-		builder.WriteString("first_output_failover_cooldown_minutes=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteString(", ")

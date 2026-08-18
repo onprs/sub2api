@@ -273,29 +273,11 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		return nil, fmt.Errorf("get access token: %w", err)
 	}
 
-	// 6. Build upstream request. 账号级预算从本次请求开始计时，并包含响应头等待。
-	firstOutputTimeout := openAIAccountFirstOutputFailoverTimeout(account)
-	reasoningEffortValue := ""
-	if responsesReq.Reasoning != nil {
-		reasoningEffortValue = responsesReq.Reasoning.Effort
-	}
+	// 6. Build upstream request
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
-	var headerGuard *openAIFirstOutputHeaderGuard
-	if firstOutputTimeout > 0 {
-		upstreamCtx, headerGuard = newOpenAIFirstOutputHeaderGuard(
-			upstreamCtx,
-			releaseUpstreamCtx,
-			startTime.Add(firstOutputTimeout),
-		)
-	}
 	upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, responsesBody, token, true, promptCacheKey, false)
-	if headerGuard == nil {
-		releaseUpstreamCtx()
-	}
+	releaseUpstreamCtx()
 	if err != nil {
-		if headerGuard != nil {
-			headerGuard.close()
-		}
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 
@@ -310,34 +292,8 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		proxyURL = account.Proxy.URL()
 	}
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
-	if headerGuard != nil && headerGuard.stopHeaderWait() {
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
-		}
-		headerGuard.close()
-		return nil, s.newOpenAIFirstOutputTimeoutError(
-			ctx,
-			c,
-			account,
-			startTime,
-			originalModel,
-			reasoningEffortValue,
-			firstOutputTimeout,
-			"response_headers",
-			nil,
-		)
-	}
 	if err != nil {
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
-		}
-		if headerGuard != nil {
-			headerGuard.close()
-		}
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
-	}
-	if headerGuard != nil {
-		resp.Body = &openAIRequestContextReadCloser{ReadCloser: resp.Body, cleanup: headerGuard.close}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -369,9 +325,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	if clientStream {
 		result, handleErr = s.handleChatStreamingResponse(resp, c, account, pipeline, originalModel, billingModel, upstreamModel, startTime, len(body))
 	} else {
-		result, handleErr = s.handleChatBufferedStreamingResponse(
-			resp, c, account, pipeline, originalModel, billingModel, upstreamModel, startTime, reasoningEffortValue,
-		)
+		result, handleErr = s.handleChatBufferedStreamingResponse(resp, c, account, pipeline, originalModel, billingModel, upstreamModel, startTime)
 	}
 
 	// cyber_policy：标记已设、error 已按 Chat Completions 格式发给客户端。丢弃 result、
@@ -471,34 +425,10 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	billingModel string,
 	upstreamModel string,
 	startTime time.Time,
-	reasoningEffort string,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
-	firstOutputTimeout := openAIAccountFirstOutputFailoverTimeout(account)
-	firstOutputDeadline := time.Time{}
-	if firstOutputTimeout > 0 {
-		firstOutputDeadline = startTime.Add(firstOutputTimeout)
-	}
 
-	terminal, err := s.collectOpenAICompatBufferedTerminalWithDeadline(
-		resp,
-		"openai chat_completions buffered",
-		startTime,
-		firstOutputDeadline,
-	)
-	if errors.Is(err, errOpenAIFirstOutputDeadline) {
-		return nil, s.newOpenAIFirstOutputTimeoutError(
-			c.Request.Context(),
-			c,
-			account,
-			startTime,
-			originalModel,
-			reasoningEffort,
-			firstOutputTimeout,
-			"semantic_output",
-			resp.Header,
-		)
-	}
+	terminal, err := s.collectOpenAICompatBufferedTerminal(resp, "openai chat_completions buffered", startTime)
 	if err != nil {
 		return nil, err
 	}
@@ -611,8 +541,6 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	}
 	defer func() { _ = stream.Close() }()
 	requestID := stream.RequestID
-	firstOutputTimeout := openAIAccountFirstOutputFailoverTimeout(account)
-	guardFirstOutput := firstOutputTimeout > 0
 	var session *protocolconv.StreamSession
 	var legacyState *apicompat.ResponsesEventToChatState
 	if pipeline == nil {
@@ -659,39 +587,6 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		intervalCh = intervalTicker.C
 	}
 
-	var firstOutputTimer *time.Timer
-	var firstOutputCh <-chan time.Time
-	if guardFirstOutput {
-		remaining := time.Until(startTime.Add(firstOutputTimeout))
-		if remaining <= 0 {
-			remaining = time.Nanosecond
-		}
-		firstOutputTimer = time.NewTimer(remaining)
-		firstOutputCh = firstOutputTimer.C
-		defer firstOutputTimer.Stop()
-	}
-	stopFirstOutputTimer := func() {
-		if firstOutputTimer == nil {
-			return
-		}
-		if !firstOutputTimer.Stop() {
-			select {
-			case <-firstOutputTimer.C:
-			default:
-			}
-		}
-		firstOutputTimer = nil
-		firstOutputCh = nil
-	}
-	observeFirstOutputChunk := func(chunk *apicompat.ChatCompletionsChunk) {
-		if !guardFirstOutput || firstTokenMs != nil || !chatChunkStartsResponsesOutput(chunk) {
-			return
-		}
-		ms := int(time.Since(startTime).Milliseconds())
-		firstTokenMs = &ms
-		stopFirstOutputTimer()
-	}
-
 	resultWithUsage := func() *OpenAIForwardResult {
 		return &OpenAIForwardResult{
 			RequestID:      requestID,
@@ -709,10 +604,8 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	processDataLine := func(payload string) bool {
 		if firstChunk {
 			firstChunk = false
-			if !guardFirstOutput {
-				ms := int(time.Since(startTime).Milliseconds())
-				firstTokenMs = &ms
-			}
+			ms := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &ms
 		}
 
 		var event apicompat.ResponsesStreamEvent
@@ -834,12 +727,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				return true
 			}
 			refusalDetector.ObserveChatChunk(chunk)
-			observeFirstOutputChunk(&chunk)
 			if clientDisconnected {
-				continue
-			}
-			if guardFirstOutput && firstTokenMs == nil {
-				pendingPayloads = append(pendingPayloads, append([]byte(nil), convertedPayload...))
 				continue
 			}
 			if !clientOutputStarted && !refusalDetector.ShouldReleaseClientOutput() {
@@ -914,12 +802,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				return resultWithUsage(), fmt.Errorf("decode finalized Chat Completions chunk: %w", err)
 			}
 			refusalDetector.ObserveChatChunk(chunk)
-			observeFirstOutputChunk(&chunk)
 			if clientDisconnected {
-				continue
-			}
-			if guardFirstOutput && firstTokenMs == nil {
-				pendingPayloads = append(pendingPayloads, append([]byte(nil), finalPayload...))
 				continue
 			}
 			if !clientOutputStarted && !refusalDetector.ShouldReleaseClientOutput() {
@@ -1051,24 +934,6 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				return finalizeStream()
 			}
 
-		case <-firstOutputCh:
-			if firstTokenMs != nil {
-				stopFirstOutputTimer()
-				continue
-			}
-			_ = stream.Close()
-			return resultWithUsage(), s.newOpenAIFirstOutputTimeoutError(
-				c.Request.Context(),
-				c,
-				account,
-				startTime,
-				originalModel,
-				"",
-				firstOutputTimeout,
-				"semantic_output",
-				resp.Header,
-			)
-
 		case <-intervalCh:
 			if time.Since(parser.Progress().LastReadAt) < streamInterval {
 				continue
@@ -1084,7 +949,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			return resultWithUsage(), fmt.Errorf("stream data interval timeout")
 
 		case <-keepaliveCh:
-			if clientDisconnected || (guardFirstOutput && firstTokenMs == nil) {
+			if clientDisconnected {
 				continue
 			}
 			if refusalDetector.Enabled() && !clientOutputStarted {

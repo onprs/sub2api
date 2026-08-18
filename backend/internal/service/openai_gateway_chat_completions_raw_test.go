@@ -95,34 +95,6 @@ func TestForwardAsRawChatCompletionsImmediateStreamErrorBeforeSSECommit(t *testi
 	require.Equal(t, 1, upstreamBody.closeCount)
 }
 
-func TestForwardAsRawChatCompletionsAccountBudgetIncludesResponseHeaderWait(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	requestBody := []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"hi"}],"stream":false}`)
-	upstream := &blockingOpenAIResponseHeaderUpstream{canceled: make(chan struct{})}
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(requestBody))
-	account := rawChatCompletionsTestAccount()
-	timeoutSeconds := 1
-	account.FirstOutputFailoverTimeoutSeconds = &timeoutSeconds
-
-	started := time.Now()
-	_, err := svc.forwardAsRawChatCompletions(context.Background(), c, account, requestBody, "")
-
-	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Equal(t, http.StatusGatewayTimeout, failoverErr.StatusCode)
-	require.True(t, failoverErr.SafeToFailoverAfterWrite)
-	require.Less(t, time.Since(started), 1300*time.Millisecond)
-	require.Empty(t, rec.Body.String())
-	select {
-	case <-upstream.canceled:
-	default:
-		t.Fatal("raw Chat Completions account budget did not cancel the upstream request")
-	}
-}
-
 func TestBuildOpenAIChatCompletionsURL(t *testing.T) {
 	t.Parallel()
 
@@ -276,77 +248,6 @@ func TestStreamRawChatCompletionsUsesIdentityPipelineAndRenderer(t *testing.T) {
 	require.NotNil(t, result)
 	require.Equal(t, "chatcmpl_stream", result.ResponseID)
 	require.Equal(t, "data: "+payload+"\n\ndata: [DONE]\n\n", rec.Recorder.Body.String())
-}
-
-func TestStreamRawChatCompletionsAccountBudgetTimesOutBeforeSemanticOutput(t *testing.T) {
-	pr, pw := io.Pipe()
-	trackedBody := &firstOutputCloseTrackingBody{ReadCloser: pr, closed: make(chan struct{})}
-	writerDone := make(chan struct{})
-	go func() {
-		defer close(writerDone)
-		defer func() { _ = pw.Close() }()
-		_, _ = pw.Write([]byte("data: {\"id\":\"chatcmpl_slow\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"}}]}\n\n"))
-		<-trackedBody.closed
-	}()
-	resp := &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid_stream_slow"}},
-		Body:       trackedBody,
-	}
-	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", "")
-	pipeline := rawChatIdentityTestPipeline(t, "client-model", "upstream-model", true)
-	account := rawChatCompletionsTestAccount()
-	timeoutSeconds := 1
-	account.FirstOutputFailoverTimeoutSeconds = &timeoutSeconds
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig()}
-
-	_, err := svc.streamRawChatCompletions(
-		rec.Context, resp, account, pipeline,
-		"client-model", "billing-model", "upstream-model", nil, nil, time.Now(), 0,
-	)
-
-	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Equal(t, http.StatusGatewayTimeout, failoverErr.StatusCode)
-	require.True(t, failoverErr.SafeToFailoverAfterWrite)
-	require.Empty(t, rec.Recorder.Body.String())
-	select {
-	case <-writerDone:
-	case <-time.After(time.Second):
-		t.Fatal("raw Chat Completions reader did not stop after first-output timeout")
-	}
-}
-
-func TestStreamRawChatCompletionsAccountBudgetDisarmsAfterSemanticOutput(t *testing.T) {
-	pr, pw := io.Pipe()
-	go func() {
-		defer func() { _ = pw.Close() }()
-		_, _ = pw.Write([]byte("data: {\"id\":\"chatcmpl_ok\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ready\"}}]}\n\n"))
-		time.Sleep(1100 * time.Millisecond)
-		_, _ = pw.Write([]byte("data: {\"id\":\"chatcmpl_ok\",\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n"))
-	}()
-	resp := &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid_stream_ok"}},
-		Body:       pr,
-	}
-	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", "")
-	pipeline := rawChatIdentityTestPipeline(t, "client-model", "upstream-model", true)
-	account := rawChatCompletionsTestAccount()
-	timeoutSeconds := 1
-	account.FirstOutputFailoverTimeoutSeconds = &timeoutSeconds
-	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig()}
-
-	result, err := svc.streamRawChatCompletions(
-		rec.Context, resp, account, pipeline,
-		"client-model", "billing-model", "upstream-model", nil, nil, time.Now(), 0,
-	)
-
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.NotNil(t, result.FirstTokenMs)
-	require.Contains(t, rec.Recorder.Body.String(), `"content":"ready"`)
-	require.Contains(t, rec.Recorder.Body.String(), "data: [DONE]")
 }
 
 func TestStreamRawChatCompletionsRejectsMalformedJSONBeforeCommit(t *testing.T) {

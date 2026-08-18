@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
@@ -169,27 +167,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if customUA == "" && account.Platform == PlatformGrok {
 		customUA = "sub2api-grok/1.0"
 	}
-	firstOutputTimeout := openAIAccountFirstOutputFailoverTimeout(account)
-	reasoningEffortValue := ""
-	if reasoningEffort != nil {
-		reasoningEffortValue = *reasoningEffort
-	}
-	resp, err := s.sendCCUpstreamRequest(
-		ctx,
-		c,
-		account,
-		targetURL,
-		upstreamBody,
-		clientStream,
-		token,
-		customUA,
-		openAICCUpstreamRequestOptions{
-			StartTime:          startTime,
-			FirstOutputTimeout: firstOutputTimeout,
-			OriginalModel:      originalModel,
-			ReasoningEffort:    reasoningEffortValue,
-		},
-	)
+	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, upstreamBody, clientStream, token, customUA)
 	if err != nil {
 		return nil, err
 	}
@@ -305,12 +283,6 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	}
 	defer func() { _ = stream.Close() }()
 	requestID := stream.RequestID
-	firstOutputTimeout := openAIAccountFirstOutputFailoverTimeout(account)
-	guardFirstOutput := firstOutputTimeout > 0
-	reasoningEffortValue := ""
-	if reasoningEffort != nil {
-		reasoningEffortValue = *reasoningEffort
-	}
 	session, err := pipeline.NewStreamProcessor(stream.ActualProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("create raw Chat Completions stream processor: %w", err)
@@ -330,12 +302,6 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 
 	writePayloads := func(payloads [][]byte, force bool) error {
 		if clientDisconnected || len(payloads) == 0 {
-			return nil
-		}
-		if guardFirstOutput && firstTokenMs == nil && !force {
-			for _, payload := range payloads {
-				pendingPayloads = append(pendingPayloads, append([]byte(nil), payload...))
-			}
 			return nil
 		}
 		if !clientOutputStarted && !force && !refusalDetector.ShouldReleaseClientOutput() {
@@ -376,88 +342,9 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		return nil
 	}
 
-	var firstOutputTimer *time.Timer
-	var firstOutputCh <-chan time.Time
-	if guardFirstOutput {
-		remaining := time.Until(startTime.Add(firstOutputTimeout))
-		if remaining <= 0 {
-			remaining = time.Nanosecond
-		}
-		firstOutputTimer = time.NewTimer(remaining)
-		firstOutputCh = firstOutputTimer.C
-		defer firstOutputTimer.Stop()
-	}
-	stopFirstOutputTimer := func() {
-		if firstOutputTimer == nil {
-			return
-		}
-		if !firstOutputTimer.Stop() {
-			select {
-			case <-firstOutputTimer.C:
-			default:
-			}
-		}
-		firstOutputTimer = nil
-		firstOutputCh = nil
-	}
-
-	type rawChatStreamEvent struct {
-		record protocoltransport.SSERecord
-		err    error
-	}
-	var events <-chan rawChatStreamEvent
-	var done chan struct{}
-	if guardFirstOutput {
-		eventCh := make(chan rawChatStreamEvent, openAIFirstOutputGuardQueueSize)
-		done = make(chan struct{})
-		events = eventCh
-		go func() {
-			defer close(eventCh)
-			for {
-				record, nextErr := stream.Events.Next(context.Background())
-				select {
-				case eventCh <- rawChatStreamEvent{record: record, err: nextErr}:
-				case <-done:
-					return
-				}
-				if nextErr != nil {
-					return
-				}
-			}
-		}()
-		defer close(done)
-	}
-	nextStreamEvent := func() (protocoltransport.SSERecord, error) {
-		if !guardFirstOutput {
-			return stream.Events.Next(context.Background())
-		}
-		select {
-		case event, ok := <-events:
-			if !ok {
-				return protocoltransport.SSERecord{}, io.EOF
-			}
-			return event.record, event.err
-		case <-firstOutputCh:
-			_ = stream.Close()
-			return protocoltransport.SSERecord{}, errOpenAIFirstOutputDeadline
-		}
-	}
-
 	sawDone := false
 	for {
-		record, nextErr := nextStreamEvent()
-		if errors.Is(nextErr, errOpenAIFirstOutputDeadline) {
-			return &OpenAIForwardResult{
-					RequestID: requestID, ResponseID: responseID, ActualProtocol: stream.ActualProtocol,
-					Usage: usage, Model: originalModel,
-					BillingModel: billingModel, UpstreamModel: upstreamModel, ReasoningEffort: reasoningEffort,
-					ServiceTier: serviceTier, Stream: true, Duration: time.Since(startTime),
-					FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected,
-				}, s.newOpenAIFirstOutputTimeoutError(
-					c.Request.Context(), c, account, startTime, originalModel, reasoningEffortValue,
-					firstOutputTimeout, "semantic_output", resp.Header,
-				)
-		}
+		record, nextErr := stream.Events.Next(context.Background())
 		if errors.Is(nextErr, protocoltransport.ErrSSEDone) {
 			sawDone = true
 			break
@@ -492,17 +379,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			stream.ResponseID = responseID
 		}
 		if firstTokenMs == nil && !usageOnlyChunk {
-			if guardFirstOutput {
-				var chunk apicompat.ChatCompletionsChunk
-				if json.Unmarshal(payload, &chunk) == nil && chatChunkStartsResponsesOutput(&chunk) {
-					elapsed := int(time.Since(startTime).Milliseconds())
-					firstTokenMs = &elapsed
-					stopFirstOutputTimer()
-				}
-			} else {
-				elapsed := int(time.Since(startTime).Milliseconds())
-				firstTokenMs = &elapsed
-			}
+			elapsed := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &elapsed
 		}
 		refusalDetector.ObservePayload(payload)
 		converted, _, err := session.Convert(payload)

@@ -30,7 +30,6 @@ const (
 var (
 	errOpenAIFirstOutputStageLimit   = errors.New("openai first-output staging limit exceeded")
 	errOpenAIFirstOutputScannerLimit = errors.New("openai pre-output scanner token limit exceeded")
-	errOpenAIFirstOutputDeadline     = errors.New("openai first-output deadline exceeded")
 )
 
 type openAIFirstOutputStage struct {
@@ -244,30 +243,6 @@ func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string) 
 	return time.Duration(seconds) * time.Second
 }
 
-func openAIAccountFirstOutputFailoverTimeout(account *Account) time.Duration {
-	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey ||
-		account.FirstOutputFailoverTimeoutSeconds == nil || *account.FirstOutputFailoverTimeoutSeconds <= 0 {
-		return 0
-	}
-	return time.Duration(*account.FirstOutputFailoverTimeoutSeconds) * time.Second
-}
-
-func openAIAccountFirstOutputFailoverCooldown(account *Account) time.Duration {
-	if openAIAccountFirstOutputFailoverTimeout(account) <= 0 ||
-		account.FirstOutputFailoverCooldownMinutes == nil || *account.FirstOutputFailoverCooldownMinutes <= 0 ||
-		*account.FirstOutputFailoverCooldownMinutes > FirstOutputFailoverCooldownMaxMinutes {
-		return 0
-	}
-	return time.Duration(*account.FirstOutputFailoverCooldownMinutes) * time.Minute
-}
-
-func (s *OpenAIGatewayService) openAIEffectiveFirstOutputTimeout(account *Account, reasoningEffort string) time.Duration {
-	if accountTimeout := openAIAccountFirstOutputFailoverTimeout(account); accountTimeout > 0 {
-		return accountTimeout
-	}
-	return s.openAIFirstOutputTimeout(reasoningEffort)
-}
-
 func (s *OpenAIGatewayService) newOpenAIFirstOutputTimeoutError(
 	ctx context.Context,
 	c *gin.Context,
@@ -293,13 +268,7 @@ func (s *OpenAIGatewayService) newOpenAIFirstOutputTimeoutError(
 		Detail: fmt.Sprintf("phase=%s elapsed_ms=%d timeout_ms=%d", phase, elapsed.Milliseconds(), timeout.Milliseconds()),
 	})
 	if s.rateLimitService != nil {
-		if cooldown := openAIAccountFirstOutputFailoverCooldown(account); cooldown > 0 {
-			stateCtx, cancel := openAIAccountStateContext(ctx)
-			s.rateLimitService.HandleFirstOutputFailoverTimeout(stateCtx, account, originalModel, cooldown)
-			cancel()
-		} else {
-			s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
-		}
+		s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 	}
 	return &UpstreamFailoverError{
 		StatusCode:      http.StatusGatewayTimeout,

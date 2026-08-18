@@ -167,34 +167,6 @@ func (_c *AccountCreate) SetNillableLoadFactor(v *int) *AccountCreate {
 	return _c
 }
 
-// SetFirstOutputFailoverTimeoutSeconds sets the "first_output_failover_timeout_seconds" field.
-func (_c *AccountCreate) SetFirstOutputFailoverTimeoutSeconds(v int) *AccountCreate {
-	_c.mutation.SetFirstOutputFailoverTimeoutSeconds(v)
-	return _c
-}
-
-// SetNillableFirstOutputFailoverTimeoutSeconds sets the "first_output_failover_timeout_seconds" field if the given value is not nil.
-func (_c *AccountCreate) SetNillableFirstOutputFailoverTimeoutSeconds(v *int) *AccountCreate {
-	if v != nil {
-		_c.SetFirstOutputFailoverTimeoutSeconds(*v)
-	}
-	return _c
-}
-
-// SetFirstOutputFailoverCooldownMinutes sets the "first_output_failover_cooldown_minutes" field.
-func (_c *AccountCreate) SetFirstOutputFailoverCooldownMinutes(v int) *AccountCreate {
-	_c.mutation.SetFirstOutputFailoverCooldownMinutes(v)
-	return _c
-}
-
-// SetNillableFirstOutputFailoverCooldownMinutes sets the "first_output_failover_cooldown_minutes" field if the given value is not nil.
-func (_c *AccountCreate) SetNillableFirstOutputFailoverCooldownMinutes(v *int) *AccountCreate {
-	if v != nil {
-		_c.SetFirstOutputFailoverCooldownMinutes(*v)
-	}
-	return _c
-}
-
 // SetPriority sets the "priority" field.
 func (_c *AccountCreate) SetPriority(v int) *AccountCreate {
 	_c.mutation.SetPriority(v)
@@ -653,16 +625,6 @@ func (_c *AccountCreate) check() error {
 	if _, ok := _c.mutation.Concurrency(); !ok {
 		return &ValidationError{Name: "concurrency", err: errors.New(`ent: missing required field "Account.concurrency"`)}
 	}
-	if v, ok := _c.mutation.FirstOutputFailoverTimeoutSeconds(); ok {
-		if err := account.FirstOutputFailoverTimeoutSecondsValidator(v); err != nil {
-			return &ValidationError{Name: "first_output_failover_timeout_seconds", err: fmt.Errorf(`ent: validator failed for field "Account.first_output_failover_timeout_seconds": %w`, err)}
-		}
-	}
-	if v, ok := _c.mutation.FirstOutputFailoverCooldownMinutes(); ok {
-		if err := account.FirstOutputFailoverCooldownMinutesValidator(v); err != nil {
-			return &ValidationError{Name: "first_output_failover_cooldown_minutes", err: fmt.Errorf(`ent: validator failed for field "Account.first_output_failover_cooldown_minutes": %w`, err)}
-		}
-	}
 	if _, ok := _c.mutation.Priority(); !ok {
 		return &ValidationError{Name: "priority", err: errors.New(`ent: missing required field "Account.priority"`)}
 	}
@@ -770,14 +732,6 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.LoadFactor(); ok {
 		_spec.SetField(account.FieldLoadFactor, field.TypeInt, value)
 		_node.LoadFactor = &value
-	}
-	if value, ok := _c.mutation.FirstOutputFailoverTimeoutSeconds(); ok {
-		_spec.SetField(account.FieldFirstOutputFailoverTimeoutSeconds, field.TypeInt, value)
-		_node.FirstOutputFailoverTimeoutSeconds = &value
-	}
-	if value, ok := _c.mutation.FirstOutputFailoverCooldownMinutes(); ok {
-		_spec.SetField(account.FieldFirstOutputFailoverCooldownMinutes, field.TypeInt, value)
-		_node.FirstOutputFailoverCooldownMinutes = &value
 	}
 	if value, ok := _c.mutation.Priority(); ok {
 		_spec.SetField(account.FieldPriority, field.TypeInt, value)
@@ -1174,54 +1128,6 @@ func (u *AccountUpsert) AddLoadFactor(v int) *AccountUpsert {
 // ClearLoadFactor clears the value of the "load_factor" field.
 func (u *AccountUpsert) ClearLoadFactor() *AccountUpsert {
 	u.SetNull(account.FieldLoadFactor)
-	return u
-}
-
-// SetFirstOutputFailoverTimeoutSeconds sets the "first_output_failover_timeout_seconds" field.
-func (u *AccountUpsert) SetFirstOutputFailoverTimeoutSeconds(v int) *AccountUpsert {
-	u.Set(account.FieldFirstOutputFailoverTimeoutSeconds, v)
-	return u
-}
-
-// UpdateFirstOutputFailoverTimeoutSeconds sets the "first_output_failover_timeout_seconds" field to the value that was provided on create.
-func (u *AccountUpsert) UpdateFirstOutputFailoverTimeoutSeconds() *AccountUpsert {
-	u.SetExcluded(account.FieldFirstOutputFailoverTimeoutSeconds)
-	return u
-}
-
-// AddFirstOutputFailoverTimeoutSeconds adds v to the "first_output_failover_timeout_seconds" field.
-func (u *AccountUpsert) AddFirstOutputFailoverTimeoutSeconds(v int) *AccountUpsert {
-	u.Add(account.FieldFirstOutputFailoverTimeoutSeconds, v)
-	return u
-}
-
-// ClearFirstOutputFailoverTimeoutSeconds clears the value of the "first_output_failover_timeout_seconds" field.
-func (u *AccountUpsert) ClearFirstOutputFailoverTimeoutSeconds() *AccountUpsert {
-	u.SetNull(account.FieldFirstOutputFailoverTimeoutSeconds)
-	return u
-}
-
-// SetFirstOutputFailoverCooldownMinutes sets the "first_output_failover_cooldown_minutes" field.
-func (u *AccountUpsert) SetFirstOutputFailoverCooldownMinutes(v int) *AccountUpsert {
-	u.Set(account.FieldFirstOutputFailoverCooldownMinutes, v)
-	return u
-}
-
-// UpdateFirstOutputFailoverCooldownMinutes sets the "first_output_failover_cooldown_minutes" field to the value that was provided on create.
-func (u *AccountUpsert) UpdateFirstOutputFailoverCooldownMinutes() *AccountUpsert {
-	u.SetExcluded(account.FieldFirstOutputFailoverCooldownMinutes)
-	return u
-}
-
-// AddFirstOutputFailoverCooldownMinutes adds v to the "first_output_failover_cooldown_minutes" field.
-func (u *AccountUpsert) AddFirstOutputFailoverCooldownMinutes(v int) *AccountUpsert {
-	u.Add(account.FieldFirstOutputFailoverCooldownMinutes, v)
-	return u
-}
-
-// ClearFirstOutputFailoverCooldownMinutes clears the value of the "first_output_failover_cooldown_minutes" field.
-func (u *AccountUpsert) ClearFirstOutputFailoverCooldownMinutes() *AccountUpsert {
-	u.SetNull(account.FieldFirstOutputFailoverCooldownMinutes)
 	return u
 }
 
@@ -1791,62 +1697,6 @@ func (u *AccountUpsertOne) UpdateLoadFactor() *AccountUpsertOne {
 func (u *AccountUpsertOne) ClearLoadFactor() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearLoadFactor()
-	})
-}
-
-// SetFirstOutputFailoverTimeoutSeconds sets the "first_output_failover_timeout_seconds" field.
-func (u *AccountUpsertOne) SetFirstOutputFailoverTimeoutSeconds(v int) *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.SetFirstOutputFailoverTimeoutSeconds(v)
-	})
-}
-
-// AddFirstOutputFailoverTimeoutSeconds adds v to the "first_output_failover_timeout_seconds" field.
-func (u *AccountUpsertOne) AddFirstOutputFailoverTimeoutSeconds(v int) *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.AddFirstOutputFailoverTimeoutSeconds(v)
-	})
-}
-
-// UpdateFirstOutputFailoverTimeoutSeconds sets the "first_output_failover_timeout_seconds" field to the value that was provided on create.
-func (u *AccountUpsertOne) UpdateFirstOutputFailoverTimeoutSeconds() *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.UpdateFirstOutputFailoverTimeoutSeconds()
-	})
-}
-
-// ClearFirstOutputFailoverTimeoutSeconds clears the value of the "first_output_failover_timeout_seconds" field.
-func (u *AccountUpsertOne) ClearFirstOutputFailoverTimeoutSeconds() *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.ClearFirstOutputFailoverTimeoutSeconds()
-	})
-}
-
-// SetFirstOutputFailoverCooldownMinutes sets the "first_output_failover_cooldown_minutes" field.
-func (u *AccountUpsertOne) SetFirstOutputFailoverCooldownMinutes(v int) *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.SetFirstOutputFailoverCooldownMinutes(v)
-	})
-}
-
-// AddFirstOutputFailoverCooldownMinutes adds v to the "first_output_failover_cooldown_minutes" field.
-func (u *AccountUpsertOne) AddFirstOutputFailoverCooldownMinutes(v int) *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.AddFirstOutputFailoverCooldownMinutes(v)
-	})
-}
-
-// UpdateFirstOutputFailoverCooldownMinutes sets the "first_output_failover_cooldown_minutes" field to the value that was provided on create.
-func (u *AccountUpsertOne) UpdateFirstOutputFailoverCooldownMinutes() *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.UpdateFirstOutputFailoverCooldownMinutes()
-	})
-}
-
-// ClearFirstOutputFailoverCooldownMinutes clears the value of the "first_output_failover_cooldown_minutes" field.
-func (u *AccountUpsertOne) ClearFirstOutputFailoverCooldownMinutes() *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.ClearFirstOutputFailoverCooldownMinutes()
 	})
 }
 
@@ -2632,62 +2482,6 @@ func (u *AccountUpsertBulk) UpdateLoadFactor() *AccountUpsertBulk {
 func (u *AccountUpsertBulk) ClearLoadFactor() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearLoadFactor()
-	})
-}
-
-// SetFirstOutputFailoverTimeoutSeconds sets the "first_output_failover_timeout_seconds" field.
-func (u *AccountUpsertBulk) SetFirstOutputFailoverTimeoutSeconds(v int) *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.SetFirstOutputFailoverTimeoutSeconds(v)
-	})
-}
-
-// AddFirstOutputFailoverTimeoutSeconds adds v to the "first_output_failover_timeout_seconds" field.
-func (u *AccountUpsertBulk) AddFirstOutputFailoverTimeoutSeconds(v int) *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.AddFirstOutputFailoverTimeoutSeconds(v)
-	})
-}
-
-// UpdateFirstOutputFailoverTimeoutSeconds sets the "first_output_failover_timeout_seconds" field to the value that was provided on create.
-func (u *AccountUpsertBulk) UpdateFirstOutputFailoverTimeoutSeconds() *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.UpdateFirstOutputFailoverTimeoutSeconds()
-	})
-}
-
-// ClearFirstOutputFailoverTimeoutSeconds clears the value of the "first_output_failover_timeout_seconds" field.
-func (u *AccountUpsertBulk) ClearFirstOutputFailoverTimeoutSeconds() *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.ClearFirstOutputFailoverTimeoutSeconds()
-	})
-}
-
-// SetFirstOutputFailoverCooldownMinutes sets the "first_output_failover_cooldown_minutes" field.
-func (u *AccountUpsertBulk) SetFirstOutputFailoverCooldownMinutes(v int) *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.SetFirstOutputFailoverCooldownMinutes(v)
-	})
-}
-
-// AddFirstOutputFailoverCooldownMinutes adds v to the "first_output_failover_cooldown_minutes" field.
-func (u *AccountUpsertBulk) AddFirstOutputFailoverCooldownMinutes(v int) *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.AddFirstOutputFailoverCooldownMinutes(v)
-	})
-}
-
-// UpdateFirstOutputFailoverCooldownMinutes sets the "first_output_failover_cooldown_minutes" field to the value that was provided on create.
-func (u *AccountUpsertBulk) UpdateFirstOutputFailoverCooldownMinutes() *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.UpdateFirstOutputFailoverCooldownMinutes()
-	})
-}
-
-// ClearFirstOutputFailoverCooldownMinutes clears the value of the "first_output_failover_cooldown_minutes" field.
-func (u *AccountUpsertBulk) ClearFirstOutputFailoverCooldownMinutes() *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.ClearFirstOutputFailoverCooldownMinutes()
 	})
 }
 

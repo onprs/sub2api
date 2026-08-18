@@ -89,86 +89,6 @@ func TestOpenAIForwardFirstOutputTimeoutIncludesResponseHeaderWait(t *testing.T)
 	}
 }
 
-func TestOpenAIChatCompletionsAccountBudgetIncludesResponseHeaderWait(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	upstream := &blockingOpenAIResponseHeaderUpstream{canceled: make(chan struct{})}
-	svc := &OpenAIGatewayService{
-		cfg:          &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
-		httpUpstream: upstream,
-	}
-	body := []byte(`{"model":"gpt-5.5","stream":false,"messages":[{"role":"user","content":"hello"}]}`)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	timeoutSeconds := 1
-	account := &Account{
-		ID: 2, Name: "apikey-test", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
-		Status: StatusActive, Schedulable: true, Concurrency: 1,
-		FirstOutputFailoverTimeoutSeconds: &timeoutSeconds,
-		Credentials:                       map[string]any{"api_key": "sk-test", "base_url": "https://api.openai.com"},
-	}
-
-	started := time.Now()
-	_, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
-
-	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Equal(t, http.StatusGatewayTimeout, failoverErr.StatusCode)
-	require.True(t, failoverErr.SafeToFailoverAfterWrite)
-	require.Less(t, time.Since(started), 1300*time.Millisecond)
-	require.Empty(t, rec.Body.String())
-	select {
-	case <-upstream.canceled:
-	default:
-		t.Fatal("account first-output budget did not cancel the upstream request context")
-	}
-}
-
-func TestOpenAIChatCompletionsBufferedAccountBudgetWaitsForSemanticOutput(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	pr, pw := io.Pipe()
-	trackedBody := &firstOutputCloseTrackingBody{ReadCloser: pr, closed: make(chan struct{})}
-	writerDone := make(chan struct{})
-	go func() {
-		defer close(writerDone)
-		defer func() { _ = pw.Close() }()
-		_, _ = pw.Write([]byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_slow\"}}\n\n"))
-		<-trackedBody.closed
-	}()
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid_buffered_slow"}},
-		Body:       trackedBody,
-	}}
-	svc := &OpenAIGatewayService{
-		cfg:          &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
-		httpUpstream: upstream,
-	}
-	body := []byte(`{"model":"gpt-5.5","stream":false,"messages":[{"role":"user","content":"hello"}]}`)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	timeoutSeconds := 1
-	account := &Account{
-		ID: 3, Name: "apikey-buffered", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
-		Status: StatusActive, Schedulable: true, Concurrency: 1,
-		FirstOutputFailoverTimeoutSeconds: &timeoutSeconds,
-		Credentials:                       map[string]any{"api_key": "sk-test", "base_url": "https://api.openai.com"},
-	}
-
-	_, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
-
-	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Equal(t, http.StatusGatewayTimeout, failoverErr.StatusCode)
-	require.Empty(t, rec.Body.String())
-	select {
-	case <-writerDone:
-	case <-time.After(time.Second):
-		t.Fatal("buffered Responses reader did not stop after account first-output timeout")
-	}
-}
-
 func TestOpenAINativeFirstOutputTimeoutDisabledPreservesSynchronousStream(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
 		OpenAIFirstOutputTimeoutSeconds: 0,
@@ -242,40 +162,6 @@ func TestOpenAIFirstOutputTimeoutForReasoningEffort(t *testing.T) {
 	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout("high"))
 	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout("xhigh"))
 	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout("max"))
-}
-
-func TestOpenAIEffectiveFirstOutputTimeoutUsesExplicitAPIKeyAccountBudget(t *testing.T) {
-	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
-		OpenAIFirstOutputTimeoutSeconds:           120,
-		OpenAIHighEffortFirstOutputTimeoutSeconds: 300,
-	}}}
-	seconds := 15
-	cooldownMinutes := 10
-	account := &Account{
-		Platform:                           PlatformOpenAI,
-		Type:                               AccountTypeAPIKey,
-		FirstOutputFailoverTimeoutSeconds:  &seconds,
-		FirstOutputFailoverCooldownMinutes: &cooldownMinutes,
-	}
-
-	require.Equal(t, 15*time.Second, openAIAccountFirstOutputFailoverTimeout(account))
-	require.Equal(t, 10*time.Minute, openAIAccountFirstOutputFailoverCooldown(account))
-	require.Equal(t, 15*time.Second, svc.openAIEffectiveFirstOutputTimeout(account, "high"))
-
-	account.FirstOutputFailoverTimeoutSeconds = nil
-	require.Zero(t, openAIAccountFirstOutputFailoverTimeout(account))
-	require.Zero(t, openAIAccountFirstOutputFailoverCooldown(account))
-	require.Equal(t, 300*time.Second, svc.openAIEffectiveFirstOutputTimeout(account, "high"))
-
-	account.Type = AccountTypeOAuth
-	account.FirstOutputFailoverTimeoutSeconds = &seconds
-	require.Zero(t, openAIAccountFirstOutputFailoverTimeout(account))
-	require.Zero(t, openAIAccountFirstOutputFailoverCooldown(account))
-
-	tooLong := FirstOutputFailoverCooldownMaxMinutes + 1
-	account.Type = AccountTypeAPIKey
-	account.FirstOutputFailoverCooldownMinutes = &tooLong
-	require.Zero(t, openAIAccountFirstOutputFailoverCooldown(account))
 }
 
 func TestOpenAIFirstOutputStageDefaultLimitIsIndependentFromScannerLimit(t *testing.T) {
