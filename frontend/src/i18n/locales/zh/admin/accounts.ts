@@ -299,12 +299,20 @@ export default {
         remainingHours: '约 {hours} 小时',
         remainingHoursMinutes: '约 {hours} 小时 {minutes} 分钟',
         presets: {
-          overloadLabel: '529 过载',
-          overloadDesc: '服务过载 - 暂停 60 分钟',
+          requestTimeoutLabel: '408 请求超时',
+          requestTimeoutDesc: '请求处理超时 - 暂停 5 分钟',
           rateLimitLabel: '429 限流',
           rateLimitDesc: '触发限流 - 暂停 10 分钟',
+          internalErrorLabel: '500 服务异常',
+          internalErrorDesc: '上游内部异常 - 暂停 10 分钟',
+          badGatewayLabel: '502 网关异常',
+          badGatewayDesc: '上游网关异常 - 暂停 10 分钟',
           unavailableLabel: '503 维护',
-          unavailableDesc: '服务不可用 - 暂停 30 分钟'
+          unavailableDesc: '服务不可用 - 暂停 30 分钟',
+          gatewayTimeoutLabel: '504 网关超时',
+          gatewayTimeoutDesc: '上游响应超时 - 暂停 10 分钟',
+          overloadLabel: '529 过载',
+          overloadDesc: '服务过载 - 暂停 60 分钟'
         }
       },
       upstreamBalance: {

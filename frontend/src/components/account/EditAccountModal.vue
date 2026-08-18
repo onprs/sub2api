@@ -1387,6 +1387,7 @@
           </div>
           <button
             type="button"
+            data-testid="temp-unsched-toggle"
             @click="tempUnschedEnabled = !tempUnschedEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
@@ -1413,8 +1414,9 @@
           <div class="flex flex-wrap gap-2">
             <button
               v-for="preset in tempUnschedPresets"
-              :key="preset.label"
+              :key="preset.id"
               type="button"
+              :data-testid="`temp-unsched-preset-${preset.id}`"
               @click="addTempUnschedRule(preset.rule)"
               class="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500"
             >
@@ -2762,6 +2764,7 @@ import {
   splitModelMappingObject,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
+import { buildTempUnschedPresets, type TempUnschedRuleForm } from './tempUnschedPresets'
 
 interface Props {
   show: boolean
@@ -2809,13 +2812,6 @@ const bedrockPresets = computed(() => getPresetMappingsByPlatform('bedrock'))
 interface ModelMapping {
   from: string
   to: string
-}
-
-interface TempUnschedRuleForm {
-  error_code: number | null
-  keywords: string
-  duration_minutes: number | null
-  description: string
 }
 
 // State
@@ -3220,35 +3216,7 @@ const openAICompactStatusKey = computed(() => {
 
 // Computed: current preset mappings based on platform
 const presetMappings = computed(() => getPresetMappingsByPlatform(props.account?.platform || 'anthropic'))
-const tempUnschedPresets = computed(() => [
-  {
-    label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),
-    rule: {
-      error_code: 529,
-      keywords: 'overloaded, too many',
-      duration_minutes: 60,
-      description: t('admin.accounts.tempUnschedulable.presets.overloadDesc')
-    }
-  },
-  {
-    label: t('admin.accounts.tempUnschedulable.presets.rateLimitLabel'),
-    rule: {
-      error_code: 429,
-      keywords: 'rate limit, too many requests',
-      duration_minutes: 10,
-      description: t('admin.accounts.tempUnschedulable.presets.rateLimitDesc')
-    }
-  },
-  {
-    label: t('admin.accounts.tempUnschedulable.presets.unavailableLabel'),
-    rule: {
-      error_code: 503,
-      keywords: 'unavailable, maintenance',
-      duration_minutes: 30,
-      description: t('admin.accounts.tempUnschedulable.presets.unavailableDesc')
-    }
-  }
-])
+const tempUnschedPresets = computed(() => buildTempUnschedPresets((key) => t(key)))
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
