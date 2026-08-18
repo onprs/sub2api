@@ -4,9 +4,11 @@ import BulkEditAccountModal from '../BulkEditAccountModal.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 import { adminAPI } from '@/api/admin'
 
+const showErrorMock = vi.hoisted(() => vi.fn())
+
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
+    showError: showErrorMock,
     showSuccess: vi.fn(),
     showInfo: vi.fn()
   })
@@ -75,6 +77,7 @@ function mountModal(extraProps: Record<string, unknown> = {}) {
 
 describe('BulkEditAccountModal', () => {
   beforeEach(() => {
+    showErrorMock.mockReset()
     vi.mocked(adminAPI.accounts.bulkUpdate).mockReset()
     vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockReset()
 
@@ -112,6 +115,112 @@ describe('BulkEditAccountModal', () => {
     expect(wrapper.text()).toContain('3.1-Flash-Image透传')
     expect(wrapper.text()).toContain('3-Pro-Image→3.1')
     expect(wrapper.text()).not.toContain('GPT-5.3 Codex Spark')
+  })
+
+  it('批量启用临时不可调度规则时应提交预设并保留调整后的顺序', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['anthropic'],
+      selectedTypes: ['apikey']
+    })
+
+    await wrapper.get('#bulk-edit-temp-unsched-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-temp-unsched-toggle').trigger('click')
+
+    const presetButtons = wrapper.findAll('[data-testid^="bulk-edit-temp-unsched-preset-"]')
+    expect(presetButtons.map((button) => button.attributes('data-testid'))).toEqual([
+      'bulk-edit-temp-unsched-preset-request-timeout',
+      'bulk-edit-temp-unsched-preset-rate-limit',
+      'bulk-edit-temp-unsched-preset-internal-error',
+      'bulk-edit-temp-unsched-preset-bad-gateway',
+      'bulk-edit-temp-unsched-preset-service-unavailable',
+      'bulk-edit-temp-unsched-preset-gateway-timeout',
+      'bulk-edit-temp-unsched-preset-overload'
+    ])
+
+    await wrapper.get('[data-testid="bulk-edit-temp-unsched-preset-request-timeout"]').trigger('click')
+    await wrapper.get('[data-testid="bulk-edit-temp-unsched-preset-service-unavailable"]').trigger('click')
+    await wrapper.get('[data-testid="bulk-edit-temp-unsched-move-up-1"]').trigger('click')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      credentials: {
+        temp_unschedulable_enabled: true,
+        temp_unschedulable_rules: [
+          {
+            error_code: 503,
+            keywords: [
+              'service unavailable',
+              'service_unavailable',
+              'temporarily unavailable',
+              'maintenance',
+              'capacity exhausted',
+              'capacity_exhausted',
+              'no healthy upstream'
+            ],
+            duration_minutes: 30,
+            description: 'admin.accounts.tempUnschedulable.presets.unavailableDesc'
+          },
+          {
+            error_code: 408,
+            keywords: ['request timeout', 'request_timeout', 'request timed out', 'timed out'],
+            duration_minutes: 5,
+            description: 'admin.accounts.tempUnschedulable.presets.requestTimeoutDesc'
+          }
+        ]
+      }
+    })
+  })
+
+  it('批量停用临时不可调度规则时应显式关闭并清空规则', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['apikey']
+    })
+
+    await wrapper.get('#bulk-edit-temp-unsched-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      credentials: {
+        temp_unschedulable_enabled: false,
+        temp_unschedulable_rules: []
+      }
+    })
+  })
+
+  it('批量启用临时不可调度规则时应拒绝任意无效规则', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['gemini'],
+      selectedTypes: ['apikey']
+    })
+
+    await wrapper.get('#bulk-edit-temp-unsched-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-temp-unsched-toggle').trigger('click')
+    await wrapper.get('[data-testid="bulk-edit-temp-unsched-preset-rate-limit"]').trigger('click')
+    await wrapper.get('[data-testid="bulk-edit-temp-unsched-add-rule"]').trigger('click')
+    await wrapper.get('[data-testid="bulk-edit-temp-unsched-error-code-1"]').setValue(99)
+    await wrapper.get('[data-testid="bulk-edit-temp-unsched-duration-1"]').setValue(10)
+    await wrapper.get('[data-testid="bulk-edit-temp-unsched-keywords-1"]').setValue('timeout')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
+    expect(showErrorMock).toHaveBeenCalledWith(
+      'admin.accounts.tempUnschedulable.rulesInvalid'
+    )
+  })
+
+  it('OpenCode Go 批量编辑不显示临时不可调度规则入口', () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['opencode_go'],
+      selectedTypes: ['apikey']
+    })
+
+    expect(wrapper.find('#bulk-edit-temp-unsched-enabled').exists()).toBe(false)
   })
 
   it('仅勾选模型限制且白名单留空时，应提交空 model_mapping 以支持所有模型', async () => {
