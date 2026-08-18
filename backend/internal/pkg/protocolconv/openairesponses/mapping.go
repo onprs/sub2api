@@ -41,13 +41,29 @@ func encodeInstructions(parts []ir.ContentPart) (json.RawMessage, error) {
 		return nil, nil
 	}
 	var text strings.Builder
+	hasCacheHints := false
 	for _, part := range parts {
 		if part.Type != ir.ContentText {
 			return nil, &protocolconv.Error{Code: protocolconv.ErrorUnsupportedCapability, Protocol: protocolconv.ProtocolOpenAIResponses, Capability: protocolconv.CapabilitySystem, Path: "system_instruction"}
 		}
+		if len(part.CacheHint) > 0 {
+			hasCacheHints = true
+		}
 		_, _ = text.WriteString(part.Text)
 	}
-	return json.Marshal(text.String())
+	if !hasCacheHints {
+		return json.Marshal(text.String())
+	}
+
+	encoded := make([]map[string]any, 0, len(parts))
+	for _, part := range parts {
+		item := map[string]any{"type": "input_text", "text": part.Text}
+		if len(part.CacheHint) > 0 {
+			item["cache_control"] = cloneRaw(part.CacheHint)
+		}
+		encoded = append(encoded, item)
+	}
+	return json.Marshal(encoded)
 }
 
 func decodeInput(raw json.RawMessage, messages *[]ir.Message) error {
@@ -160,7 +176,11 @@ func encodeInput(messages []ir.Message, capabilities protocolconv.CapabilitySet,
 				if message.Role == ir.RoleAssistant {
 					partType = "output_text"
 				}
-				content = append(content, map[string]any{"type": partType, "text": part.Text})
+				item := map[string]any{"type": partType, "text": part.Text}
+				if len(part.CacheHint) > 0 {
+					item["cache_control"] = cloneRaw(part.CacheHint)
+				}
+				content = append(content, item)
 			case ir.ContentImage:
 				content = append(content, map[string]any{"type": "input_image", "image_url": imagePartURL(part)})
 			case ir.ContentRefusal:

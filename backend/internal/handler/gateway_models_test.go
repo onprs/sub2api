@@ -93,6 +93,90 @@ func TestGeminiV1BetaListModels_OpenAIGroupListsGenerationRoutableAliases(t *tes
 	require.NotContains(t, rec.Body.String(), "gpt-5.4")
 }
 
+func TestGeminiV1BetaListModels_UsesPlatformFallbackWhenNoSchedulableAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(35)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{}})
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI}})
+
+	h.GeminiV1BetaListModels(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayGeminiModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Contains(t, geminiModelNamesForTest(got.Models), "models/gpt-5.4")
+}
+
+func TestGeminiV1BetaListModels_ExpandsWildcardMappingToConcreteDefaults(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(36)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{
+		groupID: {{
+			ID: 1, Platform: service.PlatformOpenAI,
+			Credentials: map[string]any{"model_mapping": map[string]any{
+				"gpt-*":        "gpt-5.4",
+				"legacy-model": "gpt-5.4",
+			}},
+		}},
+	}})
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI}})
+
+	h.GeminiV1BetaListModels(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayGeminiModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	names := geminiModelNamesForTest(got.Models)
+	require.Contains(t, names, "models/gpt-5.4")
+	require.Contains(t, names, "models/legacy-model")
+	require.NotContains(t, rec.Body.String(), "*")
+}
+
+func TestGeminiV1BetaGetModel_MatchesWildcardMapping(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(38)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{
+		groupID: {{
+			ID: 1, Platform: service.PlatformOpenAI,
+			Credentials: map[string]any{"model_mapping": map[string]any{
+				"custom-*": "gpt-5.4",
+			}},
+		}},
+	}})
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1beta/models/custom-model", nil)
+	c.Params = gin.Params{{Key: "model", Value: "custom-model"}}
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI}})
+
+	h.GeminiV1BetaGetModel(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "models/custom-model", gjson.GetBytes(rec.Body.Bytes(), "name").String())
+}
+
+func TestGeminiV1BetaGetModel_UsesSameFallbackSurface(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(37)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{}})
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1beta/models/gpt-5.4", nil)
+	c.Params = gin.Params{{Key: "model", Value: "gpt-5.4"}}
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI}})
+
+	h.GeminiV1BetaGetModel(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "models/gpt-5.4", gjson.GetBytes(rec.Body.Bytes(), "name").String())
+}
+
 func TestGeminiV1BetaListModels_AntigravityAndOpenCodeGroupsAreAdmitted(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, tc := range []struct {

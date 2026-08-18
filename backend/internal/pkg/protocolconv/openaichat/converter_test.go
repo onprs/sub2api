@@ -9,6 +9,11 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestDecodeRequestRejectsMultipleJSONValues(t *testing.T) {
+	_, _, err := New().DecodeRequest([]byte(`{"model":"model","messages":[]}{}`), protocolconv.Options{})
+	require.ErrorContains(t, err, "multiple JSON values")
+}
+
 func TestEncodeRequestRejectsSignatureInStrictMode(t *testing.T) {
 	request := &ir.Request{Model: "model", Messages: []ir.Message{{Role: ir.RoleAssistant, Content: []ir.ContentPart{{Type: ir.ContentReasoning, Reasoning: "plan", Signature: "sig"}}}}}
 	_, _, err := New().EncodeRequest(request, protocolconv.Options{LossPolicy: protocolconv.LossError})

@@ -110,9 +110,19 @@ func (h *GatewayHandler) writeStandardGoogleIngressModels(c *gin.Context, groupI
 }
 
 func (h *GatewayHandler) standardGoogleIngressModelAvailable(c *gin.Context, groupID *int64, platform, model string) bool {
-	model = strings.TrimPrefix(strings.TrimSpace(model), "models/")
 	for _, available := range h.standardGoogleIngressModelIDs(c, groupID, platform) {
-		if strings.TrimPrefix(strings.TrimSpace(available), "models/") == model {
+		if standardGoogleIngressModelMatches(available, model) {
+			return true
+		}
+	}
+	if apiKey, ok := middleware.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
+		return false
+	}
+	if h == nil || h.gatewayService == nil {
+		return false
+	}
+	for _, available := range h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform) {
+		if standardGoogleIngressModelMatches(available, model) {
 			return true
 		}
 	}
@@ -120,17 +130,72 @@ func (h *GatewayHandler) standardGoogleIngressModelAvailable(c *gin.Context, gro
 }
 
 func (h *GatewayHandler) standardGoogleIngressModelIDs(c *gin.Context, groupID *int64, platform string) []string {
-	if h == nil || h.gatewayService == nil {
-		return nil
+	var availableModels []string
+	if h != nil && h.gatewayService != nil {
+		availableModels = h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
 	}
-	models := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
-	if len(models) == 0 && platform == service.PlatformAnthropic {
-		models = make([]string, 0, len(claude.DefaultModels))
+	fallbackModels := standardGoogleIngressFallbackModelIDs(platform)
+	models := availableModels
+	if len(models) == 0 {
+		models = fallbackModels
+	} else {
+		models = expandGoogleIngressModelIDs(models, fallbackModels)
+	}
+
+	if apiKey, ok := middleware.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
+		// 使用原始映射模式过滤，确保自定义列表中的非默认模型也能被通配符映射放行。
+		models = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
+	}
+	return models
+}
+
+func standardGoogleIngressFallbackModelIDs(platform string) []string {
+	if platform == service.PlatformAnthropic {
+		models := make([]string, 0, len(claude.DefaultModels))
 		for _, model := range claude.DefaultModels {
 			models = append(models, model.ID)
 		}
+		return models
 	}
-	return models
+	return defaultModelIDsForPlatform(platform)
+}
+
+func expandGoogleIngressModelIDs(models, fallbackModels []string) []string {
+	concrete := make([]string, 0, len(models))
+	patterns := make([]string, 0)
+	seen := make(map[string]struct{}, len(models)+len(fallbackModels))
+	for _, model := range models {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		if strings.Contains(model, "*") {
+			patterns = append(patterns, model)
+			continue
+		}
+		if _, ok := seen[model]; ok {
+			continue
+		}
+		seen[model] = struct{}{}
+		concrete = append(concrete, model)
+	}
+	for _, model := range fallbackModels {
+		if !customModelsListAllowsModel(patterns, model) {
+			continue
+		}
+		if _, ok := seen[model]; ok {
+			continue
+		}
+		seen[model] = struct{}{}
+		concrete = append(concrete, model)
+	}
+	return concrete
+}
+
+func standardGoogleIngressModelMatches(available, model string) bool {
+	available = strings.TrimPrefix(strings.TrimSpace(available), "models/")
+	model = strings.TrimPrefix(strings.TrimSpace(model), "models/")
+	return customModelsListAllowsModel([]string{available}, model)
 }
 
 func (h *GatewayHandler) writeAntigravityGeminiMappedModels(c *gin.Context, groupID *int64) {

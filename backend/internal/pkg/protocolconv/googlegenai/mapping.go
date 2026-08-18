@@ -19,6 +19,13 @@ func ensureGoogleFunctionCallID(part partWire, candidateIndex, partIndex int) pa
 	return part
 }
 
+func googleCandidateIndex(position int, candidate candidateWire) int {
+	if candidate.Index != 0 || position == 0 {
+		return candidate.Index
+	}
+	return position
+}
+
 func partFromGoogle(part partWire) ([]ir.ContentPart, error) {
 	switch {
 	case part.FunctionCall != nil:
@@ -58,7 +65,7 @@ func partFromGoogle(part partWire) ([]ir.ContentPart, error) {
 func partToGoogle(part ir.ContentPart, target protocolconv.Protocol, options protocolconv.Options) ([]partWire, []protocolconv.Warning, error) {
 	switch part.Type {
 	case ir.ContentText:
-		return []partWire{{Text: part.Text, ThoughtSignature: part.Signature}}, nil, nil
+		return []partWire{{Text: part.Text, ThoughtSignature: part.Signature, CacheControl: cloneRaw(part.CacheHint)}}, nil, nil
 	case ir.ContentImage, ir.ContentAudio:
 		if part.Data != "" {
 			return []partWire{{InlineData: &blobWire{MIMEType: part.MediaType, Data: part.Data}}}, nil, nil

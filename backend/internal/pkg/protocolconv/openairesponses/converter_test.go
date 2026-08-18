@@ -4,9 +4,39 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/ir"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestEncodeRequestPreservesInstructionAndMessageCacheControl(t *testing.T) {
+	request := &ir.Request{
+		Model: "model",
+		SystemInstruction: []ir.ContentPart{{
+			Type: ir.ContentText, Text: "rules", CacheHint: []byte(`{"type":"ephemeral"}`),
+		}},
+		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.ContentPart{{
+			Type: ir.ContentText, Text: "hello", CacheHint: []byte(`{"type":"ephemeral","ttl":"1h"}`),
+		}}}},
+	}
+
+	body, warnings, err := New().EncodeRequest(request, protocolconv.Options{})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, "ephemeral", gjson.GetBytes(body, "instructions.0.cache_control.type").String())
+	require.Equal(t, "1h", gjson.GetBytes(body, "input.0.content.0.cache_control.ttl").String())
+
+	restored, warnings, err := New().DecodeRequest(body, protocolconv.Options{})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.JSONEq(t, `{"type":"ephemeral"}`, string(restored.SystemInstruction[0].CacheHint))
+	require.JSONEq(t, `{"type":"ephemeral","ttl":"1h"}`, string(restored.Messages[0].Content[0].CacheHint))
+}
+
+func TestDecodeRequestRejectsMultipleJSONValues(t *testing.T) {
+	_, _, err := New().DecodeRequest([]byte(`{"model":"model","input":"hello"}{}`), protocolconv.Options{})
+	require.ErrorContains(t, err, "multiple JSON values")
+}
 
 func TestRequestRoundTripPreservesExtendedToolSemantics(t *testing.T) {
 	body := []byte(`{

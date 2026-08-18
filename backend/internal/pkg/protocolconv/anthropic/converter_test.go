@@ -11,6 +11,11 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestDecodeRequestRejectsMultipleJSONValues(t *testing.T) {
+	_, _, err := New().DecodeRequest([]byte(`{"model":"model","max_tokens":8,"messages":[]}{}`), protocolconv.Options{})
+	require.ErrorContains(t, err, "multiple JSON values")
+}
+
 func TestRequestRoundTripPreservesMultimodalToolResult(t *testing.T) {
 	body := []byte(`{
 		"model":"claude-test",

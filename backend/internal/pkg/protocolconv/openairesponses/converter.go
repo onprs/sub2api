@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
@@ -136,6 +137,7 @@ func (*Converter) DecodeRequest(body []byte, _ protocolconv.Options) (*ir.Reques
 		out.Cache = &ir.CacheConfig{Key: wire.PromptCacheKey}
 	}
 	out.Extensions = encodeRequestExtensions(wire)
+	ir.NormalizeSystemInstruction(out)
 	if err := ir.ValidateRequest(out); err != nil {
 		return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidIR, Protocol: protocolconv.ProtocolOpenAIResponses, Cause: err}
 	}
@@ -284,8 +286,12 @@ func decodeJSON(body []byte, value any) error {
 	if err := decoder.Decode(value); err != nil {
 		return &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolOpenAIResponses, Cause: err}
 	}
-	if decoder.More() {
-		return &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolOpenAIResponses, Message: "multiple JSON values"}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolOpenAIResponses, Message: "multiple JSON values"}
+		}
+		return &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolOpenAIResponses, Cause: err}
 	}
 	return nil
 }

@@ -32,6 +32,22 @@ func TestChatCompletionsToResponses_BasicText(t *testing.T) {
 	assert.Equal(t, "user", items[0].Role)
 }
 
+func TestChatCompletionsToResponses_PreservesDeveloperRole(t *testing.T) {
+	req := &ChatCompletionsRequest{
+		Model: "gpt-5.4",
+		Messages: []ChatMessage{
+			{Role: "developer", Content: json.RawMessage(`"Use concise answers."`)},
+		},
+	}
+
+	resp, err := ChatCompletionsToResponses(req)
+	require.NoError(t, err)
+	var items []ResponsesInputItem
+	require.NoError(t, json.Unmarshal(resp.Input, &items))
+	require.Len(t, items, 1)
+	assert.Equal(t, "developer", items[0].Role)
+}
+
 func TestUsageConversionsPreserveCacheWriteTokens(t *testing.T) {
 	var responsesUsage ResponsesUsage
 	require.NoError(t, json.Unmarshal([]byte(`{

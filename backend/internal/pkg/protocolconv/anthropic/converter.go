@@ -4,6 +4,7 @@ package anthropic
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
@@ -107,6 +108,13 @@ func decode(body []byte, value any) error {
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	if err := decoder.Decode(value); err != nil {
+		return &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolAnthropic, Cause: err}
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolAnthropic, Message: "multiple JSON values"}
+		}
 		return &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolAnthropic, Cause: err}
 	}
 	return nil

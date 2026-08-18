@@ -71,12 +71,13 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 
 	finished := false
 	finishReason := ir.FinishReason{Reason: "stop"}
-	for candidateIndex, candidate := range wire.Candidates {
+	for candidatePosition, candidate := range wire.Candidates {
+		candidateIndex := googleCandidateIndex(candidatePosition, candidate)
 		for partIndex, part := range candidate.Content.Parts {
 			part = ensureGoogleFunctionCallID(part, candidateIndex, partIndex)
 			partType := googlePartType(part)
 			identity := googlePartIdentity(part)
-			if d.current == nil || d.current.partType != partType || (partType == ir.ContentToolCall && d.current.toolCallID != identity) {
+			if d.current == nil || d.current.choiceIndex != candidateIndex || d.current.partType != partType || (partType == ir.ContentToolCall && d.current.toolCallID != identity) {
 				out = append(out, d.closeCurrent()...)
 				d.current = &googleBlock{index: d.nextBlock, partType: partType, choiceIndex: candidateIndex, toolIndex: partIndex}
 				d.nextBlock++

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
@@ -77,7 +78,7 @@ func (c *Converter) EncodeRequest(request *ir.Request, options protocolconv.Opti
 	if err != nil {
 		return nil, cacheWarnings, err
 	}
-	canonical, warnings, err := c.responses.EncodeRequest(request, options)
+	canonical, warnings, err := c.responses.EncodeRequest(requestWithoutChatCacheHints(request), options)
 	warnings = append(cacheWarnings, warnings...)
 	if err != nil {
 		return nil, warnings, err
@@ -165,6 +166,35 @@ func checkSignatures(messages []ir.Message, options protocolconv.Options) ([]pro
 		}
 	}
 	return warnings, nil
+}
+
+func requestWithoutChatCacheHints(request *ir.Request) *ir.Request {
+	if request == nil {
+		return nil
+	}
+	clone := *request
+	clone.SystemInstruction = cloneChatCacheFreeParts(request.SystemInstruction)
+	clone.Messages = make([]ir.Message, len(request.Messages))
+	for i, message := range request.Messages {
+		clone.Messages[i] = message
+		clone.Messages[i].Content = cloneChatCacheFreeParts(message.Content)
+	}
+	return &clone
+}
+
+func cloneChatCacheFreeParts(parts []ir.ContentPart) []ir.ContentPart {
+	if len(parts) == 0 {
+		return nil
+	}
+	cloned := make([]ir.ContentPart, len(parts))
+	for i, part := range parts {
+		cloned[i] = part
+		cloned[i].CacheHint = nil
+		if len(part.ToolResultContent) > 0 {
+			cloned[i].ToolResultContent = cloneChatCacheFreeParts(part.ToolResultContent)
+		}
+	}
+	return cloned
 }
 
 type chatCacheHint struct {
@@ -491,6 +521,13 @@ func decode(body []byte, value any) error {
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	if err := decoder.Decode(value); err != nil {
+		return &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolOpenAIChat, Cause: err}
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolOpenAIChat, Message: "multiple JSON values"}
+		}
 		return &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolOpenAIChat, Cause: err}
 	}
 	return nil

@@ -10,6 +10,11 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestDecodeRequestRejectsMultipleJSONValues(t *testing.T) {
+	_, _, err := New().DecodeRequest([]byte(`{"contents":[]}{}`), protocolconv.Options{SourceModel: "gemini-test"})
+	require.ErrorContains(t, err, "multiple JSON values")
+}
+
 func TestEncodeResponseDoesNotLeakForeignProviderFinishReason(t *testing.T) {
 	response := &ir.Response{
 		ID: "resp_1", Model: "client-model", Status: "completed",
@@ -44,6 +49,57 @@ func TestGoogleStreamEncoderRestoresRequestScopedResponseModel(t *testing.T) {
 		require.NoError(t, json.Unmarshal(payload, &wire))
 		require.Equal(t, "client-model", wire.ModelVersion)
 	}
+}
+
+func TestEncodeRequestPreservesTextCacheControl(t *testing.T) {
+	request := &ir.Request{
+		Model: "gemini-test",
+		SystemInstruction: []ir.ContentPart{{
+			Type: ir.ContentText, Text: "system", CacheHint: []byte(`{"type":"ephemeral"}`),
+		}},
+		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.ContentPart{{
+			Type: ir.ContentText, Text: "hello", CacheHint: []byte(`{"type":"ephemeral","ttl":"1h"}`),
+		}}}},
+	}
+
+	body, warnings, err := New().EncodeRequest(request, protocolconv.Options{})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, "ephemeral", gjson.GetBytes(body, "systemInstruction.parts.0.cache_control.type").String())
+	require.Equal(t, "1h", gjson.GetBytes(body, "contents.0.parts.0.cache_control.ttl").String())
+
+	restored, warnings, err := New().DecodeRequest(body, protocolconv.Options{SourceModel: "gemini-test"})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.JSONEq(t, `{"type":"ephemeral"}`, string(restored.SystemInstruction[0].CacheHint))
+	require.JSONEq(t, `{"type":"ephemeral","ttl":"1h"}`, string(restored.Messages[0].Content[0].CacheHint))
+}
+
+func TestStreamDecoderKeepsGoogleCandidatesSeparate(t *testing.T) {
+	decoder := New().NewStreamDecoder()
+	events, _, err := decoder.Decode([]byte(`{
+		"candidates":[
+			{"index":3,"content":{"role":"model","parts":[{"text":"first"}]}},
+			{"index":7,"content":{"role":"model","parts":[{"text":"second"}]} ,"finishReason":"STOP"}
+		]
+	}`))
+	require.NoError(t, err)
+	var text []string
+	var choices []int
+	var blockStarts int
+	for _, event := range events {
+		switch event.Type {
+		case ir.EventContentBlockStart:
+			blockStarts++
+			choices = append(choices, event.ChoiceIndex)
+		case ir.EventTextDelta:
+			text = append(text, event.Text)
+		}
+	}
+	require.Equal(t, 2, blockStarts)
+	require.Equal(t, []int{3, 7}, choices)
+	require.Equal(t, []string{"first", "second"}, text)
+	require.NoError(t, func() error { _, _, err := decoder.Finalize(); return err }())
 }
 
 func TestDecodeResponseSynthesizesMissingFunctionCallIDs(t *testing.T) {

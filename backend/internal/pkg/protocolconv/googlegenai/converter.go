@@ -4,6 +4,7 @@ package googlegenai
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"strings"
 	"time"
 
@@ -127,7 +128,7 @@ func (c *Converter) EncodeRequest(request *ir.Request, options protocolconv.Opti
 	if len(request.SystemInstruction) > 0 {
 		wire.SystemInstruction = &contentWire{Role: "system"}
 		for _, part := range request.SystemInstruction {
-			wire.SystemInstruction.Parts = append(wire.SystemInstruction.Parts, partWire{Text: part.Text})
+			wire.SystemInstruction.Parts = append(wire.SystemInstruction.Parts, partWire{Text: part.Text, CacheControl: cloneRaw(part.CacheHint)})
 		}
 	}
 	var warnings []protocolconv.Warning
@@ -182,7 +183,8 @@ func (c *Converter) DecodeResponse(body []byte, options protocolconv.Options) (*
 		model = options.SourceModel
 	}
 	out := &ir.Response{ID: wire.ResponseID, Model: model, Created: time.Now().Unix(), Status: "completed", Usage: usageFromGoogle(wire.UsageMetadata)}
-	for candidateIndex, candidate := range wire.Candidates {
+	for candidatePosition, candidate := range wire.Candidates {
+		candidateIndex := googleCandidateIndex(candidatePosition, candidate)
 		message := ir.Message{Role: ir.RoleAssistant}
 		for partIndex, part := range candidate.Content.Parts {
 			part = ensureGoogleFunctionCallID(part, candidateIndex, partIndex)
@@ -200,7 +202,7 @@ func (c *Converter) DecodeResponse(body []byte, options protocolconv.Options) (*
 				break
 			}
 		}
-		out.Choices = append(out.Choices, ir.Choice{Index: candidate.Index, Message: message, FinishReason: finish})
+		out.Choices = append(out.Choices, ir.Choice{Index: candidateIndex, Message: message, FinishReason: finish})
 	}
 	if err := ir.ValidateResponse(out); err != nil {
 		return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidIR, Protocol: c.Protocol(), Cause: err}
@@ -234,6 +236,13 @@ func decode(body []byte, value any) error {
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	if err := decoder.Decode(value); err != nil {
+		return &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolGoogleGenAI, Cause: err}
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolGoogleGenAI, Message: "multiple JSON values"}
+		}
 		return &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolGoogleGenAI, Cause: err}
 	}
 	return nil
