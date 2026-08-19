@@ -190,12 +190,21 @@ func answerFromOpenCodeGoMonitorRequest(body map[string]any) string {
 	if len(messages) == 0 {
 		return "0"
 	}
-	msg, _ := messages[0].(map[string]any)
-	prompt, _ := msg["content"].(string)
-	return answerFromOpenCodeGoMonitorPrompt(prompt)
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg, _ := messages[i].(map[string]any)
+		if role, _ := msg["role"].(string); role == "user" {
+			prompt, _ := msg["content"].(string)
+			return answerFromOpenCodeGoMonitorPrompt(prompt)
+		}
+	}
+	return "0"
 }
 
 func answerFromOpenCodeGoMonitorPrompt(prompt string) string {
+	if strings.Contains(prompt, "Reply with ONLY this exact check code:") {
+		lines := strings.Split(strings.TrimSpace(prompt), "\n")
+		return strings.TrimSpace(lines[len(lines)-1])
+	}
 	parts := openCodeGoMonitorQuestionRegex.FindStringSubmatch(prompt)
 	if len(parts) != 4 {
 		return "0"

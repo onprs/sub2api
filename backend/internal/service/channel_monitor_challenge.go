@@ -34,7 +34,7 @@ type monitorChallenge struct {
 }
 
 func generateChallengeForProvider(provider string) monitorChallenge {
-	if provider == MonitorProviderAntigravityGemini || provider == MonitorProviderClinePass {
+	if provider == MonitorProviderAntigravityGemini || provider == MonitorProviderClinePass || provider == MonitorProviderOpenCodeGo {
 		return generateExactChallenge()
 	}
 	return generateChallenge()

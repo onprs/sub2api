@@ -272,8 +272,11 @@ var providerOpenCodeGoChatAdapter = providerAdapter{
 	buildPath: func(string) string { return providerOpenCodeGoChatPath },
 	buildBody: func(model, prompt string) ([]byte, error) {
 		return json.Marshal(map[string]any{
-			"model":       model,
-			"messages":    []map[string]string{{"role": "user", "content": prompt}},
+			"model": model,
+			"messages": []map[string]string{
+				{"role": "system", "content": "Return only the requested check code. Do not explain or use tools."},
+				{"role": "user", "content": prompt},
+			},
 			"max_tokens":  monitorOpenCodeGoChallengeMaxTokens,
 			"temperature": 0,
 			"stream":      false,
@@ -341,8 +344,11 @@ var providerOpenCodeGoMessagesAdapter = providerAdapter{
 	buildPath: func(string) string { return providerOpenCodeGoMessagesPath },
 	buildBody: func(model, prompt string) ([]byte, error) {
 		return json.Marshal(map[string]any{
-			"model":       model,
-			"messages":    []map[string]string{{"role": "user", "content": prompt}},
+			"model":  model,
+			"system": "Return only the requested check code. Do not explain or use tools.",
+			"messages": []map[string]string{
+				{"role": "user", "content": prompt},
+			},
 			"max_tokens":  monitorOpenCodeGoChallengeMaxTokens,
 			"temperature": 0,
 		})
@@ -362,7 +368,7 @@ var providerOpenCodeGoResponsesAdapter = providerAdapter{
 	buildBody: func(model, prompt string) ([]byte, error) {
 		return json.Marshal(map[string]any{
 			"model":             model,
-			"instructions":      "You are a channel health-check endpoint. Answer the arithmetic challenge exactly and briefly.",
+			"instructions":      "Return only the requested check code. Do not explain or use tools.",
 			"input":             prompt,
 			"max_output_tokens": monitorOpenCodeGoChallengeMaxTokens,
 			"stream":            false,
