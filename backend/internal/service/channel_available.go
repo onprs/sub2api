@@ -459,6 +459,15 @@ func synthesizePricingFromModelPricing(mp *ModelPricing, existing *ChannelModelP
 		CacheReadPrice:   nonZeroPtr(mp.CacheReadPricePerToken),
 		ImageOutputPrice: nonZeroPtr(mp.ImageOutputPricePerToken),
 	}
+	if mp.AllowZeroRate {
+		zero := float64(0)
+		if mp.InputPricePerToken == 0 {
+			pricing.InputPrice = &zero
+		}
+		if mp.OutputPricePerToken == 0 {
+			pricing.OutputPrice = &zero
+		}
+	}
 	if mode == BillingModeToken {
 		pricing.Intervals = longContextDisplayIntervals(mp)
 	}

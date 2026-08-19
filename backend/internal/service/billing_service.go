@@ -119,6 +119,7 @@ type ModelPricing struct {
 	LongContextOutputMultiplier        float64 // 长上下文整次会话输出倍率
 	ImageOutputPricePerToken           float64 // 图片输出 token 价格 (USD)
 	ImageOutputPriceExplicit           bool    // 是否由渠道定价显式设定（为 true 时即使 == 0 也不回退）
+	AllowZeroRate                      bool    // 明确允许零费率（免费模型，如 OpenRouter free tier），不视为缺失价格
 }
 
 const (
@@ -143,6 +144,9 @@ func hasBillableTokenPricing(pricing *ModelPricing) bool {
 	if pricing == nil {
 		return false
 	}
+	if pricing.AllowZeroRate {
+		return true
+	}
 	return pricing.InputPricePerToken > 0 ||
 		pricing.InputPricePerTokenPriority > 0 ||
 		pricing.OutputPricePerToken > 0 ||
@@ -158,6 +162,9 @@ func hasBillableTokenPricing(pricing *ModelPricing) bool {
 func hasTokenPricingForUsage(pricing *ModelPricing, tokens UsageTokens) bool {
 	if pricing == nil {
 		return false
+	}
+	if pricing.AllowZeroRate {
+		return true
 	}
 	if tokens.InputTokens == 0 && tokens.OutputTokens == 0 &&
 		tokens.CacheCreationTokens == 0 && tokens.CacheCreation5mTokens == 0 && tokens.CacheCreation1hTokens == 0 &&
@@ -884,8 +891,17 @@ func (s *BillingService) OpenCodeGoUsagePromotionMultiplier(model string, now ti
 
 // GetModelPricingForPlatform 在需要平台隔离时解析模型价格。
 // OpenCode Go 优先接受官方动态目录/持久化缓存中的精确条目，再回落到平台限定参考价与补充动态条目；
+// OpenRouter 优先匹配专属免费与标准参考价，再回落到通用目录；
 // 其他平台保持通用解析行为。
 func (s *BillingService) GetModelPricingForPlatform(platform, model string) (*ModelPricing, error) {
+	if platform == PlatformOpenRouter {
+		for _, candidate := range billingModelPricingCandidates(model) {
+			if pricing, ok := openRouterReferencePricing(candidate); ok {
+				return pricing, nil
+			}
+		}
+		return s.GetModelPricing(model)
+	}
 	if !isOpenCodeGoPricingPlatform(platform) {
 		return s.GetModelPricing(model)
 	}
@@ -918,6 +934,9 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 		if pricing == nil {
 			return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
 		}
+		return pricing, nil
+	}
+	if pricing, ok := openRouterReferencePricing(model); ok {
 		return pricing, nil
 	}
 	candidates := billingModelPricingCandidates(model)
