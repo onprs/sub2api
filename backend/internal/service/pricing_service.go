@@ -120,6 +120,9 @@ const (
 	openCodeGoDeepSeekFlashPromoModel      = "deepseek-v4-flash"
 	openCodeGoDeepSeekFlashPromoPhrase     = "deepseek v4 flash gets 2x usage limits"
 	openCodeGoDeepSeekFlashPromoMultiplier = 0.5
+	openCodeGoHy3PromoModel                = "hy3"
+	openCodeGoHy3PromoPhrase               = "hy3 gets 8x usage limits"
+	openCodeGoHy3PromoMultiplier           = 0.125
 	openCodeGoPromotionRefreshInterval     = 10 * time.Minute
 	openCodeGoPromotionEvidenceTTL         = time.Hour
 	openCodeGoPricingAuthorityOfficial     = "official"
@@ -910,8 +913,11 @@ func parseOpenCodeGoUsagePromotionsDocument(body []byte) (map[string]float64, er
 
 	promotions := make(map[string]float64)
 	pageText := normalizeOpenCodeGoPromotionText(openCodeGoVisibleText(main))
-	if strings.Contains(pageText, openCodeGoDeepSeekFlashPromoPhrase) || openCodeGoPromotionBadgeActive(main, openCodeGoDeepSeekFlashPromoModel) {
+	if strings.Contains(pageText, openCodeGoDeepSeekFlashPromoPhrase) || openCodeGoPromotionBadgeActive(main, openCodeGoDeepSeekFlashPromoModel, "2x usage") {
 		promotions[openCodeGoDeepSeekFlashPromoModel] = openCodeGoDeepSeekFlashPromoMultiplier
+	}
+	if strings.Contains(pageText, openCodeGoHy3PromoPhrase) || openCodeGoPromotionBadgeActive(main, openCodeGoHy3PromoModel, "8x usage") {
+		promotions[openCodeGoHy3PromoModel] = openCodeGoHy3PromoMultiplier
 	}
 	return promotions, nil
 }
@@ -931,34 +937,34 @@ func findOpenCodeGoPromotionsMain(node *xhtml.Node) *xhtml.Node {
 	return nil
 }
 
-func openCodeGoPromotionBadgeActive(node *xhtml.Node, model string) bool {
+func openCodeGoPromotionBadgeActive(node *xhtml.Node, model, expectedBonus string) bool {
 	if node == nil || isOpenCodeGoHiddenPromotionNode(node) {
 		return false
 	}
 	if node.Type == xhtml.ElementNode && strings.EqualFold(htmlNodeAttribute(node, "data-model"), model) {
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			if openCodeGoUsageBonusNode(child) {
+			if openCodeGoUsageBonusNode(child, expectedBonus) {
 				return true
 			}
 		}
 	}
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if openCodeGoPromotionBadgeActive(child, model) {
+		if openCodeGoPromotionBadgeActive(child, model, expectedBonus) {
 			return true
 		}
 	}
 	return false
 }
 
-func openCodeGoUsageBonusNode(node *xhtml.Node) bool {
+func openCodeGoUsageBonusNode(node *xhtml.Node, expectedBonus string) bool {
 	if node == nil || isOpenCodeGoHiddenPromotionNode(node) {
 		return false
 	}
 	if node.Type == xhtml.ElementNode && htmlNodeHasAttribute(node, "data-bonus") {
-		return normalizeOpenCodeGoPromotionText(openCodeGoVisibleText(node)) == "2x usage"
+		return normalizeOpenCodeGoPromotionText(openCodeGoVisibleText(node)) == expectedBonus
 	}
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if openCodeGoUsageBonusNode(child) {
+		if openCodeGoUsageBonusNode(child, expectedBonus) {
 			return true
 		}
 	}
@@ -1032,7 +1038,8 @@ func normalizeOpenCodeGoPromotionText(text string) string {
 }
 
 func openCodeGoModelsDevBasePriceMultiplier(modelID, name string) float64 {
-	if !strings.EqualFold(strings.TrimSpace(modelID), openCodeGoDeepSeekFlashPromoModel) {
+	if !strings.EqualFold(strings.TrimSpace(modelID), openCodeGoDeepSeekFlashPromoModel) &&
+		!strings.EqualFold(strings.TrimSpace(modelID), openCodeGoHy3PromoModel) {
 		return 1
 	}
 	match := openCodeGoUsageLabelPattern.FindStringSubmatch(name)

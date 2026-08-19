@@ -117,9 +117,9 @@ func TestOpenRouterGatewayTempUnschedulableRuleFailover(t *testing.T) {
 	svc := NewOpenRouterGatewayService(client, nil, rateLimitSvc)
 
 	account := &Account{
-		ID:          101,
-		Platform:    PlatformOpenRouter,
-		Type:        AccountTypeAPIKey,
+		ID:       101,
+		Platform: PlatformOpenRouter,
+		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{
 			"api_key":                    "or-test-key",
 			"base_url":                   "https://openrouter.ai/api/v1",

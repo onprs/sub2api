@@ -157,6 +157,23 @@ func TestAdminService_CreateGroup_AllowsZeroRateMultiplier(t *testing.T) {
 	require.InDelta(t, 0, repo.created.RateMultiplier, 1e-12)
 }
 
+func TestAdminService_CreateGroup_OpenRouterPlatform(t *testing.T) {
+	repo := &groupRepoStubForAdmin{}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:           "openrouter-group",
+		Description:    "OpenRouter standard group",
+		Platform:       PlatformOpenRouter,
+		RateMultiplier: 1.2,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	require.NotNil(t, repo.created)
+	require.Equal(t, PlatformOpenRouter, repo.created.Platform)
+	require.InDelta(t, 1.2, repo.created.RateMultiplier, 1e-12)
+}
+
 // TestAdminService_CreateGroup_WithImagePricing 测试创建分组时 ImagePrice 字段正确传递
 func TestAdminService_CreateGroup_WithImagePricing(t *testing.T) {
 	repo := &groupRepoStubForAdmin{}

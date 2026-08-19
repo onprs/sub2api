@@ -37,7 +37,7 @@ func NewChannelMonitorHandler(monitorService *service.ChannelMonitorService) *Ch
 
 type channelMonitorCreateRequest struct {
 	Name             string            `json:"name" binding:"required,max=100"`
-	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini opencode_go clinepass antigravity_claude antigravity_gemini"`
+	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini opencode_go clinepass openrouter antigravity_claude antigravity_gemini"`
 	APIMode          string            `json:"api_mode" binding:"omitempty,oneof=chat_completions messages responses"`
 	Endpoint         string            `json:"endpoint" binding:"required,max=500"`
 	APIKey           string            `json:"api_key" binding:"required,max=2000"`
@@ -55,7 +55,7 @@ type channelMonitorCreateRequest struct {
 
 type channelMonitorUpdateRequest struct {
 	Name             *string            `json:"name" binding:"omitempty,max=100"`
-	Provider         *string            `json:"provider" binding:"omitempty,oneof=openai anthropic gemini opencode_go clinepass antigravity_claude antigravity_gemini"`
+	Provider         *string            `json:"provider" binding:"omitempty,oneof=openai anthropic gemini opencode_go clinepass openrouter antigravity_claude antigravity_gemini"`
 	APIMode          *string            `json:"api_mode" binding:"omitempty,oneof=chat_completions messages responses"`
 	Endpoint         *string            `json:"endpoint" binding:"omitempty,max=500"`
 	APIKey           *string            `json:"api_key" binding:"omitempty,max=2000"`

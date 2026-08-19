@@ -575,6 +575,7 @@ func TestBuildCatalogSupportedModel_OpenCodeGoPromotionIsSeparateFromStandardPri
 		pricingData: map[string]*LiteLLMModelPricing{},
 		openCodeGoPromotions: map[string]openCodeGoUsagePromotion{
 			openCodeGoDeepSeekFlashPromoModel: {multiplier: 0.5, confirmedAt: time.Now()},
+			openCodeGoHy3PromoModel:           {multiplier: 0.125, confirmedAt: time.Now()},
 		},
 	}
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
@@ -589,10 +590,24 @@ func TestBuildCatalogSupportedModel_OpenCodeGoPromotionIsSeparateFromStandardPri
 	require.InDelta(t, 0.5, flash.Promotion.CostMultiplier, 1e-12)
 	require.InDelta(t, 2.0, flash.Promotion.UsageMultiplier, 1e-12)
 
+	hy3 := svc.BuildCatalogSupportedModel(openCodeGoHy3PromoModel, PlatformOpenCodeGo, nil)
+	require.NotNil(t, hy3.Pricing)
+	require.NotNil(t, hy3.Pricing.InputPrice)
+	require.InDelta(t, 0.14e-6, *hy3.Pricing.InputPrice, 1e-15)
+	require.NotNil(t, hy3.Promotion)
+	require.Equal(t, "opencode_go_usage_bonus", hy3.Promotion.Code)
+	require.InDelta(t, 0.125, hy3.Promotion.CostMultiplier, 1e-12)
+	require.InDelta(t, 8.0, hy3.Promotion.UsageMultiplier, 1e-12)
+
+	hy3Preview := svc.BuildCatalogSupportedModel("hy3-preview", PlatformOpenCodeGo, nil)
+	require.Nil(t, hy3Preview.Promotion)
+
 	preview := svc.BuildCatalogSupportedModel("deepseek-v4-flash-preview", PlatformOpenCodeGo, nil)
 	require.Nil(t, preview.Promotion)
 	otherPlatform := svc.BuildCatalogSupportedModel(openCodeGoDeepSeekFlashPromoModel, PlatformAnthropic, nil)
 	require.Nil(t, otherPlatform.Promotion)
+	otherPlatformHy3 := svc.BuildCatalogSupportedModel(openCodeGoHy3PromoModel, PlatformAnthropic, nil)
+	require.Nil(t, otherPlatformHy3.Promotion)
 }
 
 func TestBuildCatalogSupportedModel_OpenCodeGoReferenceCatalogCoversEverySeedModel(t *testing.T) {

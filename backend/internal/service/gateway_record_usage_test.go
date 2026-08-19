@@ -727,6 +727,91 @@ func TestGatewayServiceRecordUsage_OpenCodeGoDeepSeekFlashPromotionHalvesUsageCo
 	require.InDelta(t, standardCost.ActualCost, otherUserRepo.lastAmount, 1e-12)
 }
 
+func TestGatewayServiceRecordUsage_OpenCodeGoHy3PromotionEightTimesUsageCosts(t *testing.T) {
+	now := time.Now()
+	pricingSvc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{},
+		openCodeGoPromotions: map[string]openCodeGoUsagePromotion{
+			openCodeGoHy3PromoModel: {multiplier: 0.125, confirmedAt: now},
+		},
+	}
+
+	newService := func(platform string) (*GatewayService, *openAIRecordUsageLogRepoStub, *openAIRecordUsageUserRepoStub) {
+		usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+		userRepo := &openAIRecordUsageUserRepoStub{}
+		svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+		svc.billingService = NewBillingService(svc.cfg, pricingSvc)
+		svc.channelService = newTestChannelServiceForStats(t, &Channel{ID: 1, Status: StatusActive}, 10, platform)
+		return svc, usageRepo, userRepo
+	}
+
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}
+	standardBilling := NewBillingService(&config.Config{}, nil)
+	standardCost, err := standardBilling.CalculateCostForPlatform(PlatformOpenCodeGo, openCodeGoHy3PromoModel, tokens, 1.1)
+	require.NoError(t, err)
+
+	groupID := int64(10)
+	svc, usageRepo, userRepo := newService(PlatformOpenCodeGo)
+	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "opencode_go_hy3_promo",
+			Usage: ClaudeUsage{
+				InputTokens:          tokens.InputTokens,
+				OutputTokens:         tokens.OutputTokens,
+				CacheReadInputTokens: tokens.CacheReadTokens,
+			},
+			Model:    openCodeGoHy3PromoModel,
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{ID: 501, Quota: 100, GroupID: &groupID, Group: &Group{ID: 10, Platform: PlatformOpenCodeGo, RateMultiplier: 1.1}},
+		User:   &User{ID: 601},
+		Account: &Account{
+			ID:       701,
+			Platform: PlatformOpenCodeGo,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, standardCost.InputCost*0.125, usageRepo.lastLog.InputCost, 1e-12)
+	require.InDelta(t, standardCost.OutputCost*0.125, usageRepo.lastLog.OutputCost, 1e-12)
+	require.InDelta(t, standardCost.CacheReadCost*0.125, usageRepo.lastLog.CacheReadCost, 1e-12)
+	require.InDelta(t, standardCost.TotalCost*0.125, usageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, standardCost.ActualCost*0.125, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, standardCost.ActualCost*0.125, userRepo.lastAmount, 1e-12)
+	require.NotNil(t, usageRepo.lastLog.AccountStatsCost)
+	require.InDelta(t, standardCost.TotalCost*0.125, *usageRepo.lastLog.AccountStatsCost, 1e-12)
+
+	// 活动结束/文档未获取到时，自动恢复标准计费
+	pricingSvc.replaceOpenCodeGoPromotions(nil, time.Now())
+	endedUsageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	endedUserRepo := &openAIRecordUsageUserRepoStub{}
+	svc.usageLogRepo = endedUsageRepo
+	svc.userRepo = endedUserRepo
+	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "opencode_go_hy3_promo_ended",
+			Usage: ClaudeUsage{
+				InputTokens:          tokens.InputTokens,
+				OutputTokens:         tokens.OutputTokens,
+				CacheReadInputTokens: tokens.CacheReadTokens,
+			},
+			Model:    openCodeGoHy3PromoModel,
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{ID: 503, Quota: 100, GroupID: &groupID, Group: &Group{ID: 10, Platform: PlatformOpenCodeGo, RateMultiplier: 1.1}},
+		User:   &User{ID: 603},
+		Account: &Account{
+			ID:       703,
+			Platform: PlatformOpenCodeGo,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, endedUsageRepo.lastLog)
+	require.InDelta(t, standardCost.TotalCost, endedUsageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, standardCost.ActualCost, endedUsageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, standardCost.ActualCost, endedUserRepo.lastAmount, 1e-12)
+}
+
 func TestGatewayServiceRecordUsage_AntigravityCacheReadWriteCostsPersisted(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}

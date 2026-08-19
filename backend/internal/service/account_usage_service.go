@@ -296,22 +296,22 @@ type OpenCodeGoConsoleSummaryFetcher interface {
 
 // AccountUsageService 账号使用量查询服务
 type AccountUsageService struct {
-	accountRepo                   AccountRepository
-	usageLogRepo                  UsageLogRepository
-	usageFetcher                  ClaudeUsageFetcher
-	geminiQuotaService            *GeminiQuotaService
-	antigravityQuotaFetcher       *AntigravityQuotaFetcher
-	grokQuotaFetcher              *GrokQuotaFetcher
-	openAIQuotaService            *OpenAIQuotaService
-	cache                         *UsageCache
-	identityCache                 IdentityCache
-	tlsFPProfileService           *TLSFingerprintProfileService
-	clinePassClient               *ClinePassClient
-	openRouterClient              *OpenRouterClient
-	openCodeGoConsoleSummaryFetch OpenCodeGoConsoleSummaryFetcher
+	accountRepo                     AccountRepository
+	usageLogRepo                    UsageLogRepository
+	usageFetcher                    ClaudeUsageFetcher
+	geminiQuotaService              *GeminiQuotaService
+	antigravityQuotaFetcher         *AntigravityQuotaFetcher
+	grokQuotaFetcher                *GrokQuotaFetcher
+	openAIQuotaService              *OpenAIQuotaService
+	cache                           *UsageCache
+	identityCache                   IdentityCache
+	tlsFPProfileService             *TLSFingerprintProfileService
+	clinePassClient                 *ClinePassClient
+	openRouterClient                *OpenRouterClient
+	openCodeGoConsoleSummaryFetch   OpenCodeGoConsoleSummaryFetcher
 	openCodeGoReferralActionApplier OpenCodeGoReferralActionApplier
-	httpUpstream                  HTTPUpstream
-	cfg                           *config.Config
+	httpUpstream                    HTTPUpstream
+	cfg                             *config.Config
 }
 
 // NewAccountUsageService 创建AccountUsageService实例
