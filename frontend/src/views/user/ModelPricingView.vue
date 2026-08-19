@@ -309,14 +309,13 @@ const copiedModel = ref<string | null>(null)
 let copyTimeout: ReturnType<typeof setTimeout> | null = null
 
 async function handleCopyModel(modelName: string) {
-  const success = await copyToClipboard(modelName)
+  const success = await copyToClipboard(modelName, t('modelPricing.modelCopied'))
   if (success) {
     copiedModel.value = modelName
     if (copyTimeout) clearTimeout(copyTimeout)
     copyTimeout = setTimeout(() => {
       copiedModel.value = null
     }, 1500)
-    appStore.showSuccess(t('modelPricing.modelCopied', '已复制模型 ID'))
   }
 }
 

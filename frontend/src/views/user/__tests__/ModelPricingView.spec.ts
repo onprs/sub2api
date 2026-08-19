@@ -309,7 +309,6 @@ describe('ModelPricingView', () => {
     expect(copyBtn.exists()).toBe(true)
 
     await copyBtn.trigger('click')
-    expect(copyToClipboard).toHaveBeenCalledWith('deepseek-v4-flash')
-    expect(showSuccess).toHaveBeenCalledWith('Model ID copied')
+    expect(copyToClipboard).toHaveBeenCalledWith('deepseek-v4-flash', 'Model ID copied')
   })
 })
