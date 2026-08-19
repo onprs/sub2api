@@ -119,7 +119,18 @@
                 </td>
 
                 <td class="model-pricing-sticky-model px-4 py-3 align-top font-mono text-[12px] text-gray-900 dark:text-gray-100">
-                  {{ row.modelName }}
+                  <div class="group/model flex items-center justify-between gap-2">
+                    <span class="truncate select-all" :title="row.modelName">{{ row.modelName }}</span>
+                    <button
+                      type="button"
+                      class="opacity-0 group-hover/model:opacity-100 focus:opacity-100 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-dark-700 dark:hover:text-gray-200 transition-all flex-shrink-0"
+                      :class="{ '!opacity-100 text-green-600 dark:text-green-400': copiedModel === row.modelName }"
+                      :title="t('modelPricing.copyModelId', '复制模型 ID')"
+                      @click.stop="handleCopyModel(row.modelName)"
+                    >
+                      <Icon :name="copiedModel === row.modelName ? 'check' : 'copy'" size="xs" />
+                    </button>
+                  </div>
                 </td>
 
                 <td class="px-4 py-3 align-top text-gray-600 dark:text-gray-300">
@@ -265,6 +276,7 @@ import type { GroupPlatform, SubscriptionType } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { platformBadgeClass } from '@/utils/platformColors'
 import { formatScaled } from '@/utils/pricing'
+import { useClipboard } from '@/composables/useClipboard'
 import {
   buildModelPricingRows,
   filterModelPricingRows,
@@ -291,6 +303,22 @@ const loading = ref(false)
 const searchQuery = ref('')
 const pricingMode = ref<PricingMode>('actual')
 const perMillionScale = 1_000_000
+
+const { copyToClipboard } = useClipboard()
+const copiedModel = ref<string | null>(null)
+let copyTimeout: ReturnType<typeof setTimeout> | null = null
+
+async function handleCopyModel(modelName: string) {
+  const success = await copyToClipboard(modelName)
+  if (success) {
+    copiedModel.value = modelName
+    if (copyTimeout) clearTimeout(copyTimeout)
+    copyTimeout = setTimeout(() => {
+      copiedModel.value = null
+    }, 1500)
+    appStore.showSuccess(t('modelPricing.modelCopied', '已复制模型 ID'))
+  }
+}
 
 const pricingModeOptions = computed<Array<{ value: PricingMode; label: string }>>(() => [
   { value: 'raw', label: t('modelPricing.modes.raw') },

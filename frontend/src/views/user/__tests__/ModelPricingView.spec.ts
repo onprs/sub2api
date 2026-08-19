@@ -5,11 +5,13 @@ import ModelPricingView from '../ModelPricingView.vue'
 import type { UserAvailableChannel } from '@/api/channels'
 import { BILLING_MODE_TOKEN } from '@/constants/channel'
 
-const { getAvailable, getUserGroupRates, showError, extractApiErrorMessage } = vi.hoisted(() => ({
+const { getAvailable, getUserGroupRates, showError, showSuccess, extractApiErrorMessage, copyToClipboard } = vi.hoisted(() => ({
   getAvailable: vi.fn(),
   getUserGroupRates: vi.fn(),
   showError: vi.fn(),
+  showSuccess: vi.fn(),
   extractApiErrorMessage: vi.fn(),
+  copyToClipboard: vi.fn(),
 }))
 
 const messages: Record<string, string> = {
@@ -21,6 +23,8 @@ const messages: Record<string, string> = {
   'modelPricing.columns.channel': 'Channel',
   'modelPricing.columns.platform': 'Platform',
   'modelPricing.columns.model': 'Model',
+  'modelPricing.copyModelId': 'Copy Model ID',
+  'modelPricing.modelCopied': 'Model ID copied',
   'modelPricing.columns.contextTier': 'Context Tier',
   'modelPricing.columns.group': 'Group',
   'modelPricing.columns.groupMultiplier': 'Group Multiplier',
@@ -58,7 +62,11 @@ vi.mock('@/api/groups', () => ({
 }))
 
 vi.mock('@/stores/app', () => ({
-  useAppStore: () => ({ showError }),
+  useAppStore: () => ({ showError, showSuccess }),
+}))
+
+vi.mock('@/composables/useClipboard', () => ({
+  useClipboard: () => ({ copyToClipboard }),
 }))
 
 vi.mock('@/utils/apiError', () => ({
@@ -287,5 +295,21 @@ describe('ModelPricingView', () => {
     expect(stickyModelCells).toHaveLength(2)
     expect(stickyModelCells[0].element.tagName).toBe('TH')
     expect(stickyModelCells[1].element.tagName).toBe('TD')
+  })
+
+  it('copies model id to clipboard and triggers success feedback', async () => {
+    copyToClipboard.mockResolvedValue(true)
+    getAvailable.mockResolvedValue(makeChannel())
+    getUserGroupRates.mockResolvedValue({})
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const copyBtn = wrapper.find('.model-pricing-sticky-model button')
+    expect(copyBtn.exists()).toBe(true)
+
+    await copyBtn.trigger('click')
+    expect(copyToClipboard).toHaveBeenCalledWith('deepseek-v4-flash')
+    expect(showSuccess).toHaveBeenCalledWith('Model ID copied')
   })
 })

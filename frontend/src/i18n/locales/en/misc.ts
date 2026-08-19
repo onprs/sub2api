@@ -1,10 +1,12 @@
 export default {
 
   modelPricing: {
-    title: 'Model Pricing',
-    description: 'Model pricing by accessible channel and group',
+    title: 'Model IDs & Pricing',
+    description: 'Model pricing and IDs by accessible channel and group',
     searchPlaceholder: 'Search channel, platform, model, group, or source...',
     empty: 'No model pricing data',
+    copyModelId: 'Copy Model ID',
+    modelCopied: 'Model ID copied',
     modes: {
       raw: 'Standard Price',
       actual: 'Actual Price'
@@ -12,7 +14,7 @@ export default {
     columns: {
       channel: 'Channel',
       platform: 'Platform',
-      model: 'Model',
+      model: 'Model ID',
       contextTier: 'Context Tier',
       group: 'Group',
       multiplier: 'Multiplier',

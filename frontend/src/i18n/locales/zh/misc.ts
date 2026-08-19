@@ -1,10 +1,12 @@
 export default {
 
   modelPricing: {
-    title: '模型计费',
-    description: '查看可用渠道中各模型在不同分组下的计费价格',
+    title: '模型ID与计费',
+    description: '查看可用渠道中各模型在不同分组下的计费价格与模型ID',
     searchPlaceholder: '搜索渠道、平台、模型、分组或来源...',
     empty: '暂无模型计费数据',
+    copyModelId: '复制模型 ID',
+    modelCopied: '已复制模型 ID',
     modes: {
       raw: '标准价格',
       actual: '实际价格'
@@ -12,7 +14,7 @@ export default {
     columns: {
       channel: '渠道',
       platform: '平台',
-      model: '模型',
+      model: '模型 ID',
       contextTier: '上下文档位',
       group: '分组',
       multiplier: '倍率',
