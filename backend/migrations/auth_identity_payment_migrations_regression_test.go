@@ -231,6 +231,24 @@ func TestMigration181AddsClinePassPlatformContractsIdempotently(t *testing.T) {
 	require.NotContains(t, sql, "'unknown'")
 }
 
+func TestMigration188AddsOpenRouterPlatformContractsIdempotently(t *testing.T) {
+	content, err := FS.ReadFile("188_add_openrouter_platform.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	for _, platform := range []string{"anthropic", "openai", "opencode_go", "clinepass", "openrouter", "gemini", "antigravity", "grok"} {
+		require.Contains(t, sql, "'"+platform+"'")
+	}
+	require.Contains(t, sql, "DROP CONSTRAINT IF EXISTS user_platform_quotas_platform_check")
+	require.Contains(t, sql, "DROP CONSTRAINT IF EXISTS channel_monitors_provider_check")
+	require.Contains(t, sql, "DROP CONSTRAINT IF EXISTS channel_monitor_request_templates_provider_check")
+	require.Contains(t, sql, "ON CONFLICT (provider, name) DO NOTHING")
+	require.Contains(t, sql, "CHECK (platform IN (")
+	require.Contains(t, sql, "CHECK (provider IN (")
+	require.Contains(t, sql, "'openrouter'")
+	require.NotContains(t, sql, "'unknown'")
+}
+
 func TestMigration182UpdatesClinePassMonitorGuidance(t *testing.T) {
 	content, err := FS.ReadFile("182_fix_clinepass_channel_monitor_template.sql")
 	require.NoError(t, err)

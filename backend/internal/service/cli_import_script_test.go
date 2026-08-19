@@ -928,7 +928,7 @@ func TestPricingServiceGetCLIImportModelCapabilityHasBuiltinFallbackForEveryOpen
 		remoteClient: &pricingTestRemoteClient{pricingBodies: map[string][]byte{}},
 	}
 
-	for _, model := range OpenCodeGoDefaultModelIDs() {
+	for _, model := range OpenCodeGoFallbackModelIDs() {
 		t.Run(model, func(t *testing.T) {
 			capability, ok := svc.GetCLIImportModelCapability(context.Background(), PlatformOpenCodeGo, model)
 			require.True(t, ok)

@@ -106,6 +106,7 @@ export default {
         grok: 'Grok',
         opencode_go: 'OpenCode Go',
         clinepass: 'ClinePass',
+        openrouter: 'OpenRouter',
       },
       types: {
         oauth: 'OAuth',
@@ -537,6 +538,11 @@ export default {
         baseUrlHint: 'Use the official ClinePass API root unless your deployment requires an approved compatible relay.',
         apiKeyHint: 'Enter the static API key issued for ClinePass.',
         usageSource: 'Official ClinePass usage limits'
+      },
+      openRouter: {
+        baseUrlHint: 'Use the official OpenRouter API root (https://openrouter.ai/api/v1) unless your deployment requires an approved compatible relay.',
+        apiKeyHint: 'Enter the API key issued for OpenRouter.',
+        usageSource: 'Official OpenRouter usage limits'
       },
       anthropic: {
         apiKeyPassthrough: 'Auto passthrough (auth only)',

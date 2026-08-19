@@ -454,7 +454,7 @@ func rejectAPIKeyOnlyPlatformRequireOAuthOnly(c *gin.Context, platform string, r
 	if !requireOAuthOnly {
 		return false
 	}
-	if platform != service.PlatformOpenCodeGo && platform != service.PlatformClinePass {
+	if platform != service.PlatformOpenCodeGo && platform != service.PlatformClinePass && platform != service.PlatformOpenRouter {
 		return false
 	}
 	response.BadRequest(c, "require_oauth_only is not supported for "+platform+" groups")

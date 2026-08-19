@@ -1150,3 +1150,77 @@ func TestListModelNamesByProvider_EmptyCatalog(t *testing.T) {
 	require.NotNil(t, got)
 	require.Empty(t, got)
 }
+
+func TestOpenCodeGoPricingPersistenceAndOfflineRecovery(t *testing.T) {
+	dataDir := t.TempDir()
+	const docsURL = "https://opencode.ai/docs/go/"
+
+	remote := &pricingTestRemoteClient{
+		pricingBodies: map[string][]byte{
+			docsURL: []byte(`
+<table><tbody>
+<tr><td>GLM-5.2</td><td>$1.40</td><td>$4.40</td><td>$0.26</td><td>-</td></tr>
+</tbody></table>
+<table><tbody>
+<tr><td>GLM-5.2</td><td>glm-5.2</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
+</tbody></table>`),
+		},
+	}
+
+	svc := &PricingService{
+		cfg: &config.Config{
+			Pricing: config.PricingConfig{
+				OpenCodeGoDocsURL: docsURL,
+				DataDir:           dataDir,
+			},
+			Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}},
+		},
+		remoteClient:      remote,
+		pricingData:       map[string]*LiteLLMModelPricing{},
+		openCodeGoPricing: map[string]*LiteLLMModelPricing{},
+	}
+
+	// 1. 抓取并触发持久化
+	svc.refreshOpenCodeGoPricingBestEffort(context.Background())
+	pricing := svc.GetOpenCodeGoModelPricingExact("glm-5.2")
+	require.NotNil(t, pricing)
+	require.InDelta(t, 1.4e-6, pricing.InputCostPerToken, 1e-12)
+
+	// 检查磁盘文件是否已生成
+	cacheFile := svc.getOpenCodeGoPricingFilePath()
+	require.FileExists(t, cacheFile)
+
+	// 2. 模拟服务重启与网络离线：全新实例，远端请求全部报错
+	offlineRemote := &pricingTestRemoteClient{
+		pricingErrs: map[string]error{
+			docsURL: errors.New("network is completely down"),
+		},
+	}
+	newSvc := &PricingService{
+		cfg: &config.Config{
+			Pricing: config.PricingConfig{
+				OpenCodeGoDocsURL: docsURL,
+				DataDir:           dataDir,
+			},
+			Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}},
+		},
+		remoteClient:      offlineRemote,
+		pricingData:       map[string]*LiteLLMModelPricing{},
+		openCodeGoPricing: map[string]*LiteLLMModelPricing{},
+	}
+
+	// 尝试从磁盘加载缓存
+	err := newSvc.loadOpenCodeGoPricingData(newSvc.getOpenCodeGoPricingFilePath())
+	require.NoError(t, err)
+
+	recoveredPricing := newSvc.GetOpenCodeGoModelPricingExact("glm-5.2")
+	require.NotNil(t, recoveredPricing)
+	require.InDelta(t, 1.4e-6, recoveredPricing.InputCostPerToken, 1e-12)
+	require.Equal(t, openCodeGoPricingAuthorityOfficial, recoveredPricing.OpenCodeGoPricingAuthority)
+
+	// 3. 在离线状态下调用刷新，已有缓存不应被清空
+	newSvc.refreshOpenCodeGoPricingBestEffort(context.Background())
+	pricingAfterFailedRefresh := newSvc.GetOpenCodeGoModelPricingExact("glm-5.2")
+	require.NotNil(t, pricingAfterFailedRefresh)
+	require.InDelta(t, 1.4e-6, pricingAfterFailedRefresh.InputCostPerToken, 1e-12)
+}

@@ -1404,9 +1404,10 @@ describe("admin SettingsView platform quota matrix", () => {
     expect(html).toContain("grok");
     expect(html).toContain("opencode_go");
     expect(html).toContain("clinepass");
+    expect(html).toContain("openrouter");
   });
 
-  it("保存时 updateSettings payload 应包含嵌套 default_platform_quotas 对象（含全 7 平台）", async () => {
+  it("保存时 updateSettings payload 应包含嵌套 default_platform_quotas 对象（含全 8 平台）", async () => {
     const wrapper = mountView();
     await flushPromises();
     await openUsersTab(wrapper);
@@ -1422,7 +1423,7 @@ describe("admin SettingsView platform quota matrix", () => {
     // 应携带嵌套对象，而非扁平字段
     expect(payload).toHaveProperty("default_platform_quotas");
     const quotas = payload["default_platform_quotas"] as Record<string, unknown>;
-    const platforms = ["anthropic", "openai", "gemini", "antigravity", "grok", "opencode_go", "clinepass"];
+    const platforms = ["anthropic", "openai", "gemini", "antigravity", "grok", "opencode_go", "clinepass", "openrouter"];
     for (const p of platforms) {
       expect(quotas).toHaveProperty(p);
       const pq = quotas[p] as Record<string, unknown>;

@@ -38,6 +38,9 @@ class VerifyReleaseBinaryTest(unittest.TestCase):
                 "clinepass",
                 "https://api.cline.bot/api/v1",
                 "channel_monitor_provider_clinepass",
+                "openrouter",
+                "https://openrouter.ai/api/v1",
+                "channel_monitor_provider_openrouter",
             ]
         )
         binary = self.write_binary(payload)

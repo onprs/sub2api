@@ -55,7 +55,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		h.writeAntigravityGeminiMappedModels(c, apiKeyGroupIDFromContext(c))
 		return
 	}
-	if !hasForcePlatform && (isStandardGeminiIngressProvider(apiKey.Group.Platform) || apiKey.Group.Platform == service.PlatformOpenCodeGo || apiKey.Group.Platform == service.PlatformClinePass) {
+	if !hasForcePlatform && (isStandardGeminiIngressProvider(apiKey.Group.Platform) || apiKey.Group.Platform == service.PlatformOpenCodeGo || apiKey.Group.Platform == service.PlatformClinePass || apiKey.Group.Platform == service.PlatformOpenRouter) {
 		h.writeStandardGoogleIngressModels(c, apiKeyGroupIDFromContext(c), apiKey.Group.Platform)
 		return
 	}
@@ -277,7 +277,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		c.JSON(http.StatusOK, antigravity.FallbackGeminiModel(modelName))
 		return
 	}
-	if !hasForcePlatform && (isStandardGeminiIngressProvider(apiKey.Group.Platform) || apiKey.Group.Platform == service.PlatformOpenCodeGo || apiKey.Group.Platform == service.PlatformClinePass) {
+	if !hasForcePlatform && (isStandardGeminiIngressProvider(apiKey.Group.Platform) || apiKey.Group.Platform == service.PlatformOpenCodeGo || apiKey.Group.Platform == service.PlatformClinePass || apiKey.Group.Platform == service.PlatformOpenRouter) {
 		if !h.standardGoogleIngressModelAvailable(c, apiKeyGroupIDFromContext(c), apiKey.Group.Platform, modelName) {
 			googleError(c, http.StatusNotFound, "Model not found")
 			return
@@ -786,7 +786,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 
 func supportsStandardGeminiIngress(platform string) bool {
 	switch platform {
-	case service.PlatformGemini, service.PlatformOpenAI, service.PlatformAnthropic, service.PlatformAntigravity, service.PlatformOpenCodeGo, service.PlatformClinePass:
+	case service.PlatformGemini, service.PlatformOpenAI, service.PlatformAnthropic, service.PlatformAntigravity, service.PlatformOpenCodeGo, service.PlatformClinePass, service.PlatformOpenRouter:
 		return true
 	default:
 		return false

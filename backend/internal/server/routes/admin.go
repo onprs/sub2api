@@ -704,6 +704,7 @@ func registerChannelMonitorRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		monitors.GET("", h.Admin.ChannelMonitor.List)
 		monitors.GET("/clinepass-models", h.Admin.ChannelMonitor.ClinePassModels)
+		monitors.GET("/openrouter-models", h.Admin.ChannelMonitor.OpenRouterModels)
 		monitors.POST("", h.Admin.ChannelMonitor.Create)
 		monitors.GET("/:id", h.Admin.ChannelMonitor.Get)
 		monitors.PUT("/:id", h.Admin.ChannelMonitor.Update)

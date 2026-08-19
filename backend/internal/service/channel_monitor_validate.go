@@ -83,7 +83,7 @@ func validateEndpointForProvider(provider, ep string) error {
 	if u.Host == "" {
 		return ErrChannelMonitorInvalidEndpoint
 	}
-	if provider != MonitorProviderOpenCodeGo && provider != MonitorProviderClinePass && u.Path != "" && u.Path != "/" {
+	if provider != MonitorProviderOpenCodeGo && provider != MonitorProviderClinePass && provider != MonitorProviderOpenRouter && u.Path != "" && u.Path != "/" {
 		return ErrChannelMonitorEndpointPath
 	}
 	if u.RawQuery != "" || u.Fragment != "" {

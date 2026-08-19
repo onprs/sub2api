@@ -2371,6 +2371,11 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	if account.IsOpenRouter() {
+		response.Success(c, openRouterAvailableModels(account))
+		return
+	}
+
 	if account.IsOpenCodeGo() {
 		response.Success(c, openCodeGoAvailableModels(account))
 		return
@@ -2566,6 +2571,19 @@ func clinePassAvailableModels(account *service.Account) []openai.Model {
 	}
 	if len(ids) == 0 {
 		ids = service.ClinePassDefaultModelIDs()
+	}
+	return accountTestModels(ids)
+}
+
+func openRouterAvailableModels(account *service.Account) []openai.Model {
+	ids := []string{}
+	if account != nil {
+		for requestedModel := range account.GetExplicitModelMapping() {
+			ids = append(ids, requestedModel)
+		}
+	}
+	if len(ids) == 0 {
+		ids = service.OpenRouterDefaultModelIDs()
 	}
 	return accountTestModels(ids)
 }

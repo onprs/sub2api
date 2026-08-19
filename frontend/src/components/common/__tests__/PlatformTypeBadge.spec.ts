@@ -41,6 +41,17 @@ describe('PlatformTypeBadge', () => {
     expect(wrapper.find('svg[viewBox="0 0 466.73 487.04"] path').attributes('d')).toContain('M463.6,275.08')
   })
 
+  it('renders OpenRouter as an independent API key platform', () => {
+    testLocale.value = 'en'
+    const wrapper = mount(PlatformTypeBadge, {
+      props: { platform: 'openrouter', type: 'apikey' }
+    })
+
+    expect(wrapper.text()).toContain('OpenRouter')
+    expect(wrapper.text()).toContain('API Key')
+    expect(wrapper.text()).not.toContain('Gemini')
+  })
+
   it('uses Chinese account type labels without exposing the backend value', () => {
     testLocale.value = 'zh'
     const wrapper = mount(PlatformTypeBadge, {

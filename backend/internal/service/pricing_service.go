@@ -171,7 +171,7 @@ type LiteLLMModelPricing struct {
 	SupportsToolChoiceKnown                  bool    `json:"-"`
 	MaxInputTokensKnown                      bool    `json:"-"`
 	MaxOutputTokensKnown                     bool    `json:"-"`
-	OpenCodeGoPricingAuthority               string  `json:"-"`
+	OpenCodeGoPricingAuthority               string  `json:"opencode_go_pricing_authority,omitempty"`
 
 	// TokenPricingAbsent 表示源数据中 input/output token 价格均缺失（仅有图片价）。
 	// 此类条目只可用于图片计费，token 计费必须回退到 fallback 或 fail-closed，
@@ -259,6 +259,10 @@ func (s *PricingService) Initialize() error {
 		if err := s.useFallbackPricing(); err != nil {
 			return fmt.Errorf("failed to load pricing data: %w", err)
 		}
+	}
+	// 启动时优先从本地缓存加载 OpenCode Go 定价，确保离线或网络波动时价格立即可用
+	if err := s.loadOpenCodeGoPricingData(s.getOpenCodeGoPricingFilePath()); err != nil {
+		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go cache file not loaded (will fetch from upstream): %v", err)
 	}
 	s.refreshOpenCodeGoPricingBestEffortWithTimeout()
 	s.refreshOpenCodeGoPromotionsBestEffortWithTimeout()
@@ -1217,12 +1221,91 @@ func (s *PricingService) refreshOpenCodeGoPricingBestEffort(ctx context.Context)
 	}
 	current := make(map[string]*LiteLLMModelPricing)
 	if s.mergeOpenCodeGoPricingBestEffort(ctx, current) == 0 || !hasOpenCodeGoOfficialPricing(current) {
+		// 若抓取失败且当前内存中尚无定价数据，尝试从本地缓存文件恢复
+		s.mu.RLock()
+		hasMemoryPricing := len(s.openCodeGoPricing) > 0
+		s.mu.RUnlock()
+		if !hasMemoryPricing {
+			_ = s.loadOpenCodeGoPricingData(s.getOpenCodeGoPricingFilePath())
+		}
 		return
 	}
 	s.mu.Lock()
 	s.openCodeGoPricing = current
 	s.lastUpdated = time.Now()
 	s.mu.Unlock()
+	_ = s.saveOpenCodeGoPricingData(current)
+}
+
+func (s *PricingService) getOpenCodeGoPricingFilePath() string {
+	if s == nil || s.cfg == nil {
+		return ""
+	}
+	return filepath.Join(s.cfg.Pricing.DataDir, "opencode_go_pricing.json")
+}
+
+func (s *PricingService) loadOpenCodeGoPricingData(filePath string) error {
+	if filePath == "" {
+		return fmt.Errorf("empty file path")
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+	var pricingData map[string]*LiteLLMModelPricing
+	if err := json.Unmarshal(data, &pricingData); err != nil {
+		return fmt.Errorf("unmarshal opencode_go pricing: %w", err)
+	}
+	if len(pricingData) == 0 {
+		return fmt.Errorf("no opencode_go pricing entries in cache file")
+	}
+	for _, p := range pricingData {
+		if p != nil {
+			if p.LiteLLMProvider == "" {
+				p.LiteLLMProvider = PlatformOpenCodeGo
+			}
+			if p.InputCostPerToken > 0 {
+				p.InputCostPerTokenKnown = true
+			}
+			if p.OutputCostPerToken > 0 {
+				p.OutputCostPerTokenKnown = true
+			}
+			if p.CacheCreationInputTokenCost > 0 {
+				p.CacheCreationInputTokenCostKnown = true
+			}
+			if p.CacheReadInputTokenCost > 0 {
+				p.CacheReadInputTokenCostKnown = true
+			}
+		}
+	}
+	s.mu.Lock()
+	if len(s.openCodeGoPricing) == 0 {
+		s.openCodeGoPricing = pricingData
+	}
+	s.mu.Unlock()
+	logger.LegacyPrintf("service.pricing", "[Pricing] Loaded %d OpenCode Go cached models from %s", len(pricingData), filePath)
+	return nil
+}
+
+func (s *PricingService) saveOpenCodeGoPricingData(data map[string]*LiteLLMModelPricing) error {
+	if s == nil || len(data) == 0 {
+		return nil
+	}
+	filePath := s.getOpenCodeGoPricingFilePath()
+	if filePath == "" {
+		return nil
+	}
+	encoded, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to marshal OpenCode Go pricing: %v", err)
+		return err
+	}
+	if err := os.WriteFile(filePath, encoded, 0644); err != nil {
+		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to save OpenCode Go pricing file: %v", err)
+		return err
+	}
+	logger.LegacyPrintf("service.pricing", "[Pricing] Saved %d OpenCode Go models to %s", len(data), filePath)
+	return nil
 }
 
 func hasOpenCodeGoOfficialPricing(data map[string]*LiteLLMModelPricing) bool {

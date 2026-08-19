@@ -76,6 +76,7 @@ type AccountTestService struct {
 	cfg                       *config.Config
 	tlsFPProfileService       *TLSFingerprintProfileService
 	clinePassClient           *ClinePassClient
+	openRouterClient          *OpenRouterClient
 }
 
 // NewAccountTestService creates a new AccountTestService
@@ -89,6 +90,7 @@ func NewAccountTestService(
 	cfg *config.Config,
 	tlsFPProfileService *TLSFingerprintProfileService,
 	clinePassClient *ClinePassClient,
+	openRouterClient *OpenRouterClient,
 ) *AccountTestService {
 	return &AccountTestService{
 		accountRepo:               accountRepo,
@@ -100,6 +102,7 @@ func NewAccountTestService(
 		cfg:                       cfg,
 		tlsFPProfileService:       tlsFPProfileService,
 		clinePassClient:           clinePassClient,
+		openRouterClient:          openRouterClient,
 	}
 }
 
@@ -195,6 +198,9 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if account.IsClinePass() {
 		return s.testClinePassAccountConnection(c, account, modelID)
 	}
+	if account.IsOpenRouter() {
+		return s.testOpenRouterAccountConnection(c, account, modelID)
+	}
 	if account.IsOpenCodeGo() {
 		return s.testOpenCodeGoAccountConnection(c, account, modelID)
 	}
@@ -246,6 +252,41 @@ func (s *AccountTestService) testClinePassAccountConnection(c *gin.Context, acco
 	text := strings.TrimSpace(extractOpenCodeGoChatText(recorder.Body.Bytes()))
 	if text == "" {
 		return s.sendErrorAndEnd(c, "ClinePass generation test returned no visible response text")
+	}
+
+	s.sendEvent(c, TestEvent{Type: "content", Text: text})
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
+}
+
+func (s *AccountTestService) testOpenRouterAccountConnection(c *gin.Context, account *Account, requestedModel string) error {
+	if account == nil || !account.IsOpenRouterAPIKey() {
+		return s.sendErrorAndEnd(c, "OpenRouter accounts must use API key credentials")
+	}
+	if s.openRouterClient == nil {
+		return s.sendErrorAndEnd(c, "OpenRouter client is not configured")
+	}
+	modelID, err := accountGenerationTestModel(account, requestedModel)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
+
+	prepareAccountTestEventStream(c)
+	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过 Chat Completions 发起真实 OpenRouter 生成请求"})
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: modelID})
+
+	payload, err := createAccountGenerationTestPayload(modelID)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to create OpenRouter generation test payload")
+	}
+	probe, recorder := newAccountGenerationProbeContext(c.Request.Context(), payload)
+	gateway := NewOpenRouterGatewayService(s.openRouterClient, s.cfg, nil)
+	if _, err := gateway.ForwardChatCompletions(c.Request.Context(), probe, account, payload); err != nil {
+		return s.sendErrorAndEnd(c, "OpenRouter generation test failed: "+accountGenerationProbeError(err, recorder.Body.Bytes()))
+	}
+	text := strings.TrimSpace(extractOpenCodeGoChatText(recorder.Body.Bytes()))
+	if text == "" {
+		return s.sendErrorAndEnd(c, "OpenRouter generation test returned no visible response text")
 	}
 
 	s.sendEvent(c, TestEvent{Type: "content", Text: text})
@@ -316,6 +357,13 @@ func accountGenerationTestModel(account *Account, requestedModel string) (string
 			return models[0], nil
 		}
 		return "", fmt.Errorf("no ClinePass model is available for generation testing")
+	}
+	if account.IsOpenRouter() {
+		models := OpenRouterDefaultModelIDs()
+		if len(models) > 0 {
+			return models[0], nil
+		}
+		return "", fmt.Errorf("no OpenRouter model is available for generation testing")
 	}
 	if account.IsOpenCodeGo() {
 		for _, model := range OpenCodeGoDefaultModelIDs() {

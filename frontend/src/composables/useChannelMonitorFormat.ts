@@ -20,6 +20,7 @@ import {
   PROVIDER_ANTIGRAVITY_GEMINI,
   PROVIDER_OPENCODE_GO,
   PROVIDER_CLINEPASS,
+  PROVIDER_OPENROUTER,
   STATUS_OPERATIONAL,
   STATUS_DEGRADED,
   STATUS_FAILED,
@@ -68,7 +69,8 @@ export function useChannelMonitorFormat() {
       p === PROVIDER_ANTIGRAVITY_CLAUDE ||
       p === PROVIDER_ANTIGRAVITY_GEMINI ||
       p === PROVIDER_OPENCODE_GO ||
-      p === PROVIDER_CLINEPASS
+      p === PROVIDER_CLINEPASS ||
+      p === PROVIDER_OPENROUTER
     ) {
       return t(`monitorCommon.providers.${p}`)
     }
@@ -87,6 +89,8 @@ export function useChannelMonitorFormat() {
         return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-300'
       case PROVIDER_CLINEPASS:
         return 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300'
+      case PROVIDER_OPENROUTER:
+        return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300'
       case PROVIDER_ANTIGRAVITY_CLAUDE:
       case PROVIDER_ANTIGRAVITY_GEMINI:
         return 'bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'
@@ -122,6 +126,10 @@ export function useChannelMonitorFormat() {
         return active
           ? 'border-rose-500 bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300 dark:border-rose-400'
           : 'border-gray-200 bg-white text-gray-600 hover:border-rose-300 hover:text-rose-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-rose-500/50'
+      case PROVIDER_OPENROUTER:
+        return active
+          ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300 dark:border-indigo-400'
+          : 'border-gray-200 bg-white text-gray-600 hover:border-indigo-300 hover:text-indigo-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-indigo-500/50'
       case PROVIDER_ANTIGRAVITY_CLAUDE:
       case PROVIDER_ANTIGRAVITY_GEMINI:
         return active

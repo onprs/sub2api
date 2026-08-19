@@ -26,6 +26,10 @@
   </svg>
   <!-- Official Cline Bot Icon. -->
   <ClineIcon v-else-if="platform === 'clinepass'" :class="sizeClass" />
+  <!-- OpenRouter logo (routing node icon) -->
+  <svg v-else-if="platform === 'openrouter'" :class="sizeClass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v18m9-9H3m14-5 4 5-4 5M7 7l-4 5 4 5" />
+  </svg>
   <!-- Grok / xAI logo mark (stylized angular X) -->
   <svg v-else-if="platform === 'grok'" :class="sizeClass" viewBox="0 0 24 24" fill="currentColor">
     <path

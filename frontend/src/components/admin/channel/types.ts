@@ -241,6 +241,7 @@ export function getPlatformTagClass(platform: string): string {
     case 'grok': return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
     case 'opencode_go': return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
     case 'clinepass': return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+    case 'openrouter': return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
     default: return 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400'
   }
 }
@@ -255,6 +256,7 @@ export function getPlatformTextClass(platform: string): string {
     case 'grok': return 'text-slate-700 dark:text-slate-300'
     case 'opencode_go': return 'text-cyan-700 dark:text-cyan-300'
     case 'clinepass': return 'text-rose-700 dark:text-rose-300'
+    case 'openrouter': return 'text-indigo-700 dark:text-indigo-300'
     default: return ''
   }
 }

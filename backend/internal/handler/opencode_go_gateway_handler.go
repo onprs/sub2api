@@ -33,6 +33,7 @@ type standardProtocolGateway interface {
 type OpenCodeGoGatewayHandler struct {
 	openCodeGoService         *service.OpenCodeGoGatewayService
 	clinePassService          *service.ClinePassGatewayService
+	openRouterService         *service.OpenRouterGatewayService
 	gatewayService            *service.GatewayService
 	billingCacheService       *service.BillingCacheService
 	billingEligibilityService service.BillingEligibilityResolver
@@ -49,6 +50,7 @@ type OpenCodeGoGatewayHandler struct {
 func NewOpenCodeGoGatewayHandler(
 	openCodeGoService *service.OpenCodeGoGatewayService,
 	clinePassService *service.ClinePassGatewayService,
+	openRouterService *service.OpenRouterGatewayService,
 	gatewayService *service.GatewayService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
@@ -70,6 +72,7 @@ func NewOpenCodeGoGatewayHandler(
 	return &OpenCodeGoGatewayHandler{
 		openCodeGoService:         openCodeGoService,
 		clinePassService:          clinePassService,
+		openRouterService:         openRouterService,
 		gatewayService:            gatewayService,
 		billingCacheService:       billingCacheService,
 		billingEligibilityService: billingEligibilityService,
@@ -575,6 +578,8 @@ func (h *OpenCodeGoGatewayHandler) gatewayForPlatform(platform string) standardP
 	switch platform {
 	case service.PlatformClinePass:
 		return h.clinePassService
+	case service.PlatformOpenRouter:
+		return h.openRouterService
 	case service.PlatformOpenCodeGo:
 		return h.openCodeGoService
 	default:

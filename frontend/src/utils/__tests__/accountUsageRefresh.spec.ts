@@ -148,4 +148,29 @@ describe('buildOpenAIUsageRefreshKey', () => {
 
     expect(buildAccountUsageRefreshKey(base)).not.toBe(buildAccountUsageRefreshKey(next))
   })
+
+  it('OpenRouter official usage snapshot changes the account usage key', () => {
+    const base = {
+      id: 6,
+      platform: 'openrouter',
+      type: 'apikey',
+      updated_at: '2026-08-19T10:00:00Z',
+      last_used_at: null,
+      rate_limit_reset_at: null,
+      extra: {
+        openrouter_usage_source: 'official_api',
+        openrouter_usage_updated_at: '2026-08-19T10:00:00Z',
+        openrouter_usage_used_usd: 10
+      }
+    } as any
+    const next = {
+      ...base,
+      extra: {
+        ...base.extra,
+        openrouter_usage_updated_at: '2026-08-19T10:05:00Z',
+        openrouter_usage_used_usd: 20
+      }
+    }
+    expect(buildAccountUsageRefreshKey(base)).not.toBe(buildAccountUsageRefreshKey(next))
+  })
 })

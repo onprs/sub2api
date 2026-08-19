@@ -1288,10 +1288,15 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 
 	// 没有账号产生模型目录时返回 nil，由调用方使用平台默认目录。
 	if !hasResolvedModels {
-		if platform == PlatformOpenCodeGo || platform == PlatformClinePass {
-			models := OpenCodeGoDefaultModelIDs()
-			if platform == PlatformClinePass {
+		if platform == PlatformOpenCodeGo || platform == PlatformClinePass || platform == PlatformOpenRouter {
+			var models []string
+			switch platform {
+			case PlatformClinePass:
 				models = ClinePassDefaultModelIDs()
+			case PlatformOpenRouter:
+				models = OpenRouterDefaultModelIDs()
+			default:
+				models = OpenCodeGoDefaultModelIDs()
 			}
 			if s.modelsListCache != nil {
 				s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)

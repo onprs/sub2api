@@ -733,11 +733,11 @@ func (s *emailBindCacheStub) IncrNotifyCodeUserRate(context.Context, int64, time
 }
 
 type emailBindRefreshTokenCacheStub struct {
-	mu        sync.Mutex
-	tokens    map[string]*service.RefreshTokenData
-	userSets  map[int64]map[string]struct{}
-	families  map[string]map[string]struct{}
-	familyOf  map[string]string // tokenHash -> familyID reverse index (mirrors the Redis impl)
+	mu       sync.Mutex
+	tokens   map[string]*service.RefreshTokenData
+	userSets map[int64]map[string]struct{}
+	families map[string]map[string]struct{}
+	familyOf map[string]string // tokenHash -> familyID reverse index (mirrors the Redis impl)
 }
 
 func newEmailBindRefreshTokenCacheStub() *emailBindRefreshTokenCacheStub {

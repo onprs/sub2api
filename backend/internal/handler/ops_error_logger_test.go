@@ -1123,4 +1123,3 @@ func TestOpsErrorLoggerMiddleware_NormalRecoveredUpstreamError(t *testing.T) {
 	require.Contains(t, job.entry.ErrorMessage, "Recovered upstream error 502")
 	require.NotContains(t, job.entry.ErrorMessage, "(client disconnected)")
 }
-

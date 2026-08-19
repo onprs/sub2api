@@ -75,6 +75,7 @@ func setupSyncUpstreamModelsRouter(adminSvc service.AdminService, upstream servi
 		&config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
 		nil,
 		nil,
+		nil,
 	)
 	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, accountTestSvc, nil, nil, nil, nil, nil)
 	router.POST("/api/v1/admin/accounts/:id/models/sync-upstream", handler.SyncUpstreamModels)
@@ -530,7 +531,7 @@ func TestAccountHandlerGetAvailableModels_AntigravitySetupTokenUsesResolvedLiveC
 	adminSvc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
 	tokenProvider := service.NewAntigravityTokenProvider(nil, nil, nil)
 	gatewaySvc := service.NewAntigravityGatewayService(nil, nil, nil, tokenProvider, nil, nil, nil, nil)
-	accountTestSvc := service.NewAccountTestService(nil, nil, nil, nil, gatewaySvc, nil, &config.Config{}, nil, nil)
+	accountTestSvc := service.NewAccountTestService(nil, nil, nil, nil, gatewaySvc, nil, &config.Config{}, nil, nil, nil)
 	router := setupAvailableModelsRouterWithAccountTest(adminSvc, accountTestSvc)
 
 	rec := httptest.NewRecorder()
@@ -579,7 +580,7 @@ func TestAccountHandlerGetAvailableModels_AntigravityAPIKeyUsesOwnUpstreamCatalo
 	adminSvc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
 	accountTestSvc := service.NewAccountTestService(nil, nil, nil, nil, nil, upstream, &config.Config{
 		Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}},
-	}, nil, nil)
+	}, nil, nil, nil)
 	router := setupAvailableModelsRouterWithAccountTest(adminSvc, accountTestSvc)
 
 	rec := httptest.NewRecorder()

@@ -883,21 +883,29 @@ func (s *BillingService) OpenCodeGoUsagePromotionMultiplier(model string, now ti
 }
 
 // GetModelPricingForPlatform 在需要平台隔离时解析模型价格。
-// OpenCode Go 只接受其官方动态目录中的精确条目，再回落到平台限定参考价；
+// OpenCode Go 优先接受官方动态目录/持久化缓存中的精确条目，再回落到平台限定参考价与补充动态条目；
 // 其他平台保持通用解析行为。
 func (s *BillingService) GetModelPricingForPlatform(platform, model string) (*ModelPricing, error) {
 	if !isOpenCodeGoPricingPlatform(platform) {
 		return s.GetModelPricing(model)
 	}
 	model = strings.ToLower(strings.TrimSpace(model))
+	// 1. 优先匹配官方动态定价（官方 docs 实时爬取或本地持久化缓存中的 official 条目）
 	for _, candidate := range billingModelPricingCandidates(model) {
-		if pricing, ok := s.getOpenCodeGoDynamicModelPricingExact(candidate); ok {
+		if pricing, ok := s.getOpenCodeGoOfficialDynamicModelPricingExact(candidate); ok {
 			return pricing, nil
 		}
 	}
+	// 2. 回退到内置标准参考定价
 	for _, candidate := range billingModelPricingCandidates(model) {
 		if pricing, ok := openCodeGoReferencePricing(candidate); ok {
 			return s.applyModelSpecificPricingPolicy(candidate, pricing), nil
+		}
+	}
+	// 3. 回退到 models.dev 等补充动态定价
+	for _, candidate := range billingModelPricingCandidates(model) {
+		if pricing, ok := s.getOpenCodeGoDynamicModelPricingExact(candidate); ok {
+			return pricing, nil
 		}
 	}
 	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
@@ -943,7 +951,7 @@ func (s *BillingService) getDynamicModelPricingExact(model string) (*ModelPricin
 	return s.modelPricingFromLiteLLM(model, pricing)
 }
 
-func (s *BillingService) getOpenCodeGoDynamicModelPricingExact(model string) (*ModelPricing, bool) {
+func (s *BillingService) getOpenCodeGoOfficialDynamicModelPricingExact(model string) (*ModelPricing, bool) {
 	if s.pricingService == nil {
 		return nil, false
 	}
@@ -952,6 +960,17 @@ func (s *BillingService) getOpenCodeGoDynamicModelPricingExact(model string) (*M
 		return nil, false
 	}
 	if pricing.OpenCodeGoPricingAuthority != openCodeGoPricingAuthorityOfficial {
+		return nil, false
+	}
+	return s.modelPricingFromLiteLLM(model, pricing)
+}
+
+func (s *BillingService) getOpenCodeGoDynamicModelPricingExact(model string) (*ModelPricing, bool) {
+	if s.pricingService == nil {
+		return nil, false
+	}
+	pricing := s.pricingService.GetOpenCodeGoModelPricingExact(model)
+	if pricing == nil || !isOpenCodeGoPricingPlatform(pricing.LiteLLMProvider) {
 		return nil, false
 	}
 	return s.modelPricingFromLiteLLM(model, pricing)

@@ -420,7 +420,8 @@ export default {
       antigravity_claude: 'Antigravity Claude',
       antigravity_gemini: 'Antigravity Gemini',
       opencode_go: 'OpenCode Go',
-      clinepass: 'ClinePass'
+      clinepass: 'ClinePass',
+      openrouter: 'OpenRouter'
     },
     extraModelsHeader: 'Extra Models',
     extraModelsEmpty: 'No extra models',

@@ -112,6 +112,18 @@ func OpenCodeGoDefaultModelIDs() []string {
 	return defaultOpenCodeGoCatalog.ModelIDs(context.Background())
 }
 
+func OpenCodeGoFallbackModelIDs() []string {
+	seed := openCodeGoSeedCatalog()
+	ids := make([]string, 0, len(seed))
+	for _, entry := range seed {
+		if strings.TrimSpace(entry.ID) != "" {
+			ids = append(ids, entry.ID)
+		}
+	}
+	sortOpenCodeGoModelIDs(ids)
+	return ids
+}
+
 func OpenCodeGoCatalogModelProtocol(model string) (string, bool) {
 	return defaultOpenCodeGoCatalog.Protocol(context.Background(), model)
 }

@@ -130,12 +130,15 @@ const regressionKeys = [
   'admin.subscriptions.restore',
   'admin.groups.platforms.opencode_go',
   'admin.groups.platforms.clinepass',
+  'admin.groups.platforms.openrouter',
   'admin.accounts.platforms.opencode_go',
   'admin.accounts.platforms.clinepass',
+  'admin.accounts.platforms.openrouter',
   'monitorCommon.providers.antigravity_claude',
   'monitorCommon.providers.antigravity_gemini',
   'monitorCommon.providers.opencode_go',
-  'monitorCommon.providers.clinepass'
+  'monitorCommon.providers.clinepass',
+  'monitorCommon.providers.openrouter'
 ] as const
 
 function resolveMessage(messages: Record<string, unknown>, path: string): unknown {

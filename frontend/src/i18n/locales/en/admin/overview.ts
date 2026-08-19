@@ -492,6 +492,7 @@ export default {
         usageAntigravity: 'Usage (Antigravity)',
         usageOpenCodeGo: 'Usage (OpenCode Go)',
         usageClinePass: 'Usage (ClinePass)',
+        usageOpenRouter: 'Usage (OpenRouter)',
         concurrency: 'Concurrency',
         status: 'Status',
         lastActive: 'Last Active',
@@ -891,6 +892,7 @@ export default {
         grok: 'Grok',
         opencode_go: 'OpenCode Go',
         clinepass: 'ClinePass',
+        openrouter: 'OpenRouter',
       },
       deleteConfirm:
         "Are you sure you want to delete '{name}'? All associated API keys will no longer belong to any group.",

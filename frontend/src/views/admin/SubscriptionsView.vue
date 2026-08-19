@@ -1090,7 +1090,8 @@ const platformFilterOptions = computed(() => [
   { value: 'antigravity', label: 'Antigravity' },
   { value: 'grok', label: 'Grok' },
   { value: 'opencode_go', label: 'OpenCode Go' },
-  { value: 'clinepass', label: 'ClinePass' }
+  { value: 'clinepass', label: 'ClinePass' },
+  { value: 'openrouter', label: 'OpenRouter' }
 ])
 
 const subscriptionPlanOptions = computed<SubscriptionPlanOption[]>(() =>

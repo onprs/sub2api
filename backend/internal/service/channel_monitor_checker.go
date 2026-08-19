@@ -210,6 +210,7 @@ var providerAdapters = map[string]providerAdapter{
 	},
 	MonitorProviderOpenCodeGo: providerOpenCodeGoChatAdapter,
 	MonitorProviderClinePass:  providerClinePassChatAdapter,
+	MonitorProviderOpenRouter: providerOpenRouterChatAdapter,
 	MonitorProviderAntigravityClaude: {
 		buildPath: func(string) string { return "/antigravity/v1/messages" },
 		buildBody: func(model, prompt string) ([]byte, error) {
@@ -307,6 +308,32 @@ var providerClinePassChatAdapter = providerAdapter{
 	},
 	textPath:           "data.choices.0.message.content",
 	releaseGuardMarker: "channel_monitor_provider_clinepass",
+}
+
+//nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
+var providerOpenRouterChatAdapter = providerAdapter{
+	buildPath: func(string) string { return providerOpenRouterChatPath },
+	buildBody: func(model, prompt string) ([]byte, error) {
+		return json.Marshal(map[string]any{
+			"model": model,
+			"messages": []map[string]string{
+				{"role": "system", "content": "Return only the requested check code. Do not explain or use tools."},
+				{"role": "user", "content": prompt},
+			},
+			"max_tokens": monitorOpenRouterChallengeMaxTokens,
+			"stream":     false,
+		})
+	},
+	buildHeaders: func(apiKey string) map[string]string {
+		return map[string]string{
+			"Authorization": "Bearer " + apiKey,
+			"Accept":        "application/json",
+			"HTTP-Referer":  "https://sub2api.local",
+			"X-Title":       "sub2api",
+		}
+	},
+	textPath:           "choices.0.message.content",
+	releaseGuardMarker: "channel_monitor_provider_openrouter",
 }
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
@@ -435,6 +462,9 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 		}
 		text, extractErr := extractClinePassChatText(respBytes)
 		return text, string(respBytes), status, extractErr
+	}
+	if provider == MonitorProviderOpenRouter {
+		return extractOpenRouterChatText(respBytes), string(respBytes), status, nil
 	}
 	return gjson.GetBytes(respBytes, adapter.textPath).String(), string(respBytes), status, nil
 }
@@ -616,17 +646,66 @@ func emptyMonitorResponseMessage(provider, rawBody string) string {
 		}
 		return "OpenCode Go Responses returned status=failed"
 	}
-	if provider != MonitorProviderClinePass {
-		return "upstream returned 2xx but response text was empty; check endpoint, api_mode, and response format"
+	if provider == MonitorProviderClinePass {
+		finishReason, reasoning := clinePassMonitorResponseMetadata([]byte(rawBody))
+		if finishReason == "length" {
+			return "ClinePass exhausted the output budget before returning final text"
+		}
+		if reasoning != "" {
+			return "ClinePass returned reasoning but no final response text"
+		}
+		return "ClinePass returned 2xx but response text was empty; verify that the endpoint and API key belong to the same service"
 	}
-	finishReason, reasoning := clinePassMonitorResponseMetadata([]byte(rawBody))
-	if finishReason == "length" {
-		return "ClinePass exhausted the output budget before returning final text"
+	if provider == MonitorProviderOpenRouter {
+		finishReason, reasoning := openRouterMonitorResponseMetadata([]byte(rawBody))
+		if finishReason == "length" {
+			return "OpenRouter exhausted the output budget before returning final text"
+		}
+		if reasoning != "" {
+			return "OpenRouter returned reasoning but no final response text"
+		}
+		return "OpenRouter returned 2xx but response text was empty; verify that the endpoint and API key belong to the same service"
 	}
-	if reasoning != "" {
-		return "ClinePass returned reasoning but no final response text"
+	return "upstream returned 2xx but response text was empty; check endpoint, api_mode, and response format"
+}
+
+func extractOpenRouterChatText(respBytes []byte) string {
+	if text := strings.TrimSpace(gjson.GetBytes(respBytes, "choices.0.message.content").String()); text != "" {
+		return text
 	}
-	return "ClinePass returned 2xx but response text was empty; verify that the endpoint and API key belong to the same service"
+
+	var texts []string
+	choices := gjson.GetBytes(respBytes, "choices")
+	if choices.IsArray() {
+		choices.ForEach(func(_, choice gjson.Result) bool {
+			texts = append(texts, collectMonitorVisibleTexts(choice.Get("message.content"))...)
+			texts = append(texts, collectMonitorVisibleTexts(choice.Get("delta.content"))...)
+			if text := strings.TrimSpace(choice.Get("text").String()); text != "" {
+				texts = append(texts, text)
+			}
+			return true
+		})
+	}
+	if len(texts) > 0 {
+		return strings.Join(texts, "")
+	}
+	return gjson.GetBytes(respBytes, providerOpenRouterChatAdapter.textPath).String()
+}
+
+func openRouterMonitorResponseMetadata(respBytes []byte) (string, string) {
+	finishReason := strings.TrimSpace(gjson.GetBytes(respBytes, "choices.0.finish_reason").String())
+	var reasoning []string
+	for _, path := range []string{
+		"choices.0.message.reasoning_content",
+		"choices.0.message.reasoning",
+		"choices.0.delta.reasoning_content",
+		"choices.0.delta.reasoning",
+	} {
+		if value := strings.TrimSpace(gjson.GetBytes(respBytes, path).String()); value != "" {
+			reasoning = append(reasoning, value)
+		}
+	}
+	return finishReason, strings.Join(reasoning, "")
 }
 
 func openCodeGoMonitorResponseFailed(body []byte) bool {

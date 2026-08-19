@@ -369,6 +369,8 @@ func DefaultModelIDsForPlatform(platform string) []string {
 		return OpenCodeGoDefaultModelIDs()
 	case PlatformClinePass:
 		return ClinePassDefaultModelIDs()
+	case PlatformOpenRouter:
+		return OpenRouterDefaultModelIDs()
 	case PlatformAntigravity:
 		return DefaultAntigravityRouteModelIDs()
 	default:

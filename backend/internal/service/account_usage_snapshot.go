@@ -58,6 +58,12 @@ func (s *AccountUsageService) GetStoredUsageSnapshot(account *Account, now time.
 		}
 		return nil, ErrObserverQuotaUnavailable
 
+	case PlatformOpenRouter:
+		if usage := buildOpenRouterUsageFromExtra(account.Extra, now); usage != nil {
+			return usage, nil
+		}
+		return nil, ErrObserverQuotaUnavailable
+
 	default:
 		return nil, ErrObserverQuotaUnavailable
 	}

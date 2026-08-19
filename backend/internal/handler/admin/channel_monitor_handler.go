@@ -225,6 +225,11 @@ func (h *ChannelMonitorHandler) ClinePassModels(c *gin.Context) {
 	response.Success(c, gin.H{"models": service.ClinePassDefaultModelIDs()})
 }
 
+// OpenRouterModels GET /api/v1/admin/channel-monitors/openrouter-models
+func (h *ChannelMonitorHandler) OpenRouterModels(c *gin.Context) {
+	response.Success(c, gin.H{"models": service.OpenRouterDefaultModelIDs()})
+}
+
 // List GET /api/v1/admin/channel-monitors
 func (h *ChannelMonitorHandler) List(c *gin.Context) {
 	page, pageSize := response.ParsePagination(c)

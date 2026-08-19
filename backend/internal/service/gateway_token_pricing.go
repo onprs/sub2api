@@ -10,7 +10,7 @@ import (
 // especially important for providers with open-ended model catalogs, which
 // must not silently fall back to zero-cost billing for unknown models.
 func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Context, apiKey *APIKey, account *Account, requestedModel string, mapping ChannelMappingResult) error {
-	if s == nil || account == nil || (!account.IsOpenCodeGo() && !account.IsClinePass()) {
+	if s == nil || account == nil || (!account.IsOpenCodeGo() && !account.IsClinePass() && !account.IsOpenRouter()) {
 		return nil
 	}
 

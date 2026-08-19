@@ -24,6 +24,7 @@ const (
 	PlatformOpenAI      = "openai"
 	PlatformOpenCodeGo  = "opencode_go"
 	PlatformClinePass   = "clinepass"
+	PlatformOpenRouter  = "openrouter"
 	PlatformGemini      = "gemini"
 	PlatformAntigravity = "antigravity"
 	PlatformGrok        = "grok"

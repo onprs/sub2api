@@ -80,6 +80,7 @@ const platformLabel = computed(() => {
   if (props.platform === 'grok') return 'Grok'
   if (props.platform === 'opencode_go') return 'OpenCode Go'
   if (props.platform === 'clinepass') return 'ClinePass'
+  if (props.platform === 'openrouter') return 'OpenRouter'
   return 'Gemini'
 })
 
@@ -126,6 +127,9 @@ const platformClass = computed(() => {
   if (props.platform === 'clinepass') {
     return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
   }
+  if (props.platform === 'openrouter') {
+    return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
+  }
   return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
 })
 
@@ -147,6 +151,9 @@ const typeClass = computed(() => {
   }
   if (props.platform === 'clinepass') {
     return 'bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-300'
+  }
+  if (props.platform === 'openrouter') {
+    return 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-300'
   }
   return 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
 })

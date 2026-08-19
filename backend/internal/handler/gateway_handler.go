@@ -1100,6 +1100,11 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
+	if platform == service.PlatformOpenRouter {
+		writeModelsList(c, service.OpenRouterDefaultModelIDs())
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
 		"data":   claude.DefaultModels,
@@ -1229,6 +1234,8 @@ func defaultModelIDsForPlatform(platform string) []string {
 		return service.OpenCodeGoDefaultModelIDs()
 	case service.PlatformClinePass:
 		return service.ClinePassDefaultModelIDs()
+	case service.PlatformOpenRouter:
+		return service.OpenRouterDefaultModelIDs()
 	case service.PlatformAntigravity:
 		return service.DefaultAntigravityRouteModelIDs()
 	case service.PlatformAnthropic:

@@ -168,6 +168,9 @@ const labelClass = computed(() => {
   if (props.platform === 'clinepass') {
     return `${base} bg-rose-200/60 text-rose-800 dark:bg-rose-800/40 dark:text-rose-300`
   }
+  if (props.platform === 'openrouter') {
+    return `${base} bg-indigo-200/60 text-indigo-800 dark:bg-indigo-800/40 dark:text-indigo-300`
+  }
   return `${base} bg-violet-200/60 text-violet-800 dark:bg-violet-800/40 dark:text-violet-300`
 })
 
@@ -212,6 +215,11 @@ const badgeClass = computed(() => {
     return isSubscription.value
       ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
       : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300'
+  }
+  if (props.platform === 'openrouter') {
+    return isSubscription.value
+      ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
+      : 'bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-300'
   }
   // Fallback: original colors
   return isSubscription.value

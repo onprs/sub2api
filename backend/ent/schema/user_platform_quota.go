@@ -41,7 +41,7 @@ func (UserPlatformQuota) Fields() []ent.Field {
 				// 注意：平台列表的单一权威源为 service.AllowedQuotaPlatforms；
 				// 此处为 ent 构建期约束，需与 service.AllowedQuotaPlatforms 保持同步。
 				switch s {
-				case "anthropic", "openai", "opencode_go", "clinepass", "gemini", "antigravity", "grok":
+				case "anthropic", "openai", "opencode_go", "clinepass", "openrouter", "gemini", "antigravity", "grok":
 					return nil
 				default:
 					return fmt.Errorf("platform %q is not allowed", s)

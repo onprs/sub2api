@@ -9,6 +9,7 @@ import {
   monitorPayloadAPIMode,
   PROVIDER_ANTHROPIC,
   PROVIDER_CLINEPASS,
+  PROVIDER_OPENROUTER,
   PROVIDER_OPENCODE_GO,
   PROVIDER_OPENAI,
 } from '../channelMonitor'
@@ -27,6 +28,7 @@ describe('channel monitor constants', () => {
     expect(monitorPayloadAPIMode(PROVIDER_OPENAI, API_MODE_MESSAGES)).toBe(API_MODE_CHAT_COMPLETIONS)
     expect(monitorPayloadAPIMode(PROVIDER_ANTHROPIC, API_MODE_MESSAGES)).toBe(API_MODE_CHAT_COMPLETIONS)
     expect(monitorPayloadAPIMode(PROVIDER_CLINEPASS, API_MODE_MESSAGES)).toBe(API_MODE_CHAT_COMPLETIONS)
+    expect(monitorPayloadAPIMode(PROVIDER_OPENROUTER, API_MODE_MESSAGES)).toBe(API_MODE_CHAT_COMPLETIONS)
   })
 
   it('exposes provider-specific selectable api modes', () => {
@@ -38,5 +40,6 @@ describe('channel monitor constants', () => {
     expect(monitorSelectableAPIModes(PROVIDER_OPENAI)).toEqual([API_MODE_CHAT_COMPLETIONS, API_MODE_RESPONSES])
     expect(monitorSelectableAPIModes(PROVIDER_ANTHROPIC)).toEqual([API_MODE_CHAT_COMPLETIONS])
     expect(monitorSelectableAPIModes(PROVIDER_CLINEPASS)).toEqual([API_MODE_CHAT_COMPLETIONS])
+    expect(monitorSelectableAPIModes(PROVIDER_OPENROUTER)).toEqual([API_MODE_CHAT_COMPLETIONS])
   })
 })

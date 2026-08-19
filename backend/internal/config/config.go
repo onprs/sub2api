@@ -1690,6 +1690,7 @@ func setDefaults() {
 		"api.minimaxi.com",
 		"opencode.ai",
 		"api.cline.bot",
+		"openrouter.ai",
 		"generativelanguage.googleapis.com",
 		"daily-cloudcode-pa.googleapis.com",
 		"cloudcode-pa.googleapis.com",

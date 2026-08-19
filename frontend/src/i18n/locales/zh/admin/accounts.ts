@@ -222,6 +222,7 @@ export default {
         grok: 'Grok',
         opencode_go: 'OpenCode Go',
         clinepass: 'ClinePass',
+        openrouter: 'OpenRouter',
       },
       types: {
         oauth: 'OAuth',
@@ -613,6 +614,11 @@ export default {
         baseUrlHint: '除非部署使用已批准的兼容中继，否则请保留 ClinePass 官方 API Root。',
         apiKeyHint: '请输入 ClinePass 签发的静态 API Key。',
         usageSource: 'ClinePass 官方用量限制'
+      },
+      openRouter: {
+        baseUrlHint: '除非部署使用已批准的兼容中继，否则请保留 OpenRouter 官方 API Root (https://openrouter.ai/api/v1)。',
+        apiKeyHint: '请输入 OpenRouter 签发的 API Key。',
+        usageSource: 'OpenRouter 官方用量限制'
       },
       anthropic: {
         apiKeyPassthrough: '自动透传（仅替换认证）',

@@ -83,6 +83,30 @@ func normalizeAndValidateClinePassAccount(platform, accountType string, credenti
 	return nil
 }
 
+func normalizeAndValidateOpenRouterAccount(platform, accountType string, credentials map[string]any) error {
+	if platform != PlatformOpenRouter {
+		return nil
+	}
+	if accountType != AccountTypeAPIKey {
+		return infraerrors.BadRequest("OPENROUTER_ACCOUNT_TYPE_INVALID", "OpenRouter accounts must use type=apikey")
+	}
+	apiKey, _ := credentials["api_key"].(string)
+	if strings.TrimSpace(apiKey) == "" {
+		return infraerrors.BadRequest("OPENROUTER_API_KEY_REQUIRED", "OpenRouter api_key is required")
+	}
+	baseURL := strings.TrimSpace(fmt.Sprint(credentials["base_url"]))
+	if baseURL == "" || baseURL == "<nil>" {
+		credentials["base_url"] = DefaultOpenRouterBaseURL
+		return nil
+	}
+	normalized, err := validateOpenRouterBaseURL(nil, baseURL)
+	if err != nil {
+		return infraerrors.BadRequest("OPENROUTER_BASE_URL_INVALID", err.Error())
+	}
+	credentials["base_url"] = strings.TrimRight(normalized, "/")
+	return nil
+}
+
 func normalizeAccountConcurrency(platform, accountType string, concurrency int) int {
 	if platform == PlatformGrok && accountType == AccountTypeOAuth {
 		if concurrency <= 0 {
@@ -97,6 +121,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		return nil, ErrAccountNilInput
 	}
 	if err := normalizeAndValidateClinePassAccount(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
+	if err := normalizeAndValidateOpenRouterAccount(input.Platform, input.Type, input.Credentials); err != nil {
 		return nil, err
 	}
 	// 绑定分组
@@ -339,6 +366,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		account.AutoPauseOnExpired = *input.AutoPauseOnExpired
 	}
 	if err := normalizeAndValidateClinePassAccount(account.Platform, account.Type, account.Credentials); err != nil {
+		return nil, err
+	}
+	if err := normalizeAndValidateOpenRouterAccount(account.Platform, account.Type, account.Credentials); err != nil {
 		return nil, err
 	}
 

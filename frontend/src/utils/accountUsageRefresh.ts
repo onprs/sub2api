@@ -86,8 +86,27 @@ export const buildClinePassUsageRefreshKey = (account: Pick<Account, 'id' | 'pla
   ].map(normalizeUsageRefreshValue).join('|')
 }
 
+export const buildOpenRouterUsageRefreshKey = (account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'extra'>): string => {
+  if (account.platform !== 'openrouter' || account.type !== 'apikey') return ''
+
+  const extra = account.extra ?? {}
+  return [
+    account.id,
+    account.updated_at,
+    extra.openrouter_usage_auth_status,
+    extra.openrouter_usage_last_error_at,
+    extra.openrouter_usage_source,
+    extra.openrouter_usage_updated_at,
+    extra.openrouter_usage_label,
+    extra.openrouter_usage_used_usd,
+    extra.openrouter_usage_limit_usd,
+    extra.openrouter_usage_remaining_usd,
+    extra.openrouter_usage_is_free_tier
+  ].map(normalizeUsageRefreshValue).join('|')
+}
+
 export const buildAccountUsageRefreshKey = (
   account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'last_used_at' | 'rate_limit_reset_at' | 'extra' | 'credentials' | 'credentials_status' | 'proxy_id'>
 ): string => {
-  return buildOpenAIUsageRefreshKey(account) || buildOpenAIAPIKeyBalanceRefreshKey(account) || buildOpenCodeGoUsageRefreshKey(account) || buildClinePassUsageRefreshKey(account)
+  return buildOpenAIUsageRefreshKey(account) || buildOpenAIAPIKeyBalanceRefreshKey(account) || buildOpenCodeGoUsageRefreshKey(account) || buildClinePassUsageRefreshKey(account) || buildOpenRouterUsageRefreshKey(account)
 }

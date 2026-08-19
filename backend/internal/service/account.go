@@ -97,6 +97,7 @@ const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
 const (
 	DefaultOpenCodeGoBaseURL           = "https://opencode.ai/zen/go/v1"
 	DefaultClinePassBaseURL            = "https://api.cline.bot/api/v1"
+	DefaultOpenRouterBaseURL           = "https://openrouter.ai/api/v1"
 	OpenCodeGoProtocolChatCompletions  = "chat_completions"
 	OpenCodeGoProtocolResponses        = "responses"
 	OpenCodeGoProtocolMessages         = "messages"
@@ -1369,6 +1370,14 @@ func (a *Account) IsClinePassAPIKey() bool {
 	return a.IsClinePass() && a.Type == AccountTypeAPIKey
 }
 
+func (a *Account) IsOpenRouter() bool {
+	return a != nil && a.Platform == PlatformOpenRouter
+}
+
+func (a *Account) IsOpenRouterAPIKey() bool {
+	return a.IsOpenRouter() && a.Type == AccountTypeAPIKey
+}
+
 func (a *Account) IsOpenAIOAuth() bool {
 	return a.IsOpenAI() && a.Type == AccountTypeOAuth
 }
@@ -1514,6 +1523,24 @@ func (a *Account) GetClinePassBaseURL() string {
 	baseURL := strings.TrimRight(strings.TrimSpace(a.GetCredential("base_url")), "/")
 	if baseURL == "" {
 		return DefaultClinePassBaseURL
+	}
+	return baseURL
+}
+
+func (a *Account) GetOpenRouterAPIKey() string {
+	if !a.IsOpenRouterAPIKey() {
+		return ""
+	}
+	return strings.TrimSpace(a.GetCredential("api_key"))
+}
+
+func (a *Account) GetOpenRouterBaseURL() string {
+	if !a.IsOpenRouter() {
+		return ""
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(a.GetCredential("base_url")), "/")
+	if baseURL == "" {
+		return DefaultOpenRouterBaseURL
 	}
 	return baseURL
 }

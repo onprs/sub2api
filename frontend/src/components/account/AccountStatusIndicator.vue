@@ -346,9 +346,27 @@ const clinePassOfficialUsageRateLimitResetMs = (account: Account): number | null
   return latest
 }
 
+const openRouterOfficialUsageRateLimitResetMs = (account: Account): number | null => {
+  if (account.platform !== 'openrouter' || account.type !== 'apikey') return null
+  const extra = account.extra as Record<string, unknown> | undefined
+  if (!extra || String(extra.openrouter_usage_source || '').trim() !== 'official_api') return null
+
+  const limitUSD = numberFromExtra(extra.openrouter_usage_limit_usd)
+  const usedUSD = numberFromExtra(extra.openrouter_usage_used_usd)
+  const remainingUSD = numberFromExtra(extra.openrouter_usage_remaining_usd)
+  if (limitUSD !== null && limitUSD > 0) {
+    if ((remainingUSD !== null && remainingUSD <= 0) || (usedUSD !== null && usedUSD >= limitUSD)) {
+      const updatedAt = timeFromExtra(extra.openrouter_usage_updated_at)
+      return (updatedAt ?? Date.now()) + 10 * 60 * 1000
+    }
+  }
+  return null
+}
+
 const isOfficialUsageExceeded = computed(() => {
   return openCodeGoOfficialUsageRateLimitResetMs(props.account) !== null ||
-    clinePassOfficialUsageRateLimitResetMs(props.account) !== null
+    clinePassOfficialUsageRateLimitResetMs(props.account) !== null ||
+    openRouterOfficialUsageRateLimitResetMs(props.account) !== null
 })
 
 const effectiveRateLimitResetAt = computed(() => {
@@ -357,7 +375,8 @@ const effectiveRateLimitResetAt = computed(() => {
     return props.account.rate_limit_reset_at
   }
   const providerResetMs = openCodeGoOfficialUsageRateLimitResetMs(props.account) ??
-    clinePassOfficialUsageRateLimitResetMs(props.account)
+    clinePassOfficialUsageRateLimitResetMs(props.account) ??
+    openRouterOfficialUsageRateLimitResetMs(props.account)
   if (providerResetMs !== null && providerResetMs > Date.now()) {
     return new Date(providerResetMs).toISOString()
   }

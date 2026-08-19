@@ -91,6 +91,27 @@ const clinePassModels = [
   'cline-pass/qwen3.7-plus'
 ]
 
+// OpenRouter 首次内置模型列表
+const openRouterModels = [
+  'dots-studio/dots-3-note-preview:free',
+  'google/gemma-4-26b-a4b-it:free',
+  'google/gemma-4-31b-it:free',
+  'liquid/lfm-2.5-2.6b:free',
+  'nvidia/nemotron-3.5-lightning:free',
+  'nvidia/nemotron-3.5-content-safety:free',
+  'nvidia/nemotron-3-ultra-550b-a55b:free',
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
+  'nvidia/nemotron-3-nano-30b-a3b:free',
+  'nvidia/nemotron-nano-12b-v2-vl:free',
+  'nvidia/nemotron-nano-9b-v2:free',
+  'openai/gpt-oss-20b:free',
+  'openrouter/free',
+  'poolside/laguna-s-2.1:free',
+  'poolside/laguna-xs-2.1:free',
+  'z-ai/glm-5.2:free'
+]
+
 // 智谱 GLM
 const zhipuModels = [
   'glm-4', 'glm-4v', 'glm-4-plus', 'glm-4-0520',
@@ -360,6 +381,7 @@ const antigravityPresetMappings = [
 
 const opencodeGoPresetMappings: typeof anthropicPresetMappings = []
 const clinePassPresetMappings: typeof anthropicPresetMappings = []
+const openRouterPresetMappings: typeof anthropicPresetMappings = []
 
 // Bedrock 预设映射（与后端 DefaultBedrockModelMapping 保持一致）
 const bedrockPresetMappings = [
@@ -433,6 +455,7 @@ export function getModelsByPlatform(platform: string, context: ModelCatalogConte
     case 'antigravity': return antigravityModels
     case 'opencode_go': return opencodeGoModels
     case 'clinepass': return clinePassModels
+    case 'openrouter': return openRouterModels
     case 'zhipu': return zhipuModels
     case 'qwen': return qwenModels
     case 'deepseek': return deepseekModels
@@ -461,6 +484,7 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'opencode_go') return opencodeGoPresetMappings
   if (platform === 'clinepass') return clinePassPresetMappings
+  if (platform === 'openrouter') return openRouterPresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings
   return anthropicPresetMappings
 }

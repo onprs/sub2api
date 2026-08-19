@@ -58,6 +58,9 @@
         <p v-if="form.provider === PROVIDER_CLINEPASS" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
           {{ t('admin.channelMonitor.form.clinePassEndpointHint') }}
         </p>
+        <p v-if="form.provider === PROVIDER_OPENROUTER" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.channelMonitor.form.openRouterEndpointHint') }}
+        </p>
       </div>
 
       <div>
@@ -80,6 +83,9 @@
         <p v-if="form.provider === PROVIDER_CLINEPASS" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
           {{ t('admin.channelMonitor.form.clinePassAPIKeyHint') }}
         </p>
+        <p v-if="form.provider === PROVIDER_OPENROUTER" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.channelMonitor.form.openRouterAPIKeyHint') }}
+        </p>
       </div>
 
       <div>
@@ -91,10 +97,13 @@
           class="input font-medium"
           :class="getPlatformTextClass(form.provider)"
           :placeholder="t('admin.channelMonitor.form.primaryModelPlaceholder')"
-          :list="form.provider === PROVIDER_CLINEPASS ? 'clinepass-monitor-models' : undefined"
+          :list="form.provider === PROVIDER_CLINEPASS ? 'clinepass-monitor-models' : form.provider === PROVIDER_OPENROUTER ? 'openrouter-monitor-models' : undefined"
         />
         <datalist v-if="form.provider === PROVIDER_CLINEPASS" id="clinepass-monitor-models">
           <option v-for="model in clinePassModels" :key="model" :value="model" />
+        </datalist>
+        <datalist v-if="form.provider === PROVIDER_OPENROUTER" id="openrouter-monitor-models">
+          <option v-for="model in openRouterModels" :key="model" :value="model" />
         </datalist>
       </div>
 
@@ -104,7 +113,7 @@
           :models="form.extra_models"
           :platform="form.provider"
           :placeholder="t('admin.channelMonitor.form.extraModelsPlaceholder')"
-          :suggestions="form.provider === PROVIDER_CLINEPASS ? clinePassModels : undefined"
+          :suggestions="form.provider === PROVIDER_CLINEPASS ? clinePassModels : form.provider === PROVIDER_OPENROUTER ? openRouterModels : undefined"
           @update:models="form.extra_models = $event"
         />
       </div>
@@ -231,6 +240,7 @@ import {
   PROVIDER_ANTIGRAVITY_GEMINI,
   PROVIDER_OPENCODE_GO,
   PROVIDER_CLINEPASS,
+  PROVIDER_OPENROUTER,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_MESSAGES,
   API_MODE_RESPONSES,
@@ -271,6 +281,7 @@ const showKeyPicker = ref(false)
 const myKeysLoading = ref(false)
 const myActiveKeys = ref<ApiKey[]>([])
 const clinePassModels = ref<string[]>([])
+const openRouterModels = ref<string[]>([])
 const userGroupRates = ref<Record<number, number>>({})
 
 interface MonitorForm {
@@ -422,6 +433,15 @@ async function loadClinePassModels() {
   }
 }
 
+async function loadOpenRouterModels() {
+  if (openRouterModels.value.length > 0) return
+  try {
+    openRouterModels.value = await adminAPI.channelMonitor.listOpenRouterModels()
+  } catch {
+    openRouterModels.value = []
+  }
+}
+
 function clearRequestSnapshot() {
   form.template_id = null
   form.extra_headers = {}
@@ -442,6 +462,7 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_ANTIGRAVITY_GEMINI, label: t('monitorCommon.providers.antigravity_gemini') },
   { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
   { value: PROVIDER_CLINEPASS, label: t('monitorCommon.providers.clinepass') },
+  { value: PROVIDER_OPENROUTER, label: t('monitorCommon.providers.openrouter') },
 ])
 
 // Clear api_key whenever provider changes to avoid cross-provider key mismatch.
@@ -456,6 +477,9 @@ watch(() => form.provider, (provider) => {
   if (provider === PROVIDER_CLINEPASS) {
     form.endpoint = monitorCurrentDomainEndpoint(provider, window.location.origin)
     void loadClinePassModels()
+  } else if (provider === PROVIDER_OPENROUTER) {
+    form.endpoint = monitorCurrentDomainEndpoint(provider, window.location.origin)
+    void loadOpenRouterModels()
   }
   clearRequestSnapshot()
 }, { flush: 'sync' })
@@ -515,6 +539,7 @@ watch(
     if (!show) return
     void loadTemplates()
     if (m?.provider === PROVIDER_CLINEPASS) void loadClinePassModels()
+    if (m?.provider === PROVIDER_OPENROUTER) void loadOpenRouterModels()
     if (m) loadFromMonitor(m)
     else resetForm()
   },

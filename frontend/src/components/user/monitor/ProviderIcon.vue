@@ -61,6 +61,11 @@ const PROVIDER_ICONS: Partial<Record<Provider, IconData>> = {
       'M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2zm1 3v10h12V7H6zm2.2 2.2L11 12l-2.8 2.8L7 13.6 8.6 12 7 10.4l1.2-1.2zm4.3 5.3h4v-1.7h-4v1.7z',
     ],
   },
+  openrouter: {
+    paths: [
+      'M12 2v20M2 12h20M17 7l5 5-5 5M7 7l-5 5 5 5',
+    ],
+  },
 }
 
 const props = withDefaults(defineProps<{

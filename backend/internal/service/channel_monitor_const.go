@@ -61,6 +61,8 @@ const (
 	providerOpenCodeGoResponsesPath = "/responses"
 	// providerClinePassChatPath works with both the local gateway root and Cline's /api/v1 root.
 	providerClinePassChatPath = "/chat/completions"
+	// providerOpenRouterChatPath works with both the local gateway root and OpenRouter's /api/v1 root.
+	providerOpenRouterChatPath = "/chat/completions"
 
 	// MonitorProvider* provider 字符串常量（也是 ent enum 的实际值）。
 	MonitorProviderOpenAI            = "openai"
@@ -68,6 +70,7 @@ const (
 	MonitorProviderGemini            = "gemini"
 	MonitorProviderOpenCodeGo        = "opencode_go"
 	MonitorProviderClinePass         = "clinepass"
+	MonitorProviderOpenRouter        = "openrouter"
 	MonitorProviderAntigravityClaude = "antigravity_claude"
 	MonitorProviderAntigravityGemini = "antigravity_gemini"
 
@@ -108,6 +111,8 @@ const (
 	// monitorClinePassChallengeMaxTokens 为 ClinePass reasoning 模型保留最终答案预算。
 	// 官方 SDK 默认输出上限为 32k；探活使用 4k，在控制额度消耗的同时避免 reasoning 挤占全部输出。
 	monitorClinePassChallengeMaxTokens = 4096
+	// monitorOpenRouterChallengeMaxTokens 为 OpenRouter reasoning 模型保留充足的输出预算，避免思考过程挤占全部 output 导致最终 content 被截断。
+	monitorOpenRouterChallengeMaxTokens = 4096
 	// monitorAntigravityGeminiChallengeMaxTokens 为 Antigravity Gemini thinking/agent 模型保留更多输出预算。
 	monitorAntigravityGeminiChallengeMaxTokens = 1024
 	// monitorAntigravityGeminiThinkingLevel 渠道监控只做极简探活，Gemini 3 用 low 降低 thinking 消耗与首 token 延迟。
@@ -137,7 +142,7 @@ var (
 		"CHANNEL_MONITOR_NOT_FOUND", "channel monitor not found",
 	)
 	ErrChannelMonitorInvalidProvider = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/opencode_go/clinepass/antigravity_claude/antigravity_gemini",
+		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/opencode_go/clinepass/openrouter/antigravity_claude/antigravity_gemini",
 	)
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, messages, or responses; responses is supported for openai/opencode_go and messages is supported for opencode_go",

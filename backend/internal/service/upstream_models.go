@@ -91,6 +91,13 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 		}
 		return models, nil
 	}
+	if account.IsOpenRouterAPIKey() {
+		models := defaultOpenRouterCatalog.ModelIDs(ctx)
+		if len(models) == 0 {
+			return nil, newUpstreamModelSyncUpstreamError("OpenRouter model catalog is unavailable", nil)
+		}
+		return models, nil
+	}
 
 	if s.httpUpstream == nil {
 		return nil, newUpstreamModelSyncConfigError("Upstream HTTP client is not configured", nil)
@@ -144,6 +151,8 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 		return s.buildOpenCodeGoUpstreamModelsRequest(ctx, account)
 	case account.IsClinePass():
 		return nil, newUpstreamModelSyncUnsupportedError("ClinePass uses its dedicated public catalog", nil)
+	case account.IsOpenRouter():
+		return nil, newUpstreamModelSyncUnsupportedError("OpenRouter uses its dedicated public catalog", nil)
 	case account.IsGemini():
 		return s.buildGeminiUpstreamModelsRequest(ctx, account)
 	case account.IsAnthropic():

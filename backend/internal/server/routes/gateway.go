@@ -44,7 +44,7 @@ func RegisterGatewayRoutes(
 	}
 	isStandardProtocolGatewayPlatform := func(c *gin.Context) bool {
 		platform := getGroupPlatform(c)
-		return platform == service.PlatformOpenCodeGo || platform == service.PlatformClinePass
+		return platform == service.PlatformOpenCodeGo || platform == service.PlatformClinePass || platform == service.PlatformOpenRouter
 	}
 	imagesHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {
@@ -143,7 +143,7 @@ func RegisterGatewayRoutes(
 				h.OpenAIGateway.CountTokens(c)
 				return
 			}
-			if platform == service.PlatformOpenCodeGo || platform == service.PlatformClinePass || isOpenAIResponsesCompatibleGatewayPlatform(c) {
+			if platform == service.PlatformOpenCodeGo || platform == service.PlatformClinePass || platform == service.PlatformOpenRouter || isOpenAIResponsesCompatibleGatewayPlatform(c) {
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 				c.JSON(http.StatusNotFound, gin.H{
 					"type": "error",
