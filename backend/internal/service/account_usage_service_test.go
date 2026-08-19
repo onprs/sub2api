@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -37,6 +39,18 @@ func (r *accountUsageCodexProbeRepo) UpdateExtra(_ context.Context, _ int64, upd
 			copied[k] = v
 		}
 		r.updateExtraCh <- copied
+	}
+	return nil
+}
+
+func (r *accountUsageCodexProbeRepo) ClearRateLimit(_ context.Context, id int64) error {
+	for i := range r.accounts {
+		if r.accounts[i].ID == id {
+			r.accounts[i].RateLimitedAt = nil
+			r.accounts[i].RateLimitResetAt = nil
+			r.accounts[i].OverloadUntil = nil
+			break
+		}
 	}
 	return nil
 }
@@ -698,4 +712,255 @@ func TestAccountUsageService_GetUsage_OpenCodeGoAPIKeyFallsBackWhenOfficialSnaps
 	if got := usage.FiveHour.Utilization; got != 50 {
 		t.Fatalf("fallback 5h utilization = %v, want 50", got)
 	}
+}
+
+func TestAccountUsageService_GetUsage_OpenCodeGoAutoAppliesRewardWhenUsageExceeds80Percent(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	reset5h := now.Add(5 * time.Hour)
+	reset7d := now.Add(7 * 24 * time.Hour)
+	reset30d := now.Add(30 * 24 * time.Hour)
+
+	repo := &accountUsageCodexProbeRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{
+			accounts: []Account{{
+				ID:       85,
+				Platform: PlatformOpenCodeGo,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"console_cookie":       "auth=console-cookie",
+					"console_workspace_id": "wrk_auto",
+				},
+				Extra: map[string]any{
+					"opencode_go_usage_source":           "official_console",
+					"opencode_go_usage_updated_at":       now.Add(-10 * time.Minute).Format(time.RFC3339),
+					"opencode_go_usage_5h_used_percent":  85.0,
+					"opencode_go_usage_5h_resets_at":     reset5h.Format(time.RFC3339),
+					"opencode_go_usage_7d_used_percent":  10.0,
+					"opencode_go_usage_7d_resets_at":     reset7d.Format(time.RFC3339),
+					"opencode_go_usage_30d_used_percent": 10.0,
+					"opencode_go_usage_30d_resets_at":    reset30d.Format(time.RFC3339),
+					"opencode_go_console_auth_status":    "ready",
+				},
+			}},
+		},
+		updateExtraCh: make(chan map[string]any, 2),
+	}
+
+	initialSummary := &OpenCodeGoConsoleSummary{
+		WorkspaceID: "wrk_auto",
+		FetchedAt:   now,
+		Usage: OpenCodeGoConsoleUsage{
+			FiveHour:  OpenCodeGoUsageWindow{Status: "ok", UsagePercent: 85.0, ResetInSec: int(reset5h.Sub(now).Seconds()), ResetsAt: &reset5h},
+			SevenDay:  OpenCodeGoUsageWindow{Status: "ok", UsagePercent: 10.0, ResetInSec: int(reset7d.Sub(now).Seconds()), ResetsAt: &reset7d},
+			ThirtyDay: OpenCodeGoUsageWindow{Status: "ok", UsagePercent: 10.0, ResetInSec: int(reset30d.Sub(now).Seconds()), ResetsAt: &reset30d},
+		},
+		Referral: OpenCodeGoReferralSummary{
+			AvailableCount: 1,
+			Rewards: []OpenCodeGoReferralReward{
+				{ID: "rew_auto_1", Status: "available", AmountCents: 500},
+			},
+		},
+	}
+
+	afterApplySummary := &OpenCodeGoConsoleSummary{
+		WorkspaceID: "wrk_auto",
+		FetchedAt:   now.Add(time.Second),
+		Usage: OpenCodeGoConsoleUsage{
+			FiveHour:  OpenCodeGoUsageWindow{Status: "ok", UsagePercent: 42.0, ResetInSec: int(reset5h.Sub(now).Seconds()), ResetsAt: &reset5h},
+			SevenDay:  OpenCodeGoUsageWindow{Status: "ok", UsagePercent: 10.0, ResetInSec: int(reset7d.Sub(now).Seconds()), ResetsAt: &reset7d},
+			ThirtyDay: OpenCodeGoUsageWindow{Status: "ok", UsagePercent: 10.0, ResetInSec: int(reset30d.Sub(now).Seconds()), ResetsAt: &reset30d},
+		},
+		Referral: OpenCodeGoReferralSummary{
+			AvailableCount: 0,
+			Rewards: []OpenCodeGoReferralReward{
+				{ID: "rew_auto_1", Status: "applied", AmountCents: 500},
+			},
+		},
+	}
+
+	applier := &stubOpenCodeGoReferralApplier{}
+	fetcher := &sequentialSummaryFetcher{summaries: []*OpenCodeGoConsoleSummary{initialSummary, afterApplySummary}}
+
+	svc := &AccountUsageService{
+		accountRepo:                     repo,
+		usageLogRepo:                    &openCodeGoUsageLogRepo{},
+		cache:                           NewUsageCache(),
+		openCodeGoConsoleSummaryFetch:   fetcher,
+		openCodeGoReferralActionApplier: applier,
+	}
+
+	usage, err := svc.GetUsage(context.Background(), 85, true)
+	if err != nil {
+		t.Fatalf("GetUsage() error = %v", err)
+	}
+	if len(applier.applyCalls) != 1 || applier.applyCalls[0] != "rew_auto_1" {
+		t.Fatalf("expected apply call [rew_auto_1], got: %v", applier.applyCalls)
+	}
+	if usage.FiveHour.Utilization != 42.0 {
+		t.Fatalf("expected updated utilization 42.0, got: %v", usage.FiveHour.Utilization)
+	}
+}
+
+func TestAccountUsageService_GetUsage_OpenCodeGoClearsRateLimitWhenUsageRecovers(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	rateLimitedAt := now.Add(-10 * time.Minute)
+	rateLimitResetAt := now.Add(2 * time.Hour)
+	reset5h := now.Add(5 * time.Hour)
+
+	repo := &accountUsageCodexProbeRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{
+			accounts: []Account{{
+				ID:               86,
+				Platform:         PlatformOpenCodeGo,
+				Type:             AccountTypeAPIKey,
+				RateLimitedAt:    &rateLimitedAt,
+				RateLimitResetAt: &rateLimitResetAt,
+				Credentials: map[string]any{
+					"console_cookie":       "auth=console-cookie",
+					"console_workspace_id": "wrk_recovered",
+				},
+				Extra: map[string]any{
+					"opencode_go_usage_source":           "official_console",
+					"opencode_go_usage_updated_at":       now.Add(-10 * time.Minute).Format(time.RFC3339),
+					"opencode_go_usage_5h_used_percent":  100.0,
+					"opencode_go_usage_5h_resets_at":     reset5h.Format(time.RFC3339),
+					"opencode_go_usage_7d_used_percent":  10.0,
+					"opencode_go_usage_7d_resets_at":     now.Add(7 * 24 * time.Hour).Format(time.RFC3339),
+					"opencode_go_usage_30d_used_percent": 10.0,
+					"opencode_go_usage_30d_resets_at":    now.Add(30 * 24 * time.Hour).Format(time.RFC3339),
+					"opencode_go_console_auth_status":    "ready",
+				},
+			}},
+		},
+		updateExtraCh: make(chan map[string]any, 2),
+	}
+
+	// 模拟使用奖励后用量恢复至 50% (< 100%)
+	recoveredSummary := &OpenCodeGoConsoleSummary{
+		WorkspaceID: "wrk_recovered",
+		FetchedAt:   now,
+		Usage: OpenCodeGoConsoleUsage{
+			FiveHour:  OpenCodeGoUsageWindow{Status: "ok", UsagePercent: 50.0, ResetInSec: int(reset5h.Sub(now).Seconds()), ResetsAt: &reset5h},
+			SevenDay:  OpenCodeGoUsageWindow{Status: "ok", UsagePercent: 10.0, ResetInSec: int(7 * 24 * 3600), ResetsAt: &reset5h},
+			ThirtyDay: OpenCodeGoUsageWindow{Status: "ok", UsagePercent: 10.0, ResetInSec: int(30 * 24 * 3600), ResetsAt: &reset5h},
+		},
+		Referral: OpenCodeGoReferralSummary{
+			AvailableCount: 0,
+		},
+	}
+
+	fetcher := &sequentialSummaryFetcher{summaries: []*OpenCodeGoConsoleSummary{recoveredSummary}}
+	svc := &AccountUsageService{
+		accountRepo:                   repo,
+		usageLogRepo:                  &openCodeGoUsageLogRepo{},
+		cache:                         NewUsageCache(),
+		openCodeGoConsoleSummaryFetch: fetcher,
+	}
+
+	usage, err := svc.GetUsage(context.Background(), 86, true)
+	if err != nil {
+		t.Fatalf("GetUsage() error = %v", err)
+	}
+	if usage.FiveHour.Utilization != 50.0 {
+		t.Fatalf("expected utilization 50.0, got: %v", usage.FiveHour.Utilization)
+	}
+	if repo.accounts[0].RateLimitedAt != nil || repo.accounts[0].RateLimitResetAt != nil {
+		t.Fatalf("expected rate limit cleared on account when usage recovered")
+	}
+}
+
+func TestAccountUsageService_GetUsage_OpenAIClearsRateLimitWhenUsageRecovers(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	rateLimitedAt := now.Add(-10 * time.Minute)
+	rateLimitResetAt := now.Add(2 * time.Hour)
+
+	repo := &accountUsageCodexProbeRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{
+			accounts: []Account{{
+				ID:               87,
+				Platform:         PlatformOpenAI,
+				Type:             AccountTypeOAuth,
+				RateLimitedAt:    &rateLimitedAt,
+				RateLimitResetAt: &rateLimitResetAt,
+				Credentials: map[string]any{
+					"chatgpt_account_id": "org-openai-rec",
+				},
+				Extra: map[string]any{
+					"codex_5h_used_percent": 100.0,
+				},
+			}},
+		},
+		updateExtraCh: make(chan map[string]any, 2),
+	}
+
+	// 模拟 QueryUsage 返回 5h: 0%, 7d: 10%
+	mockQuotaSvc := &stubOpenAIQuotaUsageFetcher{
+		usage: &OpenAIQuotaUsage{
+			AdditionalRateLimits: []OpenAIAdditionalRateLimit{
+				{
+					MeteredFeature: "codex_bengalfox",
+					RateLimit: &OpenAIRateLimit{
+						PrimaryWindow: &OpenAIRateLimitWindow{UsedPercent: 0.0, ResetAfterSeconds: 3600, LimitWindowSeconds: 300},
+					},
+				},
+			},
+		},
+	}
+
+	tokenCache := &stubQuotaTokenCache{tokens: map[string]string{
+		OpenAITokenCacheKey(&repo.accounts[0]): "fake-token-rec",
+	}}
+	tokenProvider := NewOpenAITokenProvider(repo, tokenCache, nil)
+
+	svc := &AccountUsageService{
+		accountRepo:        repo,
+		usageLogRepo:       &openCodeGoUsageLogRepo{},
+		cache:              NewUsageCache(),
+		openAIQuotaService: mockQuotaSvc.asService(repo, tokenProvider),
+	}
+
+	// 影子账号通过 openAIQuotaService 查询用量
+	pid := int64(87)
+	shadowAccount := Account{
+		ID:               88,
+		ParentAccountID:  &pid,
+		Platform:         PlatformOpenAI,
+		Type:             AccountTypeOAuth,
+		QuotaDimension:   QuotaDimensionSpark,
+		RateLimitedAt:    &rateLimitedAt,
+		RateLimitResetAt: &rateLimitResetAt,
+		Credentials:      map[string]any{},
+		Extra: map[string]any{
+			"codex_5h_used_percent": 100.0,
+		},
+	}
+	repo.accounts = append(repo.accounts, shadowAccount)
+
+	usage, err := svc.GetUsage(context.Background(), 88, true)
+	if err != nil {
+		t.Fatalf("GetUsage() error = %v", err)
+	}
+	_ = usage
+
+	if repo.accounts[1].RateLimitedAt != nil || repo.accounts[1].RateLimitResetAt != nil {
+		t.Fatalf("expected rate limit cleared on shadow account when codex usage recovered")
+	}
+}
+
+type stubOpenAIQuotaUsageFetcher struct {
+	usage *OpenAIQuotaUsage
+}
+
+func (f *stubOpenAIQuotaUsageFetcher) asService(repo AccountRepository, tokenProvider *OpenAITokenProvider) *OpenAIQuotaService {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(f.usage)
+	}))
+	return NewOpenAIQuotaService(repo, nil, tokenProvider, newQuotaRedirectingFactory(srv))
 }

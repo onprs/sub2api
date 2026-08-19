@@ -309,6 +309,7 @@ type AccountUsageService struct {
 	clinePassClient               *ClinePassClient
 	openRouterClient              *OpenRouterClient
 	openCodeGoConsoleSummaryFetch OpenCodeGoConsoleSummaryFetcher
+	openCodeGoReferralActionApplier OpenCodeGoReferralActionApplier
 	httpUpstream                  HTTPUpstream
 	cfg                           *config.Config
 }
@@ -650,6 +651,19 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 				applyExtraToUsage(usage, account.Extra, now)
 			}
 		}
+
+		if s.accountRepo != nil && (account.RateLimitedAt != nil || account.RateLimitResetAt != nil) {
+			if !isOpenAICodexUsageExhausted(usage) {
+				if err := s.accountRepo.ClearRateLimit(ctx, account.ID); err != nil {
+					slog.Warn("openai_codex_usage_rate_limit_clear_failed", "account_id", account.ID, "error", err)
+				} else {
+					account.RateLimitedAt = nil
+					account.RateLimitResetAt = nil
+					account.OverloadUntil = nil
+					slog.Info("openai_codex_usage_rate_limit_cleared", "account_id", account.ID)
+				}
+			}
+		}
 	}
 
 	if s.usageLogRepo == nil {
@@ -827,6 +841,7 @@ func (s *AccountUsageService) refreshOpenCodeGoConsoleUsageSnapshot(ctx context.
 	if err != nil {
 		return nil, err
 	}
+	summary, _ = s.AutoApplyOpenCodeGoReferralRewardsIfEligible(ctx, account.ID, workspaceID, cookie, summary)
 	updates := BuildOpenCodeGoConsoleSummaryExtra(summary, OpenCodeGoConsoleAuthStatusReady)
 	if len(updates) == 0 {
 		return nil, fmt.Errorf("opencode go console summary is empty")
@@ -860,6 +875,13 @@ func (s *AccountUsageService) syncOpenCodeGoOfficialUsageRateLimitAt(ctx context
 		Extra:    extra,
 	}).OpenCodeGoOfficialUsageRateLimitResetAt(now)
 	if resetAt == nil {
+		if currentResetAt != nil || s.isAccountRateLimited(ctx, accountID) {
+			if err := s.accountRepo.ClearRateLimit(ctx, accountID); err != nil {
+				slog.Warn("opencode_go_official_usage_rate_limit_clear_failed", "account_id", accountID, "error", err)
+			} else {
+				slog.Info("opencode_go_official_usage_rate_limit_cleared", "account_id", accountID)
+			}
+		}
 		return
 	}
 	if currentResetAt != nil && now.Before(*currentResetAt) && !currentResetAt.Before(*resetAt) {
@@ -868,6 +890,33 @@ func (s *AccountUsageService) syncOpenCodeGoOfficialUsageRateLimitAt(ctx context
 	if err := s.accountRepo.SetRateLimited(ctx, accountID, *resetAt); err != nil {
 		slog.Warn("opencode_go_official_usage_rate_limit_sync_failed", "account_id", accountID, "reset_at", *resetAt, "error", err)
 	}
+}
+
+func (s *AccountUsageService) isAccountRateLimited(ctx context.Context, accountID int64) bool {
+	if s == nil || s.accountRepo == nil || accountID <= 0 {
+		return false
+	}
+	acc, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil || acc == nil {
+		return false
+	}
+	return acc.RateLimitedAt != nil || acc.RateLimitResetAt != nil || acc.OverloadUntil != nil
+}
+
+func isOpenAICodexUsageExhausted(usage *UsageInfo) bool {
+	if usage == nil {
+		return false
+	}
+	if usage.FiveHour != nil && usage.FiveHour.Utilization >= 100.0 {
+		return true
+	}
+	if usage.SevenDay != nil && usage.SevenDay.Utilization >= 100.0 {
+		return true
+	}
+	if usage.SevenDayFable != nil && usage.SevenDayFable.Utilization >= 100.0 {
+		return true
+	}
+	return false
 }
 
 func (s *AccountUsageService) markOpenCodeGoConsoleAuthExpired(ctx context.Context, accountID int64) {
@@ -1877,4 +1926,22 @@ func buildGeminiUsageProgress(used, limit int64, resetAt time.Time, tokens int64
 // 用于账号列表页面显示当前窗口费用
 func (s *AccountUsageService) GetAccountWindowStats(ctx context.Context, accountID int64, startTime time.Time) (*usagestats.AccountStats, error) {
 	return s.usageLogRepo.GetAccountWindowStats(ctx, accountID, startTime)
+}
+
+// SyncRateLimitedOpenCodeGoAccounts 扫描当前处于限流状态的 OpenCode Go 账号，尝试同步控制台并自动应用可能新获得的奖励
+func (s *AccountUsageService) SyncRateLimitedOpenCodeGoAccounts(ctx context.Context) {
+	if s == nil || s.accountRepo == nil {
+		return
+	}
+	accounts, err := s.accountRepo.ListByPlatform(ctx, PlatformOpenCodeGo)
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	for i := range accounts {
+		acc := &accounts[i]
+		if acc.RateLimitResetAt != nil && acc.RateLimitResetAt.After(now) && hasOpenCodeGoConsoleCredentials(acc) {
+			_, _ = s.getOpenCodeGoUsage(ctx, acc, false)
+		}
+	}
 }

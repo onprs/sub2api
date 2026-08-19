@@ -264,6 +264,26 @@ func (s *OpenAIQuotaService) ResetCredit(ctx context.Context, accountID int64) (
 		"code", payload.Code,
 		"windows_reset", payload.WindowsReset,
 	)
+
+	// 重置成功后，立即清除账号的限流状态
+	if s.accountRepo != nil {
+		if err := s.accountRepo.ClearRateLimit(ctx, accountID); err != nil {
+			slog.Warn("openai_quota_reset_clear_rate_limit_failed", "account_id", accountID, "error", err)
+		} else {
+			slog.Info("openai_quota_reset_clear_rate_limit_success", "account_id", accountID)
+		}
+	}
+
+	// 重新拉取最新用量快照并持久化到账号 extra
+	if usage, err := s.QueryUsage(ctx, accountID); err == nil && usage != nil {
+		updates := buildOpenAIQuotaUsageExtraUpdates(usage, time.Now())
+		if len(updates) > 0 && s.accountRepo != nil {
+			if updateErr := s.accountRepo.UpdateExtra(ctx, accountID, updates); updateErr != nil {
+				slog.Warn("openai_quota_reset_update_extra_failed", "account_id", accountID, "error", updateErr)
+			}
+		}
+	}
+
 	return &payload, nil
 }
 
@@ -429,6 +449,79 @@ func firstNonEmptyResetCreditPayload(lists ...[]openAIRateLimitResetCreditDetail
 		}
 	}
 	return nil
+}
+
+// buildOpenAIQuotaUsageExtraUpdates extracts full usage window metadata from OpenAIQuotaUsage.
+func buildOpenAIQuotaUsageExtraUpdates(usage *OpenAIQuotaUsage, now time.Time) map[string]any {
+	if usage == nil {
+		return nil
+	}
+	updates := make(map[string]any)
+	if usage.PlanType != "" {
+		updates["plan_type"] = usage.PlanType
+	}
+	if usage.RateLimitResetCredits != nil {
+		updates["rate_limit_reset_credits"] = usage.RateLimitResetCredits.AvailableCount
+	}
+
+	if usage.RateLimit != nil {
+		snap := &OpenAICodexUsageSnapshot{}
+		if w := usage.RateLimit.PrimaryWindow; w != nil {
+			p := w.UsedPercent
+			snap.PrimaryUsedPercent = &p
+			ra := int(w.ResetAfterSeconds)
+			snap.PrimaryResetAfterSeconds = &ra
+			wm := int(w.LimitWindowSeconds / 60)
+			snap.PrimaryWindowMinutes = &wm
+		}
+		if w := usage.RateLimit.SecondaryWindow; w != nil {
+			p := w.UsedPercent
+			snap.SecondaryUsedPercent = &p
+			ra := int(w.ResetAfterSeconds)
+			snap.SecondaryResetAfterSeconds = &ra
+			wm := int(w.LimitWindowSeconds / 60)
+			snap.SecondaryWindowMinutes = &wm
+		}
+		if normalized := snap.Normalize(); normalized != nil {
+			if normalized.Used5hPercent != nil {
+				updates["codex_5h_used_percent"] = *normalized.Used5hPercent
+				updates["session_window_utilization"] = *normalized.Used5hPercent / 100.0
+			}
+			if normalized.Reset5hSeconds != nil {
+				updates["codex_5h_reset_after_seconds"] = *normalized.Reset5hSeconds
+			}
+			if normalized.Window5hMinutes != nil {
+				updates["codex_5h_window_minutes"] = *normalized.Window5hMinutes
+			}
+			if normalized.Used7dPercent != nil {
+				updates["codex_7d_used_percent"] = *normalized.Used7dPercent
+				updates["codex_primary_used_percent"] = *normalized.Used7dPercent
+			}
+			if normalized.Reset7dSeconds != nil {
+				updates["codex_7d_reset_after_seconds"] = *normalized.Reset7dSeconds
+			}
+			if normalized.Window7dMinutes != nil {
+				updates["codex_7d_window_minutes"] = *normalized.Window7dMinutes
+			}
+			if r := codexResetAtRFC3339(now, normalized.Reset5hSeconds); r != nil {
+				updates["codex_5h_reset_at"] = *r
+			}
+			if r := codexResetAtRFC3339(now, normalized.Reset7dSeconds); r != nil {
+				updates["codex_7d_reset_at"] = *r
+			}
+		}
+	}
+
+	if sparkUpdates := buildCodexSparkWindowExtraUpdates(usage, now); len(sparkUpdates) > 0 {
+		for k, v := range sparkUpdates {
+			updates[k] = v
+		}
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+	return updates
 }
 
 // buildCodexSparkWindowExtraUpdates extracts Codex Spark usage windows from the

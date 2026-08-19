@@ -481,4 +481,83 @@ describe('BulkEditAccountModal', () => {
       status: 'active'
     })
   })
+
+  it('OpenRouter 平台账号批量编辑支持配置临时不可调度规则', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openrouter'],
+      selectedTypes: ['apikey']
+    })
+
+    expect(wrapper.find('#bulk-edit-temp-unsched-enabled').exists()).toBe(true)
+
+    await wrapper.get('#bulk-edit-temp-unsched-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-temp-unsched-toggle').trigger('click')
+    await wrapper.get('[data-testid="bulk-edit-temp-unsched-preset-rate-limit"]').trigger('click')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      credentials: {
+        temp_unschedulable_enabled: true,
+        temp_unschedulable_rules: [
+          {
+            error_code: 429,
+            keywords: [
+              'rate limit',
+              'rate_limit',
+              'too many requests',
+              'too_many_requests',
+              'resource exhausted',
+              'resource_exhausted',
+              'resource has been exhausted',
+              'quota exceeded',
+              'quota_exceeded'
+            ],
+            duration_minutes: 10,
+            description: 'admin.accounts.tempUnschedulable.presets.rateLimitDesc'
+          }
+        ]
+      }
+    })
+  })
+
+  it('OpenRouter 与 OpenAI 混合批量编辑时支持批量更新临时不可调度规则', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openrouter', 'openai'],
+      selectedTypes: ['apikey']
+    })
+
+    expect(wrapper.find('#bulk-edit-temp-unsched-enabled').exists()).toBe(true)
+
+    await wrapper.get('#bulk-edit-temp-unsched-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-temp-unsched-toggle').trigger('click')
+    await wrapper.get('[data-testid="bulk-edit-temp-unsched-preset-bad-gateway"]').trigger('click')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      credentials: {
+        temp_unschedulable_enabled: true,
+        temp_unschedulable_rules: [
+          {
+            error_code: 502,
+            keywords: [
+              'bad gateway',
+              'bad_gateway',
+              'upstream error',
+              'upstream_error',
+              'upstream connect error',
+              'upstream reset',
+              'connection reset',
+              'upstream service temporarily unavailable'
+            ],
+            duration_minutes: 10,
+            description: 'admin.accounts.tempUnschedulable.presets.badGatewayDesc'
+          }
+        ]
+      }
+    })
+  })
 })

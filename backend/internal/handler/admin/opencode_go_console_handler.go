@@ -322,6 +322,9 @@ func (h *AccountHandler) fetchAndPersistOpenCodeGoConsoleSummary(ctx context.Con
 	if err != nil {
 		return nil, err
 	}
+	if h.accountUsageService != nil {
+		summary, _ = h.accountUsageService.AutoApplyOpenCodeGoReferralRewardsIfEligible(ctx, account.ID, workspaceID, cookie, summary)
+	}
 	if err := h.accountUsageService.PersistOpenCodeGoConsoleSummary(ctx, account.ID, summary, service.OpenCodeGoConsoleAuthStatusReady); err != nil {
 		return nil, err
 	}

@@ -23,7 +23,9 @@ import (
 // stubQuotaAccountRepo 是多账号 AccountRepository stub，仅实现 GetByID。
 type stubQuotaAccountRepo struct {
 	AccountRepository
-	accounts map[int64]*Account
+	accounts         map[int64]*Account
+	clearRateLimitCh chan int64
+	updateExtraCalls int
 }
 
 func (r *stubQuotaAccountRepo) GetByID(_ context.Context, id int64) (*Account, error) {
@@ -32,6 +34,30 @@ func (r *stubQuotaAccountRepo) GetByID(_ context.Context, id int64) (*Account, e
 		return nil, fmt.Errorf("account %d not found", id)
 	}
 	return acc, nil
+}
+
+func (r *stubQuotaAccountRepo) ClearRateLimit(_ context.Context, id int64) error {
+	if r.clearRateLimitCh != nil {
+		r.clearRateLimitCh <- id
+	}
+	if acc, ok := r.accounts[id]; ok {
+		acc.RateLimitedAt = nil
+		acc.RateLimitResetAt = nil
+	}
+	return nil
+}
+
+func (r *stubQuotaAccountRepo) UpdateExtra(_ context.Context, id int64, updates map[string]any) error {
+	r.updateExtraCalls++
+	if acc, ok := r.accounts[id]; ok {
+		if acc.Extra == nil {
+			acc.Extra = make(map[string]any)
+		}
+		for k, v := range updates {
+			acc.Extra[k] = v
+		}
+	}
+	return nil
 }
 
 // stubQuotaTokenCache 实现 OpenAITokenCache，返回预设静态 token。
@@ -419,4 +445,66 @@ func TestQueryUsageShadowResolve_EndToEnd(t *testing.T) {
 	require.NotNil(t, usage)
 	require.Equal(t, "org-e2e-parent", capturedAccountID,
 		"upstream should receive parent's chatgpt-account-id; got: %s", capturedAccountID)
+}
+
+func TestResetCreditClearsRateLimitAndUpdatesExtra(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	rateLimitedAt := now.Add(-10 * time.Minute)
+	rateLimitResetAt := now.Add(2 * time.Hour)
+
+	parent := &Account{
+		ID:               100,
+		Platform:         PlatformOpenAI,
+		Type:             AccountTypeOAuth,
+		Status:           StatusActive,
+		RateLimitedAt:    &rateLimitedAt,
+		RateLimitResetAt: &rateLimitResetAt,
+		Credentials:      map[string]any{"chatgpt_account_id": "org-reset-test"},
+		Extra:            map[string]any{"codex_primary_used_percent": 100.0},
+	}
+	repo := &stubQuotaAccountRepo{
+		accounts:         map[int64]*Account{100: parent},
+		clearRateLimitCh: make(chan int64, 1),
+	}
+
+	tokenCache := &stubQuotaTokenCache{tokens: map[string]string{
+		OpenAITokenCacheKey(parent): "fake-token-reset",
+	}}
+	tokenProvider := NewOpenAITokenProvider(repo, tokenCache, nil)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		if strings.Contains(r.URL.Path, "consume") {
+			_ = json.NewEncoder(w).Encode(OpenAIQuotaResetResult{
+				Code:         "ok",
+				WindowsReset: 1,
+			})
+			return
+		}
+		// QueryUsage 回调
+		_ = json.NewEncoder(w).Encode(OpenAIQuotaUsage{
+			RateLimit: &OpenAIRateLimit{
+				PrimaryWindow: &OpenAIRateLimitWindow{UsedPercent: 0.0},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	svc := NewOpenAIQuotaService(repo, nil, tokenProvider, newQuotaRedirectingFactory(srv))
+	result, err := svc.ResetCredit(ctx, 100)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "ok", result.Code)
+
+	select {
+	case clearedID := <-repo.clearRateLimitCh:
+		require.Equal(t, int64(100), clearedID, "expected ClearRateLimit called for account 100")
+	default:
+		t.Fatal("expected ClearRateLimit to be called upon successful reset")
+	}
+
+	require.Nil(t, parent.RateLimitedAt)
+	require.Nil(t, parent.RateLimitResetAt)
+	require.True(t, repo.updateExtraCalls > 0, "expected UpdateExtra called to persist usage snapshot")
 }

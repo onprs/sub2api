@@ -3,11 +3,14 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -84,4 +87,65 @@ func TestOpenRouterGatewayBufferedChat(t *testing.T) {
 	require.Equal(t, "https://openrouter.ai/api/v1/chat/completions", upstream.request.URL.String())
 	require.Equal(t, "Bearer or-test-key", upstream.request.Header.Get("Authorization"))
 	require.Equal(t, "openrouter/free", gjson.GetBytes(reqBody, "model").String())
+}
+
+type openRouterTestAccountRepo struct {
+	AccountRepository
+	tempUnschedCalls int
+	lastTempReason   string
+}
+
+func (r *openRouterTestAccountRepo) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
+	r.tempUnschedCalls++
+	r.lastTempReason = reason
+	return nil
+}
+
+func TestOpenRouterGatewayTempUnschedulableRuleFailover(t *testing.T) {
+	upstream := &openRouterHTTPUpstreamStub{
+		response: newOpenRouterTestResponse(http.StatusBadRequest, `{
+			"error": {
+				"message": "upstream provider is temporarily overloaded, please retry",
+				"type": "invalid_request_error",
+				"code": "provider_error"
+			}
+		}`),
+	}
+	client := NewOpenRouterClient(upstream, nil, nil)
+	repo := &openRouterTestAccountRepo{}
+	rateLimitSvc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc := NewOpenRouterGatewayService(client, nil, rateLimitSvc)
+
+	account := &Account{
+		ID:          101,
+		Platform:    PlatformOpenRouter,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":                    "or-test-key",
+			"base_url":                   "https://openrouter.ai/api/v1",
+			"temp_unschedulable_enabled": true,
+			"temp_unschedulable_rules": []any{
+				map[string]any{
+					"error_code":       400,
+					"keywords":         []any{"overloaded", "temporarily"},
+					"duration_minutes": 15,
+					"description":      "upstream overload rule",
+				},
+			},
+		},
+	}
+	_, c := newOpenRouterTestContext()
+
+	result, err := svc.ForwardChatCompletions(context.Background(), c, account, []byte(`{
+		"model":"openrouter/free",
+		"messages":[{"role":"user","content":"Hello"}],
+		"stream":false
+	}`))
+	require.Nil(t, result)
+	require.Error(t, err)
+
+	var failoverErr *UpstreamFailoverError
+	require.True(t, errors.As(err, &failoverErr), "expected UpstreamFailoverError on temp unschedulable match")
+	require.Equal(t, http.StatusBadRequest, failoverErr.StatusCode)
+	require.Equal(t, 1, repo.tempUnschedCalls, "should have called SetTempUnschedulable")
 }

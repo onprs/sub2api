@@ -185,16 +185,19 @@ func (s *ClinePassGatewayService) handleError(ctx context.Context, c *gin.Contex
 	decoded := decodeClinePassError(resp.StatusCode, resp.Header, body)
 	status := decoded.EffectiveStatus()
 	setOpsUpstreamError(c, status, decoded.Message, "")
+
+	shouldDisable := false
+	if s.rateLimitService != nil {
+		shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, status, resp.Header, body)
+	}
+
 	kind := "passthrough"
-	if decoded.Retryable || decoded.AccountAffecting {
+	if decoded.Retryable || decoded.AccountAffecting || shouldDisable {
 		kind = "failover"
 	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{Platform: account.Platform, AccountID: account.ID, AccountName: account.Name, UpstreamStatusCode: status, UpstreamRequestID: decoded.RequestID, Kind: kind, Message: decoded.Message})
 
-	if decoded.Retryable || decoded.AccountAffecting {
-		if s.rateLimitService != nil {
-			s.rateLimitService.HandleUpstreamError(ctx, account, status, resp.Header, body)
-		}
+	if decoded.Retryable || decoded.AccountAffecting || shouldDisable {
 		return &UpstreamFailoverError{StatusCode: status, ResponseBody: body, ResponseHeaders: protocoltransport.CloneHeaders(resp.Header)}
 	}
 	writeOpenCodeGoError(c, status, format, firstNonEmptyString(decoded.Type, decoded.Code, "upstream_error"), decoded.Message)

@@ -299,4 +299,77 @@ describe('CreateAccountModal', () => {
     )
     expect(wrapper.text()).toContain('powershell -NoProfile')
   })
+
+  it('creates OpenRouter account with API key and temporary unschedulable rules', async () => {
+    const wrapper = mountModal()
+
+    const platformButton = wrapper.findAll('button').find((button) => button.text().includes('OpenRouter'))
+    expect(platformButton).toBeDefined()
+    await platformButton!.trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-tour="account-form-name"]').setValue('OpenRouter Production')
+    const keyInput = wrapper.findAll('input[type="password"]').find((input) =>
+      (input.attributes('placeholder') || '').includes('sk-')
+    )
+    expect(keyInput).toBeDefined()
+    await keyInput!.setValue('sk-or-v1-abcdef')
+
+    // 开启临时不可调度并填入 429 预设
+    await wrapper.get('[data-testid="temp-unsched-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="temp-unsched-preset-rate-limit"]').trigger('click')
+
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload.platform).toBe('openrouter')
+    expect(payload.type).toBe('apikey')
+    expect(payload.credentials.base_url).toBe('https://openrouter.ai/api/v1')
+    expect(payload.credentials.api_key).toBe('sk-or-v1-abcdef')
+    expect(payload.credentials.temp_unschedulable_enabled).toBe(true)
+    expect(payload.credentials.temp_unschedulable_rules).toHaveLength(1)
+    expect(payload.credentials.temp_unschedulable_rules[0].error_code).toBe(429)
+  })
+
+  it('creates OpenAI API key account with temporary unschedulable rules', async () => {
+    const wrapper = mountModal()
+
+    const platformButton = wrapper.findAll('button').find((button) => button.text().includes('OpenAI'))
+    expect(platformButton).toBeDefined()
+    await platformButton!.trigger('click')
+    await flushPromises()
+
+    // 切换到 API Key 类型
+    const apiKeyCategoryButton = wrapper.findAll('button').find((button) =>
+      button.text().includes('API Key') && button.text().includes('admin.accounts.types.responsesApi')
+    )
+    expect(apiKeyCategoryButton).toBeDefined()
+    await apiKeyCategoryButton!.trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-tour="account-form-name"]').setValue('OpenAI Direct Key')
+    const keyInput = wrapper.findAll('input[type="password"]').find((input) =>
+      (input.attributes('placeholder') || '').includes('sk-')
+    )
+    expect(keyInput).toBeDefined()
+    await keyInput!.setValue('sk-proj-123456')
+
+    // 开启临时不可调度并填入 503 预设
+    await wrapper.get('[data-testid="temp-unsched-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="temp-unsched-preset-service-unavailable"]').trigger('click')
+
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload.platform).toBe('openai')
+    expect(payload.type).toBe('apikey')
+    expect(payload.credentials.api_key).toBe('sk-proj-123456')
+    expect(payload.credentials.temp_unschedulable_enabled).toBe(true)
+    expect(payload.credentials.temp_unschedulable_rules).toHaveLength(1)
+    expect(payload.credentials.temp_unschedulable_rules[0].error_code).toBe(503)
+  })
 })

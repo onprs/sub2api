@@ -212,6 +212,28 @@ function buildClinePassAccount() {
   } as any
 }
 
+function buildOpenRouterAccount() {
+  return {
+    ...buildAccount(),
+    id: 7,
+    name: 'OpenRouter Production Key',
+    platform: 'openrouter',
+    credentials: {
+      api_key: 'sk-or-v1-existing',
+      base_url: 'https://openrouter.ai/api/v1',
+      temp_unschedulable_enabled: true,
+      temp_unschedulable_rules: [
+        {
+          error_code: 429,
+          keywords: ['rate limit', 'too many requests'],
+          duration_minutes: 10,
+          description: 'rate limit rule'
+        }
+      ]
+    }
+  } as any
+}
+
 function buildOpenCodeGoConsoleSummary() {
   return {
     authorized: true,
@@ -1080,5 +1102,32 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).not.toHaveProperty(
       'antigravity_project_id'
     )
+  })
+
+  it('edits OpenRouter account with temporary unschedulable rules', async () => {
+    const account = buildOpenRouterAccount()
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.accounts.tempUnschedulable.title')
+    const inputValues = wrapper.findAll('input').map((input) => input.element.value)
+    expect(inputValues).toContain('429')
+    expect(inputValues).toContain('10')
+
+    // 添加一条 502 规则并保存
+    await wrapper.get('[data-testid="temp-unsched-preset-bad-gateway"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const creds = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(creds.base_url).toBe('https://openrouter.ai/api/v1')
+    expect(creds.temp_unschedulable_enabled).toBe(true)
+    expect(creds.temp_unschedulable_rules).toHaveLength(2)
   })
 })
