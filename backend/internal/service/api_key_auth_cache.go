@@ -4,16 +4,19 @@ import "time"
 
 // APIKeyAuthSnapshot API Key 认证缓存快照（仅包含认证所需字段）
 type APIKeyAuthSnapshot struct {
-	Version     int                      `json:"version"`
-	APIKeyID    int64                    `json:"api_key_id"`
-	UserID      int64                    `json:"user_id"`
-	GroupID     *int64                   `json:"group_id,omitempty"`
-	Name        string                   `json:"name"`
-	Status      string                   `json:"status"`
-	IPWhitelist []string                 `json:"ip_whitelist,omitempty"`
-	IPBlacklist []string                 `json:"ip_blacklist,omitempty"`
-	User        APIKeyAuthUserSnapshot   `json:"user"`
-	Group       *APIKeyAuthGroupSnapshot `json:"group,omitempty"`
+	Version         int                              `json:"version"`
+	APIKeyID        int64                            `json:"api_key_id"`
+	UserID          int64                            `json:"user_id"`
+	GroupID         *int64                           `json:"group_id,omitempty"`
+	RoutingPlatform string                           `json:"routing_platform,omitempty"`
+	RoutingStrategy string                           `json:"routing_strategy,omitempty"`
+	RoutingGroups   []APIKeyAuthRoutingGroupSnapshot `json:"routing_groups,omitempty"`
+	Name            string                           `json:"name"`
+	Status          string                           `json:"status"`
+	IPWhitelist     []string                         `json:"ip_whitelist,omitempty"`
+	IPBlacklist     []string                         `json:"ip_blacklist,omitempty"`
+	User            APIKeyAuthUserSnapshot           `json:"user"`
+	Group           *APIKeyAuthGroupSnapshot         `json:"group,omitempty"`
 
 	// Quota fields for API Key independent quota feature
 	Quota     float64 `json:"quota"`      // Quota limit in USD (0 = unlimited)
@@ -26,6 +29,13 @@ type APIKeyAuthSnapshot struct {
 	RateLimit5h float64 `json:"rate_limit_5h"`
 	RateLimit1d float64 `json:"rate_limit_1d"`
 	RateLimit7d float64 `json:"rate_limit_7d"`
+}
+
+type APIKeyAuthRoutingGroupSnapshot struct {
+	GroupID     int64                   `json:"group_id"`
+	Priority    int                     `json:"priority"`
+	RPMOverride *int                    `json:"rpm_override,omitempty"`
+	Group       APIKeyAuthGroupSnapshot `json:"group"`
 }
 
 // APIKeyAuthUserSnapshot 用户快照
@@ -70,6 +80,8 @@ type APIKeyAuthGroupSnapshot struct {
 	AllowBatchImageGeneration       bool     `json:"allow_batch_image_generation"`
 	ImageRateIndependent            bool     `json:"image_rate_independent"`
 	ImageRateMultiplier             float64  `json:"image_rate_multiplier"`
+	BatchImageDiscountMultiplier    float64  `json:"batch_image_discount_multiplier"`
+	BatchImageHoldMultiplier        float64  `json:"batch_image_hold_multiplier"`
 	ImagePrice1K                    *float64 `json:"image_price_1k,omitempty"`
 	ImagePrice2K                    *float64 `json:"image_price_2k,omitempty"`
 	ImagePrice4K                    *float64 `json:"image_price_4k,omitempty"`
@@ -93,6 +105,8 @@ type APIKeyAuthGroupSnapshot struct {
 
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
 	AllowMessagesDispatch       bool                              `json:"allow_messages_dispatch"`
+	RequireOAuthOnly            bool                              `json:"require_oauth_only"`
+	RequirePrivacySet           bool                              `json:"require_privacy_set"`
 	DefaultMappedModel          string                            `json:"default_mapped_model,omitempty"`
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config,omitempty"`
 	ModelsListConfig            GroupModelsListConfig             `json:"models_list_config,omitempty"`

@@ -150,7 +150,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		skipBilling := c.Request.URL.Path == "/v1/usage"
 
 		var subscription *service.UserSubscription
-		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
+		isSubscriptionType := !apiKey.UsesDynamicGroupRouting() && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 
 		if isSubscriptionType && subscriptionService != nil {
 			if skipBilling {
@@ -231,7 +231,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 					AbortWithError(c, status, code, validateErr.Error())
 					return
 				}
-			} else {
+			} else if !apiKey.UsesDynamicGroupRouting() {
 				// 非订阅模式 或 订阅模式但 subscriptionService 未注入：回退到余额检查
 				if apiKeyBalanceBelowAuthThreshold(apiKey.User.Balance, cfg) {
 					AbortWithError(c, 403, "INSUFFICIENT_BALANCE", "Insufficient account balance")
@@ -345,7 +345,22 @@ func abortIfAPIKeyGroupNotAllowed(c *gin.Context, apiKey *service.APIKey) bool {
 }
 
 func validateAPIKeyGroupAllowed(apiKey *service.APIKey) bool {
-	if apiKey == nil || apiKey.GroupID == nil || apiKey.User == nil || apiKey.Group == nil {
+	if apiKey == nil || apiKey.User == nil {
+		return true
+	}
+	if apiKey.UsesDynamicGroupRouting() {
+		for _, binding := range apiKey.ConfiguredRoutingGroups() {
+			group := binding.Group
+			if group == nil || !group.IsActive() {
+				continue
+			}
+			if group.IsSubscriptionType() || apiKey.User.CanBindGroup(group.ID, group.IsExclusive) {
+				return true
+			}
+		}
+		return false
+	}
+	if apiKey.GroupID == nil || apiKey.Group == nil {
 		return true
 	}
 	group := apiKey.Group
@@ -358,6 +373,14 @@ func validateAPIKeyGroupAllowed(apiKey *service.APIKey) bool {
 func validateAPIKeyGroupAvailable(apiKey *service.APIKey) (string, string, bool) {
 	if apiKey == nil || apiKey.GroupID == nil {
 		return "", "", true
+	}
+	if apiKey.UsesDynamicGroupRouting() {
+		for _, binding := range apiKey.ConfiguredRoutingGroups() {
+			if binding.Group != nil && binding.Group.IsActive() {
+				return "", "", true
+			}
+		}
+		return "GROUP_UNAVAILABLE", "API Key 配置的分组均不可用", false
 	}
 	group := apiKey.Group
 	if group == nil || strings.EqualFold(group.Status, "deleted") {

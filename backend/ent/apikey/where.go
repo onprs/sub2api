@@ -90,6 +90,16 @@ func GroupID(v int64) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldGroupID, v))
 }
 
+// RoutingPlatform applies equality check predicate on the "routing_platform" field. It's identical to RoutingPlatformEQ.
+func RoutingPlatform(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldRoutingPlatform, v))
+}
+
+// RoutingStrategy applies equality check predicate on the "routing_strategy" field. It's identical to RoutingStrategyEQ.
+func RoutingStrategy(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldRoutingStrategy, v))
+}
+
 // Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
 func Status(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldStatus, v))
@@ -468,6 +478,136 @@ func GroupIDIsNil() predicate.APIKey {
 // GroupIDNotNil applies the NotNil predicate on the "group_id" field.
 func GroupIDNotNil() predicate.APIKey {
 	return predicate.APIKey(sql.FieldNotNull(FieldGroupID))
+}
+
+// RoutingPlatformEQ applies the EQ predicate on the "routing_platform" field.
+func RoutingPlatformEQ(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldRoutingPlatform, v))
+}
+
+// RoutingPlatformNEQ applies the NEQ predicate on the "routing_platform" field.
+func RoutingPlatformNEQ(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldRoutingPlatform, v))
+}
+
+// RoutingPlatformIn applies the In predicate on the "routing_platform" field.
+func RoutingPlatformIn(vs ...string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldRoutingPlatform, vs...))
+}
+
+// RoutingPlatformNotIn applies the NotIn predicate on the "routing_platform" field.
+func RoutingPlatformNotIn(vs ...string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldRoutingPlatform, vs...))
+}
+
+// RoutingPlatformGT applies the GT predicate on the "routing_platform" field.
+func RoutingPlatformGT(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGT(FieldRoutingPlatform, v))
+}
+
+// RoutingPlatformGTE applies the GTE predicate on the "routing_platform" field.
+func RoutingPlatformGTE(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGTE(FieldRoutingPlatform, v))
+}
+
+// RoutingPlatformLT applies the LT predicate on the "routing_platform" field.
+func RoutingPlatformLT(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLT(FieldRoutingPlatform, v))
+}
+
+// RoutingPlatformLTE applies the LTE predicate on the "routing_platform" field.
+func RoutingPlatformLTE(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLTE(FieldRoutingPlatform, v))
+}
+
+// RoutingPlatformContains applies the Contains predicate on the "routing_platform" field.
+func RoutingPlatformContains(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldContains(FieldRoutingPlatform, v))
+}
+
+// RoutingPlatformHasPrefix applies the HasPrefix predicate on the "routing_platform" field.
+func RoutingPlatformHasPrefix(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldHasPrefix(FieldRoutingPlatform, v))
+}
+
+// RoutingPlatformHasSuffix applies the HasSuffix predicate on the "routing_platform" field.
+func RoutingPlatformHasSuffix(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldHasSuffix(FieldRoutingPlatform, v))
+}
+
+// RoutingPlatformEqualFold applies the EqualFold predicate on the "routing_platform" field.
+func RoutingPlatformEqualFold(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEqualFold(FieldRoutingPlatform, v))
+}
+
+// RoutingPlatformContainsFold applies the ContainsFold predicate on the "routing_platform" field.
+func RoutingPlatformContainsFold(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldContainsFold(FieldRoutingPlatform, v))
+}
+
+// RoutingStrategyEQ applies the EQ predicate on the "routing_strategy" field.
+func RoutingStrategyEQ(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldRoutingStrategy, v))
+}
+
+// RoutingStrategyNEQ applies the NEQ predicate on the "routing_strategy" field.
+func RoutingStrategyNEQ(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldRoutingStrategy, v))
+}
+
+// RoutingStrategyIn applies the In predicate on the "routing_strategy" field.
+func RoutingStrategyIn(vs ...string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldRoutingStrategy, vs...))
+}
+
+// RoutingStrategyNotIn applies the NotIn predicate on the "routing_strategy" field.
+func RoutingStrategyNotIn(vs ...string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldRoutingStrategy, vs...))
+}
+
+// RoutingStrategyGT applies the GT predicate on the "routing_strategy" field.
+func RoutingStrategyGT(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGT(FieldRoutingStrategy, v))
+}
+
+// RoutingStrategyGTE applies the GTE predicate on the "routing_strategy" field.
+func RoutingStrategyGTE(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGTE(FieldRoutingStrategy, v))
+}
+
+// RoutingStrategyLT applies the LT predicate on the "routing_strategy" field.
+func RoutingStrategyLT(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLT(FieldRoutingStrategy, v))
+}
+
+// RoutingStrategyLTE applies the LTE predicate on the "routing_strategy" field.
+func RoutingStrategyLTE(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLTE(FieldRoutingStrategy, v))
+}
+
+// RoutingStrategyContains applies the Contains predicate on the "routing_strategy" field.
+func RoutingStrategyContains(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldContains(FieldRoutingStrategy, v))
+}
+
+// RoutingStrategyHasPrefix applies the HasPrefix predicate on the "routing_strategy" field.
+func RoutingStrategyHasPrefix(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldHasPrefix(FieldRoutingStrategy, v))
+}
+
+// RoutingStrategyHasSuffix applies the HasSuffix predicate on the "routing_strategy" field.
+func RoutingStrategyHasSuffix(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldHasSuffix(FieldRoutingStrategy, v))
+}
+
+// RoutingStrategyEqualFold applies the EqualFold predicate on the "routing_strategy" field.
+func RoutingStrategyEqualFold(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEqualFold(FieldRoutingStrategy, v))
+}
+
+// RoutingStrategyContainsFold applies the ContainsFold predicate on the "routing_strategy" field.
+func RoutingStrategyContainsFold(v string) predicate.APIKey {
+	return predicate.APIKey(sql.FieldContainsFold(FieldRoutingStrategy, v))
 }
 
 // StatusEQ applies the EQ predicate on the "status" field.
@@ -1171,6 +1311,29 @@ func HasGroupWith(preds ...predicate.Group) predicate.APIKey {
 	})
 }
 
+// HasRoutingGroups applies the HasEdge predicate on the "routing_groups" edge.
+func HasRoutingGroups() predicate.APIKey {
+	return predicate.APIKey(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, false, RoutingGroupsTable, RoutingGroupsPrimaryKey...),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasRoutingGroupsWith applies the HasEdge predicate on the "routing_groups" edge with a given conditions (other predicates).
+func HasRoutingGroupsWith(preds ...predicate.Group) predicate.APIKey {
+	return predicate.APIKey(func(s *sql.Selector) {
+		step := newRoutingGroupsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasUsageLogs applies the HasEdge predicate on the "usage_logs" edge.
 func HasUsageLogs() predicate.APIKey {
 	return predicate.APIKey(func(s *sql.Selector) {
@@ -1186,6 +1349,29 @@ func HasUsageLogs() predicate.APIKey {
 func HasUsageLogsWith(preds ...predicate.UsageLog) predicate.APIKey {
 	return predicate.APIKey(func(s *sql.Selector) {
 		step := newUsageLogsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasAPIKeyGroups applies the HasEdge predicate on the "api_key_groups" edge.
+func HasAPIKeyGroups() predicate.APIKey {
+	return predicate.APIKey(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, true, APIKeyGroupsTable, APIKeyGroupsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasAPIKeyGroupsWith applies the HasEdge predicate on the "api_key_groups" edge with a given conditions (other predicates).
+func HasAPIKeyGroupsWith(preds ...predicate.APIKeyGroup) predicate.APIKey {
+	return predicate.APIKey(func(s *sql.Selector) {
+		step := newAPIKeyGroupsStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

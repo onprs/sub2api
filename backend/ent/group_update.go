@@ -936,6 +936,21 @@ func (_u *GroupUpdate) AddAPIKeys(v ...*APIKey) *GroupUpdate {
 	return _u.AddAPIKeyIDs(ids...)
 }
 
+// AddRoutingAPIKeyIDs adds the "routing_api_keys" edge to the APIKey entity by IDs.
+func (_u *GroupUpdate) AddRoutingAPIKeyIDs(ids ...int64) *GroupUpdate {
+	_u.mutation.AddRoutingAPIKeyIDs(ids...)
+	return _u
+}
+
+// AddRoutingAPIKeys adds the "routing_api_keys" edges to the APIKey entity.
+func (_u *GroupUpdate) AddRoutingAPIKeys(v ...*APIKey) *GroupUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddRoutingAPIKeyIDs(ids...)
+}
+
 // AddRedeemCodeIDs adds the "redeem_codes" edge to the RedeemCode entity by IDs.
 func (_u *GroupUpdate) AddRedeemCodeIDs(ids ...int64) *GroupUpdate {
 	_u.mutation.AddRedeemCodeIDs(ids...)
@@ -1035,6 +1050,27 @@ func (_u *GroupUpdate) RemoveAPIKeys(v ...*APIKey) *GroupUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAPIKeyIDs(ids...)
+}
+
+// ClearRoutingAPIKeys clears all "routing_api_keys" edges to the APIKey entity.
+func (_u *GroupUpdate) ClearRoutingAPIKeys() *GroupUpdate {
+	_u.mutation.ClearRoutingAPIKeys()
+	return _u
+}
+
+// RemoveRoutingAPIKeyIDs removes the "routing_api_keys" edge to APIKey entities by IDs.
+func (_u *GroupUpdate) RemoveRoutingAPIKeyIDs(ids ...int64) *GroupUpdate {
+	_u.mutation.RemoveRoutingAPIKeyIDs(ids...)
+	return _u
+}
+
+// RemoveRoutingAPIKeys removes "routing_api_keys" edges to APIKey entities.
+func (_u *GroupUpdate) RemoveRoutingAPIKeys(v ...*APIKey) *GroupUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveRoutingAPIKeyIDs(ids...)
 }
 
 // ClearRedeemCodes clears all "redeem_codes" edges to the RedeemCode entity.
@@ -1533,6 +1569,63 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.RoutingAPIKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.RoutingAPIKeysTable,
+			Columns: group.RoutingAPIKeysPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedRoutingAPIKeysIDs(); len(nodes) > 0 && !_u.mutation.RoutingAPIKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.RoutingAPIKeysTable,
+			Columns: group.RoutingAPIKeysPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RoutingAPIKeysIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.RoutingAPIKeysTable,
+			Columns: group.RoutingAPIKeysPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.RedeemCodesCleared() {
@@ -2704,6 +2797,21 @@ func (_u *GroupUpdateOne) AddAPIKeys(v ...*APIKey) *GroupUpdateOne {
 	return _u.AddAPIKeyIDs(ids...)
 }
 
+// AddRoutingAPIKeyIDs adds the "routing_api_keys" edge to the APIKey entity by IDs.
+func (_u *GroupUpdateOne) AddRoutingAPIKeyIDs(ids ...int64) *GroupUpdateOne {
+	_u.mutation.AddRoutingAPIKeyIDs(ids...)
+	return _u
+}
+
+// AddRoutingAPIKeys adds the "routing_api_keys" edges to the APIKey entity.
+func (_u *GroupUpdateOne) AddRoutingAPIKeys(v ...*APIKey) *GroupUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddRoutingAPIKeyIDs(ids...)
+}
+
 // AddRedeemCodeIDs adds the "redeem_codes" edge to the RedeemCode entity by IDs.
 func (_u *GroupUpdateOne) AddRedeemCodeIDs(ids ...int64) *GroupUpdateOne {
 	_u.mutation.AddRedeemCodeIDs(ids...)
@@ -2803,6 +2911,27 @@ func (_u *GroupUpdateOne) RemoveAPIKeys(v ...*APIKey) *GroupUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAPIKeyIDs(ids...)
+}
+
+// ClearRoutingAPIKeys clears all "routing_api_keys" edges to the APIKey entity.
+func (_u *GroupUpdateOne) ClearRoutingAPIKeys() *GroupUpdateOne {
+	_u.mutation.ClearRoutingAPIKeys()
+	return _u
+}
+
+// RemoveRoutingAPIKeyIDs removes the "routing_api_keys" edge to APIKey entities by IDs.
+func (_u *GroupUpdateOne) RemoveRoutingAPIKeyIDs(ids ...int64) *GroupUpdateOne {
+	_u.mutation.RemoveRoutingAPIKeyIDs(ids...)
+	return _u
+}
+
+// RemoveRoutingAPIKeys removes "routing_api_keys" edges to APIKey entities.
+func (_u *GroupUpdateOne) RemoveRoutingAPIKeys(v ...*APIKey) *GroupUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveRoutingAPIKeyIDs(ids...)
 }
 
 // ClearRedeemCodes clears all "redeem_codes" edges to the RedeemCode entity.
@@ -3331,6 +3460,63 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.RoutingAPIKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.RoutingAPIKeysTable,
+			Columns: group.RoutingAPIKeysPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedRoutingAPIKeysIDs(); len(nodes) > 0 && !_u.mutation.RoutingAPIKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.RoutingAPIKeysTable,
+			Columns: group.RoutingAPIKeysPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RoutingAPIKeysIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.RoutingAPIKeysTable,
+			Columns: group.RoutingAPIKeysPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.RedeemCodesCleared() {

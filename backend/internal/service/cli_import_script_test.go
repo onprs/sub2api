@@ -14,6 +14,79 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type cliImportAPIKeyRepoStub struct {
+	APIKeyRepository
+	key *APIKey
+}
+
+func (r cliImportAPIKeyRepoStub) GetByID(context.Context, int64) (*APIKey, error) {
+	return r.key, nil
+}
+
+type cliImportRoutingModelProvider struct {
+	models map[int64][]string
+}
+
+func (p cliImportRoutingModelProvider) GetAvailableModels(_ context.Context, groupID *int64, _ string) []string {
+	if groupID == nil {
+		return nil
+	}
+	return append([]string(nil), p.models[*groupID]...)
+}
+
+func (p cliImportRoutingModelProvider) GetAvailableModelPricingCandidates(_ context.Context, _ *int64, _ string, models []string) map[string][]string {
+	out := make(map[string][]string, len(models))
+	for _, model := range models {
+		out[model] = []string{model}
+	}
+	return out
+}
+
+type cliImportRoutingCapabilityProvider struct{}
+
+func (cliImportRoutingCapabilityProvider) GetCLIImportModelCapability(_ context.Context, _ string, model string) (CLIImportModelCapability, bool) {
+	return knownOpenCodeCapability(model), true
+}
+
+func TestAPIKeyServiceBuildCLIImportScript_MergesActiveRoutingCandidates(t *testing.T) {
+	firstGroupID := int64(71)
+	secondGroupID := int64(72)
+	inactiveGroupID := int64(73)
+	firstGroup := &Group{ID: firstGroupID, Name: "Primary", Platform: PlatformOpenAI, Status: StatusActive, DefaultMappedModel: "model-a"}
+	secondGroup := &Group{ID: secondGroupID, Name: "Secondary", Platform: PlatformOpenAI, Status: StatusActive}
+	inactiveGroup := &Group{ID: inactiveGroupID, Name: "Inactive", Platform: PlatformOpenAI, Status: StatusDisabled}
+	key := &APIKey{
+		ID: 42, UserID: 1001, Key: "sk-routing-test-key", Name: "routing key",
+		GroupID: &firstGroupID, Group: firstGroup, Status: StatusAPIKeyActive,
+		RoutingPlatform: PlatformOpenAI, RoutingStrategy: APIKeyRoutingStrategyBalanced,
+		RoutingGroups: []APIKeyGroupBinding{
+			{GroupID: firstGroupID, Priority: 0, Group: firstGroup},
+			{GroupID: secondGroupID, Priority: 1, Group: secondGroup},
+			{GroupID: inactiveGroupID, Priority: 2, Group: inactiveGroup},
+		},
+	}
+	svc := &APIKeyService{apiKeyRepo: cliImportAPIKeyRepoStub{key: key}}
+
+	result, err := svc.BuildCLIImportScript(
+		context.Background(),
+		CLIImportScriptInput{OS: CLIImportOSLinux, APIBaseURL: "https://api.example.com", APIKey: &APIKey{ID: key.ID}},
+		key.UserID,
+		cliImportRoutingModelProvider{models: map[int64][]string{
+			firstGroupID:    {"model-a", "shared-model"},
+			secondGroupID:   {"model-b", "shared-model"},
+			inactiveGroupID: {"inactive-model"},
+		}},
+		cliImportRoutingCapabilityProvider{},
+	)
+	require.NoError(t, err)
+	body := string(result.Body)
+	require.Contains(t, body, `"id":"model-a"`)
+	require.Contains(t, body, `"id":"model-b"`)
+	require.Contains(t, body, `"id":"shared-model"`)
+	require.NotContains(t, body, "inactive-model")
+	require.Equal(t, 1, strings.Count(body, `"id":"shared-model"`))
+}
+
 func TestBuildCLIImportScript_LinuxEmbedsAllClientConfigs(t *testing.T) {
 	groupID := int64(7)
 	input := CLIImportScriptInput{

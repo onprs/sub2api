@@ -268,7 +268,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	userMsgQueueCache := repository.NewUserMsgQueueCache(redisClient)
 	userMessageQueueService := service.ProvideUserMessageQueueService(userMsgQueueCache, rpmCache, configConfig)
 	gatewayHandler := handler.NewGatewayHandler(gatewayService, geminiMessagesCompatService, antigravityGatewayService, openAIGatewayService, userService, concurrencyService, billingCacheService, billingEligibilityService, usageService, apiKeyService, usageRecordWorkerPool, errorPassthroughService, contentModerationService, userMessageQueueService, configConfig, settingService)
-	openAIGatewayHandler := handler.NewOpenAIGatewayHandler(openAIGatewayService, concurrencyService, billingCacheService, billingEligibilityService, apiKeyService, usageRecordWorkerPool, errorPassthroughService, contentModerationService, opsService, configConfig)
+	openAIGatewayHandler := handler.NewOpenAIGatewayHandler(openAIGatewayService, gatewayService, concurrencyService, billingCacheService, billingEligibilityService, apiKeyService, usageRecordWorkerPool, errorPassthroughService, contentModerationService, opsService, configConfig)
 	openCodeGoGatewayService := service.NewOpenCodeGoGatewayService(httpUpstream, configConfig, tlsFingerprintProfileService, rateLimitService)
 	clinePassGatewayService := service.NewClinePassGatewayService(clinePassClient, configConfig, rateLimitService)
 	openRouterGatewayService := service.NewOpenRouterGatewayService(openRouterClient, configConfig, rateLimitService)

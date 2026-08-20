@@ -54,6 +54,11 @@ var openCodeGoReferencePrices = map[string]ModelPricing{
 		OutputPricePerToken:    6e-6,
 		CacheReadPricePerToken: 0.3e-6,
 	},
+	"muse-spark-1.2-contributor": {
+		InputPricePerToken:     0.1e-6,
+		OutputPricePerToken:    0.2e-6,
+		CacheReadPricePerToken: 0.002e-6,
+	},
 	"hy3": {
 		InputPricePerToken:     0.14e-6,
 		OutputPricePerToken:    0.58e-6,

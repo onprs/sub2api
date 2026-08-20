@@ -1056,12 +1056,16 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		platform = forcedPlatform
 	}
 
-	// Get available models from account configurations for the selected group platform.
+	// Get available models from account configurations for every configured routing group.
 	var availableModels []string
 	if h != nil && h.gatewayService != nil {
-		availableModels = h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+		if apiKey != nil && apiKey.UsesDynamicGroupRouting() {
+			availableModels = dynamicAPIKeyAvailableModels(c.Request.Context(), h.gatewayService, apiKey, platform)
+		} else {
+			availableModels = h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+		}
 	}
-	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
+	if apiKey != nil && !apiKey.UsesDynamicGroupRouting() && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 		fallbackModels := defaultModelIDsForPlatform(platform)
 		availableModels = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
 		writeCustomModelsList(c, platform, availableModels)
@@ -1277,9 +1281,14 @@ func mergeModelIDs(primary, secondary []string) []string {
 // AntigravityModels 返回 Antigravity 支持的全部模型
 // GET /antigravity/models
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
+	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
 	var modelIDs []string
 	if h != nil && h.gatewayService != nil {
-		modelIDs = h.gatewayService.GetAntigravityMappedModels(c.Request.Context(), apiKeyGroupIDFromContext(c), service.AntigravityModelsProtocolClaude)
+		if apiKey != nil && apiKey.UsesDynamicGroupRouting() {
+			modelIDs = dynamicAPIKeyAntigravityMappedModels(c.Request.Context(), h.gatewayService, apiKey, service.AntigravityModelsProtocolClaude)
+		} else {
+			modelIDs = h.gatewayService.GetAntigravityMappedModels(c.Request.Context(), apiKeyGroupIDFromContext(c), service.AntigravityModelsProtocolClaude)
+		}
 	}
 	if len(modelIDs) > 0 {
 		writeModelsList(c, modelIDs)
@@ -1370,6 +1379,9 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 	if isQuotaLimited {
 		h.usageQuotaLimited(c, ctx, apiKey, usageData, dailyUsage, modelStats)
 		return
+	}
+	if apiKey.UsesDynamicGroupRouting() {
+		apiKey = h.resolveAPIKeyForUsage(ctx, apiKey)
 	}
 
 	h.usageUnrestricted(c, ctx, apiKey, subject, usageData, dailyUsage, modelStats)
@@ -1537,6 +1549,30 @@ func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, 
 	c.JSON(http.StatusOK, resp)
 }
 
+// resolveAPIKeyForUsage 按正常策略选择本次查询对应的候选分组。
+// /usage 是只读诊断入口；所有候选暂时不可调度时仍需允许用户查看配置，
+// 因此回退到首个活跃候选，而不是返回 503。
+func (h *GatewayHandler) resolveAPIKeyForUsage(ctx context.Context, apiKey *service.APIKey) *service.APIKey {
+	if apiKey == nil || !apiKey.UsesDynamicGroupRouting() {
+		return apiKey
+	}
+	if h != nil && h.gatewayService != nil {
+		effectiveKey, err := h.gatewayService.ResolveAPIKeyRoutingGroup(ctx, apiKey, service.APIKeyRoutingResolveInput{
+			Capability: service.APIKeyRoutingCapabilityText,
+		})
+		if err == nil && effectiveKey != nil && effectiveKey.Group != nil {
+			return effectiveKey
+		}
+	}
+	platform := apiKey.RoutingPlatformValue()
+	for _, binding := range apiKey.ConfiguredRoutingGroups() {
+		if binding.Group != nil && binding.Group.IsActive() && binding.Group.Platform == platform {
+			return apiKey.CloneWithEffectiveGroup(binding.Group)
+		}
+	}
+	return apiKey
+}
+
 // usageUnrestricted 处理 unrestricted 模式的响应（向后兼容）
 func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, usageData gin.H, dailyUsage any, modelStats any) {
 	// 订阅模式
@@ -1550,8 +1586,19 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 			"schema_version": 1,
 		}
 
-		// 订阅信息可能不在 context 中（/v1/usage 路径跳过了中间件的计费检查）
+		// 订阅信息可能不在 context 中（/v1/usage 路径跳过了中间件的计费检查）。
 		subscription, ok := middleware2.GetSubscriptionFromContext(c)
+		if !ok && h.apiKeyService != nil {
+			if subscriptions, err := h.apiKeyService.GetActiveRoutingSubscriptions(ctx, subject.UserID); err == nil {
+				for i := range subscriptions {
+					if subscriptions[i].GroupID == apiKey.Group.ID {
+						subscription = &subscriptions[i]
+						ok = true
+						break
+					}
+				}
+			}
+		}
 		if ok {
 			remaining := h.calculateSubscriptionRollingRemaining(subscription)
 			resp["remaining"] = remaining

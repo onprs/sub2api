@@ -118,6 +118,47 @@ func TestAdminAPIKeyHandler_UpdateGroup_Unbind(t *testing.T) {
 	require.Nil(t, resp.Data.APIKey.GroupID)
 }
 
+func TestAdminAPIKeyHandler_UpdateRouting(t *testing.T) {
+	svc := &routingUpdateAdminService{stubAdminService: newStubAdminService()}
+	router := setupAPIKeyHandler(svc)
+	body := `{"routing":{"platform":"openai","strategy":"cost_first","groups":[{"group_id":2,"priority":0},{"group_id":3,"priority":1}]}}`
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/api-keys/10", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, int64(10), svc.keyID)
+	require.Equal(t, "openai", svc.routing.Platform)
+	require.Equal(t, service.APIKeyRoutingStrategyCostFirst, svc.routing.Strategy)
+	require.Equal(t, []service.APIKeyRoutingGroupRequest{
+		{GroupID: 2, Priority: 0},
+		{GroupID: 3, Priority: 1},
+	}, svc.routing.Groups)
+
+	var resp struct {
+		Data struct {
+			APIKey struct {
+				Routing struct {
+					Platform string `json:"platform"`
+					Strategy string `json:"strategy"`
+					Groups   []struct {
+						GroupID  int64 `json:"group_id"`
+						Priority int   `json:"priority"`
+					} `json:"groups"`
+				} `json:"routing"`
+			} `json:"api_key"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, "openai", resp.Data.APIKey.Routing.Platform)
+	require.Equal(t, service.APIKeyRoutingStrategyCostFirst, resp.Data.APIKey.Routing.Strategy)
+	require.Len(t, resp.Data.APIKey.Routing.Groups, 2)
+	require.Equal(t, int64(2), resp.Data.APIKey.Routing.Groups[0].GroupID)
+	require.Equal(t, 1, resp.Data.APIKey.Routing.Groups[1].Priority)
+}
+
 func TestAdminAPIKeyHandler_ResetRateLimitUsage(t *testing.T) {
 	svc := newStubAdminService()
 	now := time.Now()
@@ -229,6 +270,30 @@ func TestAdminAPIKeyHandler_UpdateGroup_NegativeGroupID(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Contains(t, rec.Body.String(), "INVALID_GROUP_ID")
+}
+
+type routingUpdateAdminService struct {
+	*stubAdminService
+	keyID   int64
+	routing service.APIKeyRoutingRequest
+}
+
+func (s *routingUpdateAdminService) AdminUpdateAPIKeyRouting(_ context.Context, keyID int64, routing service.APIKeyRoutingRequest) (*service.AdminUpdateAPIKeyGroupIDResult, error) {
+	s.keyID = keyID
+	s.routing = routing
+	primaryID := routing.Groups[0].GroupID
+	apiKey := s.apiKeys[0]
+	apiKey.GroupID = &primaryID
+	apiKey.RoutingPlatform = routing.Platform
+	apiKey.RoutingStrategy = routing.Strategy
+	apiKey.RoutingGroups = make([]service.APIKeyGroupBinding, 0, len(routing.Groups))
+	for _, candidate := range routing.Groups {
+		apiKey.RoutingGroups = append(apiKey.RoutingGroups, service.APIKeyGroupBinding{
+			GroupID:  candidate.GroupID,
+			Priority: candidate.Priority,
+		})
+	}
+	return &service.AdminUpdateAPIKeyGroupIDResult{APIKey: &apiKey}, nil
 }
 
 // failingUpdateGroupService overrides AdminUpdateAPIKeyGroupID to return an error.

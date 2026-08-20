@@ -88,12 +88,47 @@ func (h *BatchImageHandler) Models(c *gin.Context) {
 		batchImageError(c, infraerrors.New(http.StatusUnauthorized, "API_KEY_REQUIRED", "API key is required"))
 		return
 	}
-	got, err := h.service.ListModels(c.Request.Context(), owner)
-	if err != nil {
-		batchImageError(c, err)
+	apiKey, _ := middleware.GetAPIKeyFromContext(c)
+	if apiKey == nil || !apiKey.UsesDynamicGroupRouting() {
+		got, err := h.service.ListModels(c.Request.Context(), owner)
+		if err != nil {
+			batchImageError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, got)
 		return
 	}
-	c.JSON(http.StatusOK, got)
+
+	merged := &service.BatchImagePublicModelsResponse{Object: "list"}
+	seen := make(map[string]struct{})
+	var lastErr error
+	for _, binding := range apiKey.ConfiguredRoutingGroups() {
+		group := binding.Group
+		if group == nil || !group.IsActive() || group.Platform != service.PlatformGemini || !group.AllowBatchImageGeneration {
+			continue
+		}
+		groupID := binding.GroupID
+		candidateOwner := owner
+		candidateOwner.GroupID = &groupID
+		got, err := h.service.ListModels(c.Request.Context(), candidateOwner)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		for _, model := range got.Data {
+			key := model.Provider + "\x00" + model.ID
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			merged.Data = append(merged.Data, model)
+		}
+	}
+	if len(merged.Data) == 0 && lastErr != nil {
+		batchImageError(c, lastErr)
+		return
+	}
+	c.JSON(http.StatusOK, merged)
 }
 
 func (h *BatchImageHandler) Items(c *gin.Context) {

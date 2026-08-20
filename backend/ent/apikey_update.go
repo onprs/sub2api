@@ -120,6 +120,34 @@ func (_u *APIKeyUpdate) ClearGroupID() *APIKeyUpdate {
 	return _u
 }
 
+// SetRoutingPlatform sets the "routing_platform" field.
+func (_u *APIKeyUpdate) SetRoutingPlatform(v string) *APIKeyUpdate {
+	_u.mutation.SetRoutingPlatform(v)
+	return _u
+}
+
+// SetNillableRoutingPlatform sets the "routing_platform" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableRoutingPlatform(v *string) *APIKeyUpdate {
+	if v != nil {
+		_u.SetRoutingPlatform(*v)
+	}
+	return _u
+}
+
+// SetRoutingStrategy sets the "routing_strategy" field.
+func (_u *APIKeyUpdate) SetRoutingStrategy(v string) *APIKeyUpdate {
+	_u.mutation.SetRoutingStrategy(v)
+	return _u
+}
+
+// SetNillableRoutingStrategy sets the "routing_strategy" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableRoutingStrategy(v *string) *APIKeyUpdate {
+	if v != nil {
+		_u.SetRoutingStrategy(*v)
+	}
+	return _u
+}
+
 // SetStatus sets the "status" field.
 func (_u *APIKeyUpdate) SetStatus(v string) *APIKeyUpdate {
 	_u.mutation.SetStatus(v)
@@ -448,6 +476,21 @@ func (_u *APIKeyUpdate) SetGroup(v *Group) *APIKeyUpdate {
 	return _u.SetGroupID(v.ID)
 }
 
+// AddRoutingGroupIDs adds the "routing_groups" edge to the Group entity by IDs.
+func (_u *APIKeyUpdate) AddRoutingGroupIDs(ids ...int64) *APIKeyUpdate {
+	_u.mutation.AddRoutingGroupIDs(ids...)
+	return _u
+}
+
+// AddRoutingGroups adds the "routing_groups" edges to the Group entity.
+func (_u *APIKeyUpdate) AddRoutingGroups(v ...*Group) *APIKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddRoutingGroupIDs(ids...)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_u *APIKeyUpdate) AddUsageLogIDs(ids ...int64) *APIKeyUpdate {
 	_u.mutation.AddUsageLogIDs(ids...)
@@ -478,6 +521,27 @@ func (_u *APIKeyUpdate) ClearUser() *APIKeyUpdate {
 func (_u *APIKeyUpdate) ClearGroup() *APIKeyUpdate {
 	_u.mutation.ClearGroup()
 	return _u
+}
+
+// ClearRoutingGroups clears all "routing_groups" edges to the Group entity.
+func (_u *APIKeyUpdate) ClearRoutingGroups() *APIKeyUpdate {
+	_u.mutation.ClearRoutingGroups()
+	return _u
+}
+
+// RemoveRoutingGroupIDs removes the "routing_groups" edge to Group entities by IDs.
+func (_u *APIKeyUpdate) RemoveRoutingGroupIDs(ids ...int64) *APIKeyUpdate {
+	_u.mutation.RemoveRoutingGroupIDs(ids...)
+	return _u
+}
+
+// RemoveRoutingGroups removes "routing_groups" edges to Group entities.
+func (_u *APIKeyUpdate) RemoveRoutingGroups(v ...*Group) *APIKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveRoutingGroupIDs(ids...)
 }
 
 // ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
@@ -555,6 +619,16 @@ func (_u *APIKeyUpdate) check() error {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "APIKey.name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.RoutingPlatform(); ok {
+		if err := apikey.RoutingPlatformValidator(v); err != nil {
+			return &ValidationError{Name: "routing_platform", err: fmt.Errorf(`ent: validator failed for field "APIKey.routing_platform": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.RoutingStrategy(); ok {
+		if err := apikey.RoutingStrategyValidator(v); err != nil {
+			return &ValidationError{Name: "routing_strategy", err: fmt.Errorf(`ent: validator failed for field "APIKey.routing_strategy": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := apikey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
@@ -592,6 +666,12 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.RoutingPlatform(); ok {
+		_spec.SetField(apikey.FieldRoutingPlatform, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.RoutingStrategy(); ok {
+		_spec.SetField(apikey.FieldRoutingStrategy, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
@@ -754,6 +834,63 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.RoutingGroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   apikey.RoutingGroupsTable,
+			Columns: apikey.RoutingGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedRoutingGroupsIDs(); len(nodes) > 0 && !_u.mutation.RoutingGroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   apikey.RoutingGroupsTable,
+			Columns: apikey.RoutingGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RoutingGroupsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   apikey.RoutingGroupsTable,
+			Columns: apikey.RoutingGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _u.mutation.UsageLogsCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -904,6 +1041,34 @@ func (_u *APIKeyUpdateOne) SetNillableGroupID(v *int64) *APIKeyUpdateOne {
 // ClearGroupID clears the value of the "group_id" field.
 func (_u *APIKeyUpdateOne) ClearGroupID() *APIKeyUpdateOne {
 	_u.mutation.ClearGroupID()
+	return _u
+}
+
+// SetRoutingPlatform sets the "routing_platform" field.
+func (_u *APIKeyUpdateOne) SetRoutingPlatform(v string) *APIKeyUpdateOne {
+	_u.mutation.SetRoutingPlatform(v)
+	return _u
+}
+
+// SetNillableRoutingPlatform sets the "routing_platform" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableRoutingPlatform(v *string) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetRoutingPlatform(*v)
+	}
+	return _u
+}
+
+// SetRoutingStrategy sets the "routing_strategy" field.
+func (_u *APIKeyUpdateOne) SetRoutingStrategy(v string) *APIKeyUpdateOne {
+	_u.mutation.SetRoutingStrategy(v)
+	return _u
+}
+
+// SetNillableRoutingStrategy sets the "routing_strategy" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableRoutingStrategy(v *string) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetRoutingStrategy(*v)
+	}
 	return _u
 }
 
@@ -1235,6 +1400,21 @@ func (_u *APIKeyUpdateOne) SetGroup(v *Group) *APIKeyUpdateOne {
 	return _u.SetGroupID(v.ID)
 }
 
+// AddRoutingGroupIDs adds the "routing_groups" edge to the Group entity by IDs.
+func (_u *APIKeyUpdateOne) AddRoutingGroupIDs(ids ...int64) *APIKeyUpdateOne {
+	_u.mutation.AddRoutingGroupIDs(ids...)
+	return _u
+}
+
+// AddRoutingGroups adds the "routing_groups" edges to the Group entity.
+func (_u *APIKeyUpdateOne) AddRoutingGroups(v ...*Group) *APIKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddRoutingGroupIDs(ids...)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_u *APIKeyUpdateOne) AddUsageLogIDs(ids ...int64) *APIKeyUpdateOne {
 	_u.mutation.AddUsageLogIDs(ids...)
@@ -1265,6 +1445,27 @@ func (_u *APIKeyUpdateOne) ClearUser() *APIKeyUpdateOne {
 func (_u *APIKeyUpdateOne) ClearGroup() *APIKeyUpdateOne {
 	_u.mutation.ClearGroup()
 	return _u
+}
+
+// ClearRoutingGroups clears all "routing_groups" edges to the Group entity.
+func (_u *APIKeyUpdateOne) ClearRoutingGroups() *APIKeyUpdateOne {
+	_u.mutation.ClearRoutingGroups()
+	return _u
+}
+
+// RemoveRoutingGroupIDs removes the "routing_groups" edge to Group entities by IDs.
+func (_u *APIKeyUpdateOne) RemoveRoutingGroupIDs(ids ...int64) *APIKeyUpdateOne {
+	_u.mutation.RemoveRoutingGroupIDs(ids...)
+	return _u
+}
+
+// RemoveRoutingGroups removes "routing_groups" edges to Group entities.
+func (_u *APIKeyUpdateOne) RemoveRoutingGroups(v ...*Group) *APIKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveRoutingGroupIDs(ids...)
 }
 
 // ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
@@ -1355,6 +1556,16 @@ func (_u *APIKeyUpdateOne) check() error {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "APIKey.name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.RoutingPlatform(); ok {
+		if err := apikey.RoutingPlatformValidator(v); err != nil {
+			return &ValidationError{Name: "routing_platform", err: fmt.Errorf(`ent: validator failed for field "APIKey.routing_platform": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.RoutingStrategy(); ok {
+		if err := apikey.RoutingStrategyValidator(v); err != nil {
+			return &ValidationError{Name: "routing_strategy", err: fmt.Errorf(`ent: validator failed for field "APIKey.routing_strategy": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Status(); ok {
 		if err := apikey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
@@ -1409,6 +1620,12 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.RoutingPlatform(); ok {
+		_spec.SetField(apikey.FieldRoutingPlatform, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.RoutingStrategy(); ok {
+		_spec.SetField(apikey.FieldRoutingStrategy, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
@@ -1569,6 +1786,63 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.RoutingGroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   apikey.RoutingGroupsTable,
+			Columns: apikey.RoutingGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedRoutingGroupsIDs(); len(nodes) > 0 && !_u.mutation.RoutingGroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   apikey.RoutingGroupsTable,
+			Columns: apikey.RoutingGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RoutingGroupsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   apikey.RoutingGroupsTable,
+			Columns: apikey.RoutingGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.UsageLogsCleared() {

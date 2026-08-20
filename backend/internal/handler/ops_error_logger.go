@@ -880,9 +880,9 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				if apiKey.GroupID != nil {
 					entry.GroupID = apiKey.GroupID
 				}
-				// Prefer group platform if present (more stable than inferring from path).
-				if apiKey.Group != nil && apiKey.Group.Platform != "" {
-					entry.Platform = apiKey.Group.Platform
+				// 固定路由平台在实际分组尚未选出或兼容主分组缺失时仍然可用。
+				if platform := apiKey.RoutingPlatformValue(); platform != "" {
+					entry.Platform = platform
 				}
 			}
 
@@ -1072,9 +1072,8 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			if apiKey.GroupID != nil {
 				entry.GroupID = apiKey.GroupID
 			}
-			// Prefer group platform if present (more stable than inferring from path).
-			if apiKey.Group != nil && apiKey.Group.Platform != "" {
-				entry.Platform = apiKey.Group.Platform
+			if platform := apiKey.RoutingPlatformValue(); platform != "" {
+				entry.Platform = platform
 			}
 		}
 
@@ -1224,8 +1223,8 @@ func logOpsStreamError(c *gin.Context, ops *service.OpsService, wireStatus int) 
 		if apiKey.GroupID != nil {
 			entry.GroupID = apiKey.GroupID
 		}
-		if apiKey.Group != nil && apiKey.Group.Platform != "" {
-			entry.Platform = apiKey.Group.Platform
+		if platform := apiKey.RoutingPlatformValue(); platform != "" {
+			entry.Platform = platform
 		}
 	}
 
@@ -1353,8 +1352,10 @@ func getOpsAPIKey(c *gin.Context) *service.APIKey {
 }
 
 func resolveOpsPlatform(apiKey *service.APIKey, fallback string) string {
-	if apiKey != nil && apiKey.Group != nil && apiKey.Group.Platform != "" {
-		return apiKey.Group.Platform
+	if apiKey != nil {
+		if platform := apiKey.RoutingPlatformValue(); platform != "" {
+			return platform
+		}
 	}
 	return fallback
 }

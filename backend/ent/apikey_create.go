@@ -99,6 +99,34 @@ func (_c *APIKeyCreate) SetNillableGroupID(v *int64) *APIKeyCreate {
 	return _c
 }
 
+// SetRoutingPlatform sets the "routing_platform" field.
+func (_c *APIKeyCreate) SetRoutingPlatform(v string) *APIKeyCreate {
+	_c.mutation.SetRoutingPlatform(v)
+	return _c
+}
+
+// SetNillableRoutingPlatform sets the "routing_platform" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableRoutingPlatform(v *string) *APIKeyCreate {
+	if v != nil {
+		_c.SetRoutingPlatform(*v)
+	}
+	return _c
+}
+
+// SetRoutingStrategy sets the "routing_strategy" field.
+func (_c *APIKeyCreate) SetRoutingStrategy(v string) *APIKeyCreate {
+	_c.mutation.SetRoutingStrategy(v)
+	return _c
+}
+
+// SetNillableRoutingStrategy sets the "routing_strategy" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableRoutingStrategy(v *string) *APIKeyCreate {
+	if v != nil {
+		_c.SetRoutingStrategy(*v)
+	}
+	return _c
+}
+
 // SetStatus sets the "status" field.
 func (_c *APIKeyCreate) SetStatus(v string) *APIKeyCreate {
 	_c.mutation.SetStatus(v)
@@ -317,6 +345,21 @@ func (_c *APIKeyCreate) SetGroup(v *Group) *APIKeyCreate {
 	return _c.SetGroupID(v.ID)
 }
 
+// AddRoutingGroupIDs adds the "routing_groups" edge to the Group entity by IDs.
+func (_c *APIKeyCreate) AddRoutingGroupIDs(ids ...int64) *APIKeyCreate {
+	_c.mutation.AddRoutingGroupIDs(ids...)
+	return _c
+}
+
+// AddRoutingGroups adds the "routing_groups" edges to the Group entity.
+func (_c *APIKeyCreate) AddRoutingGroups(v ...*Group) *APIKeyCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddRoutingGroupIDs(ids...)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_c *APIKeyCreate) AddUsageLogIDs(ids ...int64) *APIKeyCreate {
 	_c.mutation.AddUsageLogIDs(ids...)
@@ -383,6 +426,14 @@ func (_c *APIKeyCreate) defaults() error {
 		v := apikey.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.RoutingPlatform(); !ok {
+		v := apikey.DefaultRoutingPlatform
+		_c.mutation.SetRoutingPlatform(v)
+	}
+	if _, ok := _c.mutation.RoutingStrategy(); !ok {
+		v := apikey.DefaultRoutingStrategy
+		_c.mutation.SetRoutingStrategy(v)
+	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := apikey.DefaultStatus
 		_c.mutation.SetStatus(v)
@@ -447,6 +498,22 @@ func (_c *APIKeyCreate) check() error {
 	if v, ok := _c.mutation.Name(); ok {
 		if err := apikey.NameValidator(v); err != nil {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "APIKey.name": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.RoutingPlatform(); !ok {
+		return &ValidationError{Name: "routing_platform", err: errors.New(`ent: missing required field "APIKey.routing_platform"`)}
+	}
+	if v, ok := _c.mutation.RoutingPlatform(); ok {
+		if err := apikey.RoutingPlatformValidator(v); err != nil {
+			return &ValidationError{Name: "routing_platform", err: fmt.Errorf(`ent: validator failed for field "APIKey.routing_platform": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.RoutingStrategy(); !ok {
+		return &ValidationError{Name: "routing_strategy", err: errors.New(`ent: missing required field "APIKey.routing_strategy"`)}
+	}
+	if v, ok := _c.mutation.RoutingStrategy(); ok {
+		if err := apikey.RoutingStrategyValidator(v); err != nil {
+			return &ValidationError{Name: "routing_strategy", err: fmt.Errorf(`ent: validator failed for field "APIKey.routing_strategy": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.Status(); !ok {
@@ -530,6 +597,14 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
 		_node.Name = value
+	}
+	if value, ok := _c.mutation.RoutingPlatform(); ok {
+		_spec.SetField(apikey.FieldRoutingPlatform, field.TypeString, value)
+		_node.RoutingPlatform = value
+	}
+	if value, ok := _c.mutation.RoutingStrategy(); ok {
+		_spec.SetField(apikey.FieldRoutingStrategy, field.TypeString, value)
+		_node.RoutingStrategy = value
 	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
@@ -627,6 +702,26 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.GroupID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.RoutingGroupsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   apikey.RoutingGroupsTable,
+			Columns: apikey.RoutingGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _c.config, mutation: newAPIKeyGroupMutation(_c.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.UsageLogsIDs(); len(nodes) > 0 {
@@ -778,6 +873,30 @@ func (u *APIKeyUpsert) UpdateGroupID() *APIKeyUpsert {
 // ClearGroupID clears the value of the "group_id" field.
 func (u *APIKeyUpsert) ClearGroupID() *APIKeyUpsert {
 	u.SetNull(apikey.FieldGroupID)
+	return u
+}
+
+// SetRoutingPlatform sets the "routing_platform" field.
+func (u *APIKeyUpsert) SetRoutingPlatform(v string) *APIKeyUpsert {
+	u.Set(apikey.FieldRoutingPlatform, v)
+	return u
+}
+
+// UpdateRoutingPlatform sets the "routing_platform" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateRoutingPlatform() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldRoutingPlatform)
+	return u
+}
+
+// SetRoutingStrategy sets the "routing_strategy" field.
+func (u *APIKeyUpsert) SetRoutingStrategy(v string) *APIKeyUpsert {
+	u.Set(apikey.FieldRoutingStrategy, v)
+	return u
+}
+
+// UpdateRoutingStrategy sets the "routing_strategy" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateRoutingStrategy() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldRoutingStrategy)
 	return u
 }
 
@@ -1203,6 +1322,34 @@ func (u *APIKeyUpsertOne) UpdateGroupID() *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) ClearGroupID() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearGroupID()
+	})
+}
+
+// SetRoutingPlatform sets the "routing_platform" field.
+func (u *APIKeyUpsertOne) SetRoutingPlatform(v string) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetRoutingPlatform(v)
+	})
+}
+
+// UpdateRoutingPlatform sets the "routing_platform" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateRoutingPlatform() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateRoutingPlatform()
+	})
+}
+
+// SetRoutingStrategy sets the "routing_strategy" field.
+func (u *APIKeyUpsertOne) SetRoutingStrategy(v string) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetRoutingStrategy(v)
+	})
+}
+
+// UpdateRoutingStrategy sets the "routing_strategy" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateRoutingStrategy() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateRoutingStrategy()
 	})
 }
 
@@ -1841,6 +1988,34 @@ func (u *APIKeyUpsertBulk) UpdateGroupID() *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) ClearGroupID() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearGroupID()
+	})
+}
+
+// SetRoutingPlatform sets the "routing_platform" field.
+func (u *APIKeyUpsertBulk) SetRoutingPlatform(v string) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetRoutingPlatform(v)
+	})
+}
+
+// UpdateRoutingPlatform sets the "routing_platform" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateRoutingPlatform() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateRoutingPlatform()
+	})
+}
+
+// SetRoutingStrategy sets the "routing_strategy" field.
+func (u *APIKeyUpsertBulk) SetRoutingStrategy(v string) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetRoutingStrategy(v)
+	})
+}
+
+// UpdateRoutingStrategy sets the "routing_strategy" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateRoutingStrategy() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateRoutingStrategy()
 	})
 }
 

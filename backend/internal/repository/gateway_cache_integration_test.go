@@ -104,6 +104,44 @@ func (s *GatewayCacheSuite) TestGetSessionAccountID_CorruptedValue() {
 	require.False(s.T(), errors.Is(err, redis.Nil), "expected parsing error, not redis.Nil")
 }
 
+func (s *GatewayCacheSuite) TestAPIKeyRoutingStickyBindingIsHashedAndExpires() {
+	cache := s.cache.(*gatewayCache)
+	const sessionKey = "private-conversation-identifier"
+	const ttl = time.Hour
+
+	require.NoError(s.T(), cache.SetAPIKeyRoutingGroupID(s.ctx, 71, sessionKey, 81, ttl))
+	groupID, err := cache.GetAPIKeyRoutingGroupID(s.ctx, 71, sessionKey)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), int64(81), groupID)
+
+	redisKey := apiKeyRoutingStickyKey(71, sessionKey)
+	require.NotContains(s.T(), redisKey, sessionKey)
+	gotTTL, err := s.rdb.TTL(s.ctx, redisKey).Result()
+	require.NoError(s.T(), err)
+	s.AssertTTLWithin(gotTTL, time.Second, ttl)
+}
+
+func (s *GatewayCacheSuite) TestAPIKeyRoutingHealthAggregatesFiveMinuteBucketsWithinWindow() {
+	cache := s.cache.(*gatewayCache)
+	now := time.Now().UTC()
+	groupID := int64(91)
+
+	require.NoError(s.T(), cache.RecordAPIKeyRoutingOutcome(s.ctx, groupID, true, now))
+	require.NoError(s.T(), cache.RecordAPIKeyRoutingOutcome(s.ctx, groupID, true, now.Add(-5*time.Minute)))
+	require.NoError(s.T(), cache.RecordAPIKeyRoutingOutcome(s.ctx, groupID, false, now.Add(-10*time.Minute)))
+	// 此桶仍存在于 Redis，但不应进入 30 分钟窗口查询。
+	require.NoError(s.T(), cache.RecordAPIKeyRoutingOutcome(s.ctx, groupID, false, now.Add(-45*time.Minute)))
+
+	health, err := cache.GetAPIKeyRoutingHealth(s.ctx, groupID, now.Add(-30*time.Minute))
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), int64(2), health.Success)
+	require.Equal(s.T(), int64(1), health.Failure)
+
+	bucketTTL, err := s.rdb.TTL(s.ctx, apiKeyRoutingHealthKey(groupID, now)).Result()
+	require.NoError(s.T(), err)
+	s.AssertTTLWithin(bucketTTL, time.Second, apiKeyRoutingHealthTTL)
+}
+
 func TestGatewayCacheSuite(t *testing.T) {
 	suite.Run(t, new(GatewayCacheSuite))
 }

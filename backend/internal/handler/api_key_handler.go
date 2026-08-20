@@ -44,13 +44,14 @@ func NewAPIKeyHandler(apiKeyService *service.APIKeyService, settingService *serv
 
 // CreateAPIKeyRequest represents the create API key request payload
 type CreateAPIKeyRequest struct {
-	Name          string   `json:"name" binding:"required"`
-	GroupID       *int64   `json:"group_id"`        // nullable
-	CustomKey     *string  `json:"custom_key"`      // 可选的自定义key
-	IPWhitelist   []string `json:"ip_whitelist"`    // IP 白名单
-	IPBlacklist   []string `json:"ip_blacklist"`    // IP 黑名单
-	Quota         *float64 `json:"quota"`           // 配额限制 (USD)
-	ExpiresInDays *int     `json:"expires_in_days"` // 过期天数
+	Name          string                        `json:"name" binding:"required"`
+	GroupID       *int64                        `json:"group_id"` // nullable
+	Routing       *service.APIKeyRoutingRequest `json:"routing"`
+	CustomKey     *string                       `json:"custom_key"`      // 可选的自定义key
+	IPWhitelist   []string                      `json:"ip_whitelist"`    // IP 白名单
+	IPBlacklist   []string                      `json:"ip_blacklist"`    // IP 黑名单
+	Quota         *float64                      `json:"quota"`           // 配额限制 (USD)
+	ExpiresInDays *int                          `json:"expires_in_days"` // 过期天数
 
 	// Rate limit fields (0 = unlimited)
 	RateLimit5h *float64 `json:"rate_limit_5h"`
@@ -60,14 +61,15 @@ type CreateAPIKeyRequest struct {
 
 // UpdateAPIKeyRequest represents the update API key request payload
 type UpdateAPIKeyRequest struct {
-	Name        string   `json:"name"`
-	GroupID     *int64   `json:"group_id"`
-	Status      string   `json:"status" binding:"omitempty,oneof=active inactive"`
-	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单
-	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单
-	Quota       *float64 `json:"quota"`        // 配额限制 (USD), 0=无限制
-	ExpiresAt   *string  `json:"expires_at"`   // 过期时间 (ISO 8601)
-	ResetQuota  *bool    `json:"reset_quota"`  // 重置已用配额
+	Name        string                        `json:"name"`
+	GroupID     *int64                        `json:"group_id"`
+	Routing     *service.APIKeyRoutingRequest `json:"routing"`
+	Status      string                        `json:"status" binding:"omitempty,oneof=active inactive"`
+	IPWhitelist []string                      `json:"ip_whitelist"` // IP 白名单
+	IPBlacklist []string                      `json:"ip_blacklist"` // IP 黑名单
+	Quota       *float64                      `json:"quota"`        // 配额限制 (USD), 0=无限制
+	ExpiresAt   *string                       `json:"expires_at"`   // 过期时间 (ISO 8601)
+	ResetQuota  *bool                         `json:"reset_quota"`  // 重置已用配额
 
 	// Rate limit fields (nil = no change, 0 = unlimited)
 	RateLimit5h         *float64 `json:"rate_limit_5h"`
@@ -274,6 +276,7 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 	svcReq := service.CreateAPIKeyRequest{
 		Name:          req.Name,
 		GroupID:       req.GroupID,
+		Routing:       req.Routing,
 		CustomKey:     req.CustomKey,
 		IPWhitelist:   req.IPWhitelist,
 		IPBlacklist:   req.IPBlacklist,
@@ -336,6 +339,7 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 		svcReq.Name = &req.Name
 	}
 	svcReq.GroupID = req.GroupID
+	svcReq.Routing = req.Routing
 	if req.Status != "" {
 		svcReq.Status = &req.Status
 	}
@@ -361,6 +365,32 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 		return
 	}
 
+	response.Success(c, dto.APIKeyFromService(key))
+}
+
+// UpdateRouting handles atomically replacing an API key routing configuration.
+// PUT /api/v1/api-keys/:id/routing
+func (h *APIKeyHandler) UpdateRouting(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid key ID")
+		return
+	}
+	var routing service.APIKeyRoutingRequest
+	if err := c.ShouldBindJSON(&routing); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	key, err := h.apiKeyService.UpdateRouting(c.Request.Context(), keyID, subject.UserID, routing)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	response.Success(c, dto.APIKeyFromService(key))
 }
 

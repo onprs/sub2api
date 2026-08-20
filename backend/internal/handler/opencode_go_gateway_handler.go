@@ -113,11 +113,16 @@ func (h *OpenCodeGoGatewayHandler) Models(c *gin.Context) {
 		platform = apiKey.Group.Platform
 	}
 	modelIDs := []string(nil)
+	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
 	if h != nil && h.gatewayService != nil {
-		modelIDs = h.gatewayService.GetAvailableModels(c.Request.Context(), apiKeyGroupIDFromContext(c), platform)
+		if apiKey != nil && apiKey.UsesDynamicGroupRouting() {
+			modelIDs = dynamicAPIKeyAvailableModels(c.Request.Context(), h.gatewayService, apiKey, platform)
+		} else {
+			modelIDs = h.gatewayService.GetAvailableModels(c.Request.Context(), apiKeyGroupIDFromContext(c), platform)
+		}
 	}
 
-	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
+	if apiKey != nil && !apiKey.UsesDynamicGroupRouting() && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 		modelIDs = filterModelsByCustomList(modelIDs, defaultModelIDsForPlatform(platform), apiKey.Group.ModelsListConfig.Models)
 		writeModelsList(c, modelIDs)
 		return

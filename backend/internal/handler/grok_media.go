@@ -322,6 +322,14 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 					zap.Error(err),
 				)
 			}
+			if apiKey.UsesDynamicGroupRouting() && apiKey.GroupID != nil && h.routingService != nil {
+				h.routingService.BindAPIKeyRoutingSession(
+					requestCtx,
+					apiKey.ID,
+					service.GrokMediaVideoRequestSessionHash(result.ResponseID),
+					*apiKey.GroupID,
+				)
+			}
 		}
 		if shouldRecordGrokMediaUsage(endpoint, requestModel) {
 			recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, result, requestModel, body, requestID)

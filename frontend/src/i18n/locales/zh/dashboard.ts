@@ -118,7 +118,27 @@ export default {
     clickToChangeGroup: '点击更换分组',
     groupChangedSuccess: '分组更换成功',
     failedToChangeGroup: '更换分组失败',
-    groupRequired: '请选择分组',
+    groupRequired: '请选择至少一个候选分组',
+    routing: {
+      title: '路由配置',
+      edit: '编辑路由',
+      platform: '平台',
+      selectPlatform: '选择平台',
+      strategy: '调度策略',
+      candidateGroups: '候选分组',
+      selectedCount: '{count}/{max}',
+      moveUp: '提高优先级',
+      moveDown: '降低优先级',
+      updatedSuccess: '路由配置已更新',
+      updateFailed: '更新路由配置失败',
+      missingGroup: '不可用分组 #{id}',
+      strategies: {
+        balanced: '均衡',
+        stabilityFirst: '稳定优先',
+        costFirst: '成本优先',
+        manual: '手动优先级'
+      }
+    },
     usage: '用量',
     today: '今日',
     total: '近30天',

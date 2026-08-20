@@ -44,6 +44,14 @@ func (APIKey) Fields() []ent.Field {
 		field.Int64("group_id").
 			Optional().
 			Nillable(),
+		field.String("routing_platform").
+			MaxLen(50).
+			Default("").
+			Comment("API Key 固定路由平台；空值表示兼容旧单分组配置"),
+		field.String("routing_strategy").
+			MaxLen(32).
+			Default("manual").
+			Comment("候选分组调度策略：balanced/stability_first/cost_first/manual"),
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),
@@ -129,6 +137,8 @@ func (APIKey) Edges() []ent.Edge {
 			Ref("api_keys").
 			Field("group_id").
 			Unique(),
+		edge.To("routing_groups", Group.Type).
+			Through("api_key_groups", APIKeyGroup.Type),
 		edge.To("usage_logs", UsageLog.Type),
 	}
 }
@@ -138,6 +148,8 @@ func (APIKey) Indexes() []ent.Index {
 		// key 字段已在 Fields() 中声明 Unique()，无需重复索引
 		index.Fields("user_id"),
 		index.Fields("group_id"),
+		index.Fields("routing_platform"),
+		index.Fields("routing_strategy"),
 		index.Fields("status"),
 		index.Fields("deleted_at"),
 		index.Fields("last_used_at"),

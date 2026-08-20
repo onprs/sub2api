@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from '../client'
-import type { ApiKey } from '@/types'
+import type { ApiKey, ApiKeyRoutingInput } from '@/types'
 
 export interface UpdateApiKeyGroupResult {
   api_key: ApiKey
@@ -26,8 +26,16 @@ export async function updateApiKeyGroup(id: number, groupId: number | null): Pro
   return data
 }
 
+export async function updateApiKeyRouting(id: number, routing: ApiKeyRoutingInput): Promise<UpdateApiKeyGroupResult> {
+  const { data } = await apiClient.put<UpdateApiKeyGroupResult>(`/admin/api-keys/${id}`, {
+    routing
+  })
+  return data
+}
+
 export const apiKeysAPI = {
-  updateApiKeyGroup
+  updateApiKeyGroup,
+  updateApiKeyRouting
 }
 
 export default apiKeysAPI

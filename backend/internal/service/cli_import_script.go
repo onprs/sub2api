@@ -193,13 +193,43 @@ func (s *APIKeyService) BuildCLIImportScript(ctx context.Context, input CLIImpor
 	if err := validateCLIImportAPIKey(key, userID); err != nil {
 		return nil, err
 	}
-	groupID := key.Group.ID
-	available := resolveCLIImportModelList(nil, key.Group)
-	if modelProvider != nil {
-		available = resolveCLIImportModelList(modelProvider.GetAvailableModels(ctx, &groupID, key.Group.Platform), key.Group)
+	bindings := key.ConfiguredRoutingGroups()
+	available := make([]string, 0)
+	capabilities := make(map[string]CLIImportModelCapability)
+	defaultModel := ""
+	var payloadGroup *Group
+	for _, binding := range bindings {
+		group := binding.Group
+		if group == nil || !group.IsActive() {
+			continue
+		}
+		if payloadGroup == nil {
+			payloadGroup = group
+		}
+		groupID := group.ID
+		groupModels := resolveCLIImportModelList(nil, group)
+		if modelProvider != nil {
+			groupModels = resolveCLIImportModelList(modelProvider.GetAvailableModels(ctx, &groupID, group.Platform), group)
+		}
+		available = cleanCLIImportModelList(append(available, groupModels...))
+		if defaultModel == "" && containsCLIImportModel(groupModels, strings.TrimSpace(group.DefaultMappedModel)) {
+			defaultModel = strings.TrimSpace(group.DefaultMappedModel)
+		}
+		for model, capability := range resolveCLIImportCapabilities(ctx, &groupID, group.Platform, groupModels, modelProvider, capabilityProvider) {
+			if _, exists := capabilities[model]; !exists {
+				capabilities[model] = capability
+			}
+		}
+	}
+	if payloadGroup != nil {
+		primaryGroup := *payloadGroup
+		primaryGroup.DefaultMappedModel = defaultModel
+		key = key.CloneWithEffectiveGroup(&primaryGroup)
+		key.RoutingGroups = bindings
+		input.APIKey = key
 	}
 	input.Models = available
-	input.Capabilities = resolveCLIImportCapabilities(ctx, &groupID, key.Group.Platform, available, modelProvider, capabilityProvider)
+	input.Capabilities = capabilities
 	return BuildCLIImportScript(input)
 }
 
@@ -277,13 +307,24 @@ func validateCLIImportAPIKey(key *APIKey, userID int64) error {
 	if key.IsQuotaExhausted() {
 		return ErrCLIImportAPIKeyQuotaExhausted
 	}
-	if key.GroupID == nil || key.Group == nil {
+	bindings := key.ConfiguredRoutingGroups()
+	if len(bindings) == 0 {
 		return ErrCLIImportAPIKeyNoGroup
 	}
-	if key.Group.Status != "" && key.Group.Status != StatusActive {
-		return ErrCLIImportAPIKeyGroupInactive
+	hasGroup := false
+	for _, binding := range bindings {
+		if binding.Group == nil {
+			continue
+		}
+		hasGroup = true
+		if binding.Group.Status == "" || binding.Group.Status == StatusActive {
+			return nil
+		}
 	}
-	return nil
+	if !hasGroup {
+		return ErrCLIImportAPIKeyNoGroup
+	}
+	return ErrCLIImportAPIKeyGroupInactive
 }
 
 func normalizeCLIImportAPIBaseURL(baseURL string) string {
@@ -317,6 +358,18 @@ func resolveCLIImportModelList(available []string, group *Group) []string {
 		return nil
 	}
 	return cleanCLIImportModelList(DefaultModelIDsForPlatform(group.Platform))
+}
+
+func containsCLIImportModel(models []string, target string) bool {
+	if target == "" {
+		return false
+	}
+	for _, model := range models {
+		if strings.TrimSpace(model) == target {
+			return true
+		}
+	}
+	return false
 }
 
 func cleanCLIImportModelList(models []string) []string {
@@ -713,12 +766,16 @@ var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability
 		"Hy3", "hy3", false, true, true, true,
 		[]string{"text"}, 262144, 65536, 0.14, 0.58, cliImportFloat64Ptr(0.035), nil,
 	),
-	// Grok 4.5: OpenCode Go serves it via /chat/completions at
+	// Grok 4.5: OpenCode Go serves it via /responses at
 	// $2/$6/$0.30 (cache read) per 1M tokens. Output spec mirrors the xAI
 	// canonical models.dev entry (500000 input / 500000 output).
 	"grok-4.5": newOpenCodeGoBuiltinCLIImportCapability(
 		"Grok 4.5", "grok", true, true, true, true,
 		[]string{"text", "image"}, 500000, 500000, 2.0, 6.0, cliImportFloat64Ptr(0.30), nil,
+	),
+	"muse-spark-1.2-contributor": newOpenCodeGoBuiltinCLIImportCapability(
+		"Muse Spark 1.2 Contributor", "muse-spark", true, true, false, true,
+		[]string{"text", "image", "video", "pdf", "audio"}, 1048576, 131072, 0.1, 0.2, cliImportFloat64Ptr(0.002), nil,
 	),
 	"kimi-k2.5": newOpenCodeGoBuiltinCLIImportCapability(
 		"Kimi K2.5", "kimi-k2", true, true, true, true,

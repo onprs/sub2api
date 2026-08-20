@@ -14,6 +14,35 @@ const (
 	StatusAPIKeyExpired        = "expired"
 )
 
+// API Key 分组调度策略。
+const (
+	APIKeyRoutingStrategyBalanced       = "balanced"
+	APIKeyRoutingStrategyStabilityFirst = "stability_first"
+	APIKeyRoutingStrategyCostFirst      = "cost_first"
+	APIKeyRoutingStrategyManual         = "manual"
+	APIKeyRoutingMaxGroups              = 20
+)
+
+// APIKeyGroupBinding 表示一个候选分组及其手动调度顺序。
+type APIKeyGroupBinding struct {
+	GroupID     int64
+	Priority    int
+	Group       *Group
+	RPMOverride *int
+}
+
+func IsValidAPIKeyRoutingStrategy(strategy string) bool {
+	switch strategy {
+	case APIKeyRoutingStrategyBalanced,
+		APIKeyRoutingStrategyStabilityFirst,
+		APIKeyRoutingStrategyCostFirst,
+		APIKeyRoutingStrategyManual:
+		return true
+	default:
+		return false
+	}
+}
+
 // Rate limit window durations
 const (
 	RateLimitWindow5h = 5 * time.Hour
@@ -28,14 +57,17 @@ func IsWindowExpired(windowStart *time.Time, duration time.Duration) bool {
 }
 
 type APIKey struct {
-	ID          int64
-	UserID      int64
-	Key         string
-	Name        string
-	GroupID     *int64
-	Status      string
-	IPWhitelist []string
-	IPBlacklist []string
+	ID              int64
+	UserID          int64
+	Key             string
+	Name            string
+	GroupID         *int64
+	RoutingPlatform string
+	RoutingStrategy string
+	RoutingGroups   []APIKeyGroupBinding
+	Status          string
+	IPWhitelist     []string
+	IPBlacklist     []string
 	// 预编译的 IP 规则，用于认证热路径避免重复 ParseIP/ParseCIDR。
 	CompiledIPWhitelist *ip.CompiledIPRules `json:"-"`
 	CompiledIPBlacklist *ip.CompiledIPRules `json:"-"`
@@ -66,6 +98,82 @@ type APIKey struct {
 
 func (k *APIKey) IsActive() bool {
 	return k.Status == StatusActive
+}
+
+// ConfiguredRoutingGroups 返回按优先级排序后的候选分组。
+// 旧数据或测试对象未填充关联关系时，回退到兼容 group_id/group。
+func (k *APIKey) ConfiguredRoutingGroups() []APIKeyGroupBinding {
+	if k == nil {
+		return nil
+	}
+	if len(k.RoutingGroups) > 0 {
+		groups := make([]APIKeyGroupBinding, len(k.RoutingGroups))
+		copy(groups, k.RoutingGroups)
+		return groups
+	}
+	if k.GroupID == nil {
+		return nil
+	}
+	return []APIKeyGroupBinding{{GroupID: *k.GroupID, Priority: 0, Group: k.Group}}
+}
+
+func (k *APIKey) RoutingPlatformValue() string {
+	if k == nil {
+		return ""
+	}
+	if k.RoutingPlatform != "" {
+		return k.RoutingPlatform
+	}
+	if k.Group != nil {
+		return k.Group.Platform
+	}
+	return ""
+}
+
+func (k *APIKey) RoutingStrategyValue() string {
+	if k == nil || !IsValidAPIKeyRoutingStrategy(k.RoutingStrategy) {
+		return APIKeyRoutingStrategyManual
+	}
+	return k.RoutingStrategy
+}
+
+func (k *APIKey) UsesDynamicGroupRouting() bool {
+	return k != nil && len(k.ConfiguredRoutingGroups()) > 1
+}
+
+func (k *APIKey) HasConfiguredGroup(groupID int64) bool {
+	if k == nil || groupID <= 0 {
+		return false
+	}
+	for _, binding := range k.ConfiguredRoutingGroups() {
+		if binding.GroupID == groupID {
+			return true
+		}
+	}
+	return false
+}
+
+// CloneWithEffectiveGroup 创建当前请求使用的浅拷贝，不修改认证缓存中的配置对象。
+func (k *APIKey) CloneWithEffectiveGroup(group *Group) *APIKey {
+	if k == nil || group == nil {
+		return k
+	}
+	cloned := *k
+	groupID := group.ID
+	cloned.GroupID = &groupID
+	cloned.Group = group
+	if k.User != nil {
+		clonedUser := *k.User
+		clonedUser.UserGroupRPMOverride = nil
+		for _, binding := range k.ConfiguredRoutingGroups() {
+			if binding.GroupID == groupID {
+				clonedUser.UserGroupRPMOverride = binding.RPMOverride
+				break
+			}
+		}
+		cloned.User = &clonedUser
+	}
+	return &cloned
 }
 
 // HasRateLimits returns true if any rate limit window is configured
