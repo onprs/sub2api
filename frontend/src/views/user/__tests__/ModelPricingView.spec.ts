@@ -16,6 +16,10 @@ const { getAvailable, getUserGroupRates, showError, showSuccess, extractApiError
 
 const messages: Record<string, string> = {
   'common.refresh': 'Refresh',
+  'modelPricing.selection.platform': 'Available Platform',
+  'modelPricing.selection.group': 'Available Group',
+  'modelPricing.selection.platformPlaceholder': 'Select a platform',
+  'modelPricing.selection.groupPlaceholder': 'Select a group',
   'modelPricing.searchPlaceholder': 'Search pricing',
   'modelPricing.empty': 'No model pricing data',
   'modelPricing.modes.raw': 'Standard Price',
@@ -94,7 +98,17 @@ vi.mock('vue-i18n', async () => {
 
 const AppLayoutStub = { template: '<main><slot /></main>' }
 const TablePageLayoutStub = {
-  template: '<section><slot name="filters" /><slot name="table" /></section>',
+  props: {
+    showTable: { type: Boolean, default: true },
+  },
+  template:
+    '<section><slot name="filters" /><div v-if="showTable"><slot name="table" /></div></section>',
+}
+const SelectStub = {
+  name: 'Select',
+  props: ['modelValue', 'options', 'placeholder', 'disabled'],
+  emits: ['update:modelValue'],
+  template: '<button type="button" class="select-stub" :disabled="disabled">{{ placeholder }}</button>',
 }
 const IconStub = {
   props: ['name', 'size'],
@@ -156,6 +170,43 @@ function makeChannel(): UserAvailableChannel[] {
             },
           ],
         },
+        {
+          platform: 'gemini',
+          groups: [
+            {
+              id: 30,
+              name: 'Free',
+              platform: 'gemini',
+              subscription_type: 'standard',
+              rate_multiplier: 0,
+              peak_rate_enabled: false,
+              peak_start: '',
+              peak_end: '',
+              peak_rate_multiplier: 1,
+              is_exclusive: false,
+            },
+          ],
+          supported_models: [
+            {
+              name: 'gemini-2.5-flash',
+              platform: 'gemini',
+              pricing: {
+                billing_mode: BILLING_MODE_TOKEN,
+                input_price: 0.000003,
+                output_price: 0.000004,
+                cache_write_price: null,
+                cache_read_price: 0,
+                image_output_price: null,
+                per_request_price: null,
+                pricing_source: 'channel',
+                pricing_source_label: 'modelPricing.sources.channel',
+                pricing_source_detail: 'channel_model_pricing',
+                intervals: [],
+              },
+              promotion: null,
+            },
+          ],
+        },
       ],
     },
   ]
@@ -167,12 +218,25 @@ function mountView() {
       stubs: {
         AppLayout: AppLayoutStub,
         TablePageLayout: TablePageLayoutStub,
+        Select: SelectStub,
         Icon: IconStub,
         PlatformIcon: PlatformIconStub,
         GroupBadge: GroupBadgeStub,
       },
     },
   })
+}
+
+async function selectPricingScope(
+  wrapper: ReturnType<typeof mountView>,
+  platform = 'opencode_go',
+  groupId = 20,
+) {
+  const [platformSelect, groupSelect] = wrapper.findAllComponents({ name: 'Select' })
+  platformSelect.vm.$emit('update:modelValue', platform)
+  await wrapper.vm.$nextTick()
+  groupSelect.vm.$emit('update:modelValue', groupId)
+  await wrapper.vm.$nextTick()
 }
 
 describe('ModelPricingView', () => {
@@ -184,12 +248,79 @@ describe('ModelPricingView', () => {
     extractApiErrorMessage.mockReturnValue('Load failed')
   })
 
+  it('requires a platform and matching group before showing pricing rows', async () => {
+    getAvailable.mockResolvedValue(makeChannel())
+    getUserGroupRates.mockResolvedValue({ 20: 0.5 })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const [platformSelect, groupSelect] = wrapper.findAllComponents({ name: 'Select' })
+    expect(platformSelect.props('options')).toEqual([
+      { value: 'gemini', label: 'Gemini' },
+      { value: 'opencode_go', label: 'OpenCode Go' },
+    ])
+    expect(groupSelect.props('disabled')).toBe(true)
+    expect(wrapper.find('table').exists()).toBe(false)
+    expect(wrapper.find('[data-test="pricing-search"]').exists()).toBe(false)
+
+    platformSelect.vm.$emit('update:modelValue', 'opencode_go')
+    await wrapper.vm.$nextTick()
+
+    expect(groupSelect.props('disabled')).toBe(false)
+    expect(groupSelect.props('options')).toEqual([
+      {
+        value: 20,
+        label: 'Enterprise',
+        platform: 'opencode_go',
+        subscriptionType: 'subscription',
+        defaultMultiplier: 2,
+        userMultiplier: 0.5,
+        isExclusive: true,
+      },
+    ])
+    expect(wrapper.find('table').exists()).toBe(false)
+
+    groupSelect.vm.$emit('update:modelValue', 20)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('table').exists()).toBe(true)
+    expect(wrapper.text()).toContain('deepseek-v4-flash')
+    expect(wrapper.text()).not.toContain('gemini-2.5-flash')
+    expect(wrapper.find('[data-test="pricing-search"]').exists()).toBe(true)
+
+    platformSelect.vm.$emit('update:modelValue', 'gemini')
+    await wrapper.vm.$nextTick()
+
+    expect(groupSelect.props('modelValue')).toBeNull()
+    expect(groupSelect.props('options')).toEqual([
+      {
+        value: 30,
+        label: 'Free',
+        platform: 'gemini',
+        subscriptionType: 'standard',
+        defaultMultiplier: 0,
+        userMultiplier: null,
+        isExclusive: false,
+      },
+    ])
+    expect(wrapper.find('table').exists()).toBe(false)
+    expect(wrapper.find('[data-test="pricing-search"]').exists()).toBe(false)
+
+    groupSelect.vm.$emit('update:modelValue', 30)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('gemini-2.5-flash')
+    expect(wrapper.text()).not.toContain('deepseek-v4-flash')
+  })
+
   it('loads pricing rows, refreshes, and switches between actual and raw prices', async () => {
     getAvailable.mockResolvedValue(makeChannel())
     getUserGroupRates.mockResolvedValue({ 20: 0.5 })
 
     const wrapper = mountView()
     await flushPromises()
+    await selectPricingScope(wrapper)
 
     expect(getAvailable).toHaveBeenCalledTimes(1)
     expect(getAvailable).toHaveBeenLastCalledWith({ purpose: 'model_pricing' })
@@ -207,9 +338,9 @@ describe('ModelPricingView', () => {
     await flushPromises()
     expect(getAvailable).toHaveBeenCalledTimes(2)
     expect(getAvailable).toHaveBeenLastCalledWith({ purpose: 'model_pricing' })
+    expect(wrapper.find('table').exists()).toBe(true)
 
-    await wrapper.get('button:nth-of-type(1)').trigger('click')
-    await flushPromises()
+    await wrapper.get('[data-pricing-mode="raw"]').trigger('click')
     expect(wrapper.text()).toContain('$1')
   })
 
@@ -245,6 +376,7 @@ describe('ModelPricingView', () => {
 
     const wrapper = mountView()
     await flushPromises()
+    await selectPricingScope(wrapper)
 
     expect(wrapper.text()).toContain('Context Tier')
     expect(wrapper.text()).toContain('Up to 256K')
@@ -254,7 +386,7 @@ describe('ModelPricingView', () => {
     expect(wrapper.text()).toContain('$0.08')
     expect(wrapper.text()).toContain('$0.24')
 
-    await wrapper.get('button:nth-of-type(1)').trigger('click')
+    await wrapper.get('[data-pricing-mode="raw"]').trigger('click')
     expect(wrapper.text()).toContain('$0.4')
     expect(wrapper.text()).toContain('$1.2')
     expect(wrapper.text()).toContain('$0.04')
@@ -279,6 +411,7 @@ describe('ModelPricingView', () => {
 
     const wrapper = mountView()
     await flushPromises()
+    await selectPricingScope(wrapper)
 
     const header = wrapper.get('thead')
     expect(header.classes()).toEqual(expect.arrayContaining(['sticky', 'top-0', 'z-20']))
@@ -290,6 +423,7 @@ describe('ModelPricingView', () => {
 
     const wrapper = mountView()
     await flushPromises()
+    await selectPricingScope(wrapper)
 
     const stickyModelCells = wrapper.findAll('.model-pricing-sticky-model')
     expect(stickyModelCells).toHaveLength(2)
@@ -304,6 +438,7 @@ describe('ModelPricingView', () => {
 
     const wrapper = mountView()
     await flushPromises()
+    await selectPricingScope(wrapper)
 
     const copyBtn = wrapper.find('.model-pricing-sticky-model button')
     expect(copyBtn.exists()).toBe(true)

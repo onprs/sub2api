@@ -11,7 +11,7 @@
     </div>
 
     <!-- 滚动区域：表格 -->
-    <div class="layout-section-scrollable">
+    <div v-if="showTable" class="layout-section-scrollable">
       <div class="card table-scroll-container">
         <slot name="table" />
       </div>
@@ -26,6 +26,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+
+withDefaults(defineProps<{
+  showTable?: boolean
+}>(), {
+  showTable: true
+})
 
 const isMobile = ref(false)
 

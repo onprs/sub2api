@@ -3,7 +3,13 @@ export default {
   modelPricing: {
     title: '模型ID与计费',
     description: '查看可用渠道中各模型在不同分组下的计费价格与模型ID',
-    searchPlaceholder: '搜索渠道、平台、模型、分组或来源...',
+    selection: {
+      platform: '可用平台',
+      group: '可用分组',
+      platformPlaceholder: '选择平台',
+      groupPlaceholder: '选择分组'
+    },
+    searchPlaceholder: '搜索渠道、模型或来源...',
     empty: '暂无模型计费数据',
     copyModelId: '复制模型 ID',
     modelCopied: '已复制模型 ID',
