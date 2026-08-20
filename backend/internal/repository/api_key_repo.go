@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/apikeygroup"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/ent/user"
@@ -40,11 +42,35 @@ func (r *apiKeyRepository) activeQuery() *dbent.APIKeyQuery {
 	return r.client.APIKey.Query().Where(apikey.DeletedAtIsNil())
 }
 
+func withAPIKeyGroupDetails(q *dbent.APIKeyGroupQuery) {
+	q.Order(dbent.Asc(apikeygroup.FieldPriority), dbent.Asc(apikeygroup.FieldGroupID)).WithGroup()
+}
+
 func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) error {
-	builder := r.client.APIKey.Create().
+	if dbent.TxFromContext(ctx) != nil {
+		return r.create(ctx, clientFromContext(ctx, r.client), key)
+	}
+
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := r.create(txCtx, tx.Client(), key); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *apiKeyRepository) create(ctx context.Context, client *dbent.Client, key *service.APIKey) error {
+	normalizeAPIKeyRoutingCompat(key)
+	builder := client.APIKey.Create().
 		SetUserID(key.UserID).
 		SetKey(key.Key).
 		SetName(key.Name).
+		SetRoutingPlatform(key.RoutingPlatform).
+		SetRoutingStrategy(key.RoutingStrategyValue()).
 		SetStatus(key.Status).
 		SetNillableGroupID(key.GroupID).
 		SetNillableLastUsedAt(key.LastUsedAt).
@@ -63,13 +89,99 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 	}
 
 	created, err := builder.Save(ctx)
-	if err == nil {
-		key.ID = created.ID
-		key.LastUsedAt = created.LastUsedAt
-		key.CreatedAt = created.CreatedAt
-		key.UpdatedAt = created.UpdatedAt
+	if err != nil {
+		return translatePersistenceError(err, nil, service.ErrAPIKeyExists)
 	}
-	return translatePersistenceError(err, nil, service.ErrAPIKeyExists)
+	key.ID = created.ID
+	if err := replaceAPIKeyRoutingBindings(ctx, client, key); err != nil {
+		return err
+	}
+	key.LastUsedAt = created.LastUsedAt
+	key.CreatedAt = created.CreatedAt
+	key.UpdatedAt = created.UpdatedAt
+	return nil
+}
+
+func normalizeAPIKeyRoutingCompat(key *service.APIKey) {
+	if key == nil {
+		return
+	}
+
+	// group_id 是旧二进制唯一会维护的分组字段。若旧版本在回滚期间解绑或
+	// 改绑 Key，关联表会暂时滞后；读取后必须让旧字段优先，下一次 Update
+	// 再把关联表原子修复，避免重新升级后悄悄恢复旧候选集合。
+	if key.GroupID == nil {
+		key.Group = nil
+		key.RoutingPlatform = ""
+		key.RoutingStrategy = service.APIKeyRoutingStrategyManual
+		key.RoutingGroups = nil
+		return
+	}
+	legacySingleGroup := false
+	if len(key.RoutingGroups) == 0 {
+		legacySingleGroup = true
+		key.RoutingGroups = []service.APIKeyGroupBinding{{
+			GroupID:  *key.GroupID,
+			Priority: 0,
+			Group:    key.Group,
+		}}
+	}
+	sort.SliceStable(key.RoutingGroups, func(i, j int) bool {
+		if key.RoutingGroups[i].Priority == key.RoutingGroups[j].Priority {
+			return key.RoutingGroups[i].GroupID < key.RoutingGroups[j].GroupID
+		}
+		return key.RoutingGroups[i].Priority < key.RoutingGroups[j].Priority
+	})
+	if key.RoutingGroups[0].GroupID != *key.GroupID {
+		legacySingleGroup = true
+		key.RoutingGroups = []service.APIKeyGroupBinding{{
+			GroupID:  *key.GroupID,
+			Priority: 0,
+			Group:    key.Group,
+		}}
+		key.RoutingStrategy = service.APIKeyRoutingStrategyManual
+	}
+
+	primaryID := key.RoutingGroups[0].GroupID
+	key.GroupID = &primaryID
+	if key.Group == nil || key.Group.ID != primaryID {
+		key.Group = key.RoutingGroups[0].Group
+	}
+	if legacySingleGroup {
+		key.RoutingPlatform = ""
+		if key.Group != nil {
+			key.RoutingPlatform = key.Group.Platform
+		}
+	}
+	if key.RoutingPlatform == "" && key.Group != nil {
+		key.RoutingPlatform = key.Group.Platform
+	}
+	if !service.IsValidAPIKeyRoutingStrategy(key.RoutingStrategy) {
+		key.RoutingStrategy = service.APIKeyRoutingStrategyManual
+	}
+}
+
+func replaceAPIKeyRoutingBindings(ctx context.Context, client *dbent.Client, key *service.APIKey) error {
+	if key == nil || key.ID <= 0 {
+		return nil
+	}
+	if _, err := client.APIKeyGroup.Delete().Where(apikeygroup.APIKeyIDEQ(key.ID)).Exec(ctx); err != nil {
+		return fmt.Errorf("delete api key routing bindings: %w", err)
+	}
+	if len(key.RoutingGroups) == 0 {
+		return nil
+	}
+	builders := make([]*dbent.APIKeyGroupCreate, 0, len(key.RoutingGroups))
+	for _, binding := range key.RoutingGroups {
+		builders = append(builders, client.APIKeyGroup.Create().
+			SetAPIKeyID(key.ID).
+			SetGroupID(binding.GroupID).
+			SetPriority(binding.Priority))
+	}
+	if _, err := client.APIKeyGroup.CreateBulk(builders...).Save(ctx); err != nil {
+		return fmt.Errorf("create api key routing bindings: %w", err)
+	}
+	return nil
 }
 
 func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIKey, error) {
@@ -81,6 +193,7 @@ func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIK
 			})
 		}).
 		WithGroup().
+		WithAPIKeyGroups(withAPIKeyGroupDetails).
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -119,6 +232,7 @@ func (r *apiKeyRepository) GetByKey(ctx context.Context, key string) (*service.A
 			})
 		}).
 		WithGroup().
+		WithAPIKeyGroups(withAPIKeyGroupDetails).
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -136,6 +250,8 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldID,
 			apikey.FieldUserID,
 			apikey.FieldGroupID,
+			apikey.FieldRoutingPlatform,
+			apikey.FieldRoutingStrategy,
 			apikey.FieldName,
 			apikey.FieldStatus,
 			apikey.FieldIPWhitelist,
@@ -184,6 +300,8 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldMonthlyLimitUsd,
 				group.FieldAllowImageGeneration,
 				group.FieldAllowBatchImageGeneration,
+				group.FieldBatchImageDiscountMultiplier,
+				group.FieldBatchImageHoldMultiplier,
 				group.FieldImageRateIndependent,
 				group.FieldImageRateMultiplier,
 				group.FieldImagePrice1k,
@@ -202,6 +320,8 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldMcpXMLInject,
 				group.FieldSupportedModelScopes,
 				group.FieldAllowMessagesDispatch,
+				group.FieldRequireOauthOnly,
+				group.FieldRequirePrivacySet,
 				group.FieldDefaultMappedModel,
 				group.FieldMessagesDispatchModelConfig,
 				group.FieldModelsListConfig,
@@ -214,6 +334,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldPeakRateMultiplier,
 			)
 		}).
+		WithAPIKeyGroups(withAPIKeyGroupDetails).
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -225,16 +346,35 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 }
 
 func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey) error {
+	if dbent.TxFromContext(ctx) != nil {
+		return r.update(ctx, clientFromContext(ctx, r.client), key)
+	}
+
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := r.update(txCtx, tx.Client(), key); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *apiKeyRepository) update(ctx context.Context, client *dbent.Client, key *service.APIKey) error {
+	normalizeAPIKeyRoutingCompat(key)
 	// 使用原子操作：将软删除检查与更新合并到同一语句，避免竞态条件。
 	// 之前的实现先检查 Exist 再 UpdateOneID，若在两步之间发生软删除，
 	// 则会更新已删除的记录。
 	// 这里选择 Update().Where()，确保只有未软删除记录能被更新。
 	// 同时显式设置 updated_at，避免二次查询带来的并发可见性问题。
-	client := clientFromContext(ctx, r.client)
 	now := time.Now()
 	builder := client.APIKey.Update().
 		Where(apikey.IDEQ(key.ID), apikey.DeletedAtIsNil()).
 		SetName(key.Name).
+		SetRoutingPlatform(key.RoutingPlatform).
+		SetRoutingStrategy(key.RoutingStrategyValue()).
 		SetStatus(key.Status).
 		SetQuota(key.Quota).
 		SetQuotaUsed(key.QuotaUsed).
@@ -296,6 +436,10 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey) erro
 		return service.ErrAPIKeyNotFound
 	}
 
+	if err := replaceAPIKeyRoutingBindings(ctx, client, key); err != nil {
+		return err
+	}
+
 	// 使用同一时间戳回填，避免并发删除导致二次查询失败。
 	key.UpdatedAt = now
 	return nil
@@ -333,7 +477,8 @@ func (r *apiKeyRepository) Delete(ctx context.Context, id int64) error {
 
 // DeleteWithAudit 在同一事务内:
 //  1. 把(明文 key、所有者、key 名称)写入 deleted_api_key_audits;
-//  2. 软删除该 key(tombstone 覆盖 key 列以释放唯一约束)。
+//  2. 软删除该 key(tombstone 覆盖 key 列以释放唯一约束);
+//  3. 清理软删除无法触发外键级联的候选分组关系。
 //
 // 保证"被删除的 key 一定能反查到所有者"。事务模式与 group_repo.DeleteCascade 一致。
 func (r *apiKeyRepository) DeleteWithAudit(ctx context.Context, id int64) error {
@@ -398,6 +543,11 @@ func (r *apiKeyRepository) deleteWithAudit(ctx context.Context, exec *dbent.Clie
 		}
 		return service.ErrAPIKeyNotFound
 	}
+
+	// API Key 是软删除，数据库外键级联不会触发；候选关系需在同一事务中显式清理。
+	if _, err := exec.APIKeyGroup.Delete().Where(apikeygroup.APIKeyIDEQ(id)).Exec(ctx); err != nil {
+		return fmt.Errorf("delete api key routing bindings: %w", err)
+	}
 	return nil
 }
 
@@ -417,7 +567,10 @@ func (r *apiKeyRepository) apiKeyListByUserIDQuery(userID int64, filters service
 		if *filters.GroupID == 0 {
 			q = q.Where(apikey.GroupIDIsNil())
 		} else {
-			q = q.Where(apikey.GroupIDEQ(*filters.GroupID))
+			q = q.Where(apikey.Or(
+				apikey.GroupIDEQ(*filters.GroupID),
+				apikey.HasAPIKeyGroupsWith(apikeygroup.GroupIDEQ(*filters.GroupID)),
+			))
 		}
 	}
 
@@ -434,6 +587,7 @@ func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, param
 
 	keysQuery := q.
 		WithGroup().
+		WithAPIKeyGroups(withAPIKeyGroupDetails).
 		Offset(params.Offset()).
 		Limit(params.Limit())
 	for _, order := range apiKeyListOrder(params) {
@@ -459,6 +613,7 @@ func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, param
 func (r *apiKeyRepository) ListAllByUserID(ctx context.Context, userID int64, filters service.APIKeyListFilters) ([]service.APIKey, error) {
 	keys, err := r.apiKeyListByUserIDQuery(userID, filters).
 		WithGroup().
+		WithAPIKeyGroups(withAPIKeyGroupDetails).
 		Order(dbent.Asc(apikey.FieldID)).
 		All(ctx)
 	if err != nil {
@@ -587,7 +742,10 @@ func (r *apiKeyRepository) ExistsByKey(ctx context.Context, key string) (bool, e
 }
 
 func (r *apiKeyRepository) ListByGroupID(ctx context.Context, groupID int64, params pagination.PaginationParams) ([]service.APIKey, *pagination.PaginationResult, error) {
-	q := r.activeQuery().Where(apikey.GroupIDEQ(groupID))
+	q := r.activeQuery().Where(apikey.Or(
+		apikey.GroupIDEQ(groupID),
+		apikey.HasAPIKeyGroupsWith(apikeygroup.GroupIDEQ(groupID)),
+	))
 
 	total, err := q.Count(ctx)
 	if err != nil {
@@ -596,6 +754,8 @@ func (r *apiKeyRepository) ListByGroupID(ctx context.Context, groupID int64, par
 
 	keysQuery := q.
 		WithUser().
+		WithGroup().
+		WithAPIKeyGroups(withAPIKeyGroupDetails).
 		Offset(params.Offset()).
 		Limit(params.Limit())
 	for _, order := range apiKeyListOrder(params) {
@@ -662,7 +822,10 @@ func (r *apiKeyRepository) SearchAPIKeys(ctx context.Context, userID int64, keyw
 		q = q.Where(apikey.NameContainsFold(keyword))
 	}
 
-	keys, err := q.Limit(limit).Order(dbent.Desc(apikey.FieldID)).All(ctx)
+	keys, err := q.Limit(limit).
+		WithGroup().
+		WithAPIKeyGroups(withAPIKeyGroupDetails).
+		Order(dbent.Desc(apikey.FieldID)).All(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -674,28 +837,102 @@ func (r *apiKeyRepository) SearchAPIKeys(ctx context.Context, userID int64, keyw
 	return outKeys, nil
 }
 
-// ClearGroupIDByGroupID 将指定分组的所有 API Key 的 group_id 设为 nil
+// ClearGroupIDByGroupID 移除指定分组的候选关系，并将兼容主分组提升为剩余最高优先级候选。
 func (r *apiKeyRepository) ClearGroupIDByGroupID(ctx context.Context, groupID int64) (int64, error) {
-	n, err := r.client.APIKey.Update().
-		Where(apikey.GroupIDEQ(groupID), apikey.DeletedAtIsNil()).
-		ClearGroupID().
-		Save(ctx)
-	return int64(n), err
+	client := clientFromContext(ctx, r.client)
+	result, err := client.ExecContext(ctx, `
+		WITH affected AS (
+			SELECT api_key_id AS id
+			FROM api_key_groups
+			WHERE group_id = $1
+			UNION
+			SELECT id
+			FROM api_keys
+			WHERE group_id = $1 AND deleted_at IS NULL
+		), removed AS (
+			DELETE FROM api_key_groups
+			WHERE group_id = $1
+			RETURNING api_key_id
+		), first_remaining AS (
+			SELECT DISTINCT ON (akg.api_key_id)
+				akg.api_key_id,
+				akg.group_id,
+				g.platform
+			FROM api_key_groups AS akg
+			JOIN groups AS g ON g.id = akg.group_id AND g.deleted_at IS NULL
+			WHERE akg.api_key_id IN (SELECT id FROM affected)
+			  AND akg.group_id <> $1
+			ORDER BY akg.api_key_id, akg.priority, akg.group_id
+		)
+		UPDATE api_keys AS ak
+		SET group_id = (
+				SELECT fr.group_id FROM first_remaining AS fr WHERE fr.api_key_id = ak.id
+			),
+			routing_platform = COALESCE((
+				SELECT fr.platform FROM first_remaining AS fr WHERE fr.api_key_id = ak.id
+			), ''),
+			routing_strategy = CASE
+				WHEN EXISTS (SELECT 1 FROM first_remaining AS fr WHERE fr.api_key_id = ak.id)
+					THEN ak.routing_strategy
+				ELSE $2
+			END,
+			updated_at = NOW()
+		WHERE ak.id IN (SELECT id FROM affected)
+		  AND ak.deleted_at IS NULL`, groupID, service.APIKeyRoutingStrategyManual)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := result.RowsAffected()
+	return affected, err
 }
 
-// UpdateGroupIDByUserAndGroup 将用户下绑定 oldGroupID 的所有 Key 迁移到 newGroupID
+// UpdateGroupIDByUserAndGroup 将用户下包含 oldGroupID 的所有 Key 候选关系迁移到 newGroupID。
 func (r *apiKeyRepository) UpdateGroupIDByUserAndGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (int64, error) {
 	client := clientFromContext(ctx, r.client)
-	n, err := client.APIKey.Update().
-		Where(apikey.UserIDEQ(userID), apikey.GroupIDEQ(oldGroupID), apikey.DeletedAtIsNil()).
-		SetGroupID(newGroupID).
-		Save(ctx)
-	return int64(n), err
+	result, err := client.ExecContext(ctx, `
+		WITH affected AS (
+			SELECT ak.id, COALESCE(akg.priority, 0) AS priority
+			FROM api_keys AS ak
+			LEFT JOIN api_key_groups AS akg
+			  ON akg.api_key_id = ak.id AND akg.group_id = $2
+			WHERE ak.user_id = $1
+			  AND ak.deleted_at IS NULL
+			  AND (akg.api_key_id IS NOT NULL OR ak.group_id = $2)
+		), removed AS (
+			DELETE FROM api_key_groups AS akg
+			WHERE akg.group_id = $2
+			  AND akg.api_key_id IN (SELECT id FROM affected)
+			RETURNING akg.api_key_id
+		), inserted AS (
+			INSERT INTO api_key_groups (api_key_id, group_id, priority, created_at)
+			SELECT id, $3, MIN(priority), NOW()
+			FROM affected
+			GROUP BY id
+			ON CONFLICT (api_key_id, group_id) DO UPDATE
+			SET priority = LEAST(api_key_groups.priority, EXCLUDED.priority)
+			RETURNING api_key_id
+		)
+		UPDATE api_keys AS ak
+		SET group_id = CASE WHEN ak.group_id = $2 THEN $3 ELSE ak.group_id END,
+			routing_platform = CASE
+				WHEN ak.routing_platform = '' THEN COALESCE((SELECT platform FROM groups WHERE id = $3), '')
+				ELSE ak.routing_platform
+			END,
+			updated_at = NOW()
+		WHERE ak.id IN (SELECT id FROM affected)`, userID, oldGroupID, newGroupID)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := result.RowsAffected()
+	return affected, err
 }
 
 // CountByGroupID 获取分组的 API Key 数量
 func (r *apiKeyRepository) CountByGroupID(ctx context.Context, groupID int64) (int64, error) {
-	count, err := r.activeQuery().Where(apikey.GroupIDEQ(groupID)).Count(ctx)
+	count, err := r.activeQuery().Where(apikey.Or(
+		apikey.GroupIDEQ(groupID),
+		apikey.HasAPIKeyGroupsWith(apikeygroup.GroupIDEQ(groupID)),
+	)).Count(ctx)
 	return int64(count), err
 }
 
@@ -712,7 +949,10 @@ func (r *apiKeyRepository) ListKeysByUserID(ctx context.Context, userID int64) (
 
 func (r *apiKeyRepository) ListKeysByGroupID(ctx context.Context, groupID int64) ([]string, error) {
 	keys, err := r.activeQuery().
-		Where(apikey.GroupIDEQ(groupID)).
+		Where(apikey.Or(
+			apikey.GroupIDEQ(groupID),
+			apikey.HasAPIKeyGroupsWith(apikeygroup.GroupIDEQ(groupID)),
+		)).
 		Select(apikey.FieldKey).
 		Strings(ctx)
 	if err != nil {
@@ -840,29 +1080,31 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		return nil
 	}
 	out := &service.APIKey{
-		ID:            m.ID,
-		UserID:        m.UserID,
-		Key:           m.Key,
-		Name:          m.Name,
-		Status:        m.Status,
-		IPWhitelist:   m.IPWhitelist,
-		IPBlacklist:   m.IPBlacklist,
-		LastUsedAt:    m.LastUsedAt,
-		CreatedAt:     m.CreatedAt,
-		UpdatedAt:     m.UpdatedAt,
-		GroupID:       m.GroupID,
-		Quota:         m.Quota,
-		QuotaUsed:     m.QuotaUsed,
-		ExpiresAt:     m.ExpiresAt,
-		RateLimit5h:   m.RateLimit5h,
-		RateLimit1d:   m.RateLimit1d,
-		RateLimit7d:   m.RateLimit7d,
-		Usage5h:       m.Usage5h,
-		Usage1d:       m.Usage1d,
-		Usage7d:       m.Usage7d,
-		Window5hStart: m.Window5hStart,
-		Window1dStart: m.Window1dStart,
-		Window7dStart: m.Window7dStart,
+		ID:              m.ID,
+		UserID:          m.UserID,
+		Key:             m.Key,
+		Name:            m.Name,
+		Status:          m.Status,
+		IPWhitelist:     m.IPWhitelist,
+		IPBlacklist:     m.IPBlacklist,
+		LastUsedAt:      m.LastUsedAt,
+		CreatedAt:       m.CreatedAt,
+		UpdatedAt:       m.UpdatedAt,
+		GroupID:         m.GroupID,
+		RoutingPlatform: m.RoutingPlatform,
+		RoutingStrategy: m.RoutingStrategy,
+		Quota:           m.Quota,
+		QuotaUsed:       m.QuotaUsed,
+		ExpiresAt:       m.ExpiresAt,
+		RateLimit5h:     m.RateLimit5h,
+		RateLimit1d:     m.RateLimit1d,
+		RateLimit7d:     m.RateLimit7d,
+		Usage5h:         m.Usage5h,
+		Usage1d:         m.Usage1d,
+		Usage7d:         m.Usage7d,
+		Window5hStart:   m.Window5hStart,
+		Window1dStart:   m.Window1dStart,
+		Window7dStart:   m.Window7dStart,
 	}
 	if m.Edges.User != nil {
 		out.User = userEntityToService(m.Edges.User)
@@ -878,6 +1120,28 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 	if m.Edges.Group != nil {
 		out.Group = groupEntityToService(m.Edges.Group)
 	}
+	if len(m.Edges.APIKeyGroups) > 0 {
+		out.RoutingGroups = make([]service.APIKeyGroupBinding, 0, len(m.Edges.APIKeyGroups))
+		for _, binding := range m.Edges.APIKeyGroups {
+			if binding == nil {
+				continue
+			}
+			out.RoutingGroups = append(out.RoutingGroups, service.APIKeyGroupBinding{
+				GroupID:  binding.GroupID,
+				Priority: binding.Priority,
+				Group:    groupEntityToService(binding.Edges.Group),
+			})
+		}
+		if out.GroupID != nil {
+			for _, binding := range out.RoutingGroups {
+				if binding.GroupID == *out.GroupID && binding.Group != nil {
+					out.Group = binding.Group
+					break
+				}
+			}
+		}
+	}
+	normalizeAPIKeyRoutingCompat(out)
 	return out
 }
 

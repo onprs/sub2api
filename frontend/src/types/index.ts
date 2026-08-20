@@ -497,6 +497,35 @@ export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 
 
 export type SubscriptionType = 'standard' | 'subscription'
 
+export type ApiKeyRoutingStrategy = 'balanced' | 'stability_first' | 'cost_first' | 'manual'
+
+export interface ApiKeyRoutingGroupInput {
+  group_id: number
+  priority: number
+}
+
+export interface ApiKeyRoutingInput {
+  platform: GroupPlatform
+  strategy: ApiKeyRoutingStrategy
+  groups: ApiKeyRoutingGroupInput[]
+}
+
+export interface ApiKeyRoutingDraft {
+  platform: GroupPlatform | ''
+  strategy: ApiKeyRoutingStrategy
+  groups: ApiKeyRoutingGroupInput[]
+}
+
+export interface ApiKeyRoutingGroup extends ApiKeyRoutingGroupInput {
+  group?: Group
+}
+
+export interface ApiKeyRoutingConfig {
+  platform: GroupPlatform
+  strategy: ApiKeyRoutingStrategy
+  groups: ApiKeyRoutingGroup[]
+}
+
 export interface OpenAIMessagesDispatchModelConfig {
   opus_mapped_model?: string
   sonnet_mapped_model?: string
@@ -606,6 +635,7 @@ export interface ApiKey {
   updated_at: string
   current_concurrency: number
   group?: Group
+  routing?: ApiKeyRoutingConfig
   rate_limit_5h: number
   rate_limit_1d: number
   rate_limit_7d: number
@@ -623,6 +653,7 @@ export interface ApiKey {
 export interface CreateApiKeyRequest {
   name: string
   group_id?: number | null
+  routing?: ApiKeyRoutingInput
   custom_key?: string // Optional custom API Key
   ip_whitelist?: string[]
   ip_blacklist?: string[]
@@ -636,6 +667,7 @@ export interface CreateApiKeyRequest {
 export interface UpdateApiKeyRequest {
   name?: string
   group_id?: number | null
+  routing?: ApiKeyRoutingInput
   status?: 'active' | 'inactive'
   ip_whitelist?: string[]
   ip_blacklist?: string[]

@@ -108,6 +108,21 @@ func APIKeyFromService(k *service.APIKey) *APIKey {
 		User:               UserFromServiceShallow(k.User),
 		Group:              GroupFromServiceShallow(k.Group),
 	}
+	bindings := k.ConfiguredRoutingGroups()
+	if len(bindings) > 0 {
+		out.Routing = &APIKeyRouting{
+			Platform: k.RoutingPlatformValue(),
+			Strategy: k.RoutingStrategyValue(),
+			Groups:   make([]APIKeyRoutingGroup, 0, len(bindings)),
+		}
+		for _, binding := range bindings {
+			out.Routing.Groups = append(out.Routing.Groups, APIKeyRoutingGroup{
+				GroupID:  binding.GroupID,
+				Priority: binding.Priority,
+				Group:    GroupFromServiceShallow(binding.Group),
+			})
+		}
+	}
 	if k.Window5hStart != nil && !service.IsWindowExpired(k.Window5hStart, service.RateLimitWindow5h) {
 		t := k.Window5hStart.Add(service.RateLimitWindow5h)
 		out.Reset5hAt = &t

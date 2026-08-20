@@ -844,6 +844,9 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 		// 0 表示解绑分组（不修改 user_allowed_groups，避免影响用户其他 Key）
 		apiKey.GroupID = nil
 		apiKey.Group = nil
+		apiKey.RoutingPlatform = ""
+		apiKey.RoutingStrategy = APIKeyRoutingStrategyManual
+		apiKey.RoutingGroups = nil
 	} else {
 		// 验证目标分组存在且状态为 active
 		group, err := s.groupRepo.GetByID(ctx, *groupID)
@@ -869,6 +872,9 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 		gid := *groupID
 		apiKey.GroupID = &gid
 		apiKey.Group = group
+		apiKey.RoutingPlatform = group.Platform
+		apiKey.RoutingStrategy = APIKeyRoutingStrategyManual
+		apiKey.RoutingGroups = []APIKeyGroupBinding{{GroupID: gid, Priority: 0, Group: group}}
 
 		// 专属标准分组：使用事务保证「添加分组权限」与「更新 API Key」的原子性
 		if group.IsExclusive && !group.IsSubscriptionType() {
@@ -926,6 +932,76 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 	return result, nil
 }
 
+// AdminUpdateAPIKeyRouting 管理员原子替换 API Key 的动态路由配置。
+func (s *adminServiceImpl) AdminUpdateAPIKeyRouting(ctx context.Context, keyID int64, routing APIKeyRoutingRequest) (*AdminUpdateAPIKeyGroupIDResult, error) {
+	apiKey, err := s.apiKeyRepo.GetByID(ctx, keyID)
+	if err != nil {
+		return nil, err
+	}
+	user, err := s.userRepo.GetByID(ctx, apiKey.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if s.entClient == nil {
+		return nil, infraerrors.InternalServer("TRANSACTION_UNAVAILABLE", "database transaction is not configured")
+	}
+
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	opCtx := dbent.NewTxContext(ctx, tx)
+
+	result := &AdminUpdateAPIKeyGroupIDResult{}
+	for _, candidate := range routing.Groups {
+		group, groupErr := s.groupRepo.GetByID(opCtx, candidate.GroupID)
+		if groupErr != nil {
+			return nil, groupErr
+		}
+		if !group.IsActive() {
+			return nil, infraerrors.BadRequest("GROUP_NOT_ACTIVE", "target group is not active")
+		}
+		if group.IsExclusive && !group.IsSubscriptionType() && !user.CanBindGroup(group.ID, true) {
+			if err := s.userRepo.AddGroupToAllowedGroups(opCtx, user.ID, group.ID); err != nil {
+				return nil, fmt.Errorf("add group to user allowed groups: %w", err)
+			}
+			user.AllowedGroups = append(user.AllowedGroups, group.ID)
+			if !result.AutoGrantedGroupAccess {
+				groupID := group.ID
+				result.AutoGrantedGroupAccess = true
+				result.GrantedGroupID = &groupID
+				result.GrantedGroupName = group.Name
+			}
+		}
+	}
+
+	validator := &APIKeyService{
+		groupRepo:   s.groupRepo,
+		userSubRepo: s.userSubRepo,
+	}
+	platform, strategy, groups, primaryID, primaryGroup, err := validator.resolveRoutingConfiguration(opCtx, user, &routing, nil)
+	if err != nil {
+		return nil, err
+	}
+	apiKey.RoutingPlatform = platform
+	apiKey.RoutingStrategy = strategy
+	apiKey.RoutingGroups = groups
+	apiKey.GroupID = primaryID
+	apiKey.Group = primaryGroup
+	if err := s.apiKeyRepo.Update(opCtx, apiKey); err != nil {
+		return nil, fmt.Errorf("update api key routing: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit transaction: %w", err)
+	}
+	if s.authCacheInvalidator != nil {
+		s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+	}
+	result.APIKey = apiKey
+	return result, nil
+}
+
 // AdminResetAPIKeyRateLimitUsage resets all API key rate-limit usage windows.
 func (s *adminServiceImpl) AdminResetAPIKeyRateLimitUsage(ctx context.Context, keyID int64) (*APIKey, error) {
 	apiKey, err := s.apiKeyRepo.GetByID(ctx, keyID)
@@ -969,6 +1045,15 @@ func (s *adminServiceImpl) ReplaceUserGroup(ctx context.Context, userID, oldGrou
 	}
 	if newGroup.IsSubscriptionType() {
 		return nil, infraerrors.BadRequest("GROUP_IS_SUBSCRIPTION", "subscription groups are not supported for replacement")
+	}
+
+	oldGroup, err := s.groupRepo.GetByID(ctx, oldGroupID)
+	if err != nil {
+		return nil, err
+	}
+	// 固定平台路由要求候选迁移保持同平台；跨平台调整应通过完整路由编辑完成。
+	if oldGroup.Platform != newGroup.Platform {
+		return nil, infraerrors.BadRequest("GROUP_PLATFORM_MISMATCH", "old and new group must use the same platform")
 	}
 
 	// 事务保证原子性

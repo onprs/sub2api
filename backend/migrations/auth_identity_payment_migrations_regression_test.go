@@ -249,6 +249,25 @@ func TestMigration188AddsOpenRouterPlatformContractsIdempotently(t *testing.T) {
 	require.NotContains(t, sql, "'unknown'")
 }
 
+func TestMigration189AddsDynamicAPIKeyRoutingCompatibilityContract(t *testing.T) {
+	content, err := FS.ReadFile("189_add_api_key_dynamic_group_routing.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS routing_platform")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS routing_strategy")
+	require.Contains(t, sql, "CREATE TABLE IF NOT EXISTS api_key_groups")
+	require.Contains(t, sql, "REFERENCES api_keys(id) ON DELETE CASCADE")
+	require.Contains(t, sql, "REFERENCES groups(id) ON DELETE CASCADE")
+	require.Contains(t, sql, "PRIMARY KEY (api_key_id, group_id)")
+	require.Contains(t, sql, "INSERT INTO api_key_groups (api_key_id, group_id, priority)")
+	require.Contains(t, sql, "ON CONFLICT (api_key_id, group_id) DO NOTHING")
+	require.Contains(t, sql, "conrelid = 'api_keys'::regclass")
+	for _, strategy := range []string{"balanced", "stability_first", "cost_first", "manual"} {
+		require.Contains(t, sql, "'"+strategy+"'")
+	}
+}
+
 func TestMigration182UpdatesClinePassMonitorGuidance(t *testing.T) {
 	content, err := FS.ReadFile("182_fix_clinepass_channel_monitor_template.sql")
 	require.NoError(t, err)

@@ -1,9 +1,10 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { getUserApiKeys, getAllGroups } = vi.hoisted(() => ({
+const { getUserApiKeys, getAllGroups, updateApiKeyRouting } = vi.hoisted(() => ({
   getUserApiKeys: vi.fn(),
-  getAllGroups: vi.fn()
+  getAllGroups: vi.fn(),
+  updateApiKeyRouting: vi.fn()
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -19,7 +20,7 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     users: { getUserApiKeys },
     groups: { getAll: getAllGroups },
-    apiKeys: { updateApiKeyGroup: vi.fn() }
+    apiKeys: { updateApiKeyGroup: vi.fn(), updateApiKeyRouting }
   }
 }))
 
@@ -70,6 +71,38 @@ describe('UserApiKeysModal status label', () => {
     testLocale.value = 'en'
     getUserApiKeys.mockReset()
     getAllGroups.mockResolvedValue([])
+    updateApiKeyRouting.mockReset()
+  })
+
+  it('submits the complete routing configuration', async () => {
+    const wrapper = await mountModal('active')
+    const vm = wrapper.vm as any
+    const key = vm.apiKeys[0]
+    updateApiKeyRouting.mockResolvedValueOnce({
+      api_key: key,
+      auto_granted_group_access: false
+    })
+    vm.routingEditorKey = key
+    vm.routingDraft = {
+      platform: 'openai',
+      strategy: 'stability_first',
+      groups: [
+        { group_id: 31, priority: 0 },
+        { group_id: 32, priority: 1 }
+      ]
+    }
+
+    await vm.saveRoutingEditor()
+    await flushPromises()
+
+    expect(updateApiKeyRouting).toHaveBeenCalledWith(11, {
+      platform: 'openai',
+      strategy: 'stability_first',
+      groups: [
+        { group_id: 31, priority: 0 },
+        { group_id: 32, priority: 1 }
+      ]
+    })
   })
 
   it('renders API key statuses in English and Chinese', async () => {

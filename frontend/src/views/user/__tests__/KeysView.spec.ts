@@ -11,6 +11,9 @@ const {
   getDashboardApiKeysUsage,
   getAvailableGroups,
   getUserGroupRates,
+  createKey,
+  updateKey,
+  updateRouting,
   showError,
   showSuccess,
   copyToClipboard,
@@ -22,6 +25,9 @@ const {
   getDashboardApiKeysUsage: vi.fn(),
   getAvailableGroups: vi.fn(),
   getUserGroupRates: vi.fn(),
+  createKey: vi.fn(),
+  updateKey: vi.fn(),
+  updateRouting: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
   copyToClipboard: vi.fn(),
@@ -57,8 +63,9 @@ const messages: Record<string, string> = {
 vi.mock('@/api', () => ({
   keysAPI: {
     list: listKeys,
-    create: vi.fn(),
-    update: vi.fn(),
+    create: createKey,
+    update: updateKey,
+    updateRouting,
     delete: vi.fn(),
     toggleStatus: vi.fn(),
   },
@@ -258,6 +265,9 @@ describe('user KeysView column settings', () => {
     getDashboardApiKeysUsage.mockReset()
     getAvailableGroups.mockReset()
     getUserGroupRates.mockReset()
+    createKey.mockReset()
+    updateKey.mockReset()
+    updateRouting.mockReset()
     showError.mockReset()
     showSuccess.mockReset()
     copyToClipboard.mockReset()
@@ -275,7 +285,112 @@ describe('user KeysView column settings', () => {
     getDashboardApiKeysUsage.mockResolvedValue({ stats: {} })
     getAvailableGroups.mockResolvedValue([])
     getUserGroupRates.mockResolvedValue({})
+    createKey.mockResolvedValue(createApiKey())
+    updateKey.mockResolvedValue(createApiKey())
+    updateRouting.mockResolvedValue(createApiKey())
     isCurrentStep.mockReturnValue(false)
+  })
+
+  it('submits routing when creating an API key', async () => {
+    const wrapper = await mountView()
+    const vm = wrapper.vm as any
+    vm.formData.name = 'routed key'
+    vm.formData.routing = {
+      platform: 'openai',
+      strategy: 'balanced',
+      groups: [{ group_id: 42, priority: 0 }],
+    }
+
+    await vm.handleSubmit()
+    await flushPromises()
+
+    expect(createKey).toHaveBeenCalledWith(
+      'routed key',
+      undefined,
+      undefined,
+      [],
+      [],
+      0,
+      undefined,
+      { rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0 },
+      {
+        platform: 'openai',
+        strategy: 'balanced',
+        groups: [{ group_id: 42, priority: 0 }],
+      }
+    )
+  })
+
+  it('submits routing from the complete edit form', async () => {
+    const key = createApiKey()
+    const wrapper = await mountView()
+    const vm = wrapper.vm as any
+    vm.editKey(key)
+    vm.formData.routing = {
+      platform: 'openai',
+      strategy: 'manual',
+      groups: [
+        { group_id: 42, priority: 0 },
+        { group_id: 43, priority: 1 },
+      ],
+    }
+
+    await vm.handleSubmit()
+    await flushPromises()
+
+    expect(updateKey).toHaveBeenCalledWith(
+      key.id,
+      expect.objectContaining({
+        routing: {
+          platform: 'openai',
+          strategy: 'manual',
+          groups: [
+            { group_id: 42, priority: 0 },
+            { group_id: 43, priority: 1 },
+          ],
+        },
+      })
+    )
+  })
+
+  it('submits the complete routing configuration from the quick editor', async () => {
+    const key = createApiKey()
+    const group = {
+      id: 42,
+      name: 'OpenAI',
+      platform: 'openai',
+      status: 'active',
+      subscription_type: 'standard',
+      rate_multiplier: 1,
+    }
+    key.group_id = group.id
+    key.group = group as any
+    key.routing = {
+      platform: 'openai',
+      strategy: 'manual',
+      groups: [{ group_id: group.id, priority: 0, group: group as any }],
+    }
+    listKeys.mockResolvedValueOnce({ items: [key], total: 1, page: 1, page_size: 20, pages: 1 })
+    getAvailableGroups.mockResolvedValueOnce([group])
+    updateRouting.mockResolvedValueOnce(key)
+    const wrapper = await mountView()
+    const vm = wrapper.vm as any
+    vm.routingEditorKey = key
+    vm.routingEditorDraft = {
+      platform: 'openai',
+      strategy: 'cost_first',
+      groups: [{ group_id: 42, priority: 0 }],
+    }
+
+    await vm.saveRoutingEditor()
+    await flushPromises()
+
+    expect(updateRouting).toHaveBeenCalledWith(1, {
+      platform: 'openai',
+      strategy: 'cost_first',
+      groups: [{ group_id: 42, priority: 0 }],
+    })
+    expect(showSuccess).toHaveBeenCalled()
   })
 
   it('uses the default API key columns with low-frequency columns hidden', async () => {

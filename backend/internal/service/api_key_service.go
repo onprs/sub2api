@@ -29,6 +29,9 @@ var (
 	ErrAPIKeyInvalidChars = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
 	ErrAPIKeyRateLimited  = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
 	ErrInvalidIPPattern   = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
+	ErrInvalidKeyRouting  = infraerrors.BadRequest("INVALID_API_KEY_ROUTING", "invalid api key routing configuration")
+	ErrRoutingGroupLimit  = infraerrors.BadRequest("API_KEY_ROUTING_GROUP_LIMIT", "api key routing groups must contain between 1 and 20 groups")
+	ErrRoutingPlatformMix = infraerrors.BadRequest("API_KEY_ROUTING_PLATFORM_MISMATCH", "all routing groups must belong to the selected platform")
 	// ErrAPIKeyExpired        = infraerrors.Forbidden("API_KEY_EXPIRED", "api key has expired")
 	ErrAPIKeyExpired = infraerrors.Forbidden("API_KEY_EXPIRED", "api key 已过期")
 	// ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key quota exhausted")
@@ -156,13 +159,27 @@ type APIKeyAuthCacheInvalidator interface {
 	InvalidateAuthCacheByGroupID(ctx context.Context, groupID int64)
 }
 
+// APIKeyRoutingGroupRequest 表示候选分组及其手动优先级。
+type APIKeyRoutingGroupRequest struct {
+	GroupID  int64 `json:"group_id"`
+	Priority int   `json:"priority"`
+}
+
+// APIKeyRoutingRequest 是创建和更新共用的完整路由配置。
+type APIKeyRoutingRequest struct {
+	Platform string                      `json:"platform"`
+	Strategy string                      `json:"strategy"`
+	Groups   []APIKeyRoutingGroupRequest `json:"groups"`
+}
+
 // CreateAPIKeyRequest 创建API Key请求
 type CreateAPIKeyRequest struct {
-	Name        string   `json:"name"`
-	GroupID     *int64   `json:"group_id"`
-	CustomKey   *string  `json:"custom_key"`   // 可选的自定义key
-	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单
-	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单
+	Name        string                `json:"name"`
+	GroupID     *int64                `json:"group_id"`
+	Routing     *APIKeyRoutingRequest `json:"routing"`
+	CustomKey   *string               `json:"custom_key"`   // 可选的自定义key
+	IPWhitelist []string              `json:"ip_whitelist"` // IP 白名单
+	IPBlacklist []string              `json:"ip_blacklist"` // IP 黑名单
 
 	// Quota fields
 	Quota         float64 `json:"quota"`           // Quota limit in USD (0 = unlimited)
@@ -176,11 +193,12 @@ type CreateAPIKeyRequest struct {
 
 // UpdateAPIKeyRequest 更新API Key请求
 type UpdateAPIKeyRequest struct {
-	Name        *string  `json:"name"`
-	GroupID     *int64   `json:"group_id"`
-	Status      *string  `json:"status"`
-	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单（空数组清空）
-	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单（空数组清空）
+	Name        *string               `json:"name"`
+	GroupID     *int64                `json:"group_id"`
+	Routing     *APIKeyRoutingRequest `json:"routing"`
+	Status      *string               `json:"status"`
+	IPWhitelist []string              `json:"ip_whitelist"` // IP 白名单（空数组清空）
+	IPBlacklist []string              `json:"ip_blacklist"` // IP 黑名单（空数组清空）
 
 	// Quota fields
 	Quota           *float64   `json:"quota"`       // Quota limit in USD (nil = no change, 0 = unlimited)
@@ -330,13 +348,94 @@ func (s *APIKeyService) incrementAPIKeyErrorCount(ctx context.Context, userID in
 // 对于订阅类型分组：检查用户是否有有效订阅
 // 对于标准类型分组：使用原有的 AllowedGroups 和 IsExclusive 逻辑
 func (s *APIKeyService) canUserBindGroup(ctx context.Context, user *User, group *Group) bool {
+	if user == nil || group == nil {
+		return false
+	}
 	// 订阅类型分组：需要有效订阅
 	if group.IsSubscriptionType() {
+		if s.userSubRepo == nil {
+			return false
+		}
 		_, err := s.userSubRepo.GetActiveByUserIDAndGroupID(ctx, user.ID, group.ID)
 		return err == nil // 有有效订阅则允许
 	}
 	// 标准类型分组：使用原有逻辑
 	return user.CanBindGroup(group.ID, group.IsExclusive)
+}
+
+func (s *APIKeyService) resolveRoutingConfiguration(
+	ctx context.Context,
+	user *User,
+	routing *APIKeyRoutingRequest,
+	legacyGroupID *int64,
+) (string, string, []APIKeyGroupBinding, *int64, *Group, error) {
+	if routing == nil {
+		if legacyGroupID == nil {
+			return "", APIKeyRoutingStrategyManual, nil, nil, nil, nil
+		}
+		routing = &APIKeyRoutingRequest{
+			Strategy: APIKeyRoutingStrategyManual,
+			Groups:   []APIKeyRoutingGroupRequest{{GroupID: *legacyGroupID, Priority: 0}},
+		}
+	}
+	if user == nil {
+		return "", "", nil, nil, nil, ErrUserNotFound
+	}
+	if len(routing.Groups) == 0 || len(routing.Groups) > APIKeyRoutingMaxGroups {
+		return "", "", nil, nil, nil, ErrRoutingGroupLimit
+	}
+
+	platform := strings.TrimSpace(routing.Platform)
+	strategy := strings.TrimSpace(routing.Strategy)
+	if !IsValidAPIKeyRoutingStrategy(strategy) {
+		return "", "", nil, nil, nil, fmt.Errorf("%w: unsupported strategy %q", ErrInvalidKeyRouting, strategy)
+	}
+
+	requests := append([]APIKeyRoutingGroupRequest(nil), routing.Groups...)
+	sort.SliceStable(requests, func(i, j int) bool {
+		if requests[i].Priority == requests[j].Priority {
+			return i < j
+		}
+		return requests[i].Priority < requests[j].Priority
+	})
+	seen := make(map[int64]struct{}, len(requests))
+	bindings := make([]APIKeyGroupBinding, 0, len(requests))
+	for index, candidate := range requests {
+		if candidate.GroupID <= 0 || candidate.Priority < 0 {
+			return "", "", nil, nil, nil, fmt.Errorf("%w: group_id and priority must be non-negative", ErrInvalidKeyRouting)
+		}
+		if _, exists := seen[candidate.GroupID]; exists {
+			return "", "", nil, nil, nil, fmt.Errorf("%w: duplicate group_id %d", ErrInvalidKeyRouting, candidate.GroupID)
+		}
+		seen[candidate.GroupID] = struct{}{}
+
+		group, err := s.groupRepo.GetByID(ctx, candidate.GroupID)
+		if err != nil {
+			return "", "", nil, nil, nil, fmt.Errorf("get group: %w", err)
+		}
+		if !group.IsActive() {
+			return "", "", nil, nil, nil, fmt.Errorf("%w: group %d is not active", ErrInvalidKeyRouting, candidate.GroupID)
+		}
+		if platform == "" {
+			platform = group.Platform
+		}
+		if group.Platform != platform {
+			return "", "", nil, nil, nil, ErrRoutingPlatformMix
+		}
+		if !s.canUserBindGroup(ctx, user, group) {
+			return "", "", nil, nil, nil, ErrGroupNotAllowed
+		}
+		bindings = append(bindings, APIKeyGroupBinding{
+			GroupID:  group.ID,
+			Priority: index,
+			Group:    group,
+		})
+	}
+	if platform == "" {
+		return "", "", nil, nil, nil, fmt.Errorf("%w: platform is required", ErrInvalidKeyRouting)
+	}
+	primaryID := bindings[0].GroupID
+	return platform, strategy, bindings, &primaryID, bindings[0].Group, nil
 }
 
 // Create 创建API Key
@@ -361,17 +460,10 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		}
 	}
 
-	// 验证分组权限（如果指定了分组）
-	if req.GroupID != nil {
-		group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
-		if err != nil {
-			return nil, fmt.Errorf("get group: %w", err)
-		}
-
-		// 检查用户是否可以绑定该分组
-		if !s.canUserBindGroup(ctx, user, group) {
-			return nil, ErrGroupNotAllowed
-		}
+	// 路由配置由关联表持久化；旧 group_id 会转换为单分组手动策略。
+	routingPlatform, routingStrategy, routingGroups, primaryGroupID, primaryGroup, err := s.resolveRoutingConfiguration(ctx, user, req.Routing, req.GroupID)
+	if err != nil {
+		return nil, err
 	}
 
 	var key string
@@ -411,18 +503,22 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 
 	// 创建API Key记录
 	apiKey := &APIKey{
-		UserID:      userID,
-		Key:         key,
-		Name:        html.EscapeString(req.Name),
-		GroupID:     req.GroupID,
-		Status:      StatusActive,
-		IPWhitelist: req.IPWhitelist,
-		IPBlacklist: req.IPBlacklist,
-		Quota:       req.Quota,
-		QuotaUsed:   0,
-		RateLimit5h: req.RateLimit5h,
-		RateLimit1d: req.RateLimit1d,
-		RateLimit7d: req.RateLimit7d,
+		UserID:          userID,
+		Key:             key,
+		Name:            html.EscapeString(req.Name),
+		GroupID:         primaryGroupID,
+		Group:           primaryGroup,
+		RoutingPlatform: routingPlatform,
+		RoutingStrategy: routingStrategy,
+		RoutingGroups:   routingGroups,
+		Status:          StatusActive,
+		IPWhitelist:     req.IPWhitelist,
+		IPBlacklist:     req.IPBlacklist,
+		Quota:           req.Quota,
+		QuotaUsed:       0,
+		RateLimit5h:     req.RateLimit5h,
+		RateLimit1d:     req.RateLimit1d,
+		RateLimit7d:     req.RateLimit7d,
 	}
 
 	// Set expiration time if specified
@@ -662,23 +758,20 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		apiKey.Name = html.EscapeString(*req.Name)
 	}
 
-	if req.GroupID != nil {
-		// 验证分组权限
+	if req.Routing != nil || req.GroupID != nil {
 		user, err := s.userRepo.GetByID(ctx, userID)
 		if err != nil {
 			return nil, fmt.Errorf("get user: %w", err)
 		}
-
-		group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
+		platform, strategy, groups, primaryID, primaryGroup, err := s.resolveRoutingConfiguration(ctx, user, req.Routing, req.GroupID)
 		if err != nil {
-			return nil, fmt.Errorf("get group: %w", err)
+			return nil, err
 		}
-
-		if !s.canUserBindGroup(ctx, user, group) {
-			return nil, ErrGroupNotAllowed
-		}
-
-		apiKey.GroupID = req.GroupID
+		apiKey.RoutingPlatform = platform
+		apiKey.RoutingStrategy = strategy
+		apiKey.RoutingGroups = groups
+		apiKey.GroupID = primaryID
+		apiKey.Group = primaryGroup
 	}
 
 	if req.Status != nil {
@@ -754,6 +847,35 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		_ = s.rateLimitCacheInvalid.InvalidateAPIKeyRateLimit(ctx, apiKey.ID)
 	}
 
+	return apiKey, nil
+}
+
+// UpdateRouting 原子替换 API Key 的平台、策略和候选分组，不触碰其它 Key 设置。
+func (s *APIKeyService) UpdateRouting(ctx context.Context, id, userID int64, routing APIKeyRoutingRequest) (*APIKey, error) {
+	apiKey, err := s.apiKeyRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get api key: %w", err)
+	}
+	if apiKey.UserID != userID {
+		return nil, ErrInsufficientPerms
+	}
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	platform, strategy, groups, primaryID, primaryGroup, err := s.resolveRoutingConfiguration(ctx, user, &routing, nil)
+	if err != nil {
+		return nil, err
+	}
+	apiKey.RoutingPlatform = platform
+	apiKey.RoutingStrategy = strategy
+	apiKey.RoutingGroups = groups
+	apiKey.GroupID = primaryID
+	apiKey.Group = primaryGroup
+	if err := s.apiKeyRepo.Update(ctx, apiKey); err != nil {
+		return nil, fmt.Errorf("update api key routing: %w", err)
+	}
+	s.InvalidateAuthCacheByKey(ctx, apiKey.Key)
 	return apiKey, nil
 }
 
@@ -926,6 +1048,14 @@ func (s *APIKeyService) GetUserGroupRates(ctx context.Context, userID int64) (ma
 		return nil, fmt.Errorf("get user group rates: %w", err)
 	}
 	return rates, nil
+}
+
+// GetActiveRoutingSubscriptions 返回用户当前有效订阅，供多分组 usage 聚合使用。
+func (s *APIKeyService) GetActiveRoutingSubscriptions(ctx context.Context, userID int64) ([]UserSubscription, error) {
+	if s == nil || s.userSubRepo == nil {
+		return nil, nil
+	}
+	return s.userSubRepo.ListActiveByUserID(ctx, userID)
 }
 
 // CheckAPIKeyQuotaAndExpiry checks if the API key is valid for use (not expired, quota not exhausted)

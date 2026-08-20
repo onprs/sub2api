@@ -193,13 +193,43 @@ func (s *APIKeyService) BuildCLIImportScript(ctx context.Context, input CLIImpor
 	if err := validateCLIImportAPIKey(key, userID); err != nil {
 		return nil, err
 	}
-	groupID := key.Group.ID
-	available := resolveCLIImportModelList(nil, key.Group)
-	if modelProvider != nil {
-		available = resolveCLIImportModelList(modelProvider.GetAvailableModels(ctx, &groupID, key.Group.Platform), key.Group)
+	bindings := key.ConfiguredRoutingGroups()
+	available := make([]string, 0)
+	capabilities := make(map[string]CLIImportModelCapability)
+	defaultModel := ""
+	var payloadGroup *Group
+	for _, binding := range bindings {
+		group := binding.Group
+		if group == nil || !group.IsActive() {
+			continue
+		}
+		if payloadGroup == nil {
+			payloadGroup = group
+		}
+		groupID := group.ID
+		groupModels := resolveCLIImportModelList(nil, group)
+		if modelProvider != nil {
+			groupModels = resolveCLIImportModelList(modelProvider.GetAvailableModels(ctx, &groupID, group.Platform), group)
+		}
+		available = cleanCLIImportModelList(append(available, groupModels...))
+		if defaultModel == "" && containsCLIImportModel(groupModels, strings.TrimSpace(group.DefaultMappedModel)) {
+			defaultModel = strings.TrimSpace(group.DefaultMappedModel)
+		}
+		for model, capability := range resolveCLIImportCapabilities(ctx, &groupID, group.Platform, groupModels, modelProvider, capabilityProvider) {
+			if _, exists := capabilities[model]; !exists {
+				capabilities[model] = capability
+			}
+		}
+	}
+	if payloadGroup != nil {
+		primaryGroup := *payloadGroup
+		primaryGroup.DefaultMappedModel = defaultModel
+		key = key.CloneWithEffectiveGroup(&primaryGroup)
+		key.RoutingGroups = bindings
+		input.APIKey = key
 	}
 	input.Models = available
-	input.Capabilities = resolveCLIImportCapabilities(ctx, &groupID, key.Group.Platform, available, modelProvider, capabilityProvider)
+	input.Capabilities = capabilities
 	return BuildCLIImportScript(input)
 }
 
@@ -277,13 +307,24 @@ func validateCLIImportAPIKey(key *APIKey, userID int64) error {
 	if key.IsQuotaExhausted() {
 		return ErrCLIImportAPIKeyQuotaExhausted
 	}
-	if key.GroupID == nil || key.Group == nil {
+	bindings := key.ConfiguredRoutingGroups()
+	if len(bindings) == 0 {
 		return ErrCLIImportAPIKeyNoGroup
 	}
-	if key.Group.Status != "" && key.Group.Status != StatusActive {
-		return ErrCLIImportAPIKeyGroupInactive
+	hasGroup := false
+	for _, binding := range bindings {
+		if binding.Group == nil {
+			continue
+		}
+		hasGroup = true
+		if binding.Group.Status == "" || binding.Group.Status == StatusActive {
+			return nil
+		}
 	}
-	return nil
+	if !hasGroup {
+		return ErrCLIImportAPIKeyNoGroup
+	}
+	return ErrCLIImportAPIKeyGroupInactive
 }
 
 func normalizeCLIImportAPIBaseURL(baseURL string) string {
@@ -317,6 +358,18 @@ func resolveCLIImportModelList(available []string, group *Group) []string {
 		return nil
 	}
 	return cleanCLIImportModelList(DefaultModelIDsForPlatform(group.Platform))
+}
+
+func containsCLIImportModel(models []string, target string) bool {
+	if target == "" {
+		return false
+	}
+	for _, model := range models {
+		if strings.TrimSpace(model) == target {
+			return true
+		}
+	}
+	return false
 }
 
 func cleanCLIImportModelList(models []string) []string {

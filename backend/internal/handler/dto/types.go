@@ -49,6 +49,18 @@ type AdminUser struct {
 	GroupRates map[int64]float64 `json:"group_rates,omitempty"`
 }
 
+type APIKeyRoutingGroup struct {
+	GroupID  int64  `json:"group_id"`
+	Priority int    `json:"priority"`
+	Group    *Group `json:"group,omitempty"`
+}
+
+type APIKeyRouting struct {
+	Platform string               `json:"platform"`
+	Strategy string               `json:"strategy"`
+	Groups   []APIKeyRoutingGroup `json:"groups"`
+}
+
 type APIKey struct {
 	ID          int64      `json:"id"`
 	UserID      int64      `json:"user_id"`
@@ -82,8 +94,9 @@ type APIKey struct {
 	Reset1dAt     *time.Time `json:"reset_1d_at,omitempty"`
 	Reset7dAt     *time.Time `json:"reset_7d_at,omitempty"`
 
-	User  *User  `json:"user,omitempty"`
-	Group *Group `json:"group,omitempty"`
+	User    *User          `json:"user,omitempty"`
+	Group   *Group         `json:"group,omitempty"`
+	Routing *APIKeyRouting `json:"routing,omitempty"`
 }
 
 type Group struct {

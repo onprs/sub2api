@@ -151,6 +151,7 @@ func TestOpenAIGatewayHandlerImages_ServerErrorFailsOverAndReturnsClearErrorWhen
 	concurrencyService := service.NewConcurrencyService(nil)
 	handler := NewOpenAIGatewayHandler(
 		gatewayService,
+		nil,
 		concurrencyService,
 		billingService,
 		openAIImagesBillingEligibilityStub{},

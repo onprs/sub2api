@@ -9,6 +9,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/apikeygroup"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -190,6 +191,88 @@ func (s *APIKeyRepoSuite) TestUpdate_ClearGroupID() {
 	got, err := s.repo.GetByID(s.ctx, key.ID)
 	s.Require().NoError(err)
 	s.Require().Nil(got.GroupID, "expected GroupID to be cleared")
+	s.Require().Empty(got.RoutingGroups)
+	s.Require().Empty(got.RoutingPlatform)
+	s.Require().Equal(service.APIKeyRoutingStrategyManual, got.RoutingStrategy)
+}
+
+func (s *APIKeyRepoSuite) TestLegacyGroupIDWriteOverridesStaleRoutingBindings() {
+	user := s.mustCreateUser("legacy-routing-write@test.com")
+	firstGroup := s.mustCreateGroup("g-legacy-routing-first")
+	secondGroup := s.mustCreateGroup("g-legacy-routing-second")
+	key := &service.APIKey{
+		UserID:          user.ID,
+		Key:             "sk-legacy-routing-write",
+		Name:            "Legacy Routing Write",
+		GroupID:         &firstGroup.ID,
+		Group:           firstGroup,
+		RoutingPlatform: firstGroup.Platform,
+		RoutingStrategy: service.APIKeyRoutingStrategyBalanced,
+		RoutingGroups: []service.APIKeyGroupBinding{
+			{GroupID: firstGroup.ID, Priority: 0, Group: firstGroup},
+			{GroupID: secondGroup.ID, Priority: 1, Group: secondGroup},
+		},
+		Status: service.StatusActive,
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, key))
+
+	// 模拟回滚到旧二进制：只改兼容字段，不认识 api_key_groups。
+	_, err := s.client.ExecContext(s.ctx, `UPDATE api_keys SET group_id = $1 WHERE id = $2`, secondGroup.ID, key.ID)
+	s.Require().NoError(err)
+
+	got, err := s.repo.GetByID(s.ctx, key.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(got.GroupID)
+	s.Require().Equal(secondGroup.ID, *got.GroupID)
+	s.Require().Equal(service.APIKeyRoutingStrategyManual, got.RoutingStrategy)
+	s.Require().Equal(secondGroup.Platform, got.RoutingPlatform)
+	s.Require().Len(got.RoutingGroups, 1)
+	s.Require().Equal(secondGroup.ID, got.RoutingGroups[0].GroupID)
+
+	// 新版本下一次写入会清掉旧候选关系，恢复数据库不变量。
+	s.Require().NoError(s.repo.Update(s.ctx, got))
+	rows, err := s.client.QueryContext(s.ctx, `
+		SELECT group_id, priority
+		FROM api_key_groups
+		WHERE api_key_id = $1
+		ORDER BY priority, group_id`, key.ID)
+	s.Require().NoError(err)
+	defer rows.Close()
+	s.Require().True(rows.Next())
+	var groupID int64
+	var priority int
+	s.Require().NoError(rows.Scan(&groupID, &priority))
+	s.Require().Equal(secondGroup.ID, groupID)
+	s.Require().Zero(priority)
+	s.Require().False(rows.Next())
+}
+
+func (s *APIKeyRepoSuite) TestLegacyGroupIDUnbindOverridesStaleRoutingBindings() {
+	user := s.mustCreateUser("legacy-routing-unbind@test.com")
+	group := s.mustCreateGroup("g-legacy-routing-unbind")
+	key := &service.APIKey{
+		UserID:          user.ID,
+		Key:             "sk-legacy-routing-unbind",
+		Name:            "Legacy Routing Unbind",
+		GroupID:         &group.ID,
+		Group:           group,
+		RoutingPlatform: group.Platform,
+		RoutingStrategy: service.APIKeyRoutingStrategyManual,
+		RoutingGroups:   []service.APIKeyGroupBinding{{GroupID: group.ID, Priority: 0, Group: group}},
+		Status:          service.StatusActive,
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, key))
+
+	_, err := s.client.ExecContext(s.ctx, `UPDATE api_keys SET group_id = NULL WHERE id = $1`, key.ID)
+	s.Require().NoError(err)
+
+	got, err := s.repo.GetByID(s.ctx, key.ID)
+	s.Require().NoError(err)
+	s.Require().Nil(got.GroupID)
+	s.Require().Nil(got.Group)
+	s.Require().Empty(got.RoutingGroups)
+	s.Require().Empty(got.RoutingPlatform)
+	s.Require().Equal(service.APIKeyRoutingStrategyManual, got.RoutingStrategy)
 }
 
 // --- Delete ---
@@ -300,6 +383,64 @@ func (s *APIKeyRepoSuite) TestCountByGroupID() {
 	s.Require().Equal(int64(1), count)
 }
 
+func (s *APIKeyRepoSuite) TestGroupQueriesIncludeLegacyRowsWithoutRoutingBindings() {
+	user := s.mustCreateUser("legacy-group-query@test.com")
+	group := s.mustCreateGroup("g-legacy-query")
+	legacyKey := s.mustCreateApiKey(user.ID, "sk-legacy-group-query", "Legacy Query", &group.ID)
+
+	// 模拟迁移完成后由旧二进制新建的 Key：只有 group_id，没有关联表行。
+	_, err := s.client.ExecContext(s.ctx, `DELETE FROM api_key_groups WHERE api_key_id = $1`, legacyKey.ID)
+	s.Require().NoError(err)
+
+	keys, page, err := s.repo.ListByGroupID(s.ctx, group.ID, pagination.PaginationParams{Page: 1, PageSize: 10})
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), page.Total)
+	s.Require().Len(keys, 1)
+	s.Require().Equal(legacyKey.ID, keys[0].ID)
+
+	count, err := s.repo.CountByGroupID(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), count)
+
+	secrets, err := s.repo.ListKeysByGroupID(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().Equal([]string{legacyKey.Key}, secrets)
+
+	filterGroupID := group.ID
+	filtered, result, err := s.repo.ListByUserID(
+		s.ctx,
+		user.ID,
+		pagination.PaginationParams{Page: 1, PageSize: 10},
+		service.APIKeyListFilters{GroupID: &filterGroupID},
+	)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), result.Total)
+	s.Require().Len(filtered, 1)
+}
+
+func (s *APIKeyRepoSuite) TestUngroupedFilterUsesLegacyCompatibilityField() {
+	user := s.mustCreateUser("legacy-ungrouped-filter@test.com")
+	group := s.mustCreateGroup("g-legacy-ungrouped")
+	legacyKey := s.mustCreateApiKey(user.ID, "sk-legacy-ungrouped", "Legacy Ungrouped", &group.ID)
+
+	// 模拟旧二进制解绑：group_id 已清空，旧候选关系尚未被新版本修复。
+	_, err := s.client.ExecContext(s.ctx, `UPDATE api_keys SET group_id = NULL WHERE id = $1`, legacyKey.ID)
+	s.Require().NoError(err)
+
+	ungrouped := int64(0)
+	keys, result, err := s.repo.ListByUserID(
+		s.ctx,
+		user.ID,
+		pagination.PaginationParams{Page: 1, PageSize: 10},
+		service.APIKeyListFilters{GroupID: &ungrouped},
+	)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), result.Total)
+	s.Require().Len(keys, 1)
+	s.Require().Nil(keys[0].GroupID)
+	s.Require().Empty(keys[0].RoutingGroups)
+}
+
 // --- ExistsByKey ---
 
 func (s *APIKeyRepoSuite) TestExistsByKey() {
@@ -368,6 +509,43 @@ func (s *APIKeyRepoSuite) TestClearGroupIDByGroupID() {
 
 	count, _ := s.repo.CountByGroupID(s.ctx, group.ID)
 	s.Require().Zero(count)
+}
+
+func (s *APIKeyRepoSuite) TestUpdateGroupIDByUserAndGroupReplacesCandidateWithoutDuplicates() {
+	user := s.mustCreateUser("replace-routing-group@test.com")
+	oldGroup := s.mustCreateGroup("g-replace-routing-old")
+	newGroup := s.mustCreateGroup("g-replace-routing-new")
+	remainingGroup := s.mustCreateGroup("g-replace-routing-remaining")
+	key := &service.APIKey{
+		UserID:          user.ID,
+		Key:             "sk-replace-routing-group",
+		Name:            "Replace Routing Group",
+		GroupID:         &oldGroup.ID,
+		Group:           oldGroup,
+		RoutingPlatform: oldGroup.Platform,
+		RoutingStrategy: service.APIKeyRoutingStrategyBalanced,
+		RoutingGroups: []service.APIKeyGroupBinding{
+			{GroupID: oldGroup.ID, Priority: 0, Group: oldGroup},
+			{GroupID: remainingGroup.ID, Priority: 1, Group: remainingGroup},
+			{GroupID: newGroup.ID, Priority: 2, Group: newGroup},
+		},
+		Status: service.StatusActive,
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, key))
+
+	affected, err := s.repo.UpdateGroupIDByUserAndGroup(s.ctx, user.ID, oldGroup.ID, newGroup.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), affected)
+
+	got, err := s.repo.GetByID(s.ctx, key.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(got.GroupID)
+	s.Require().Equal(newGroup.ID, *got.GroupID)
+	s.Require().Equal(service.APIKeyRoutingStrategyBalanced, got.RoutingStrategy)
+	s.Require().Len(got.RoutingGroups, 2)
+	s.Require().Equal(newGroup.ID, got.RoutingGroups[0].GroupID)
+	s.Require().Zero(got.RoutingGroups[0].Priority)
+	s.Require().Equal(remainingGroup.ID, got.RoutingGroups[1].GroupID)
 }
 
 // --- Combined CRUD/Search/ClearGroupID (original test preserved as integration) ---
@@ -579,18 +757,34 @@ func TestIncrementQuotaUsed_Concurrent(t *testing.T) {
 
 func (s *APIKeyRepoSuite) TestDeleteWithAudit_WritesAuditAndSoftDeletes() {
 	user := s.mustCreateUser("delwithaudit@test.com")
+	firstGroup := s.mustCreateGroup("delwithaudit-first")
+	secondGroup := s.mustCreateGroup("delwithaudit-second")
 	key := &service.APIKey{
-		UserID: user.ID,
-		Key:    "sk-del-audit-1",
-		Name:   "Audit Me",
-		Status: service.StatusActive,
+		UserID:          user.ID,
+		Key:             "sk-del-audit-1",
+		Name:            "Audit Me",
+		Status:          service.StatusActive,
+		GroupID:         &firstGroup.ID,
+		Group:           firstGroup,
+		RoutingPlatform: firstGroup.Platform,
+		RoutingStrategy: service.APIKeyRoutingStrategyBalanced,
+		RoutingGroups: []service.APIKeyGroupBinding{
+			{GroupID: firstGroup.ID, Priority: 0, Group: firstGroup},
+			{GroupID: secondGroup.ID, Priority: 1, Group: secondGroup},
+		},
 	}
 	s.Require().NoError(s.repo.Create(s.ctx, key))
+	bindingCount, err := s.client.APIKeyGroup.Query().Where(apikeygroup.APIKeyIDEQ(key.ID)).Count(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(2, bindingCount)
 
 	s.Require().NoError(s.repo.DeleteWithAudit(s.ctx, key.ID))
 
-	_, err := s.repo.GetByID(s.ctx, key.ID)
+	_, err = s.repo.GetByID(s.ctx, key.ID)
 	s.Require().Error(err)
+	bindingCount, err = s.client.APIKeyGroup.Query().Where(apikeygroup.APIKeyIDEQ(key.ID)).Count(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Zero(bindingCount)
 
 	rows, qErr := s.client.QueryContext(s.ctx,
 		`SELECT key, key_name, user_id, api_key_id FROM deleted_api_key_audits WHERE api_key_id = $1`, key.ID)

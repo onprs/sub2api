@@ -1056,12 +1056,16 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		platform = forcedPlatform
 	}
 
-	// Get available models from account configurations for the selected group platform.
+	// Get available models from account configurations for every configured routing group.
 	var availableModels []string
 	if h != nil && h.gatewayService != nil {
-		availableModels = h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+		if apiKey != nil && apiKey.UsesDynamicGroupRouting() {
+			availableModels = dynamicAPIKeyAvailableModels(c.Request.Context(), h.gatewayService, apiKey, platform)
+		} else {
+			availableModels = h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+		}
 	}
-	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
+	if apiKey != nil && !apiKey.UsesDynamicGroupRouting() && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 		fallbackModels := defaultModelIDsForPlatform(platform)
 		availableModels = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
 		writeCustomModelsList(c, platform, availableModels)
@@ -1277,9 +1281,14 @@ func mergeModelIDs(primary, secondary []string) []string {
 // AntigravityModels 返回 Antigravity 支持的全部模型
 // GET /antigravity/models
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
+	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
 	var modelIDs []string
 	if h != nil && h.gatewayService != nil {
-		modelIDs = h.gatewayService.GetAntigravityMappedModels(c.Request.Context(), apiKeyGroupIDFromContext(c), service.AntigravityModelsProtocolClaude)
+		if apiKey != nil && apiKey.UsesDynamicGroupRouting() {
+			modelIDs = dynamicAPIKeyAntigravityMappedModels(c.Request.Context(), h.gatewayService, apiKey, service.AntigravityModelsProtocolClaude)
+		} else {
+			modelIDs = h.gatewayService.GetAntigravityMappedModels(c.Request.Context(), apiKeyGroupIDFromContext(c), service.AntigravityModelsProtocolClaude)
+		}
 	}
 	if len(modelIDs) > 0 {
 		writeModelsList(c, modelIDs)
@@ -1369,6 +1378,10 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 
 	if isQuotaLimited {
 		h.usageQuotaLimited(c, ctx, apiKey, usageData, dailyUsage, modelStats)
+		return
+	}
+	if apiKey.UsesDynamicGroupRouting() {
+		h.usageRouted(c, ctx, apiKey, subject, usageData, dailyUsage, modelStats)
 		return
 	}
 
@@ -1534,6 +1547,81 @@ func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, 
 		resp["model_stats"] = modelStats
 	}
 
+	c.JSON(http.StatusOK, resp)
+}
+
+// usageRouted 返回多候选分组各自的计费来源和可用余额。
+func (h *GatewayHandler) usageRouted(c *gin.Context, ctx context.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, usageData gin.H, dailyUsage any, modelStats any) {
+	latestUser, err := h.userService.GetByID(ctx, subject.UserID)
+	if err != nil {
+		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to get user info")
+		return
+	}
+	subscriptionsByGroup := make(map[int64]*service.UserSubscription)
+	if h.apiKeyService != nil {
+		if subscriptions, subErr := h.apiKeyService.GetActiveRoutingSubscriptions(ctx, subject.UserID); subErr == nil {
+			for i := range subscriptions {
+				subscription := subscriptions[i]
+				subscriptionsByGroup[subscription.GroupID] = &subscription
+			}
+		}
+	}
+
+	groups := make([]gin.H, 0, len(apiKey.ConfiguredRoutingGroups()))
+	for _, binding := range apiKey.ConfiguredRoutingGroups() {
+		group := binding.Group
+		if group == nil {
+			groups = append(groups, gin.H{
+				"group_id":  binding.GroupID,
+				"priority":  binding.Priority,
+				"available": false,
+			})
+			continue
+		}
+		entry := gin.H{
+			"group_id":     group.ID,
+			"group_name":   group.Name,
+			"priority":     binding.Priority,
+			"available":    group.IsActive(),
+			"billing_mode": "balance",
+			"remaining":    latestUser.Balance,
+		}
+		if group.IsSubscriptionType() {
+			entry["billing_mode"] = "subscription"
+			subscription := subscriptionsByGroup[group.ID]
+			entry["available"] = group.IsActive() && subscription != nil
+			if subscription != nil {
+				entry["remaining"] = h.calculateSubscriptionRollingRemaining(subscription)
+				entry["subscription"] = h.buildSubscriptionUsagePayload(group, subscription)
+			} else {
+				entry["remaining"] = 0
+			}
+		}
+		groups = append(groups, entry)
+	}
+
+	resp := gin.H{
+		"mode":           "routed",
+		"isValid":        true,
+		"object":         "sub2api.usage",
+		"schema_version": 2,
+		"unit":           "USD",
+		"balance":        latestUser.Balance,
+		"routing": gin.H{
+			"platform": apiKey.RoutingPlatformValue(),
+			"strategy": apiKey.RoutingStrategyValue(),
+			"groups":   groups,
+		},
+	}
+	if usageData != nil {
+		resp["usage"] = usageData
+	}
+	if dailyUsage != nil {
+		resp["daily_usage"] = dailyUsage
+	}
+	if modelStats != nil {
+		resp["model_stats"] = modelStats
+	}
 	c.JSON(http.StatusOK, resp)
 }
 

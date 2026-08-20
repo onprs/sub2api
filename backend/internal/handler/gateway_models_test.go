@@ -93,6 +93,58 @@ func TestGeminiV1BetaListModels_OpenAIGroupListsGenerationRoutableAliases(t *tes
 	require.NotContains(t, rec.Body.String(), "gpt-5.4")
 }
 
+func TestGeminiV1BetaListModels_DynamicGeminiKeyReturnsCandidateUnion(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	firstGroupID := int64(25)
+	secondGroupID := int64(26)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{
+		firstGroupID: {{
+			ID: 11, Platform: service.PlatformGemini,
+			Credentials: map[string]any{"model_mapping": map[string]any{
+				"gemini-first": "gemini-2.5-pro",
+			}},
+		}},
+		secondGroupID: {{
+			ID: 12, Platform: service.PlatformGemini,
+			Credentials: map[string]any{"model_mapping": map[string]any{
+				"gemini-second": "gemini-2.5-flash",
+			}},
+		}},
+	}})
+	firstGroup := &service.Group{
+		ID: firstGroupID, Platform: service.PlatformGemini, Status: service.StatusActive,
+		SubscriptionType: service.SubscriptionTypeStandard,
+	}
+	secondGroup := &service.Group{
+		ID: secondGroupID, Platform: service.PlatformGemini, Status: service.StatusActive,
+		SubscriptionType: service.SubscriptionTypeStandard,
+	}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		ID: 100, UserID: 200, GroupID: &firstGroupID, Group: nil,
+		RoutingPlatform: service.PlatformGemini,
+		RoutingStrategy: service.APIKeyRoutingStrategyBalanced,
+		RoutingGroups: []service.APIKeyGroupBinding{
+			{GroupID: firstGroupID, Priority: 0, Group: firstGroup},
+			{GroupID: secondGroupID, Priority: 1, Group: secondGroup},
+		},
+	})
+
+	h.GeminiV1BetaListModels(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayGeminiModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	modelNames := make([]string, 0, len(got.Models))
+	for _, model := range got.Models {
+		modelNames = append(modelNames, model.Name)
+	}
+	require.Contains(t, modelNames, "models/gemini-first")
+	require.Contains(t, modelNames, "models/gemini-second")
+}
+
 func TestGeminiV1BetaListModels_UsesPlatformFallbackWhenNoSchedulableAccount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	groupID := int64(35)

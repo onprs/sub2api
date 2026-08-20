@@ -4,7 +4,13 @@
  */
 
 import { apiClient } from './client'
-import type { ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest, PaginatedResponse } from '@/types'
+import type {
+  ApiKey,
+  ApiKeyRoutingInput,
+  CreateApiKeyRequest,
+  UpdateApiKeyRequest,
+  PaginatedResponse
+} from '@/types'
 
 export type CliImportScriptOS = 'windows' | 'linux'
 
@@ -67,11 +73,15 @@ export async function create(
   ipBlacklist?: string[],
   quota?: number,
   expiresInDays?: number,
-  rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number }
+  rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number },
+  routing?: ApiKeyRoutingInput
 ): Promise<ApiKey> {
   const payload: CreateApiKeyRequest = { name }
   if (groupId !== undefined) {
     payload.group_id = groupId
+  }
+  if (routing) {
+    payload.routing = routing
   }
   if (customKey) {
     payload.custom_key = customKey
@@ -110,6 +120,11 @@ export async function create(
  */
 export async function update(id: number, updates: UpdateApiKeyRequest): Promise<ApiKey> {
   const { data } = await apiClient.put<ApiKey>(`/keys/${id}`, updates)
+  return data
+}
+
+export async function updateRouting(id: number, routing: ApiKeyRoutingInput): Promise<ApiKey> {
+  const { data } = await apiClient.put<ApiKey>(`/keys/${id}/routing`, routing)
   return data
 }
 
@@ -247,6 +262,7 @@ export const keysAPI = {
   getById,
   create,
   update,
+  updateRouting,
   delete: deleteKey,
   toggleStatus,
   downloadCliImportScript

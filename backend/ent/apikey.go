@@ -34,6 +34,10 @@ type APIKey struct {
 	Name string `json:"name,omitempty"`
 	// GroupID holds the value of the "group_id" field.
 	GroupID *int64 `json:"group_id,omitempty"`
+	// API Key 固定路由平台；空值表示兼容旧单分组配置
+	RoutingPlatform string `json:"routing_platform,omitempty"`
+	// 候选分组调度策略：balanced/stability_first/cost_first/manual
+	RoutingStrategy string `json:"routing_strategy,omitempty"`
 	// Status holds the value of the "status" field.
 	Status string `json:"status,omitempty"`
 	// Last usage time of this API key
@@ -78,11 +82,15 @@ type APIKeyEdges struct {
 	User *User `json:"user,omitempty"`
 	// Group holds the value of the group edge.
 	Group *Group `json:"group,omitempty"`
+	// RoutingGroups holds the value of the routing_groups edge.
+	RoutingGroups []*Group `json:"routing_groups,omitempty"`
 	// UsageLogs holds the value of the usage_logs edge.
 	UsageLogs []*UsageLog `json:"usage_logs,omitempty"`
+	// APIKeyGroups holds the value of the api_key_groups edge.
+	APIKeyGroups []*APIKeyGroup `json:"api_key_groups,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [5]bool
 }
 
 // UserOrErr returns the User value or an error if the edge
@@ -107,13 +115,31 @@ func (e APIKeyEdges) GroupOrErr() (*Group, error) {
 	return nil, &NotLoadedError{edge: "group"}
 }
 
+// RoutingGroupsOrErr returns the RoutingGroups value or an error if the edge
+// was not loaded in eager-loading.
+func (e APIKeyEdges) RoutingGroupsOrErr() ([]*Group, error) {
+	if e.loadedTypes[2] {
+		return e.RoutingGroups, nil
+	}
+	return nil, &NotLoadedError{edge: "routing_groups"}
+}
+
 // UsageLogsOrErr returns the UsageLogs value or an error if the edge
 // was not loaded in eager-loading.
 func (e APIKeyEdges) UsageLogsOrErr() ([]*UsageLog, error) {
-	if e.loadedTypes[2] {
+	if e.loadedTypes[3] {
 		return e.UsageLogs, nil
 	}
 	return nil, &NotLoadedError{edge: "usage_logs"}
+}
+
+// APIKeyGroupsOrErr returns the APIKeyGroups value or an error if the edge
+// was not loaded in eager-loading.
+func (e APIKeyEdges) APIKeyGroupsOrErr() ([]*APIKeyGroup, error) {
+	if e.loadedTypes[4] {
+		return e.APIKeyGroups, nil
+	}
+	return nil, &NotLoadedError{edge: "api_key_groups"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -127,7 +153,7 @@ func (*APIKey) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case apikey.FieldID, apikey.FieldUserID, apikey.FieldGroupID:
 			values[i] = new(sql.NullInt64)
-		case apikey.FieldKey, apikey.FieldName, apikey.FieldStatus:
+		case apikey.FieldKey, apikey.FieldName, apikey.FieldRoutingPlatform, apikey.FieldRoutingStrategy, apikey.FieldStatus:
 			values[i] = new(sql.NullString)
 		case apikey.FieldCreatedAt, apikey.FieldUpdatedAt, apikey.FieldDeletedAt, apikey.FieldLastUsedAt, apikey.FieldExpiresAt, apikey.FieldWindow5hStart, apikey.FieldWindow1dStart, apikey.FieldWindow7dStart:
 			values[i] = new(sql.NullTime)
@@ -195,6 +221,18 @@ func (_m *APIKey) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.GroupID = new(int64)
 				*_m.GroupID = value.Int64
+			}
+		case apikey.FieldRoutingPlatform:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field routing_platform", values[i])
+			} else if value.Valid {
+				_m.RoutingPlatform = value.String
+			}
+		case apikey.FieldRoutingStrategy:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field routing_strategy", values[i])
+			} else if value.Valid {
+				_m.RoutingStrategy = value.String
 			}
 		case apikey.FieldStatus:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -324,9 +362,19 @@ func (_m *APIKey) QueryGroup() *GroupQuery {
 	return NewAPIKeyClient(_m.config).QueryGroup(_m)
 }
 
+// QueryRoutingGroups queries the "routing_groups" edge of the APIKey entity.
+func (_m *APIKey) QueryRoutingGroups() *GroupQuery {
+	return NewAPIKeyClient(_m.config).QueryRoutingGroups(_m)
+}
+
 // QueryUsageLogs queries the "usage_logs" edge of the APIKey entity.
 func (_m *APIKey) QueryUsageLogs() *UsageLogQuery {
 	return NewAPIKeyClient(_m.config).QueryUsageLogs(_m)
+}
+
+// QueryAPIKeyGroups queries the "api_key_groups" edge of the APIKey entity.
+func (_m *APIKey) QueryAPIKeyGroups() *APIKeyGroupQuery {
+	return NewAPIKeyClient(_m.config).QueryAPIKeyGroups(_m)
 }
 
 // Update returns a builder for updating this APIKey.
@@ -376,6 +424,12 @@ func (_m *APIKey) String() string {
 		builder.WriteString("group_id=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("routing_platform=")
+	builder.WriteString(_m.RoutingPlatform)
+	builder.WriteString(", ")
+	builder.WriteString("routing_strategy=")
+	builder.WriteString(_m.RoutingStrategy)
 	builder.WriteString(", ")
 	builder.WriteString("status=")
 	builder.WriteString(_m.Status)

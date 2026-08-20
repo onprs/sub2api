@@ -44,19 +44,24 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		googleError(c, http.StatusUnauthorized, "Invalid API key")
 		return
 	}
-	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求支持Google ingress的分组。
+	// 检查平台：优先使用强制平台（/antigravity 路由），否则使用 Key 的固定路由平台。
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
-	if !hasForcePlatform && (apiKey.Group == nil || !supportsStandardGeminiIngress(apiKey.Group.Platform)) {
+	routingPlatform := apiKey.RoutingPlatformValue()
+	if !hasForcePlatform && !supportsStandardGeminiIngress(routingPlatform) {
 		googleError(c, http.StatusBadRequest, "API key group platform does not support Gemini generation")
 		return
 	}
 
-	if !hasForcePlatform && apiKey.Group.Platform == service.PlatformAntigravity {
+	if !hasForcePlatform && routingPlatform == service.PlatformAntigravity {
 		h.writeAntigravityGeminiMappedModels(c, apiKeyGroupIDFromContext(c))
 		return
 	}
-	if !hasForcePlatform && (isStandardGeminiIngressProvider(apiKey.Group.Platform) || apiKey.Group.Platform == service.PlatformOpenCodeGo || apiKey.Group.Platform == service.PlatformClinePass || apiKey.Group.Platform == service.PlatformOpenRouter) {
-		h.writeStandardGoogleIngressModels(c, apiKeyGroupIDFromContext(c), apiKey.Group.Platform)
+	if !hasForcePlatform && apiKey.UsesDynamicGroupRouting() && routingPlatform == service.PlatformGemini {
+		h.writeStandardGoogleIngressModels(c, apiKeyGroupIDFromContext(c), routingPlatform)
+		return
+	}
+	if !hasForcePlatform && (isStandardGeminiIngressProvider(routingPlatform) || routingPlatform == service.PlatformOpenCodeGo || routingPlatform == service.PlatformClinePass || routingPlatform == service.PlatformOpenRouter) {
+		h.writeStandardGoogleIngressModels(c, apiKeyGroupIDFromContext(c), routingPlatform)
 		return
 	}
 
@@ -130,6 +135,12 @@ func (h *GatewayHandler) standardGoogleIngressModelAvailable(c *gin.Context, gro
 }
 
 func (h *GatewayHandler) standardGoogleIngressModelIDs(c *gin.Context, groupID *int64, platform string) []string {
+	if apiKey, ok := middleware.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.UsesDynamicGroupRouting() {
+		return expandGoogleIngressModelIDs(
+			dynamicAPIKeyAvailableModels(c.Request.Context(), h.gatewayService, apiKey, platform),
+			standardGoogleIngressFallbackModelIDs(platform),
+		)
+	}
 	var availableModels []string
 	if h != nil && h.gatewayService != nil {
 		availableModels = h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
@@ -201,7 +212,11 @@ func standardGoogleIngressModelMatches(available, model string) bool {
 func (h *GatewayHandler) writeAntigravityGeminiMappedModels(c *gin.Context, groupID *int64) {
 	var modelIDs []string
 	if h != nil && h.gatewayService != nil {
-		modelIDs = h.gatewayService.GetAntigravityMappedModels(c.Request.Context(), groupID, service.AntigravityModelsProtocolGemini)
+		if apiKey, ok := middleware.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.UsesDynamicGroupRouting() {
+			modelIDs = dynamicAPIKeyAntigravityMappedModels(c.Request.Context(), h.gatewayService, apiKey, service.AntigravityModelsProtocolGemini)
+		} else {
+			modelIDs = h.gatewayService.GetAntigravityMappedModels(c.Request.Context(), groupID, service.AntigravityModelsProtocolGemini)
+		}
 	}
 	if len(modelIDs) == 0 {
 		c.JSON(http.StatusOK, map[string]any{

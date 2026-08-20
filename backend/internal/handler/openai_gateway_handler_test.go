@@ -1545,8 +1545,20 @@ func (s *openAIWSFailoverHandlerAccountRepoStub) ListSchedulableByPlatform(ctx c
 	return out, nil
 }
 
-func (s *openAIWSFailoverHandlerAccountRepoStub) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]service.Account, error) {
-	return s.ListSchedulableByPlatform(ctx, platform)
+func (s *openAIWSFailoverHandlerAccountRepoStub) ListSchedulableByGroupIDAndPlatform(_ context.Context, groupID int64, platform string) ([]service.Account, error) {
+	out := make([]service.Account, 0, len(s.accounts))
+	for _, account := range s.accounts {
+		if account.Platform != platform || !account.IsSchedulable() {
+			continue
+		}
+		for _, binding := range account.AccountGroups {
+			if binding.GroupID == groupID {
+				out = append(out, account)
+				break
+			}
+		}
+	}
+	return out, nil
 }
 
 func (s *openAIWSFailoverHandlerAccountRepoStub) ListSchedulableUngroupedByPlatform(ctx context.Context, platform string) ([]service.Account, error) {
@@ -1700,6 +1712,7 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetry(t 
 	)
 	h := NewOpenAIGatewayHandler(
 		gatewaySvc,
+		nil,
 		service.NewConcurrencyService(nil),
 		billingCacheSvc,
 		allowBillingEligibilityResolver{},
@@ -1730,7 +1743,7 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetry(t 
 	require.Equal(t, "Upstream rate limit exceeded, please retry later", gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
 }
 
-func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T) {
+func TestOpenAIResponsesWebSocket_DynamicRoutingThenFailoverOnUpstreamUsageLimitEvent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	firstHitCh := make(chan []byte, 1)
@@ -1778,6 +1791,7 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 	defer secondUpstream.Close()
 
 	groupID := int64(4202)
+	primaryGroupID := int64(4203)
 	accounts := []service.Account{
 		{
 			ID:          9902,
@@ -1873,8 +1887,17 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 			return true, nil
 		},
 	}
+	routingCache := &apiKeyRoutingMiddlewareCache{}
+	routingCfg := *cfg
+	routingCfg.RunMode = config.RunModeStandard
+	routingSvc := service.NewGatewayService(
+		accountRepo,
+		nil, nil, nil, nil, nil, nil, routingCache, &routingCfg, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+	)
 	h := &OpenAIGatewayHandler{
 		gatewayService:            gatewaySvc,
+		routingService:            routingSvc,
 		billingCacheService:       billingCacheSvc,
 		billingEligibilityService: allowBillingEligibilityResolver{},
 		apiKeyService:             &service.APIKeyService{},
@@ -1882,11 +1905,32 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 		maxAccountSwitches:        3,
 	}
 
+	primaryGroup := &service.Group{
+		ID:               primaryGroupID,
+		Platform:         service.PlatformOpenAI,
+		Status:           service.StatusActive,
+		SubscriptionType: service.SubscriptionTypeStandard,
+		RateMultiplier:   1,
+	}
+	selectedGroup := &service.Group{
+		ID:               groupID,
+		Platform:         service.PlatformOpenAI,
+		Status:           service.StatusActive,
+		SubscriptionType: service.SubscriptionTypeStandard,
+		RateMultiplier:   1,
+	}
 	apiKey := &service.APIKey{
-		ID:      1802,
-		GroupID: &groupID,
-		User:    &service.User{ID: 1702, Status: service.StatusActive},
-		Group:   &service.Group{ID: groupID, Platform: service.PlatformOpenAI, Status: service.StatusActive},
+		ID:              1802,
+		UserID:          1702,
+		GroupID:         &primaryGroupID,
+		Group:           primaryGroup,
+		RoutingPlatform: service.PlatformOpenAI,
+		RoutingStrategy: service.APIKeyRoutingStrategyManual,
+		RoutingGroups: []service.APIKeyGroupBinding{
+			{GroupID: primaryGroupID, Priority: 0, Group: primaryGroup},
+			{GroupID: groupID, Priority: 1, Group: selectedGroup},
+		},
+		User: &service.User{ID: 1702, Status: service.StatusActive, Balance: 10},
 	}
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -1931,6 +1975,10 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 		t.Fatal("等待第二个上游收到重放首帧超时")
 	}
 	require.Equal(t, []int64{int64(9902)}, accountRepo.rateLimitedIDs)
+	require.Eventually(t, func() bool {
+		outcomes := routingCache.routingOutcomes(groupID)
+		return len(outcomes) == 1 && outcomes[0]
+	}, 3*time.Second, 10*time.Millisecond, "WebSocket 最终成功应写入实际分组健康桶")
 }
 
 func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSUsageLogCase) openAIResponsesWSUsageLogResult {

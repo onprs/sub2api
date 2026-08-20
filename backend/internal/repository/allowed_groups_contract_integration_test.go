@@ -80,7 +80,7 @@ func TestUserRepository_RemoveGroupFromAllowedGroups_RemovesAllOccurrences(t *te
 	require.NotContains(t, u2After.AllowedGroups, targetGroup.ID)
 }
 
-func TestGroupRepository_DeleteCascade_PreservesApiKeyGroupID(t *testing.T) {
+func TestGroupRepository_DeleteCascade_PromotesRemainingAPIKeyCandidate(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
 	entClient := tx.Client()
@@ -95,6 +95,11 @@ func TestGroupRepository_DeleteCascade_PreservesApiKeyGroupID(t *testing.T) {
 		SetStatus(service.StatusActive).
 		Save(ctx)
 	require.NoError(t, err)
+	legacyOverrideGroup, err := entClient.Group.Create().
+		SetName(uniqueTestValue(t, "delete-cascade-legacy-override")).
+		SetStatus(service.StatusActive).
+		Save(ctx)
+	require.NoError(t, err)
 
 	userRepo := newUserRepositoryWithSQL(entClient, tx)
 	groupRepo := newGroupRepositoryWithSQL(entClient, tx)
@@ -106,18 +111,59 @@ func TestGroupRepository_DeleteCascade_PreservesApiKeyGroupID(t *testing.T) {
 		Role:          service.RoleUser,
 		Status:        service.StatusActive,
 		Concurrency:   5,
-		AllowedGroups: []int64{targetGroup.ID, otherGroup.ID},
+		AllowedGroups: []int64{targetGroup.ID, otherGroup.ID, legacyOverrideGroup.ID},
 	}
 	require.NoError(t, userRepo.Create(ctx, u))
 
 	key := &service.APIKey{
-		UserID:  u.ID,
-		Key:     uniqueTestValue(t, "sk-test-delete-cascade"),
-		Name:    "test key",
-		GroupID: &targetGroup.ID,
-		Status:  service.StatusActive,
+		UserID:          u.ID,
+		Key:             uniqueTestValue(t, "sk-test-delete-cascade"),
+		Name:            "test key",
+		GroupID:         &targetGroup.ID,
+		RoutingPlatform: service.PlatformAnthropic,
+		RoutingStrategy: service.APIKeyRoutingStrategyBalanced,
+		RoutingGroups: []service.APIKeyGroupBinding{
+			{GroupID: targetGroup.ID, Priority: 0},
+			{GroupID: otherGroup.ID, Priority: 1},
+		},
+		Status: service.StatusActive,
 	}
 	require.NoError(t, apiKeyRepo.Create(ctx, key))
+
+	legacyReboundKey := &service.APIKey{
+		UserID:          u.ID,
+		Key:             uniqueTestValue(t, "sk-test-delete-cascade-rebound"),
+		Name:            "legacy rebound key",
+		GroupID:         &targetGroup.ID,
+		RoutingPlatform: service.PlatformAnthropic,
+		RoutingStrategy: service.APIKeyRoutingStrategyBalanced,
+		RoutingGroups: []service.APIKeyGroupBinding{
+			{GroupID: targetGroup.ID, Priority: 0},
+			{GroupID: otherGroup.ID, Priority: 1},
+		},
+		Status: service.StatusActive,
+	}
+	require.NoError(t, apiKeyRepo.Create(ctx, legacyReboundKey))
+	legacyUnboundKey := &service.APIKey{
+		UserID:          u.ID,
+		Key:             uniqueTestValue(t, "sk-test-delete-cascade-unbound"),
+		Name:            "legacy unbound key",
+		GroupID:         &otherGroup.ID,
+		RoutingPlatform: service.PlatformAnthropic,
+		RoutingStrategy: service.APIKeyRoutingStrategyBalanced,
+		RoutingGroups: []service.APIKeyGroupBinding{
+			{GroupID: otherGroup.ID, Priority: 0},
+			{GroupID: targetGroup.ID, Priority: 1},
+		},
+		Status: service.StatusActive,
+	}
+	require.NoError(t, apiKeyRepo.Create(ctx, legacyUnboundKey))
+
+	// 模拟回滚后的旧二进制只更新兼容字段，关联表仍保留升级版本的候选集合。
+	_, err = entClient.ExecContext(ctx, "UPDATE api_keys SET group_id = $1 WHERE id = $2", legacyOverrideGroup.ID, legacyReboundKey.ID)
+	require.NoError(t, err)
+	_, err = entClient.ExecContext(ctx, "UPDATE api_keys SET group_id = NULL WHERE id = $1", legacyUnboundKey.ID)
+	require.NoError(t, err)
 
 	_, err = groupRepo.DeleteCascade(ctx, targetGroup.ID)
 	require.NoError(t, err)
@@ -138,10 +184,30 @@ func TestGroupRepository_DeleteCascade_PreservesApiKeyGroupID(t *testing.T) {
 	require.NotContains(t, uAfter.AllowedGroups, targetGroup.ID)
 	require.Contains(t, uAfter.AllowedGroups, otherGroup.ID)
 
-	// API keys keep their group_id so auth can reject keys bound to a deleted group.
+	// API Key candidate relation is removed atomically and the compatibility primary is promoted.
 	keyAfter, err := apiKeyRepo.GetByID(ctx, key.ID)
 	require.NoError(t, err)
 	require.NotNil(t, keyAfter.GroupID)
-	require.Equal(t, targetGroup.ID, *keyAfter.GroupID)
-	require.Nil(t, keyAfter.Group)
+	require.Equal(t, otherGroup.ID, *keyAfter.GroupID)
+	require.NotNil(t, keyAfter.Group)
+	require.Equal(t, otherGroup.ID, keyAfter.Group.ID)
+	require.Equal(t, service.PlatformAnthropic, keyAfter.RoutingPlatform)
+	require.Equal(t, service.APIKeyRoutingStrategyBalanced, keyAfter.RoutingStrategy)
+	require.Len(t, keyAfter.RoutingGroups, 1)
+	require.Equal(t, otherGroup.ID, keyAfter.RoutingGroups[0].GroupID)
+
+	// 删除滞留候选不能覆盖旧二进制刚写入的改绑或解绑结果。
+	reboundAfter, err := apiKeyRepo.GetByID(ctx, legacyReboundKey.ID)
+	require.NoError(t, err)
+	require.NotNil(t, reboundAfter.GroupID)
+	require.Equal(t, legacyOverrideGroup.ID, *reboundAfter.GroupID)
+	require.Equal(t, service.APIKeyRoutingStrategyManual, reboundAfter.RoutingStrategy)
+	require.Len(t, reboundAfter.RoutingGroups, 1)
+	require.Equal(t, legacyOverrideGroup.ID, reboundAfter.RoutingGroups[0].GroupID)
+
+	unboundAfter, err := apiKeyRepo.GetByID(ctx, legacyUnboundKey.ID)
+	require.NoError(t, err)
+	require.Nil(t, unboundAfter.GroupID)
+	require.Nil(t, unboundAfter.Group)
+	require.Empty(t, unboundAfter.RoutingGroups)
 }

@@ -277,6 +277,80 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesMessagesDispatchModelConfig(t 
 	require.Equal(t, apiKey.Group.MessagesDispatchModelConfig, roundTrip.Group.MessagesDispatchModelConfig)
 }
 
+func TestAPIKeyService_SnapshotRoundTrip_PreservesDynamicRoutingCandidates(t *testing.T) {
+	svc := NewAPIKeyService(nil, nil, nil, nil, nil, nil, &config.Config{})
+	first := &Group{
+		ID:                           31,
+		Name:                         "first",
+		Platform:                     PlatformOpenAI,
+		Status:                       StatusActive,
+		SubscriptionType:             SubscriptionTypeStandard,
+		RateMultiplier:               1,
+		AllowImageGeneration:         true,
+		AllowBatchImageGeneration:    true,
+		BatchImageDiscountMultiplier: 0.5,
+		FallbackGroupID:              ptr(int64(32)),
+	}
+	second := &Group{
+		ID:                            32,
+		Name:                          "second",
+		Platform:                      PlatformOpenAI,
+		Status:                        StatusActive,
+		SubscriptionType:              SubscriptionTypeSubscription,
+		RateMultiplier:                0.7,
+		AllowMessagesDispatch:         true,
+		AllowImageGeneration:          false,
+		VideoRateIndependent:          true,
+		VideoRateMultiplier:           1.2,
+		PeakRateEnabled:               true,
+		PeakStart:                     "09:00",
+		PeakEnd:                       "18:00",
+		PeakRateMultiplier:            1.5,
+		ModelsListConfig:              GroupModelsListConfig{Enabled: true, Models: []string{"gpt-routed"}},
+		InferGPT56CacheWrite:          true,
+		InferGPT56CacheWriteMinTokens: 4096,
+	}
+	primaryID := first.ID
+	apiKey := &APIKey{
+		ID:              11,
+		UserID:          22,
+		GroupID:         &primaryID,
+		Group:           first,
+		RoutingPlatform: PlatformOpenAI,
+		RoutingStrategy: APIKeyRoutingStrategyBalanced,
+		RoutingGroups: []APIKeyGroupBinding{
+			{GroupID: first.ID, Priority: 0, Group: first},
+			{GroupID: second.ID, Priority: 1, Group: second},
+		},
+		Key:    "k-routing-roundtrip",
+		Name:   "Routing Key",
+		Status: StatusActive,
+		User: &User{
+			ID:            22,
+			Status:        StatusActive,
+			Role:          RoleUser,
+			Balance:       10,
+			Concurrency:   3,
+			AllowedGroups: []int64{31, 32},
+		},
+	}
+
+	snapshot := svc.snapshotFromAPIKey(context.Background(), apiKey)
+	require.Equal(t, apiKeyAuthSnapshotVersion, snapshot.Version)
+	require.Len(t, snapshot.RoutingGroups, 2)
+
+	roundTrip := svc.snapshotToAPIKey(apiKey.Key, snapshot)
+	require.Equal(t, PlatformOpenAI, roundTrip.RoutingPlatformValue())
+	require.Equal(t, APIKeyRoutingStrategyBalanced, roundTrip.RoutingStrategyValue())
+	require.Len(t, roundTrip.RoutingGroups, 2)
+	require.Equal(t, first.ID, roundTrip.RoutingGroups[0].GroupID)
+	require.Equal(t, second.ID, roundTrip.RoutingGroups[1].GroupID)
+	require.Equal(t, first.FallbackGroupID, roundTrip.RoutingGroups[0].Group.FallbackGroupID)
+	require.Equal(t, second.ModelsListConfig, roundTrip.RoutingGroups[1].Group.ModelsListConfig)
+	require.Equal(t, second.PeakRateMultiplier, roundTrip.RoutingGroups[1].Group.PeakRateMultiplier)
+	require.Equal(t, second.InferGPT56CacheWriteMinTokens, roundTrip.RoutingGroups[1].Group.InferGPT56CacheWriteMinTokens)
+}
+
 func TestAPIKeyService_GetByKey_IgnoresLegacyAuthCacheSnapshotWithoutMessagesDispatchConfig(t *testing.T) {
 	cache := &authCacheStub{}
 	var repoCalls int32

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
 
 const (
@@ -112,7 +114,18 @@ func (s *defaultOpenAIWSStateStore) BindResponseAccount(ctx context.Context, gro
 	cacheKey := openAIWSResponseAccountCacheKey(id)
 	cacheCtx, cancel := withOpenAIWSStateStoreRedisTimeout(ctx)
 	defer cancel()
-	return s.cache.SetSessionAccountID(cacheCtx, groupID, cacheKey, accountID, ttl)
+	accountErr := s.cache.SetSessionAccountID(cacheCtx, groupID, cacheKey, accountID, ttl)
+
+	var routingErr error
+	if apiKeyID, ok := ctx.Value(ctxkey.APIKeyRoutingAPIKeyID).(int64); ok && apiKeyID > 0 && groupID > 0 {
+		if routingCache, ok := s.cache.(apiKeyRoutingCache); ok {
+			routingErr = routingCache.SetAPIKeyRoutingGroupID(cacheCtx, apiKeyID, id, groupID, ttl)
+		}
+	}
+	if accountErr != nil {
+		return accountErr
+	}
+	return routingErr
 }
 
 func (s *defaultOpenAIWSStateStore) GetResponseAccount(ctx context.Context, groupID int64, responseID string) (int64, error) {

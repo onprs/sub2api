@@ -63,7 +63,22 @@ func (s *BillingEligibilityService) ResolveUsableSubscriptionForRequest(
 		}
 		return nil, ErrBillingServiceUnavailable.WithCause(fmt.Errorf("reload api key: %w", err))
 	}
-	if apiKey == nil || apiKey.User == nil || apiKey.UserID != userID || apiKey.User.ID != userID || !sameOptionalID(apiKey.GroupID, expectedGroupID) {
+	if apiKey == nil || apiKey.User == nil || apiKey.UserID != userID || apiKey.User.ID != userID {
+		return nil, ErrBillingAuthorizationChanged
+	}
+	if expectedGroupID != nil {
+		var effectiveGroup *Group
+		for _, binding := range apiKey.ConfiguredRoutingGroups() {
+			if binding.GroupID == *expectedGroupID {
+				effectiveGroup = binding.Group
+				break
+			}
+		}
+		if effectiveGroup == nil {
+			return nil, ErrBillingAuthorizationChanged
+		}
+		apiKey = apiKey.CloneWithEffectiveGroup(effectiveGroup)
+	} else if len(apiKey.ConfiguredRoutingGroups()) > 0 {
 		return nil, ErrBillingAuthorizationChanged
 	}
 	if !apiKey.User.IsActive() {
@@ -135,11 +150,4 @@ func normalizeBillingEligibilityError(err error) error {
 		return err
 	}
 	return ErrBillingServiceUnavailable.WithCause(err)
-}
-
-func sameOptionalID(left, right *int64) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return *left == *right
 }

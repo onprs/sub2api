@@ -29,6 +29,10 @@ const (
 	FieldName = "name"
 	// FieldGroupID holds the string denoting the group_id field in the database.
 	FieldGroupID = "group_id"
+	// FieldRoutingPlatform holds the string denoting the routing_platform field in the database.
+	FieldRoutingPlatform = "routing_platform"
+	// FieldRoutingStrategy holds the string denoting the routing_strategy field in the database.
+	FieldRoutingStrategy = "routing_strategy"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
 	// FieldLastUsedAt holds the string denoting the last_used_at field in the database.
@@ -65,8 +69,12 @@ const (
 	EdgeUser = "user"
 	// EdgeGroup holds the string denoting the group edge name in mutations.
 	EdgeGroup = "group"
+	// EdgeRoutingGroups holds the string denoting the routing_groups edge name in mutations.
+	EdgeRoutingGroups = "routing_groups"
 	// EdgeUsageLogs holds the string denoting the usage_logs edge name in mutations.
 	EdgeUsageLogs = "usage_logs"
+	// EdgeAPIKeyGroups holds the string denoting the api_key_groups edge name in mutations.
+	EdgeAPIKeyGroups = "api_key_groups"
 	// Table holds the table name of the apikey in the database.
 	Table = "api_keys"
 	// UserTable is the table that holds the user relation/edge.
@@ -83,6 +91,11 @@ const (
 	GroupInverseTable = "groups"
 	// GroupColumn is the table column denoting the group relation/edge.
 	GroupColumn = "group_id"
+	// RoutingGroupsTable is the table that holds the routing_groups relation/edge. The primary key declared below.
+	RoutingGroupsTable = "api_key_groups"
+	// RoutingGroupsInverseTable is the table name for the Group entity.
+	// It exists in this package in order to avoid circular dependency with the "group" package.
+	RoutingGroupsInverseTable = "groups"
 	// UsageLogsTable is the table that holds the usage_logs relation/edge.
 	UsageLogsTable = "usage_logs"
 	// UsageLogsInverseTable is the table name for the UsageLog entity.
@@ -90,6 +103,13 @@ const (
 	UsageLogsInverseTable = "usage_logs"
 	// UsageLogsColumn is the table column denoting the usage_logs relation/edge.
 	UsageLogsColumn = "api_key_id"
+	// APIKeyGroupsTable is the table that holds the api_key_groups relation/edge.
+	APIKeyGroupsTable = "api_key_groups"
+	// APIKeyGroupsInverseTable is the table name for the APIKeyGroup entity.
+	// It exists in this package in order to avoid circular dependency with the "apikeygroup" package.
+	APIKeyGroupsInverseTable = "api_key_groups"
+	// APIKeyGroupsColumn is the table column denoting the api_key_groups relation/edge.
+	APIKeyGroupsColumn = "api_key_id"
 )
 
 // Columns holds all SQL columns for apikey fields.
@@ -102,6 +122,8 @@ var Columns = []string{
 	FieldKey,
 	FieldName,
 	FieldGroupID,
+	FieldRoutingPlatform,
+	FieldRoutingStrategy,
 	FieldStatus,
 	FieldLastUsedAt,
 	FieldIPWhitelist,
@@ -119,6 +141,12 @@ var Columns = []string{
 	FieldWindow1dStart,
 	FieldWindow7dStart,
 }
+
+var (
+	// RoutingGroupsPrimaryKey and RoutingGroupsColumn2 are the table columns denoting the
+	// primary key for the routing_groups relation (M2M).
+	RoutingGroupsPrimaryKey = []string{"api_key_id", "group_id"}
+)
 
 // ValidColumn reports if the column name is valid (part of the table columns).
 func ValidColumn(column string) bool {
@@ -148,6 +176,14 @@ var (
 	KeyValidator func(string) error
 	// NameValidator is a validator for the "name" field. It is called by the builders before save.
 	NameValidator func(string) error
+	// DefaultRoutingPlatform holds the default value on creation for the "routing_platform" field.
+	DefaultRoutingPlatform string
+	// RoutingPlatformValidator is a validator for the "routing_platform" field. It is called by the builders before save.
+	RoutingPlatformValidator func(string) error
+	// DefaultRoutingStrategy holds the default value on creation for the "routing_strategy" field.
+	DefaultRoutingStrategy string
+	// RoutingStrategyValidator is a validator for the "routing_strategy" field. It is called by the builders before save.
+	RoutingStrategyValidator func(string) error
 	// DefaultStatus holds the default value on creation for the "status" field.
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
@@ -211,6 +247,16 @@ func ByName(opts ...sql.OrderTermOption) OrderOption {
 // ByGroupID orders the results by the group_id field.
 func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldGroupID, opts...).ToFunc()
+}
+
+// ByRoutingPlatform orders the results by the routing_platform field.
+func ByRoutingPlatform(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRoutingPlatform, opts...).ToFunc()
+}
+
+// ByRoutingStrategy orders the results by the routing_strategy field.
+func ByRoutingStrategy(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRoutingStrategy, opts...).ToFunc()
 }
 
 // ByStatus orders the results by the status field.
@@ -297,6 +343,20 @@ func ByGroupField(field string, opts ...sql.OrderTermOption) OrderOption {
 	}
 }
 
+// ByRoutingGroupsCount orders the results by routing_groups count.
+func ByRoutingGroupsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newRoutingGroupsStep(), opts...)
+	}
+}
+
+// ByRoutingGroups orders the results by routing_groups terms.
+func ByRoutingGroups(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newRoutingGroupsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByUsageLogsCount orders the results by usage_logs count.
 func ByUsageLogsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -308,6 +368,20 @@ func ByUsageLogsCount(opts ...sql.OrderTermOption) OrderOption {
 func ByUsageLogs(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newUsageLogsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByAPIKeyGroupsCount orders the results by api_key_groups count.
+func ByAPIKeyGroupsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newAPIKeyGroupsStep(), opts...)
+	}
+}
+
+// ByAPIKeyGroups orders the results by api_key_groups terms.
+func ByAPIKeyGroups(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newAPIKeyGroupsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
 func newUserStep() *sqlgraph.Step {
@@ -324,10 +398,24 @@ func newGroupStep() *sqlgraph.Step {
 		sqlgraph.Edge(sqlgraph.M2O, true, GroupTable, GroupColumn),
 	)
 }
+func newRoutingGroupsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(RoutingGroupsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2M, false, RoutingGroupsTable, RoutingGroupsPrimaryKey...),
+	)
+}
 func newUsageLogsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(UsageLogsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, UsageLogsTable, UsageLogsColumn),
+	)
+}
+func newAPIKeyGroupsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(APIKeyGroupsInverseTable, APIKeyGroupsColumn),
+		sqlgraph.Edge(sqlgraph.O2M, true, APIKeyGroupsTable, APIKeyGroupsColumn),
 	)
 }

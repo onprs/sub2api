@@ -735,7 +735,114 @@ func (r *groupRepository) DeleteCascade(ctx context.Context, id int64) ([]int64,
 		return nil, err
 	}
 
-	// 4. Soft-delete group itself.
+	// 4. 先让旧二进制维护的 group_id 修复关联表。否则旧版本改绑/解绑后，
+	// 删除仍滞留在关联表中的候选会反向覆盖旧版本刚写入的值。
+	staleRows, err := exec.QueryContext(ctx, `
+		SELECT ak.id
+		FROM api_keys AS ak
+		LEFT JOIN LATERAL (
+			SELECT akg.group_id
+			FROM api_key_groups AS akg
+			WHERE akg.api_key_id = ak.id
+			ORDER BY akg.priority, akg.group_id
+			LIMIT 1
+		) AS relation_primary ON TRUE
+		WHERE ak.deleted_at IS NULL
+		  AND (
+			ak.group_id = $1 OR
+			EXISTS (
+				SELECT 1 FROM api_key_groups AS candidate
+				WHERE candidate.api_key_id = ak.id AND candidate.group_id = $1
+			)
+		  )
+		  AND ak.group_id IS DISTINCT FROM relation_primary.group_id`, id)
+	if err != nil {
+		return nil, err
+	}
+	var staleAPIKeyIDs []int64
+	for staleRows.Next() {
+		var apiKeyID int64
+		if err := staleRows.Scan(&apiKeyID); err != nil {
+			_ = staleRows.Close()
+			return nil, err
+		}
+		staleAPIKeyIDs = append(staleAPIKeyIDs, apiKeyID)
+	}
+	if err := staleRows.Close(); err != nil {
+		return nil, err
+	}
+	if err := staleRows.Err(); err != nil {
+		return nil, err
+	}
+	if len(staleAPIKeyIDs) > 0 {
+		if _, err := exec.ExecContext(ctx, "DELETE FROM api_key_groups WHERE api_key_id = ANY($1)", pq.Array(staleAPIKeyIDs)); err != nil {
+			return nil, err
+		}
+		if _, err := exec.ExecContext(ctx, `
+			INSERT INTO api_key_groups (api_key_id, group_id, priority)
+			SELECT id, group_id, 0
+			FROM api_keys
+			WHERE id = ANY($1) AND group_id IS NOT NULL`, pq.Array(staleAPIKeyIDs)); err != nil {
+			return nil, err
+		}
+		if _, err := exec.ExecContext(ctx, `
+			UPDATE api_keys AS ak
+			SET routing_platform = COALESCE((
+					SELECT g.platform
+					FROM groups AS g
+					WHERE g.id = ak.group_id AND g.deleted_at IS NULL
+				), ''),
+				routing_strategy = $2,
+				updated_at = NOW()
+			WHERE ak.id = ANY($1)`, pq.Array(staleAPIKeyIDs), service.APIKeyRoutingStrategyManual); err != nil {
+			return nil, err
+		}
+	}
+
+	// 5. Remove this group from API Key candidate sets and promote the first remaining candidate.
+	if _, err := exec.ExecContext(ctx, `
+		WITH affected AS (
+			SELECT api_key_id AS id
+			FROM api_key_groups
+			WHERE group_id = $1
+			UNION
+			SELECT id
+			FROM api_keys
+			WHERE group_id = $1 AND deleted_at IS NULL
+		), removed AS (
+			DELETE FROM api_key_groups
+			WHERE group_id = $1
+			RETURNING api_key_id
+		), first_remaining AS (
+			SELECT DISTINCT ON (akg.api_key_id)
+				akg.api_key_id,
+				akg.group_id,
+				g.platform
+			FROM api_key_groups AS akg
+			JOIN groups AS g ON g.id = akg.group_id AND g.deleted_at IS NULL
+			WHERE akg.api_key_id IN (SELECT id FROM affected)
+			  AND akg.group_id <> $1
+			ORDER BY akg.api_key_id, akg.priority, akg.group_id
+		)
+		UPDATE api_keys AS ak
+		SET group_id = (
+				SELECT fr.group_id FROM first_remaining AS fr WHERE fr.api_key_id = ak.id
+			),
+			routing_platform = COALESCE((
+				SELECT fr.platform FROM first_remaining AS fr WHERE fr.api_key_id = ak.id
+			), ''),
+			routing_strategy = CASE
+				WHEN EXISTS (SELECT 1 FROM first_remaining AS fr WHERE fr.api_key_id = ak.id)
+					THEN ak.routing_strategy
+				ELSE $2
+			END,
+			updated_at = NOW()
+		WHERE ak.id IN (SELECT id FROM affected)
+		  AND ak.deleted_at IS NULL`, id, service.APIKeyRoutingStrategyManual); err != nil {
+		return nil, err
+	}
+
+	// 6. Soft-delete group itself.
 	if _, err := txClient.Group.Delete().Where(group.IDEQ(id)).Exec(ctx); err != nil {
 		return nil, err
 	}

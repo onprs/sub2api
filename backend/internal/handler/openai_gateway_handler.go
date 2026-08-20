@@ -30,6 +30,7 @@ import (
 // OpenAIGatewayHandler handles OpenAI API gateway requests
 type OpenAIGatewayHandler struct {
 	gatewayService            *service.OpenAIGatewayService
+	routingService            *service.GatewayService
 	billingCacheService       *service.BillingCacheService
 	billingEligibilityService service.BillingEligibilityResolver
 	apiKeyService             *service.APIKeyService
@@ -170,6 +171,7 @@ func openAIResponsesRequiredCapabilityForRequest(imageIntent bool, needsResponse
 // NewOpenAIGatewayHandler creates a new OpenAIGatewayHandler
 func NewOpenAIGatewayHandler(
 	gatewayService *service.OpenAIGatewayService,
+	routingService *service.GatewayService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
 	billingEligibilityService service.BillingEligibilityResolver,
@@ -190,6 +192,7 @@ func NewOpenAIGatewayHandler(
 	}
 	return &OpenAIGatewayHandler{
 		gatewayService:            gatewayService,
+		routingService:            routingService,
 		billingCacheService:       billingCacheService,
 		billingEligibilityService: billingEligibilityService,
 		apiKeyService:             apiKeyService,
@@ -1454,6 +1457,39 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "previous_response_id must be a response.id (resp_*), not a message id")
 		return
 	}
+	if apiKey.UsesDynamicGroupRouting() {
+		capability := service.APIKeyRoutingCapabilityText
+		if service.IsImageGenerationIntent("/v1/responses", reqModel, firstMessage) {
+			capability = service.APIKeyRoutingCapabilityImage
+		}
+		routingInput := service.APIKeyRoutingResolveInput{
+			Model:                      reqModel,
+			Capability:                 capability,
+			MediaSize:                  apiKeyRoutingMediaSize(firstMessage),
+			SessionKey:                 firstNonEmptyRoutingSessionKey(c, firstMessage),
+			RequiredEndpointCapability: service.OpenAIEndpointCapabilityChatCompletions,
+			RequiredTransport:          service.OpenAIUpstreamTransportHTTPSSE,
+		}
+		if apiKey.RoutingPlatformValue() == service.PlatformOpenAI {
+			routingInput.RequiredTransport = service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
+		}
+		if forcePlatform, exists := middleware2.GetForcePlatformFromContext(c); exists {
+			routingInput.ForcePlatform = forcePlatform
+		}
+		if h.routingService == nil {
+			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "routing service is unavailable")
+			return
+		}
+		effectiveKey, routingErr := h.routingService.ResolveAPIKeyRoutingGroup(ctx, apiKey, routingInput)
+		if routingErr != nil || effectiveKey == nil || effectiveKey.Group == nil {
+			closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "no configured group can serve this request")
+			return
+		}
+		apiKey = effectiveKey
+		setEffectiveAPIKeyRoutingGroup(c, effectiveKey)
+		ctx = c.Request.Context()
+		reqLog = reqLog.With(zap.Int64("routed_group_id", effectiveKey.Group.ID))
+	}
 	firstMessageToolCoverage := service.AnalyzeToolCallOutputContextCoverageBytes(firstMessage)
 	previousResponseCanMove := !firstMessageToolCoverage.HasFunctionCallOutput || firstMessageToolCoverage.ContextCoversAllCallIDs
 	reqLog = reqLog.With(
@@ -1554,6 +1590,27 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		firstMessage,
 		openAIWSIngressFallbackSessionSeed(subject.UserID, apiKey.ID, apiKey.GroupID),
 	)
+	var routingHealthObserved atomic.Bool
+	var routingHealthSuccess atomic.Bool
+	routedGroupID := int64(0)
+	if apiKey.UsesDynamicGroupRouting() && apiKey.GroupID != nil {
+		routedGroupID = *apiKey.GroupID
+	}
+	markRoutingOutcome := func(success bool) {
+		if routedGroupID <= 0 {
+			return
+		}
+		routingHealthSuccess.Store(success)
+		routingHealthObserved.Store(true)
+	}
+	defer func() {
+		if routedGroupID <= 0 || !routingHealthObserved.Load() || h.routingService == nil {
+			return
+		}
+		recordCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		h.routingService.RecordAPIKeyRoutingOutcome(recordCtx, routedGroupID, routingHealthSuccess.Load())
+		cancel()
+	}()
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
 	revalidationState := NewFailoverState(0, false)
@@ -1576,6 +1633,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			requestPlatform,
 		)
 		if err != nil {
+			markRoutingOutcome(false)
 			reqLog.Warn("openai.websocket_account_select_failed",
 				zap.Error(err),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
@@ -1588,6 +1646,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return
 		}
 		if selection == nil || selection.Account == nil {
+			markRoutingOutcome(false)
 			if lastFailoverErr != nil {
 				closeOpenAIWSFailoverExhausted(wsConn, lastFailoverErr)
 			} else {
@@ -1604,6 +1663,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		accountReleaseFunc := selection.ReleaseFunc
 		if !selection.Acquired {
 			if selection.WaitPlan == nil {
+				markRoutingOutcome(false)
 				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "account is busy, please retry later")
 				return
 			}
@@ -1613,11 +1673,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				selection.WaitPlan.MaxConcurrency,
 			)
 			if err != nil {
+				markRoutingOutcome(false)
 				reqLog.Warn("openai.websocket_account_slot_acquire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "failed to acquire account concurrency slot")
 				return
 			}
 			if !fastAcquired {
+				markRoutingOutcome(false)
 				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "account is busy, please retry later")
 				return
 			}
@@ -1635,6 +1697,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		if revalidateErr != nil {
 			releaseAccountSlot()
 			if revalidationState.HandlePostAcquireRevalidationFailure(account.ID) == FailoverExhausted {
+				markRoutingOutcome(false)
 				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "no available account")
 				return
 			}
@@ -1648,6 +1711,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 
 		token, _, err := h.gatewayService.GetAccessToken(ctx, account)
 		if err != nil {
+			markRoutingOutcome(false)
 			reqLog.Warn("openai.websocket_get_access_token_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "failed to get access token")
 			return
@@ -1765,6 +1829,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return nil
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
+				if result != nil {
+					markRoutingOutcome(turnErr == nil)
+				}
 				turnCyberBlocked = false
 				defer clearCyberPolicyTurnState(c)
 				releaseTurnSlots()
@@ -1893,11 +1960,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				failedAccountIDs[account.ID] = struct{}{}
 				lastFailoverErr = failoverErr
 				if switchCount >= maxAccountSwitches {
+					markRoutingOutcome(false)
 					closeOpenAIWSFailoverExhausted(wsConn, failoverErr)
 					return
 				}
 				switchCount++
 				if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount) {
+					markRoutingOutcome(false)
 					closeOpenAIWSFailoverExhausted(wsConn, failoverErr)
 					return
 				}
@@ -1926,6 +1995,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			if shouldReportOpenAIWSProxyAccountFailure(err) {
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
 			}
+			markRoutingOutcome(false)
 			closeStatus, closeReason := summarizeWSCloseErrorForLog(err)
 			reqLog.Warn("openai.websocket_proxy_failed",
 				zap.Int64("account_id", account.ID),

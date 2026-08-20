@@ -118,7 +118,27 @@ export default {
     clickToChangeGroup: 'Click to change group',
     groupChangedSuccess: 'Group changed successfully',
     failedToChangeGroup: 'Failed to change group',
-    groupRequired: 'Please select a group',
+    groupRequired: 'Select at least one candidate group',
+    routing: {
+      title: 'Routing Configuration',
+      edit: 'Edit Routing',
+      platform: 'Platform',
+      selectPlatform: 'Select a platform',
+      strategy: 'Routing Strategy',
+      candidateGroups: 'Candidate Groups',
+      selectedCount: '{count}/{max}',
+      moveUp: 'Increase priority',
+      moveDown: 'Decrease priority',
+      updatedSuccess: 'Routing configuration updated',
+      updateFailed: 'Failed to update routing configuration',
+      missingGroup: 'Unavailable group #{id}',
+      strategies: {
+        balanced: 'Balanced',
+        stabilityFirst: 'Stability First',
+        costFirst: 'Cost First',
+        manual: 'Manual Priority'
+      }
+    },
     usage: 'Usage',
     today: 'Today',
     total: 'Last 30d',
