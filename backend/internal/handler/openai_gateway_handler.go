@@ -1592,6 +1592,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	)
 	var routingHealthObserved atomic.Bool
 	var routingHealthSuccess atomic.Bool
+	var routingHealthLatencyMs atomic.Int64
+	routingHealthLatencyMs.Store(-1)
 	routedGroupID := int64(0)
 	if apiKey.UsesDynamicGroupRouting() && apiKey.GroupID != nil {
 		routedGroupID = *apiKey.GroupID
@@ -1607,8 +1609,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		if routedGroupID <= 0 || !routingHealthObserved.Load() || h.routingService == nil {
 			return
 		}
+		var latencyMs *int64
+		if observedLatency := routingHealthLatencyMs.Load(); observedLatency >= 0 {
+			latencyMs = &observedLatency
+		}
 		recordCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-		h.routingService.RecordAPIKeyRoutingOutcome(recordCtx, routedGroupID, routingHealthSuccess.Load())
+		h.routingService.RecordAPIKeyRoutingOutcome(recordCtx, routedGroupID, routingHealthSuccess.Load(), latencyMs)
 		cancel()
 	}()
 	maxAccountSwitches := h.maxAccountSwitches
@@ -1830,6 +1836,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
 				if result != nil {
+					if result.FirstTokenMs != nil && *result.FirstTokenMs >= 0 {
+						routingHealthLatencyMs.Store(int64(*result.FirstTokenMs))
+					} else if result.Duration >= 0 {
+						routingHealthLatencyMs.Store(result.Duration.Milliseconds())
+					}
 					markRoutingOutcome(turnErr == nil)
 				}
 				turnCyberBlocked = false

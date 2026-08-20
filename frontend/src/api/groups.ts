@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from './client'
-import type { Group } from '@/types'
+import type { ApiKeyRoutingHealthResponse, Group } from '@/types'
 
 /**
  * Get available groups that the current user can bind to API keys
@@ -27,9 +27,32 @@ export async function getUserGroupRates(): Promise<Record<number, number>> {
   return data || {}
 }
 
+export async function getRoutingHealth(groupIDs: number[]): Promise<ApiKeyRoutingHealthResponse> {
+  const uniqueGroupIDs = [...new Set(groupIDs.filter((groupID) => groupID > 0))]
+  if (uniqueGroupIDs.length === 0) return { window_minutes: 30, items: [] }
+
+  const batches: number[][] = []
+  for (let offset = 0; offset < uniqueGroupIDs.length; offset += 200) {
+    batches.push(uniqueGroupIDs.slice(offset, offset + 200))
+  }
+  const responses = await Promise.all(
+    batches.map(async (batch) => {
+      const { data } = await apiClient.get<ApiKeyRoutingHealthResponse>('/groups/routing-health', {
+        params: { group_ids: batch.join(',') }
+      })
+      return data
+    })
+  )
+  return {
+    window_minutes: responses[0]?.window_minutes ?? 30,
+    items: responses.flatMap((response) => response.items)
+  }
+}
+
 export const userGroupsAPI = {
   getAvailable,
-  getUserGroupRates
+  getUserGroupRates,
+  getRoutingHealth
 }
 
 export default userGroupsAPI

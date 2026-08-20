@@ -37,10 +37,11 @@ func (r *apiKeyRoutingMiddlewareAccountRepo) ListSchedulableByGroupIDAndPlatform
 
 type apiKeyRoutingMiddlewareCache struct {
 	service.GatewayCache
-	mu       sync.Mutex
-	sticky   map[string]int64
-	health   map[int64]service.APIKeyRoutingHealth
-	outcomes map[int64][]bool
+	mu        sync.Mutex
+	sticky    map[string]int64
+	health    map[int64]service.APIKeyRoutingHealth
+	outcomes  map[int64][]bool
+	latencies map[int64][]*int64
 }
 
 func (c *apiKeyRoutingMiddlewareCache) GetAPIKeyRoutingGroupID(_ context.Context, _ int64, sessionKey string) (int64, error) {
@@ -69,13 +70,22 @@ func (c *apiKeyRoutingMiddlewareCache) GetAPIKeyRoutingHealth(_ context.Context,
 	return c.health[groupID], nil
 }
 
-func (c *apiKeyRoutingMiddlewareCache) RecordAPIKeyRoutingOutcome(_ context.Context, groupID int64, success bool, _ time.Time) error {
+func (c *apiKeyRoutingMiddlewareCache) RecordAPIKeyRoutingOutcome(_ context.Context, groupID int64, success bool, latencyMs *int64, _ time.Time) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.outcomes == nil {
 		c.outcomes = make(map[int64][]bool)
 	}
+	if c.latencies == nil {
+		c.latencies = make(map[int64][]*int64)
+	}
+	var latencyCopy *int64
+	if latencyMs != nil {
+		value := *latencyMs
+		latencyCopy = &value
+	}
 	c.outcomes[groupID] = append(c.outcomes[groupID], success)
+	c.latencies[groupID] = append(c.latencies[groupID], latencyCopy)
 	return nil
 }
 
@@ -83,6 +93,12 @@ func (c *apiKeyRoutingMiddlewareCache) routingOutcomes(groupID int64) []bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]bool(nil), c.outcomes[groupID]...)
+}
+
+func (c *apiKeyRoutingMiddlewareCache) routingLatencies(groupID int64) []*int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]*int64(nil), c.latencies[groupID]...)
 }
 
 func newAPIKeyRoutingMiddlewareHandler(accounts map[int64][]service.Account, cache *apiKeyRoutingMiddlewareCache) *GatewayHandler {
@@ -164,6 +180,7 @@ func TestAPIKeyRoutingMiddleware_SelectsMediaCapableGroupAndRestoresBody(t *test
 
 		// 客户端状态虽然是 200，只要存在上游失败标记就必须记录失败。
 		c.Set(service.OpsUpstreamStatusCodeKey, http.StatusBadGateway)
+		c.Set(service.OpsTimeToFirstTokenMsKey, int64(137))
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 
@@ -174,6 +191,8 @@ func TestAPIKeyRoutingMiddleware_SelectsMediaCapableGroupAndRestoresBody(t *test
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, []bool{false}, cache.routingOutcomes(mediaEnabled.ID))
+	require.Len(t, cache.routingLatencies(mediaEnabled.ID), 1)
+	require.Equal(t, int64(137), *cache.routingLatencies(mediaEnabled.ID)[0])
 	require.Equal(t, mediaDisabled.ID, *apiKey.GroupID, "中间件不能修改缓存中的原始 Key")
 }
 

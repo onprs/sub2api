@@ -1,9 +1,10 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { getUserApiKeys, getAllGroups, updateApiKeyRouting } = vi.hoisted(() => ({
+const { getUserApiKeys, getAllGroups, getRoutingHealth, updateApiKeyRouting } = vi.hoisted(() => ({
   getUserApiKeys: vi.fn(),
   getAllGroups: vi.fn(),
+  getRoutingHealth: vi.fn(),
   updateApiKeyRouting: vi.fn()
 }))
 
@@ -19,7 +20,7 @@ vi.mock('vue-i18n', async () => {
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     users: { getUserApiKeys },
-    groups: { getAll: getAllGroups },
+    groups: { getAll: getAllGroups, getRoutingHealth },
     apiKeys: { updateApiKeyGroup: vi.fn(), updateApiKeyRouting }
   }
 }))
@@ -71,6 +72,8 @@ describe('UserApiKeysModal status label', () => {
     testLocale.value = 'en'
     getUserApiKeys.mockReset()
     getAllGroups.mockResolvedValue([])
+    getRoutingHealth.mockReset()
+    getRoutingHealth.mockResolvedValue({ window_minutes: 30, items: [] })
     updateApiKeyRouting.mockReset()
   })
 

@@ -147,6 +147,52 @@ func (s *APIKeyRepoSuite) TestGetByKeyForAuth_PreservesMessagesDispatchModelConf
 	s.Require().Equal("gpt-5.4-nano", got.Group.MessagesDispatchModelConfig.ExactModelMappings["claude-sonnet-4.5"])
 }
 
+func (s *APIKeyRepoSuite) TestListOwnedRoutingGroupIDsIncludesBindingsAndLegacyPrimaryOnlyForOwner() {
+	owner := s.mustCreateUser("routing-health-owner@test.com")
+	otherUser := s.mustCreateUser("routing-health-other@test.com")
+	primaryGroup := s.mustCreateGroup("g-routing-health-primary")
+	candidateGroup := s.mustCreateGroup("g-routing-health-candidate")
+	otherGroup := s.mustCreateGroup("g-routing-health-other")
+
+	ownerKey := &service.APIKey{
+		UserID:          owner.ID,
+		Key:             "sk-routing-health-owner",
+		Name:            "Routing Health Owner",
+		GroupID:         &primaryGroup.ID,
+		RoutingPlatform: primaryGroup.Platform,
+		RoutingStrategy: service.APIKeyRoutingStrategyBalanced,
+		RoutingGroups: []service.APIKeyGroupBinding{
+			{GroupID: primaryGroup.ID, Priority: 0, Group: primaryGroup},
+			{GroupID: candidateGroup.ID, Priority: 1, Group: candidateGroup},
+		},
+		Status: service.StatusActive,
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, ownerKey))
+	_, err := s.client.APIKeyGroup.Delete().Where(
+		apikeygroup.APIKeyIDEQ(ownerKey.ID),
+		apikeygroup.GroupIDEQ(primaryGroup.ID),
+	).Exec(s.ctx)
+	s.Require().NoError(err)
+
+	otherKey := &service.APIKey{
+		UserID:  otherUser.ID,
+		Key:     "sk-routing-health-other",
+		Name:    "Routing Health Other",
+		GroupID: &otherGroup.ID,
+		Status:  service.StatusActive,
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, otherKey))
+
+	ownedGroupIDs, err := s.repo.ListOwnedRoutingGroupIDs(s.ctx, owner.ID, []int64{
+		candidateGroup.ID,
+		otherGroup.ID,
+		primaryGroup.ID,
+		candidateGroup.ID,
+	})
+	s.Require().NoError(err)
+	s.Require().Equal([]int64{candidateGroup.ID, primaryGroup.ID}, ownedGroupIDs)
+}
+
 // --- Update ---
 
 func (s *APIKeyRepoSuite) TestUpdate() {

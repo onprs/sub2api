@@ -630,6 +630,49 @@ func (r *apiKeyRepository) ListAllByUserID(ctx context.Context, userID int64, fi
 	return outKeys, nil
 }
 
+func (r *apiKeyRepository) ListOwnedRoutingGroupIDs(ctx context.Context, userID int64, groupIDs []int64) ([]int64, error) {
+	if len(groupIDs) == 0 {
+		return []int64{}, nil
+	}
+
+	bindings, err := r.client.APIKeyGroup.Query().
+		Where(
+			apikeygroup.GroupIDIn(groupIDs...),
+			apikeygroup.HasAPIKeyWith(apikey.UserIDEQ(userID), apikey.DeletedAtIsNil()),
+		).
+		Select(apikeygroup.FieldGroupID).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	owned := make(map[int64]struct{}, len(bindings))
+	for i := range bindings {
+		owned[bindings[i].GroupID] = struct{}{}
+	}
+
+	legacyKeys, err := r.activeQuery().
+		Where(apikey.UserIDEQ(userID), apikey.GroupIDIn(groupIDs...)).
+		Select(apikey.FieldGroupID).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range legacyKeys {
+		if legacyKeys[i].GroupID != nil {
+			owned[*legacyKeys[i].GroupID] = struct{}{}
+		}
+	}
+
+	result := make([]int64, 0, len(owned))
+	for _, groupID := range groupIDs {
+		if _, exists := owned[groupID]; exists {
+			result = append(result, groupID)
+			delete(owned, groupID)
+		}
+	}
+	return result, nil
+}
+
 func (r *apiKeyRepository) attachLastUsedIPs(ctx context.Context, keys []service.APIKey) error {
 	if len(keys) == 0 || r.sql == nil {
 		return nil

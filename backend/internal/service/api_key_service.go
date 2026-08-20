@@ -91,6 +91,10 @@ type apiKeyAllByUserIDLister interface {
 	ListAllByUserID(ctx context.Context, userID int64, filters APIKeyListFilters) ([]APIKey, error)
 }
 
+type apiKeyRoutingHealthGroupIDLister interface {
+	ListOwnedRoutingGroupIDs(ctx context.Context, userID int64, groupIDs []int64) ([]int64, error)
+}
+
 // APIKeyRateLimitData holds rate limit usage and window state for an API key.
 type APIKeyRateLimitData struct {
 	Usage5h       float64
@@ -1017,6 +1021,44 @@ func (s *APIKeyService) GetAvailableGroups(ctx context.Context, userID int64) ([
 	}
 
 	return availableGroups, nil
+}
+
+// FilterAccessibleRoutingHealthGroupIDs 仅保留用户当前可绑定或已由自己 API Key 配置的分组。
+// 后一类覆盖分组停用后的历史候选，使用户仍能查看并移除该候选。
+func (s *APIKeyService) FilterAccessibleRoutingHealthGroupIDs(ctx context.Context, userID int64, groupIDs []int64) ([]int64, error) {
+	if len(groupIDs) == 0 {
+		return []int64{}, nil
+	}
+	availableGroups, err := s.GetAvailableGroups(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(map[int64]struct{}, len(availableGroups))
+	for i := range availableGroups {
+		allowed[availableGroups[i].ID] = struct{}{}
+	}
+	if repo, ok := s.apiKeyRepo.(apiKeyRoutingHealthGroupIDLister); ok {
+		ownedGroupIDs, listErr := repo.ListOwnedRoutingGroupIDs(ctx, userID, groupIDs)
+		if listErr != nil {
+			return nil, fmt.Errorf("list owned routing groups: %w", listErr)
+		}
+		for _, groupID := range ownedGroupIDs {
+			allowed[groupID] = struct{}{}
+		}
+	}
+
+	filtered := make([]int64, 0, len(groupIDs))
+	seen := make(map[int64]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if _, exists := seen[groupID]; exists {
+			continue
+		}
+		seen[groupID] = struct{}{}
+		if _, permitted := allowed[groupID]; permitted {
+			filtered = append(filtered, groupID)
+		}
+	}
+	return filtered, nil
 }
 
 // canUserBindGroupInternal 内部方法，检查用户是否可以绑定分组（使用预加载的订阅数据）

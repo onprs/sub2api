@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 
 import ApiKeyRoutingEditor from '../ApiKeyRoutingEditor.vue'
-import type { ApiKeyRoutingDraft, Group, GroupPlatform } from '@/types'
+import type {
+  ApiKeyRoutingDraft,
+  ApiKeyRoutingGroupHealth,
+  Group,
+  GroupPlatform
+} from '@/types'
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({ cachedPublicSettings: null })
@@ -10,8 +15,11 @@ vi.mock('@/stores/app', () => ({
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
-    t: (key: string, params?: Record<string, unknown>) =>
-      key === 'keys.routing.selectedCount' ? `${params?.count}/${params?.max}` : key
+    t: (key: string, params?: Record<string, unknown>) => {
+      if (key === 'keys.routing.selectedCount') return `${params?.count}/${params?.max}`
+      if (key === 'keys.routing.sampleCount') return `${params?.count} samples`
+      return key
+    }
   })
 }))
 
@@ -47,9 +55,14 @@ const createGroup = (id: number, name: string, platform: GroupPlatform, status: 
   peak_rate_multiplier: 1
 }) as Group
 
-const mountEditor = (modelValue: ApiKeyRoutingDraft, groups: Group[], maxCandidates = 20) =>
+const mountEditor = (
+  modelValue: ApiKeyRoutingDraft,
+  groups: Group[],
+  maxCandidates = 20,
+  health: Record<number, ApiKeyRoutingGroupHealth> = {}
+) =>
   mount(ApiKeyRoutingEditor, {
-    props: { modelValue, groups, maxCandidates },
+    props: { modelValue, groups, maxCandidates, health },
     global: {
       stubs: {
         Select: SelectStub,
@@ -243,6 +256,49 @@ describe('ApiKeyRoutingEditor', () => {
         groups: [{ group_id: 1, priority: 0 }]
       }
     ])
+  })
+
+  it('renders recent status, latency, stability, and refreshes health data', async () => {
+    const health: Record<number, ApiKeyRoutingGroupHealth> = {
+      1: {
+        group_id: 1,
+        status: 'operational',
+        success_rate: 97.5,
+        average_latency_ms: 245,
+        sample_count: 40,
+        last_observed_at: '2026-08-21T00:00:00Z'
+      },
+      2: {
+        group_id: 2,
+        status: 'failed',
+        success_rate: 25,
+        average_latency_ms: null,
+        sample_count: 4,
+        last_observed_at: '2026-08-21T00:01:00Z'
+      }
+    }
+    const wrapper = mountEditor(
+      {
+        platform: 'anthropic',
+        strategy: 'stability_first',
+        groups: [{ group_id: 1, priority: 0 }]
+      },
+      [
+        createGroup(1, 'Group A', 'anthropic'),
+        createGroup(2, 'Group B', 'anthropic')
+      ],
+      20,
+      health
+    )
+
+    expect(wrapper.text()).toContain('keys.routing.healthStatus.operational')
+    expect(wrapper.text()).toContain('keys.routing.healthStatus.failed')
+    expect(wrapper.text()).toContain('245 ms')
+    expect(wrapper.text()).toContain('97.5%')
+    expect(wrapper.text()).toContain('40 samples')
+
+    await wrapper.get('button[title="keys.routing.refreshHealth"]').trigger('click')
+    expect(wrapper.emitted('refresh-health')).toHaveLength(1)
   })
 
   it('emits the selected routing strategy without changing candidates', async () => {

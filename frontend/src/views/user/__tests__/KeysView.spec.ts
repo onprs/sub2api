@@ -11,6 +11,7 @@ const {
   getDashboardApiKeysUsage,
   getAvailableGroups,
   getUserGroupRates,
+  getRoutingHealth,
   createKey,
   updateKey,
   updateRouting,
@@ -25,6 +26,7 @@ const {
   getDashboardApiKeysUsage: vi.fn(),
   getAvailableGroups: vi.fn(),
   getUserGroupRates: vi.fn(),
+  getRoutingHealth: vi.fn(),
   createKey: vi.fn(),
   updateKey: vi.fn(),
   updateRouting: vi.fn(),
@@ -78,6 +80,7 @@ vi.mock('@/api', () => ({
   userGroupsAPI: {
     getAvailable: getAvailableGroups,
     getUserGroupRates,
+    getRoutingHealth,
   },
 }))
 
@@ -265,6 +268,7 @@ describe('user KeysView column settings', () => {
     getDashboardApiKeysUsage.mockReset()
     getAvailableGroups.mockReset()
     getUserGroupRates.mockReset()
+    getRoutingHealth.mockReset()
     createKey.mockReset()
     updateKey.mockReset()
     updateRouting.mockReset()
@@ -285,6 +289,7 @@ describe('user KeysView column settings', () => {
     getDashboardApiKeysUsage.mockResolvedValue({ stats: {} })
     getAvailableGroups.mockResolvedValue([])
     getUserGroupRates.mockResolvedValue({})
+    getRoutingHealth.mockResolvedValue({ window_minutes: 30, items: [] })
     createKey.mockResolvedValue(createApiKey())
     updateKey.mockResolvedValue(createApiKey())
     updateRouting.mockResolvedValue(createApiKey())
