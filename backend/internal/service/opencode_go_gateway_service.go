@@ -1641,9 +1641,21 @@ func shouldFailoverOpenCodeGoResponse(status int, body []byte) bool {
 	// not a client validation error, so let the handler try another account.
 	errType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "error.type").String()))
 	message := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "error.message").String()))
-	return errType == "invalid_request_error" &&
-		strings.Contains(message, "error from provider") &&
-		strings.Contains(message, "upstream request failed")
+	if errType != "invalid_request_error" || !strings.Contains(message, "error from provider") || !strings.Contains(message, "upstream request failed") {
+		return false
+	}
+	// Deterministic client validation errors must not fail over - they will fail
+	// on every account and waste the entire pool. The muse-spark family is
+	// especially prone to three variants observed in prod ops_error_logs:
+	//   `input` must be non-empty  /  tool_choice only auto  /  reasoning.effort unknown variant
+	if strings.Contains(message, "`input` must be non-empty") ||
+		strings.Contains(message, "tool_choice") ||
+		strings.Contains(message, "reasoning.effort") ||
+		strings.Contains(message, "unknown variant") ||
+		strings.Contains(message, "only") && strings.Contains(message, "is supported for") {
+		return false
+	}
+	return true
 }
 
 type openCodeGoErrorFormat string

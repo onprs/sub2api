@@ -64,8 +64,14 @@ func ChatCompletionsToResponses(req *ChatCompletionsRequest) (*ResponsesRequest,
 
 	// reasoning_effort → reasoning.effort + reasoning.summary="auto"
 	if req.ReasoningEffort != "" {
+		effort := req.ReasoningEffort
+		// muse-spark 在 OpenCode Go Responses 侧仅接受 none/minimal/low/medium/high/xhigh，
+		// pi 的 muse thinkingLevelMap xhigh->max 到达上游会 400（ops: unknown variant `max`），此处仅对该族归一。
+		if isMuseSparkModel(req.Model) && strings.EqualFold(effort, "max") {
+			effort = "xhigh"
+		}
 		out.Reasoning = &ResponsesReasoning{
-			Effort:  req.ReasoningEffort,
+			Effort:  effort,
 			Summary: "auto",
 		}
 	}
@@ -85,7 +91,16 @@ func ChatCompletionsToResponses(req *ChatCompletionsRequest) (*ResponsesRequest,
 	// tool_choice: already compatible format — pass through directly.
 	// Legacy function_call needs mapping.
 	if len(req.ToolChoice) > 0 {
-		out.ToolChoice = req.ToolChoice
+		// muse-spark 在 OpenCode Go Responses 侧仅支持 "auto"，pi/agent 的
+		// Chat 形态 "none"/"required"/具名工具 会在上游 400（见 ops_error_logs）。
+		if isMuseSparkModel(req.Model) && len(req.Tools) == 0 && len(req.Functions) == 0 {
+			// 无工具时任何 tool_choice 均非法，直接丢弃以避免 `tool_choice` without tools 的校验失败
+		} else if isMuseSparkModel(req.Model) && !isAutoToolChoice(req.ToolChoice) {
+			// 该模型仅 auto 合法，非法值静默归一为 auto 避免确定性 400 引发的整池 failover
+			out.ToolChoice = json.RawMessage(`"auto"`)
+		} else {
+			out.ToolChoice = req.ToolChoice
+		}
 	} else if len(req.FunctionCall) > 0 {
 		tc, err := convertChatFunctionCallToToolChoice(req.FunctionCall)
 		if err != nil {
@@ -412,6 +427,19 @@ func flattenChatContentParts(parts []ChatContentPart) string {
 
 func stringPtr(s string) *string {
 	return &s
+}
+
+func isMuseSparkModel(model string) bool {
+	lower := strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(lower, "muse-spark") || strings.Contains(lower, "muse_spark")
+}
+
+func isAutoToolChoice(raw json.RawMessage) bool {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return strings.EqualFold(strings.TrimSpace(s), "auto")
+	}
+	return false
 }
 
 // convertChatToolsToResponses maps Chat Completions tool definitions and legacy

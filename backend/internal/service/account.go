@@ -105,31 +105,34 @@ const (
 )
 
 var openCodeGoBuiltinModelProtocols = map[string]string{
-	"gpt-5.6-luna":      OpenCodeGoProtocolResponses,
-	"glm-5.1":           OpenCodeGoProtocolChatCompletions,
-	"glm-5.2":           OpenCodeGoProtocolChatCompletions,
-	"glm-5":             OpenCodeGoProtocolChatCompletions,
-	"kimi-k2.7":         OpenCodeGoProtocolChatCompletions, // legacy docs alias; OpenCode Go exposes kimi-k2.7-code.
-	"kimi-k2.7-code":    OpenCodeGoProtocolChatCompletions,
-	"kimi-k2.6":         OpenCodeGoProtocolChatCompletions,
-	"kimi-k2.5":         OpenCodeGoProtocolChatCompletions,
-	"kimi-k3":           OpenCodeGoProtocolChatCompletions,
-	"grok-4.5":          OpenCodeGoProtocolChatCompletions,
-	"hy3":               OpenCodeGoProtocolChatCompletions,
-	"deepseek-v4-pro":   OpenCodeGoProtocolChatCompletions,
-	"deepseek-v4-flash": OpenCodeGoProtocolChatCompletions,
-	"mimo-v2.5":         OpenCodeGoProtocolChatCompletions,
-	"mimo-v2.5-pro":     OpenCodeGoProtocolChatCompletions,
-	"mimo-v2-pro":       OpenCodeGoProtocolChatCompletions,
-	"mimo-v2-omni":      OpenCodeGoProtocolChatCompletions,
-	"minimax-m3":        OpenCodeGoProtocolMessages,
-	"minimax-m2.7":      OpenCodeGoProtocolMessages,
-	"minimax-m2.5":      OpenCodeGoProtocolMessages,
-	"qwen3.5-plus":      OpenCodeGoProtocolMessages,
-	"qwen3.8-max":       OpenCodeGoProtocolMessages,
-	"qwen3.7-max":       OpenCodeGoProtocolMessages,
-	"qwen3.7-plus":      OpenCodeGoProtocolMessages,
-	"qwen3.6-plus":      OpenCodeGoProtocolMessages,
+	"gpt-5.6-luna":               OpenCodeGoProtocolResponses,
+	"grok-4.5":                   OpenCodeGoProtocolResponses,
+	"muse-spark-1.2":             OpenCodeGoProtocolResponses,
+	"muse-spark-1.2-contributor": OpenCodeGoProtocolResponses,
+	"glm-5.1":                    OpenCodeGoProtocolChatCompletions,
+	"glm-5.2":                    OpenCodeGoProtocolChatCompletions,
+	"glm-5":                      OpenCodeGoProtocolChatCompletions,
+	"glm-5.3":                    OpenCodeGoProtocolChatCompletions,
+	"kimi-k2.7":                  OpenCodeGoProtocolChatCompletions, // legacy docs alias; OpenCode Go exposes kimi-k2.7-code.
+	"kimi-k2.7-code":             OpenCodeGoProtocolChatCompletions,
+	"kimi-k2.6":                  OpenCodeGoProtocolChatCompletions,
+	"kimi-k2.5":                  OpenCodeGoProtocolChatCompletions,
+	"kimi-k3":                    OpenCodeGoProtocolChatCompletions,
+	"hy3":                        OpenCodeGoProtocolChatCompletions,
+	"deepseek-v4-pro":            OpenCodeGoProtocolChatCompletions,
+	"deepseek-v4-flash":          OpenCodeGoProtocolChatCompletions,
+	"mimo-v2.5":                  OpenCodeGoProtocolChatCompletions,
+	"mimo-v2.5-pro":              OpenCodeGoProtocolChatCompletions,
+	"mimo-v2-pro":                OpenCodeGoProtocolChatCompletions,
+	"mimo-v2-omni":               OpenCodeGoProtocolChatCompletions,
+	"minimax-m3":                 OpenCodeGoProtocolMessages,
+	"minimax-m2.7":               OpenCodeGoProtocolMessages,
+	"minimax-m2.5":               OpenCodeGoProtocolMessages,
+	"qwen3.5-plus":               OpenCodeGoProtocolMessages,
+	"qwen3.8-max":                OpenCodeGoProtocolMessages,
+	"qwen3.7-max":                OpenCodeGoProtocolMessages,
+	"qwen3.7-plus":               OpenCodeGoProtocolMessages,
+	"qwen3.6-plus":               OpenCodeGoProtocolMessages,
 }
 
 func inferOpenCodeGoModelFamilyProtocol(model string) string {
@@ -139,7 +142,9 @@ func inferOpenCodeGoModelFamilyProtocol(model string) string {
 	}
 
 	switch {
-	case strings.EqualFold(model, "gpt-5.6-luna"):
+	case strings.EqualFold(model, "gpt-5.6-luna"),
+		strings.HasPrefix(model, "muse-"),
+		openCodeGoHasVersionedPrefix(model, "grok-"):
 		return OpenCodeGoProtocolResponses
 	case openCodeGoHasVersionedPrefix(model, "glm-"),
 		openCodeGoHasVersionedPrefix(model, "deepseek-v"),
