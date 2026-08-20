@@ -262,6 +262,7 @@ func TestMigration189AddsDynamicAPIKeyRoutingCompatibilityContract(t *testing.T)
 	require.Contains(t, sql, "PRIMARY KEY (api_key_id, group_id)")
 	require.Contains(t, sql, "INSERT INTO api_key_groups (api_key_id, group_id, priority)")
 	require.Contains(t, sql, "ON CONFLICT (api_key_id, group_id) DO NOTHING")
+	require.GreaterOrEqual(t, strings.Count(sql, "deleted_at IS NULL"), 2)
 	require.Contains(t, sql, "conrelid = 'api_keys'::regclass")
 	for _, strategy := range []string{"balanced", "stability_first", "cost_first", "manual"} {
 		require.Contains(t, sql, "'"+strategy+"'")

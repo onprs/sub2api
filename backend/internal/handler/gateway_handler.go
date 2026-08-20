@@ -1381,8 +1381,7 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 		return
 	}
 	if apiKey.UsesDynamicGroupRouting() {
-		h.usageRouted(c, ctx, apiKey, subject, usageData, dailyUsage, modelStats)
-		return
+		apiKey = h.resolveAPIKeyForUsage(ctx, apiKey)
 	}
 
 	h.usageUnrestricted(c, ctx, apiKey, subject, usageData, dailyUsage, modelStats)
@@ -1550,79 +1549,28 @@ func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, 
 	c.JSON(http.StatusOK, resp)
 }
 
-// usageRouted 返回多候选分组各自的计费来源和可用余额。
-func (h *GatewayHandler) usageRouted(c *gin.Context, ctx context.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, usageData gin.H, dailyUsage any, modelStats any) {
-	latestUser, err := h.userService.GetByID(ctx, subject.UserID)
-	if err != nil {
-		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to get user info")
-		return
+// resolveAPIKeyForUsage 按正常策略选择本次查询对应的候选分组。
+// /usage 是只读诊断入口；所有候选暂时不可调度时仍需允许用户查看配置，
+// 因此回退到首个活跃候选，而不是返回 503。
+func (h *GatewayHandler) resolveAPIKeyForUsage(ctx context.Context, apiKey *service.APIKey) *service.APIKey {
+	if apiKey == nil || !apiKey.UsesDynamicGroupRouting() {
+		return apiKey
 	}
-	subscriptionsByGroup := make(map[int64]*service.UserSubscription)
-	if h.apiKeyService != nil {
-		if subscriptions, subErr := h.apiKeyService.GetActiveRoutingSubscriptions(ctx, subject.UserID); subErr == nil {
-			for i := range subscriptions {
-				subscription := subscriptions[i]
-				subscriptionsByGroup[subscription.GroupID] = &subscription
-			}
+	if h != nil && h.gatewayService != nil {
+		effectiveKey, err := h.gatewayService.ResolveAPIKeyRoutingGroup(ctx, apiKey, service.APIKeyRoutingResolveInput{
+			Capability: service.APIKeyRoutingCapabilityText,
+		})
+		if err == nil && effectiveKey != nil && effectiveKey.Group != nil {
+			return effectiveKey
 		}
 	}
-
-	groups := make([]gin.H, 0, len(apiKey.ConfiguredRoutingGroups()))
+	platform := apiKey.RoutingPlatformValue()
 	for _, binding := range apiKey.ConfiguredRoutingGroups() {
-		group := binding.Group
-		if group == nil {
-			groups = append(groups, gin.H{
-				"group_id":  binding.GroupID,
-				"priority":  binding.Priority,
-				"available": false,
-			})
-			continue
+		if binding.Group != nil && binding.Group.IsActive() && binding.Group.Platform == platform {
+			return apiKey.CloneWithEffectiveGroup(binding.Group)
 		}
-		entry := gin.H{
-			"group_id":     group.ID,
-			"group_name":   group.Name,
-			"priority":     binding.Priority,
-			"available":    group.IsActive(),
-			"billing_mode": "balance",
-			"remaining":    latestUser.Balance,
-		}
-		if group.IsSubscriptionType() {
-			entry["billing_mode"] = "subscription"
-			subscription := subscriptionsByGroup[group.ID]
-			entry["available"] = group.IsActive() && subscription != nil
-			if subscription != nil {
-				entry["remaining"] = h.calculateSubscriptionRollingRemaining(subscription)
-				entry["subscription"] = h.buildSubscriptionUsagePayload(group, subscription)
-			} else {
-				entry["remaining"] = 0
-			}
-		}
-		groups = append(groups, entry)
 	}
-
-	resp := gin.H{
-		"mode":           "routed",
-		"isValid":        true,
-		"object":         "sub2api.usage",
-		"schema_version": 2,
-		"unit":           "USD",
-		"balance":        latestUser.Balance,
-		"routing": gin.H{
-			"platform": apiKey.RoutingPlatformValue(),
-			"strategy": apiKey.RoutingStrategyValue(),
-			"groups":   groups,
-		},
-	}
-	if usageData != nil {
-		resp["usage"] = usageData
-	}
-	if dailyUsage != nil {
-		resp["daily_usage"] = dailyUsage
-	}
-	if modelStats != nil {
-		resp["model_stats"] = modelStats
-	}
-	c.JSON(http.StatusOK, resp)
+	return apiKey
 }
 
 // usageUnrestricted 处理 unrestricted 模式的响应（向后兼容）
@@ -1638,8 +1586,19 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 			"schema_version": 1,
 		}
 
-		// 订阅信息可能不在 context 中（/v1/usage 路径跳过了中间件的计费检查）
+		// 订阅信息可能不在 context 中（/v1/usage 路径跳过了中间件的计费检查）。
 		subscription, ok := middleware2.GetSubscriptionFromContext(c)
+		if !ok && h.apiKeyService != nil {
+			if subscriptions, err := h.apiKeyService.GetActiveRoutingSubscriptions(ctx, subject.UserID); err == nil {
+				for i := range subscriptions {
+					if subscriptions[i].GroupID == apiKey.Group.ID {
+						subscription = &subscriptions[i]
+						ok = true
+						break
+					}
+				}
+			}
+		}
 		if ok {
 			remaining := h.calculateSubscriptionRollingRemaining(subscription)
 			resp["remaining"] = remaining

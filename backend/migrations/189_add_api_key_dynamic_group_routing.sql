@@ -10,6 +10,7 @@ UPDATE api_keys AS ak
 SET routing_platform = g.platform
 FROM groups AS g
 WHERE ak.group_id = g.id
+  AND ak.deleted_at IS NULL
   AND ak.routing_platform = '';
 
 CREATE TABLE IF NOT EXISTS api_key_groups (
@@ -30,6 +31,7 @@ INSERT INTO api_key_groups (api_key_id, group_id, priority)
 SELECT id, group_id, 0
 FROM api_keys
 WHERE group_id IS NOT NULL
+  AND deleted_at IS NULL
 ON CONFLICT (api_key_id, group_id) DO NOTHING;
 
 DO $$
