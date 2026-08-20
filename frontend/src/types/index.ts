@@ -499,6 +499,22 @@ export type SubscriptionType = 'standard' | 'subscription'
 
 export type ApiKeyRoutingStrategy = 'balanced' | 'stability_first' | 'cost_first' | 'manual'
 
+export type ApiKeyRoutingHealthStatus = 'operational' | 'degraded' | 'failed' | 'unknown'
+
+export interface ApiKeyRoutingGroupHealth {
+  group_id: number
+  status: ApiKeyRoutingHealthStatus
+  success_rate: number | null
+  average_latency_ms: number | null
+  sample_count: number
+  last_observed_at: string | null
+}
+
+export interface ApiKeyRoutingHealthResponse {
+  window_minutes: number
+  items: ApiKeyRoutingGroupHealth[]
+}
+
 export interface ApiKeyRoutingGroupInput {
   group_id: number
   priority: number

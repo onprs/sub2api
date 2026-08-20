@@ -14,15 +14,24 @@ import (
 )
 
 const (
+	APIKeyRoutingHealthWindowMinutes = 30
+
 	APIKeyRoutingCapabilityText       = "text"
 	APIKeyRoutingCapabilityMessages   = "messages"
 	APIKeyRoutingCapabilityImage      = "image"
 	APIKeyRoutingCapabilityBatchImage = "batch_image"
 	APIKeyRoutingCapabilityVideo      = "video"
 
-	apiKeyRoutingHealthWindow = 30 * time.Minute
-	apiKeyRoutingHealthPrior  = 20.0
-	apiKeyRoutingHealthBase   = 0.95
+	APIKeyRoutingHealthStatusOperational = "operational"
+	APIKeyRoutingHealthStatusDegraded    = "degraded"
+	APIKeyRoutingHealthStatusFailed      = "failed"
+	APIKeyRoutingHealthStatusUnknown     = "unknown"
+
+	apiKeyRoutingHealthWindow          = APIKeyRoutingHealthWindowMinutes * time.Minute
+	apiKeyRoutingHealthPrior           = 20.0
+	apiKeyRoutingHealthBase            = 0.95
+	apiKeyRoutingHealthOperationalRate = 95.0
+	apiKeyRoutingHealthDegradedRate    = 80.0
 )
 
 var ErrNoAvailableRoutingGroup = infraerrors.ServiceUnavailable(
@@ -42,15 +51,32 @@ type APIKeyRoutingResolveInput struct {
 }
 
 type APIKeyRoutingHealth struct {
-	Success int64
-	Failure int64
+	Success        int64
+	Failure        int64
+	LatencyTotalMs int64
+	LatencySamples int64
+	LastSuccess    *bool
+	LastObservedAt *time.Time
+}
+
+type APIKeyRoutingHealthSnapshot struct {
+	GroupID          int64
+	Status           string
+	SuccessRate      *float64
+	AverageLatencyMs *int64
+	SampleCount      int64
+	LastObservedAt   *time.Time
 }
 
 type apiKeyRoutingCache interface {
 	GetAPIKeyRoutingGroupID(ctx context.Context, apiKeyID int64, sessionKey string) (int64, error)
 	SetAPIKeyRoutingGroupID(ctx context.Context, apiKeyID int64, sessionKey string, groupID int64, ttl time.Duration) error
 	GetAPIKeyRoutingHealth(ctx context.Context, groupID int64, since time.Time) (APIKeyRoutingHealth, error)
-	RecordAPIKeyRoutingOutcome(ctx context.Context, groupID int64, success bool, at time.Time) error
+	RecordAPIKeyRoutingOutcome(ctx context.Context, groupID int64, success bool, latencyMs *int64, at time.Time) error
+}
+
+type apiKeyRoutingHealthBatchCache interface {
+	GetAPIKeyRoutingHealthBatch(ctx context.Context, groupIDs []int64, since time.Time) (map[int64]APIKeyRoutingHealth, error)
 }
 
 type apiKeyRoutingCandidate struct {
@@ -431,10 +457,86 @@ func (s *GatewayService) apiKeyRoutingHealth(ctx context.Context, groupID int64)
 	return health
 }
 
-func (s *GatewayService) RecordAPIKeyRoutingOutcome(ctx context.Context, groupID int64, success bool) {
+func (s *GatewayService) GetAPIKeyRoutingHealthSnapshots(ctx context.Context, groupIDs []int64) []APIKeyRoutingHealthSnapshot {
+	orderedIDs := make([]int64, 0, len(groupIDs))
+	seen := make(map[int64]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if groupID <= 0 {
+			continue
+		}
+		if _, exists := seen[groupID]; exists {
+			continue
+		}
+		seen[groupID] = struct{}{}
+		orderedIDs = append(orderedIDs, groupID)
+	}
+	if len(orderedIDs) == 0 {
+		return []APIKeyRoutingHealthSnapshot{}
+	}
+
+	healthByID := make(map[int64]APIKeyRoutingHealth, len(orderedIDs))
+	if cache, ok := s.cache.(apiKeyRoutingHealthBatchCache); ok {
+		if health, err := cache.GetAPIKeyRoutingHealthBatch(ctx, orderedIDs, timezone.Now().Add(-apiKeyRoutingHealthWindow)); err == nil {
+			healthByID = health
+		}
+	} else {
+		for _, groupID := range orderedIDs {
+			healthByID[groupID] = s.apiKeyRoutingHealth(ctx, groupID)
+		}
+	}
+
+	snapshots := make([]APIKeyRoutingHealthSnapshot, 0, len(orderedIDs))
+	for _, groupID := range orderedIDs {
+		snapshots = append(snapshots, buildAPIKeyRoutingHealthSnapshot(groupID, healthByID[groupID]))
+	}
+	return snapshots
+}
+
+func buildAPIKeyRoutingHealthSnapshot(groupID int64, health APIKeyRoutingHealth) APIKeyRoutingHealthSnapshot {
+	snapshot := APIKeyRoutingHealthSnapshot{
+		GroupID:        groupID,
+		Status:         APIKeyRoutingHealthStatusUnknown,
+		SampleCount:    health.Success + health.Failure,
+		LastObservedAt: health.LastObservedAt,
+	}
+	if health.LatencySamples > 0 {
+		average := (health.LatencyTotalMs + health.LatencySamples/2) / health.LatencySamples
+		snapshot.AverageLatencyMs = &average
+	}
+	if snapshot.SampleCount <= 0 {
+		return snapshot
+	}
+
+	successRate := 100 * float64(health.Success) / float64(snapshot.SampleCount)
+	snapshot.SuccessRate = &successRate
+	if health.LastSuccess != nil {
+		if !*health.LastSuccess {
+			snapshot.Status = APIKeyRoutingHealthStatusFailed
+			return snapshot
+		}
+		if successRate < apiKeyRoutingHealthOperationalRate {
+			snapshot.Status = APIKeyRoutingHealthStatusDegraded
+			return snapshot
+		}
+		snapshot.Status = APIKeyRoutingHealthStatusOperational
+		return snapshot
+	}
+
+	switch {
+	case successRate >= apiKeyRoutingHealthOperationalRate:
+		snapshot.Status = APIKeyRoutingHealthStatusOperational
+	case successRate >= apiKeyRoutingHealthDegradedRate:
+		snapshot.Status = APIKeyRoutingHealthStatusDegraded
+	default:
+		snapshot.Status = APIKeyRoutingHealthStatusFailed
+	}
+	return snapshot
+}
+
+func (s *GatewayService) RecordAPIKeyRoutingOutcome(ctx context.Context, groupID int64, success bool, latencyMs *int64) {
 	cache, ok := s.cache.(apiKeyRoutingCache)
 	if !ok || groupID <= 0 {
 		return
 	}
-	_ = cache.RecordAPIKeyRoutingOutcome(ctx, groupID, success, timezone.Now())
+	_ = cache.RecordAPIKeyRoutingOutcome(ctx, groupID, success, latencyMs, timezone.Now())
 }

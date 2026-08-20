@@ -47,14 +47,16 @@ func (h *GatewayHandler) APIKeyRoutingMiddleware(googleErrors bool) gin.HandlerF
 		}
 
 		setEffectiveAPIKeyRoutingGroup(c, effectiveKey)
+		outcomeStartedAt := time.Now()
 		c.Next()
 
 		status := c.Writer.Status()
 		success := status >= http.StatusOK && status < http.StatusMultipleChoices
 		failed := status >= http.StatusInternalServerError || hasRoutingUpstreamFailure(c)
 		if success || failed {
+			latencyMs := apiKeyRoutingObservedLatencyMs(c, time.Since(outcomeStartedAt))
 			recordCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-			h.gatewayService.RecordAPIKeyRoutingOutcome(recordCtx, effectiveKey.Group.ID, success && !failed)
+			h.gatewayService.RecordAPIKeyRoutingOutcome(recordCtx, effectiveKey.Group.ID, success && !failed, latencyMs)
 			cancel()
 		}
 	}
@@ -241,6 +243,34 @@ func hasRoutingUpstreamFailure(c *gin.Context) bool {
 		}
 	}
 	return false
+}
+
+func apiKeyRoutingObservedLatencyMs(c *gin.Context, elapsed time.Duration) *int64 {
+	if c != nil {
+		for _, key := range []string{service.OpsTimeToFirstTokenMsKey, service.OpsUpstreamLatencyMsKey} {
+			value, exists := c.Get(key)
+			if !exists {
+				continue
+			}
+			var latency int64
+			switch typed := value.(type) {
+			case int:
+				latency = int64(typed)
+			case int64:
+				latency = typed
+			default:
+				continue
+			}
+			if latency >= 0 {
+				return &latency
+			}
+		}
+	}
+	latency := elapsed.Milliseconds()
+	if latency < 0 {
+		latency = 0
+	}
+	return &latency
 }
 
 func writeAPIKeyRoutingError(c *gin.Context, googleErrors bool, status int, code, message string) {

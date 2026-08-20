@@ -73,7 +73,7 @@
               </button>
             </div>
           </div>
-          <button @click="showCreateModal = true" class="btn btn-primary" data-tour="keys-create-btn">
+          <button @click="openCreateModal" class="btn btn-primary" data-tour="keys-create-btn">
             <Icon name="plus" size="md" class="mr-2" />
             {{ t('keys.createKey') }}
           </button>
@@ -411,7 +411,7 @@
               :title="t('keys.noKeysYet')"
               :description="t('keys.createFirstKey')"
               :action-text="t('keys.createKey')"
-              @action="showCreateModal = true"
+              @action="openCreateModal"
             />
           </template>
         </DataTable>
@@ -433,7 +433,7 @@
     <BaseDialog
       :show="showCreateModal || showEditModal"
       :title="showEditModal ? t('keys.editKey') : t('keys.createKey')"
-      width="normal"
+      width="wide"
       @close="closeModals"
     >
       <form id="key-form" @submit.prevent="handleSubmit" class="space-y-5">
@@ -453,7 +453,11 @@
           v-model="formData.routing"
           :groups="routingGroupCatalog"
           :user-group-rates="userGroupRates"
+          :health="routingHealth"
+          :health-loading="routingHealthLoading"
+          :health-window-minutes="routingHealthWindowMinutes"
           data-tour="key-form-group"
+          @refresh-health="loadRoutingHealth"
         />
 
         <!-- Custom Key Section (only for create) -->
@@ -904,7 +908,7 @@
     <BaseDialog
       :show="showRoutingEditor"
       :title="t('keys.routing.title')"
-      width="normal"
+      width="wide"
       :z-index="60"
       @close="closeRoutingEditor"
     >
@@ -912,6 +916,10 @@
         v-model="routingEditorDraft"
         :groups="routingGroupCatalog"
         :user-group-rates="userGroupRates"
+        :health="routingHealth"
+        :health-loading="routingHealthLoading"
+        :health-window-minutes="routingHealthWindowMinutes"
+        @refresh-health="loadRoutingHealth"
       />
       <template #footer>
         <div class="flex justify-end gap-3">
@@ -1053,6 +1061,7 @@ import GroupBadge from '@/components/common/GroupBadge.vue'
 import type {
   ApiKey,
   ApiKeyRoutingDraft,
+  ApiKeyRoutingGroupHealth,
   Group,
   PublicSettings,
   UpdateApiKeyRequest
@@ -1184,6 +1193,10 @@ const now = ref(new Date())
 let resetTimer: ReturnType<typeof setInterval> | null = null
 const usageStats = ref<Record<string, BatchApiKeyUsageStats>>({})
 const userGroupRates = ref<Record<number, number>>({})
+const routingHealth = ref<Record<number, ApiKeyRoutingGroupHealth>>({})
+const routingHealthLoading = ref(false)
+const routingHealthWindowMinutes = ref(30)
+let routingHealthRequestID = 0
 const routingGroupCatalog = computed<Group[]>(() => {
   const byID = new Map(groups.value.map((group) => [group.id, group]))
   for (const apiKey of apiKeys.value) {
@@ -1380,9 +1393,37 @@ const loadApiKeys = async () => {
   }
 }
 
+const loadRoutingHealth = async () => {
+  const groupIDs = routingGroupCatalog.value.map((group) => group.id)
+  const requestID = ++routingHealthRequestID
+  if (groupIDs.length === 0) {
+    routingHealth.value = {}
+    routingHealthLoading.value = false
+    return
+  }
+  routingHealthLoading.value = true
+  try {
+    const response = await userGroupsAPI.getRoutingHealth(groupIDs)
+    if (requestID !== routingHealthRequestID) return
+    routingHealthWindowMinutes.value = response.window_minutes
+    routingHealth.value = Object.fromEntries(
+      response.items.map((item) => [item.group_id, item])
+    )
+  } catch (error) {
+    if (requestID === routingHealthRequestID) {
+      console.error('Failed to load routing health:', error)
+    }
+  } finally {
+    if (requestID === routingHealthRequestID) {
+      routingHealthLoading.value = false
+    }
+  }
+}
+
 const loadGroups = async () => {
   try {
     groups.value = await userGroupsAPI.getAvailable()
+    await loadRoutingHealth()
   } catch (error) {
     console.error('Failed to load groups:', error)
   }
@@ -1409,6 +1450,11 @@ const openUseKeyModal = (key: ApiKey) => {
   showUseKeyModal.value = true
 }
 
+const openCreateModal = () => {
+  void loadRoutingHealth()
+  showCreateModal.value = true
+}
+
 const closeUseKeyModal = () => {
   showUseKeyModal.value = false
   selectedKey.value = null
@@ -1433,6 +1479,7 @@ const handleSort = (key: string, order: 'asc' | 'desc') => {
 }
 
 const editKey = (key: ApiKey) => {
+  void loadRoutingHealth()
   selectedKey.value = key
   const hasIPRestriction = (key.ip_whitelist?.length > 0) || (key.ip_blacklist?.length > 0)
   const hasExpiration = !!key.expires_at
@@ -1472,6 +1519,7 @@ const toggleKeyStatus = async (key: ApiKey) => {
 }
 
 const openRoutingEditor = (key: ApiKey) => {
+  void loadRoutingHealth()
   routingEditorKey.value = key
   routingEditorDraft.value = routingDraftFromKey(key)
   showRoutingEditor.value = true

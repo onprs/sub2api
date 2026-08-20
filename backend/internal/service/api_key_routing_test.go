@@ -70,7 +70,7 @@ func (c *apiKeyRoutingCacheStub) GetAPIKeyRoutingHealth(_ context.Context, group
 	return c.health[groupID], nil
 }
 
-func (c *apiKeyRoutingCacheStub) RecordAPIKeyRoutingOutcome(_ context.Context, groupID int64, success bool, _ time.Time) error {
+func (c *apiKeyRoutingCacheStub) RecordAPIKeyRoutingOutcome(_ context.Context, groupID int64, success bool, _ *int64, _ time.Time) error {
 	if c.outcome == nil {
 		c.outcome = make(map[int64][]bool)
 	}
@@ -460,6 +460,43 @@ func TestResolveAPIKeyRoutingGroup_StabilityAndStickySession(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, stable.ID, *got.GroupID)
+}
+
+func TestGetAPIKeyRoutingHealthSnapshots_ReportsRecentStatusLatencyAndStability(t *testing.T) {
+	lastSuccess := true
+	lastFailure := false
+	observedAt := time.Now().UTC().Truncate(time.Millisecond)
+	cache := &apiKeyRoutingCacheStub{health: map[int64]APIKeyRoutingHealth{
+		91: {
+			Success:        18,
+			Failure:        2,
+			LatencyTotalMs: 1001,
+			LatencySamples: 4,
+			LastSuccess:    &lastSuccess,
+			LastObservedAt: &observedAt,
+		},
+		93: {
+			Success:        99,
+			Failure:        1,
+			LastSuccess:    &lastFailure,
+			LastObservedAt: &observedAt,
+		},
+	}}
+	svc := newAPIKeyRoutingTestService(nil, cache)
+
+	snapshots := svc.GetAPIKeyRoutingHealthSnapshots(context.Background(), []int64{91, 92, 91, -1, 93})
+	require.Len(t, snapshots, 3)
+	require.Equal(t, int64(91), snapshots[0].GroupID)
+	require.Equal(t, APIKeyRoutingHealthStatusDegraded, snapshots[0].Status)
+	require.Equal(t, 90.0, *snapshots[0].SuccessRate)
+	require.Equal(t, int64(250), *snapshots[0].AverageLatencyMs)
+	require.Equal(t, int64(20), snapshots[0].SampleCount)
+	require.Equal(t, observedAt, *snapshots[0].LastObservedAt)
+
+	require.Equal(t, APIKeyRoutingHealthStatusUnknown, snapshots[1].Status)
+	require.Nil(t, snapshots[1].SuccessRate)
+	require.Nil(t, snapshots[1].AverageLatencyMs)
+	require.Equal(t, APIKeyRoutingHealthStatusFailed, snapshots[2].Status)
 }
 
 func TestOpenAIWSStateStore_BindsResponseIDToAPIKeyRoutingGroup(t *testing.T) {

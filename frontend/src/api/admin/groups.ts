@@ -6,6 +6,7 @@
 import { apiClient } from '../client'
 import type {
   AdminGroup,
+  ApiKeyRoutingHealthResponse,
   GroupPlatform,
   CreateGroupRequest,
   UpdateGroupRequest,
@@ -55,6 +56,28 @@ export async function getAll(platform?: GroupPlatform): Promise<AdminGroup[]> {
     params: platform ? { platform } : undefined
   })
   return data
+}
+
+export async function getRoutingHealth(groupIDs: number[]): Promise<ApiKeyRoutingHealthResponse> {
+  const uniqueGroupIDs = [...new Set(groupIDs.filter((groupID) => groupID > 0))]
+  if (uniqueGroupIDs.length === 0) return { window_minutes: 30, items: [] }
+
+  const batches: number[][] = []
+  for (let offset = 0; offset < uniqueGroupIDs.length; offset += 200) {
+    batches.push(uniqueGroupIDs.slice(offset, offset + 200))
+  }
+  const responses = await Promise.all(
+    batches.map(async (batch) => {
+      const { data } = await apiClient.get<ApiKeyRoutingHealthResponse>('/admin/groups/routing-health', {
+        params: { group_ids: batch.join(',') }
+      })
+      return data
+    })
+  )
+  return {
+    window_minutes: responses[0]?.window_minutes ?? 30,
+    items: responses.flatMap((response) => response.items)
+  }
 }
 
 /**
@@ -332,6 +355,7 @@ export async function getCapacitySummary(): Promise<
 export const groupsAPI = {
   list,
   getAll,
+  getRoutingHealth,
   getByPlatform,
   getAllIncludingInactive,
   getById,

@@ -87,11 +87,18 @@
   <BaseDialog
     :show="routingEditorKey !== null"
     :title="t('keys.routing.title')"
-    width="normal"
+    width="wide"
     :z-index="60"
     @close="closeRoutingEditor"
   >
-    <ApiKeyRoutingEditor v-model="routingDraft" :groups="routingGroupCatalog" />
+    <ApiKeyRoutingEditor
+      v-model="routingDraft"
+      :groups="routingGroupCatalog"
+      :health="routingHealth"
+      :health-loading="routingHealthLoading"
+      :health-window-minutes="routingHealthWindowMinutes"
+      @refresh-health="loadRoutingHealth"
+    />
     <template #footer>
       <div class="flex justify-end gap-3">
         <button type="button" class="btn btn-secondary" @click="closeRoutingEditor">
@@ -124,7 +131,14 @@ import {
   getRoutingPrimaryGroup
 } from '@/utils/apiKeyRouting'
 import { getApiKeyStatusLabelKey } from '@/utils/i18nLabels'
-import type { AdminUser, AdminGroup, ApiKey, ApiKeyRoutingDraft, Group } from '@/types'
+import type {
+  AdminUser,
+  AdminGroup,
+  ApiKey,
+  ApiKeyRoutingDraft,
+  ApiKeyRoutingGroupHealth,
+  Group
+} from '@/types'
 import ApiKeyRoutingEditor from '@/components/keys/ApiKeyRoutingEditor.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
@@ -141,6 +155,10 @@ const loading = ref(false)
 const updatingKeyIds = ref(new Set<number>())
 const routingEditorKey = ref<ApiKey | null>(null)
 const routingDraft = ref<ApiKeyRoutingDraft>(createEmptyRoutingDraft())
+const routingHealth = ref<Record<number, ApiKeyRoutingGroupHealth>>({})
+const routingHealthLoading = ref(false)
+const routingHealthWindowMinutes = ref(30)
+let routingHealthRequestID = 0
 const routingGroupCatalog = computed<Group[]>(() => {
   const byID = new Map<number, Group>(allGroups.value.map((group) => [group.id, group]))
   for (const apiKey of apiKeys.value) {
@@ -168,15 +186,44 @@ const load = async () => {
   }
 }
 
+const loadRoutingHealth = async () => {
+  const groupIDs = routingGroupCatalog.value.map((group) => group.id)
+  const requestID = ++routingHealthRequestID
+  if (groupIDs.length === 0) {
+    routingHealth.value = {}
+    routingHealthLoading.value = false
+    return
+  }
+  routingHealthLoading.value = true
+  try {
+    const response = await adminAPI.groups.getRoutingHealth(groupIDs)
+    if (requestID !== routingHealthRequestID) return
+    routingHealthWindowMinutes.value = response.window_minutes
+    routingHealth.value = Object.fromEntries(
+      response.items.map((item) => [item.group_id, item])
+    )
+  } catch (error) {
+    if (requestID === routingHealthRequestID) {
+      console.error('Failed to load routing health:', error)
+    }
+  } finally {
+    if (requestID === routingHealthRequestID) {
+      routingHealthLoading.value = false
+    }
+  }
+}
+
 const loadGroups = async () => {
   try {
     allGroups.value = await adminAPI.groups.getAll()
+    await loadRoutingHealth()
   } catch (error) {
     console.error('Failed to load groups:', error)
   }
 }
 
 const openRoutingEditor = (apiKey: ApiKey) => {
+  void loadRoutingHealth()
   routingEditorKey.value = apiKey
   routingDraft.value = createRoutingDraftFromApiKey(apiKey)
 }

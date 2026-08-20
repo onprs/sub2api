@@ -21,6 +21,35 @@ const (
 	apiKeyRoutingHealthTTL    = 40 * time.Minute
 )
 
+// apiKeyRoutingHealthRecordScript 在一次原子更新中维护计数与最近结果。
+// 时间戳判断可避免较慢的 Redis 写入覆盖更新请求的结果。
+var apiKeyRoutingHealthRecordScript = redis.NewScript(`
+	local key = KEYS[1]
+	local success = tonumber(ARGV[1])
+	local latency_ms = tonumber(ARGV[2])
+	local observed_at_ms = tonumber(ARGV[3])
+	local ttl_seconds = tonumber(ARGV[4])
+
+	if success == 1 then
+		redis.call('HINCRBY', key, 'success', 1)
+	else
+		redis.call('HINCRBY', key, 'failure', 1)
+	end
+	if latency_ms >= 0 then
+		redis.call('HINCRBY', key, 'latency_total_ms', latency_ms)
+		redis.call('HINCRBY', key, 'latency_samples', 1)
+	end
+
+	local previous_observed_at_ms = tonumber(redis.call('HGET', key, 'last_observed_at_ms'))
+	if previous_observed_at_ms == nil or observed_at_ms >= previous_observed_at_ms then
+		redis.call('HSET', key,
+			'last_success', success,
+			'last_observed_at_ms', observed_at_ms)
+	end
+	redis.call('EXPIRE', key, ttl_seconds)
+	return 1
+`)
+
 type gatewayCache struct {
 	rdb *redis.Client
 }
@@ -81,51 +110,130 @@ func apiKeyRoutingHealthKey(groupID int64, at time.Time) string {
 }
 
 func (c *gatewayCache) GetAPIKeyRoutingHealth(ctx context.Context, groupID int64, since time.Time) (service.APIKeyRoutingHealth, error) {
-	health := service.APIKeyRoutingHealth{}
-	if c == nil || c.rdb == nil || groupID <= 0 {
-		return health, nil
+	healthByID, err := c.GetAPIKeyRoutingHealthBatch(ctx, []int64{groupID}, since)
+	if err != nil {
+		return service.APIKeyRoutingHealth{}, err
+	}
+	return healthByID[groupID], nil
+}
+
+type apiKeyRoutingHealthCommand struct {
+	groupID int64
+	command *redis.SliceCmd
+}
+
+func (c *gatewayCache) GetAPIKeyRoutingHealthBatch(ctx context.Context, groupIDs []int64, since time.Time) (map[int64]service.APIKeyRoutingHealth, error) {
+	healthByID := make(map[int64]service.APIKeyRoutingHealth, len(groupIDs))
+	if c == nil || c.rdb == nil {
+		return healthByID, nil
 	}
 	start := since.UTC().Truncate(apiKeyRoutingHealthBucket)
 	end := time.Now().UTC().Truncate(apiKeyRoutingHealthBucket)
 	pipe := c.rdb.Pipeline()
-	commands := make([]*redis.SliceCmd, 0, 8)
-	for bucket := start; !bucket.After(end); bucket = bucket.Add(apiKeyRoutingHealthBucket) {
-		commands = append(commands, pipe.HMGet(ctx, apiKeyRoutingHealthKey(groupID, bucket), "success", "failure"))
+	commands := make([]apiKeyRoutingHealthCommand, 0, len(groupIDs)*8)
+	seen := make(map[int64]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if groupID <= 0 {
+			continue
+		}
+		if _, exists := seen[groupID]; exists {
+			continue
+		}
+		seen[groupID] = struct{}{}
+		healthByID[groupID] = service.APIKeyRoutingHealth{}
+		for bucket := start; !bucket.After(end); bucket = bucket.Add(apiKeyRoutingHealthBucket) {
+			commands = append(commands, apiKeyRoutingHealthCommand{
+				groupID: groupID,
+				command: pipe.HMGet(
+					ctx,
+					apiKeyRoutingHealthKey(groupID, bucket),
+					"success",
+					"failure",
+					"latency_total_ms",
+					"latency_samples",
+					"last_success",
+					"last_observed_at_ms",
+				),
+			})
+		}
+	}
+	if len(commands) == 0 {
+		return healthByID, nil
 	}
 	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
-		return health, err
+		return healthByID, err
 	}
-	for _, command := range commands {
-		values, err := command.Result()
+	for _, item := range commands {
+		values, err := item.command.Result()
 		if err != nil && err != redis.Nil {
-			return health, err
+			return healthByID, err
 		}
-		if len(values) > 0 && values[0] != nil {
-			value, _ := strconv.ParseInt(fmt.Sprint(values[0]), 10, 64)
-			health.Success += value
-		}
-		if len(values) > 1 && values[1] != nil {
-			value, _ := strconv.ParseInt(fmt.Sprint(values[1]), 10, 64)
-			health.Failure += value
-		}
+		health := healthByID[item.groupID]
+		mergeAPIKeyRoutingHealthValues(&health, values)
+		healthByID[item.groupID] = health
 	}
-	return health, nil
+	return healthByID, nil
 }
 
-func (c *gatewayCache) RecordAPIKeyRoutingOutcome(ctx context.Context, groupID int64, success bool, at time.Time) error {
+func mergeAPIKeyRoutingHealthValues(health *service.APIKeyRoutingHealth, values []any) {
+	if health == nil {
+		return
+	}
+	if value, ok := apiKeyRoutingHealthInt(values, 0); ok {
+		health.Success += value
+	}
+	if value, ok := apiKeyRoutingHealthInt(values, 1); ok {
+		health.Failure += value
+	}
+	if value, ok := apiKeyRoutingHealthInt(values, 2); ok {
+		health.LatencyTotalMs += value
+	}
+	if value, ok := apiKeyRoutingHealthInt(values, 3); ok {
+		health.LatencySamples += value
+	}
+	observedAtMs, hasObservedAt := apiKeyRoutingHealthInt(values, 5)
+	lastSuccessValue, hasLastSuccess := apiKeyRoutingHealthInt(values, 4)
+	if !hasObservedAt || !hasLastSuccess {
+		return
+	}
+	observedAt := time.UnixMilli(observedAtMs).UTC()
+	if health.LastObservedAt != nil && !observedAt.After(*health.LastObservedAt) {
+		return
+	}
+	lastSuccess := lastSuccessValue == 1
+	health.LastSuccess = &lastSuccess
+	health.LastObservedAt = &observedAt
+}
+
+func apiKeyRoutingHealthInt(values []any, index int) (int64, bool) {
+	if index < 0 || index >= len(values) || values[index] == nil {
+		return 0, false
+	}
+	value, err := strconv.ParseInt(fmt.Sprint(values[index]), 10, 64)
+	return value, err == nil
+}
+
+func (c *gatewayCache) RecordAPIKeyRoutingOutcome(ctx context.Context, groupID int64, success bool, latencyMs *int64, at time.Time) error {
 	if c == nil || c.rdb == nil || groupID <= 0 {
 		return nil
 	}
-	field := "failure"
+	successValue := int64(0)
 	if success {
-		field = "success"
+		successValue = 1
 	}
-	key := apiKeyRoutingHealthKey(groupID, at)
-	pipe := c.rdb.TxPipeline()
-	pipe.HIncrBy(ctx, key, field, 1)
-	pipe.Expire(ctx, key, apiKeyRoutingHealthTTL)
-	_, err := pipe.Exec(ctx)
-	return err
+	latencyValue := int64(-1)
+	if latencyMs != nil && *latencyMs >= 0 {
+		latencyValue = *latencyMs
+	}
+	return apiKeyRoutingHealthRecordScript.Run(
+		ctx,
+		c.rdb,
+		[]string{apiKeyRoutingHealthKey(groupID, at)},
+		successValue,
+		latencyValue,
+		at.UTC().UnixMilli(),
+		int64(apiKeyRoutingHealthTTL/time.Second),
+	).Err()
 }
 
 // Compile-time assertion: gatewayCache must implement CyberSessionBlockStore.
