@@ -11,7 +11,7 @@ import (
 
 func TestOpenCodeGoReferencePricingCoversSeedCatalog(t *testing.T) {
 	catalog := openCodeGoSeedCatalog()
-	require.Len(t, catalog, 26)
+	require.Len(t, catalog, 27)
 	require.Len(t, openCodeGoReferencePrices, len(catalog))
 
 	for modelID := range catalog {
@@ -63,6 +63,7 @@ func TestOpenCodeGoReferencePricingLocksSupplementalRates(t *testing.T) {
 	}{
 		{model: "hy3-preview", input: 0.285714e-6, output: 1.142857e-6, cacheRead: 0.114286e-6},
 		{model: "kimi-k2.5", input: 0.60e-6, output: 3.00e-6, cacheRead: 0.10e-6},
+		{model: "muse-spark-1.2-contributor", input: 0.10e-6, output: 0.20e-6, cacheRead: 0.002e-6},
 		{model: "mimo-v2-omni", input: 0.40e-6, output: 2.00e-6, cacheRead: 0.08e-6},
 		{model: "mimo-v2-pro", input: 1.00e-6, output: 3.00e-6, cacheRead: 0.20e-6},
 		{model: "qwen3.5-plus", input: 0.20e-6, output: 1.20e-6, cacheWrite: 0.25e-6, cacheRead: 0.02e-6},

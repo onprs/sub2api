@@ -766,12 +766,16 @@ var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability
 		"Hy3", "hy3", false, true, true, true,
 		[]string{"text"}, 262144, 65536, 0.14, 0.58, cliImportFloat64Ptr(0.035), nil,
 	),
-	// Grok 4.5: OpenCode Go serves it via /chat/completions at
+	// Grok 4.5: OpenCode Go serves it via /responses at
 	// $2/$6/$0.30 (cache read) per 1M tokens. Output spec mirrors the xAI
 	// canonical models.dev entry (500000 input / 500000 output).
 	"grok-4.5": newOpenCodeGoBuiltinCLIImportCapability(
 		"Grok 4.5", "grok", true, true, true, true,
 		[]string{"text", "image"}, 500000, 500000, 2.0, 6.0, cliImportFloat64Ptr(0.30), nil,
+	),
+	"muse-spark-1.2-contributor": newOpenCodeGoBuiltinCLIImportCapability(
+		"Muse Spark 1.2 Contributor", "muse-spark", true, true, false, true,
+		[]string{"text", "image", "video", "pdf", "audio"}, 1048576, 131072, 0.1, 0.2, cliImportFloat64Ptr(0.002), nil,
 	),
 	"kimi-k2.5": newOpenCodeGoBuiltinCLIImportCapability(
 		"Kimi K2.5", "kimi-k2", true, true, true, true,

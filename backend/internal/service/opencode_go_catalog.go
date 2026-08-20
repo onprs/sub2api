@@ -78,7 +78,6 @@ func openCodeGoSeedCatalog() map[string]OpenCodeGoCatalogEntry {
 	models := []string{
 		"gpt-5.6-luna",
 		"grok-4.5",
-		"muse-spark-1.2",
 		"muse-spark-1.2-contributor",
 		"deepseek-v4-flash",
 		"deepseek-v4-pro",
