@@ -3,7 +3,13 @@ export default {
   modelPricing: {
     title: 'Model IDs & Pricing',
     description: 'Model pricing and IDs by accessible channel and group',
-    searchPlaceholder: 'Search channel, platform, model, group, or source...',
+    selection: {
+      platform: 'Available Platform',
+      group: 'Available Group',
+      platformPlaceholder: 'Select a platform',
+      groupPlaceholder: 'Select a group'
+    },
+    searchPlaceholder: 'Search channel, model, or source...',
     empty: 'No model pricing data',
     copyModelId: 'Copy Model ID',
     modelCopied: 'Model ID copied',

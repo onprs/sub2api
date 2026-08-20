@@ -1,9 +1,128 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout class="model-pricing-layout" :show-table="hasSelectedGroup">
       <template #filters>
-        <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
-          <div class="flex flex-1 flex-wrap items-center gap-3">
+        <div class="space-y-4">
+          <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+            <div
+              class="grid w-full min-w-0 gap-3 sm:grid-cols-2 lg:w-auto lg:grid-cols-[14rem_20rem]"
+            >
+              <div class="min-w-0">
+                <label class="input-label">{{ t('modelPricing.selection.platform') }}</label>
+                <Select
+                  :model-value="selectedPlatform"
+                  :options="platformOptions"
+                  :placeholder="t('modelPricing.selection.platformPlaceholder')"
+                  :searchable="false"
+                  data-test="pricing-platform-select"
+                  @update:model-value="setSelectedPlatform"
+                >
+                  <template #selected="{ option }">
+                    <span v-if="option" class="flex min-w-0 items-center gap-2">
+                      <PlatformIcon
+                        :platform="(option as unknown as ModelPricingPlatformOption).value as GroupPlatform"
+                        size="sm"
+                      />
+                      <span class="truncate">
+                        {{ (option as unknown as ModelPricingPlatformOption).label }}
+                      </span>
+                    </span>
+                    <span v-else class="text-gray-400 dark:text-gray-500">
+                      {{ t('modelPricing.selection.platformPlaceholder') }}
+                    </span>
+                  </template>
+                  <template #option="{ option, selected }">
+                    <div class="flex min-w-0 flex-1 items-center gap-2">
+                      <PlatformIcon
+                        :platform="(option as unknown as ModelPricingPlatformOption).value as GroupPlatform"
+                        size="sm"
+                      />
+                      <span class="min-w-0 flex-1 truncate">
+                        {{ (option as unknown as ModelPricingPlatformOption).label }}
+                      </span>
+                      <Icon
+                        v-if="selected"
+                        name="check"
+                        size="sm"
+                        class="shrink-0 text-primary-500"
+                      />
+                    </div>
+                  </template>
+                </Select>
+              </div>
+
+              <div class="min-w-0">
+                <label class="input-label">{{ t('modelPricing.selection.group') }}</label>
+                <Select
+                  :model-value="selectedGroupId"
+                  :options="groupOptions"
+                  :placeholder="t('modelPricing.selection.groupPlaceholder')"
+                  :disabled="!selectedPlatform"
+                  data-test="pricing-group-select"
+                  @update:model-value="setSelectedGroup"
+                >
+                  <template #selected="{ option }">
+                    <GroupBadge
+                      v-if="option"
+                      class="max-w-full"
+                      :name="(option as unknown as ModelPricingGroupOption).label"
+                      :platform="(option as unknown as ModelPricingGroupOption).platform"
+                      :subscription-type="(option as unknown as ModelPricingGroupOption).subscriptionType"
+                      :rate-multiplier="(option as unknown as ModelPricingGroupOption).defaultMultiplier"
+                      :user-rate-multiplier="(option as unknown as ModelPricingGroupOption).userMultiplier"
+                      always-show-rate
+                    />
+                    <span v-else class="text-gray-400 dark:text-gray-500">
+                      {{ t('modelPricing.selection.groupPlaceholder') }}
+                    </span>
+                  </template>
+                  <template #option="{ option, selected }">
+                    <div class="flex min-w-0 flex-1 items-center justify-between gap-2">
+                      <div class="flex min-w-0 items-center gap-1.5">
+                        <GroupBadge
+                          class="min-w-0 max-w-full"
+                          :name="(option as unknown as ModelPricingGroupOption).label"
+                          :platform="(option as unknown as ModelPricingGroupOption).platform"
+                          :subscription-type="(option as unknown as ModelPricingGroupOption).subscriptionType"
+                          :rate-multiplier="(option as unknown as ModelPricingGroupOption).defaultMultiplier"
+                          :user-rate-multiplier="(option as unknown as ModelPricingGroupOption).userMultiplier"
+                          always-show-rate
+                        />
+                        <Icon
+                          v-if="(option as unknown as ModelPricingGroupOption).isExclusive"
+                          name="shield"
+                          size="xs"
+                          class="shrink-0 text-purple-500"
+                          :title="t('availableChannels.exclusive')"
+                        />
+                      </div>
+                      <Icon
+                        v-if="selected"
+                        name="check"
+                        size="sm"
+                        class="shrink-0 text-primary-500"
+                      />
+                    </div>
+                  </template>
+                </Select>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              class="btn btn-secondary self-end"
+              :disabled="loading"
+              :title="t('common.refresh', 'Refresh')"
+              @click="loadPricing"
+            >
+              <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
+            </button>
+          </div>
+
+          <div
+            v-if="hasSelectedGroup"
+            class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+          >
             <div class="relative w-full sm:w-80">
               <Icon
                 name="search"
@@ -15,38 +134,30 @@
                 type="text"
                 :placeholder="t('modelPricing.searchPlaceholder')"
                 class="input pl-10"
+                data-test="pricing-search"
               />
             </div>
 
             <div
-              class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-dark-600 dark:bg-dark-800"
+              class="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-gray-200 bg-gray-200 dark:border-dark-600 dark:bg-dark-600"
             >
               <button
                 v-for="option in pricingModeOptions"
                 :key="option.value"
                 type="button"
-                class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                class="min-h-10 min-w-0 bg-white px-3 py-2 text-sm font-medium transition-colors focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 dark:bg-dark-800"
                 :class="
                   pricingMode === option.value
-                    ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-                    : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/25 dark:text-primary-300'
+                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-dark-700 dark:hover:text-white'
                 "
+                :aria-pressed="pricingMode === option.value"
+                :data-pricing-mode="option.value"
                 @click="pricingMode = option.value"
               >
                 {{ option.label }}
               </button>
             </div>
-          </div>
-
-          <div class="flex w-full flex-shrink-0 flex-wrap items-center justify-end gap-3 lg:w-auto">
-            <button
-              @click="loadPricing"
-              :disabled="loading"
-              class="btn btn-secondary"
-              :title="t('common.refresh', 'Refresh')"
-            >
-              <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
-            </button>
           </div>
         </div>
       </template>
@@ -265,6 +376,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
+import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
@@ -274,7 +386,7 @@ import { BILLING_MODE_IMAGE, BILLING_MODE_PER_REQUEST, BILLING_MODE_TOKEN, type 
 import { useAppStore } from '@/stores/app'
 import type { GroupPlatform, SubscriptionType } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
-import { platformBadgeClass } from '@/utils/platformColors'
+import { platformBadgeClass, platformLabel } from '@/utils/platformColors'
 import { formatScaled } from '@/utils/pricing'
 import { useClipboard } from '@/composables/useClipboard'
 import {
@@ -294,12 +406,43 @@ interface ModelPricingLine {
   pricing: ModelPricingValues
 }
 
+interface ModelPricingPlatformOption extends Record<string, unknown> {
+  value: string
+  label: string
+}
+
+interface ModelPricingGroupOption extends Record<string, unknown> {
+  value: number
+  label: string
+  platform: GroupPlatform
+  subscriptionType: SubscriptionType
+  defaultMultiplier: number
+  userMultiplier: number | null
+  isExclusive: boolean
+}
+
+const platformOrder: GroupPlatform[] = [
+  'anthropic',
+  'openai',
+  'gemini',
+  'antigravity',
+  'grok',
+  'opencode_go',
+  'clinepass',
+  'openrouter',
+]
+const platformOrderIndex = new Map<string, number>(
+  platformOrder.map((platform, index) => [platform, index]),
+)
+
 const { t, te } = useI18n()
 const appStore = useAppStore()
 
 const channels = ref<UserAvailableChannel[]>([])
 const userGroupRates = ref<Record<number, number>>({})
 const loading = ref(false)
+const selectedPlatform = ref<string | null>(null)
+const selectedGroupId = ref<number | null>(null)
 const searchQuery = ref('')
 const pricingMode = ref<PricingMode>('actual')
 const perMillionScale = 1_000_000
@@ -325,7 +468,99 @@ const pricingModeOptions = computed<Array<{ value: PricingMode; label: string }>
 ])
 
 const rows = computed(() => buildModelPricingRows(channels.value, userGroupRates.value))
-const filteredRows = computed(() => filterModelPricingRows(rows.value, searchQuery.value))
+
+const platformOptions = computed<ModelPricingPlatformOption[]>(() => {
+  const platforms = new Set(rows.value.map((row) => row.platform))
+  return [...platforms]
+    .sort((left, right) => {
+      const leftIndex = platformOrderIndex.get(left) ?? Number.MAX_SAFE_INTEGER
+      const rightIndex = platformOrderIndex.get(right) ?? Number.MAX_SAFE_INTEGER
+      return leftIndex - rightIndex || platformLabel(left).localeCompare(platformLabel(right))
+    })
+    .map((platform) => ({ value: platform, label: platformLabel(platform) }))
+})
+
+const groupOptions = computed<ModelPricingGroupOption[]>(() => {
+  if (!selectedPlatform.value) return []
+
+  const groups = new Map<number, ModelPricingGroupOption>()
+  for (const row of rows.value) {
+    if (row.platform !== selectedPlatform.value || groups.has(row.groupId)) continue
+    groups.set(row.groupId, {
+      value: row.groupId,
+      label: row.groupName,
+      platform: row.platform as GroupPlatform,
+      subscriptionType: row.subscriptionType as SubscriptionType,
+      defaultMultiplier: row.defaultMultiplier,
+      userMultiplier: row.userMultiplier,
+      isExclusive: row.isExclusive,
+    })
+  }
+  return [...groups.values()].sort((left, right) => left.label.localeCompare(right.label))
+})
+
+const hasSelectedGroup = computed(
+  () =>
+    selectedGroupId.value !== null &&
+    groupOptions.value.some((option) => option.value === selectedGroupId.value),
+)
+
+const selectedRows = computed(() => {
+  if (!hasSelectedGroup.value) return []
+  return rows.value.filter(
+    (row) =>
+      row.platform === selectedPlatform.value && row.groupId === selectedGroupId.value,
+  )
+})
+const filteredRows = computed(() => filterModelPricingRows(selectedRows.value, searchQuery.value))
+
+function setSelectedPlatform(value: string | number | boolean | null) {
+  const nextPlatform =
+    typeof value === 'string' && platformOptions.value.some((option) => option.value === value)
+      ? value
+      : null
+  if (nextPlatform === selectedPlatform.value) return
+
+  selectedPlatform.value = nextPlatform
+  selectedGroupId.value = null
+  searchQuery.value = ''
+}
+
+function setSelectedGroup(value: string | number | boolean | null) {
+  const nextGroupId =
+    typeof value === 'number' && groupOptions.value.some((option) => option.value === value)
+      ? value
+      : null
+  if (nextGroupId === selectedGroupId.value) return
+
+  selectedGroupId.value = nextGroupId
+  searchQuery.value = ''
+}
+
+function reconcileSelection() {
+  if (
+    selectedPlatform.value &&
+    !platformOptions.value.some((option) => option.value === selectedPlatform.value)
+  ) {
+    selectedPlatform.value = null
+    selectedGroupId.value = null
+    searchQuery.value = ''
+    return
+  }
+
+  if (!selectedPlatform.value) {
+    selectedGroupId.value = null
+    return
+  }
+
+  if (
+    selectedGroupId.value !== null &&
+    !groupOptions.value.some((option) => option.value === selectedGroupId.value)
+  ) {
+    selectedGroupId.value = null
+    searchQuery.value = ''
+  }
+}
 
 function selectedPricing(row: ModelPricingRow): ModelPricingValues {
   return pricingMode.value === 'actual' ? row.actualPricing : row.pricing
@@ -451,6 +686,7 @@ async function loadPricing() {
     ])
     channels.value = list
     userGroupRates.value = rates
+    reconcileSelection()
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('common.error')))
   } finally {
@@ -465,6 +701,15 @@ onMounted(loadPricing)
 .model-pricing-table-wrapper {
   overflow-x: auto;
   overflow-y: auto;
+}
+
+@media (max-width: 1023px) {
+  .model-pricing-layout.table-page-layout.mobile-mode
+    :deep(.table-scroll-container .model-pricing-table-wrapper) {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: auto;
+  }
 }
 
 .model-pricing-sticky-header th {

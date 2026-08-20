@@ -86,6 +86,10 @@ describe.each(Object.keys(roots))('locale %s spread assembly', (locale) => {
 const regressionKeys = [
   'nav.modelPricing',
   'modelPricing.searchPlaceholder',
+  'modelPricing.selection.platform',
+  'modelPricing.selection.group',
+  'modelPricing.selection.platformPlaceholder',
+  'modelPricing.selection.groupPlaceholder',
   'modelPricing.columns.channel',
   'modelPricing.columns.platform',
   'modelPricing.columns.model',
