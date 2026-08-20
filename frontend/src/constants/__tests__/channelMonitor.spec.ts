@@ -5,7 +5,6 @@ import {
   API_MODE_MESSAGES,
   API_MODE_RESPONSES,
   monitorSelectableAPIModes,
-  monitorCurrentDomainEndpoint,
   monitorPayloadAPIMode,
   PROVIDER_ANTHROPIC,
   PROVIDER_CLINEPASS,
@@ -15,12 +14,6 @@ import {
 } from '../channelMonitor'
 
 describe('channel monitor constants', () => {
-  it('uses the provider-specific current-service base endpoint', () => {
-    expect(monitorCurrentDomainEndpoint(PROVIDER_OPENCODE_GO, 'https://api.onprs.top')).toBe('https://api.onprs.top/v1')
-    expect(monitorCurrentDomainEndpoint(PROVIDER_CLINEPASS, 'https://api.onprs.top/')).toBe('https://api.onprs.top')
-    expect(monitorCurrentDomainEndpoint(PROVIDER_ANTHROPIC, 'https://api.onprs.top')).toBe('https://api.onprs.top')
-  })
-
   it('preserves OpenCode Go messages mode in monitor payloads', () => {
     expect(monitorPayloadAPIMode(PROVIDER_OPENCODE_GO, API_MODE_MESSAGES)).toBe(API_MODE_MESSAGES)
     expect(monitorPayloadAPIMode(PROVIDER_OPENCODE_GO, API_MODE_RESPONSES)).toBe(API_MODE_RESPONSES)

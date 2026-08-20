@@ -141,6 +141,21 @@ var (
 	ErrChannelMonitorNotFound = infraerrors.NotFound(
 		"CHANNEL_MONITOR_NOT_FOUND", "channel monitor not found",
 	)
+	ErrChannelMonitorInvalidTargetType = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_INVALID_TARGET_TYPE", "target_type must be local or external",
+	)
+	ErrChannelMonitorMissingGroup = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_MISSING_GROUP", "group_id is required for a local monitor",
+	)
+	ErrChannelMonitorGroupPlatformMismatch = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_GROUP_PLATFORM_MISMATCH", "the selected group platform does not match the monitor provider",
+	)
+	ErrChannelMonitorGroupUnavailable = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_GROUP_UNAVAILABLE", "the selected group is unavailable",
+	)
+	ErrChannelMonitorGroupAlreadyMonitored = infraerrors.Conflict(
+		"CHANNEL_MONITOR_GROUP_ALREADY_MONITORED", "the selected group already has a local monitor",
+	)
 	ErrChannelMonitorInvalidProvider = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/opencode_go/clinepass/openrouter/antigravity_claude/antigravity_gemini",
 	)
@@ -172,7 +187,7 @@ var (
 		"CHANNEL_MONITOR_ENDPOINT_UNREACHABLE", "endpoint hostname could not be resolved",
 	)
 	ErrChannelMonitorMissingAPIKey = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_MISSING_API_KEY", "api_key is required when creating a monitor",
+		"CHANNEL_MONITOR_MISSING_API_KEY", "api_key is required for an external monitor",
 	)
 	ErrChannelMonitorMissingPrimaryModel = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_MISSING_PRIMARY_MODEL", "primary_model is required",

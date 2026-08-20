@@ -41,9 +41,9 @@
         <div class="flex items-center gap-2">
           <span
             class="text-xs tabular-nums text-gray-500 dark:text-gray-400"
-            :title="t('keys.routing.healthWindow', { minutes: healthWindowMinutes })"
+            :title="healthWindowLabel"
           >
-            {{ t('keys.routing.healthWindow', { minutes: healthWindowMinutes }) }}
+            {{ healthWindowLabel }}
           </span>
           <span class="text-xs tabular-nums text-gray-500 dark:text-gray-400">
             {{ t('keys.routing.selectedCount', { count: selectedGroupIDs.length, max: maxCandidates }) }}
@@ -255,7 +255,7 @@ const props = withDefaults(defineProps<{
   userGroupRates: () => ({}),
   health: () => ({}),
   healthLoading: false,
-  healthWindowMinutes: 30,
+  healthWindowMinutes: 10080,
   maxCandidates: 20
 })
 
@@ -374,6 +374,12 @@ const isSelected = (groupID: number) => selectedGroupIDs.value.includes(groupID)
 const selectedIndex = (groupID: number) => selectedGroupIDs.value.indexOf(groupID)
 const canToggle = (groupID: number) => isSelected(groupID) || selectedGroupIDs.value.length < props.maxCandidates
 const groupHealth = (groupID: number) => props.health[groupID]
+const healthWindowLabel = computed(() => {
+  if (props.healthWindowMinutes >= 1440 && props.healthWindowMinutes % 1440 === 0) {
+    return t('keys.routing.healthWindowDays', { days: props.healthWindowMinutes / 1440 })
+  }
+  return t('keys.routing.healthWindow', { minutes: props.healthWindowMinutes })
+})
 
 const healthStatusLabel = (groupID: number) => {
   if (props.healthLoading && !groupHealth(groupID)) return t('common.loading')

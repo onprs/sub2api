@@ -45,6 +45,14 @@ type apiKeyRoutingHealthAPIKeyRepo struct {
 	ownedGroupIDs []int64
 }
 
+type apiKeyRoutingHealthProvider struct {
+	snapshots []service.APIKeyRoutingHealthSnapshot
+}
+
+func (p *apiKeyRoutingHealthProvider) GetAPIKeyRoutingHealthSnapshots(_ context.Context, _ []int64) []service.APIKeyRoutingHealthSnapshot {
+	return append([]service.APIKeyRoutingHealthSnapshot(nil), p.snapshots...)
+}
+
 func (r *apiKeyRoutingHealthAPIKeyRepo) ListOwnedRoutingGroupIDs(_ context.Context, _ int64, requested []int64) ([]int64, error) {
 	owned := make(map[int64]struct{}, len(r.ownedGroupIDs))
 	for _, groupID := range r.ownedGroupIDs {
@@ -94,21 +102,23 @@ func serveAPIKeyRoutingHealth(t *testing.T, handler *GatewayHandler, role, query
 }
 
 func TestGetAPIKeyRoutingHealth_FiltersGroupsForRegularUsers(t *testing.T) {
-	lastSuccess := true
 	observedAt := time.Now().UTC()
-	cache := &apiKeyRoutingMiddlewareCache{health: map[int64]service.APIKeyRoutingHealth{
-		11: {
-			Success:        9,
-			Failure:        1,
-			LatencyTotalMs: 600,
-			LatencySamples: 3,
-			LastSuccess:    &lastSuccess,
-			LastObservedAt: &observedAt,
+	successRate11 := 90.0
+	successRate13 := 70.0
+	latency := int64(200)
+	handler := newAPIKeyRoutingMiddlewareHandler(nil, nil)
+	handler.gatewayService.SetAPIKeyRoutingHealthProvider(&apiKeyRoutingHealthProvider{snapshots: []service.APIKeyRoutingHealthSnapshot{
+		{
+			GroupID:          11,
+			Status:           service.APIKeyRoutingHealthStatusDegraded,
+			SuccessRate:      &successRate11,
+			AverageLatencyMs: &latency,
+			SampleCount:      10,
+			LastObservedAt:   &observedAt,
 		},
-		12: {Success: 10},
-		13: {Success: 7, Failure: 3},
-	}}
-	handler := newAPIKeyRoutingMiddlewareHandler(nil, cache)
+		{GroupID: 12, Status: service.APIKeyRoutingHealthStatusOperational},
+		{GroupID: 13, Status: service.APIKeyRoutingHealthStatusFailed, SuccessRate: &successRate13, SampleCount: 10},
+	}})
 	handler.apiKeyService = newAPIKeyRoutingHealthAPIKeyService(
 		&service.User{ID: 701, Status: service.StatusActive},
 		[]service.Group{
@@ -121,6 +131,7 @@ func TestGetAPIKeyRoutingHealth_FiltersGroupsForRegularUsers(t *testing.T) {
 	status, body := serveAPIKeyRoutingHealth(t, handler, service.RoleUser, "11,12,13,11")
 	require.Equal(t, http.StatusOK, status)
 	require.Equal(t, service.APIKeyRoutingHealthWindowMinutes, body.WindowMinutes)
+	require.Equal(t, service.APIKeyRoutingHealthWindowDays, body.WindowDays)
 	require.Len(t, body.Items, 2)
 	require.Equal(t, int64(11), body.Items[0].GroupID)
 	require.Equal(t, service.APIKeyRoutingHealthStatusDegraded, body.Items[0].Status)
@@ -131,11 +142,11 @@ func TestGetAPIKeyRoutingHealth_FiltersGroupsForRegularUsers(t *testing.T) {
 }
 
 func TestGetAPIKeyRoutingHealth_AllowsAdminCatalogAndRejectsInvalidIDs(t *testing.T) {
-	cache := &apiKeyRoutingMiddlewareCache{health: map[int64]service.APIKeyRoutingHealth{
-		11: {Success: 10},
-		12: {Failure: 10},
-	}}
-	handler := newAPIKeyRoutingMiddlewareHandler(nil, cache)
+	handler := newAPIKeyRoutingMiddlewareHandler(nil, nil)
+	handler.gatewayService.SetAPIKeyRoutingHealthProvider(&apiKeyRoutingHealthProvider{snapshots: []service.APIKeyRoutingHealthSnapshot{
+		{GroupID: 11, Status: service.APIKeyRoutingHealthStatusOperational},
+		{GroupID: 12, Status: service.APIKeyRoutingHealthStatusFailed},
+	}})
 	handler.apiKeyService = service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, nil)
 
 	status, body := serveAPIKeyRoutingHealth(t, handler, service.RoleAdmin, "11,12")

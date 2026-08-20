@@ -157,7 +157,7 @@ const routingEditorKey = ref<ApiKey | null>(null)
 const routingDraft = ref<ApiKeyRoutingDraft>(createEmptyRoutingDraft())
 const routingHealth = ref<Record<number, ApiKeyRoutingGroupHealth>>({})
 const routingHealthLoading = ref(false)
-const routingHealthWindowMinutes = ref(30)
+const routingHealthWindowMinutes = ref(10080)
 let routingHealthRequestID = 0
 const routingGroupCatalog = computed<Group[]>(() => {
   const byID = new Map<number, Group>(allGroups.value.map((group) => [group.id, group]))

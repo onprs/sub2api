@@ -162,6 +162,12 @@ func resolveLatestBillingEligibility(
 	userID int64,
 	platform string,
 ) (*service.UserSubscription, error) {
+	if apiKey != nil && apiKey.IsInternalChannelMonitor() {
+		if c != nil {
+			c.Set(string(middleware2.ContextKeySubscription), nil)
+		}
+		return nil, nil
+	}
 	if c == nil || c.Request == nil || resolver == nil || apiKey == nil {
 		return nil, service.ErrBillingServiceUnavailable
 	}

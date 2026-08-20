@@ -45,6 +45,9 @@ func (h *OpenCodeGoGatewayHandler) checkContentModeration(c *gin.Context, reqLog
 }
 
 func runContentModeration(c *gin.Context, reqLog *zap.Logger, svc *service.ContentModerationService, apiKey *service.APIKey, subject middleware2.AuthSubject, protocol string, model string, body []byte) *service.ContentModerationDecision {
+	if apiKey != nil && apiKey.IsInternalChannelMonitor() {
+		return nil
+	}
 	if svc == nil || c == nil || c.Request == nil {
 		return nil
 	}

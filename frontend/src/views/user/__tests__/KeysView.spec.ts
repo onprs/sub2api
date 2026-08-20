@@ -289,7 +289,7 @@ describe('user KeysView column settings', () => {
     getDashboardApiKeysUsage.mockResolvedValue({ stats: {} })
     getAvailableGroups.mockResolvedValue([])
     getUserGroupRates.mockResolvedValue({})
-    getRoutingHealth.mockResolvedValue({ window_minutes: 30, items: [] })
+    getRoutingHealth.mockResolvedValue({ window_minutes: 10080, window_days: 7, items: [] })
     createKey.mockResolvedValue(createApiKey())
     updateKey.mockResolvedValue(createApiKey())
     updateRouting.mockResolvedValue(createApiKey())

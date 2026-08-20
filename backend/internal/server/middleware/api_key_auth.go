@@ -28,6 +28,9 @@ func NewAPIKeyAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionS
 // /v1/usage 端点只需鉴权，不需要计费执行（允许过期/配额耗尽的 Key 查询自身用量）。
 func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if authenticateInternalChannelMonitor(c) {
+			return
+		}
 		// ── 1. 提取 API Key ──────────────────────────────────────────
 
 		queryKey := strings.TrimSpace(c.Query("key"))
@@ -256,6 +259,28 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 		c.Next()
 	}
+}
+
+func authenticateInternalChannelMonitor(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return false
+	}
+	apiKey, ok := service.InternalChannelMonitorAPIKey(c.Request.Context())
+	if !ok || apiKey.User == nil || apiKey.Group == nil {
+		return false
+	}
+	SetOpsFallbackAPIKey(c, apiKey)
+	ctx := context.WithValue(c.Request.Context(), ctxkey.UserID, apiKey.User.ID)
+	c.Request = c.Request.WithContext(ctx)
+	c.Set(string(ContextKeyAPIKey), apiKey)
+	c.Set(string(ContextKeyUser), AuthSubject{
+		UserID:      apiKey.User.ID,
+		Concurrency: apiKey.User.Concurrency,
+	})
+	c.Set(string(ContextKeyUserRole), apiKey.User.Role)
+	setGroupContext(c, apiKey.Group)
+	c.Next()
+	return true
 }
 
 func isSubscriptionUsageLimitError(err error) bool {

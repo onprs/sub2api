@@ -75,6 +75,11 @@ func APIMode(v string) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldEQ(FieldAPIMode, v))
 }
 
+// GroupID applies equality check predicate on the "group_id" field. It's identical to GroupIDEQ.
+func GroupID(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldGroupID, v))
+}
+
 // Endpoint applies equality check predicate on the "endpoint" field. It's identical to EndpointEQ.
 func Endpoint(v string) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldEQ(FieldEndpoint, v))
@@ -358,6 +363,56 @@ func APIModeEqualFold(v string) predicate.ChannelMonitor {
 // APIModeContainsFold applies the ContainsFold predicate on the "api_mode" field.
 func APIModeContainsFold(v string) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldContainsFold(FieldAPIMode, v))
+}
+
+// TargetTypeEQ applies the EQ predicate on the "target_type" field.
+func TargetTypeEQ(v TargetType) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldTargetType, v))
+}
+
+// TargetTypeNEQ applies the NEQ predicate on the "target_type" field.
+func TargetTypeNEQ(v TargetType) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNEQ(FieldTargetType, v))
+}
+
+// TargetTypeIn applies the In predicate on the "target_type" field.
+func TargetTypeIn(vs ...TargetType) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldIn(FieldTargetType, vs...))
+}
+
+// TargetTypeNotIn applies the NotIn predicate on the "target_type" field.
+func TargetTypeNotIn(vs ...TargetType) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNotIn(FieldTargetType, vs...))
+}
+
+// GroupIDEQ applies the EQ predicate on the "group_id" field.
+func GroupIDEQ(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldGroupID, v))
+}
+
+// GroupIDNEQ applies the NEQ predicate on the "group_id" field.
+func GroupIDNEQ(v int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNEQ(FieldGroupID, v))
+}
+
+// GroupIDIn applies the In predicate on the "group_id" field.
+func GroupIDIn(vs ...int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldIn(FieldGroupID, vs...))
+}
+
+// GroupIDNotIn applies the NotIn predicate on the "group_id" field.
+func GroupIDNotIn(vs ...int64) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNotIn(FieldGroupID, vs...))
+}
+
+// GroupIDIsNil applies the IsNil predicate on the "group_id" field.
+func GroupIDIsNil() predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldIsNull(FieldGroupID))
+}
+
+// GroupIDNotNil applies the NotNil predicate on the "group_id" field.
+func GroupIDNotNil() predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNotNull(FieldGroupID))
 }
 
 // EndpointEQ applies the EQ predicate on the "endpoint" field.
@@ -953,6 +1008,29 @@ func HasDailyRollups() predicate.ChannelMonitor {
 func HasDailyRollupsWith(preds ...predicate.ChannelMonitorDailyRollup) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(func(s *sql.Selector) {
 		step := newDailyRollupsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasGroup applies the HasEdge predicate on the "group" edge.
+func HasGroup() predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, GroupTable, GroupColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasGroupWith applies the HasEdge predicate on the "group" edge with a given conditions (other predicates).
+func HasGroupWith(preds ...predicate.Group) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(func(s *sql.Selector) {
+		step := newGroupStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

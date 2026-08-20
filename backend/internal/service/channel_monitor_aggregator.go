@@ -4,10 +4,254 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 )
 
 // 渠道监控聚合层：把 latest + availability 拼成 admin/user 视图所需的 summary / detail。
 // 所有方法都遵守"失败仅日志，返回零值"的原则，避免 N+1 查询失败拖垮列表渲染。
+
+const (
+	channelMonitorRoutingHealthCacheTTL     = 15 * time.Second
+	channelMonitorRoutingHealthQueryTimeout = 3 * time.Second
+)
+
+type channelMonitorRoutingHealthCacheEntry struct {
+	snapshot  APIKeyRoutingHealthSnapshot
+	expiresAt time.Time
+}
+
+func (s *ChannelMonitorService) GetAPIKeyRoutingHealthSnapshots(
+	ctx context.Context,
+	groupIDs []int64,
+) []APIKeyRoutingHealthSnapshot {
+	orderedIDs := uniquePositiveGroupIDs(groupIDs)
+	if len(orderedIDs) == 0 {
+		return []APIKeyRoutingHealthSnapshot{}
+	}
+	if s == nil || s.repo == nil {
+		return makeUnknownRoutingHealthSnapshots(orderedIDs)
+	}
+
+	cached, missing := s.readRoutingHealthCache(orderedIDs, time.Now())
+	if len(missing) == 0 {
+		return orderedRoutingHealthSnapshots(orderedIDs, cached)
+	}
+
+	// 刷新中的请求不等待数据库聚合，直接按当前缓存返回，路由按 unknown 基线继续。
+	if !s.routingHealthRefreshMu.TryLock() {
+		return orderedRoutingHealthSnapshots(orderedIDs, cached)
+	}
+	defer s.routingHealthRefreshMu.Unlock()
+
+	cached, missing = s.readRoutingHealthCache(orderedIDs, time.Now())
+	if len(missing) > 0 {
+		queryCtx, cancel := context.WithTimeout(ctx, channelMonitorRoutingHealthQueryTimeout)
+		loaded := s.loadAPIKeyRoutingHealthSnapshots(queryCtx, missing)
+		cancel()
+		s.storeRoutingHealthCache(missing, loaded, time.Now().Add(channelMonitorRoutingHealthCacheTTL))
+		cached, _ = s.readRoutingHealthCache(orderedIDs, time.Now())
+	}
+	return orderedRoutingHealthSnapshots(orderedIDs, cached)
+}
+
+func (s *ChannelMonitorService) loadAPIKeyRoutingHealthSnapshots(
+	ctx context.Context,
+	orderedIDs []int64,
+) []APIKeyRoutingHealthSnapshot {
+	snapshots := makeUnknownRoutingHealthSnapshots(orderedIDs)
+	monitors, err := s.repo.ListEnabledLocalByGroupIDs(ctx, orderedIDs)
+	if err != nil || len(monitors) == 0 {
+		if err != nil {
+			slog.Warn("channel_monitor: load routing health monitors failed", "error", err)
+		}
+		return snapshots
+	}
+
+	monitors = validLocalRoutingHealthMonitors(monitors)
+	if len(monitors) == 0 {
+		return snapshots
+	}
+	ids, primaryByID, _ := collectMonitorIndexes(monitors)
+	latestMap, latestErr := s.repo.ListLatestForMonitorIDs(ctx, ids)
+	availabilityMap, availabilityErr := s.repo.ComputeAvailabilityForMonitors(ctx, ids, APIKeyRoutingHealthWindowDays)
+	if latestErr != nil || availabilityErr != nil {
+		slog.Warn("channel_monitor: aggregate routing health failed",
+			"latest_error", latestErr,
+			"availability_error", availabilityErr,
+		)
+		return snapshots
+	}
+
+	monitorByGroup := make(map[int64]*ChannelMonitor, len(monitors))
+	for _, monitor := range monitors {
+		if monitor != nil && monitor.GroupID != nil {
+			monitorByGroup[*monitor.GroupID] = monitor
+		}
+	}
+	for index, groupID := range orderedIDs {
+		monitor := monitorByGroup[groupID]
+		if monitor == nil {
+			continue
+		}
+		latest := pickLatest(latestMap[monitor.ID], primaryByID[monitor.ID])
+		availability := indexAvailabilityByModel(availabilityMap[monitor.ID])[primaryByID[monitor.ID]]
+		if latest == nil || availability == nil || availability.TotalChecks <= 0 {
+			continue
+		}
+		snapshots[index] = monitorRoutingHealthSnapshot(groupID, latest, availability)
+	}
+	return snapshots
+}
+
+func validLocalRoutingHealthMonitors(monitors []*ChannelMonitor) []*ChannelMonitor {
+	valid := make([]*ChannelMonitor, 0, len(monitors))
+	for _, monitor := range monitors {
+		if monitor == nil || !monitor.Enabled || monitor.TargetType != ChannelMonitorTargetLocal || monitor.GroupID == nil || monitor.Group == nil {
+			continue
+		}
+		if monitor.Group.ID != *monitor.GroupID || !monitor.Group.IsActive() {
+			continue
+		}
+		if monitor.Group.Platform != monitorProviderPlatform(monitor.Provider) {
+			continue
+		}
+		valid = append(valid, monitor)
+	}
+	return valid
+}
+
+func (s *ChannelMonitorService) readRoutingHealthCache(
+	groupIDs []int64,
+	now time.Time,
+) (map[int64]APIKeyRoutingHealthSnapshot, []int64) {
+	cached := make(map[int64]APIKeyRoutingHealthSnapshot, len(groupIDs))
+	missing := make([]int64, 0, len(groupIDs))
+	if s == nil {
+		return cached, append(missing, groupIDs...)
+	}
+	s.routingHealthCacheMu.RLock()
+	defer s.routingHealthCacheMu.RUnlock()
+	for _, groupID := range groupIDs {
+		entry, ok := s.routingHealthCache[groupID]
+		if !ok || !entry.expiresAt.After(now) {
+			missing = append(missing, groupID)
+			continue
+		}
+		cached[groupID] = entry.snapshot
+	}
+	return cached, missing
+}
+
+func (s *ChannelMonitorService) storeRoutingHealthCache(
+	groupIDs []int64,
+	loaded []APIKeyRoutingHealthSnapshot,
+	expiresAt time.Time,
+) {
+	loadedByID := make(map[int64]APIKeyRoutingHealthSnapshot, len(loaded))
+	for _, snapshot := range loaded {
+		loadedByID[snapshot.GroupID] = snapshot
+	}
+	s.routingHealthCacheMu.Lock()
+	defer s.routingHealthCacheMu.Unlock()
+	if s.routingHealthCache == nil {
+		s.routingHealthCache = make(map[int64]channelMonitorRoutingHealthCacheEntry)
+	}
+	for _, groupID := range groupIDs {
+		snapshot, ok := loadedByID[groupID]
+		if !ok {
+			snapshot = APIKeyRoutingHealthSnapshot{GroupID: groupID, Status: APIKeyRoutingHealthStatusUnknown}
+		}
+		s.routingHealthCache[groupID] = channelMonitorRoutingHealthCacheEntry{
+			snapshot:  snapshot,
+			expiresAt: expiresAt,
+		}
+	}
+}
+
+func (s *ChannelMonitorService) invalidateAPIKeyRoutingHealth(groupIDs ...int64) {
+	if s == nil {
+		return
+	}
+	s.routingHealthCacheMu.Lock()
+	defer s.routingHealthCacheMu.Unlock()
+	if len(groupIDs) == 0 {
+		s.routingHealthCache = make(map[int64]channelMonitorRoutingHealthCacheEntry)
+		return
+	}
+	for _, groupID := range groupIDs {
+		delete(s.routingHealthCache, groupID)
+	}
+}
+
+func orderedRoutingHealthSnapshots(
+	groupIDs []int64,
+	byID map[int64]APIKeyRoutingHealthSnapshot,
+) []APIKeyRoutingHealthSnapshot {
+	out := make([]APIKeyRoutingHealthSnapshot, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		snapshot, ok := byID[groupID]
+		if !ok {
+			snapshot = APIKeyRoutingHealthSnapshot{GroupID: groupID, Status: APIKeyRoutingHealthStatusUnknown}
+		}
+		out = append(out, snapshot)
+	}
+	return out
+}
+
+func uniquePositiveGroupIDs(groupIDs []int64) []int64 {
+	out := make([]int64, 0, len(groupIDs))
+	seen := make(map[int64]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if groupID <= 0 {
+			continue
+		}
+		if _, exists := seen[groupID]; exists {
+			continue
+		}
+		seen[groupID] = struct{}{}
+		out = append(out, groupID)
+	}
+	return out
+}
+
+func makeUnknownRoutingHealthSnapshots(groupIDs []int64) []APIKeyRoutingHealthSnapshot {
+	out := make([]APIKeyRoutingHealthSnapshot, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		out = append(out, APIKeyRoutingHealthSnapshot{
+			GroupID: groupID,
+			Status:  APIKeyRoutingHealthStatusUnknown,
+		})
+	}
+	return out
+}
+
+func monitorRoutingHealthSnapshot(
+	groupID int64,
+	latest *ChannelMonitorLatest,
+	availability *ChannelMonitorAvailability,
+) APIKeyRoutingHealthSnapshot {
+	status := APIKeyRoutingHealthStatusFailed
+	switch latest.Status {
+	case MonitorStatusOperational:
+		status = APIKeyRoutingHealthStatusOperational
+	case MonitorStatusDegraded:
+		status = APIKeyRoutingHealthStatusDegraded
+	}
+	successRate := availability.AvailabilityPct
+	observedAt := latest.CheckedAt.UTC()
+	snapshot := APIKeyRoutingHealthSnapshot{
+		GroupID:        groupID,
+		Status:         status,
+		SuccessRate:    &successRate,
+		SampleCount:    int64(availability.TotalChecks),
+		LastObservedAt: &observedAt,
+	}
+	if availability.AvgLatencyMs != nil {
+		latency := int64(*availability.AvgLatencyMs)
+		snapshot.AverageLatencyMs = &latency
+	}
+	return snapshot
+}
 
 // BatchMonitorStatusSummary 批量聚合多个监控的 latest + 7d 可用率（admin/user list 用，消除 N+1）。
 // 失败时返回空 map，错误仅日志，不影响列表渲染。

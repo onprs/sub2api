@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	APIKeyRoutingHealthWindowMinutes = 30
+	APIKeyRoutingHealthWindowDays    = 7
+	APIKeyRoutingHealthWindowMinutes = APIKeyRoutingHealthWindowDays * 24 * 60
 
 	APIKeyRoutingCapabilityText       = "text"
 	APIKeyRoutingCapabilityMessages   = "messages"
@@ -27,7 +28,7 @@ const (
 	APIKeyRoutingHealthStatusFailed      = "failed"
 	APIKeyRoutingHealthStatusUnknown     = "unknown"
 
-	apiKeyRoutingHealthWindow          = APIKeyRoutingHealthWindowMinutes * time.Minute
+	apiKeyRoutingSchedulerHealthWindow = 30 * time.Minute
 	apiKeyRoutingHealthPrior           = 20.0
 	apiKeyRoutingHealthBase            = 0.95
 	apiKeyRoutingHealthOperationalRate = 95.0
@@ -68,11 +69,18 @@ type APIKeyRoutingHealthSnapshot struct {
 	LastObservedAt   *time.Time
 }
 
+type APIKeyRoutingHealthProvider interface {
+	GetAPIKeyRoutingHealthSnapshots(ctx context.Context, groupIDs []int64) []APIKeyRoutingHealthSnapshot
+}
+
 type apiKeyRoutingCache interface {
 	GetAPIKeyRoutingGroupID(ctx context.Context, apiKeyID int64, sessionKey string) (int64, error)
 	SetAPIKeyRoutingGroupID(ctx context.Context, apiKeyID int64, sessionKey string, groupID int64, ttl time.Duration) error
-	GetAPIKeyRoutingHealth(ctx context.Context, groupID int64, since time.Time) (APIKeyRoutingHealth, error)
 	RecordAPIKeyRoutingOutcome(ctx context.Context, groupID int64, success bool, latencyMs *int64, at time.Time) error
+}
+
+type apiKeyRoutingHealthCache interface {
+	GetAPIKeyRoutingHealth(ctx context.Context, groupID int64, since time.Time) (APIKeyRoutingHealth, error)
 }
 
 type apiKeyRoutingHealthBatchCache interface {
@@ -107,9 +115,14 @@ func (s *GatewayService) ResolveAPIKeyRoutingGroup(ctx context.Context, apiKey *
 			}
 		}
 	}
+	strategy := apiKey.RoutingStrategyValue()
+	healthByGroup := make(map[int64]APIKeyRoutingHealthSnapshot)
+	if strategy == APIKeyRoutingStrategyBalanced || strategy == APIKeyRoutingStrategyStabilityFirst {
+		healthByGroup = s.apiKeyRoutingHealthSnapshotsByGroup(ctx, bindings)
+	}
 	candidates := make([]apiKeyRoutingCandidate, 0, len(bindings))
 	for index, binding := range bindings {
-		candidate, ok := s.buildAPIKeyRoutingCandidate(ctx, apiKey, binding, input, index, subscriptionsByGroup)
+		candidate, ok := s.buildAPIKeyRoutingCandidate(ctx, apiKey, binding, input, index, subscriptionsByGroup, healthByGroup)
 		if ok {
 			candidates = append(candidates, candidate)
 		}
@@ -141,7 +154,7 @@ func (s *GatewayService) ResolveAPIKeyRoutingGroup(ctx context.Context, apiKey *
 		}
 	}
 
-	selected := selectAPIKeyRoutingCandidate(candidates, apiKey.RoutingStrategyValue())
+	selected := selectAPIKeyRoutingCandidate(candidates, strategy)
 	if selected.binding.Group == nil {
 		return nil, ErrNoAvailableRoutingGroup
 	}
@@ -158,6 +171,7 @@ func (s *GatewayService) buildAPIKeyRoutingCandidate(
 	input APIKeyRoutingResolveInput,
 	manualOrder int,
 	subscriptionsByGroup map[int64][]UserSubscription,
+	healthByGroup map[int64]APIKeyRoutingHealthSnapshot,
 ) (apiKeyRoutingCandidate, bool) {
 	group := binding.Group
 	if group == nil || !group.IsActive() || group.Platform != apiKey.RoutingPlatformValue() {
@@ -270,10 +284,13 @@ func (s *GatewayService) buildAPIKeyRoutingCandidate(
 		}
 	}
 
-	health := s.apiKeyRoutingHealth(ctx, group.ID)
-	total := float64(health.Success + health.Failure)
-	smoothedSuccess := (float64(health.Success) + apiKeyRoutingHealthPrior*apiKeyRoutingHealthBase) /
-		(total + apiKeyRoutingHealthPrior)
+	health, hasHealth := healthByGroup[group.ID]
+	smoothedSuccess := apiKeyRoutingHealthBase
+	if hasHealth && health.SuccessRate != nil && health.SampleCount > 0 {
+		samples := float64(health.SampleCount)
+		smoothedSuccess = ((*health.SuccessRate/100)*samples + apiKeyRoutingHealthPrior*apiKeyRoutingHealthBase) /
+			(samples + apiKeyRoutingHealthPrior)
+	}
 	stability := 0.8*smoothedSuccess + 0.2*capacity
 
 	return apiKeyRoutingCandidate{
@@ -445,19 +462,97 @@ func (s *GatewayService) BindAPIKeyRoutingSession(ctx context.Context, apiKeyID 
 	s.bindAPIKeyRoutingGroup(ctx, apiKeyID, sessionKey, groupID)
 }
 
-func (s *GatewayService) apiKeyRoutingHealth(ctx context.Context, groupID int64) APIKeyRoutingHealth {
-	cache, ok := s.cache.(apiKeyRoutingCache)
-	if !ok || groupID <= 0 {
-		return APIKeyRoutingHealth{}
+func (s *GatewayService) SetAPIKeyRoutingHealthProvider(provider APIKeyRoutingHealthProvider) {
+	if s == nil {
+		return
 	}
-	health, err := cache.GetAPIKeyRoutingHealth(ctx, groupID, timezone.Now().Add(-apiKeyRoutingHealthWindow))
-	if err != nil {
-		return APIKeyRoutingHealth{}
-	}
-	return health
+	s.apiKeyRoutingHealthSource = provider
 }
 
+func (s *GatewayService) apiKeyRoutingHealthSnapshotsByGroup(
+	ctx context.Context,
+	bindings []APIKeyGroupBinding,
+) map[int64]APIKeyRoutingHealthSnapshot {
+	groupIDs := make([]int64, 0, len(bindings))
+	for _, binding := range bindings {
+		if binding.GroupID > 0 {
+			groupIDs = append(groupIDs, binding.GroupID)
+		}
+	}
+	snapshots := s.apiKeyRoutingSchedulerHealthSnapshots(ctx, groupIDs)
+	out := make(map[int64]APIKeyRoutingHealthSnapshot, len(snapshots))
+	for _, snapshot := range snapshots {
+		out[snapshot.GroupID] = snapshot
+	}
+	return out
+}
+
+func (s *GatewayService) apiKeyRoutingSchedulerHealthSnapshots(
+	ctx context.Context,
+	groupIDs []int64,
+) []APIKeyRoutingHealthSnapshot {
+	orderedIDs := uniqueAPIKeyRoutingGroupIDs(groupIDs)
+	if len(orderedIDs) == 0 {
+		return []APIKeyRoutingHealthSnapshot{}
+	}
+
+	healthByID := make(map[int64]APIKeyRoutingHealth, len(orderedIDs))
+	since := timezone.Now().Add(-apiKeyRoutingSchedulerHealthWindow)
+	if cache, ok := s.cache.(apiKeyRoutingHealthBatchCache); ok {
+		if health, err := cache.GetAPIKeyRoutingHealthBatch(ctx, orderedIDs, since); err == nil {
+			healthByID = health
+		}
+	} else if cache, ok := s.cache.(apiKeyRoutingHealthCache); ok {
+		for _, groupID := range orderedIDs {
+			if health, err := cache.GetAPIKeyRoutingHealth(ctx, groupID, since); err == nil {
+				healthByID[groupID] = health
+			}
+		}
+	}
+
+	snapshots := make([]APIKeyRoutingHealthSnapshot, 0, len(orderedIDs))
+	for _, groupID := range orderedIDs {
+		snapshots = append(snapshots, buildAPIKeyRoutingSchedulerHealthSnapshot(groupID, healthByID[groupID]))
+	}
+	return snapshots
+}
+
+// GetAPIKeyRoutingHealthSnapshots 仅返回编辑器展示用的 Channel Monitor 快照。
+// 实际候选排序由 apiKeyRoutingSchedulerHealthSnapshots 继续使用 Redis 近期结果。
 func (s *GatewayService) GetAPIKeyRoutingHealthSnapshots(ctx context.Context, groupIDs []int64) []APIKeyRoutingHealthSnapshot {
+	orderedIDs := uniqueAPIKeyRoutingGroupIDs(groupIDs)
+	if len(orderedIDs) == 0 {
+		return []APIKeyRoutingHealthSnapshot{}
+	}
+
+	requestedIDs := make(map[int64]struct{}, len(orderedIDs))
+	for _, groupID := range orderedIDs {
+		requestedIDs[groupID] = struct{}{}
+	}
+	providedByID := make(map[int64]APIKeyRoutingHealthSnapshot, len(orderedIDs))
+	if s != nil && s.apiKeyRoutingHealthSource != nil {
+		for _, snapshot := range s.apiKeyRoutingHealthSource.GetAPIKeyRoutingHealthSnapshots(ctx, orderedIDs) {
+			if _, requested := requestedIDs[snapshot.GroupID]; requested {
+				providedByID[snapshot.GroupID] = snapshot
+			}
+		}
+	}
+
+	snapshots := make([]APIKeyRoutingHealthSnapshot, 0, len(orderedIDs))
+	for _, groupID := range orderedIDs {
+		if snapshot, ok := providedByID[groupID]; ok {
+			snapshots = append(snapshots, snapshot)
+			continue
+		}
+		snapshots = append(snapshots, APIKeyRoutingHealthSnapshot{
+			GroupID: groupID,
+			Status:  APIKeyRoutingHealthStatusUnknown,
+		})
+	}
+	return snapshots
+}
+
+func uniqueAPIKeyRoutingGroupIDs(groupIDs []int64) []int64 {
 	orderedIDs := make([]int64, 0, len(groupIDs))
 	seen := make(map[int64]struct{}, len(groupIDs))
 	for _, groupID := range groupIDs {
@@ -470,29 +565,10 @@ func (s *GatewayService) GetAPIKeyRoutingHealthSnapshots(ctx context.Context, gr
 		seen[groupID] = struct{}{}
 		orderedIDs = append(orderedIDs, groupID)
 	}
-	if len(orderedIDs) == 0 {
-		return []APIKeyRoutingHealthSnapshot{}
-	}
-
-	healthByID := make(map[int64]APIKeyRoutingHealth, len(orderedIDs))
-	if cache, ok := s.cache.(apiKeyRoutingHealthBatchCache); ok {
-		if health, err := cache.GetAPIKeyRoutingHealthBatch(ctx, orderedIDs, timezone.Now().Add(-apiKeyRoutingHealthWindow)); err == nil {
-			healthByID = health
-		}
-	} else {
-		for _, groupID := range orderedIDs {
-			healthByID[groupID] = s.apiKeyRoutingHealth(ctx, groupID)
-		}
-	}
-
-	snapshots := make([]APIKeyRoutingHealthSnapshot, 0, len(orderedIDs))
-	for _, groupID := range orderedIDs {
-		snapshots = append(snapshots, buildAPIKeyRoutingHealthSnapshot(groupID, healthByID[groupID]))
-	}
-	return snapshots
+	return orderedIDs
 }
 
-func buildAPIKeyRoutingHealthSnapshot(groupID int64, health APIKeyRoutingHealth) APIKeyRoutingHealthSnapshot {
+func buildAPIKeyRoutingSchedulerHealthSnapshot(groupID int64, health APIKeyRoutingHealth) APIKeyRoutingHealthSnapshot {
 	snapshot := APIKeyRoutingHealthSnapshot{
 		GroupID:        groupID,
 		Status:         APIKeyRoutingHealthStatusUnknown,

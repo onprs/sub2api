@@ -45,9 +45,11 @@ func (r *apiKeyRoutingAccountRepo) ListSchedulableByGroupIDAndPlatforms(_ contex
 
 type apiKeyRoutingCacheStub struct {
 	*mockGatewayCacheForPlatform
-	sticky  map[string]int64
-	health  map[int64]APIKeyRoutingHealth
-	outcome map[int64][]bool
+	sticky           map[string]int64
+	health           map[int64]APIKeyRoutingHealth
+	healthBatchCalls int
+	healthBatchSince time.Time
+	outcome          map[int64][]bool
 }
 
 func (c *apiKeyRoutingCacheStub) GetAPIKeyRoutingGroupID(_ context.Context, _ int64, sessionKey string) (int64, error) {
@@ -70,12 +72,32 @@ func (c *apiKeyRoutingCacheStub) GetAPIKeyRoutingHealth(_ context.Context, group
 	return c.health[groupID], nil
 }
 
+func (c *apiKeyRoutingCacheStub) GetAPIKeyRoutingHealthBatch(_ context.Context, groupIDs []int64, since time.Time) (map[int64]APIKeyRoutingHealth, error) {
+	c.healthBatchCalls++
+	c.healthBatchSince = since
+	result := make(map[int64]APIKeyRoutingHealth, len(groupIDs))
+	for _, groupID := range groupIDs {
+		result[groupID] = c.health[groupID]
+	}
+	return result, nil
+}
+
 func (c *apiKeyRoutingCacheStub) RecordAPIKeyRoutingOutcome(_ context.Context, groupID int64, success bool, _ *int64, _ time.Time) error {
 	if c.outcome == nil {
 		c.outcome = make(map[int64][]bool)
 	}
 	c.outcome[groupID] = append(c.outcome[groupID], success)
 	return nil
+}
+
+type apiKeyRoutingHealthProviderStub struct {
+	snapshots []APIKeyRoutingHealthSnapshot
+	calls     int
+}
+
+func (p *apiKeyRoutingHealthProviderStub) GetAPIKeyRoutingHealthSnapshots(_ context.Context, _ []int64) []APIKeyRoutingHealthSnapshot {
+	p.calls++
+	return append([]APIKeyRoutingHealthSnapshot(nil), p.snapshots...)
 }
 
 type apiKeyRoutingSubscriptionRepo struct {
@@ -420,7 +442,7 @@ func TestResolveAPIKeyRoutingGroup_CostIncludesBatchDiscountAndMediaPrice(t *tes
 	require.Equal(t, lowerEffectiveCost.ID, *got.GroupID)
 }
 
-func TestResolveAPIKeyRoutingGroup_StabilityAndStickySession(t *testing.T) {
+func TestResolveAPIKeyRoutingGroup_StabilityUsesRedisAndStickySession(t *testing.T) {
 	unstable := newAPIKeyRoutingTestGroup(61)
 	stable := newAPIKeyRoutingTestGroup(62)
 	cache := &apiKeyRoutingCacheStub{
@@ -435,6 +457,14 @@ func TestResolveAPIKeyRoutingGroup_StabilityAndStickySession(t *testing.T) {
 		unstable.ID: {newAPIKeyRoutingTestAccount(161, "gpt-route")},
 		stable.ID:   {newAPIKeyRoutingTestAccount(162, "gpt-route")},
 	}, cache)
+	// Channel Monitor 故意给出相反结论；实际调度必须继续服从 Redis 近期结果。
+	monitorUnstableRate := 100.0
+	monitorStableRate := 0.0
+	provider := &apiKeyRoutingHealthProviderStub{snapshots: []APIKeyRoutingHealthSnapshot{
+		{GroupID: unstable.ID, Status: APIKeyRoutingHealthStatusOperational, SuccessRate: &monitorUnstableRate, SampleCount: 100},
+		{GroupID: stable.ID, Status: APIKeyRoutingHealthStatusFailed, SuccessRate: &monitorStableRate, SampleCount: 100},
+	}}
+	svc.SetAPIKeyRoutingHealthProvider(provider)
 
 	got, err := svc.ResolveAPIKeyRoutingGroup(context.Background(), key, APIKeyRoutingResolveInput{
 		Model:      "gpt-route",
@@ -460,29 +490,47 @@ func TestResolveAPIKeyRoutingGroup_StabilityAndStickySession(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, stable.ID, *got.GroupID)
+	require.Zero(t, provider.calls)
+	require.Equal(t, 3, cache.healthBatchCalls)
+	require.WithinDuration(t, time.Now().Add(-30*time.Minute), cache.healthBatchSince, 5*time.Second)
 }
 
-func TestGetAPIKeyRoutingHealthSnapshots_ReportsRecentStatusLatencyAndStability(t *testing.T) {
-	lastSuccess := true
-	lastFailure := false
+func TestResolveAPIKeyRoutingGroup_ManualDoesNotLoadChannelMonitorHealth(t *testing.T) {
+	first := newAPIKeyRoutingTestGroup(63)
+	second := newAPIKeyRoutingTestGroup(64)
+	key := newAPIKeyRoutingTestKey(APIKeyRoutingStrategyManual, first, second)
+	svc := newAPIKeyRoutingTestService(map[int64][]Account{
+		first.ID:  {newAPIKeyRoutingTestAccount(163, "gpt-route")},
+		second.ID: {newAPIKeyRoutingTestAccount(164, "gpt-route")},
+	}, nil)
+	provider := &apiKeyRoutingHealthProviderStub{}
+	svc.SetAPIKeyRoutingHealthProvider(provider)
+
+	got, err := svc.ResolveAPIKeyRoutingGroup(context.Background(), key, APIKeyRoutingResolveInput{Model: "gpt-route"})
+	require.NoError(t, err)
+	require.Equal(t, first.ID, *got.GroupID)
+	require.Zero(t, provider.calls)
+}
+
+func TestGetAPIKeyRoutingHealthSnapshots_UsesChannelMonitorProviderWithoutCacheFallback(t *testing.T) {
 	observedAt := time.Now().UTC().Truncate(time.Millisecond)
+	successRate := 90.0
+	latency := int64(250)
 	cache := &apiKeyRoutingCacheStub{health: map[int64]APIKeyRoutingHealth{
-		91: {
-			Success:        18,
-			Failure:        2,
-			LatencyTotalMs: 1001,
-			LatencySamples: 4,
-			LastSuccess:    &lastSuccess,
-			LastObservedAt: &observedAt,
-		},
-		93: {
-			Success:        99,
-			Failure:        1,
-			LastSuccess:    &lastFailure,
-			LastObservedAt: &observedAt,
-		},
+		92: {Success: 10},
 	}}
 	svc := newAPIKeyRoutingTestService(nil, cache)
+	svc.SetAPIKeyRoutingHealthProvider(&apiKeyRoutingHealthProviderStub{snapshots: []APIKeyRoutingHealthSnapshot{
+		{
+			GroupID:          91,
+			Status:           APIKeyRoutingHealthStatusDegraded,
+			SuccessRate:      &successRate,
+			AverageLatencyMs: &latency,
+			SampleCount:      20,
+			LastObservedAt:   &observedAt,
+		},
+		{GroupID: 93, Status: APIKeyRoutingHealthStatusFailed},
+	}})
 
 	snapshots := svc.GetAPIKeyRoutingHealthSnapshots(context.Background(), []int64{91, 92, 91, -1, 93})
 	require.Len(t, snapshots, 3)
@@ -493,10 +541,12 @@ func TestGetAPIKeyRoutingHealthSnapshots_ReportsRecentStatusLatencyAndStability(
 	require.Equal(t, int64(20), snapshots[0].SampleCount)
 	require.Equal(t, observedAt, *snapshots[0].LastObservedAt)
 
+	// 提供者未返回 92，即使 Redis 中仍有旧路由样本也必须展示为无数据。
 	require.Equal(t, APIKeyRoutingHealthStatusUnknown, snapshots[1].Status)
 	require.Nil(t, snapshots[1].SuccessRate)
 	require.Nil(t, snapshots[1].AverageLatencyMs)
 	require.Equal(t, APIKeyRoutingHealthStatusFailed, snapshots[2].Status)
+	require.Zero(t, cache.healthBatchCalls, "编辑器展示不得读取 Redis 路由样本")
 }
 
 func TestOpenAIWSStateStore_BindsResponseIDToAPIKeyRoutingGroup(t *testing.T) {

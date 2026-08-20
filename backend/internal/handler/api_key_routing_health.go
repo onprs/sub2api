@@ -25,10 +25,11 @@ type apiKeyRoutingHealthItem struct {
 
 type apiKeyRoutingHealthResponse struct {
 	WindowMinutes int                       `json:"window_minutes"`
+	WindowDays    int                       `json:"window_days"`
 	Items         []apiKeyRoutingHealthItem `json:"items"`
 }
 
-// GetAPIKeyRoutingHealth 返回候选分组的近 30 分钟真实路由健康快照。
+// GetAPIKeyRoutingHealth 返回候选分组对应 Channel Monitor 的近 7 天健康快照。
 func (h *GatewayHandler) GetAPIKeyRoutingHealth(c *gin.Context) {
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
@@ -72,6 +73,7 @@ func (h *GatewayHandler) GetAPIKeyRoutingHealth(c *gin.Context) {
 	}
 	response.Success(c, apiKeyRoutingHealthResponse{
 		WindowMinutes: service.APIKeyRoutingHealthWindowMinutes,
+		WindowDays:    service.APIKeyRoutingHealthWindowDays,
 		Items:         items,
 	})
 }

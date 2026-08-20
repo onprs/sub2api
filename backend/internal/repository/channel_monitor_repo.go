@@ -38,8 +38,9 @@ func (r *channelMonitorRepository) Create(ctx context.Context, m *service.Channe
 		SetName(m.Name).
 		SetProvider(channelmonitor.Provider(m.Provider)).
 		SetAPIMode(defaultAPIModeRepo(m.APIMode)).
+		SetTargetType(channelmonitor.TargetType(m.TargetType)).
 		SetEndpoint(m.Endpoint).
-		SetAPIKeyEncrypted(m.APIKey). // 调用方传入的已是密文
+		SetAPIKeyEncrypted(m.APIKey). // 外站密钥已加密；本站为空
 		SetPrimaryModel(m.PrimaryModel).
 		SetExtraModels(emptySliceIfNil(m.ExtraModels)).
 		SetGroupName(m.GroupName).
@@ -49,6 +50,9 @@ func (r *channelMonitorRepository) Create(ctx context.Context, m *service.Channe
 		SetCreatedBy(m.CreatedBy).
 		SetExtraHeaders(emptyHeadersIfNilRepo(m.ExtraHeaders)).
 		SetBodyOverrideMode(defaultBodyModeRepo(m.BodyOverrideMode))
+	if m.GroupID != nil {
+		builder = builder.SetGroupID(*m.GroupID)
+	}
 	if m.TemplateID != nil {
 		builder = builder.SetTemplateID(*m.TemplateID)
 	}
@@ -58,7 +62,7 @@ func (r *channelMonitorRepository) Create(ctx context.Context, m *service.Channe
 
 	created, err := builder.Save(ctx)
 	if err != nil {
-		return translatePersistenceError(err, service.ErrChannelMonitorNotFound, nil)
+		return translatePersistenceError(err, service.ErrChannelMonitorNotFound, service.ErrChannelMonitorGroupAlreadyMonitored)
 	}
 	m.ID = created.ID
 	m.CreatedAt = created.CreatedAt
@@ -69,6 +73,7 @@ func (r *channelMonitorRepository) Create(ctx context.Context, m *service.Channe
 func (r *channelMonitorRepository) GetByID(ctx context.Context, id int64) (*service.ChannelMonitor, error) {
 	row, err := r.client.ChannelMonitor.Query().
 		Where(channelmonitor.IDEQ(id)).
+		WithGroup().
 		Only(ctx)
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrChannelMonitorNotFound, nil)
@@ -82,6 +87,7 @@ func (r *channelMonitorRepository) Update(ctx context.Context, m *service.Channe
 		SetName(m.Name).
 		SetProvider(channelmonitor.Provider(m.Provider)).
 		SetAPIMode(defaultAPIModeRepo(m.APIMode)).
+		SetTargetType(channelmonitor.TargetType(m.TargetType)).
 		SetEndpoint(m.Endpoint).
 		SetAPIKeyEncrypted(m.APIKey).
 		SetPrimaryModel(m.PrimaryModel).
@@ -92,6 +98,11 @@ func (r *channelMonitorRepository) Update(ctx context.Context, m *service.Channe
 		SetJitterSeconds(m.JitterSeconds).
 		SetExtraHeaders(emptyHeadersIfNilRepo(m.ExtraHeaders)).
 		SetBodyOverrideMode(defaultBodyModeRepo(m.BodyOverrideMode))
+	if m.GroupID != nil {
+		updater = updater.SetGroupID(*m.GroupID)
+	} else {
+		updater = updater.ClearGroupID()
+	}
 	if m.TemplateID != nil {
 		updater = updater.SetTemplateID(*m.TemplateID)
 	} else {
@@ -105,7 +116,7 @@ func (r *channelMonitorRepository) Update(ctx context.Context, m *service.Channe
 
 	updated, err := updater.Save(ctx)
 	if err != nil {
-		return translatePersistenceError(err, service.ErrChannelMonitorNotFound, nil)
+		return translatePersistenceError(err, service.ErrChannelMonitorNotFound, service.ErrChannelMonitorGroupAlreadyMonitored)
 	}
 	m.UpdatedAt = updated.UpdatedAt
 	return nil
@@ -153,6 +164,7 @@ func (r *channelMonitorRepository) List(ctx context.Context, params service.Chan
 		Order(dbent.Desc(channelmonitor.FieldID)).
 		Offset((page - 1) * pageSize).
 		Limit(pageSize).
+		WithGroup().
 		All(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list monitors: %w", err)
@@ -165,14 +177,116 @@ func (r *channelMonitorRepository) List(ctx context.Context, params service.Chan
 	return out, int64(total), nil
 }
 
+// ListPendingLocalTargets 返回迁移 190 后尚未绑定分组的旧本站监控。
+func (r *channelMonitorRepository) ListPendingLocalTargets(ctx context.Context) ([]*service.ChannelMonitor, error) {
+	rows, err := r.client.ChannelMonitor.Query().
+		Where(
+			channelmonitor.TargetTypeEQ(channelmonitor.TargetTypeLocal),
+			channelmonitor.GroupIDIsNil(),
+		).
+		Order(dbent.Asc(channelmonitor.FieldID)).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list pending local monitor targets: %w", err)
+	}
+	out := make([]*service.ChannelMonitor, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, entToServiceMonitor(row))
+	}
+	return out, nil
+}
+
+// ResolveLegacyAPIKeyGroupID 包含软删除 API Key，因为旧监控可能仍持有已删除 Key 的密文。
+func (r *channelMonitorRepository) ResolveLegacyAPIKeyGroupID(ctx context.Context, apiKey string) (int64, error) {
+	var groupID sql.NullInt64
+	err := r.db.QueryRowContext(ctx, `
+		SELECT group_id
+		FROM api_keys
+		WHERE key = $1
+	`, apiKey).Scan(&groupID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, fmt.Errorf("legacy monitor api key not found")
+		}
+		return 0, fmt.Errorf("resolve legacy monitor api key group: %w", err)
+	}
+	if !groupID.Valid || groupID.Int64 <= 0 {
+		return 0, fmt.Errorf("legacy monitor api key has no group")
+	}
+	return groupID.Int64, nil
+}
+
+// MigrateLocalTargets 在全部旧密钥均已解析后一次性写入，避免部分记录迁移。
+func (r *channelMonitorRepository) MigrateLocalTargets(ctx context.Context, targets []service.ChannelMonitorLocalTargetMigration) error {
+	if len(targets) == 0 {
+		return nil
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin local monitor target migration: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for _, target := range targets {
+		result, execErr := tx.ExecContext(ctx, `
+			UPDATE channel_monitors
+			SET group_id = $1,
+			    group_name = $2,
+			    endpoint = '',
+			    api_key_encrypted = '',
+			    updated_at = NOW()
+			WHERE id = $3
+			  AND target_type = 'local'
+			  AND group_id IS NULL
+		`, target.GroupID, target.GroupName, target.MonitorID)
+		if execErr != nil {
+			return fmt.Errorf("migrate local monitor %d: %w", target.MonitorID, execErr)
+		}
+		affected, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return fmt.Errorf("read local monitor %d migration result: %w", target.MonitorID, rowsErr)
+		}
+		if affected != 1 {
+			return fmt.Errorf("local monitor %d migration updated %d rows", target.MonitorID, affected)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit local monitor target migration: %w", err)
+	}
+	return nil
+}
+
 // ---------- 调度器辅助 ----------
 
 func (r *channelMonitorRepository) ListEnabled(ctx context.Context) ([]*service.ChannelMonitor, error) {
 	rows, err := r.client.ChannelMonitor.Query().
 		Where(channelmonitor.EnabledEQ(true)).
+		WithGroup().
 		All(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list enabled monitors: %w", err)
+	}
+	out := make([]*service.ChannelMonitor, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, entToServiceMonitor(row))
+	}
+	return out, nil
+}
+
+func (r *channelMonitorRepository) ListEnabledLocalByGroupIDs(ctx context.Context, groupIDs []int64) ([]*service.ChannelMonitor, error) {
+	if len(groupIDs) == 0 {
+		return []*service.ChannelMonitor{}, nil
+	}
+	rows, err := r.client.ChannelMonitor.Query().
+		Where(
+			channelmonitor.EnabledEQ(true),
+			channelmonitor.TargetTypeEQ(channelmonitor.TargetTypeLocal),
+			channelmonitor.GroupIDIn(groupIDs...),
+		).
+		WithGroup().
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list enabled local monitors by group: %w", err)
 	}
 	out := make([]*service.ChannelMonitor, 0, len(rows))
 	for _, row := range rows {
@@ -713,6 +827,8 @@ func entToServiceMonitor(row *dbent.ChannelMonitor) *service.ChannelMonitor {
 		Name:             row.Name,
 		Provider:         string(row.Provider),
 		APIMode:          defaultAPIModeRepo(row.APIMode),
+		TargetType:       string(row.TargetType),
+		GroupID:          row.GroupID,
 		Endpoint:         row.Endpoint,
 		APIKey:           row.APIKeyEncrypted, // 仍为密文，service 层负责解密
 		PrimaryModel:     row.PrimaryModel,
@@ -728,6 +844,12 @@ func entToServiceMonitor(row *dbent.ChannelMonitor) *service.ChannelMonitor {
 		ExtraHeaders:     headers,
 		BodyOverrideMode: row.BodyOverrideMode,
 		BodyOverride:     row.BodyOverride,
+	}
+	if row.Edges.Group != nil {
+		out.Group = groupEntityToService(row.Edges.Group)
+		if out.TargetType == service.ChannelMonitorTargetLocal {
+			out.GroupName = out.Group.Name
+		}
 	}
 	if row.TemplateID != nil {
 		id := *row.TemplateID

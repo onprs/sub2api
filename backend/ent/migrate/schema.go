@@ -676,8 +676,9 @@ var (
 		{Name: "name", Type: field.TypeString, Size: 100},
 		{Name: "provider", Type: field.TypeEnum, Enums: []string{"openai", "anthropic", "gemini", "opencode_go", "clinepass", "openrouter", "antigravity_claude", "antigravity_gemini"}},
 		{Name: "api_mode", Type: field.TypeString, Size: 32, Default: "chat_completions"},
-		{Name: "endpoint", Type: field.TypeString, Size: 500},
-		{Name: "api_key_encrypted", Type: field.TypeString},
+		{Name: "target_type", Type: field.TypeEnum, Enums: []string{"local", "external"}, Default: "local"},
+		{Name: "endpoint", Type: field.TypeString, Size: 500, Default: ""},
+		{Name: "api_key_encrypted", Type: field.TypeString, Default: ""},
 		{Name: "primary_model", Type: field.TypeString, Size: 200},
 		{Name: "extra_models", Type: field.TypeJSON},
 		{Name: "group_name", Type: field.TypeString, Nullable: true, Size: 100, Default: ""},
@@ -690,6 +691,7 @@ var (
 		{Name: "body_override_mode", Type: field.TypeString, Size: 10, Default: "off"},
 		{Name: "body_override", Type: field.TypeJSON, Nullable: true},
 		{Name: "template_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "group_id", Type: field.TypeInt64, Nullable: true},
 	}
 	// ChannelMonitorsTable holds the schema information for the "channel_monitors" table.
 	ChannelMonitorsTable = &schema.Table{
@@ -699,16 +701,22 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "channel_monitors_channel_monitor_request_templates_request_template",
-				Columns:    []*schema.Column{ChannelMonitorsColumns[19]},
+				Columns:    []*schema.Column{ChannelMonitorsColumns[20]},
 				RefColumns: []*schema.Column{ChannelMonitorRequestTemplatesColumns[0]},
 				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "channel_monitors_groups_channel_monitors",
+				Columns:    []*schema.Column{ChannelMonitorsColumns[21]},
+				RefColumns: []*schema.Column{GroupsColumns[0]},
+				OnDelete:   schema.Restrict,
 			},
 		},
 		Indexes: []*schema.Index{
 			{
 				Name:    "channelmonitor_enabled_last_checked_at",
 				Unique:  false,
-				Columns: []*schema.Column{ChannelMonitorsColumns[11], ChannelMonitorsColumns[14]},
+				Columns: []*schema.Column{ChannelMonitorsColumns[12], ChannelMonitorsColumns[15]},
 			},
 			{
 				Name:    "channelmonitor_provider",
@@ -721,14 +729,32 @@ var (
 				Columns: []*schema.Column{ChannelMonitorsColumns[4], ChannelMonitorsColumns[5]},
 			},
 			{
+				Name:    "channelmonitor_target_type",
+				Unique:  false,
+				Columns: []*schema.Column{ChannelMonitorsColumns[6]},
+			},
+			{
+				Name:    "channelmonitor_group_id",
+				Unique:  false,
+				Columns: []*schema.Column{ChannelMonitorsColumns[21]},
+			},
+			{
+				Name:    "idx_channel_monitors_local_group_unique",
+				Unique:  true,
+				Columns: []*schema.Column{ChannelMonitorsColumns[21]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "target_type = 'local' AND group_id IS NOT NULL",
+				},
+			},
+			{
 				Name:    "channelmonitor_group_name",
 				Unique:  false,
-				Columns: []*schema.Column{ChannelMonitorsColumns[10]},
+				Columns: []*schema.Column{ChannelMonitorsColumns[11]},
 			},
 			{
 				Name:    "channelmonitor_template_id",
 				Unique:  false,
-				Columns: []*schema.Column{ChannelMonitorsColumns[19]},
+				Columns: []*schema.Column{ChannelMonitorsColumns[20]},
 			},
 		},
 	}
@@ -2458,6 +2484,7 @@ func init() {
 		Table: "batch_image_jobs",
 	}
 	ChannelMonitorsTable.ForeignKeys[0].RefTable = ChannelMonitorRequestTemplatesTable
+	ChannelMonitorsTable.ForeignKeys[1].RefTable = GroupsTable
 	ChannelMonitorsTable.Annotation = &entsql.Annotation{
 		Table: "channel_monitors",
 	}

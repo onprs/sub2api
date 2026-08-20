@@ -1195,7 +1195,7 @@ const usageStats = ref<Record<string, BatchApiKeyUsageStats>>({})
 const userGroupRates = ref<Record<number, number>>({})
 const routingHealth = ref<Record<number, ApiKeyRoutingGroupHealth>>({})
 const routingHealthLoading = ref(false)
-const routingHealthWindowMinutes = ref(30)
+const routingHealthWindowMinutes = ref(10080)
 let routingHealthRequestID = 0
 const routingGroupCatalog = computed<Group[]>(() => {
   const byID = new Map(groups.value.map((group) => [group.id, group]))

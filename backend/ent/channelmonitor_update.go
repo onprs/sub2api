@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitordailyrollup"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
+	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 )
 
@@ -77,6 +78,40 @@ func (_u *ChannelMonitorUpdate) SetNillableAPIMode(v *string) *ChannelMonitorUpd
 	if v != nil {
 		_u.SetAPIMode(*v)
 	}
+	return _u
+}
+
+// SetTargetType sets the "target_type" field.
+func (_u *ChannelMonitorUpdate) SetTargetType(v channelmonitor.TargetType) *ChannelMonitorUpdate {
+	_u.mutation.SetTargetType(v)
+	return _u
+}
+
+// SetNillableTargetType sets the "target_type" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableTargetType(v *channelmonitor.TargetType) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetTargetType(*v)
+	}
+	return _u
+}
+
+// SetGroupID sets the "group_id" field.
+func (_u *ChannelMonitorUpdate) SetGroupID(v int64) *ChannelMonitorUpdate {
+	_u.mutation.SetGroupID(v)
+	return _u
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableGroupID(v *int64) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetGroupID(*v)
+	}
+	return _u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (_u *ChannelMonitorUpdate) ClearGroupID() *ChannelMonitorUpdate {
+	_u.mutation.ClearGroupID()
 	return _u
 }
 
@@ -333,6 +368,11 @@ func (_u *ChannelMonitorUpdate) AddDailyRollups(v ...*ChannelMonitorDailyRollup)
 	return _u.AddDailyRollupIDs(ids...)
 }
 
+// SetGroup sets the "group" edge to the Group entity.
+func (_u *ChannelMonitorUpdate) SetGroup(v *Group) *ChannelMonitorUpdate {
+	return _u.SetGroupID(v.ID)
+}
+
 // SetRequestTemplateID sets the "request_template" edge to the ChannelMonitorRequestTemplate entity by ID.
 func (_u *ChannelMonitorUpdate) SetRequestTemplateID(id int64) *ChannelMonitorUpdate {
 	_u.mutation.SetRequestTemplateID(id)
@@ -399,6 +439,12 @@ func (_u *ChannelMonitorUpdate) RemoveDailyRollups(v ...*ChannelMonitorDailyRoll
 	return _u.RemoveDailyRollupIDs(ids...)
 }
 
+// ClearGroup clears the "group" edge to the Group entity.
+func (_u *ChannelMonitorUpdate) ClearGroup() *ChannelMonitorUpdate {
+	_u.mutation.ClearGroup()
+	return _u
+}
+
 // ClearRequestTemplate clears the "request_template" edge to the ChannelMonitorRequestTemplate entity.
 func (_u *ChannelMonitorUpdate) ClearRequestTemplate() *ChannelMonitorUpdate {
 	_u.mutation.ClearRequestTemplate()
@@ -458,14 +504,14 @@ func (_u *ChannelMonitorUpdate) check() error {
 			return &ValidationError{Name: "api_mode", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.api_mode": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.TargetType(); ok {
+		if err := channelmonitor.TargetTypeValidator(v); err != nil {
+			return &ValidationError{Name: "target_type", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.target_type": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Endpoint(); ok {
 		if err := channelmonitor.EndpointValidator(v); err != nil {
 			return &ValidationError{Name: "endpoint", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.endpoint": %w`, err)}
-		}
-	}
-	if v, ok := _u.mutation.APIKeyEncrypted(); ok {
-		if err := channelmonitor.APIKeyEncryptedValidator(v); err != nil {
-			return &ValidationError{Name: "api_key_encrypted", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.api_key_encrypted": %w`, err)}
 		}
 	}
 	if v, ok := _u.mutation.PrimaryModel(); ok {
@@ -519,6 +565,9 @@ func (_u *ChannelMonitorUpdate) sqlSave(ctx context.Context) (_node int, err err
 	}
 	if value, ok := _u.mutation.APIMode(); ok {
 		_spec.SetField(channelmonitor.FieldAPIMode, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.TargetType(); ok {
+		_spec.SetField(channelmonitor.FieldTargetType, field.TypeEnum, value)
 	}
 	if value, ok := _u.mutation.Endpoint(); ok {
 		_spec.SetField(channelmonitor.FieldEndpoint, field.TypeString, value)
@@ -672,6 +721,35 @@ func (_u *ChannelMonitorUpdate) sqlSave(ctx context.Context) (_node int, err err
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.GroupCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.GroupTable,
+			Columns: []string{channelmonitor.GroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.GroupIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.GroupTable,
+			Columns: []string{channelmonitor.GroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _u.mutation.RequestTemplateCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -766,6 +844,40 @@ func (_u *ChannelMonitorUpdateOne) SetNillableAPIMode(v *string) *ChannelMonitor
 	if v != nil {
 		_u.SetAPIMode(*v)
 	}
+	return _u
+}
+
+// SetTargetType sets the "target_type" field.
+func (_u *ChannelMonitorUpdateOne) SetTargetType(v channelmonitor.TargetType) *ChannelMonitorUpdateOne {
+	_u.mutation.SetTargetType(v)
+	return _u
+}
+
+// SetNillableTargetType sets the "target_type" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableTargetType(v *channelmonitor.TargetType) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetTargetType(*v)
+	}
+	return _u
+}
+
+// SetGroupID sets the "group_id" field.
+func (_u *ChannelMonitorUpdateOne) SetGroupID(v int64) *ChannelMonitorUpdateOne {
+	_u.mutation.SetGroupID(v)
+	return _u
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableGroupID(v *int64) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetGroupID(*v)
+	}
+	return _u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (_u *ChannelMonitorUpdateOne) ClearGroupID() *ChannelMonitorUpdateOne {
+	_u.mutation.ClearGroupID()
 	return _u
 }
 
@@ -1022,6 +1134,11 @@ func (_u *ChannelMonitorUpdateOne) AddDailyRollups(v ...*ChannelMonitorDailyRoll
 	return _u.AddDailyRollupIDs(ids...)
 }
 
+// SetGroup sets the "group" edge to the Group entity.
+func (_u *ChannelMonitorUpdateOne) SetGroup(v *Group) *ChannelMonitorUpdateOne {
+	return _u.SetGroupID(v.ID)
+}
+
 // SetRequestTemplateID sets the "request_template" edge to the ChannelMonitorRequestTemplate entity by ID.
 func (_u *ChannelMonitorUpdateOne) SetRequestTemplateID(id int64) *ChannelMonitorUpdateOne {
 	_u.mutation.SetRequestTemplateID(id)
@@ -1086,6 +1203,12 @@ func (_u *ChannelMonitorUpdateOne) RemoveDailyRollups(v ...*ChannelMonitorDailyR
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveDailyRollupIDs(ids...)
+}
+
+// ClearGroup clears the "group" edge to the Group entity.
+func (_u *ChannelMonitorUpdateOne) ClearGroup() *ChannelMonitorUpdateOne {
+	_u.mutation.ClearGroup()
+	return _u
 }
 
 // ClearRequestTemplate clears the "request_template" edge to the ChannelMonitorRequestTemplate entity.
@@ -1160,14 +1283,14 @@ func (_u *ChannelMonitorUpdateOne) check() error {
 			return &ValidationError{Name: "api_mode", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.api_mode": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.TargetType(); ok {
+		if err := channelmonitor.TargetTypeValidator(v); err != nil {
+			return &ValidationError{Name: "target_type", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.target_type": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Endpoint(); ok {
 		if err := channelmonitor.EndpointValidator(v); err != nil {
 			return &ValidationError{Name: "endpoint", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.endpoint": %w`, err)}
-		}
-	}
-	if v, ok := _u.mutation.APIKeyEncrypted(); ok {
-		if err := channelmonitor.APIKeyEncryptedValidator(v); err != nil {
-			return &ValidationError{Name: "api_key_encrypted", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.api_key_encrypted": %w`, err)}
 		}
 	}
 	if v, ok := _u.mutation.PrimaryModel(); ok {
@@ -1238,6 +1361,9 @@ func (_u *ChannelMonitorUpdateOne) sqlSave(ctx context.Context) (_node *ChannelM
 	}
 	if value, ok := _u.mutation.APIMode(); ok {
 		_spec.SetField(channelmonitor.FieldAPIMode, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.TargetType(); ok {
+		_spec.SetField(channelmonitor.FieldTargetType, field.TypeEnum, value)
 	}
 	if value, ok := _u.mutation.Endpoint(); ok {
 		_spec.SetField(channelmonitor.FieldEndpoint, field.TypeString, value)
@@ -1384,6 +1510,35 @@ func (_u *ChannelMonitorUpdateOne) sqlSave(ctx context.Context) (_node *ChannelM
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(channelmonitordailyrollup.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.GroupCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.GroupTable,
+			Columns: []string{channelmonitor.GroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.GroupIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.GroupTable,
+			Columns: []string{channelmonitor.GroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

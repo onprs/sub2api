@@ -79,6 +79,9 @@ type APIKey struct {
 	Group               *Group
 	CurrentConcurrency  int
 
+	// InternalChannelMonitor 仅用于进程内本站探活请求，不持久化、不计费。
+	InternalChannelMonitor bool
+
 	// Quota fields
 	Quota     float64    // Quota limit in USD (0 = unlimited)
 	QuotaUsed float64    // Used quota amount
@@ -174,6 +177,10 @@ func (k *APIKey) CloneWithEffectiveGroup(group *Group) *APIKey {
 		cloned.User = &clonedUser
 	}
 	return &cloned
+}
+
+func (k *APIKey) IsInternalChannelMonitor() bool {
+	return k != nil && k.InternalChannelMonitor
 }
 
 // HasRateLimits returns true if any rate limit window is configured

@@ -24,7 +24,8 @@ describe('分组路由健康 API', () => {
           code: 0,
           message: 'ok',
           data: {
-            window_minutes: 30,
+            window_minutes: 10080,
+            window_days: 7,
             items: groupIDs.map((groupID) => ({
               group_id: groupID,
               status: 'unknown',
@@ -50,6 +51,8 @@ describe('分组路由健康 API', () => {
     expect(String(adapter.mock.calls[0][0].params.group_ids).split(',')).toHaveLength(200)
     expect(adapter.mock.calls[1][0].params.group_ids).toBe('201')
     expect(result.items).toHaveLength(201)
+    expect(result.window_minutes).toBe(10080)
+    expect(result.window_days).toBe(7)
     expect(result.items[200].group_id).toBe(201)
   })
 
@@ -61,7 +64,7 @@ describe('分组路由健康 API', () => {
       data: {
         code: 0,
         message: 'ok',
-        data: { window_minutes: 30, items: [] }
+        data: { window_minutes: 10080, window_days: 7, items: [] }
       },
       headers: {},
       config,

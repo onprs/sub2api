@@ -269,6 +269,25 @@ func TestMigration189AddsDynamicAPIKeyRoutingCompatibilityContract(t *testing.T)
 	}
 }
 
+func TestMigration190AddsChannelMonitorTargetsWithoutDestroyingLegacyMappingKeys(t *testing.T) {
+	content, err := FS.ReadFile("190_add_channel_monitor_targets.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS target_type")
+	require.Contains(t, sql, "NOT NULL DEFAULT 'local'")
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS group_id BIGINT")
+	require.Contains(t, sql, "ALTER COLUMN endpoint SET DEFAULT ''")
+	require.Contains(t, sql, "ALTER COLUMN api_key_encrypted SET DEFAULT ''")
+	require.Contains(t, sql, "CHECK (target_type IN ('local', 'external'))")
+	require.Contains(t, sql, "FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE RESTRICT")
+	require.Contains(t, sql, "idx_channel_monitors_local_group_unique")
+	require.Contains(t, sql, "WHERE target_type = 'local' AND group_id IS NOT NULL")
+	// 应用启动时需要先解密旧密钥完成分组映射，DDL 阶段不能提前清空。
+	require.NotContains(t, sql, "api_key_encrypted = ''")
+	require.NotContains(t, sql, "channel_monitor_histories")
+}
+
 func TestMigration182UpdatesClinePassMonitorGuidance(t *testing.T) {
 	content, err := FS.ReadFile("182_fix_clinepass_channel_monitor_template.sql")
 	require.NoError(t, err)
