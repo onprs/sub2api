@@ -51,11 +51,22 @@ type CheckOptions struct {
 	BodyOverride map[string]any
 }
 
-// runCheckForModel 对单个 (provider, model) 做一次完整检测。
-// 不返回 error：所有失败都包装进 CheckResult.Status=error/failed。
-//
-// opts 承载模板 / 监控快照带来的自定义配置。nil 等同于 "off + 无 extra headers"。
+type monitorHTTPDoer interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+// runCheckForModel 对单个外站 (provider, model) 做一次完整检测。
 func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model string, opts *CheckOptions) *CheckResult {
+	return runCheckForModelWithClient(ctx, provider, endpoint, apiKey, model, opts, monitorHTTPClient)
+}
+
+// runCheckForModelWithClient 允许本站监控注入进程内 HTTP 执行器，其余判定逻辑完全复用。
+func runCheckForModelWithClient(
+	ctx context.Context,
+	provider, endpoint, apiKey, model string,
+	opts *CheckOptions,
+	client monitorHTTPDoer,
+) *CheckResult {
 	res := &CheckResult{
 		Model:     model,
 		Status:    MonitorStatusError,
@@ -66,7 +77,7 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	mode := bodyOverrideMode(opts)
 
 	start := time.Now()
-	respText, rawBody, statusCode, err := callProvider(ctx, provider, endpoint, apiKey, model, challenge.Prompt, opts)
+	respText, rawBody, statusCode, err := callProviderWithClient(ctx, provider, endpoint, apiKey, model, challenge.Prompt, opts, client)
 	latency := time.Since(start)
 	latencyMs := int(latency / time.Millisecond)
 	res.LatencyMs = &latencyMs
@@ -423,15 +434,12 @@ func isSupportedProvider(p string) bool {
 	return ok
 }
 
-// callProvider 通过 providerAdapters 分发到具体实现。
-// opts 承载用户的自定义 headers / body 覆盖（可为 nil）。
-//
-// 返回值：
-//   - extractedText: 按 textPath 抽出的成功文本，仅在 status 2xx 时有意义；非 2xx 时通常为空串
-//   - rawBody: 完整响应体的字符串形式（已被 monitorResponseMaxBytes 截断），用于错误路径保留上游真实回包
-//   - status: HTTP 状态码
-//   - err: 网络 / 序列化错误
-func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt string, opts *CheckOptions) (extractedText, rawBody string, status int, err error) {
+func callProviderWithClient(
+	ctx context.Context,
+	provider, endpoint, apiKey, model, prompt string,
+	opts *CheckOptions,
+	client monitorHTTPDoer,
+) (extractedText, rawBody string, status int, err error) {
 	requestedAPIMode := checkAPIMode(opts)
 	if err := validateAPIMode(provider, requestedAPIMode); err != nil {
 		return "", "", 0, err
@@ -446,7 +454,7 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	}
 	headers := mergeHeaders(adapter.buildHeaders(apiKey), opts)
 	full := joinURL(endpoint, adapter.buildPath(model))
-	respBytes, status, err := postRawJSON(ctx, full, body, headers)
+	respBytes, status, err := postRawJSONWithClient(ctx, full, body, headers, client)
 	if err != nil {
 		return "", "", status, err
 	}
@@ -1015,9 +1023,13 @@ func hasNonEmptyBodyValue(v any) bool {
 	}
 }
 
-// postRawJSON 发送 POST + 已序列化好的 JSON 字节，限制响应体大小，返回响应字节、HTTP status、错误。
-// adapter 自行 marshal 是为了精确控制字段顺序与类型，所以这里直接收 []byte 而不是 any。
-func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers map[string]string) ([]byte, int, error) {
+func postRawJSONWithClient(
+	ctx context.Context,
+	fullURL string,
+	payload []byte,
+	headers map[string]string,
+	client monitorHTTPDoer,
+) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, 0, fmt.Errorf("build request: %w", err)
@@ -1028,7 +1040,10 @@ func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers ma
 		req.Header.Set(k, v)
 	}
 
-	resp, err := monitorHTTPClient.Do(req)
+	if client == nil {
+		return nil, 0, fmt.Errorf("http client is unavailable")
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("do request: %w", err)
 	}

@@ -2,6 +2,11 @@ package service
 
 import "time"
 
+const (
+	ChannelMonitorTargetLocal    = "local"
+	ChannelMonitorTargetExternal = "external"
+)
+
 // MonitorBodyOverrideMode 自定义请求体处理模式。
 //
 //   - off     使用 adapter 默认 body（忽略 BodyOverride）
@@ -34,8 +39,11 @@ type ChannelMonitor struct {
 	Name            string
 	Provider        string
 	APIMode         string
+	TargetType      string
+	GroupID         *int64
+	Group           *Group
 	Endpoint        string
-	APIKey          string // 解密后的明文 API Key（仅在 service 内部使用，handler 层不应直接序列化返回）
+	APIKey          string // 外站为解密后的明文 API Key；本站始终为空
 	PrimaryModel    string
 	ExtraModels     []string
 	GroupName       string
@@ -72,6 +80,8 @@ type ChannelMonitorCreateParams struct {
 	Name             string
 	Provider         string
 	APIMode          string
+	TargetType       string
+	GroupID          *int64
 	Endpoint         string
 	APIKey           string
 	PrimaryModel     string
@@ -92,8 +102,10 @@ type ChannelMonitorUpdateParams struct {
 	Name            *string
 	Provider        *string
 	APIMode         *string
+	TargetType      *string
+	GroupID         *int64
 	Endpoint        *string
-	APIKey          *string // 空字符串表示不修改；非空字符串覆盖
+	APIKey          *string // 外站：空字符串表示不修改；本站忽略并清空
 	PrimaryModel    *string
 	ExtraModels     *[]string
 	GroupName       *string
@@ -108,6 +120,12 @@ type ChannelMonitorUpdateParams struct {
 	ExtraHeaders     *map[string]string
 	BodyOverrideMode *string
 	BodyOverride     *map[string]any
+}
+
+type ChannelMonitorLocalTargetMigration struct {
+	MonitorID int64
+	GroupID   int64
+	GroupName string
 }
 
 // CheckResult 单个模型一次检测的结果。

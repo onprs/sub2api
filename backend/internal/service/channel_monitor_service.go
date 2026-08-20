@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -22,8 +23,14 @@ type ChannelMonitorRepository interface {
 	Delete(ctx context.Context, id int64) error
 	List(ctx context.Context, params ChannelMonitorListParams) ([]*ChannelMonitor, int64, error)
 
+	// 旧数据迁移：先解析全部旧密钥，再用单事务写入本站分组并清空旧凭据。
+	ListPendingLocalTargets(ctx context.Context) ([]*ChannelMonitor, error)
+	ResolveLegacyAPIKeyGroupID(ctx context.Context, apiKey string) (int64, error)
+	MigrateLocalTargets(ctx context.Context, targets []ChannelMonitorLocalTargetMigration) error
+
 	// 调度器辅助
 	ListEnabled(ctx context.Context) ([]*ChannelMonitor, error)
+	ListEnabledLocalByGroupIDs(ctx context.Context, groupIDs []int64) ([]*ChannelMonitor, error)
 	MarkChecked(ctx context.Context, id int64, checkedAt time.Time) error
 	InsertHistoryBatch(ctx context.Context, rows []*ChannelMonitorHistoryRow) error
 	DeleteHistoryBefore(ctx context.Context, before time.Time) (int64, error)
@@ -61,14 +68,31 @@ type ChannelMonitorRepository interface {
 type ChannelMonitorService struct {
 	repo      ChannelMonitorRepository
 	encryptor SecretEncryptor
+	groupRepo GroupRepository
+
+	localHandlerMu sync.RWMutex
+	localHandler   http.Handler
+
+	routingHealthCacheMu   sync.RWMutex
+	routingHealthRefreshMu sync.Mutex
+	routingHealthCache     map[int64]channelMonitorRoutingHealthCacheEntry
 	// scheduler 由 wire 通过 SetScheduler 注入；CRUD 后调用对应钩子即时同步任务。
 	// 测试或未注入场景下保持 nil，所有钩子调用变为 no-op。
 	scheduler MonitorScheduler
 }
 
 // NewChannelMonitorService 创建渠道监控服务实例。
-func NewChannelMonitorService(repo ChannelMonitorRepository, encryptor SecretEncryptor) *ChannelMonitorService {
-	return &ChannelMonitorService{repo: repo, encryptor: encryptor}
+// groupRepo 使用可选参数以兼容只测试外站逻辑的轻量单元测试。
+func NewChannelMonitorService(repo ChannelMonitorRepository, encryptor SecretEncryptor, groupRepos ...GroupRepository) *ChannelMonitorService {
+	svc := &ChannelMonitorService{
+		repo:               repo,
+		encryptor:          encryptor,
+		routingHealthCache: make(map[int64]channelMonitorRoutingHealthCacheEntry),
+	}
+	if len(groupRepos) > 0 {
+		svc.groupRepo = groupRepos[0]
+	}
+	return svc
 }
 
 // ---------- CRUD ----------
@@ -102,7 +126,7 @@ func (s *ChannelMonitorService) Get(ctx context.Context, id int64) (*ChannelMoni
 	return m, nil
 }
 
-// Create 创建监控（内部加密 api_key）。
+// Create 创建监控。本站绑定分组且不保存凭据；外站加密保存 API Key。
 func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCreateParams) (*ChannelMonitor, error) {
 	if err := validateCreateParams(p); err != nil {
 		return nil, err
@@ -113,19 +137,29 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 	if err := validateExtraHeaders(p.ExtraHeaders); err != nil {
 		return nil, err
 	}
-	encrypted, err := s.encryptor.Encrypt(p.APIKey)
+
+	targetType := normalizeMonitorTargetType(p.TargetType, p.Endpoint, p.APIKey)
+	group, endpoint, encryptedKey, groupName, err := s.prepareCreateTarget(ctx, p, targetType)
 	if err != nil {
-		return nil, fmt.Errorf("encrypt api key: %w", err)
+		return nil, err
+	}
+	var groupID *int64
+	if group != nil {
+		id := group.ID
+		groupID = &id
 	}
 	m := &ChannelMonitor{
 		Name:             strings.TrimSpace(p.Name),
 		Provider:         p.Provider,
 		APIMode:          defaultAPIMode(p.APIMode),
-		Endpoint:         normalizeEndpoint(p.Endpoint),
-		APIKey:           encrypted, // 注意：传入 repository 时该字段为密文
+		TargetType:       targetType,
+		GroupID:          groupID,
+		Group:            group,
+		Endpoint:         endpoint,
+		APIKey:           encryptedKey,
 		PrimaryModel:     strings.TrimSpace(p.PrimaryModel),
 		ExtraModels:      normalizeModels(p.ExtraModels),
-		GroupName:        strings.TrimSpace(p.GroupName),
+		GroupName:        groupName,
 		Enabled:          p.Enabled,
 		IntervalSeconds:  p.IntervalSeconds,
 		JitterSeconds:    p.JitterSeconds,
@@ -138,16 +172,49 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 	if err := s.repo.Create(ctx, m); err != nil {
 		return nil, fmt.Errorf("create channel monitor: %w", err)
 	}
-	// 不再调 s.Get 重走解密链：已知刚加密的明文，直接构造响应。
-	// 这样可避免 SecretEncryptor 解密失败时 APIKey 被静默清空的问题（见 Fix 4）。
-	m.APIKey = strings.TrimSpace(p.APIKey)
+	if m.GroupID != nil {
+		s.invalidateAPIKeyRoutingHealth(*m.GroupID)
+	}
+	if targetType == ChannelMonitorTargetExternal {
+		m.APIKey = strings.TrimSpace(p.APIKey)
+	}
 	if s.scheduler != nil {
 		s.scheduler.Schedule(m)
 	}
 	return m, nil
 }
 
-// validateCreateParams 把 Create 入参的所有校验聚拢为一个函数，避免 Create 主体超过 30 行。
+func (s *ChannelMonitorService) prepareCreateTarget(
+	ctx context.Context,
+	p ChannelMonitorCreateParams,
+	targetType string,
+) (*Group, string, string, string, error) {
+	switch targetType {
+	case ChannelMonitorTargetLocal:
+		group, err := s.resolveLocalMonitorGroup(ctx, p.Provider, p.GroupID)
+		if err != nil {
+			return nil, "", "", "", err
+		}
+		return group, "", "", group.Name, nil
+	case ChannelMonitorTargetExternal:
+		if err := validateEndpointForProvider(p.Provider, p.Endpoint); err != nil {
+			return nil, "", "", "", err
+		}
+		plain := strings.TrimSpace(p.APIKey)
+		if plain == "" {
+			return nil, "", "", "", ErrChannelMonitorMissingAPIKey
+		}
+		encrypted, err := s.encryptor.Encrypt(plain)
+		if err != nil {
+			return nil, "", "", "", fmt.Errorf("encrypt api key: %w", err)
+		}
+		return nil, normalizeEndpoint(p.Endpoint), encrypted, strings.TrimSpace(p.GroupName), nil
+	default:
+		return nil, "", "", "", ErrChannelMonitorInvalidTargetType
+	}
+}
+
+// validateCreateParams 校验与目标无关的公共字段；目标专属字段由 prepareCreateTarget 校验。
 func validateCreateParams(p ChannelMonitorCreateParams) error {
 	if err := validateProvider(p.Provider); err != nil {
 		return err
@@ -161,49 +228,118 @@ func validateCreateParams(p ChannelMonitorCreateParams) error {
 	if err := validateJitter(p.JitterSeconds, p.IntervalSeconds); err != nil {
 		return err
 	}
-	if err := validateEndpoint(p.Endpoint); err != nil {
-		return err
-	}
-	if strings.TrimSpace(p.APIKey) == "" {
-		return ErrChannelMonitorMissingAPIKey
-	}
 	if strings.TrimSpace(p.PrimaryModel) == "" {
 		return ErrChannelMonitorMissingPrimaryModel
 	}
-	return nil
+	return validateMonitorTargetType(normalizeMonitorTargetType(p.TargetType, p.Endpoint, p.APIKey))
 }
 
-// Update 更新监控。APIKey 字段：nil 或空字符串 = 不修改；非空 = 加密后覆盖。
+// Update 更新监控，并按最终 target_type 应用本站或外站的专属约束。
 func (s *ChannelMonitorService) Update(ctx context.Context, id int64, p ChannelMonitorUpdateParams) (*ChannelMonitor, error) {
 	existing, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+	previousProvider := existing.Provider
+	previousGroupID := int64(0)
+	if existing.GroupID != nil {
+		previousGroupID = *existing.GroupID
+	}
 	if err := applyMonitorUpdate(existing, p); err != nil {
 		return nil, err
 	}
 
-	newPlainAPIKey, apiKeyUpdated, err := s.applyAPIKeyUpdate(existing, p.APIKey)
+	targetType := normalizeMonitorTargetType(existing.TargetType, existing.Endpoint, existing.APIKey)
+	if p.TargetType != nil {
+		targetType = strings.TrimSpace(*p.TargetType)
+	}
+	if err := validateMonitorTargetType(targetType); err != nil {
+		return nil, err
+	}
+	newPlainAPIKey, apiKeyUpdated, err := s.applyMonitorTargetUpdate(
+		ctx,
+		existing,
+		p,
+		targetType,
+		existing.Provider != previousProvider,
+	)
 	if err != nil {
 		return nil, err
 	}
-
 	if err := s.repo.Update(ctx, existing); err != nil {
 		return nil, fmt.Errorf("update channel monitor: %w", err)
 	}
+	currentGroupID := int64(0)
+	if existing.GroupID != nil {
+		currentGroupID = *existing.GroupID
+	}
+	s.invalidateAPIKeyRoutingHealth(previousGroupID, currentGroupID)
 
-	// 不再调 s.Get 重走解密链：避免二次解密带来的"密文被静默清空"风险（与 Create 一致）。
-	if apiKeyUpdated {
-		existing.APIKey = newPlainAPIKey
-	} else {
-		s.decryptInPlace(existing)
+	if existing.TargetType == ChannelMonitorTargetExternal {
+		if apiKeyUpdated {
+			existing.APIKey = newPlainAPIKey
+		} else {
+			s.decryptInPlace(existing)
+		}
 	}
 	if s.scheduler != nil {
-		// Schedule 内部根据 Enabled 自动选择 Unschedule 或重建任务，
-		// IntervalSeconds 变化也会被自然吸收（旧 task 取消 + 新 task 用新 interval）。
 		s.scheduler.Schedule(existing)
 	}
 	return existing, nil
+}
+
+func (s *ChannelMonitorService) applyMonitorTargetUpdate(
+	ctx context.Context,
+	existing *ChannelMonitor,
+	p ChannelMonitorUpdateParams,
+	targetType string,
+	providerChanged bool,
+) (plain string, apiKeyUpdated bool, err error) {
+	switch targetType {
+	case ChannelMonitorTargetLocal:
+		groupID := existing.GroupID
+		if p.GroupID != nil {
+			id := *p.GroupID
+			groupID = &id
+		}
+		group, groupErr := s.resolveLocalMonitorGroup(ctx, existing.Provider, groupID)
+		if groupErr != nil {
+			return "", false, groupErr
+		}
+		existing.TargetType = ChannelMonitorTargetLocal
+		existing.GroupID = groupID
+		existing.Group = group
+		existing.GroupName = group.Name
+		existing.Endpoint = ""
+		existing.APIKey = ""
+		existing.APIKeyDecryptFailed = false
+		return "", false, nil
+	case ChannelMonitorTargetExternal:
+		if providerChanged && (p.APIKey == nil || strings.TrimSpace(*p.APIKey) == "") {
+			return "", false, ErrChannelMonitorMissingAPIKey
+		}
+		endpoint := existing.Endpoint
+		if p.Endpoint != nil {
+			endpoint = *p.Endpoint
+		}
+		if endpointErr := validateEndpointForProvider(existing.Provider, endpoint); endpointErr != nil {
+			return "", false, endpointErr
+		}
+		existing.TargetType = ChannelMonitorTargetExternal
+		existing.GroupID = nil
+		existing.Group = nil
+		existing.Endpoint = normalizeEndpoint(endpoint)
+		plain, apiKeyUpdated, err = s.applyAPIKeyUpdate(existing, p.APIKey)
+		if err != nil {
+			return "", false, err
+		}
+		if strings.TrimSpace(existing.APIKey) == "" {
+			return "", false, ErrChannelMonitorMissingAPIKey
+		}
+		return plain, apiKeyUpdated, nil
+	default:
+		return "", false, ErrChannelMonitorInvalidTargetType
+	}
 }
 
 // applyAPIKeyUpdate 处理 Update 中的 APIKey 字段：
@@ -228,6 +364,7 @@ func (s *ChannelMonitorService) Delete(ctx context.Context, id int64) error {
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return fmt.Errorf("delete channel monitor: %w", err)
 	}
+	s.invalidateAPIKeyRoutingHealth()
 	if s.scheduler != nil {
 		s.scheduler.Unschedule(id)
 	}
@@ -262,8 +399,19 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 	if err != nil {
 		return nil, err
 	}
-	if m.APIKeyDecryptFailed {
+	if m.TargetType == ChannelMonitorTargetExternal && m.APIKeyDecryptFailed {
 		return nil, ErrChannelMonitorAPIKeyDecryptFailed
+	}
+	if m.TargetType == ChannelMonitorTargetLocal {
+		if m.GroupID == nil || m.Group == nil {
+			return nil, ErrChannelMonitorMissingGroup
+		}
+		if m.Group.ID != *m.GroupID || !m.Group.IsActive() {
+			return nil, ErrChannelMonitorGroupUnavailable
+		}
+		if m.Group.Platform != monitorProviderPlatform(m.Provider) {
+			return nil, ErrChannelMonitorGroupPlatformMismatch
+		}
 	}
 	results := s.runChecksConcurrent(ctx, m)
 	s.persistCheckResults(ctx, m, results)
@@ -293,6 +441,9 @@ func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *Chan
 		slog.Error("channel_monitor: mark checked failed",
 			"monitor_id", m.ID, "error", err)
 	}
+	if m.TargetType == ChannelMonitorTargetLocal && m.GroupID != nil {
+		s.invalidateAPIKeyRoutingHealth(*m.GroupID)
+	}
 }
 
 // runChecksConcurrent 对 primary + extra 模型并发执行检测。
@@ -301,8 +452,11 @@ func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *Chan
 	models := append([]string{m.PrimaryModel}, m.ExtraModels...)
 	results := make([]*CheckResult, len(models))
 
-	// ping 共享一次，所有模型记录同一个 ping 延迟。
-	pingMs := pingEndpointOrigin(ctx, m.Endpoint)
+	// 外站共享一次 endpoint ping；本站为进程内请求，不生成网络 ping 指标。
+	var pingMs *int
+	if m.TargetType == ChannelMonitorTargetExternal {
+		pingMs = pingEndpointOrigin(ctx, m.Endpoint)
+	}
 
 	// 所有模型共用同一份 CheckOptions（来自监控的快照字段）。
 	opts := &CheckOptions{
@@ -317,7 +471,12 @@ func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *Chan
 	for i, model := range models {
 		i, model := i, model
 		eg.Go(func() error {
-			r := runCheckForModel(ctx, m.Provider, m.Endpoint, m.APIKey, model, opts)
+			var r *CheckResult
+			if m.TargetType == ChannelMonitorTargetLocal {
+				r = s.runLocalCheckForModel(ctx, m, model, opts)
+			} else {
+				r = runCheckForModel(ctx, m.Provider, m.Endpoint, m.APIKey, model, opts)
+			}
 			r.PingLatencyMs = pingMs
 			mu.Lock()
 			results[i] = r
@@ -458,7 +617,7 @@ func (s *ChannelMonitorService) cleanupOldRollups(ctx context.Context, today tim
 // 解密失败时把字段清空 + 设置 APIKeyDecryptFailed=true（不返回错误，避免阻断列表渲染）。
 // runner / RunCheck 必须读取该标志位并拒绝执行检测。
 func (s *ChannelMonitorService) decryptInPlace(m *ChannelMonitor) {
-	if m == nil || m.APIKey == "" {
+	if m == nil || m.TargetType == ChannelMonitorTargetLocal || m.APIKey == "" {
 		return
 	}
 	plain, err := s.encryptor.Decrypt(m.APIKey)
@@ -488,17 +647,6 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 		}
 		existing.Provider = *p.Provider
 		providerChanged = true
-	}
-	if p.Endpoint != nil {
-		if err := validateEndpointForProvider(existing.Provider, *p.Endpoint); err != nil {
-			return err
-		}
-		existing.Endpoint = normalizeEndpoint(*p.Endpoint)
-	}
-	if providerChanged && p.Endpoint == nil {
-		if err := validateEndpointForProvider(existing.Provider, existing.Endpoint); err != nil {
-			return err
-		}
 	}
 	if p.PrimaryModel != nil {
 		existing.PrimaryModel = strings.TrimSpace(*p.PrimaryModel)

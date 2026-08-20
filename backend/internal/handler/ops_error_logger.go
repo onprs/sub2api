@@ -630,6 +630,9 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		c.Writer = w
 		c.Next()
 
+		if apiKey := getOpsAPIKey(c); apiKey != nil && apiKey.IsInternalChannelMonitor() {
+			return
+		}
 		if ops == nil {
 			return
 		}

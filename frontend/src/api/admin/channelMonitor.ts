@@ -9,12 +9,15 @@ export type Provider = 'openai' | 'anthropic' | 'gemini' | 'antigravity_claude' 
 export type MonitorStatus = 'operational' | 'degraded' | 'failed' | 'error'
 export type BodyOverrideMode = 'off' | 'merge' | 'replace'
 export type APIMode = 'chat_completions' | 'responses' | 'messages'
+export type MonitorTargetType = 'local' | 'external'
 
 export interface ChannelMonitor {
   id: number
   name: string
   provider: Provider
   api_mode: APIMode
+  target_type: MonitorTargetType
+  group_id: number | null
   endpoint: string
   api_key_masked: string
   /**
@@ -75,8 +78,10 @@ export interface CreateParams {
   name: string
   provider: Provider
   api_mode?: APIMode
-  endpoint: string
-  api_key: string
+  target_type: MonitorTargetType
+  group_id?: number | null
+  endpoint?: string
+  api_key?: string
   primary_model: string
   extra_models?: string[]
   group_name?: string

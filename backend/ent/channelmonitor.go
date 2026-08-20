@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
+	"github.com/Wei-Shaw/sub2api/ent/group"
 )
 
 // ChannelMonitor is the model entity for the ChannelMonitor schema.
@@ -29,9 +30,13 @@ type ChannelMonitor struct {
 	Provider channelmonitor.Provider `json:"provider,omitempty"`
 	// Monitor request protocol: chat_completions, messages, or responses
 	APIMode string `json:"api_mode,omitempty"`
-	// Provider base origin, e.g. https://api.openai.com
+	// 监控目标：local 使用本站分组，external 使用外部 endpoint/api_key
+	TargetType channelmonitor.TargetType `json:"target_type,omitempty"`
+	// 本站监控绑定的分组 ID
+	GroupID *int64 `json:"group_id,omitempty"`
+	// 外站 provider base origin；本站监控为空
 	Endpoint string `json:"endpoint,omitempty"`
-	// AES-256-GCM encrypted API key
+	// 外站 API Key 的 AES-256-GCM 密文；本站监控为空
 	APIKeyEncrypted string `json:"-"`
 	// PrimaryModel holds the value of the "primary_model" field.
 	PrimaryModel string `json:"primary_model,omitempty"`
@@ -69,11 +74,13 @@ type ChannelMonitorEdges struct {
 	History []*ChannelMonitorHistory `json:"history,omitempty"`
 	// DailyRollups holds the value of the daily_rollups edge.
 	DailyRollups []*ChannelMonitorDailyRollup `json:"daily_rollups,omitempty"`
+	// Group holds the value of the group edge.
+	Group *Group `json:"group,omitempty"`
 	// RequestTemplate holds the value of the request_template edge.
 	RequestTemplate *ChannelMonitorRequestTemplate `json:"request_template,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [4]bool
 }
 
 // HistoryOrErr returns the History value or an error if the edge
@@ -94,12 +101,23 @@ func (e ChannelMonitorEdges) DailyRollupsOrErr() ([]*ChannelMonitorDailyRollup, 
 	return nil, &NotLoadedError{edge: "daily_rollups"}
 }
 
+// GroupOrErr returns the Group value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e ChannelMonitorEdges) GroupOrErr() (*Group, error) {
+	if e.Group != nil {
+		return e.Group, nil
+	} else if e.loadedTypes[2] {
+		return nil, &NotFoundError{label: group.Label}
+	}
+	return nil, &NotLoadedError{edge: "group"}
+}
+
 // RequestTemplateOrErr returns the RequestTemplate value or an error if the edge
 // was not loaded in eager-loading, or loaded but was not found.
 func (e ChannelMonitorEdges) RequestTemplateOrErr() (*ChannelMonitorRequestTemplate, error) {
 	if e.RequestTemplate != nil {
 		return e.RequestTemplate, nil
-	} else if e.loadedTypes[2] {
+	} else if e.loadedTypes[3] {
 		return nil, &NotFoundError{label: channelmonitorrequesttemplate.Label}
 	}
 	return nil, &NotLoadedError{edge: "request_template"}
@@ -114,9 +132,9 @@ func (*ChannelMonitor) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case channelmonitor.FieldEnabled:
 			values[i] = new(sql.NullBool)
-		case channelmonitor.FieldID, channelmonitor.FieldIntervalSeconds, channelmonitor.FieldJitterSeconds, channelmonitor.FieldCreatedBy, channelmonitor.FieldTemplateID:
+		case channelmonitor.FieldID, channelmonitor.FieldGroupID, channelmonitor.FieldIntervalSeconds, channelmonitor.FieldJitterSeconds, channelmonitor.FieldCreatedBy, channelmonitor.FieldTemplateID:
 			values[i] = new(sql.NullInt64)
-		case channelmonitor.FieldName, channelmonitor.FieldProvider, channelmonitor.FieldAPIMode, channelmonitor.FieldEndpoint, channelmonitor.FieldAPIKeyEncrypted, channelmonitor.FieldPrimaryModel, channelmonitor.FieldGroupName, channelmonitor.FieldBodyOverrideMode:
+		case channelmonitor.FieldName, channelmonitor.FieldProvider, channelmonitor.FieldAPIMode, channelmonitor.FieldTargetType, channelmonitor.FieldEndpoint, channelmonitor.FieldAPIKeyEncrypted, channelmonitor.FieldPrimaryModel, channelmonitor.FieldGroupName, channelmonitor.FieldBodyOverrideMode:
 			values[i] = new(sql.NullString)
 		case channelmonitor.FieldCreatedAt, channelmonitor.FieldUpdatedAt, channelmonitor.FieldLastCheckedAt:
 			values[i] = new(sql.NullTime)
@@ -170,6 +188,19 @@ func (_m *ChannelMonitor) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field api_mode", values[i])
 			} else if value.Valid {
 				_m.APIMode = value.String
+			}
+		case channelmonitor.FieldTargetType:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field target_type", values[i])
+			} else if value.Valid {
+				_m.TargetType = channelmonitor.TargetType(value.String)
+			}
+		case channelmonitor.FieldGroupID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field group_id", values[i])
+			} else if value.Valid {
+				_m.GroupID = new(int64)
+				*_m.GroupID = value.Int64
 			}
 		case channelmonitor.FieldEndpoint:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -286,6 +317,11 @@ func (_m *ChannelMonitor) QueryDailyRollups() *ChannelMonitorDailyRollupQuery {
 	return NewChannelMonitorClient(_m.config).QueryDailyRollups(_m)
 }
 
+// QueryGroup queries the "group" edge of the ChannelMonitor entity.
+func (_m *ChannelMonitor) QueryGroup() *GroupQuery {
+	return NewChannelMonitorClient(_m.config).QueryGroup(_m)
+}
+
 // QueryRequestTemplate queries the "request_template" edge of the ChannelMonitor entity.
 func (_m *ChannelMonitor) QueryRequestTemplate() *ChannelMonitorRequestTemplateQuery {
 	return NewChannelMonitorClient(_m.config).QueryRequestTemplate(_m)
@@ -328,6 +364,14 @@ func (_m *ChannelMonitor) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("api_mode=")
 	builder.WriteString(_m.APIMode)
+	builder.WriteString(", ")
+	builder.WriteString("target_type=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TargetType))
+	builder.WriteString(", ")
+	if v := _m.GroupID; v != nil {
+		builder.WriteString("group_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteString(", ")
 	builder.WriteString("endpoint=")
 	builder.WriteString(_m.Endpoint)

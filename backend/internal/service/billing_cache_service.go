@@ -808,6 +808,9 @@ func (s *BillingCacheService) CheckBillingEligibilityStrict(ctx context.Context,
 }
 
 func (s *BillingCacheService) checkBillingEligibilityWithMode(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, platform string, failClosed bool) error {
+	if apiKey != nil && apiKey.IsInternalChannelMonitor() {
+		return nil
+	}
 	// 简易模式：跳过所有计费检查
 	if s.cfg.RunMode == config.RunModeSimple {
 		return nil

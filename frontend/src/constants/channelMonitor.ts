@@ -70,14 +70,6 @@ export function monitorProviderKeyGroupPlatform(provider: Provider): GroupPlatfo
   return MONITOR_PROVIDER_KEY_GROUP_PLATFORM[provider]
 }
 
-export function monitorCurrentDomainEndpoint(provider: Provider, origin: string): string {
-  const normalized = origin.replace(/\/+$/, '')
-  if (provider === PROVIDER_OPENCODE_GO) {
-    return `${normalized}/v1`
-  }
-  return normalized
-}
-
 export function monitorPayloadAPIMode(provider: Provider, apiMode: APIMode): APIMode {
   if (provider === PROVIDER_OPENAI) {
     return apiMode === API_MODE_RESPONSES ? API_MODE_RESPONSES : API_MODE_CHAT_COMPLETIONS

@@ -40,14 +40,22 @@ func (ChannelMonitor) Fields() []ent.Field {
 			Default("chat_completions").
 			MaxLen(32).
 			Comment("Monitor request protocol: chat_completions, messages, or responses"),
+		field.Enum("target_type").
+			Values("local", "external").
+			Default("local").
+			Comment("监控目标：local 使用本站分组，external 使用外部 endpoint/api_key"),
+		field.Int64("group_id").
+			Optional().
+			Nillable().
+			Comment("本站监控绑定的分组 ID"),
 		field.String("endpoint").
-			NotEmpty().
+			Default("").
 			MaxLen(500).
-			Comment("Provider base origin, e.g. https://api.openai.com"),
+			Comment("外站 provider base origin；本站监控为空"),
 		field.String("api_key_encrypted").
-			NotEmpty().
+			Default("").
 			Sensitive().
-			Comment("AES-256-GCM encrypted API key"),
+			Comment("外站 API Key 的 AES-256-GCM 密文；本站监控为空"),
 		field.String("primary_model").
 			NotEmpty().
 			MaxLen(200),
@@ -99,6 +107,11 @@ func (ChannelMonitor) Edges() []ent.Edge {
 			Annotations(entsql.OnDelete(entsql.Cascade)),
 		edge.To("daily_rollups", ChannelMonitorDailyRollup.Type).
 			Annotations(entsql.OnDelete(entsql.Cascade)),
+		// 本站监控关联分组；分组软删除后关系仍保留，便于历史展示。
+		edge.From("group", Group.Type).
+			Ref("channel_monitors").
+			Field("group_id").
+			Unique(),
 		// 关联请求模板：模板被删除时 template_id 自动置空，
 		// 监控本身保留（继续用快照字段跑）。
 		edge.To("request_template", ChannelMonitorRequestTemplate.Type).
@@ -113,6 +126,12 @@ func (ChannelMonitor) Indexes() []ent.Index {
 		index.Fields("enabled", "last_checked_at"),
 		index.Fields("provider"),
 		index.Fields("provider", "api_mode"),
+		index.Fields("target_type"),
+		index.Fields("group_id"),
+		index.Fields("group_id").
+			Unique().
+			StorageKey("idx_channel_monitors_local_group_unique").
+			Annotations(entsql.IndexWhere("target_type = 'local' AND group_id IS NOT NULL")),
 		index.Fields("group_name"),
 		index.Fields("template_id"),
 	}

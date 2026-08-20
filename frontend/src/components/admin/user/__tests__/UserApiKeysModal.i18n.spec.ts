@@ -73,7 +73,7 @@ describe('UserApiKeysModal status label', () => {
     getUserApiKeys.mockReset()
     getAllGroups.mockResolvedValue([])
     getRoutingHealth.mockReset()
-    getRoutingHealth.mockResolvedValue({ window_minutes: 30, items: [] })
+    getRoutingHealth.mockResolvedValue({ window_minutes: 10080, window_days: 7, items: [] })
     updateApiKeyRouting.mockReset()
   })
 

@@ -25,6 +25,10 @@ const (
 	FieldProvider = "provider"
 	// FieldAPIMode holds the string denoting the api_mode field in the database.
 	FieldAPIMode = "api_mode"
+	// FieldTargetType holds the string denoting the target_type field in the database.
+	FieldTargetType = "target_type"
+	// FieldGroupID holds the string denoting the group_id field in the database.
+	FieldGroupID = "group_id"
 	// FieldEndpoint holds the string denoting the endpoint field in the database.
 	FieldEndpoint = "endpoint"
 	// FieldAPIKeyEncrypted holds the string denoting the api_key_encrypted field in the database.
@@ -57,6 +61,8 @@ const (
 	EdgeHistory = "history"
 	// EdgeDailyRollups holds the string denoting the daily_rollups edge name in mutations.
 	EdgeDailyRollups = "daily_rollups"
+	// EdgeGroup holds the string denoting the group edge name in mutations.
+	EdgeGroup = "group"
 	// EdgeRequestTemplate holds the string denoting the request_template edge name in mutations.
 	EdgeRequestTemplate = "request_template"
 	// Table holds the table name of the channelmonitor in the database.
@@ -75,6 +81,13 @@ const (
 	DailyRollupsInverseTable = "channel_monitor_daily_rollups"
 	// DailyRollupsColumn is the table column denoting the daily_rollups relation/edge.
 	DailyRollupsColumn = "monitor_id"
+	// GroupTable is the table that holds the group relation/edge.
+	GroupTable = "channel_monitors"
+	// GroupInverseTable is the table name for the Group entity.
+	// It exists in this package in order to avoid circular dependency with the "group" package.
+	GroupInverseTable = "groups"
+	// GroupColumn is the table column denoting the group relation/edge.
+	GroupColumn = "group_id"
 	// RequestTemplateTable is the table that holds the request_template relation/edge.
 	RequestTemplateTable = "channel_monitors"
 	// RequestTemplateInverseTable is the table name for the ChannelMonitorRequestTemplate entity.
@@ -92,6 +105,8 @@ var Columns = []string{
 	FieldName,
 	FieldProvider,
 	FieldAPIMode,
+	FieldTargetType,
+	FieldGroupID,
 	FieldEndpoint,
 	FieldAPIKeyEncrypted,
 	FieldPrimaryModel,
@@ -131,10 +146,12 @@ var (
 	DefaultAPIMode string
 	// APIModeValidator is a validator for the "api_mode" field. It is called by the builders before save.
 	APIModeValidator func(string) error
+	// DefaultEndpoint holds the default value on creation for the "endpoint" field.
+	DefaultEndpoint string
 	// EndpointValidator is a validator for the "endpoint" field. It is called by the builders before save.
 	EndpointValidator func(string) error
-	// APIKeyEncryptedValidator is a validator for the "api_key_encrypted" field. It is called by the builders before save.
-	APIKeyEncryptedValidator func(string) error
+	// DefaultAPIKeyEncrypted holds the default value on creation for the "api_key_encrypted" field.
+	DefaultAPIKeyEncrypted string
 	// PrimaryModelValidator is a validator for the "primary_model" field. It is called by the builders before save.
 	PrimaryModelValidator func(string) error
 	// DefaultExtraModels holds the default value on creation for the "extra_models" field.
@@ -188,6 +205,32 @@ func ProviderValidator(pr Provider) error {
 	}
 }
 
+// TargetType defines the type for the "target_type" enum field.
+type TargetType string
+
+// TargetTypeLocal is the default value of the TargetType enum.
+const DefaultTargetType = TargetTypeLocal
+
+// TargetType values.
+const (
+	TargetTypeLocal    TargetType = "local"
+	TargetTypeExternal TargetType = "external"
+)
+
+func (tt TargetType) String() string {
+	return string(tt)
+}
+
+// TargetTypeValidator is a validator for the "target_type" field enum values. It is called by the builders before save.
+func TargetTypeValidator(tt TargetType) error {
+	switch tt {
+	case TargetTypeLocal, TargetTypeExternal:
+		return nil
+	default:
+		return fmt.Errorf("channelmonitor: invalid enum value for target_type field: %q", tt)
+	}
+}
+
 // OrderOption defines the ordering options for the ChannelMonitor queries.
 type OrderOption func(*sql.Selector)
 
@@ -219,6 +262,16 @@ func ByProvider(opts ...sql.OrderTermOption) OrderOption {
 // ByAPIMode orders the results by the api_mode field.
 func ByAPIMode(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAPIMode, opts...).ToFunc()
+}
+
+// ByTargetType orders the results by the target_type field.
+func ByTargetType(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTargetType, opts...).ToFunc()
+}
+
+// ByGroupID orders the results by the group_id field.
+func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldGroupID, opts...).ToFunc()
 }
 
 // ByEndpoint orders the results by the endpoint field.
@@ -304,6 +357,13 @@ func ByDailyRollups(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByGroupField orders the results by group field.
+func ByGroupField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newGroupStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByRequestTemplateField orders the results by request_template field.
 func ByRequestTemplateField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -322,6 +382,13 @@ func newDailyRollupsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(DailyRollupsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, DailyRollupsTable, DailyRollupsColumn),
+	)
+}
+func newGroupStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(GroupInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, GroupTable, GroupColumn),
 	)
 }
 func newRequestTemplateStep() *sqlgraph.Step {

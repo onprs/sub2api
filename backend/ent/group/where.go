@@ -2145,6 +2145,29 @@ func HasUsageLogsWith(preds ...predicate.UsageLog) predicate.Group {
 	})
 }
 
+// HasChannelMonitors applies the HasEdge predicate on the "channel_monitors" edge.
+func HasChannelMonitors() predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, ChannelMonitorsTable, ChannelMonitorsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasChannelMonitorsWith applies the HasEdge predicate on the "channel_monitors" edge with a given conditions (other predicates).
+func HasChannelMonitorsWith(preds ...predicate.ChannelMonitor) predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := newChannelMonitorsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasAccounts applies the HasEdge predicate on the "accounts" edge.
 func HasAccounts() predicate.Group {
 	return predicate.Group(func(s *sql.Selector) {

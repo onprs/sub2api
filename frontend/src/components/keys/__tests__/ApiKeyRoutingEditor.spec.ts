@@ -296,6 +296,7 @@ describe('ApiKeyRoutingEditor', () => {
     expect(wrapper.text()).toContain('245 ms')
     expect(wrapper.text()).toContain('97.5%')
     expect(wrapper.text()).toContain('40 samples')
+    expect(wrapper.text()).toContain('keys.routing.healthWindowDays')
 
     await wrapper.get('button[title="keys.routing.refreshHealth"]').trigger('click')
     expect(wrapper.emitted('refresh-health')).toHaveLength(1)

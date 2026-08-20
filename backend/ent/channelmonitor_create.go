@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitordailyrollup"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
+	"github.com/Wei-Shaw/sub2api/ent/group"
 )
 
 // ChannelMonitorCreate is the builder for creating a ChannelMonitor entity.
@@ -79,15 +80,59 @@ func (_c *ChannelMonitorCreate) SetNillableAPIMode(v *string) *ChannelMonitorCre
 	return _c
 }
 
+// SetTargetType sets the "target_type" field.
+func (_c *ChannelMonitorCreate) SetTargetType(v channelmonitor.TargetType) *ChannelMonitorCreate {
+	_c.mutation.SetTargetType(v)
+	return _c
+}
+
+// SetNillableTargetType sets the "target_type" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableTargetType(v *channelmonitor.TargetType) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetTargetType(*v)
+	}
+	return _c
+}
+
+// SetGroupID sets the "group_id" field.
+func (_c *ChannelMonitorCreate) SetGroupID(v int64) *ChannelMonitorCreate {
+	_c.mutation.SetGroupID(v)
+	return _c
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableGroupID(v *int64) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetGroupID(*v)
+	}
+	return _c
+}
+
 // SetEndpoint sets the "endpoint" field.
 func (_c *ChannelMonitorCreate) SetEndpoint(v string) *ChannelMonitorCreate {
 	_c.mutation.SetEndpoint(v)
 	return _c
 }
 
+// SetNillableEndpoint sets the "endpoint" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableEndpoint(v *string) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetEndpoint(*v)
+	}
+	return _c
+}
+
 // SetAPIKeyEncrypted sets the "api_key_encrypted" field.
 func (_c *ChannelMonitorCreate) SetAPIKeyEncrypted(v string) *ChannelMonitorCreate {
 	_c.mutation.SetAPIKeyEncrypted(v)
+	return _c
+}
+
+// SetNillableAPIKeyEncrypted sets the "api_key_encrypted" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableAPIKeyEncrypted(v *string) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetAPIKeyEncrypted(*v)
+	}
 	return _c
 }
 
@@ -241,6 +286,11 @@ func (_c *ChannelMonitorCreate) AddDailyRollups(v ...*ChannelMonitorDailyRollup)
 	return _c.AddDailyRollupIDs(ids...)
 }
 
+// SetGroup sets the "group" edge to the Group entity.
+func (_c *ChannelMonitorCreate) SetGroup(v *Group) *ChannelMonitorCreate {
+	return _c.SetGroupID(v.ID)
+}
+
 // SetRequestTemplateID sets the "request_template" edge to the ChannelMonitorRequestTemplate entity by ID.
 func (_c *ChannelMonitorCreate) SetRequestTemplateID(id int64) *ChannelMonitorCreate {
 	_c.mutation.SetRequestTemplateID(id)
@@ -307,6 +357,18 @@ func (_c *ChannelMonitorCreate) defaults() {
 		v := channelmonitor.DefaultAPIMode
 		_c.mutation.SetAPIMode(v)
 	}
+	if _, ok := _c.mutation.TargetType(); !ok {
+		v := channelmonitor.DefaultTargetType
+		_c.mutation.SetTargetType(v)
+	}
+	if _, ok := _c.mutation.Endpoint(); !ok {
+		v := channelmonitor.DefaultEndpoint
+		_c.mutation.SetEndpoint(v)
+	}
+	if _, ok := _c.mutation.APIKeyEncrypted(); !ok {
+		v := channelmonitor.DefaultAPIKeyEncrypted
+		_c.mutation.SetAPIKeyEncrypted(v)
+	}
 	if _, ok := _c.mutation.ExtraModels(); !ok {
 		v := channelmonitor.DefaultExtraModels
 		_c.mutation.SetExtraModels(v)
@@ -365,6 +427,14 @@ func (_c *ChannelMonitorCreate) check() error {
 			return &ValidationError{Name: "api_mode", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.api_mode": %w`, err)}
 		}
 	}
+	if _, ok := _c.mutation.TargetType(); !ok {
+		return &ValidationError{Name: "target_type", err: errors.New(`ent: missing required field "ChannelMonitor.target_type"`)}
+	}
+	if v, ok := _c.mutation.TargetType(); ok {
+		if err := channelmonitor.TargetTypeValidator(v); err != nil {
+			return &ValidationError{Name: "target_type", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.target_type": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.Endpoint(); !ok {
 		return &ValidationError{Name: "endpoint", err: errors.New(`ent: missing required field "ChannelMonitor.endpoint"`)}
 	}
@@ -375,11 +445,6 @@ func (_c *ChannelMonitorCreate) check() error {
 	}
 	if _, ok := _c.mutation.APIKeyEncrypted(); !ok {
 		return &ValidationError{Name: "api_key_encrypted", err: errors.New(`ent: missing required field "ChannelMonitor.api_key_encrypted"`)}
-	}
-	if v, ok := _c.mutation.APIKeyEncrypted(); ok {
-		if err := channelmonitor.APIKeyEncryptedValidator(v); err != nil {
-			return &ValidationError{Name: "api_key_encrypted", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.api_key_encrypted": %w`, err)}
-		}
 	}
 	if _, ok := _c.mutation.PrimaryModel(); !ok {
 		return &ValidationError{Name: "primary_model", err: errors.New(`ent: missing required field "ChannelMonitor.primary_model"`)}
@@ -477,6 +542,10 @@ func (_c *ChannelMonitorCreate) createSpec() (*ChannelMonitor, *sqlgraph.CreateS
 		_spec.SetField(channelmonitor.FieldAPIMode, field.TypeString, value)
 		_node.APIMode = value
 	}
+	if value, ok := _c.mutation.TargetType(); ok {
+		_spec.SetField(channelmonitor.FieldTargetType, field.TypeEnum, value)
+		_node.TargetType = value
+	}
 	if value, ok := _c.mutation.Endpoint(); ok {
 		_spec.SetField(channelmonitor.FieldEndpoint, field.TypeString, value)
 		_node.Endpoint = value
@@ -559,6 +628,23 @@ func (_c *ChannelMonitorCreate) createSpec() (*ChannelMonitor, *sqlgraph.CreateS
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.GroupIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.GroupTable,
+			Columns: []string{channelmonitor.GroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.GroupID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.RequestTemplateIDs(); len(nodes) > 0 {
@@ -675,6 +761,36 @@ func (u *ChannelMonitorUpsert) SetAPIMode(v string) *ChannelMonitorUpsert {
 // UpdateAPIMode sets the "api_mode" field to the value that was provided on create.
 func (u *ChannelMonitorUpsert) UpdateAPIMode() *ChannelMonitorUpsert {
 	u.SetExcluded(channelmonitor.FieldAPIMode)
+	return u
+}
+
+// SetTargetType sets the "target_type" field.
+func (u *ChannelMonitorUpsert) SetTargetType(v channelmonitor.TargetType) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldTargetType, v)
+	return u
+}
+
+// UpdateTargetType sets the "target_type" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateTargetType() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldTargetType)
+	return u
+}
+
+// SetGroupID sets the "group_id" field.
+func (u *ChannelMonitorUpsert) SetGroupID(v int64) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldGroupID, v)
+	return u
+}
+
+// UpdateGroupID sets the "group_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateGroupID() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldGroupID)
+	return u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (u *ChannelMonitorUpsert) ClearGroupID() *ChannelMonitorUpsert {
+	u.SetNull(channelmonitor.FieldGroupID)
 	return u
 }
 
@@ -986,6 +1102,41 @@ func (u *ChannelMonitorUpsertOne) SetAPIMode(v string) *ChannelMonitorUpsertOne 
 func (u *ChannelMonitorUpsertOne) UpdateAPIMode() *ChannelMonitorUpsertOne {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.UpdateAPIMode()
+	})
+}
+
+// SetTargetType sets the "target_type" field.
+func (u *ChannelMonitorUpsertOne) SetTargetType(v channelmonitor.TargetType) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetTargetType(v)
+	})
+}
+
+// UpdateTargetType sets the "target_type" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateTargetType() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateTargetType()
+	})
+}
+
+// SetGroupID sets the "group_id" field.
+func (u *ChannelMonitorUpsertOne) SetGroupID(v int64) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetGroupID(v)
+	})
+}
+
+// UpdateGroupID sets the "group_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateGroupID() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateGroupID()
+	})
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (u *ChannelMonitorUpsertOne) ClearGroupID() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.ClearGroupID()
 	})
 }
 
@@ -1498,6 +1649,41 @@ func (u *ChannelMonitorUpsertBulk) SetAPIMode(v string) *ChannelMonitorUpsertBul
 func (u *ChannelMonitorUpsertBulk) UpdateAPIMode() *ChannelMonitorUpsertBulk {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.UpdateAPIMode()
+	})
+}
+
+// SetTargetType sets the "target_type" field.
+func (u *ChannelMonitorUpsertBulk) SetTargetType(v channelmonitor.TargetType) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetTargetType(v)
+	})
+}
+
+// UpdateTargetType sets the "target_type" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateTargetType() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateTargetType()
+	})
+}
+
+// SetGroupID sets the "group_id" field.
+func (u *ChannelMonitorUpsertBulk) SetGroupID(v int64) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetGroupID(v)
+	})
+}
+
+// UpdateGroupID sets the "group_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateGroupID() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateGroupID()
+	})
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (u *ChannelMonitorUpsertBulk) ClearGroupID() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.ClearGroupID()
 	})
 }
 

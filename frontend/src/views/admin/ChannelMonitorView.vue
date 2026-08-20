@@ -19,7 +19,7 @@
           <template #cell-name="{ row, value }">
             <div class="flex items-center gap-1.5">
               <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
-              <HelpTooltip v-if="row.api_key_decrypt_failed" :content="t('admin.channelMonitor.apiKeyDecryptFailed')">
+              <HelpTooltip v-if="row.target_type === 'external' && row.api_key_decrypt_failed" :content="t('admin.channelMonitor.apiKeyDecryptFailed')">
                 <Icon name="exclamationTriangle" size="sm" class="text-red-500" />
               </HelpTooltip>
             </div>
@@ -28,6 +28,15 @@
           <template #cell-provider="{ row }">
             <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium" :class="providerBadgeClass(row.provider)">
               {{ providerLabel(row.provider) }}
+            </span>
+          </template>
+
+          <template #cell-target="{ row }">
+            <span class="inline-flex min-w-0 items-center gap-1.5 text-sm text-gray-700 dark:text-gray-200">
+              <Icon :name="row.target_type === 'local' ? 'server' : 'globe'" size="sm" class="shrink-0 text-gray-400" />
+              <span class="max-w-48 truncate" :title="monitorTargetLabel(row)">
+                {{ monitorTargetLabel(row) }}
+              </span>
             </span>
           </template>
 
@@ -174,6 +183,7 @@ let searchTimeout: ReturnType<typeof setTimeout> | null = null
 const columns = computed<Column[]>(() => [
   { key: 'name', label: t('admin.channelMonitor.columns.name'), sortable: false },
   { key: 'provider', label: t('admin.channelMonitor.columns.provider'), sortable: false },
+  { key: 'target', label: t('admin.channelMonitor.columns.target'), sortable: false },
   { key: 'primary_model', label: t('admin.channelMonitor.columns.primaryModel'), sortable: false },
   { key: 'availability_7d', label: t('admin.channelMonitor.columns.availability7d'), sortable: false },
   { key: 'latency', label: t('admin.channelMonitor.columns.latency'), sortable: false },
@@ -185,6 +195,12 @@ const deleteConfirmMessage = computed(() => {
   const name = deleting.value?.name || ''
   return t('admin.channelMonitor.deleteConfirm', { name })
 })
+
+function monitorTargetLabel(monitor: ChannelMonitor): string {
+  if (monitor.target_type === 'local') return monitor.group_name
+  const target = t('admin.channelMonitor.form.targetExternal')
+  return monitor.endpoint ? `${target} · ${monitor.endpoint}` : target
+}
 
 async function reload() {
   if (abortController) abortController.abort()

@@ -2426,6 +2426,22 @@ func (c *ChannelMonitorClient) QueryDailyRollups(_m *ChannelMonitor) *ChannelMon
 	return query
 }
 
+// QueryGroup queries the group edge of a ChannelMonitor.
+func (c *ChannelMonitorClient) QueryGroup(_m *ChannelMonitor) *GroupQuery {
+	query := (&GroupClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(channelmonitor.Table, channelmonitor.FieldID, id),
+			sqlgraph.To(group.Table, group.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, channelmonitor.GroupTable, channelmonitor.GroupColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryRequestTemplate queries the request_template edge of a ChannelMonitor.
 func (c *ChannelMonitorClient) QueryRequestTemplate(_m *ChannelMonitor) *ChannelMonitorRequestTemplateQuery {
 	query := (&ChannelMonitorRequestTemplateClient{config: c.config}).Query()
@@ -3228,6 +3244,22 @@ func (c *GroupClient) QueryUsageLogs(_m *Group) *UsageLogQuery {
 			sqlgraph.From(group.Table, group.FieldID, id),
 			sqlgraph.To(usagelog.Table, usagelog.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, group.UsageLogsTable, group.UsageLogsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryChannelMonitors queries the channel_monitors edge of a Group.
+func (c *GroupClient) QueryChannelMonitors(_m *Group) *ChannelMonitorQuery {
+	query := (&ChannelMonitorClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, id),
+			sqlgraph.To(channelmonitor.Table, channelmonitor.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, group.ChannelMonitorsTable, group.ChannelMonitorsColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil

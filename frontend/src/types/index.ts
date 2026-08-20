@@ -512,6 +512,7 @@ export interface ApiKeyRoutingGroupHealth {
 
 export interface ApiKeyRoutingHealthResponse {
   window_minutes: number
+  window_days: number
   items: ApiKeyRoutingGroupHealth[]
 }
 

@@ -29,7 +29,7 @@ export async function getUserGroupRates(): Promise<Record<number, number>> {
 
 export async function getRoutingHealth(groupIDs: number[]): Promise<ApiKeyRoutingHealthResponse> {
   const uniqueGroupIDs = [...new Set(groupIDs.filter((groupID) => groupID > 0))]
-  if (uniqueGroupIDs.length === 0) return { window_minutes: 30, items: [] }
+  if (uniqueGroupIDs.length === 0) return { window_minutes: 10080, window_days: 7, items: [] }
 
   const batches: number[][] = []
   for (let offset = 0; offset < uniqueGroupIDs.length; offset += 200) {
@@ -44,7 +44,8 @@ export async function getRoutingHealth(groupIDs: number[]): Promise<ApiKeyRoutin
     })
   )
   return {
-    window_minutes: responses[0]?.window_minutes ?? 30,
+    window_minutes: responses[0]?.window_minutes ?? 10080,
+    window_days: responses[0]?.window_days ?? 7,
     items: responses.flatMap((response) => response.items)
   }
 }
