@@ -167,6 +167,32 @@ var openCodeGoReferencePrices = map[string]ModelPricing{
 	},
 }
 
+// openCodeGoReferenceMonthlyUsageUSD 是官方动态文档不可用或旧缓存缺少 Usage 列时的回退值。
+// 额度计量使用 $60 共享月额度除以模型月度 Usage，动态文档值始终优先。
+var openCodeGoReferenceMonthlyUsageUSD = map[string]float64{
+	"grok-4.5":                   15,
+	"gpt-5.6-luna":               15,
+	"glm-5.1":                    60,
+	"glm-5.2":                    60,
+	"glm-5.3":                    15,
+	"kimi-k2.6":                  60,
+	"kimi-k2.7-code":             60,
+	"kimi-k3":                    15,
+	"mimo-v2.5":                  60,
+	"mimo-v2.5-pro":              15,
+	"minimax-m2.5":               60,
+	"minimax-m2.7":               60,
+	"minimax-m3":                 60,
+	"muse-spark-1.2-contributor": 60,
+	"qwen3.6-plus":               60,
+	"qwen3.7-max":                60,
+	"qwen3.7-plus":               60,
+	"qwen3.8-max":                15,
+	"deepseek-v4-pro":            15,
+	"deepseek-v4-flash":          30,
+	"hy3":                        60,
+}
+
 var openCodeGoModelsDevSupplementalModels = map[string]struct{}{
 	"hy3-preview":  {},
 	"kimi-k2.5":    {},
@@ -192,6 +218,18 @@ func openCodeGoReferencePricing(model string) (*ModelPricing, bool) {
 	}
 	cloned := pricing
 	return &cloned, true
+}
+
+func openCodeGoReferenceQuotaCostMultiplier(model string) float64 {
+	model = billingModelAliasLookupKey(model)
+	if model == "kimi-k2.7" {
+		model = "kimi-k2.7-code"
+	}
+	monthlyUsageUSD, ok := openCodeGoReferenceMonthlyUsageUSD[model]
+	if !ok || monthlyUsageUSD <= 0 {
+		return 1
+	}
+	return openCodeGoThirtyDayLimitUSD / monthlyUsageUSD
 }
 
 func isOpenCodeGoPricingPlatform(platform string) bool {

@@ -890,6 +890,13 @@ func (s *BillingService) OpenCodeGoUsagePromotionMultiplier(model string, now ti
 	return s.pricingService.OpenCodeGoUsagePromotionMultiplier(model, now)
 }
 
+func (s *BillingService) OpenCodeGoQuotaCostMultiplier(model string, now time.Time) float64 {
+	if s == nil || s.pricingService == nil {
+		return openCodeGoReferenceQuotaCostMultiplier(model)
+	}
+	return s.pricingService.OpenCodeGoQuotaCostMultiplier(model, now)
+}
+
 // GetModelPricingForPlatform 在需要平台隔离时解析模型价格。
 // OpenCode Go 优先接受官方动态目录/持久化缓存中的精确条目，再回落到平台限定参考价与补充动态条目；
 // OpenRouter 优先匹配专属免费与标准参考价，再回落到通用目录；
@@ -997,6 +1004,11 @@ func (s *BillingService) getOpenCodeGoDynamicModelPricingExact(model string) (*M
 }
 
 func (s *BillingService) modelPricingFromLiteLLM(model string, litellmPricing *LiteLLMModelPricing) (*ModelPricing, bool) {
+	return s.modelPricingFromLiteLLMAt(model, litellmPricing, time.Now())
+}
+
+func (s *BillingService) modelPricingFromLiteLLMAt(model string, litellmPricing *LiteLLMModelPricing, now time.Time) (*ModelPricing, bool) {
+	litellmPricing = openCodeGoPricingAt(litellmPricing, now)
 	// 仅有图片价、无 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
 	// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 fallback，
 	// 无 fallback 则 fail-closed（ErrModelPricingUnavailable）。

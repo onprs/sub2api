@@ -176,6 +176,12 @@ type LiteLLMModelPricing struct {
 	MaxInputTokensKnown                      bool    `json:"-"`
 	MaxOutputTokensKnown                     bool    `json:"-"`
 	OpenCodeGoPricingAuthority               string  `json:"opencode_go_pricing_authority,omitempty"`
+	OpenCodeGoMonthlyUsageUSD                float64 `json:"opencode_go_monthly_usage_usd,omitempty"`
+	OpenCodeGoPeakPricingKnown               bool    `json:"opencode_go_peak_pricing_known,omitempty"`
+	OpenCodeGoPeakInputCostPerToken          float64 `json:"opencode_go_peak_input_cost_per_token,omitempty"`
+	OpenCodeGoPeakOutputCostPerToken         float64 `json:"opencode_go_peak_output_cost_per_token,omitempty"`
+	OpenCodeGoPeakCacheCreationCostPerToken  float64 `json:"opencode_go_peak_cache_creation_cost_per_token,omitempty"`
+	OpenCodeGoPeakCacheReadCostPerToken      float64 `json:"opencode_go_peak_cache_read_cost_per_token,omitempty"`
 	// OpenCodeGoExplicitZeroRate 只由官方价格表中的明确零价生成，不能由缺失字段推导。
 	OpenCodeGoExplicitZeroRate bool `json:"opencode_go_explicit_zero_rate,omitempty"`
 
@@ -633,8 +639,10 @@ type openCodeGoDocPriceRow struct {
 	Output          float64
 	CacheRead       float64
 	CacheWrite      float64
+	MonthlyUsageUSD float64
 	Threshold       int
 	Above           bool
+	Peak            bool
 	ZeroTokenPrices bool
 }
 
@@ -647,6 +655,7 @@ func parseOpenCodeGoPricingDocument(body []byte) (map[string]*LiteLLMModelPricin
 	modelIDs := make(map[string]string)
 	baseRows := make(map[string]openCodeGoDocPriceRow)
 	aboveRows := make(map[string]openCodeGoDocPriceRow)
+	peakRows := make(map[string]openCodeGoDocPriceRow)
 	explicitFreeModels := parseOpenCodeGoExplicitFreeModelKeys(body)
 	priceRows := 0
 
@@ -668,16 +677,22 @@ func parseOpenCodeGoPricingDocument(body []byte) (map[string]*LiteLLMModelPricin
 		}
 		cacheRead, _ := parseOpenCodeGoMillionTokenPrice(cells[3])
 		cacheWrite, _ := parseOpenCodeGoMillionTokenPrice(cells[4])
+		monthlyUsageUSD := 0.0
+		if len(cells) >= 6 {
+			monthlyUsageUSD, _ = parseOpenCodeGoUsageUSD(cells[5])
+		}
 		threshold, above := parseOpenCodeGoContextThreshold(cells[0])
 		row := openCodeGoDocPriceRow{
-			Name:       cells[0],
-			Key:        normalizeOpenCodeGoDocModelKey(cells[0]),
-			Input:      input,
-			Output:     output,
-			CacheRead:  cacheRead,
-			CacheWrite: cacheWrite,
-			Threshold:  threshold,
-			Above:      above,
+			Name:            cells[0],
+			Key:             normalizeOpenCodeGoDocModelKey(cells[0]),
+			Input:           input,
+			Output:          output,
+			CacheRead:       cacheRead,
+			CacheWrite:      cacheWrite,
+			MonthlyUsageUSD: monthlyUsageUSD,
+			Threshold:       threshold,
+			Above:           above,
+			Peak:            isOpenCodeGoPeakPriceRow(cells[0]),
 			ZeroTokenPrices: isOpenCodeGoExplicitZeroPrice(cells[1]) &&
 				isOpenCodeGoExplicitZeroPrice(cells[2]) &&
 				isOpenCodeGoExplicitZeroPrice(cells[3]) &&
@@ -687,9 +702,12 @@ func parseOpenCodeGoPricingDocument(body []byte) (map[string]*LiteLLMModelPricin
 			continue
 		}
 		priceRows++
-		if row.Above {
+		switch {
+		case row.Peak:
+			peakRows[row.Key] = row
+		case row.Above:
 			aboveRows[row.Key] = row
-		} else {
+		default:
 			baseRows[row.Key] = row
 		}
 	}
@@ -719,7 +737,15 @@ func parseOpenCodeGoPricingDocument(body []byte) (map[string]*LiteLLMModelPricin
 			CacheReadInputTokenCostKnown:     row.CacheRead > 0,
 			CacheCreationInputTokenCostKnown: row.CacheWrite > 0,
 			OpenCodeGoPricingAuthority:       openCodeGoPricingAuthorityOfficial,
+			OpenCodeGoMonthlyUsageUSD:        row.MonthlyUsageUSD,
 			OpenCodeGoExplicitZeroRate:       row.ZeroTokenPrices && explicitFreeModels[row.Key],
+		}
+		if peak, ok := peakRows[key]; ok {
+			pricing.OpenCodeGoPeakPricingKnown = true
+			pricing.OpenCodeGoPeakInputCostPerToken = peak.Input
+			pricing.OpenCodeGoPeakOutputCostPerToken = peak.Output
+			pricing.OpenCodeGoPeakCacheReadCostPerToken = peak.CacheRead
+			pricing.OpenCodeGoPeakCacheCreationCostPerToken = peak.CacheWrite
 		}
 		if above, ok := aboveRows[key]; ok && row.Threshold > 0 {
 			pricing.LongContextInputTokenThreshold = row.Threshold
@@ -863,6 +889,44 @@ func parseOpenCodeGoMillionTokenPrice(value string) (float64, bool) {
 		return 0, false
 	}
 	return price / 1_000_000, true
+}
+
+func parseOpenCodeGoUsageUSD(value string) (float64, bool) {
+	trimmed := strings.TrimSpace(value)
+	match := openCodeGoPricePattern.FindStringSubmatch(trimmed)
+	if len(match) != 2 {
+		return 0, false
+	}
+	usage, err := strconv.ParseFloat(match[1], 64)
+	if err != nil || usage <= 0 {
+		return 0, false
+	}
+	return usage, true
+}
+
+func isOpenCodeGoPeakPriceRow(name string) bool {
+	normalized := strings.ToLower(stdhtml.UnescapeString(name))
+	return strings.Contains(normalized, "(peak)")
+}
+
+func openCodeGoPricingAt(pricing *LiteLLMModelPricing, now time.Time) *LiteLLMModelPricing {
+	if pricing == nil || !pricing.OpenCodeGoPeakPricingKnown {
+		return pricing
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	hour := now.UTC().Hour()
+	peakPricingActive := (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10)
+	if !peakPricingActive {
+		return pricing
+	}
+	selected := *pricing
+	selected.InputCostPerToken = pricing.OpenCodeGoPeakInputCostPerToken
+	selected.OutputCostPerToken = pricing.OpenCodeGoPeakOutputCostPerToken
+	selected.CacheCreationInputTokenCost = pricing.OpenCodeGoPeakCacheCreationCostPerToken
+	selected.CacheReadInputTokenCost = pricing.OpenCodeGoPeakCacheReadCostPerToken
+	return &selected
 }
 
 func parseOpenCodeGoExplicitFreeModelKeys(body []byte) map[string]bool {
@@ -1159,6 +1223,17 @@ func (s *PricingService) OpenCodeGoUsagePromotionMultiplier(model string, now ti
 		return 1
 	}
 	return promotion.multiplier
+}
+
+func (s *PricingService) OpenCodeGoQuotaCostMultiplier(model string, now time.Time) float64 {
+	baseMultiplier := openCodeGoReferenceQuotaCostMultiplier(model)
+	if pricing := s.GetOpenCodeGoModelPricingExact(model); pricing != nil && pricing.OpenCodeGoMonthlyUsageUSD > 0 {
+		baseMultiplier = openCodeGoThirtyDayLimitUSD / pricing.OpenCodeGoMonthlyUsageUSD
+	}
+	if baseMultiplier <= 0 || math.IsNaN(baseMultiplier) || math.IsInf(baseMultiplier, 0) {
+		baseMultiplier = 1
+	}
+	return baseMultiplier * s.OpenCodeGoUsagePromotionMultiplier(model, now)
 }
 
 func isValidUsagePromotionMultiplier(multiplier float64) bool {
