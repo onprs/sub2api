@@ -314,6 +314,46 @@ describe('ModelPricingView', () => {
     expect(wrapper.text()).not.toContain('deepseek-v4-flash')
   })
 
+  it('clears a selected group when refresh removes it from the platform', async () => {
+    const refreshedChannels = makeChannel()
+    refreshedChannels[0].platforms[0].groups = [
+      {
+        ...refreshedChannels[0].platforms[0].groups[0],
+        id: 22,
+        name: 'Replacement',
+      },
+    ]
+    getAvailable
+      .mockResolvedValueOnce(makeChannel())
+      .mockResolvedValueOnce(refreshedChannels)
+    getUserGroupRates.mockResolvedValue({ 20: 0.5 })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await selectPricingScope(wrapper)
+    await wrapper.get('[data-test="pricing-search"]').setValue('deepseek')
+
+    await wrapper.get('button[title="Refresh"]').trigger('click')
+    await flushPromises()
+
+    const [platformSelect, groupSelect] = wrapper.findAllComponents({ name: 'Select' })
+    expect(platformSelect.props('modelValue')).toBe('opencode_go')
+    expect(groupSelect.props('modelValue')).toBeNull()
+    expect(groupSelect.props('options')).toEqual([
+      {
+        value: 22,
+        label: 'Replacement',
+        platform: 'opencode_go',
+        subscriptionType: 'subscription',
+        defaultMultiplier: 2,
+        userMultiplier: null,
+        isExclusive: true,
+      },
+    ])
+    expect(wrapper.find('table').exists()).toBe(false)
+    expect(wrapper.find('[data-test="pricing-search"]').exists()).toBe(false)
+  })
+
   it('loads pricing rows, refreshes, and switches between actual and raw prices', async () => {
     getAvailable.mockResolvedValue(makeChannel())
     getUserGroupRates.mockResolvedValue({ 20: 0.5 })
