@@ -371,6 +371,82 @@ func TestGatewayServiceValidateGatewayTokenPricingAvailable_RejectsUnpricedOpenC
 	require.ErrorIs(t, err, ErrModelPricingUnavailable)
 }
 
+func TestGatewayServiceOpenCodeGoOfficialZeroRatePassesPreflightAndRecordsUsageWithoutDeduction(t *testing.T) {
+	pricingSvc := &PricingService{
+		openCodeGoPricing: map[string]*LiteLLMModelPricing{
+			"ox-alpha-free": {
+				LiteLLMProvider:            PlatformOpenCodeGo,
+				Mode:                       "chat",
+				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
+				OpenCodeGoExplicitZeroRate: true,
+			},
+		},
+		openCodeGoPricingConfirmedAt: time.Now(),
+	}
+	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	quotaSvc := &openAIRecordUsageAPIKeyQuotaStub{}
+	svc := newGatewayRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+	svc.billingService = billingSvc
+	svc.resolver = NewModelPricingResolver(nil, billingSvc)
+
+	groupID := int64(17)
+	apiKey := &APIKey{
+		ID:      501,
+		Quota:   100,
+		GroupID: &groupID,
+		Group: &Group{
+			ID:             groupID,
+			Platform:       PlatformOpenCodeGo,
+			RateMultiplier: 1,
+		},
+	}
+	account := &Account{ID: 701, Platform: PlatformOpenCodeGo}
+	mapping := ChannelMappingResult{
+		MappedModel:        "ox-alpha-free",
+		BillingModelSource: BillingModelSourceChannelMapped,
+	}
+
+	require.NoError(t, svc.ValidateGatewayTokenPricingAvailable(context.Background(), apiKey, account, "ox-alpha-free", mapping))
+
+	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID:     "gateway_opencode_go_zero_rate",
+			Model:         "ox-alpha-free",
+			UpstreamModel: "ox-alpha-free",
+			Usage: ClaudeUsage{
+				InputTokens:          1000,
+				OutputTokens:         500,
+				CacheReadInputTokens: 250,
+			},
+			Duration: time.Second,
+		},
+		APIKey:             apiKey,
+		User:               &User{ID: 601},
+		Account:            account,
+		APIKeyService:      quotaSvc,
+		ChannelUsageFields: mapping.ToUsageFields("ox-alpha-free", "ox-alpha-free"),
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, usageRepo.calls)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Zero(t, usageRepo.lastLog.TotalCost)
+	require.Zero(t, usageRepo.lastLog.ActualCost)
+	require.Equal(t, 1, billingRepo.calls)
+	require.NotNil(t, billingRepo.lastCmd)
+	require.Zero(t, billingRepo.lastCmd.BalanceCost)
+	require.Zero(t, billingRepo.lastCmd.SubscriptionCost)
+	require.Zero(t, billingRepo.lastCmd.APIKeyQuotaCost)
+	require.Zero(t, billingRepo.lastCmd.APIKeyRateLimitCost)
+	require.Zero(t, billingRepo.lastCmd.AccountQuotaCost)
+	require.Equal(t, 0, userRepo.deductCalls)
+	require.Equal(t, 0, quotaSvc.quotaCalls)
+	require.Equal(t, 0, quotaSvc.rateLimitCalls)
+}
+
 func TestGatewayServiceValidateGatewayTokenPricingAvailable_AllowsPriceableModel(t *testing.T) {
 	svc := newGatewayRecordUsageServiceForTest(&openAIRecordUsageLogRepoStub{}, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
 	apiKey := &APIKey{ID: 501, Quota: 100}

@@ -602,17 +602,19 @@ func TestGetModelPricing_Gpt54MiniUsesDedicatedStaticFallbackWhenRemoteMissing(t
 
 func TestParseOpenCodeGoPricingDocument_MapsOfficialModelIDsAndPrices(t *testing.T) {
 	body := []byte(`
-<p>The estimates are also based on the following prices per 1M tokens:</p>
+<p><strong>Ox Alpha Free:</strong> Free for a limited time.</p>
 <table><thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Cached Read</th><th>Cached Write</th></tr></thead><tbody>
 <tr><td>GLM-5.2</td><td>$1.40</td><td>$4.40</td><td>$0.26</td><td>-</td></tr>
 <tr><td>Kimi K2.7 Code</td><td>$0.95</td><td>$4.00</td><td>$0.19</td><td>-</td></tr>
 <tr><td>Qwen3.7 Plus (&lt;= 256K tokens)</td><td>$0.40</td><td>$1.60</td><td>$0.04</td><td>$0.50</td></tr>
 <tr><td>Qwen3.7 Plus (&gt; 256K tokens)</td><td>$1.20</td><td>$4.80</td><td>$0.12</td><td>$1.50</td></tr>
+<tr><td>Ox Alpha Free</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 </tbody></table>
 <table><thead><tr><th>Model</th><th>Model ID</th><th>Endpoint</th></tr></thead><tbody>
 <tr><td>GLM-5.2</td><td>glm-5.2</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
 <tr><td>Kimi K2.7</td><td>kimi-k2.7</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
 <tr><td>Qwen3.7 Plus</td><td>qwen3.7-plus</td><td><code>https://opencode.ai/zen/go/v1/messages</code></td></tr>
+<tr><td>Ox Alpha Free</td><td>ox-alpha-free</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
 </tbody></table>`)
 
 	pricing, err := parseOpenCodeGoPricingDocument(body)
@@ -642,6 +644,41 @@ func TestParseOpenCodeGoPricingDocument_MapsOfficialModelIDsAndPrices(t *testing
 	require.Equal(t, 256000, qwen.LongContextInputTokenThreshold)
 	require.InDelta(t, 3.0, qwen.LongContextInputCostMultiplier, 1e-12)
 	require.InDelta(t, 3.0, qwen.LongContextOutputCostMultiplier, 1e-12)
+
+	free := pricing["ox-alpha-free"]
+	require.NotNil(t, free)
+	require.Zero(t, free.InputCostPerToken)
+	require.Zero(t, free.OutputCostPerToken)
+	require.Zero(t, free.CacheReadInputTokenCost)
+	require.Zero(t, free.CacheCreationInputTokenCost)
+	require.True(t, free.InputCostPerTokenKnown)
+	require.True(t, free.OutputCostPerTokenKnown)
+	require.True(t, free.OpenCodeGoExplicitZeroRate)
+	require.Equal(t, openCodeGoPricingAuthorityOfficial, free.OpenCodeGoPricingAuthority)
+}
+
+func TestParseOpenCodeGoPricingDocument_DoesNotTreatMissingPricesAsExplicitZeroRate(t *testing.T) {
+	body := []byte(`
+<p><strong>Partial Free:</strong> Free for a limited time.</p>
+<table><tbody>
+<tr><td>Unpriced Preview</td><td></td><td></td><td>-</td><td>-</td></tr>
+<tr><td>Zero Price Without Free Notice</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>Partial Free</td><td>-</td><td>-</td><td>$0.10</td><td>-</td></tr>
+</tbody></table>
+<table><tbody>
+<tr><td>Unpriced Preview</td><td>unpriced-preview</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
+<tr><td>Zero Price Without Free Notice</td><td>zero-without-free-notice</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
+<tr><td>Partial Free</td><td>partial-free</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
+</tbody></table>`)
+
+	pricing, err := parseOpenCodeGoPricingDocument(body)
+	require.NoError(t, err)
+	require.Contains(t, pricing, "unpriced-preview")
+	require.False(t, pricing["unpriced-preview"].OpenCodeGoExplicitZeroRate)
+	require.Contains(t, pricing, "zero-without-free-notice")
+	require.False(t, pricing["zero-without-free-notice"].OpenCodeGoExplicitZeroRate)
+	require.Contains(t, pricing, "partial-free")
+	require.False(t, pricing["partial-free"].OpenCodeGoExplicitZeroRate)
 }
 
 func TestParseOpenCodeGoCatalogDocument_MapsOfficialEndpointProtocols(t *testing.T) {
@@ -1196,6 +1233,51 @@ func TestListModelNamesByProvider_EmptyCatalog(t *testing.T) {
 	require.Empty(t, got)
 }
 
+func TestRefreshOpenCodeGoPricingReplacesTemporaryZeroRateWithPaidPrice(t *testing.T) {
+	const docsURL = "https://opencode.ai/docs/go/"
+	remote := &pricingTestRemoteClient{pricingBodies: map[string][]byte{
+		docsURL: []byte(`
+<table><tbody>
+<tr><td>Ox Alpha Free</td><td>$1.00</td><td>$2.00</td><td>-</td><td>-</td></tr>
+</tbody></table>
+<table><tbody>
+<tr><td>Ox Alpha Free</td><td>ox-alpha-free</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
+</tbody></table>`),
+	}}
+	pricingSvc := &PricingService{
+		cfg: &config.Config{
+			Pricing:  config.PricingConfig{OpenCodeGoDocsURL: docsURL, DataDir: t.TempDir()},
+			Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}},
+		},
+		remoteClient: remote,
+		openCodeGoPricing: map[string]*LiteLLMModelPricing{
+			"ox-alpha-free": {
+				LiteLLMProvider:            PlatformOpenCodeGo,
+				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
+				OpenCodeGoExplicitZeroRate: true,
+			},
+		},
+		openCodeGoPricingConfirmedAt: time.Now(),
+	}
+
+	pricingSvc.refreshOpenCodeGoPricingBestEffort(context.Background())
+
+	refreshed := pricingSvc.GetOpenCodeGoModelPricingExact("ox-alpha-free")
+	require.NotNil(t, refreshed)
+	require.False(t, refreshed.OpenCodeGoExplicitZeroRate)
+	require.InDelta(t, 1e-6, refreshed.InputCostPerToken, 1e-15)
+	require.InDelta(t, 2e-6, refreshed.OutputCostPerToken, 1e-15)
+
+	cost, err := NewBillingService(&config.Config{}, pricingSvc).CalculateCostForPlatform(
+		PlatformOpenCodeGo,
+		"ox-alpha-free",
+		UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000},
+		1,
+	)
+	require.NoError(t, err)
+	require.InDelta(t, 3.0, cost.ActualCost, 1e-12)
+}
+
 func TestOpenCodeGoPricingPersistenceAndOfflineRecovery(t *testing.T) {
 	dataDir := t.TempDir()
 	const docsURL = "https://opencode.ai/docs/go/"
@@ -1203,11 +1285,14 @@ func TestOpenCodeGoPricingPersistenceAndOfflineRecovery(t *testing.T) {
 	remote := &pricingTestRemoteClient{
 		pricingBodies: map[string][]byte{
 			docsURL: []byte(`
+<p><strong>Ox Alpha Free:</strong> Free for a limited time.</p>
 <table><tbody>
 <tr><td>GLM-5.2</td><td>$1.40</td><td>$4.40</td><td>$0.26</td><td>-</td></tr>
+<tr><td>Ox Alpha Free</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 </tbody></table>
 <table><tbody>
 <tr><td>GLM-5.2</td><td>glm-5.2</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
+<tr><td>Ox Alpha Free</td><td>ox-alpha-free</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
 </tbody></table>`),
 		},
 	}
@@ -1230,6 +1315,9 @@ func TestOpenCodeGoPricingPersistenceAndOfflineRecovery(t *testing.T) {
 	pricing := svc.GetOpenCodeGoModelPricingExact("glm-5.2")
 	require.NotNil(t, pricing)
 	require.InDelta(t, 1.4e-6, pricing.InputCostPerToken, 1e-12)
+	freePricing := svc.GetOpenCodeGoModelPricingExact("ox-alpha-free")
+	require.NotNil(t, freePricing)
+	require.True(t, freePricing.OpenCodeGoExplicitZeroRate)
 
 	// 检查磁盘文件是否已生成
 	cacheFile := svc.getOpenCodeGoPricingFilePath()
@@ -1262,10 +1350,21 @@ func TestOpenCodeGoPricingPersistenceAndOfflineRecovery(t *testing.T) {
 	require.NotNil(t, recoveredPricing)
 	require.InDelta(t, 1.4e-6, recoveredPricing.InputCostPerToken, 1e-12)
 	require.Equal(t, openCodeGoPricingAuthorityOfficial, recoveredPricing.OpenCodeGoPricingAuthority)
+	recoveredFreePricing := newSvc.GetOpenCodeGoModelPricingExact("ox-alpha-free")
+	require.NotNil(t, recoveredFreePricing)
+	require.True(t, recoveredFreePricing.OpenCodeGoExplicitZeroRate)
 
 	// 3. 在离线状态下调用刷新，已有缓存不应被清空
 	newSvc.refreshOpenCodeGoPricingBestEffort(context.Background())
 	pricingAfterFailedRefresh := newSvc.GetOpenCodeGoModelPricingExact("glm-5.2")
 	require.NotNil(t, pricingAfterFailedRefresh)
 	require.InDelta(t, 1.4e-6, pricingAfterFailedRefresh.InputCostPerToken, 1e-12)
+	require.NotNil(t, newSvc.GetOpenCodeGoModelPricingExact("ox-alpha-free"))
+
+	// 临时零价证据过期后 fail-closed；普通付费价格仍可使用离线缓存。
+	newSvc.mu.Lock()
+	newSvc.openCodeGoPricingConfirmedAt = time.Now().Add(-openCodeGoZeroRateEvidenceTTL - time.Minute)
+	newSvc.mu.Unlock()
+	require.Nil(t, newSvc.GetOpenCodeGoModelPricingExact("ox-alpha-free"))
+	require.NotNil(t, newSvc.GetOpenCodeGoModelPricingExact("glm-5.2"))
 }
