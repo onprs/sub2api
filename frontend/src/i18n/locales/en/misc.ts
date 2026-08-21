@@ -2,7 +2,7 @@ export default {
 
   modelPricing: {
     title: 'Model IDs & Pricing',
-    description: 'Model pricing and IDs by accessible channel and group',
+    description: 'Token prices and model IDs by accessible channel and group',
     selection: {
       platform: 'Available Platform',
       group: 'Available Group',
@@ -21,12 +21,11 @@ export default {
       channel: 'Channel',
       platform: 'Platform',
       model: 'Model ID',
-      contextTier: 'Context Tier',
+      contextTier: 'Pricing Period / Context Tier',
       group: 'Group',
       multiplier: 'Multiplier',
       groupMultiplier: 'Group Multiplier',
-      promotion: 'Limited Promotion',
-      finalMultiplier: 'Final Multiplier',
+      usageOffer: 'Official Quota Offer',
       source: 'Source',
       billingMode: 'Billing Mode',
       inputPerMillion: 'Input/M',
@@ -35,10 +34,13 @@ export default {
       cacheReadPerMillion: 'Cache Read/M',
       unitPrice: 'Per Request/Image'
     },
-    promotions: {
-      usageBonus: '{multiplier} usage',
-      priceMultiplier: 'Price {multiplier}',
-      detail: 'Standard price × group multiplier {group} × promotion price multiplier {promotion} = final multiplier {final}'
+    usageOffers: {
+      multiplier: '{multiplier} usage limits',
+      detail: 'Official quota offer information; it does not change token prices, user charges, or Usage History'
+    },
+    timeBands: {
+      off_peak: 'Off-Peak',
+      peak: 'Peak'
     },
     sources: {
       missing: 'Missing',

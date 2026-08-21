@@ -611,7 +611,7 @@ type PricingConfig struct {
 	HashURL string `mapstructure:"hash_url"`
 	// OpenCode Go 官方文档 URL；为空表示不合并 OpenCode Go 官方价格
 	OpenCodeGoDocsURL string `mapstructure:"opencode_go_docs_url"`
-	// OpenCode Go 官方活动页 URL；为空表示禁用动态用量优惠
+	// OpenCode Go 官方活动页 URL；仅用于用户价格页展示，空值表示禁用
 	OpenCodeGoPromotionsURL string `mapstructure:"opencode_go_promotions_url"`
 	// 本地数据目录
 	DataDir string `mapstructure:"data_dir"`

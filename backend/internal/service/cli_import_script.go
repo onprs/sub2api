@@ -728,11 +728,15 @@ func applyOpenCodeGoCLIImportReferencePricing(platform, model string, cap CLIImp
 var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability{
 	"deepseek-v4-flash": newOpenCodeGoBuiltinCLIImportCapability(
 		"DeepSeek V4 Flash", "deepseek-flash", false, true, true, true,
-		[]string{"text"}, 1000000, 384000, 0.14, 0.28, cliImportFloat64Ptr(0.0028), nil,
+		[]string{"text"}, 1000000, 384000, 0.22, 0.66, cliImportFloat64Ptr(0.007), nil,
+	),
+	"deepseek-v4-flash-vision-exp": newOpenCodeGoBuiltinCLIImportCapability(
+		"DeepSeek V4 Flash Vision Exp", "deepseek-flash", true, true, true, true,
+		[]string{"text", "image"}, 1000000, 384000, 0.22, 0.66, cliImportFloat64Ptr(0.007), nil,
 	),
 	"deepseek-v4-pro": newOpenCodeGoBuiltinCLIImportCapability(
 		"DeepSeek V4 Pro", "deepseek-thinking", false, true, true, true,
-		[]string{"text"}, 1000000, 384000, 1.74, 3.48, cliImportFloat64Ptr(0.0145), nil,
+		[]string{"text"}, 1000000, 384000, 0.66, 1.98, cliImportFloat64Ptr(0.022), nil,
 	),
 	"gpt-5.6-luna": newOpenCodeGoBuiltinCLIImportCapability(
 		// OpenCode Go docs: 1.05M context, 128K output, $0.20/$1.20 with cache read/write pricing.

@@ -5,7 +5,6 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -68,54 +67,56 @@ func TestToUserSupportedModels_NilAllowedPlatformsKeepsAll(t *testing.T) {
 	require.Len(t, toUserSupportedModels(src, nil), 2)
 }
 
-func TestToUserSupportedModels_ExposesValidPromotionSeparately(t *testing.T) {
+func TestToUserSupportedModels_ExposesPricingTimeBands(t *testing.T) {
+	inputPrice := 0.22e-6
+	outputPrice := 0.66e-6
 	src := []service.SupportedModel{
 		{
-			Name:     "deepseek-v4-flash",
-			Platform: service.PlatformOpenCodeGo,
-			Pricing:  &service.ChannelModelPricing{},
-			Promotion: &service.ModelPricingPromotion{
-				Code:            "opencode_go_usage_bonus",
-				CostMultiplier:  0.5,
-				UsageMultiplier: 2,
-			},
-		},
-		{
-			Name:     "deepseek-v4-pro",
-			Platform: service.PlatformOpenCodeGo,
-			Pricing:  &service.ChannelModelPricing{},
-			Promotion: &service.ModelPricingPromotion{
-				Code:            "opencode_go_usage_bonus",
-				CostMultiplier:  1,
-				UsageMultiplier: 1,
+			Name:       "deepseek-v4-flash",
+			Platform:   service.PlatformOpenCodeGo,
+			Pricing:    &service.ChannelModelPricing{},
+			UsageOffer: &service.ModelUsageOffer{Code: "opencode_go_usage_offer", UsageMultiplier: 2},
+			PricingTimeBands: []service.ModelPricingTimeBand{
+				{
+					Code:       "off_peak",
+					TimeZone:   "UTC",
+					TimeRanges: []string{"00:00-01:00", "04:00-06:00", "10:00-24:00"},
+					Pricing: &service.ChannelModelPricing{
+						InputPrice:  &inputPrice,
+						OutputPrice: &outputPrice,
+					},
+				},
 			},
 		},
 	}
 
 	out := toUserSupportedModels(src, nil)
-	require.Len(t, out, 2)
-	require.NotNil(t, out[0].Promotion)
-	require.Equal(t, "opencode_go_usage_bonus", out[0].Promotion.Code)
-	require.InDelta(t, 0.5, out[0].Promotion.CostMultiplier, 1e-12)
-	require.InDelta(t, 2.0, out[0].Promotion.UsageMultiplier, 1e-12)
-	require.Nil(t, out[1].Promotion)
+	require.Len(t, out, 1)
+	require.NotNil(t, out[0].Pricing)
+	require.Len(t, out[0].Pricing.TimeBands, 1)
+	require.Equal(t, "off_peak", out[0].Pricing.TimeBands[0].Code)
+	require.Equal(t, "UTC", out[0].Pricing.TimeBands[0].TimeZone)
+	require.Equal(t, []string{"00:00-01:00", "04:00-06:00", "10:00-24:00"}, out[0].Pricing.TimeBands[0].TimeRanges)
+	require.InDelta(t, inputPrice, *out[0].Pricing.TimeBands[0].InputPrice, 1e-15)
+	require.InDelta(t, outputPrice, *out[0].Pricing.TimeBands[0].OutputPrice, 1e-15)
+	require.NotNil(t, out[0].UsageOffer)
+	require.Equal(t, "opencode_go_usage_offer", out[0].UsageOffer.Code)
+	require.Equal(t, 2.0, out[0].UsageOffer.UsageMultiplier)
 
 	raw, err := json.Marshal(out[0])
 	require.NoError(t, err)
 	var decoded map[string]any
 	require.NoError(t, json.Unmarshal(raw, &decoded))
-	promotion, ok := decoded["promotion"].(map[string]any)
+	pricing, ok := decoded["pricing"].(map[string]any)
 	require.True(t, ok)
-	require.Equal(t, "opencode_go_usage_bonus", promotion["code"])
-	require.Equal(t, 0.5, promotion["cost_multiplier"])
-	require.Equal(t, 2.0, promotion["usage_multiplier"])
-
-	invalid := toUserSupportedModelPromotion(&service.ModelPricingPromotion{
-		Code:            "opencode_go_usage_bonus",
-		CostMultiplier:  math.Inf(1),
-		UsageMultiplier: 2,
-	})
-	require.Nil(t, invalid)
+	timeBands, ok := pricing["time_bands"].([]any)
+	require.True(t, ok)
+	require.Len(t, timeBands, 1)
+	usageOffer, ok := decoded["usage_offer"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "opencode_go_usage_offer", usageOffer["code"])
+	require.Equal(t, float64(2), usageOffer["usage_multiplier"])
+	require.NotContains(t, usageOffer, "cost_multiplier")
 }
 
 func TestAvailableChannelFeatureEnabled_ModelPricingPurposeUsesIndependentFlag(t *testing.T) {

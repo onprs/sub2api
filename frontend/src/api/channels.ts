@@ -33,6 +33,16 @@ export interface UserPricingInterval {
   per_request_price: number | null
 }
 
+export interface UserPricingTimeBand {
+  code: 'off_peak' | 'peak' | string
+  time_zone: string
+  time_ranges: string[]
+  input_price: number | null
+  output_price: number | null
+  cache_write_price: number | null
+  cache_read_price: number | null
+}
+
 export interface UserSupportedModelPricing {
   billing_mode: BillingMode
   input_price: number | null
@@ -45,11 +55,11 @@ export interface UserSupportedModelPricing {
   pricing_source_label?: string | null
   pricing_source_detail?: string | null
   intervals: UserPricingInterval[]
+  time_bands?: UserPricingTimeBand[]
 }
 
-export interface UserSupportedModelPromotion {
+export interface UserSupportedModelUsageOffer {
   code: string
-  cost_multiplier: number
   usage_multiplier: number
 }
 
@@ -57,7 +67,7 @@ export interface UserSupportedModel {
   name: string
   platform: string
   pricing: UserSupportedModelPricing | null
-  promotion?: UserSupportedModelPromotion | null
+  usage_offer?: UserSupportedModelUsageOffer | null
 }
 
 /**

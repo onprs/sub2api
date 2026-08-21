@@ -883,25 +883,15 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	return nil
 }
 
-func (s *BillingService) OpenCodeGoUsagePromotionMultiplier(model string, now time.Time) float64 {
-	if s == nil || s.pricingService == nil {
-		return 1
-	}
-	return s.pricingService.OpenCodeGoUsagePromotionMultiplier(model, now)
-}
-
-func (s *BillingService) OpenCodeGoQuotaCostMultiplier(model string, now time.Time) float64 {
-	if s == nil || s.pricingService == nil {
-		return openCodeGoReferenceQuotaCostMultiplier(model)
-	}
-	return s.pricingService.OpenCodeGoQuotaCostMultiplier(model, now)
-}
-
 // GetModelPricingForPlatform 在需要平台隔离时解析模型价格。
 // OpenCode Go 优先接受官方动态目录/持久化缓存中的精确条目，再回落到平台限定参考价与补充动态条目；
 // OpenRouter 优先匹配专属免费与标准参考价，再回落到通用目录；
 // 其他平台保持通用解析行为。
 func (s *BillingService) GetModelPricingForPlatform(platform, model string) (*ModelPricing, error) {
+	return s.getModelPricingForPlatformAt(platform, model, time.Now())
+}
+
+func (s *BillingService) getModelPricingForPlatformAt(platform, model string, now time.Time) (*ModelPricing, error) {
 	if platform == PlatformOpenRouter {
 		for _, candidate := range billingModelPricingCandidates(model) {
 			if pricing, ok := openRouterReferencePricing(candidate); ok {
@@ -916,13 +906,13 @@ func (s *BillingService) GetModelPricingForPlatform(platform, model string) (*Mo
 	model = strings.ToLower(strings.TrimSpace(model))
 	// 1. 优先匹配官方动态定价（官方 docs 实时爬取或本地持久化缓存中的 official 条目）
 	for _, candidate := range billingModelPricingCandidates(model) {
-		if pricing, ok := s.getOpenCodeGoOfficialDynamicModelPricingExact(candidate); ok {
+		if pricing, ok := s.getOpenCodeGoOfficialDynamicModelPricingExactAt(candidate, now); ok {
 			return pricing, nil
 		}
 	}
 	// 2. 回退到内置标准参考定价
 	for _, candidate := range billingModelPricingCandidates(model) {
-		if pricing, ok := openCodeGoReferencePricing(candidate); ok {
+		if pricing, ok := openCodeGoReferencePricingAt(candidate, now); ok {
 			return s.applyModelSpecificPricingPolicy(candidate, pricing), nil
 		}
 	}
@@ -978,7 +968,7 @@ func (s *BillingService) getDynamicModelPricingExact(model string) (*ModelPricin
 	return s.modelPricingFromLiteLLM(model, pricing)
 }
 
-func (s *BillingService) getOpenCodeGoOfficialDynamicModelPricingExact(model string) (*ModelPricing, bool) {
+func (s *BillingService) getOpenCodeGoOfficialDynamicModelPricingExactAt(model string, now time.Time) (*ModelPricing, bool) {
 	if s.pricingService == nil {
 		return nil, false
 	}
@@ -989,7 +979,7 @@ func (s *BillingService) getOpenCodeGoOfficialDynamicModelPricingExact(model str
 	if pricing.OpenCodeGoPricingAuthority != openCodeGoPricingAuthorityOfficial {
 		return nil, false
 	}
-	return s.modelPricingFromLiteLLM(model, pricing)
+	return s.modelPricingFromLiteLLMAt(model, pricing, now)
 }
 
 func (s *BillingService) getOpenCodeGoDynamicModelPricingExact(model string) (*ModelPricing, bool) {

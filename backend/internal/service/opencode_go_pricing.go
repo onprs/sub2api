@@ -1,6 +1,9 @@
 package service
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // openCodeGoReferencePrices 是 OpenCode Go 的平台限定标准价目录。
 //
@@ -11,14 +14,19 @@ import "strings"
 // 同名模型。
 var openCodeGoReferencePrices = map[string]ModelPricing{
 	"deepseek-v4-flash": {
-		InputPricePerToken:     0.14e-6,
-		OutputPricePerToken:    0.28e-6,
-		CacheReadPricePerToken: 0.0028e-6,
+		InputPricePerToken:     0.22e-6,
+		OutputPricePerToken:    0.66e-6,
+		CacheReadPricePerToken: 0.007e-6,
+	},
+	"deepseek-v4-flash-vision-exp": {
+		InputPricePerToken:     0.22e-6,
+		OutputPricePerToken:    0.66e-6,
+		CacheReadPricePerToken: 0.007e-6,
 	},
 	"deepseek-v4-pro": {
-		InputPricePerToken:     0.435e-6,
-		OutputPricePerToken:    0.87e-6,
-		CacheReadPricePerToken: 0.003625e-6,
+		InputPricePerToken:     0.66e-6,
+		OutputPricePerToken:    1.98e-6,
+		CacheReadPricePerToken: 0.022e-6,
 	},
 	"glm-5": {
 		InputPricePerToken:     1e-6,
@@ -167,30 +175,22 @@ var openCodeGoReferencePrices = map[string]ModelPricing{
 	},
 }
 
-// openCodeGoReferenceMonthlyUsageUSD 是官方动态文档不可用或旧缓存缺少 Usage 列时的回退值。
-// 额度计量使用 $60 共享月额度除以模型月度 Usage，动态文档值始终优先。
-var openCodeGoReferenceMonthlyUsageUSD = map[string]float64{
-	"grok-4.5":                   15,
-	"gpt-5.6-luna":               15,
-	"glm-5.1":                    60,
-	"glm-5.2":                    60,
-	"glm-5.3":                    15,
-	"kimi-k2.6":                  60,
-	"kimi-k2.7-code":             60,
-	"kimi-k3":                    15,
-	"mimo-v2.5":                  60,
-	"mimo-v2.5-pro":              15,
-	"minimax-m2.5":               60,
-	"minimax-m2.7":               60,
-	"minimax-m3":                 60,
-	"muse-spark-1.2-contributor": 60,
-	"qwen3.6-plus":               60,
-	"qwen3.7-max":                60,
-	"qwen3.7-plus":               60,
-	"qwen3.8-max":                15,
-	"deepseek-v4-pro":            15,
-	"deepseek-v4-flash":          30,
-	"hy3":                        60,
+var openCodeGoReferencePeakPrices = map[string]ModelPricing{
+	"deepseek-v4-flash": {
+		InputPricePerToken:     0.44e-6,
+		OutputPricePerToken:    1.32e-6,
+		CacheReadPricePerToken: 0.014e-6,
+	},
+	"deepseek-v4-flash-vision-exp": {
+		InputPricePerToken:     0.44e-6,
+		OutputPricePerToken:    1.32e-6,
+		CacheReadPricePerToken: 0.014e-6,
+	},
+	"deepseek-v4-pro": {
+		InputPricePerToken:     1.32e-6,
+		OutputPricePerToken:    3.96e-6,
+		CacheReadPricePerToken: 0.044e-6,
+	},
 }
 
 var openCodeGoModelsDevSupplementalModels = map[string]struct{}{
@@ -208,11 +208,21 @@ func isOpenCodeGoModelsDevSupplementalModel(model string) bool {
 }
 
 func openCodeGoReferencePricing(model string) (*ModelPricing, bool) {
+	return openCodeGoReferencePricingAt(model, time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC))
+}
+
+func openCodeGoReferencePricingAt(model string, now time.Time) (*ModelPricing, bool) {
 	model = billingModelAliasLookupKey(model)
 	if model == "kimi-k2.7" {
 		model = "kimi-k2.7-code"
 	}
-	pricing, ok := openCodeGoReferencePrices[model]
+	prices := openCodeGoReferencePrices
+	if isOpenCodeGoPeakTime(now) {
+		if _, ok := openCodeGoReferencePeakPrices[model]; ok {
+			prices = openCodeGoReferencePeakPrices
+		}
+	}
+	pricing, ok := prices[model]
 	if !ok {
 		return nil, false
 	}
@@ -220,16 +230,18 @@ func openCodeGoReferencePricing(model string) (*ModelPricing, bool) {
 	return &cloned, true
 }
 
-func openCodeGoReferenceQuotaCostMultiplier(model string) float64 {
+func openCodeGoRequiresTimeBandPricing(model string) bool {
 	model = billingModelAliasLookupKey(model)
-	if model == "kimi-k2.7" {
-		model = "kimi-k2.7-code"
+	_, ok := openCodeGoReferencePeakPrices[model]
+	return ok
+}
+
+func isOpenCodeGoPeakTime(now time.Time) bool {
+	if now.IsZero() {
+		now = time.Now()
 	}
-	monthlyUsageUSD, ok := openCodeGoReferenceMonthlyUsageUSD[model]
-	if !ok || monthlyUsageUSD <= 0 {
-		return 1
-	}
-	return openCodeGoThirtyDayLimitUSD / monthlyUsageUSD
+	hour := now.UTC().Hour()
+	return (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10)
 }
 
 func isOpenCodeGoPricingPlatform(platform string) bool {

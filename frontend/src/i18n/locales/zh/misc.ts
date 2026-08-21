@@ -2,7 +2,7 @@ export default {
 
   modelPricing: {
     title: '模型ID与计费',
-    description: '查看可用渠道中各模型在不同分组下的计费价格与模型ID',
+    description: '查看可用渠道中各模型在不同分组下的 Token 单价与模型 ID',
     selection: {
       platform: '可用平台',
       group: '可用分组',
@@ -21,12 +21,11 @@ export default {
       channel: '渠道',
       platform: '平台',
       model: '模型 ID',
-      contextTier: '上下文档位',
+      contextTier: '计费时段 / 上下文档位',
       group: '分组',
       multiplier: '倍率',
       groupMultiplier: '分组倍率',
-      promotion: '限时活动',
-      finalMultiplier: '最终倍率',
+      usageOffer: '官方额度活动',
       source: '来源',
       billingMode: '计费模式',
       inputPerMillion: '输入/M',
@@ -35,10 +34,13 @@ export default {
       cacheReadPerMillion: '缓存读取/M',
       unitPrice: '按次/图片价'
     },
-    promotions: {
-      usageBonus: '{multiplier} 用量',
-      priceMultiplier: '价格 {multiplier}',
-      detail: '标准价格 × 分组倍率 {group} × 活动价格倍率 {promotion} = 最终倍率 {final}'
+    usageOffers: {
+      multiplier: '{multiplier} 用量额度',
+      detail: '官方额度活动信息，不改变 Token 单价、用户扣费或 Usage History'
+    },
+    timeBands: {
+      off_peak: '波谷价',
+      peak: '波峰价'
     },
     sources: {
       missing: '未配置',
