@@ -10,12 +10,14 @@ import (
 //
 // 优先级（先命中为准）：
 //  1. 自定义规则（始终尝试，不依赖 ApplyPricingToAccountStats 开关）
-//  2. ApplyPricingToAccountStats 启用时，直接使用本次请求的客户计费（倍率前的 totalCost）
+//  2. ApplyPricingToAccountStats 启用时，直接使用调用方提供的账号基础成本
+//     （不含用户组倍率；可包含平台要求的模型特有倍率）
 //  3. 模型定价文件（LiteLLM）中上游模型的默认价格
 //  4. nil → 走默认公式（total_cost × account_rate_multiplier）
 //
 // upstreamModel 是最终发往上游的模型 ID。
-// totalCost 是本次请求的客户计费（倍率前），用于优先级 2。
+// accountBaseCost 是调用方预计算的账号基础成本，不包含用户组倍率；
+// OpenCode Go 调用方会在这里保留模型特有倍率。
 func resolveAccountStatsCost(
 	ctx context.Context,
 	channelService *ChannelService,
@@ -25,7 +27,7 @@ func resolveAccountStatsCost(
 	upstreamModel string,
 	tokens UsageTokens,
 	requestCount int,
-	totalCost float64,
+	accountBaseCost float64,
 ) *float64 {
 	if channelService == nil || upstreamModel == "" {
 		return nil
@@ -42,9 +44,9 @@ func resolveAccountStatsCost(
 		return applyOpenCodeGoQuotaCostToAccountStats(billingService, platform, upstreamModel, cost)
 	}
 
-	// 优先级 2：渠道开启"应用模型定价到账号统计"时，直接使用客户计费（倍率前）
+	// 优先级 2：渠道开启"应用模型定价到账号统计"时，直接使用账号基础成本
 	if channel.ApplyPricingToAccountStats {
-		cost := totalCost
+		cost := accountBaseCost
 		if cost <= 0 {
 			return nil
 		}
@@ -248,7 +250,7 @@ func applyAccountStatsCost(
 	accountID int64, groupID int64,
 	upstreamModel, requestedModel string,
 	tokens UsageTokens,
-	totalCost float64,
+	accountBaseCost float64,
 ) {
 	model := upstreamModel
 	if model == "" {
@@ -259,6 +261,6 @@ func applyAccountStatsCost(
 		requestCount = usageLog.ImageCount
 	}
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
-		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost,
+		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost,
 	)
 }

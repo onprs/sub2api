@@ -13,10 +13,6 @@ export default {
     empty: '暂无模型计费数据',
     copyModelId: '复制模型 ID',
     modelCopied: '已复制模型 ID',
-    modes: {
-      raw: '标准价格',
-      actual: '实际价格'
-    },
     columns: {
       channel: '渠道',
       platform: '平台',
@@ -25,8 +21,7 @@ export default {
       group: '分组',
       multiplier: '倍率',
       groupMultiplier: '分组倍率',
-      monthlyUsage: '月可用额度',
-      quotaCostMultiplier: '额度成本倍率',
+      modelSpecificMultiplier: '模型特有倍率',
       effectiveMultiplier: '实际计费倍率',
       usageOffer: '官方额度活动',
       source: '来源',

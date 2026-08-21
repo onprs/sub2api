@@ -5,7 +5,6 @@ package service
 import (
 	"context"
 	"errors"
-	"math"
 	"strings"
 	"testing"
 	"time"
@@ -485,7 +484,7 @@ func TestGatewayServiceValidateGatewayTokenPricingAvailable_RejectsOpenCodeGoMod
 	require.Contains(t, err.Error(), "quota cost multiplier unavailable")
 }
 
-func TestGatewayServiceRecordUsage_OpenCodeGoPricingPageMatchesQuotaWeightedBilling(t *testing.T) {
+func TestGatewayServiceRecordUsage_OpenCodeGoStoresBasePricesAndEffectiveMultiplier(t *testing.T) {
 	groupID := int64(10)
 	groupMultiplier := 1.25
 	inputPrice := 0.4e-6
@@ -500,7 +499,11 @@ func TestGatewayServiceRecordUsage_OpenCodeGoPricingPageMatchesQuotaWeightedBill
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 	channelSvc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
 	cache := newEmptyChannelCache()
-	cache.channelByGroupID[groupID] = &Channel{ID: 1, Status: StatusActive}
+	cache.channelByGroupID[groupID] = &Channel{
+		ID:                         1,
+		Status:                     StatusActive,
+		ApplyPricingToAccountStats: true,
+	}
 	cache.groupPlatform[groupID] = PlatformOpenCodeGo
 	cache.pricingByGroupModel[channelModelKey{
 		groupID:  groupID,
@@ -533,8 +536,14 @@ func TestGatewayServiceRecordUsage_OpenCodeGoPricingPageMatchesQuotaWeightedBill
 	require.Equal(t, 2.0, displayed.UsageOffer.UsageMultiplier)
 
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
 	userRepo := &openAIRecordUsageUserRepoStub{}
-	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+	svc := newGatewayRecordUsageServiceWithBillingRepoForTest(
+		usageRepo,
+		billingRepo,
+		userRepo,
+		&openAIRecordUsageSubRepoStub{},
+	)
 	svc.billingService = billingSvc
 	svc.channelService = channelSvc
 	svc.resolver = NewModelPricingResolver(channelSvc, billingSvc)
@@ -567,24 +576,70 @@ func TestGatewayServiceRecordUsage_OpenCodeGoPricingPageMatchesQuotaWeightedBill
 	require.NoError(t, err)
 	require.NotNil(t, usageRepo.lastLog)
 
-	expectedTotal := (float64(tokens.InputTokens)*inputPrice +
+	expectedTotal := float64(tokens.InputTokens)*inputPrice +
 		float64(tokens.OutputTokens)*outputPrice +
-		float64(tokens.CacheReadTokens)*cacheReadPrice) * 2
-	expectedActual := expectedTotal * groupMultiplier
+		float64(tokens.CacheReadTokens)*cacheReadPrice
+	expectedRateMultiplier := groupMultiplier * 2
+	expectedActual := expectedTotal * expectedRateMultiplier
+	require.InDelta(t, float64(tokens.InputTokens)*inputPrice, usageRepo.lastLog.InputCost, 1e-12)
+	require.InDelta(t, float64(tokens.OutputTokens)*outputPrice, usageRepo.lastLog.OutputCost, 1e-12)
+	require.InDelta(t, float64(tokens.CacheReadTokens)*cacheReadPrice, usageRepo.lastLog.CacheReadCost, 1e-12)
 	require.InDelta(t, expectedTotal, usageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, expectedRateMultiplier, usageRepo.lastLog.RateMultiplier, 1e-12)
 	require.InDelta(t, expectedActual, usageRepo.lastLog.ActualCost, 1e-12)
-	require.InDelta(t, expectedActual, userRepo.lastAmount, 1e-12)
+	require.InDelta(t, usageRepo.lastLog.TotalCost*usageRepo.lastLog.RateMultiplier, usageRepo.lastLog.ActualCost, 1e-12)
+	require.NotNil(t, billingRepo.lastCmd)
+	require.InDelta(t, expectedActual, billingRepo.lastCmd.BalanceCost, 1e-12)
+	require.Zero(t, userRepo.deductCalls)
 	require.NotNil(t, usageRepo.lastLog.AccountStatsCost)
-	offPeakStatsCost := (float64(tokens.InputTokens)*0.22e-6 +
-		float64(tokens.OutputTokens)*0.66e-6 +
-		float64(tokens.CacheReadTokens)*0.007e-6) * 2
-	peakStatsCost := (float64(tokens.InputTokens)*0.44e-6 +
-		float64(tokens.OutputTokens)*1.32e-6 +
-		float64(tokens.CacheReadTokens)*0.014e-6) * 2
-	require.True(t,
-		math.Abs(*usageRepo.lastLog.AccountStatsCost-offPeakStatsCost) <= 1e-12 ||
-			math.Abs(*usageRepo.lastLog.AccountStatsCost-peakStatsCost) <= 1e-12,
+	require.InDelta(t, expectedTotal*2, *usageRepo.lastLog.AccountStatsCost, 1e-12)
+}
+
+func TestGatewayServiceRecordUsage_OpenCodeGoWithoutChannelPreservesWeightedAccountStats(t *testing.T) {
+	groupID := int64(17)
+	groupMultiplier := 0.75
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
+	svc := newGatewayRecordUsageServiceWithBillingRepoForTest(
+		usageRepo,
+		billingRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
 	)
+
+	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "opencode_go_no_channel_effective_multiplier",
+			Usage: ClaudeUsage{
+				InputTokens:          1_000_000,
+				OutputTokens:         500_000,
+				CacheReadInputTokens: 250_000,
+			},
+			Model:    "deepseek-v4-flash",
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{
+			ID:      501,
+			Quota:   100,
+			GroupID: &groupID,
+			Group: &Group{
+				ID:             groupID,
+				Platform:       PlatformOpenCodeGo,
+				RateMultiplier: groupMultiplier,
+			},
+		},
+		User:    &User{ID: 601},
+		Account: &Account{ID: 701, Platform: PlatformOpenCodeGo},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, groupMultiplier*2, usageRepo.lastLog.RateMultiplier, 1e-12)
+	require.InDelta(t, usageRepo.lastLog.TotalCost*usageRepo.lastLog.RateMultiplier, usageRepo.lastLog.ActualCost, 1e-12)
+	require.NotNil(t, usageRepo.lastLog.AccountStatsCost)
+	require.InDelta(t, usageRepo.lastLog.TotalCost*2, *usageRepo.lastLog.AccountStatsCost, 1e-12)
+	require.NotNil(t, billingRepo.lastCmd)
+	require.InDelta(t, usageRepo.lastLog.ActualCost, billingRepo.lastCmd.BalanceCost, 1e-12)
 }
 
 func TestGatewayServiceRecordUsage_AntigravityCacheReadWriteCostsPersisted(t *testing.T) {

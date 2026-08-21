@@ -147,25 +147,23 @@ describe('buildModelPricingRows', () => {
     })
   })
 
-  it('uses user-specific multipliers before group defaults', () => {
+  it('uses user-specific multipliers without changing prices', () => {
     const rows = buildModelPricingRows(makeChannels(), { 20: 0.5 })
     const enterprise = rows.find((row) => row.groupId === 20 && row.modelName === 'gpt-4o-mini')
 
     expect(enterprise?.defaultMultiplier).toBe(2)
     expect(enterprise?.userMultiplier).toBe(0.5)
     expect(enterprise?.groupMultiplier).toBe(0.5)
-    expect(enterprise?.actualPricing.inputPrice).toBe(0.0000005)
-    expect(enterprise?.actualPricing.outputPrice).toBe(0.000001)
+    expect(enterprise?.effectiveMultiplier).toBe(0.5)
+    expect(enterprise?.pricing.inputPrice).toBe(0.000001)
+    expect(enterprise?.pricing.outputPrice).toBe(0.000002)
   })
 
-  it('preserves OpenCode Go time bands and combines quota cost with the effective group multiplier', () => {
+  it('preserves OpenCode Go time bands and combines the model-specific multiplier with the effective group multiplier', () => {
     const channels = makeChannels()
     const pricing = channels[0].platforms[0].supported_models[0].pricing
     if (!pricing) throw new Error('test pricing is required')
-    channels[0].platforms[0].supported_models[0].quota_cost = {
-      included_monthly_usage_usd: 30,
-      cost_multiplier: 2,
-    }
+    channels[0].platforms[0].supported_models[0].model_specific_multiplier = 2
     channels[0].platforms[0].supported_models[0].usage_offer = {
       code: 'opencode_go_usage_offer',
       usage_multiplier: 2,
@@ -194,8 +192,7 @@ describe('buildModelPricingRows', () => {
     const rows = buildModelPricingRows(channels, { 20: 0.5 })
     const enterprise = rows.find((row) => row.groupId === 20 && row.modelName === 'gpt-4o-mini')
 
-    expect(enterprise?.quotaCostMultiplier).toBe(2)
-    expect(enterprise?.includedMonthlyUsageUSD).toBe(30)
+    expect(enterprise?.modelSpecificMultiplier).toBe(2)
     expect(enterprise?.effectiveMultiplier).toBe(1)
     expect(enterprise?.usageOfferCode).toBe('opencode_go_usage_offer')
     expect(enterprise?.usageMultiplier).toBe(2)
@@ -205,14 +202,6 @@ describe('buildModelPricingRows', () => {
         timeZone: 'UTC',
         timeRanges: ['00:00-01:00', '04:00-06:00', '10:00-24:00'],
         pricing: {
-          inputPrice: 0.22e-6,
-          outputPrice: 0.66e-6,
-          cacheWritePrice: null,
-          cacheReadPrice: 0.007e-6,
-          imageOutputPrice: null,
-          perRequestPrice: null,
-        },
-        actualPricing: {
           inputPrice: 0.22e-6,
           outputPrice: 0.66e-6,
           cacheWritePrice: null,
@@ -233,60 +222,52 @@ describe('buildModelPricingRows', () => {
           imageOutputPrice: null,
           perRequestPrice: null,
         },
-        actualPricing: {
-          inputPrice: 0.44e-6,
-          outputPrice: 1.32e-6,
-          cacheWritePrice: null,
-          cacheReadPrice: 0.014e-6,
-          imageOutputPrice: null,
-          perRequestPrice: null,
-        },
       },
     ])
   })
 
-  it('keeps raw pricing and computes actual pricing with the group multiplier', () => {
+  it('keeps token and per-request prices independent from multipliers', () => {
     const rows = buildModelPricingRows(makeChannels(), {})
     const enterprise = rows.find((row) => row.groupId === 20 && row.modelName === 'gpt-4o-mini')
     const perRequest = rows.find((row) => row.groupId === 20 && row.modelName === 'image-pro')
 
+    expect(enterprise?.effectiveMultiplier).toBe(2)
     expect(enterprise?.pricing.inputPrice).toBe(0.000001)
-    expect(enterprise?.actualPricing.inputPrice).toBe(0.000002)
-    expect(enterprise?.actualPricing.cacheWritePrice).toBe(0.0000008)
+    expect(enterprise?.pricing.cacheWritePrice).toBe(0.0000004)
     expect(enterprise?.intervals[0]).toMatchObject({
       tierLabel: 'first 1k',
       pricing: {
         inputPrice: 0.0000005,
         outputPrice: 0.000001,
       },
-      actualPricing: {
-        inputPrice: 0.000001,
-        outputPrice: 0.000002,
-      },
     })
-    expect(perRequest?.actualPricing.perRequestPrice).toBe(0.06)
-    expect(perRequest?.actualPricing.imageOutputPrice).toBe(0.14)
+    expect(enterprise).not.toHaveProperty('actualPricing')
+    expect(enterprise?.intervals[0]).not.toHaveProperty('actualPricing')
+    expect(perRequest?.pricing.perRequestPrice).toBe(0.03)
+    expect(perRequest?.pricing.imageOutputPrice).toBe(0.07)
   })
 
-  it('preserves zero multipliers and computes actual prices as zero', () => {
+  it('preserves zero multipliers without changing prices', () => {
     const rows = buildModelPricingRows(makeChannels(), {})
     const free = rows.find((row) => row.groupId === 30 && row.modelName === 'gemini-free')
 
     expect(free?.groupMultiplier).toBe(0)
-    expect(free?.actualPricing.inputPrice).toBe(0)
-    expect(free?.actualPricing.outputPrice).toBe(0)
-    expect(free?.actualPricing.cacheReadPrice).toBe(0)
+    expect(free?.effectiveMultiplier).toBe(0)
+    expect(free?.pricing.inputPrice).toBe(0.000003)
+    expect(free?.pricing.outputPrice).toBe(0.000004)
+    expect(free?.pricing.cacheReadPrice).toBe(0)
   })
 
-  it('clamps negative and non-finite multipliers to zero before computing actual prices', () => {
+  it('clamps negative and non-finite multipliers to zero without changing prices', () => {
     const rows = buildModelPricingRows(makeChannels(), { 20: -3 })
     const enterprise = rows.find((row) => row.groupId === 20 && row.modelName === 'gpt-4o-mini')
 
     expect(enterprise?.defaultMultiplier).toBe(2)
     expect(enterprise?.userMultiplier).toBe(0)
     expect(enterprise?.groupMultiplier).toBe(0)
-    expect(enterprise?.actualPricing.inputPrice).toBe(0)
-    expect(enterprise?.actualPricing.outputPrice).toBe(0)
+    expect(enterprise?.effectiveMultiplier).toBe(0)
+    expect(enterprise?.pricing.inputPrice).toBe(0.000001)
+    expect(enterprise?.pricing.outputPrice).toBe(0.000002)
 
     const nonFiniteRows = buildModelPricingRows(makeChannels(), { 20: Number.POSITIVE_INFINITY })
     const nonFinite = nonFiniteRows.find(
@@ -305,14 +286,6 @@ describe('buildModelPricingRows', () => {
       pricingSourceDetail: '',
       billingMode: null,
       pricing: {
-        inputPrice: null,
-        outputPrice: null,
-        cacheWritePrice: null,
-        cacheReadPrice: null,
-        imageOutputPrice: null,
-        perRequestPrice: null,
-      },
-      actualPricing: {
         inputPrice: null,
         outputPrice: null,
         cacheWritePrice: null,

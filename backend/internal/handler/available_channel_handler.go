@@ -120,12 +120,6 @@ type userPricingIntervalDTO struct {
 	PerRequestPrice *float64 `json:"per_request_price"`
 }
 
-// userSupportedModelQuotaCost 用户可见的 OpenCode Go 基础额度成本规则。
-type userSupportedModelQuotaCost struct {
-	IncludedMonthlyUsageUSD float64 `json:"included_monthly_usage_usd"`
-	CostMultiplier          float64 `json:"cost_multiplier"`
-}
-
 // userSupportedModelUsageOffer 用户可见的官方 Usage 活动快照。
 type userSupportedModelUsageOffer struct {
 	Code            string  `json:"code"`
@@ -134,11 +128,11 @@ type userSupportedModelUsageOffer struct {
 
 // userSupportedModel 用户可见的支持模型条目。
 type userSupportedModel struct {
-	Name       string                        `json:"name"`
-	Platform   string                        `json:"platform"`
-	Pricing    *userSupportedModelPricing    `json:"pricing"`
-	QuotaCost  *userSupportedModelQuotaCost  `json:"quota_cost,omitempty"`
-	UsageOffer *userSupportedModelUsageOffer `json:"usage_offer,omitempty"`
+	Name                    string                        `json:"name"`
+	Platform                string                        `json:"platform"`
+	Pricing                 *userSupportedModelPricing    `json:"pricing"`
+	ModelSpecificMultiplier *float64                      `json:"model_specific_multiplier,omitempty"`
+	UsageOffer              *userSupportedModelUsageOffer `json:"usage_offer,omitempty"`
 }
 
 // userChannelPlatformSection 单渠道内某个平台的子视图：用户可见的分组 + 该平台
@@ -497,26 +491,23 @@ func toUserSupportedModels(
 		pricing := toUserPricing(m.Pricing, m.PricingSource)
 		pricing.TimeBands = toUserPricingTimeBands(m.PricingTimeBands)
 		out = append(out, userSupportedModel{
-			Name:       m.Name,
-			Platform:   m.Platform,
-			Pricing:    pricing,
-			QuotaCost:  toUserSupportedModelQuotaCost(m.QuotaCost),
-			UsageOffer: toUserSupportedModelUsageOffer(m.UsageOffer),
+			Name:                    m.Name,
+			Platform:                m.Platform,
+			Pricing:                 pricing,
+			ModelSpecificMultiplier: toUserSupportedModelMultiplier(m.QuotaCost),
+			UsageOffer:              toUserSupportedModelUsageOffer(m.UsageOffer),
 		})
 	}
 	return out
 }
 
-func toUserSupportedModelQuotaCost(quotaCost *service.ModelQuotaCost) *userSupportedModelQuotaCost {
-	if quotaCost == nil || quotaCost.IncludedMonthlyUsageUSD < 0 || quotaCost.CostMultiplier <= 0 ||
-		math.IsNaN(quotaCost.IncludedMonthlyUsageUSD) || math.IsInf(quotaCost.IncludedMonthlyUsageUSD, 0) ||
+func toUserSupportedModelMultiplier(quotaCost *service.ModelQuotaCost) *float64 {
+	if quotaCost == nil || quotaCost.CostMultiplier <= 0 ||
 		math.IsNaN(quotaCost.CostMultiplier) || math.IsInf(quotaCost.CostMultiplier, 0) {
 		return nil
 	}
-	return &userSupportedModelQuotaCost{
-		IncludedMonthlyUsageUSD: quotaCost.IncludedMonthlyUsageUSD,
-		CostMultiplier:          quotaCost.CostMultiplier,
-	}
+	multiplier := quotaCost.CostMultiplier
+	return &multiplier
 }
 
 func toUserSupportedModelUsageOffer(offer *service.ModelUsageOffer) *userSupportedModelUsageOffer {
