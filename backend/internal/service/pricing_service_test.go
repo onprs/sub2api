@@ -791,6 +791,64 @@ func TestParseOpenCodeGoUsagePromotionsDocument(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestParseOpenCodeGoPricingDocumentPreservesQuotaAndPeakPricing(t *testing.T) {
+	body := []byte(`
+<table><tbody>
+<tr><td>GLM-5.3</td><td>$1.40</td><td>$4.40</td><td>$0.26</td><td>-</td><td>$15</td></tr>
+<tr><td>DeepSeek V4 Flash (Off-Peak)</td><td>$0.22</td><td>$0.66</td><td>$0.007</td><td>-</td><td>$30</td></tr>
+<tr><td>DeepSeek V4 Flash (Peak)</td><td>$0.44</td><td>$1.32</td><td>$0.014</td><td>-</td><td>$30</td></tr>
+</tbody></table>
+<table><tbody>
+<tr><td>GLM-5.3</td><td>glm-5.3</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
+<tr><td>DeepSeek V4 Flash</td><td>deepseek-v4-flash</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
+</tbody></table>`)
+
+	pricing, err := parseOpenCodeGoPricingDocument(body)
+	require.NoError(t, err)
+
+	glm := pricing["glm-5.3"]
+	require.NotNil(t, glm)
+	require.Equal(t, 15.0, glm.OpenCodeGoMonthlyUsageUSD)
+
+	flash := pricing["deepseek-v4-flash"]
+	require.NotNil(t, flash)
+	require.Equal(t, 30.0, flash.OpenCodeGoMonthlyUsageUSD)
+	require.InDelta(t, 0.22e-6, flash.InputCostPerToken, 1e-15)
+	require.InDelta(t, 0.66e-6, flash.OutputCostPerToken, 1e-15)
+	require.InDelta(t, 0.007e-6, flash.CacheReadInputTokenCost, 1e-15)
+	require.True(t, flash.OpenCodeGoPeakPricingKnown)
+	require.InDelta(t, 0.44e-6, flash.OpenCodeGoPeakInputCostPerToken, 1e-15)
+	require.InDelta(t, 1.32e-6, flash.OpenCodeGoPeakOutputCostPerToken, 1e-15)
+	require.InDelta(t, 0.014e-6, flash.OpenCodeGoPeakCacheReadCostPerToken, 1e-15)
+
+	billingSvc := NewBillingService(&config.Config{}, nil)
+	offPeak, ok := billingSvc.modelPricingFromLiteLLMAt("deepseek-v4-flash", flash, time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC))
+	require.True(t, ok)
+	require.InDelta(t, 0.22e-6, offPeak.InputPricePerToken, 1e-15)
+	peak, ok := billingSvc.modelPricingFromLiteLLMAt("deepseek-v4-flash", flash, time.Date(2026, 8, 21, 1, 0, 0, 0, time.UTC))
+	require.True(t, ok)
+	require.InDelta(t, 0.44e-6, peak.InputPricePerToken, 1e-15)
+	require.InDelta(t, 0.014e-6, peak.CacheReadPricePerToken, 1e-15)
+}
+
+func TestPricingServiceOpenCodeGoQuotaCostMultiplierCombinesModelLimitAndPromotion(t *testing.T) {
+	now := time.Now()
+	svc := &PricingService{
+		openCodeGoPricing: map[string]*LiteLLMModelPricing{
+			"glm-5.3":           {OpenCodeGoMonthlyUsageUSD: 15},
+			"deepseek-v4-flash": {OpenCodeGoMonthlyUsageUSD: 30},
+		},
+		openCodeGoPromotions: map[string]openCodeGoUsagePromotion{
+			openCodeGoDeepSeekFlashPromoModel: {multiplier: 0.5, confirmedAt: now},
+		},
+	}
+
+	require.Equal(t, 4.0, svc.OpenCodeGoQuotaCostMultiplier("opencode-go/glm-5.3", now))
+	require.Equal(t, 1.0, svc.OpenCodeGoQuotaCostMultiplier("models/opencode_go/deepseek-v4-flash", now))
+	svc.replaceOpenCodeGoPromotions(nil, now)
+	require.Equal(t, 2.0, svc.OpenCodeGoQuotaCostMultiplier("deepseek-v4-flash", now))
+}
+
 func TestPricingServiceRefreshOpenCodeGoPromotionsAutomaticallyRestoresStandardUsage(t *testing.T) {
 	const promotionsURL = "https://opencode.ai/go"
 	remote := &pricingTestRemoteClient{pricingBodies: map[string][]byte{
@@ -1287,7 +1345,7 @@ func TestOpenCodeGoPricingPersistenceAndOfflineRecovery(t *testing.T) {
 			docsURL: []byte(`
 <p><strong>Ox Alpha Free:</strong> Free for a limited time.</p>
 <table><tbody>
-<tr><td>GLM-5.2</td><td>$1.40</td><td>$4.40</td><td>$0.26</td><td>-</td></tr>
+<tr><td>GLM-5.2</td><td>$1.40</td><td>$4.40</td><td>$0.26</td><td>-</td><td>$60</td></tr>
 <tr><td>Ox Alpha Free</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 </tbody></table>
 <table><tbody>
@@ -1315,6 +1373,7 @@ func TestOpenCodeGoPricingPersistenceAndOfflineRecovery(t *testing.T) {
 	pricing := svc.GetOpenCodeGoModelPricingExact("glm-5.2")
 	require.NotNil(t, pricing)
 	require.InDelta(t, 1.4e-6, pricing.InputCostPerToken, 1e-12)
+	require.Equal(t, 60.0, pricing.OpenCodeGoMonthlyUsageUSD)
 	freePricing := svc.GetOpenCodeGoModelPricingExact("ox-alpha-free")
 	require.NotNil(t, freePricing)
 	require.True(t, freePricing.OpenCodeGoExplicitZeroRate)
@@ -1350,6 +1409,7 @@ func TestOpenCodeGoPricingPersistenceAndOfflineRecovery(t *testing.T) {
 	require.NotNil(t, recoveredPricing)
 	require.InDelta(t, 1.4e-6, recoveredPricing.InputCostPerToken, 1e-12)
 	require.Equal(t, openCodeGoPricingAuthorityOfficial, recoveredPricing.OpenCodeGoPricingAuthority)
+	require.Equal(t, 60.0, recoveredPricing.OpenCodeGoMonthlyUsageUSD)
 	recoveredFreePricing := newSvc.GetOpenCodeGoModelPricingExact("ox-alpha-free")
 	require.NotNil(t, recoveredFreePricing)
 	require.True(t, recoveredFreePricing.OpenCodeGoExplicitZeroRate)

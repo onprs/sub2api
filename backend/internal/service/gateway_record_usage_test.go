@@ -745,7 +745,8 @@ func TestGatewayServiceRecordUsage_OpenCodeGoDeepSeekFlashPromotionHalvesUsageCo
 	require.InDelta(t, standardCost.ActualCost*0.5, usageRepo.lastLog.ActualCost, 1e-12)
 	require.InDelta(t, standardCost.ActualCost*0.5, userRepo.lastAmount, 1e-12)
 	require.NotNil(t, usageRepo.lastLog.AccountStatsCost)
-	require.InDelta(t, standardCost.TotalCost*0.5, *usageRepo.lastLog.AccountStatsCost, 1e-12)
+	// 官方共享额度先按 Flash 的 $30 月度模型额度放大 2 倍，再应用 2x usage 活动的 0.5 倍。
+	require.InDelta(t, standardCost.TotalCost, *usageRepo.lastLog.AccountStatsCost, 1e-12)
 
 	pricingSvc.replaceOpenCodeGoPromotions(nil, time.Now())
 	endedUsageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
@@ -801,6 +802,59 @@ func TestGatewayServiceRecordUsage_OpenCodeGoDeepSeekFlashPromotionHalvesUsageCo
 	require.InDelta(t, standardCost.TotalCost, otherUsageRepo.lastLog.TotalCost, 1e-12)
 	require.InDelta(t, standardCost.ActualCost, otherUsageRepo.lastLog.ActualCost, 1e-12)
 	require.InDelta(t, standardCost.ActualCost, otherUserRepo.lastAmount, 1e-12)
+}
+
+func TestGatewayServiceRecordUsage_OpenCodeGoModelQuotaMultiplierAppliesOnlyToAccountStats(t *testing.T) {
+	pricingSvc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{},
+		openCodeGoPricing: map[string]*LiteLLMModelPricing{
+			"glm-5.3": {
+				InputCostPerToken:          1.4e-6,
+				OutputCostPerToken:         4.4e-6,
+				CacheReadInputTokenCost:    0.26e-6,
+				LiteLLMProvider:            PlatformOpenCodeGo,
+				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
+				OpenCodeGoMonthlyUsageUSD:  15,
+			},
+		},
+	}
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+	svc.billingService = NewBillingService(svc.cfg, pricingSvc)
+	svc.channelService = newTestChannelServiceForStats(t, &Channel{ID: 1, Status: StatusActive}, 10, PlatformOpenCodeGo)
+
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 500_000, CacheReadTokens: 250_000}
+	standardCost, err := svc.billingService.CalculateCostForPlatform(PlatformOpenCodeGo, "glm-5.3", tokens, 1.1)
+	require.NoError(t, err)
+	groupID := int64(10)
+	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "opencode_go_glm53_quota_multiplier",
+			Usage: ClaudeUsage{
+				InputTokens:          tokens.InputTokens,
+				OutputTokens:         tokens.OutputTokens,
+				CacheReadInputTokens: tokens.CacheReadTokens,
+			},
+			Model:    "glm-5.3",
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{
+			ID:      501,
+			Quota:   100,
+			GroupID: &groupID,
+			Group:   &Group{ID: groupID, Platform: PlatformOpenCodeGo, RateMultiplier: 1.1},
+		},
+		User:    &User{ID: 601},
+		Account: &Account{ID: 701, Platform: PlatformOpenCodeGo},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, standardCost.TotalCost, usageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, standardCost.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, standardCost.ActualCost, userRepo.lastAmount, 1e-12)
+	require.NotNil(t, usageRepo.lastLog.AccountStatsCost)
+	require.InDelta(t, standardCost.TotalCost*4, *usageRepo.lastLog.AccountStatsCost, 1e-12)
 }
 
 func TestGatewayServiceRecordUsage_OpenCodeGoHy3PromotionEightTimesUsageCosts(t *testing.T) {

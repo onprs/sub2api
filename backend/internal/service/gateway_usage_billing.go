@@ -777,7 +777,8 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	if promotionModel == "" {
 		promotionModel = strings.TrimSpace(chargedBillingModel)
 	}
-	promotionMultiplier := s.openCodeGoUsagePromotionMultiplier(account, promotionModel, timezone.Now())
+	billingTime := timezone.Now()
+	promotionMultiplier := s.openCodeGoUsagePromotionMultiplier(account, promotionModel, billingTime)
 	if promotionMultiplier != 1 {
 		applyCostBreakdownMultiplier(cost, promotionMultiplier)
 	}
@@ -809,9 +810,10 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 			},
 			standardTotalCost,
 		)
-		if promotionMultiplier != 1 && usageLog.AccountStatsCost != nil {
-			promotionalStatsCost := *usageLog.AccountStatsCost * promotionMultiplier
-			usageLog.AccountStatsCost = &promotionalStatsCost
+		accountStatsMultiplier := s.openCodeGoAccountStatsCostMultiplier(account, promotionModel, billingTime)
+		if accountStatsMultiplier != 1 && usageLog.AccountStatsCost != nil {
+			quotaStatsCost := *usageLog.AccountStatsCost * accountStatsMultiplier
+			usageLog.AccountStatsCost = &quotaStatsCost
 		}
 	}
 
@@ -859,6 +861,13 @@ func (s *GatewayService) openCodeGoUsagePromotionMultiplier(account *Account, mo
 		return 1
 	}
 	return s.billingService.OpenCodeGoUsagePromotionMultiplier(model, now)
+}
+
+func (s *GatewayService) openCodeGoAccountStatsCostMultiplier(account *Account, model string, now time.Time) float64 {
+	if s == nil || account == nil || !account.IsOpenCodeGo() || s.billingService == nil {
+		return 1
+	}
+	return s.billingService.OpenCodeGoQuotaCostMultiplier(model, now)
 }
 
 func applyCostBreakdownMultiplier(cost *CostBreakdown, multiplier float64) {
