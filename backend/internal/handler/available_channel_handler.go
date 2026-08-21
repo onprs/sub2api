@@ -94,6 +94,18 @@ type userSupportedModelPricing struct {
 	ImageOutputPrice    *float64                 `json:"image_output_price"`
 	PerRequestPrice     *float64                 `json:"per_request_price"`
 	Intervals           []userPricingIntervalDTO `json:"intervals"`
+	TimeBands           []userPricingTimeBandDTO `json:"time_bands"`
+}
+
+// userPricingTimeBandDTO 分时定价白名单。
+type userPricingTimeBandDTO struct {
+	Code            string   `json:"code"`
+	TimeZone        string   `json:"time_zone"`
+	TimeRanges      []string `json:"time_ranges"`
+	InputPrice      *float64 `json:"input_price"`
+	OutputPrice     *float64 `json:"output_price"`
+	CacheWritePrice *float64 `json:"cache_write_price"`
+	CacheReadPrice  *float64 `json:"cache_read_price"`
 }
 
 // userPricingIntervalDTO 定价区间白名单（去掉内部 ID、SortOrder 等前端不渲染的字段）。
@@ -108,19 +120,18 @@ type userPricingIntervalDTO struct {
 	PerRequestPrice *float64 `json:"per_request_price"`
 }
 
-// userSupportedModelPromotion 用户可见的模型级活动快照。
-type userSupportedModelPromotion struct {
+// userSupportedModelUsageOffer 用户可见的官方 Usage 活动快照。
+type userSupportedModelUsageOffer struct {
 	Code            string  `json:"code"`
-	CostMultiplier  float64 `json:"cost_multiplier"`
 	UsageMultiplier float64 `json:"usage_multiplier"`
 }
 
 // userSupportedModel 用户可见的支持模型条目。
 type userSupportedModel struct {
-	Name      string                       `json:"name"`
-	Platform  string                       `json:"platform"`
-	Pricing   *userSupportedModelPricing   `json:"pricing"`
-	Promotion *userSupportedModelPromotion `json:"promotion,omitempty"`
+	Name       string                        `json:"name"`
+	Platform   string                        `json:"platform"`
+	Pricing    *userSupportedModelPricing    `json:"pricing"`
+	UsageOffer *userSupportedModelUsageOffer `json:"usage_offer,omitempty"`
 }
 
 // userChannelPlatformSection 单渠道内某个平台的子视图：用户可见的分组 + 该平台
@@ -476,27 +487,46 @@ func toUserSupportedModels(
 				continue
 			}
 		}
+		pricing := toUserPricing(m.Pricing, m.PricingSource)
+		pricing.TimeBands = toUserPricingTimeBands(m.PricingTimeBands)
 		out = append(out, userSupportedModel{
-			Name:      m.Name,
-			Platform:  m.Platform,
-			Pricing:   toUserPricing(m.Pricing, m.PricingSource),
-			Promotion: toUserSupportedModelPromotion(m.Promotion),
+			Name:       m.Name,
+			Platform:   m.Platform,
+			Pricing:    pricing,
+			UsageOffer: toUserSupportedModelUsageOffer(m.UsageOffer),
 		})
 	}
 	return out
 }
 
-func toUserSupportedModelPromotion(p *service.ModelPricingPromotion) *userSupportedModelPromotion {
-	if p == nil || p.Code == "" || math.IsNaN(p.CostMultiplier) || math.IsInf(p.CostMultiplier, 0) ||
-		math.IsNaN(p.UsageMultiplier) || math.IsInf(p.UsageMultiplier, 0) ||
-		p.CostMultiplier <= 0 || p.CostMultiplier >= 1 || p.UsageMultiplier <= 1 {
+func toUserSupportedModelUsageOffer(offer *service.ModelUsageOffer) *userSupportedModelUsageOffer {
+	if offer == nil || strings.TrimSpace(offer.Code) == "" || offer.UsageMultiplier <= 1 ||
+		math.IsNaN(offer.UsageMultiplier) || math.IsInf(offer.UsageMultiplier, 0) {
 		return nil
 	}
-	return &userSupportedModelPromotion{
-		Code:            p.Code,
-		CostMultiplier:  p.CostMultiplier,
-		UsageMultiplier: p.UsageMultiplier,
+	return &userSupportedModelUsageOffer{
+		Code:            offer.Code,
+		UsageMultiplier: offer.UsageMultiplier,
 	}
+}
+
+func toUserPricingTimeBands(src []service.ModelPricingTimeBand) []userPricingTimeBandDTO {
+	out := make([]userPricingTimeBandDTO, 0, len(src))
+	for _, band := range src {
+		if band.Pricing == nil {
+			continue
+		}
+		out = append(out, userPricingTimeBandDTO{
+			Code:            band.Code,
+			TimeZone:        band.TimeZone,
+			TimeRanges:      append([]string(nil), band.TimeRanges...),
+			InputPrice:      band.Pricing.InputPrice,
+			OutputPrice:     band.Pricing.OutputPrice,
+			CacheWritePrice: band.Pricing.CacheWritePrice,
+			CacheReadPrice:  band.Pricing.CacheReadPrice,
+		})
+	}
+	return out
 }
 
 // toUserPricing 将 service 层定价转换为用户 DTO；入参为 nil 时返回可检查的未配置对象。
@@ -509,6 +539,7 @@ func toUserPricing(p *service.ChannelModelPricing, pricingSource string) *userSu
 			PricingSourceLabel:  label,
 			PricingSourceDetail: detail,
 			Intervals:           []userPricingIntervalDTO{},
+			TimeBands:           []userPricingTimeBandDTO{},
 		}
 	}
 	intervals := make([]userPricingIntervalDTO, 0, len(p.Intervals))
@@ -540,6 +571,7 @@ func toUserPricing(p *service.ChannelModelPricing, pricingSource string) *userSu
 		ImageOutputPrice:    p.ImageOutputPrice,
 		PerRequestPrice:     p.PerRequestPrice,
 		Intervals:           intervals,
+		TimeBands:           []userPricingTimeBandDTO{},
 	}
 }
 

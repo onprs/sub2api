@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -657,6 +656,42 @@ func TestParseOpenCodeGoPricingDocument_MapsOfficialModelIDsAndPrices(t *testing
 	require.Equal(t, openCodeGoPricingAuthorityOfficial, free.OpenCodeGoPricingAuthority)
 }
 
+func TestParseOpenCodeGoUsageOffersDocumentKeepsUsageSemanticsSeparateFromPricing(t *testing.T) {
+	body := []byte(`
+<html><body><main data-page="go">
+<span data-item data-model="deepseek-v4-flash">
+  <span data-value>7,600</span><span data-name>DeepSeek V4 Flash</span>
+</span>
+<span data-item data-model="hy3">
+  <span data-value>34,400</span><span data-name>Hy3</span><span data-bonus>8× usage</span>
+</span>
+<script><span data-item data-model="deepseek-v4-flash"><span data-bonus>99x usage</span></span></script>
+<template><span data-item data-model="deepseek-v4-flash"><span data-bonus>2x usage</span></span></template>
+</main></body></html>`)
+
+	offers, err := parseOpenCodeGoUsageOffersDocument(body)
+
+	require.NoError(t, err)
+	require.Equal(t, 8.0, offers["hy3"])
+	require.NotContains(t, offers, "deepseek-v4-flash")
+	require.Len(t, offers, 1)
+
+	_, err = parseOpenCodeGoUsageOffersDocument([]byte(`<html><body>Login</body></html>`))
+	require.Error(t, err)
+}
+
+func TestOpenCodeGoUsageOfferMultiplierRequiresFreshOfficialEvidence(t *testing.T) {
+	now := time.Date(2026, time.August, 21, 12, 0, 0, 0, time.UTC)
+	svc := &PricingService{}
+	svc.replaceOpenCodeGoUsageOffers(map[string]float64{
+		"deepseek-v4-flash": 2,
+	}, now)
+
+	require.Equal(t, 2.0, svc.OpenCodeGoUsageOfferMultiplier("opencode-go/deepseek-v4-flash", now.Add(time.Minute)))
+	require.Equal(t, 1.0, svc.OpenCodeGoUsageOfferMultiplier("deepseek-v4-flash", now.Add(openCodeGoUsageOfferEvidenceTTL+time.Second)))
+	require.Equal(t, 1.0, svc.OpenCodeGoUsageOfferMultiplier("hy3", now.Add(time.Minute)))
+}
+
 func TestParseOpenCodeGoPricingDocument_DoesNotTreatMissingPricesAsExplicitZeroRate(t *testing.T) {
 	body := []byte(`
 <p><strong>Partial Free:</strong> Free for a limited time.</p>
@@ -738,60 +773,7 @@ func TestOpenCodeGoCatalogFetchUsesOfficialModelsAsModelIDAuthority(t *testing.T
 	require.Empty(t, refreshed["hy3-preview"].Protocol)
 }
 
-func TestParseOpenCodeGoUsagePromotionsDocument(t *testing.T) {
-	activeBanner := []byte(`<html><body><main data-hk="page" data-page="go"><div>DeepSeek V4 Flash gets 2× usage limits for a limited time</div></main></body></html>`)
-	promotions, err := parseOpenCodeGoUsagePromotionsDocument(activeBanner)
-	require.NoError(t, err)
-	require.Equal(t, map[string]float64{openCodeGoDeepSeekFlashPromoModel: 0.5}, promotions)
-
-	hy3Banner := []byte(`<html><body><main data-page="go"><section data-component="hero"><div data-component="desktop-app-banner"><span data-slot="badge">New</span><div data-slot="content"><span data-slot="text">Hy3 gets 8× usage limits for a limited time</span></div></div></section></main></body></html>`)
-	promotions, err = parseOpenCodeGoUsagePromotionsDocument(hy3Banner)
-	require.NoError(t, err)
-	require.Equal(t, map[string]float64{openCodeGoHy3PromoModel: 0.125}, promotions)
-
-	activeBadge := []byte(`<html><body><main data-page="go"><div data-model="deepseek-v4-flash"><span>DeepSeek V4 Flash</span><span data-bonus>2x usage</span></div></main></body></html>`)
-	promotions, err = parseOpenCodeGoUsagePromotionsDocument(activeBadge)
-	require.NoError(t, err)
-	require.Equal(t, map[string]float64{openCodeGoDeepSeekFlashPromoModel: 0.5}, promotions)
-
-	hy3Badge := []byte(`<html><body><main data-page="go"><span data-item data-kind="go" data-model="hy3"><span data-name>Hy3</span><span data-bonus>8x usage</span></span></main></body></html>`)
-	promotions, err = parseOpenCodeGoUsagePromotionsDocument(hy3Badge)
-	require.NoError(t, err)
-	require.Equal(t, map[string]float64{openCodeGoHy3PromoModel: 0.125}, promotions)
-
-	bothPromotions := []byte(`<html><body><main data-page="go">
-		<div data-model="deepseek-v4-flash"><span data-bonus>2x usage</span></div>
-		<div data-model="hy3"><span data-bonus>8x usage</span></div>
-	</main></body></html>`)
-	promotions, err = parseOpenCodeGoUsagePromotionsDocument(bothPromotions)
-	require.NoError(t, err)
-	require.Equal(t, map[string]float64{openCodeGoDeepSeekFlashPromoModel: 0.5, openCodeGoHy3PromoModel: 0.125}, promotions)
-
-	endedWithStaleScript := []byte(`<html><body><main data-page="go"><script>Hy3 gets 8x usage limits for a limited time</script><div>Low cost coding models for everyone</div></main></body></html>`)
-	promotions, err = parseOpenCodeGoUsagePromotionsDocument(endedWithStaleScript)
-	require.NoError(t, err)
-	require.Empty(t, promotions)
-
-	wrongModelBadge := []byte(`<html><body><main data-page="go"><div data-model="hy3-preview"><span data-bonus>8x usage</span></div></main></body></html>`)
-	promotions, err = parseOpenCodeGoUsagePromotionsDocument(wrongModelBadge)
-	require.NoError(t, err)
-	require.Empty(t, promotions)
-
-	wrongMultiplierBadge := []byte(`<html><body><main data-page="go"><div data-model="hy3"><span data-bonus>4x usage</span></div></main></body></html>`)
-	promotions, err = parseOpenCodeGoUsagePromotionsDocument(wrongMultiplierBadge)
-	require.NoError(t, err)
-	require.Empty(t, promotions)
-
-	hiddenTemplateBadge := []byte(`<html><body><main data-page="go"><template><div data-model="hy3"><span data-bonus>8x usage</span></div></template></main></body></html>`)
-	promotions, err = parseOpenCodeGoUsagePromotionsDocument(hiddenTemplateBadge)
-	require.NoError(t, err)
-	require.Empty(t, promotions)
-
-	_, err = parseOpenCodeGoUsagePromotionsDocument([]byte(`<html><body>Login</body></html>`))
-	require.Error(t, err)
-}
-
-func TestParseOpenCodeGoPricingDocumentPreservesQuotaAndPeakPricing(t *testing.T) {
+func TestParseOpenCodeGoPricingDocumentPreservesPeakPricing(t *testing.T) {
 	body := []byte(`
 <table><tbody>
 <tr><td>GLM-5.3</td><td>$1.40</td><td>$4.40</td><td>$0.26</td><td>-</td><td>$15</td></tr>
@@ -808,11 +790,9 @@ func TestParseOpenCodeGoPricingDocumentPreservesQuotaAndPeakPricing(t *testing.T
 
 	glm := pricing["glm-5.3"]
 	require.NotNil(t, glm)
-	require.Equal(t, 15.0, glm.OpenCodeGoMonthlyUsageUSD)
 
 	flash := pricing["deepseek-v4-flash"]
 	require.NotNil(t, flash)
-	require.Equal(t, 30.0, flash.OpenCodeGoMonthlyUsageUSD)
 	require.InDelta(t, 0.22e-6, flash.InputCostPerToken, 1e-15)
 	require.InDelta(t, 0.66e-6, flash.OutputCostPerToken, 1e-15)
 	require.InDelta(t, 0.007e-6, flash.CacheReadInputTokenCost, 1e-15)
@@ -831,121 +811,11 @@ func TestParseOpenCodeGoPricingDocumentPreservesQuotaAndPeakPricing(t *testing.T
 	require.InDelta(t, 0.014e-6, peak.CacheReadPricePerToken, 1e-15)
 }
 
-func TestPricingServiceOpenCodeGoQuotaCostMultiplierCombinesModelLimitAndPromotion(t *testing.T) {
-	now := time.Now()
-	svc := &PricingService{
-		openCodeGoPricing: map[string]*LiteLLMModelPricing{
-			"glm-5.3":           {OpenCodeGoMonthlyUsageUSD: 15},
-			"deepseek-v4-flash": {OpenCodeGoMonthlyUsageUSD: 30},
-		},
-		openCodeGoPromotions: map[string]openCodeGoUsagePromotion{
-			openCodeGoDeepSeekFlashPromoModel: {multiplier: 0.5, confirmedAt: now},
-		},
-	}
-
-	require.Equal(t, 4.0, svc.OpenCodeGoQuotaCostMultiplier("opencode-go/glm-5.3", now))
-	require.Equal(t, 1.0, svc.OpenCodeGoQuotaCostMultiplier("models/opencode_go/deepseek-v4-flash", now))
-	svc.replaceOpenCodeGoPromotions(nil, now)
-	require.Equal(t, 2.0, svc.OpenCodeGoQuotaCostMultiplier("deepseek-v4-flash", now))
-}
-
-func TestPricingServiceRefreshOpenCodeGoPromotionsAutomaticallyRestoresStandardUsage(t *testing.T) {
-	const promotionsURL = "https://opencode.ai/go"
-	remote := &pricingTestRemoteClient{pricingBodies: map[string][]byte{
-		promotionsURL: []byte(`<main data-page="go">
-			<div>DeepSeek V4 Flash gets 2x usage limits for a limited time</div>
-			<div>Hy3 gets 8× usage limits for a limited time</div>
-		</main>`),
-	}}
-	svc := &PricingService{
-		cfg: &config.Config{
-			Pricing:  config.PricingConfig{OpenCodeGoPromotionsURL: promotionsURL},
-			Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}},
-		},
-		remoteClient: remote,
-	}
-
-	svc.refreshOpenCodeGoPromotionsBestEffort(context.Background())
-	require.InDelta(t, 0.5, svc.OpenCodeGoUsagePromotionMultiplier("opencode-go/deepseek-v4-flash", time.Now()), 1e-12)
-	require.InDelta(t, 0.5, svc.OpenCodeGoUsagePromotionMultiplier("models/opencode_go/deepseek-v4-flash", time.Now()), 1e-12)
-	require.InDelta(t, 0.125, svc.OpenCodeGoUsagePromotionMultiplier("hy3", time.Now()), 1e-12)
-	require.InDelta(t, 0.125, svc.OpenCodeGoUsagePromotionMultiplier("opencode-go/hy3", time.Now()), 1e-12)
-	require.InDelta(t, 0.125, svc.OpenCodeGoUsagePromotionMultiplier("models/opencode_go/hy3", time.Now()), 1e-12)
-	require.Equal(t, 1.0, svc.OpenCodeGoUsagePromotionMultiplier("hy3-preview", time.Now()))
-	require.Equal(t, 1.0, svc.OpenCodeGoUsagePromotionMultiplier("deepseek-v4-pro", time.Now()))
-	require.Equal(t, 1.0, svc.OpenCodeGoUsagePromotionMultiplier("deepseek-v4-flash-preview", time.Now()))
-
-	remote.pricingBodies[promotionsURL] = []byte(`<main data-page="go">No active usage promotion</main>`)
-	svc.refreshOpenCodeGoPromotionsBestEffort(context.Background())
-	require.Equal(t, 1.0, svc.OpenCodeGoUsagePromotionMultiplier("deepseek-v4-flash", time.Now()))
-	require.Equal(t, 1.0, svc.OpenCodeGoUsagePromotionMultiplier("hy3", time.Now()))
-
-	svc.replaceOpenCodeGoPromotions(map[string]float64{openCodeGoHy3PromoModel: math.NaN()}, time.Now())
-	require.Equal(t, 1.0, svc.OpenCodeGoUsagePromotionMultiplier("hy3", time.Now()))
-}
-
-func TestPricingServiceOpenCodeGoPromotionEvidenceExpiresAfterFetchFailures(t *testing.T) {
-	const promotionsURL = "https://opencode.ai/go"
-	remote := &pricingTestRemoteClient{pricingErrs: map[string]error{promotionsURL: errors.New("network down")}}
-	svc := &PricingService{
-		cfg: &config.Config{
-			Pricing:  config.PricingConfig{OpenCodeGoPromotionsURL: promotionsURL},
-			Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}},
-		},
-		remoteClient: remote,
-	}
-
-	now := time.Now()
-	svc.replaceOpenCodeGoPromotions(map[string]float64{openCodeGoDeepSeekFlashPromoModel: 0.5, openCodeGoHy3PromoModel: 0.125}, now.Add(-30*time.Minute))
-	svc.refreshOpenCodeGoPromotionsBestEffort(context.Background())
-	require.InDelta(t, 0.5, svc.OpenCodeGoUsagePromotionMultiplier("deepseek-v4-flash", now), 1e-12)
-	require.InDelta(t, 0.125, svc.OpenCodeGoUsagePromotionMultiplier("hy3", now), 1e-12)
-
-	svc.replaceOpenCodeGoPromotions(map[string]float64{openCodeGoDeepSeekFlashPromoModel: 0.5, openCodeGoHy3PromoModel: 0.125}, now.Add(-openCodeGoPromotionEvidenceTTL-time.Minute))
-	svc.refreshOpenCodeGoPromotionsBestEffort(context.Background())
-	require.Equal(t, 1.0, svc.OpenCodeGoUsagePromotionMultiplier("deepseek-v4-flash", now))
-	require.Equal(t, 1.0, svc.OpenCodeGoUsagePromotionMultiplier("hy3", now))
-}
-
-func TestParseOpenCodeGoModelsDevPricingDocumentRestoresPrePromotionBasePrice(t *testing.T) {
-	body := []byte(`{
-		"opencode-go": {
-			"models": {
-				"deepseek-v4-flash": {
-					"id": "deepseek-v4-flash",
-					"name": "DeepSeek V4 Flash (2x usage)",
-					"cost": {"input": 0.07, "output": 0.14, "cache_read": 0.0014, "cache_write": 0}
-				},
-				"hy3": {
-					"id": "hy3",
-					"name": "Hy3 (8x usage)",
-					"cost": {"input": 0.0175, "output": 0.0725, "cache_read": 0.004375, "cache_write": 0}
-				}
-			}
-		}
-	}`)
-
-	pricing, err := parseOpenCodeGoModelsDevPricingDocument(body)
-	require.NoError(t, err)
-	flash := pricing[openCodeGoDeepSeekFlashPromoModel]
-	require.NotNil(t, flash)
-	require.InDelta(t, 0.14e-6, flash.InputCostPerToken, 1e-12)
-	require.InDelta(t, 0.28e-6, flash.OutputCostPerToken, 1e-12)
-	require.InDelta(t, 0.0028e-6, flash.CacheReadInputTokenCost, 1e-12)
-	require.Zero(t, flash.CacheCreationInputTokenCost)
-
-	hy3 := pricing[openCodeGoHy3PromoModel]
-	require.NotNil(t, hy3)
-	require.InDelta(t, 0.14e-6, hy3.InputCostPerToken, 1e-12)
-	require.InDelta(t, 0.58e-6, hy3.OutputCostPerToken, 1e-12)
-	require.InDelta(t, 0.035e-6, hy3.CacheReadInputTokenCost, 1e-12)
-	require.Zero(t, hy3.CacheCreationInputTokenCost)
-}
-
 func TestDownloadPricingDataAndRefreshOpenCodeGoPricingSnapshot(t *testing.T) {
 	const (
-		remoteURL = "https://example.com/model_prices.json"
-		docsURL   = "https://opencode.ai/docs/go/"
+		remoteURL     = "https://example.com/model_prices.json"
+		docsURL       = "https://opencode.ai/docs/go/"
+		promotionsURL = "https://opencode.ai/go"
 	)
 	remote := &pricingTestRemoteClient{pricingBodies: map[string][]byte{
 		remoteURL: []byte(`{
@@ -962,28 +832,43 @@ func TestDownloadPricingDataAndRefreshOpenCodeGoPricingSnapshot(t *testing.T) {
 <table><tbody>
 <tr><td>GLM-5.2</td><td>glm-5.2</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
 </tbody></table>`),
+		promotionsURL: []byte(`
+<main data-page="go">
+<span data-item data-model="deepseek-v4-flash"><span data-name>DeepSeek V4 Flash</span></span>
+<span data-item data-model="hy3"><span data-name>Hy3</span><span data-bonus>8x usage</span></span>
+</main>`),
 	}}
 	svc := &PricingService{
 		cfg: &config.Config{
 			Pricing: config.PricingConfig{
-				RemoteURL:         remoteURL,
-				OpenCodeGoDocsURL: docsURL,
-				DataDir:           t.TempDir(),
+				RemoteURL:               remoteURL,
+				OpenCodeGoDocsURL:       docsURL,
+				OpenCodeGoPromotionsURL: promotionsURL,
+				DataDir:                 t.TempDir(),
 			},
 			Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}},
 		},
-		remoteClient:      remote,
-		pricingData:       map[string]*LiteLLMModelPricing{},
-		openCodeGoPricing: map[string]*LiteLLMModelPricing{},
+		remoteClient:          remote,
+		pricingData:           map[string]*LiteLLMModelPricing{},
+		openCodeGoPricing:     map[string]*LiteLLMModelPricing{},
+		openCodeGoUsageOffers: map[string]openCodeGoUsageOffer{},
 	}
 
 	require.NoError(t, svc.downloadPricingDataAndRefreshOpenCodeGo())
+	svc.refreshOpenCodeGoUsageOffersBestEffort(context.Background())
 
 	pricing := svc.GetOpenCodeGoModelPricingExact("glm-5.2")
 	require.NotNil(t, pricing)
 	require.Equal(t, openCodeGoPricingAuthorityOfficial, pricing.OpenCodeGoPricingAuthority)
 	require.InDelta(t, 1.4e-6, pricing.InputCostPerToken, 1e-12)
+	require.Equal(t, 8.0, svc.OpenCodeGoUsageOfferMultiplier("hy3", time.Now()))
+	require.Equal(t, 1.0, svc.OpenCodeGoUsageOfferMultiplier("deepseek-v4-flash", time.Now()))
 	require.Contains(t, remote.fetchedURLs, strings.TrimRight(docsURL, "/"))
+	require.Contains(t, remote.fetchedURLs, promotionsURL)
+
+	remote.pricingBodies[promotionsURL] = []byte(`<main data-page="go"><span data-item data-model="hy3"><span data-name>Hy3</span></span></main>`)
+	svc.refreshOpenCodeGoUsageOffersBestEffort(context.Background())
+	require.Equal(t, 1.0, svc.OpenCodeGoUsageOfferMultiplier("hy3", time.Now()))
 }
 
 func TestSyncWithRemoteRefreshesOpenCodeGoPricingWhenBaseHashUnchanged(t *testing.T) {
@@ -1345,7 +1230,7 @@ func TestOpenCodeGoPricingPersistenceAndOfflineRecovery(t *testing.T) {
 			docsURL: []byte(`
 <p><strong>Ox Alpha Free:</strong> Free for a limited time.</p>
 <table><tbody>
-<tr><td>GLM-5.2</td><td>$1.40</td><td>$4.40</td><td>$0.26</td><td>-</td><td>$60</td></tr>
+<tr><td>GLM-5.2</td><td>$1.40</td><td>$4.40</td><td>$0.26</td><td>-</td></tr>
 <tr><td>Ox Alpha Free</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 </tbody></table>
 <table><tbody>
@@ -1373,7 +1258,6 @@ func TestOpenCodeGoPricingPersistenceAndOfflineRecovery(t *testing.T) {
 	pricing := svc.GetOpenCodeGoModelPricingExact("glm-5.2")
 	require.NotNil(t, pricing)
 	require.InDelta(t, 1.4e-6, pricing.InputCostPerToken, 1e-12)
-	require.Equal(t, 60.0, pricing.OpenCodeGoMonthlyUsageUSD)
 	freePricing := svc.GetOpenCodeGoModelPricingExact("ox-alpha-free")
 	require.NotNil(t, freePricing)
 	require.True(t, freePricing.OpenCodeGoExplicitZeroRate)
@@ -1409,7 +1293,6 @@ func TestOpenCodeGoPricingPersistenceAndOfflineRecovery(t *testing.T) {
 	require.NotNil(t, recoveredPricing)
 	require.InDelta(t, 1.4e-6, recoveredPricing.InputCostPerToken, 1e-12)
 	require.Equal(t, openCodeGoPricingAuthorityOfficial, recoveredPricing.OpenCodeGoPricingAuthority)
-	require.Equal(t, 60.0, recoveredPricing.OpenCodeGoMonthlyUsageUSD)
 	recoveredFreePricing := newSvc.GetOpenCodeGoModelPricingExact("ox-alpha-free")
 	require.NotNil(t, recoveredFreePricing)
 	require.True(t, recoveredFreePricing.OpenCodeGoExplicitZeroRate)

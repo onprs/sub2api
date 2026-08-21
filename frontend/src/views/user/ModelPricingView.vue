@@ -164,7 +164,7 @@
 
       <template #table>
         <div class="table-wrapper model-pricing-table-wrapper">
-          <table class="min-w-[1760px] border-collapse text-xs">
+          <table class="min-w-[1700px] border-collapse text-xs">
             <thead
               class="model-pricing-sticky-header sticky top-0 z-20 bg-gray-50/95 text-left font-medium uppercase text-gray-500 shadow-sm backdrop-blur dark:bg-dark-800/95 dark:text-gray-400"
             >
@@ -172,11 +172,10 @@
                 <th class="w-40 px-4 py-3">{{ t('modelPricing.columns.channel') }}</th>
                 <th class="w-36 px-4 py-3">{{ t('modelPricing.columns.platform') }}</th>
                 <th class="model-pricing-sticky-model w-56 px-4 py-3">{{ t('modelPricing.columns.model') }}</th>
-                <th class="w-36 px-4 py-3">{{ t('modelPricing.columns.contextTier') }}</th>
+                <th class="w-80 px-4 py-3">{{ t('modelPricing.columns.contextTier') }}</th>
                 <th class="w-64 px-4 py-3">{{ t('modelPricing.columns.group') }}</th>
                 <th class="w-28 px-4 py-3">{{ t('modelPricing.columns.groupMultiplier') }}</th>
-                <th class="w-36 px-4 py-3">{{ t('modelPricing.columns.promotion') }}</th>
-                <th class="w-28 px-4 py-3">{{ t('modelPricing.columns.finalMultiplier') }}</th>
+                <th class="w-36 px-4 py-3">{{ t('modelPricing.columns.usageOffer') }}</th>
                 <th class="w-40 px-4 py-3">{{ t('modelPricing.columns.source') }}</th>
                 <th class="w-32 px-4 py-3">{{ t('modelPricing.columns.billingMode') }}</th>
                 <th class="w-28 px-4 py-3 text-right">{{ t('modelPricing.columns.inputPerMillion') }}</th>
@@ -189,7 +188,7 @@
 
             <tbody v-if="loading">
               <tr>
-                <td colspan="15" class="py-10 text-center">
+                <td colspan="14" class="py-10 text-center">
                   <Icon name="refresh" size="lg" class="inline-block animate-spin text-gray-400" />
                 </td>
               </tr>
@@ -197,7 +196,7 @@
 
             <tbody v-else-if="filteredRows.length === 0">
               <tr>
-                <td colspan="15" class="py-12 text-center">
+                <td colspan="14" class="py-12 text-center">
                   <Icon name="inbox" size="xl" class="mx-auto mb-3 h-12 w-12 text-gray-400" />
                   <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('modelPricing.empty') }}</p>
                 </td>
@@ -290,18 +289,13 @@
 
                 <td class="px-4 py-3 align-top">
                   <span
-                    v-if="row.promotionCode"
-                    class="inline-flex flex-col gap-0.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-                    :title="promotionTitle(row)"
+                    v-if="row.usageOfferCode"
+                    class="inline-flex rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                    :title="t('modelPricing.usageOffers.detail')"
                   >
-                    <span>{{ t('modelPricing.promotions.usageBonus', { multiplier: formatMultiplier(row.promotionUsageMultiplier) }) }}</span>
-                    <span class="font-mono">{{ t('modelPricing.promotions.priceMultiplier', { multiplier: formatMultiplier(row.promotionCostMultiplier) }) }}</span>
+                    {{ t('modelPricing.usageOffers.multiplier', { multiplier: formatMultiplier(row.usageMultiplier) }) }}
                   </span>
                   <span v-else class="text-gray-400 dark:text-gray-500">-</span>
-                </td>
-
-                <td class="px-4 py-3 align-top font-mono text-[12px] font-semibold text-gray-900 dark:text-white">
-                  {{ formatMultiplier(row.finalMultiplier) }}
                 </td>
 
                 <td class="px-4 py-3 align-top">
@@ -394,6 +388,7 @@ import {
   filterModelPricingRows,
   type ModelPricingIntervalRow,
   type ModelPricingRow,
+  type ModelPricingTimeBandRow,
   type ModelPricingValues,
 } from './modelPricingRows'
 
@@ -570,6 +565,10 @@ function selectedIntervalPricing(interval: ModelPricingIntervalRow): ModelPricin
   return pricingMode.value === 'actual' ? interval.actualPricing : interval.pricing
 }
 
+function selectedTimeBandPricing(timeBand: ModelPricingTimeBandRow): ModelPricingValues {
+  return pricingMode.value === 'actual' ? timeBand.actualPricing : timeBand.pricing
+}
+
 function formatContextTokenCount(tokens: number): string {
   if (tokens >= 1_000_000 && tokens % 1_000_000 === 0) {
     return `${tokens / 1_000_000}M`
@@ -603,7 +602,20 @@ function contextTierLabel(interval: ModelPricingIntervalRow): string {
   })
 }
 
+function timeBandLabel(timeBand: ModelPricingTimeBandRow): string {
+  const key = `modelPricing.timeBands.${timeBand.code}`
+  const name = te(key) ? t(key) : timeBand.code
+  return `${name} · ${timeBand.timeZone} ${timeBand.timeRanges.join(', ')}`
+}
+
 function pricingLines(row: ModelPricingRow): ModelPricingLine[] {
+  if (row.timeBands.length > 0) {
+    return row.timeBands.map((timeBand, index) => ({
+      key: `${timeBand.code}:${index}`,
+      label: timeBandLabel(timeBand),
+      pricing: selectedTimeBandPricing(timeBand),
+    }))
+  }
   if (row.intervals.length === 0) {
     return [
       {
@@ -660,14 +672,6 @@ function sourceLabel(row: ModelPricingRow): string {
 
 function formatMultiplier(value: number): string {
   return `${Number(value.toFixed(6))}x`
-}
-
-function promotionTitle(row: ModelPricingRow): string {
-  return t('modelPricing.promotions.detail', {
-    group: formatMultiplier(row.groupMultiplier),
-    promotion: formatMultiplier(row.promotionCostMultiplier),
-    final: formatMultiplier(row.finalMultiplier),
-  })
 }
 
 function rowKey(row: ModelPricingRow): string {

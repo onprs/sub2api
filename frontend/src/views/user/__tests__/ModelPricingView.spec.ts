@@ -29,11 +29,10 @@ const messages: Record<string, string> = {
   'modelPricing.columns.model': 'Model',
   'modelPricing.copyModelId': 'Copy Model ID',
   'modelPricing.modelCopied': 'Model ID copied',
-  'modelPricing.columns.contextTier': 'Context Tier',
+  'modelPricing.columns.contextTier': 'Pricing Period / Context Tier',
   'modelPricing.columns.group': 'Group',
   'modelPricing.columns.groupMultiplier': 'Group Multiplier',
-  'modelPricing.columns.promotion': 'Limited Promotion',
-  'modelPricing.columns.finalMultiplier': 'Final Multiplier',
+  'modelPricing.columns.usageOffer': 'Official Quota Offer',
   'modelPricing.columns.source': 'Source',
   'modelPricing.columns.billingMode': 'Billing Mode',
   'modelPricing.columns.inputPerMillion': 'Input/M',
@@ -42,9 +41,10 @@ const messages: Record<string, string> = {
   'modelPricing.columns.cacheReadPerMillion': 'Cache Read/M',
   'modelPricing.columns.unitPrice': 'Per Request/Image',
   'modelPricing.sources.channel': 'Channel Pricing',
-  'modelPricing.promotions.usageBonus': '{multiplier} usage',
-  'modelPricing.promotions.priceMultiplier': 'Price {multiplier}',
-  'modelPricing.promotions.detail': 'Standard price × group multiplier {group} × promotion price multiplier {promotion} = final multiplier {final}',
+  'modelPricing.usageOffers.multiplier': '{multiplier} usage limits',
+  'modelPricing.usageOffers.detail': 'Does not change token prices',
+  'modelPricing.timeBands.off_peak': 'Off-Peak',
+  'modelPricing.timeBands.peak': 'Peak',
   'modelPricing.billingModes.token': 'Per Token',
   'modelPricing.contextTiers.all': 'All contexts',
   'modelPricing.contextTiers.upTo': 'Up to {tokens}',
@@ -149,6 +149,10 @@ function makeChannel(): UserAvailableChannel[] {
             {
               name: 'deepseek-v4-flash',
               platform: 'opencode_go',
+              usage_offer: {
+                code: 'opencode_go_usage_offer',
+                usage_multiplier: 2,
+              },
               pricing: {
                 billing_mode: BILLING_MODE_TOKEN,
                 input_price: 0.000001,
@@ -161,11 +165,26 @@ function makeChannel(): UserAvailableChannel[] {
                 pricing_source_label: 'modelPricing.sources.channel',
                 pricing_source_detail: 'channel_model_pricing',
                 intervals: [],
-              },
-              promotion: {
-                code: 'opencode_go_usage_bonus',
-                cost_multiplier: 0.5,
-                usage_multiplier: 2,
+                time_bands: [
+                  {
+                    code: 'off_peak',
+                    time_zone: 'UTC',
+                    time_ranges: ['00:00-01:00', '04:00-06:00', '10:00-24:00'],
+                    input_price: 0.22e-6,
+                    output_price: 0.66e-6,
+                    cache_write_price: null,
+                    cache_read_price: 0.007e-6,
+                  },
+                  {
+                    code: 'peak',
+                    time_zone: 'UTC',
+                    time_ranges: ['01:00-04:00', '06:00-10:00'],
+                    input_price: 0.44e-6,
+                    output_price: 1.32e-6,
+                    cache_write_price: null,
+                    cache_read_price: 0.014e-6,
+                  },
+                ],
               },
             },
           ],
@@ -203,7 +222,6 @@ function makeChannel(): UserAvailableChannel[] {
                 pricing_source_detail: 'channel_model_pricing',
                 intervals: [],
               },
-              promotion: null,
             },
           ],
         },
@@ -369,10 +387,12 @@ describe('ModelPricingView', () => {
     expect(wrapper.text()).toContain('deepseek-v4-flash')
     expect(wrapper.text()).toContain('Enterprise')
     expect(wrapper.text()).toContain('Channel Pricing')
-    expect(wrapper.text()).toContain('2x usage')
-    expect(wrapper.text()).toContain('Price 0.5x')
-    expect(wrapper.text()).toContain('0.25x')
-    expect(wrapper.text()).toContain('$0.25')
+    expect(wrapper.text()).toContain('Off-Peak · UTC 00:00-01:00, 04:00-06:00, 10:00-24:00')
+    expect(wrapper.text()).toContain('Peak · UTC 01:00-04:00, 06:00-10:00')
+    expect(wrapper.text()).toContain('0.5x')
+    expect(wrapper.text()).toContain('2x usage limits')
+    expect(wrapper.text()).toContain('$0.11')
+    expect(wrapper.text()).toContain('$0.22')
 
     await wrapper.get('button[title="Refresh"]').trigger('click')
     await flushPromises()
@@ -381,14 +401,15 @@ describe('ModelPricingView', () => {
     expect(wrapper.find('table').exists()).toBe(true)
 
     await wrapper.get('[data-pricing-mode="raw"]').trigger('click')
-    expect(wrapper.text()).toContain('$1')
+    expect(wrapper.text()).toContain('$0.22')
+    expect(wrapper.text()).toContain('$0.44')
   })
 
   it('renders every context tier and its token prices', async () => {
     const channels = makeChannel()
     const pricing = channels[0].platforms[0].supported_models[0].pricing
-    channels[0].platforms[0].supported_models[0].promotion = null
     if (!pricing) throw new Error('test pricing is required')
+    pricing.time_bands = []
     pricing.intervals = [
       {
         min_tokens: 0,

@@ -2,6 +2,7 @@ import type {
   UserAvailableChannel,
   UserAvailableGroup,
   UserPricingInterval,
+  UserPricingTimeBand,
   UserSupportedModel,
   UserSupportedModelPricing,
 } from '@/api/channels'
@@ -24,6 +25,14 @@ export interface ModelPricingIntervalRow {
   actualPricing: ModelPricingValues
 }
 
+export interface ModelPricingTimeBandRow {
+  code: string
+  timeZone: string
+  timeRanges: string[]
+  pricing: ModelPricingValues
+  actualPricing: ModelPricingValues
+}
+
 export interface ModelPricingRow {
   channelName: string
   description: string
@@ -36,10 +45,8 @@ export interface ModelPricingRow {
   defaultMultiplier: number
   userMultiplier: number | null
   groupMultiplier: number
-  promotionCode: string
-  promotionCostMultiplier: number
-  promotionUsageMultiplier: number
-  finalMultiplier: number
+  usageOfferCode: string
+  usageMultiplier: number
   pricingSource: string
   pricingSourceLabel: string
   pricingSourceDetail: string
@@ -47,6 +54,7 @@ export interface ModelPricingRow {
   pricing: ModelPricingValues
   actualPricing: ModelPricingValues
   intervals: ModelPricingIntervalRow[]
+  timeBands: ModelPricingTimeBandRow[]
 }
 
 const MISSING_SOURCE = 'missing'
@@ -126,6 +134,34 @@ function intervalRows(pricing: UserSupportedModelPricing, multiplier: number): M
   }))
 }
 
+function timeBandValues(timeBand: UserPricingTimeBand): ModelPricingValues {
+  return {
+    inputPrice: normalizePrice(timeBand.input_price),
+    outputPrice: normalizePrice(timeBand.output_price),
+    cacheWritePrice: normalizePrice(timeBand.cache_write_price),
+    cacheReadPrice: normalizePrice(timeBand.cache_read_price),
+    imageOutputPrice: null,
+    perRequestPrice: null,
+  }
+}
+
+function timeBandRows(pricing: UserSupportedModelPricing, multiplier: number): ModelPricingTimeBandRow[] {
+  return (pricing.time_bands || []).map((timeBand) => ({
+    code: timeBand.code,
+    timeZone: timeBand.time_zone,
+    timeRanges: [...timeBand.time_ranges],
+    pricing: timeBandValues(timeBand),
+    actualPricing: {
+      inputPrice: multiplyPrice(timeBand.input_price, multiplier),
+      outputPrice: multiplyPrice(timeBand.output_price, multiplier),
+      cacheWritePrice: multiplyPrice(timeBand.cache_write_price, multiplier),
+      cacheReadPrice: multiplyPrice(timeBand.cache_read_price, multiplier),
+      imageOutputPrice: null,
+      perRequestPrice: null,
+    },
+  }))
+}
+
 function hasUserMultiplier(userGroupRates: Record<number, number>, groupId: number): boolean {
   return Object.prototype.hasOwnProperty.call(userGroupRates, groupId)
 }
@@ -158,30 +194,25 @@ function groupMultiplierForGroup(
   }
 }
 
-function promotionFields(model: UserSupportedModel): Pick<
+function usageOfferFields(model: UserSupportedModel): Pick<
   ModelPricingRow,
-  'promotionCode' | 'promotionCostMultiplier' | 'promotionUsageMultiplier'
+  'usageOfferCode' | 'usageMultiplier'
 > {
-  const promotion = model.promotion
+  const offer = model.usage_offer
   if (
-    !promotion ||
-    !promotion.code ||
-    !Number.isFinite(promotion.cost_multiplier) ||
-    promotion.cost_multiplier <= 0 ||
-    promotion.cost_multiplier >= 1 ||
-    !Number.isFinite(promotion.usage_multiplier) ||
-    promotion.usage_multiplier <= 1
+    !offer ||
+    !offer.code ||
+    !Number.isFinite(offer.usage_multiplier) ||
+    offer.usage_multiplier <= 1
   ) {
     return {
-      promotionCode: '',
-      promotionCostMultiplier: 1,
-      promotionUsageMultiplier: 1,
+      usageOfferCode: '',
+      usageMultiplier: 1,
     }
   }
   return {
-    promotionCode: promotion.code,
-    promotionCostMultiplier: promotion.cost_multiplier,
-    promotionUsageMultiplier: promotion.usage_multiplier,
+    usageOfferCode: offer.code,
+    usageMultiplier: offer.usage_multiplier,
   }
 }
 
@@ -213,8 +244,7 @@ function rowForModelGroup(
   userGroupRates: Record<number, number>,
 ): ModelPricingRow {
   const groupMultiplier = groupMultiplierForGroup(group, userGroupRates)
-  const promotion = promotionFields(model)
-  const finalMultiplier = groupMultiplier.groupMultiplier * promotion.promotionCostMultiplier
+  const usageOffer = usageOfferFields(model)
   const source = pricingSourceFields(model.pricing)
 
   if (!model.pricing) {
@@ -229,13 +259,13 @@ function rowForModelGroup(
       subscriptionType: group.subscription_type || 'standard',
       isExclusive: group.is_exclusive,
       ...groupMultiplier,
-      ...promotion,
-      finalMultiplier,
+      ...usageOffer,
       ...source,
       billingMode: null,
       pricing: empty,
       actualPricing: emptyPricingValues(),
       intervals: [],
+      timeBands: [],
     }
   }
 
@@ -249,13 +279,13 @@ function rowForModelGroup(
     subscriptionType: group.subscription_type || 'standard',
     isExclusive: group.is_exclusive,
     ...groupMultiplier,
-    ...promotion,
-    finalMultiplier,
+    ...usageOffer,
     ...source,
     billingMode: model.pricing.billing_mode,
     pricing: pricingValues(model.pricing),
-    actualPricing: actualPricingValues(model.pricing, finalMultiplier),
-    intervals: intervalRows(model.pricing, finalMultiplier),
+    actualPricing: actualPricingValues(model.pricing, groupMultiplier.groupMultiplier),
+    intervals: intervalRows(model.pricing, groupMultiplier.groupMultiplier),
+    timeBands: timeBandRows(model.pricing, groupMultiplier.groupMultiplier),
   }
 }
 
@@ -286,6 +316,7 @@ export function filterModelPricingRows(rows: ModelPricingRow[], query: string): 
       row.modelName,
       row.groupName,
       row.subscriptionType,
+      row.usageOfferCode,
       row.pricingSource,
       row.pricingSourceLabel,
       row.pricingSourceDetail,

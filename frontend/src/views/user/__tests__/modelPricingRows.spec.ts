@@ -140,9 +140,6 @@ describe('buildModelPricingRows', () => {
       subscriptionType: 'standard',
       isExclusive: false,
       groupMultiplier: 1,
-      promotionCostMultiplier: 1,
-      promotionUsageMultiplier: 1,
-      finalMultiplier: 1,
       pricingSource: 'channel',
       pricingSourceLabel: 'modelPricing.sources.channel',
       pricingSourceDetail: 'channel_model_pricing',
@@ -157,86 +154,91 @@ describe('buildModelPricingRows', () => {
     expect(enterprise?.defaultMultiplier).toBe(2)
     expect(enterprise?.userMultiplier).toBe(0.5)
     expect(enterprise?.groupMultiplier).toBe(0.5)
-    expect(enterprise?.promotionCostMultiplier).toBe(1)
-    expect(enterprise?.finalMultiplier).toBe(0.5)
     expect(enterprise?.actualPricing.inputPrice).toBe(0.0000005)
     expect(enterprise?.actualPricing.outputPrice).toBe(0.000001)
   })
 
-  it('applies model promotions after the effective group multiplier to every price bucket', () => {
+  it('preserves OpenCode Go time bands and applies only the effective group multiplier', () => {
     const channels = makeChannels()
-    const promoted = channels[0].platforms[0].supported_models[0]
-    promoted.promotion = {
-      code: 'opencode_go_usage_bonus',
-      cost_multiplier: 0.5,
+    const pricing = channels[0].platforms[0].supported_models[0].pricing
+    if (!pricing) throw new Error('test pricing is required')
+    channels[0].platforms[0].supported_models[0].usage_offer = {
+      code: 'opencode_go_usage_offer',
       usage_multiplier: 2,
     }
+    pricing.time_bands = [
+      {
+        code: 'off_peak',
+        time_zone: 'UTC',
+        time_ranges: ['00:00-01:00', '04:00-06:00', '10:00-24:00'],
+        input_price: 0.22e-6,
+        output_price: 0.66e-6,
+        cache_write_price: null,
+        cache_read_price: 0.007e-6,
+      },
+      {
+        code: 'peak',
+        time_zone: 'UTC',
+        time_ranges: ['01:00-04:00', '06:00-10:00'],
+        input_price: 0.44e-6,
+        output_price: 1.32e-6,
+        cache_write_price: null,
+        cache_read_price: 0.014e-6,
+      },
+    ]
 
     const rows = buildModelPricingRows(channels, { 20: 0.5 })
     const enterprise = rows.find((row) => row.groupId === 20 && row.modelName === 'gpt-4o-mini')
 
-    expect(enterprise).toMatchObject({
-      groupMultiplier: 0.5,
-      promotionCode: 'opencode_go_usage_bonus',
-      promotionCostMultiplier: 0.5,
-      promotionUsageMultiplier: 2,
-      finalMultiplier: 0.25,
-      pricing: {
-        inputPrice: 0.000001,
-        outputPrice: 0.000002,
-        cacheWritePrice: 0.0000004,
+    expect(enterprise?.usageOfferCode).toBe('opencode_go_usage_offer')
+    expect(enterprise?.usageMultiplier).toBe(2)
+    expect(enterprise?.timeBands).toEqual([
+      {
+        code: 'off_peak',
+        timeZone: 'UTC',
+        timeRanges: ['00:00-01:00', '04:00-06:00', '10:00-24:00'],
+        pricing: {
+          inputPrice: 0.22e-6,
+          outputPrice: 0.66e-6,
+          cacheWritePrice: null,
+          cacheReadPrice: 0.007e-6,
+          imageOutputPrice: null,
+          perRequestPrice: null,
+        },
+        actualPricing: {
+          inputPrice: 0.11e-6,
+          outputPrice: 0.33e-6,
+          cacheWritePrice: null,
+          cacheReadPrice: 0.0035e-6,
+          imageOutputPrice: null,
+          perRequestPrice: null,
+        },
       },
-      actualPricing: {
-        inputPrice: 0.00000025,
-        outputPrice: 0.0000005,
-        cacheWritePrice: 0.0000001,
+      {
+        code: 'peak',
+        timeZone: 'UTC',
+        timeRanges: ['01:00-04:00', '06:00-10:00'],
+        pricing: {
+          inputPrice: 0.44e-6,
+          outputPrice: 1.32e-6,
+          cacheWritePrice: null,
+          cacheReadPrice: 0.014e-6,
+          imageOutputPrice: null,
+          perRequestPrice: null,
+        },
+        actualPricing: {
+          inputPrice: 0.22e-6,
+          outputPrice: 0.66e-6,
+          cacheWritePrice: null,
+          cacheReadPrice: 0.007e-6,
+          imageOutputPrice: null,
+          perRequestPrice: null,
+        },
       },
-    })
-    expect(enterprise?.intervals[0].actualPricing).toMatchObject({
-      inputPrice: 0.000000125,
-      outputPrice: 0.00000025,
-      cacheReadPrice: 0,
-    })
+    ])
   })
 
-  it('applies model promotions to per-request and image prices', () => {
-    const channels = makeChannels()
-    const promoted = channels[0].platforms[0].supported_models[1]
-    promoted.promotion = {
-      code: 'opencode_go_usage_bonus',
-      cost_multiplier: 0.5,
-      usage_multiplier: 2,
-    }
-
-    const rows = buildModelPricingRows(channels, {})
-    const enterprise = rows.find((row) => row.groupId === 20 && row.modelName === 'image-pro')
-
-    expect(enterprise?.groupMultiplier).toBe(2)
-    expect(enterprise?.finalMultiplier).toBe(1)
-    expect(enterprise?.actualPricing.perRequestPrice).toBe(0.03)
-    expect(enterprise?.actualPricing.imageOutputPrice).toBe(0.07)
-  })
-
-  it('ignores invalid model promotion snapshots', () => {
-    const channels = makeChannels()
-    channels[0].platforms[0].supported_models[0].promotion = {
-      code: 'opencode_go_usage_bonus',
-      cost_multiplier: Number.NaN,
-      usage_multiplier: 2,
-    }
-
-    const row = buildModelPricingRows(channels, {}).find(
-      (candidate) => candidate.groupId === 20 && candidate.modelName === 'gpt-4o-mini',
-    )
-
-    expect(row?.promotionCode).toBe('')
-    expect(row?.promotionCostMultiplier).toBe(1)
-    expect(row?.promotionUsageMultiplier).toBe(1)
-    expect(row?.finalMultiplier).toBe(2)
-    expect(row?.actualPricing.inputPrice).toBe(0.000002)
-  })
-
-  it('keeps raw pricing and computes actual pricing with the final multiplier', () => {
+  it('keeps raw pricing and computes actual pricing with the group multiplier', () => {
     const rows = buildModelPricingRows(makeChannels(), {})
     const enterprise = rows.find((row) => row.groupId === 20 && row.modelName === 'gpt-4o-mini')
     const perRequest = rows.find((row) => row.groupId === 20 && row.modelName === 'image-pro')
@@ -264,7 +266,6 @@ describe('buildModelPricingRows', () => {
     const free = rows.find((row) => row.groupId === 30 && row.modelName === 'gemini-free')
 
     expect(free?.groupMultiplier).toBe(0)
-    expect(free?.finalMultiplier).toBe(0)
     expect(free?.actualPricing.inputPrice).toBe(0)
     expect(free?.actualPricing.outputPrice).toBe(0)
     expect(free?.actualPricing.cacheReadPrice).toBe(0)
@@ -277,7 +278,6 @@ describe('buildModelPricingRows', () => {
     expect(enterprise?.defaultMultiplier).toBe(2)
     expect(enterprise?.userMultiplier).toBe(0)
     expect(enterprise?.groupMultiplier).toBe(0)
-    expect(enterprise?.finalMultiplier).toBe(0)
     expect(enterprise?.actualPricing.inputPrice).toBe(0)
     expect(enterprise?.actualPricing.outputPrice).toBe(0)
 
@@ -286,7 +286,6 @@ describe('buildModelPricingRows', () => {
       (row) => row.groupId === 20 && row.modelName === 'gpt-4o-mini',
     )
     expect(nonFinite?.userMultiplier).toBe(0)
-    expect(nonFinite?.finalMultiplier).toBe(0)
   })
 
   it('marks rows without pricing as missing source rows', () => {

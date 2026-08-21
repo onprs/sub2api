@@ -735,7 +735,7 @@ func TestResolveAccountStatsCost_OpenCodeGoFallbackUsesPlatformReferencePricing(
 	cs := newTestChannelServiceForStats(t, channel, 10, PlatformOpenCodeGo)
 	pricingSvc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{
-			openCodeGoDeepSeekFlashPromoModel: {
+			"glm-5.3": {
 				InputCostPerToken:       99e-6,
 				OutputCostPerToken:      99e-6,
 				LiteLLMProvider:         "unrelated-provider",
@@ -750,12 +750,12 @@ func TestResolveAccountStatsCost_OpenCodeGoFallbackUsesPlatformReferencePricing(
 	result := resolveAccountStatsCost(
 		context.Background(),
 		cs, bs,
-		1, 10, openCodeGoDeepSeekFlashPromoModel,
+		1, 10, "glm-5.3",
 		tokens, 1, 999.0,
 	)
 
 	require.NotNil(t, result)
-	expected := 0.14 + 0.5*0.28
+	expected := 1.4 + 0.5*4.4
 	require.InDelta(t, expected, *result, 1e-12)
 }
 

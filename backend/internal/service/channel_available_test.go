@@ -480,17 +480,12 @@ func TestBuildCatalogSupportedModel_UsesBillingFallbackPricing(t *testing.T) {
 	require.NotNil(t, got.Pricing.CacheReadPrice)
 }
 
-func TestBuildSupportedModelForPricingGroup_OpenCodeGoChannelPricingOverridesCatalogAndKeepsPromotion(t *testing.T) {
+func TestBuildSupportedModelForPricingGroup_OpenCodeGoChannelPricingOverridesCatalog(t *testing.T) {
 	groupID := int64(10)
 	input := 0.9e-6
 	output := 1.8e-6
 	cacheRead := 0.09e-6
-	pricingSvc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{},
-		openCodeGoPromotions: map[string]openCodeGoUsagePromotion{
-			openCodeGoDeepSeekFlashPromoModel: {multiplier: 0.5, confirmedAt: time.Now()},
-		},
-	}
+	pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{}}
 	svc := &ChannelService{
 		pricingService: pricingSvc,
 		billingService: NewBillingService(&config.Config{}, pricingSvc),
@@ -501,10 +496,10 @@ func TestBuildSupportedModelForPricingGroup_OpenCodeGoChannelPricingOverridesCat
 	cache.pricingByGroupModel[channelModelKey{
 		groupID:  groupID,
 		platform: PlatformOpenCodeGo,
-		model:    openCodeGoDeepSeekFlashPromoModel,
+		model:    "deepseek-v4-flash",
 	}] = &ChannelModelPricing{
 		Platform:       PlatformOpenCodeGo,
-		Models:         []string{openCodeGoDeepSeekFlashPromoModel},
+		Models:         []string{"deepseek-v4-flash"},
 		BillingMode:    BillingModeToken,
 		InputPrice:     &input,
 		OutputPrice:    &output,
@@ -518,7 +513,7 @@ func TestBuildSupportedModelForPricingGroup_OpenCodeGoChannelPricingOverridesCat
 		groupID,
 		"flash-alias",
 		PlatformOpenCodeGo,
-		[]string{openCodeGoDeepSeekFlashPromoModel},
+		[]string{"deepseek-v4-flash"},
 	)
 
 	require.Equal(t, PricingSourceChannel, model.PricingSource)
@@ -526,9 +521,7 @@ func TestBuildSupportedModelForPricingGroup_OpenCodeGoChannelPricingOverridesCat
 	require.InDelta(t, input, *model.Pricing.InputPrice, 1e-15)
 	require.InDelta(t, output, *model.Pricing.OutputPrice, 1e-15)
 	require.InDelta(t, cacheRead, *model.Pricing.CacheReadPrice, 1e-15)
-	require.NotNil(t, model.Promotion)
-	require.InDelta(t, 0.5, model.Promotion.CostMultiplier, 1e-12)
-	require.InDelta(t, 2.0, model.Promotion.UsageMultiplier, 1e-12)
+	require.Empty(t, model.PricingTimeBands)
 }
 
 func TestBuildSupportedModelForPricingGroup_OpenCodeGoPartialChannelPricingUsesCatalogForRemainingFields(t *testing.T) {
@@ -566,48 +559,69 @@ func TestBuildSupportedModelForPricingGroup_OpenCodeGoPartialChannelPricingUsesC
 	require.Equal(t, PricingSourceChannel, model.PricingSource)
 	require.NotNil(t, model.Pricing)
 	require.InDelta(t, input, *model.Pricing.InputPrice, 1e-15)
-	require.InDelta(t, 0.87e-6, *model.Pricing.OutputPrice, 1e-15)
-	require.InDelta(t, 0.003625e-6, *model.Pricing.CacheReadPrice, 1e-15)
+	require.Len(t, model.PricingTimeBands, 2)
+	offPeak := model.PricingTimeBands[0]
+	require.Equal(t, "off_peak", offPeak.Code)
+	require.Equal(t, "UTC", offPeak.TimeZone)
+	require.Equal(t, []string{"00:00-01:00", "04:00-06:00", "10:00-24:00"}, offPeak.TimeRanges)
+	require.InDelta(t, input, *offPeak.Pricing.InputPrice, 1e-15)
+	require.InDelta(t, 1.98e-6, *offPeak.Pricing.OutputPrice, 1e-15)
+	require.InDelta(t, 0.022e-6, *offPeak.Pricing.CacheReadPrice, 1e-15)
+	peak := model.PricingTimeBands[1]
+	require.Equal(t, "peak", peak.Code)
+	require.Equal(t, []string{"01:00-04:00", "06:00-10:00"}, peak.TimeRanges)
+	require.InDelta(t, input, *peak.Pricing.InputPrice, 1e-15)
+	require.InDelta(t, 3.96e-6, *peak.Pricing.OutputPrice, 1e-15)
+	require.InDelta(t, 0.044e-6, *peak.Pricing.CacheReadPrice, 1e-15)
 }
 
-func TestBuildCatalogSupportedModel_OpenCodeGoPromotionIsSeparateFromStandardPricing(t *testing.T) {
+func TestBuildCatalogSupportedModel_OpenCodeGoShowsOfficialPeakAndOffPeakPricing(t *testing.T) {
+	pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{}}
+	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
+	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
+
+	model := svc.BuildCatalogSupportedModel("deepseek-v4-flash-vision-exp", PlatformOpenCodeGo, nil)
+
+	require.Equal(t, PricingSourceCatalog, model.PricingSource)
+	require.NotNil(t, model.Pricing)
+	require.Len(t, model.PricingTimeBands, 2)
+	offPeak := model.PricingTimeBands[0]
+	require.Equal(t, "off_peak", offPeak.Code)
+	require.Equal(t, "UTC", offPeak.TimeZone)
+	require.Equal(t, []string{"00:00-01:00", "04:00-06:00", "10:00-24:00"}, offPeak.TimeRanges)
+	require.InDelta(t, 0.22e-6, *offPeak.Pricing.InputPrice, 1e-15)
+	require.InDelta(t, 0.66e-6, *offPeak.Pricing.OutputPrice, 1e-15)
+	require.InDelta(t, 0.007e-6, *offPeak.Pricing.CacheReadPrice, 1e-15)
+	peak := model.PricingTimeBands[1]
+	require.Equal(t, "peak", peak.Code)
+	require.Equal(t, []string{"01:00-04:00", "06:00-10:00"}, peak.TimeRanges)
+	require.InDelta(t, 0.44e-6, *peak.Pricing.InputPrice, 1e-15)
+	require.InDelta(t, 1.32e-6, *peak.Pricing.OutputPrice, 1e-15)
+	require.InDelta(t, 0.014e-6, *peak.Pricing.CacheReadPrice, 1e-15)
+
+	hy3 := svc.BuildCatalogSupportedModel("hy3", PlatformOpenCodeGo, nil)
+	require.Empty(t, hy3.PricingTimeBands)
+}
+
+func TestBuildCatalogSupportedModel_OpenCodeGoUsageOfferDoesNotChangeTokenPricing(t *testing.T) {
+	confirmedAt := time.Now()
 	pricingSvc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{},
-		openCodeGoPromotions: map[string]openCodeGoUsagePromotion{
-			openCodeGoDeepSeekFlashPromoModel: {multiplier: 0.5, confirmedAt: time.Now()},
-			openCodeGoHy3PromoModel:           {multiplier: 0.125, confirmedAt: time.Now()},
+		openCodeGoUsageOffers: map[string]openCodeGoUsageOffer{
+			"deepseek-v4-flash": {usageMultiplier: 2, confirmedAt: confirmedAt},
 		},
 	}
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
 
-	flash := svc.BuildCatalogSupportedModel(openCodeGoDeepSeekFlashPromoModel, PlatformOpenCodeGo, nil)
-	require.NotNil(t, flash.Pricing)
-	require.NotNil(t, flash.Pricing.InputPrice)
-	require.InDelta(t, 0.14e-6, *flash.Pricing.InputPrice, 1e-15)
-	require.NotNil(t, flash.Promotion)
-	require.Equal(t, "opencode_go_usage_bonus", flash.Promotion.Code)
-	require.InDelta(t, 0.5, flash.Promotion.CostMultiplier, 1e-12)
-	require.InDelta(t, 2.0, flash.Promotion.UsageMultiplier, 1e-12)
+	model := svc.BuildCatalogSupportedModel("deepseek-v4-flash", PlatformOpenCodeGo, nil)
 
-	hy3 := svc.BuildCatalogSupportedModel(openCodeGoHy3PromoModel, PlatformOpenCodeGo, nil)
-	require.NotNil(t, hy3.Pricing)
-	require.NotNil(t, hy3.Pricing.InputPrice)
-	require.InDelta(t, 0.14e-6, *hy3.Pricing.InputPrice, 1e-15)
-	require.NotNil(t, hy3.Promotion)
-	require.Equal(t, "opencode_go_usage_bonus", hy3.Promotion.Code)
-	require.InDelta(t, 0.125, hy3.Promotion.CostMultiplier, 1e-12)
-	require.InDelta(t, 8.0, hy3.Promotion.UsageMultiplier, 1e-12)
-
-	hy3Preview := svc.BuildCatalogSupportedModel("hy3-preview", PlatformOpenCodeGo, nil)
-	require.Nil(t, hy3Preview.Promotion)
-
-	preview := svc.BuildCatalogSupportedModel("deepseek-v4-flash-preview", PlatformOpenCodeGo, nil)
-	require.Nil(t, preview.Promotion)
-	otherPlatform := svc.BuildCatalogSupportedModel(openCodeGoDeepSeekFlashPromoModel, PlatformAnthropic, nil)
-	require.Nil(t, otherPlatform.Promotion)
-	otherPlatformHy3 := svc.BuildCatalogSupportedModel(openCodeGoHy3PromoModel, PlatformAnthropic, nil)
-	require.Nil(t, otherPlatformHy3.Promotion)
+	require.NotNil(t, model.Pricing)
+	require.InDelta(t, 0.22e-6, *model.Pricing.InputPrice, 1e-15)
+	require.InDelta(t, 0.66e-6, *model.Pricing.OutputPrice, 1e-15)
+	require.NotNil(t, model.UsageOffer)
+	require.Equal(t, "opencode_go_usage_offer", model.UsageOffer.Code)
+	require.Equal(t, 2.0, model.UsageOffer.UsageMultiplier)
 }
 
 func TestBuildCatalogSupportedModel_OpenCodeGoOfficialZeroRateIsDisplayedAsCatalogPricing(t *testing.T) {
@@ -634,12 +648,15 @@ func TestBuildCatalogSupportedModel_OpenCodeGoOfficialZeroRateIsDisplayedAsCatal
 	require.Zero(t, *model.Pricing.OutputPrice)
 }
 
-func TestBuildCatalogSupportedModel_OpenCodeGoReferenceCatalogCoversEverySeedModel(t *testing.T) {
+func TestBuildCatalogSupportedModel_OpenCodeGoReferenceCatalogCoversEveryPaidSeedModel(t *testing.T) {
 	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{})
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
 
 	for modelID := range openCodeGoSeedCatalog() {
+		if modelID == "ox-alpha-free" {
+			continue
+		}
 		model := svc.BuildCatalogSupportedModel(modelID, PlatformOpenCodeGo, nil)
 		require.Equal(t, PricingSourceCatalog, model.PricingSource, modelID)
 		require.NotNil(t, model.Pricing, modelID)
