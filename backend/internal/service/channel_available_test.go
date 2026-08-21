@@ -610,6 +610,30 @@ func TestBuildCatalogSupportedModel_OpenCodeGoPromotionIsSeparateFromStandardPri
 	require.Nil(t, otherPlatformHy3.Promotion)
 }
 
+func TestBuildCatalogSupportedModel_OpenCodeGoOfficialZeroRateIsDisplayedAsCatalogPricing(t *testing.T) {
+	pricingSvc := &PricingService{
+		openCodeGoPricing: map[string]*LiteLLMModelPricing{
+			"ox-alpha-free": {
+				LiteLLMProvider:            PlatformOpenCodeGo,
+				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
+				OpenCodeGoExplicitZeroRate: true,
+			},
+		},
+		openCodeGoPricingConfirmedAt: time.Now(),
+	}
+	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
+	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
+
+	model := svc.BuildCatalogSupportedModel("ox-alpha-free", PlatformOpenCodeGo, nil)
+
+	require.Equal(t, PricingSourceCatalog, model.PricingSource)
+	require.NotNil(t, model.Pricing)
+	require.NotNil(t, model.Pricing.InputPrice)
+	require.NotNil(t, model.Pricing.OutputPrice)
+	require.Zero(t, *model.Pricing.InputPrice)
+	require.Zero(t, *model.Pricing.OutputPrice)
+}
+
 func TestBuildCatalogSupportedModel_OpenCodeGoReferenceCatalogCoversEverySeedModel(t *testing.T) {
 	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{})
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)

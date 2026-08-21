@@ -251,6 +251,7 @@ type CostBreakdown struct {
 	TotalCost         float64
 	ActualCost        float64 // 应用倍率后的实际费用
 	BillingMode       string  // 计费模式（"token"/"per_request"/"image"），由 CalculateCostUnified 填充
+	AllowZeroRate     bool    // 内部标记：价格源明确允许零费率，避免被静默零成本保护误判
 }
 
 // ErrModelPricingUnavailable indicates that none of the configured pricing
@@ -1014,6 +1015,9 @@ func (s *BillingService) modelPricingFromLiteLLM(model string, litellmPricing *L
 	price5m := litellmPricing.CacheCreationInputTokenCost
 	price1h := litellmPricing.CacheCreationInputTokenCostAbove1hr
 	enableBreakdown := price1h > 0 && price1h > price5m
+	allowZeroRate := litellmPricing.OpenCodeGoExplicitZeroRate &&
+		isOpenCodeGoPricingPlatform(litellmPricing.LiteLLMProvider) &&
+		litellmPricing.OpenCodeGoPricingAuthority == openCodeGoPricingAuthorityOfficial
 	return s.applyModelSpecificPricingPolicy(model, &ModelPricing{
 		InputPricePerToken:                 litellmPricing.InputCostPerToken,
 		InputPricePerTokenPriority:         litellmPricing.InputCostPerTokenPriority,
@@ -1030,6 +1034,7 @@ func (s *BillingService) modelPricingFromLiteLLM(model string, litellmPricing *L
 		LongContextInputMultiplier:         litellmPricing.LongContextInputCostMultiplier,
 		LongContextOutputMultiplier:        litellmPricing.LongContextOutputCostMultiplier,
 		ImageOutputPricePerToken:           litellmPricing.OutputCostPerImageToken,
+		AllowZeroRate:                      allowZeroRate,
 	}), true
 }
 
@@ -1212,7 +1217,7 @@ func (s *BillingService) computeTokenBreakdown(
 		cacheCreationMultiplier = pricing.LongContextInputMultiplier
 	}
 
-	bd := &CostBreakdown{}
+	bd := &CostBreakdown{AllowZeroRate: pricing.AllowZeroRate}
 	// 分离图片输入 token 与文本输入 token（多模态 embedding 等图文不同价场景）。
 	// ImageInputTokens 为 0 时（绝大多数 chat/vision 流量）走原始单价路径，行为不变。
 	if tokens.ImageInputTokens > 0 {

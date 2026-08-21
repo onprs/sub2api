@@ -4,6 +4,7 @@ package service
 
 import (
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -156,6 +157,76 @@ func TestBillingServiceOpenCodeGoPlatformPricingUsesOnlyOfficialDynamicSnapshot(
 	generic, err := billingSvc.GetModelPricing("hy3-preview")
 	require.ErrorIs(t, err, ErrModelPricingUnavailable)
 	require.Nil(t, generic)
+}
+
+func TestBillingServiceOpenCodeGoOfficialZeroRatePricingIsTemporaryAndPlatformScoped(t *testing.T) {
+	pricingSvc := &PricingService{
+		openCodeGoPricing: map[string]*LiteLLMModelPricing{
+			"ox-alpha-free": {
+				LiteLLMProvider:            PlatformOpenCodeGo,
+				Mode:                       "chat",
+				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
+				OpenCodeGoExplicitZeroRate: true,
+				InputCostPerTokenKnown:     true,
+				OutputCostPerTokenKnown:    true,
+			},
+		},
+		openCodeGoPricingConfirmedAt: time.Now(),
+	}
+	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
+
+	pricing, err := billingSvc.GetModelPricingForPlatform(PlatformOpenCodeGo, "ox-alpha-free")
+	require.NoError(t, err)
+	require.NotNil(t, pricing)
+	require.True(t, pricing.AllowZeroRate)
+
+	cost, err := billingSvc.CalculateCostForPlatform(
+		PlatformOpenCodeGo,
+		"ox-alpha-free",
+		UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 250},
+		1.25,
+	)
+	require.NoError(t, err)
+	require.Zero(t, cost.TotalCost)
+	require.Zero(t, cost.ActualCost)
+
+	generic, err := billingSvc.GetModelPricing("ox-alpha-free")
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
+	require.Nil(t, generic)
+
+	pricingSvc.mu.Lock()
+	pricingSvc.openCodeGoPricingConfirmedAt = time.Now().Add(-openCodeGoZeroRateEvidenceTTL - time.Minute)
+	pricingSvc.mu.Unlock()
+	_, err = billingSvc.GetModelPricingForPlatform(PlatformOpenCodeGo, "ox-alpha-free")
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
+
+	pricingSvc.mu.Lock()
+	pricingSvc.openCodeGoPricingConfirmedAt = time.Now().Add(time.Minute)
+	pricingSvc.mu.Unlock()
+	_, err = billingSvc.GetModelPricingForPlatform(PlatformOpenCodeGo, "ox-alpha-free")
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
+}
+
+func TestBillingServiceOpenCodeGoUntrustedZeroRateStillFailsClosed(t *testing.T) {
+	pricingSvc := &PricingService{
+		openCodeGoPricing: map[string]*LiteLLMModelPricing{
+			"unpriced-preview": {
+				LiteLLMProvider:            PlatformOpenCodeGo,
+				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityModelsDev,
+				OpenCodeGoExplicitZeroRate: true,
+			},
+		},
+		openCodeGoPricingConfirmedAt: time.Now(),
+	}
+	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
+
+	_, err := billingSvc.CalculateCostForPlatform(
+		PlatformOpenCodeGo,
+		"unpriced-preview",
+		UsageTokens{InputTokens: 10, OutputTokens: 5},
+		1,
+	)
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
 }
 
 func TestCalculateCostForPlatformAppliesOpenCodeGoLongContextAndGroupMultiplier(t *testing.T) {

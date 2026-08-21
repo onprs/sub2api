@@ -125,6 +125,7 @@ const (
 	openCodeGoHy3PromoMultiplier           = 0.125
 	openCodeGoPromotionRefreshInterval     = 10 * time.Minute
 	openCodeGoPromotionEvidenceTTL         = time.Hour
+	openCodeGoZeroRateEvidenceTTL          = time.Hour
 	openCodeGoPricingAuthorityOfficial     = "official"
 	openCodeGoPricingAuthorityModelsDev    = "models_dev"
 )
@@ -175,6 +176,8 @@ type LiteLLMModelPricing struct {
 	MaxInputTokensKnown                      bool    `json:"-"`
 	MaxOutputTokensKnown                     bool    `json:"-"`
 	OpenCodeGoPricingAuthority               string  `json:"opencode_go_pricing_authority,omitempty"`
+	// OpenCodeGoExplicitZeroRate 只由官方价格表中的明确零价生成，不能由缺失字段推导。
+	OpenCodeGoExplicitZeroRate bool `json:"opencode_go_explicit_zero_rate,omitempty"`
 
 	// TokenPricingAbsent 表示源数据中 input/output token 价格均缺失（仅有图片价）。
 	// 此类条目只可用于图片计费，token 计费必须回退到 fallback 或 fail-closed，
@@ -219,18 +222,19 @@ type LiteLLMRawEntry struct {
 
 // PricingService 动态价格服务
 type PricingService struct {
-	cfg                    *config.Config
-	remoteClient           PricingRemoteClient
-	mu                     sync.RWMutex
-	pricingData            map[string]*LiteLLMModelPricing
-	openCodeGoPricing      map[string]*LiteLLMModelPricing
-	lastUpdated            time.Time
-	localHash              string
-	cliImportCatalogMu     sync.RWMutex
-	cliImportCatalogLoaded bool
-	cliImportCatalog       map[string]map[string]CLIImportModelCapability
-	promotionMu            sync.RWMutex
-	openCodeGoPromotions   map[string]openCodeGoUsagePromotion
+	cfg                          *config.Config
+	remoteClient                 PricingRemoteClient
+	mu                           sync.RWMutex
+	pricingData                  map[string]*LiteLLMModelPricing
+	openCodeGoPricing            map[string]*LiteLLMModelPricing
+	openCodeGoPricingConfirmedAt time.Time
+	lastUpdated                  time.Time
+	localHash                    string
+	cliImportCatalogMu           sync.RWMutex
+	cliImportCatalogLoaded       bool
+	cliImportCatalog             map[string]map[string]CLIImportModelCapability
+	promotionMu                  sync.RWMutex
+	openCodeGoPromotions         map[string]openCodeGoUsagePromotion
 
 	// 停止信号
 	stopCh chan struct{}
@@ -623,14 +627,15 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 }
 
 type openCodeGoDocPriceRow struct {
-	Name       string
-	Key        string
-	Input      float64
-	Output     float64
-	CacheRead  float64
-	CacheWrite float64
-	Threshold  int
-	Above      bool
+	Name            string
+	Key             string
+	Input           float64
+	Output          float64
+	CacheRead       float64
+	CacheWrite      float64
+	Threshold       int
+	Above           bool
+	ZeroTokenPrices bool
 }
 
 func parseOpenCodeGoPricingDocument(body []byte) (map[string]*LiteLLMModelPricing, error) {
@@ -642,6 +647,7 @@ func parseOpenCodeGoPricingDocument(body []byte) (map[string]*LiteLLMModelPricin
 	modelIDs := make(map[string]string)
 	baseRows := make(map[string]openCodeGoDocPriceRow)
 	aboveRows := make(map[string]openCodeGoDocPriceRow)
+	explicitFreeModels := parseOpenCodeGoExplicitFreeModelKeys(body)
 	priceRows := 0
 
 	for _, cells := range rows {
@@ -672,6 +678,10 @@ func parseOpenCodeGoPricingDocument(body []byte) (map[string]*LiteLLMModelPricin
 			CacheWrite: cacheWrite,
 			Threshold:  threshold,
 			Above:      above,
+			ZeroTokenPrices: isOpenCodeGoExplicitZeroPrice(cells[1]) &&
+				isOpenCodeGoExplicitZeroPrice(cells[2]) &&
+				isOpenCodeGoExplicitZeroPrice(cells[3]) &&
+				isOpenCodeGoExplicitZeroPrice(cells[4]),
 		}
 		if row.Key == "" {
 			continue
@@ -709,6 +719,7 @@ func parseOpenCodeGoPricingDocument(body []byte) (map[string]*LiteLLMModelPricin
 			CacheReadInputTokenCostKnown:     row.CacheRead > 0,
 			CacheCreationInputTokenCostKnown: row.CacheWrite > 0,
 			OpenCodeGoPricingAuthority:       openCodeGoPricingAuthorityOfficial,
+			OpenCodeGoExplicitZeroRate:       row.ZeroTokenPrices && explicitFreeModels[row.Key],
 		}
 		if above, ok := aboveRows[key]; ok && row.Threshold > 0 {
 			pricing.LongContextInputTokenThreshold = row.Threshold
@@ -852,6 +863,44 @@ func parseOpenCodeGoMillionTokenPrice(value string) (float64, bool) {
 		return 0, false
 	}
 	return price / 1_000_000, true
+}
+
+func parseOpenCodeGoExplicitFreeModelKeys(body []byte) map[string]bool {
+	result := make(map[string]bool)
+	doc, err := xhtml.Parse(bytes.NewReader(body))
+	if err != nil {
+		return result
+	}
+	collectOpenCodeGoExplicitFreeModelKeys(doc, result)
+	return result
+}
+
+func collectOpenCodeGoExplicitFreeModelKeys(node *xhtml.Node, result map[string]bool) {
+	if node == nil {
+		return
+	}
+	if node.Type == xhtml.ElementNode && (strings.EqualFold(node.Data, "p") || strings.EqualFold(node.Data, "li")) {
+		const suffix = ": free for a limited time"
+		text := strings.TrimSuffix(normalizeOpenCodeGoPromotionText(openCodeGoVisibleText(node)), ".")
+		if strings.HasSuffix(text, suffix) {
+			name := strings.TrimSpace(strings.TrimSuffix(text, suffix))
+			if key := normalizeOpenCodeGoDocModelKey(name); key != "" {
+				result[key] = true
+			}
+		}
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		collectOpenCodeGoExplicitFreeModelKeys(child, result)
+	}
+}
+
+func isOpenCodeGoExplicitZeroPrice(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return false
+	}
+	price, ok := parseOpenCodeGoMillionTokenPrice(trimmed)
+	return ok && price == 0
 }
 
 func parseOpenCodeGoContextThreshold(name string) (int, bool) {
@@ -1237,9 +1286,11 @@ func (s *PricingService) refreshOpenCodeGoPricingBestEffort(ctx context.Context)
 		}
 		return
 	}
+	confirmedAt := time.Now()
 	s.mu.Lock()
 	s.openCodeGoPricing = current
-	s.lastUpdated = time.Now()
+	s.openCodeGoPricingConfirmedAt = confirmedAt
+	s.lastUpdated = confirmedAt
 	s.mu.Unlock()
 	_ = s.saveOpenCodeGoPricingData(current)
 }
@@ -1258,6 +1309,10 @@ func (s *PricingService) loadOpenCodeGoPricingData(filePath string) error {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return err
+	}
+	confirmedAt := time.Time{}
+	if info, statErr := os.Stat(filePath); statErr == nil {
+		confirmedAt = info.ModTime()
 	}
 	var pricingData map[string]*LiteLLMModelPricing
 	if err := json.Unmarshal(data, &pricingData); err != nil {
@@ -1288,6 +1343,7 @@ func (s *PricingService) loadOpenCodeGoPricingData(filePath string) error {
 	s.mu.Lock()
 	if len(s.openCodeGoPricing) == 0 {
 		s.openCodeGoPricing = pricingData
+		s.openCodeGoPricingConfirmedAt = confirmedAt
 	}
 	s.mu.Unlock()
 	logger.LegacyPrintf("service.pricing", "[Pricing] Loaded %d OpenCode Go cached models from %s", len(pricingData), filePath)
@@ -1468,13 +1524,29 @@ func (s *PricingService) GetModelPricingExact(modelName string) *LiteLLMModelPri
 }
 
 // GetOpenCodeGoModelPricingExact 从平台隔离快照精确读取 OpenCode Go 价格。
+func openCodeGoZeroRateEvidenceFresh(confirmedAt, now time.Time) bool {
+	if confirmedAt.IsZero() {
+		return false
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	age := now.Sub(confirmedAt)
+	return age >= 0 && age <= openCodeGoZeroRateEvidenceTTL
+}
+
 func (s *PricingService) GetOpenCodeGoModelPricingExact(modelName string) *LiteLLMModelPricing {
 	if s == nil || strings.TrimSpace(modelName) == "" {
 		return nil
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.getModelPricingExactLocked(s.openCodeGoPricing, modelName)
+	pricing := s.getModelPricingExactLocked(s.openCodeGoPricing, modelName)
+	if pricing != nil && pricing.OpenCodeGoExplicitZeroRate &&
+		!openCodeGoZeroRateEvidenceFresh(s.openCodeGoPricingConfirmedAt, time.Now()) {
+		return nil
+	}
+	return pricing
 }
 
 func (s *PricingService) getModelPricingExactLocked(data map[string]*LiteLLMModelPricing, modelName string) *LiteLLMModelPricing {

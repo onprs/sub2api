@@ -259,7 +259,7 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 }
 
 func recordUsageCostIsZeroTokenFallback(cost *CostBreakdown, result *ForwardResult) bool {
-	if cost == nil || cost.TotalCost != 0 || cost.ActualCost != 0 || result == nil || result.ImageCount > 0 {
+	if cost == nil || cost.AllowZeroRate || cost.TotalCost != 0 || cost.ActualCost != 0 || result == nil || result.ImageCount > 0 {
 		return false
 	}
 	if cost.BillingMode != "" && cost.BillingMode != string(BillingModeToken) {
