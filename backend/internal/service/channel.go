@@ -397,6 +397,12 @@ type ModelUsageOffer struct {
 	UsageMultiplier float64
 }
 
+// ModelQuotaCost 是用户价格页展示用的 OpenCode Go 基础额度成本规则。
+type ModelQuotaCost struct {
+	IncludedMonthlyUsageUSD float64
+	CostMultiplier          float64
+}
+
 // ModelPricingTimeBand 是用户价格页展示用的分时定价，不参与持久化。
 type ModelPricingTimeBand struct {
 	Code       string
@@ -411,6 +417,7 @@ type SupportedModel struct {
 	Platform         string                 // 所属平台
 	Pricing          *ChannelModelPricing   // 定价详情（nil 表示未配置定价）
 	PricingSource    string                 // channel/catalog/missing，仅用于用户侧展示来源
+	QuotaCost        *ModelQuotaCost        // OpenCode Go 月可用额度与基础额度成本乘数
 	UsageOffer       *ModelUsageOffer       // 官方 Usage 活动；nil 表示当前无有效证据
 	PricingTimeBands []ModelPricingTimeBand // 分时定价；空切片表示全天同价
 }

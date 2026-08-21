@@ -164,7 +164,7 @@
 
       <template #table>
         <div class="table-wrapper model-pricing-table-wrapper">
-          <table class="min-w-[1700px] border-collapse text-xs">
+          <table class="min-w-[2020px] border-collapse text-xs">
             <thead
               class="model-pricing-sticky-header sticky top-0 z-20 bg-gray-50/95 text-left font-medium uppercase text-gray-500 shadow-sm backdrop-blur dark:bg-dark-800/95 dark:text-gray-400"
             >
@@ -175,6 +175,9 @@
                 <th class="w-80 px-4 py-3">{{ t('modelPricing.columns.contextTier') }}</th>
                 <th class="w-64 px-4 py-3">{{ t('modelPricing.columns.group') }}</th>
                 <th class="w-28 px-4 py-3">{{ t('modelPricing.columns.groupMultiplier') }}</th>
+                <th class="w-28 px-4 py-3">{{ t('modelPricing.columns.monthlyUsage') }}</th>
+                <th class="w-32 px-4 py-3">{{ t('modelPricing.columns.quotaCostMultiplier') }}</th>
+                <th class="w-32 px-4 py-3">{{ t('modelPricing.columns.effectiveMultiplier') }}</th>
                 <th class="w-36 px-4 py-3">{{ t('modelPricing.columns.usageOffer') }}</th>
                 <th class="w-40 px-4 py-3">{{ t('modelPricing.columns.source') }}</th>
                 <th class="w-32 px-4 py-3">{{ t('modelPricing.columns.billingMode') }}</th>
@@ -188,7 +191,7 @@
 
             <tbody v-if="loading">
               <tr>
-                <td colspan="14" class="py-10 text-center">
+                <td colspan="17" class="py-10 text-center">
                   <Icon name="refresh" size="lg" class="inline-block animate-spin text-gray-400" />
                 </td>
               </tr>
@@ -196,7 +199,7 @@
 
             <tbody v-else-if="filteredRows.length === 0">
               <tr>
-                <td colspan="14" class="py-12 text-center">
+                <td colspan="17" class="py-12 text-center">
                   <Icon name="inbox" size="xl" class="mx-auto mb-3 h-12 w-12 text-gray-400" />
                   <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('modelPricing.empty') }}</p>
                 </td>
@@ -285,6 +288,29 @@
                       {{ formatMultiplier(row.groupMultiplier) }}
                     </span>
                   </div>
+                </td>
+
+                <td class="px-4 py-3 align-top">
+                  <span v-if="row.includedMonthlyUsageUSD !== null" class="font-mono text-[12px] text-gray-700 dark:text-gray-300">
+                    {{ row.includedMonthlyUsageUSD > 0 ? formatScaled(row.includedMonthlyUsageUSD, 1) : '-' }}
+                  </span>
+                  <span v-else class="text-gray-400 dark:text-gray-500">-</span>
+                </td>
+
+                <td class="px-4 py-3 align-top">
+                  <span
+                    v-if="row.includedMonthlyUsageUSD !== null"
+                    class="font-mono text-[12px] font-semibold text-gray-900 dark:text-white"
+                  >
+                    {{ formatMultiplier(row.quotaCostMultiplier) }}
+                  </span>
+                  <span v-else class="text-gray-400 dark:text-gray-500">-</span>
+                </td>
+
+                <td class="px-4 py-3 align-top">
+                  <span class="font-mono text-[12px] font-semibold text-gray-900 dark:text-white">
+                    {{ formatMultiplier(row.effectiveMultiplier) }}
+                  </span>
                 </td>
 
                 <td class="px-4 py-3 align-top">

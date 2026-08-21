@@ -94,6 +94,7 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 
 		supported := ch.SupportedModels()
 		s.fillGlobalPricingFallback(supported)
+		s.fillModelQuotaCosts(supported)
 		s.fillModelPricingTimeBands(supported)
 		s.fillModelUsageOffers(supported)
 
@@ -159,6 +160,12 @@ func (s *ChannelService) BuildCatalogSupportedModel(displayName, platform string
 		}
 		model.Pricing = pricing
 		model.PricingSource = PricingSourceCatalog
+		if !s.fillModelQuotaCostForName(&model, candidate) {
+			model.Pricing = nil
+			model.PricingSource = PricingSourceMissing
+			model.QuotaCost = nil
+			continue
+		}
 		s.fillModelPricingTimeBandsForName(&model, candidate, nil)
 		s.fillModelUsageOfferForName(&model, candidate)
 		return model
@@ -190,6 +197,12 @@ func (s *ChannelService) BuildSupportedModelForPricingGroup(
 			if !pricingNeedsFallback(pricing) {
 				model.Pricing = s.displayResolvedChannelPricing(ctx, groupID, platform, candidate, pricing)
 				model.PricingSource = PricingSourceChannel
+				if !s.fillModelQuotaCostForName(&model, candidate) {
+					model.Pricing = nil
+					model.PricingSource = PricingSourceMissing
+					model.QuotaCost = nil
+					continue
+				}
 				s.fillModelPricingTimeBandsForName(&model, candidate, pricing)
 				s.fillModelUsageOfferForName(&model, candidate)
 				return model
@@ -201,6 +214,12 @@ func (s *ChannelService) BuildSupportedModelForPricingGroup(
 		}
 		model.Pricing = pricing
 		model.PricingSource = PricingSourceCatalog
+		if !s.fillModelQuotaCostForName(&model, candidate) {
+			model.Pricing = nil
+			model.PricingSource = PricingSourceMissing
+			model.QuotaCost = nil
+			continue
+		}
 		s.fillModelPricingTimeBandsForName(&model, candidate, nil)
 		s.fillModelUsageOfferForName(&model, candidate)
 		return model
@@ -345,6 +364,48 @@ func (s *ChannelService) fillModelUsageOffers(models []SupportedModel) {
 	for i := range models {
 		s.fillModelUsageOfferForName(&models[i], models[i].Name)
 	}
+}
+
+func (s *ChannelService) fillModelQuotaCosts(models []SupportedModel) {
+	for i := range models {
+		if !isOpenCodeGoPricingPlatform(models[i].Platform) {
+			continue
+		}
+		candidates := []string{models[i].Name}
+		if models[i].Pricing != nil {
+			candidates = append(candidates, models[i].Pricing.Models...)
+		}
+		resolved := false
+		for _, candidate := range candidates {
+			if s.fillModelQuotaCostForName(&models[i], candidate) {
+				resolved = true
+				break
+			}
+		}
+		if !resolved {
+			models[i].Pricing = nil
+			models[i].PricingSource = PricingSourceMissing
+		}
+	}
+}
+
+func (s *ChannelService) fillModelQuotaCostForName(model *SupportedModel, pricingModel string) bool {
+	if s == nil || model == nil || !isOpenCodeGoPricingPlatform(model.Platform) {
+		return model != nil && !isOpenCodeGoPricingPlatform(model.Platform)
+	}
+	billingService := s.billingService
+	if billingService == nil {
+		billingService = &BillingService{pricingService: s.pricingService}
+	}
+	quotaCost, ok := billingService.GetOpenCodeGoQuotaCost(pricingModel)
+	if !ok {
+		return false
+	}
+	model.QuotaCost = &ModelQuotaCost{
+		IncludedMonthlyUsageUSD: quotaCost.IncludedMonthlyUsageUSD,
+		CostMultiplier:          quotaCost.Multiplier,
+	}
+	return true
 }
 
 func (s *ChannelService) fillModelUsageOfferForName(model *SupportedModel, pricingModel string) {

@@ -244,6 +244,14 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 			continue
 		}
 		cost, err := s.calculateRecordUsageCost(ctx, result, apiKey, candidate, multiplier, imageMultiplier, opts)
+		if err == nil && opts != nil && isOpenCodeGoPricingPlatform(opts.PricingPlatform) {
+			quotaCost, ok := s.billingService.GetOpenCodeGoQuotaCost(candidate)
+			if !ok {
+				err = openCodeGoQuotaCostUnavailableError(candidate)
+			} else {
+				applyCostBreakdownMultiplier(cost, quotaCost.Multiplier)
+			}
+		}
 		if err == nil {
 			if !recordUsageCostIsZeroTokenFallback(cost, result) {
 				return cost, candidate, nil
@@ -256,6 +264,19 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 		lastErr = errors.New("no non-empty billing model candidates")
 	}
 	return nil, "", lastErr
+}
+
+func applyCostBreakdownMultiplier(cost *CostBreakdown, multiplier float64) {
+	if cost == nil || multiplier == 1 {
+		return
+	}
+	cost.InputCost *= multiplier
+	cost.OutputCost *= multiplier
+	cost.ImageOutputCost *= multiplier
+	cost.CacheCreationCost *= multiplier
+	cost.CacheReadCost *= multiplier
+	cost.TotalCost *= multiplier
+	cost.ActualCost *= multiplier
 }
 
 func recordUsageCostIsZeroTokenFallback(cost *CostBreakdown, result *ForwardResult) bool {

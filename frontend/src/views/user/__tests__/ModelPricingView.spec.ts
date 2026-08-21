@@ -32,6 +32,9 @@ const messages: Record<string, string> = {
   'modelPricing.columns.contextTier': 'Pricing Period / Context Tier',
   'modelPricing.columns.group': 'Group',
   'modelPricing.columns.groupMultiplier': 'Group Multiplier',
+  'modelPricing.columns.monthlyUsage': 'Monthly Usage',
+  'modelPricing.columns.quotaCostMultiplier': 'Quota Cost Multiplier',
+  'modelPricing.columns.effectiveMultiplier': 'Effective Multiplier',
   'modelPricing.columns.usageOffer': 'Official Quota Offer',
   'modelPricing.columns.source': 'Source',
   'modelPricing.columns.billingMode': 'Billing Mode',
@@ -149,6 +152,10 @@ function makeChannel(): UserAvailableChannel[] {
             {
               name: 'deepseek-v4-flash',
               platform: 'opencode_go',
+              quota_cost: {
+                included_monthly_usage_usd: 30,
+                cost_multiplier: 2,
+              },
               usage_offer: {
                 code: 'opencode_go_usage_offer',
                 usage_multiplier: 2,
@@ -389,10 +396,14 @@ describe('ModelPricingView', () => {
     expect(wrapper.text()).toContain('Channel Pricing')
     expect(wrapper.text()).toContain('Off-Peak · UTC 00:00-01:00, 04:00-06:00, 10:00-24:00')
     expect(wrapper.text()).toContain('Peak · UTC 01:00-04:00, 06:00-10:00')
+    expect(wrapper.text()).toContain('Monthly Usage')
+    expect(wrapper.text()).toContain('Quota Cost Multiplier')
+    expect(wrapper.text()).toContain('Effective Multiplier')
+    expect(wrapper.text()).toContain('$30')
     expect(wrapper.text()).toContain('0.5x')
     expect(wrapper.text()).toContain('2x usage limits')
-    expect(wrapper.text()).toContain('$0.11')
     expect(wrapper.text()).toContain('$0.22')
+    expect(wrapper.text()).toContain('$0.44')
 
     await wrapper.get('button[title="Refresh"]').trigger('click')
     await flushPromises()
@@ -442,10 +453,10 @@ describe('ModelPricingView', () => {
     expect(wrapper.text()).toContain('Context Tier')
     expect(wrapper.text()).toContain('Up to 256K')
     expect(wrapper.text()).toContain('Above 256K')
-    expect(wrapper.text()).toContain('$0.8')
-    expect(wrapper.text()).toContain('$2.4')
-    expect(wrapper.text()).toContain('$0.08')
-    expect(wrapper.text()).toContain('$0.24')
+    expect(wrapper.text()).toContain('$1.6')
+    expect(wrapper.text()).toContain('$4.8')
+    expect(wrapper.text()).toContain('$0.16')
+    expect(wrapper.text()).toContain('$0.48')
 
     await wrapper.get('[data-pricing-mode="raw"]').trigger('click')
     expect(wrapper.text()).toContain('$0.4')

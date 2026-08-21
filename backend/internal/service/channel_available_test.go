@@ -403,6 +403,9 @@ func TestBuildCatalogSupportedModel_OpenCodeGoCodeAliasCandidate(t *testing.T) {
 	require.NotNil(t, got.Pricing)
 	require.NotNil(t, got.Pricing.InputPrice)
 	require.InDelta(t, 0.95e-6, *got.Pricing.InputPrice, 1e-12)
+	require.NotNil(t, got.QuotaCost)
+	require.Equal(t, 60.0, got.QuotaCost.IncludedMonthlyUsageUSD)
+	require.Equal(t, 1.0, got.QuotaCost.CostMultiplier)
 	require.NotNil(t, got.Pricing.CacheReadPrice)
 }
 
@@ -440,7 +443,7 @@ func TestBuildCatalogSupportedModel_ClinePassUsesReferencePricingAndContextTiers
 	require.InDelta(t, 0.12e-6, *longTier.CacheReadPrice, 1e-15)
 }
 
-func TestBuildCatalogSupportedModel_OpenCodeGoUsesSupplementalReferencePricing(t *testing.T) {
+func TestBuildCatalogSupportedModel_OpenCodeGoSupplementalModelWithoutUsageFailsClosed(t *testing.T) {
 	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
 		"kimi-k2.5": {
 			Mode:                    "chat",
@@ -454,14 +457,9 @@ func TestBuildCatalogSupportedModel_OpenCodeGoUsesSupplementalReferencePricing(t
 
 	got := svc.BuildCatalogSupportedModel("kimi-k2.5", PlatformOpenCodeGo, nil)
 
-	require.Equal(t, PricingSourceCatalog, got.PricingSource)
-	require.NotNil(t, got.Pricing)
-	require.NotNil(t, got.Pricing.InputPrice)
-	require.InDelta(t, 0.60e-6, *got.Pricing.InputPrice, 1e-12)
-	require.NotNil(t, got.Pricing.OutputPrice)
-	require.InDelta(t, 3.00e-6, *got.Pricing.OutputPrice, 1e-12)
-	require.NotNil(t, got.Pricing.CacheReadPrice)
-	require.InDelta(t, 0.10e-6, *got.Pricing.CacheReadPrice, 1e-12)
+	require.Equal(t, PricingSourceMissing, got.PricingSource)
+	require.Nil(t, got.Pricing)
+	require.Nil(t, got.QuotaCost)
 }
 
 func TestBuildCatalogSupportedModel_UsesBillingFallbackPricing(t *testing.T) {
@@ -645,10 +643,13 @@ func TestBuildCatalogSupportedModel_OpenCodeGoOfficialZeroRateIsDisplayedAsCatal
 	require.NotNil(t, model.Pricing.InputPrice)
 	require.NotNil(t, model.Pricing.OutputPrice)
 	require.Zero(t, *model.Pricing.InputPrice)
+	require.NotNil(t, model.QuotaCost)
+	require.Zero(t, model.QuotaCost.IncludedMonthlyUsageUSD)
+	require.Equal(t, 1.0, model.QuotaCost.CostMultiplier)
 	require.Zero(t, *model.Pricing.OutputPrice)
 }
 
-func TestBuildCatalogSupportedModel_OpenCodeGoReferenceCatalogCoversEveryPaidSeedModel(t *testing.T) {
+func TestBuildCatalogSupportedModel_OpenCodeGoReferenceCatalogRequiresQuotaCostEvidence(t *testing.T) {
 	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{})
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
@@ -658,10 +659,20 @@ func TestBuildCatalogSupportedModel_OpenCodeGoReferenceCatalogCoversEveryPaidSee
 			continue
 		}
 		model := svc.BuildCatalogSupportedModel(modelID, PlatformOpenCodeGo, nil)
+		quotaCost, known := openCodeGoReferenceQuotaCost(modelID)
+		if !known {
+			require.Equal(t, PricingSourceMissing, model.PricingSource, modelID)
+			require.Nil(t, model.Pricing, modelID)
+			require.Nil(t, model.QuotaCost, modelID)
+			continue
+		}
 		require.Equal(t, PricingSourceCatalog, model.PricingSource, modelID)
 		require.NotNil(t, model.Pricing, modelID)
 		require.NotNil(t, model.Pricing.InputPrice, modelID)
 		require.NotNil(t, model.Pricing.OutputPrice, modelID)
+		require.NotNil(t, model.QuotaCost, modelID)
+		require.Equal(t, quotaCost.IncludedMonthlyUsageUSD, model.QuotaCost.IncludedMonthlyUsageUSD, modelID)
+		require.Equal(t, quotaCost.Multiplier, model.QuotaCost.CostMultiplier, modelID)
 	}
 }
 

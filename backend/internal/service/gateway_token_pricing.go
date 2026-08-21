@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 )
 
@@ -27,11 +28,22 @@ func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Contex
 
 	accountMappedModel := strings.TrimSpace(account.GetMappedModel(requestedModel))
 	candidates := billableUsageModelCandidates(billingModel, mapping.MappedModel, accountMappedModel, requestedModel)
+	billingService := s.billingService
+	if billingService == nil {
+		billingService = NewBillingService(s.cfg, nil)
+	}
+	var quotaCostErr error
 	if s.resolver != nil && apiKey != nil && apiKey.GroupID != nil {
 		for _, candidate := range candidates {
 			candidate = strings.TrimSpace(candidate)
 			if candidate == "" {
 				continue
+			}
+			if account.IsOpenCodeGo() {
+				if _, ok := billingService.GetOpenCodeGoQuotaCost(candidate); !ok {
+					quotaCostErr = openCodeGoQuotaCostUnavailableError(candidate)
+					continue
+				}
 			}
 			resolved := s.resolver.Resolve(ctx, PricingInput{Model: candidate, GroupID: apiKey.GroupID, Platform: account.Platform})
 			if resolved == nil {
@@ -45,18 +57,30 @@ func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Contex
 				return nil
 			}
 		}
+		if quotaCostErr != nil {
+			return quotaCostErr
+		}
 		return tokenPricingUnavailableError(billingModel)
 	}
 
-	billingService := s.billingService
-	if billingService == nil {
-		billingService = NewBillingService(s.cfg, nil)
-	}
 	for _, candidate := range candidates {
+		if account.IsOpenCodeGo() {
+			if _, ok := billingService.GetOpenCodeGoQuotaCost(candidate); !ok {
+				quotaCostErr = openCodeGoQuotaCostUnavailableError(candidate)
+				continue
+			}
+		}
 		pricing, err := billingService.GetModelPricingForPlatform(account.Platform, candidate)
 		if err == nil && hasBillableTokenPricing(pricing) {
 			return nil
 		}
 	}
+	if quotaCostErr != nil {
+		return quotaCostErr
+	}
 	return tokenPricingUnavailableError(billingModel)
+}
+
+func openCodeGoQuotaCostUnavailableError(model string) error {
+	return fmt.Errorf("%w: OpenCode Go quota cost multiplier unavailable for model: %s", ErrModelPricingUnavailable, strings.ToLower(strings.TrimSpace(model)))
 }

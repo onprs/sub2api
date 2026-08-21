@@ -170,6 +170,7 @@ type LiteLLMModelPricing struct {
 	MaxInputTokensKnown                      bool    `json:"-"`
 	MaxOutputTokensKnown                     bool    `json:"-"`
 	OpenCodeGoPricingAuthority               string  `json:"opencode_go_pricing_authority,omitempty"`
+	OpenCodeGoMonthlyUsageUSD                float64 `json:"opencode_go_monthly_usage_usd,omitempty"`
 	OpenCodeGoPeakPricingKnown               bool    `json:"opencode_go_peak_pricing_known,omitempty"`
 	OpenCodeGoPeakInputCostPerToken          float64 `json:"opencode_go_peak_input_cost_per_token,omitempty"`
 	OpenCodeGoPeakOutputCostPerToken         float64 `json:"opencode_go_peak_output_cost_per_token,omitempty"`
@@ -633,6 +634,7 @@ type openCodeGoDocPriceRow struct {
 	Output          float64
 	CacheRead       float64
 	CacheWrite      float64
+	MonthlyUsageUSD float64
 	Threshold       int
 	Above           bool
 	Peak            bool
@@ -670,17 +672,22 @@ func parseOpenCodeGoPricingDocument(body []byte) (map[string]*LiteLLMModelPricin
 		}
 		cacheRead, _ := parseOpenCodeGoMillionTokenPrice(cells[3])
 		cacheWrite, _ := parseOpenCodeGoMillionTokenPrice(cells[4])
+		monthlyUsageUSD := 0.0
+		if len(cells) >= 6 {
+			monthlyUsageUSD, _ = parseOpenCodeGoUsageUSD(cells[5])
+		}
 		threshold, above := parseOpenCodeGoContextThreshold(cells[0])
 		row := openCodeGoDocPriceRow{
-			Name:       cells[0],
-			Key:        normalizeOpenCodeGoDocModelKey(cells[0]),
-			Input:      input,
-			Output:     output,
-			CacheRead:  cacheRead,
-			CacheWrite: cacheWrite,
-			Threshold:  threshold,
-			Above:      above,
-			Peak:       isOpenCodeGoPeakPriceRow(cells[0]),
+			Name:            cells[0],
+			Key:             normalizeOpenCodeGoDocModelKey(cells[0]),
+			Input:           input,
+			Output:          output,
+			CacheRead:       cacheRead,
+			CacheWrite:      cacheWrite,
+			MonthlyUsageUSD: monthlyUsageUSD,
+			Threshold:       threshold,
+			Above:           above,
+			Peak:            isOpenCodeGoPeakPriceRow(cells[0]),
 			ZeroTokenPrices: isOpenCodeGoExplicitZeroPrice(cells[1]) &&
 				isOpenCodeGoExplicitZeroPrice(cells[2]) &&
 				isOpenCodeGoExplicitZeroPrice(cells[3]) &&
@@ -725,6 +732,7 @@ func parseOpenCodeGoPricingDocument(body []byte) (map[string]*LiteLLMModelPricin
 			CacheReadInputTokenCostKnown:     row.CacheRead > 0,
 			CacheCreationInputTokenCostKnown: row.CacheWrite > 0,
 			OpenCodeGoPricingAuthority:       openCodeGoPricingAuthorityOfficial,
+			OpenCodeGoMonthlyUsageUSD:        row.MonthlyUsageUSD,
 			OpenCodeGoExplicitZeroRate:       row.ZeroTokenPrices && explicitFreeModels[row.Key],
 		}
 		if peak, ok := peakRows[key]; ok {
@@ -875,6 +883,22 @@ func parseOpenCodeGoMillionTokenPrice(value string) (float64, bool) {
 		return 0, false
 	}
 	return price / 1_000_000, true
+}
+
+func parseOpenCodeGoUsageUSD(value string) (float64, bool) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || trimmed == "-" {
+		return 0, false
+	}
+	match := openCodeGoPricePattern.FindStringSubmatch(trimmed)
+	if len(match) != 2 {
+		return 0, false
+	}
+	usageUSD, err := strconv.ParseFloat(match[1], 64)
+	if err != nil || usageUSD <= 0 {
+		return 0, false
+	}
+	return usageUSD, true
 }
 
 func isOpenCodeGoPeakPriceRow(name string) bool {

@@ -98,6 +98,81 @@ func TestOpenCodeGoReferencePricingLocksOfficialCurrentRates(t *testing.T) {
 	}
 }
 
+func TestOpenCodeGoReferenceQuotaCostsLockOfficialMonthlyUsage(t *testing.T) {
+	expected := map[string]OpenCodeGoQuotaCost{
+		"grok-4.5":                     {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
+		"gpt-5.6-luna":                 {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
+		"glm-5.3":                      {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
+		"glm-5.2":                      {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"glm-5.1":                      {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"kimi-k3":                      {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
+		"kimi-k2.7-code":               {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"kimi-k2.6":                    {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"mimo-v2.5":                    {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"mimo-v2.5-pro":                {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
+		"minimax-m3":                   {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"minimax-m2.7":                 {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"minimax-m2.5":                 {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"muse-spark-1.2-contributor":   {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"qwen3.8-max":                  {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
+		"qwen3.7-max":                  {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"qwen3.7-plus":                 {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"qwen3.6-plus":                 {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"deepseek-v4-pro":              {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
+		"deepseek-v4-flash":            {IncludedMonthlyUsageUSD: 30, Multiplier: 2},
+		"deepseek-v4-flash-vision-exp": {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
+		"hy3":                          {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+	}
+	require.Len(t, openCodeGoReferenceMonthlyUsageUSD, len(expected))
+
+	for model, want := range expected {
+		t.Run(model, func(t *testing.T) {
+			got, ok := openCodeGoReferenceQuotaCost(model)
+			require.True(t, ok)
+			require.Equal(t, want, got)
+		})
+	}
+
+	for _, model := range []string{"glm-5", "hy3-preview", "kimi-k2.5", "mimo-v2-omni", "mimo-v2-pro", "qwen3.5-plus"} {
+		_, ok := openCodeGoReferenceQuotaCost(model)
+		require.False(t, ok, model)
+	}
+}
+
+func TestBillingServiceOpenCodeGoQuotaCostUsesDynamicUsageAndIgnoresUsageOffer(t *testing.T) {
+	now := time.Now()
+	pricingSvc := &PricingService{
+		openCodeGoPricing: map[string]*LiteLLMModelPricing{
+			"glm-5.2": {
+				LiteLLMProvider:            PlatformOpenCodeGo,
+				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
+				OpenCodeGoMonthlyUsageUSD:  15,
+			},
+			"ox-alpha-free": {
+				LiteLLMProvider:            PlatformOpenCodeGo,
+				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
+				OpenCodeGoExplicitZeroRate: true,
+			},
+		},
+		openCodeGoPricingConfirmedAt: now,
+		openCodeGoUsageOffers: map[string]openCodeGoUsageOffer{
+			"glm-5.2": {usageMultiplier: 8, confirmedAt: now},
+		},
+	}
+	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
+
+	quotaCost, ok := billingSvc.GetOpenCodeGoQuotaCost("opencode-go/glm-5.2")
+	require.True(t, ok)
+	require.Equal(t, OpenCodeGoQuotaCost{IncludedMonthlyUsageUSD: 15, Multiplier: 4}, quotaCost)
+
+	free, ok := billingSvc.GetOpenCodeGoQuotaCost("ox-alpha-free")
+	require.True(t, ok)
+	require.Equal(t, OpenCodeGoQuotaCost{Multiplier: 1}, free)
+
+	_, ok = billingSvc.GetOpenCodeGoQuotaCost("kimi-k2.5")
+	require.False(t, ok)
+}
+
 func TestOpenCodeGoReferencePricingUsesOfficialDeepSeekTimeBands(t *testing.T) {
 	tests := []struct {
 		name      string
