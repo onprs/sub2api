@@ -58,6 +58,11 @@ export interface UserSupportedModelPricing {
   time_bands?: UserPricingTimeBand[]
 }
 
+export interface UserSupportedModelQuotaCost {
+  included_monthly_usage_usd: number
+  cost_multiplier: number
+}
+
 export interface UserSupportedModelUsageOffer {
   code: string
   usage_multiplier: number
@@ -67,6 +72,7 @@ export interface UserSupportedModel {
   name: string
   platform: string
   pricing: UserSupportedModelPricing | null
+  quota_cost?: UserSupportedModelQuotaCost | null
   usage_offer?: UserSupportedModelUsageOffer | null
 }
 

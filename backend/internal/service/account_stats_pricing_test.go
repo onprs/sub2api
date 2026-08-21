@@ -659,6 +659,37 @@ func TestResolveAccountStatsCost_HitsCustomRule(t *testing.T) {
 	require.InDelta(t, 2.0, *result, 1e-12)
 }
 
+func TestResolveAccountStatsCost_OpenCodeGoCustomRuleAppliesQuotaCostMultiplier(t *testing.T) {
+	channel := &Channel{
+		ID:     1,
+		Status: StatusActive,
+		AccountStatsPricingRules: []AccountStatsPricingRule{
+			{
+				GroupIDs: []int64{10},
+				Pricing: []ChannelModelPricing{
+					{
+						Models:      []string{"glm-5.3"},
+						InputPrice:  testPtrFloat64(0.01),
+						OutputPrice: testPtrFloat64(0.02),
+					},
+				},
+			},
+		},
+	}
+	cs := newTestChannelServiceForStats(t, channel, 10, PlatformOpenCodeGo)
+	billingService := NewBillingService(nil, nil)
+
+	result := resolveAccountStatsCost(
+		context.Background(),
+		cs, billingService,
+		1, 10, "glm-5.3",
+		UsageTokens{InputTokens: 100, OutputTokens: 50}, 1, 999,
+	)
+
+	require.NotNil(t, result)
+	require.InDelta(t, (100*0.01+50*0.02)*4, *result, 1e-12)
+}
+
 func TestResolveAccountStatsCost_ApplyPricingToAccountStats_UsesTotalCost(t *testing.T) {
 	channel := &Channel{
 		ID:                         1,
@@ -726,7 +757,7 @@ func TestResolveAccountStatsCost_FallsBackToLiteLLM(t *testing.T) {
 	require.InDelta(t, 0.2, *result, 1e-12)
 }
 
-func TestResolveAccountStatsCost_OpenCodeGoFallbackUsesPlatformReferencePricing(t *testing.T) {
+func TestResolveAccountStatsCost_OpenCodeGoFallbackAppliesQuotaCostMultiplier(t *testing.T) {
 	channel := &Channel{
 		ID:                         1,
 		Status:                     StatusActive,
@@ -755,7 +786,7 @@ func TestResolveAccountStatsCost_OpenCodeGoFallbackUsesPlatformReferencePricing(
 	)
 
 	require.NotNil(t, result)
-	expected := 1.4 + 0.5*4.4
+	expected := (1.4 + 0.5*4.4) * 4
 	require.InDelta(t, expected, *result, 1e-12)
 }
 

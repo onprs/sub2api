@@ -460,7 +460,7 @@ func TestGatewayServiceValidateGatewayTokenPricingAvailable_AllowsPriceableModel
 	require.NoError(t, err)
 }
 
-func TestGatewayServiceValidateGatewayTokenPricingAvailable_AllowsOpenCodeGoModelsDevPricing(t *testing.T) {
+func TestGatewayServiceValidateGatewayTokenPricingAvailable_RejectsOpenCodeGoModelWithoutQuotaCost(t *testing.T) {
 	pricingSvc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{
 			"kimi-k2.5": {
@@ -481,10 +481,11 @@ func TestGatewayServiceValidateGatewayTokenPricingAvailable_AllowsOpenCodeGoMode
 		BillingModelSource: BillingModelSourceChannelMapped,
 	})
 
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
+	require.Contains(t, err.Error(), "quota cost multiplier unavailable")
 }
 
-func TestGatewayServiceRecordUsage_OpenCodeGoPricingPageMatchesPublishedTokenBilling(t *testing.T) {
+func TestGatewayServiceRecordUsage_OpenCodeGoPricingPageMatchesQuotaWeightedBilling(t *testing.T) {
 	groupID := int64(10)
 	groupMultiplier := 1.25
 	inputPrice := 0.4e-6
@@ -525,6 +526,9 @@ func TestGatewayServiceRecordUsage_OpenCodeGoPricingPageMatchesPublishedTokenBil
 	)
 	require.Equal(t, PricingSourceChannel, displayed.PricingSource)
 	require.NotNil(t, displayed.Pricing)
+	require.NotNil(t, displayed.QuotaCost)
+	require.Equal(t, 30.0, displayed.QuotaCost.IncludedMonthlyUsageUSD)
+	require.Equal(t, 2.0, displayed.QuotaCost.CostMultiplier)
 	require.NotNil(t, displayed.UsageOffer)
 	require.Equal(t, 2.0, displayed.UsageOffer.UsageMultiplier)
 
@@ -563,20 +567,20 @@ func TestGatewayServiceRecordUsage_OpenCodeGoPricingPageMatchesPublishedTokenBil
 	require.NoError(t, err)
 	require.NotNil(t, usageRepo.lastLog)
 
-	expectedTotal := float64(tokens.InputTokens)*inputPrice +
+	expectedTotal := (float64(tokens.InputTokens)*inputPrice +
 		float64(tokens.OutputTokens)*outputPrice +
-		float64(tokens.CacheReadTokens)*cacheReadPrice
+		float64(tokens.CacheReadTokens)*cacheReadPrice) * 2
 	expectedActual := expectedTotal * groupMultiplier
 	require.InDelta(t, expectedTotal, usageRepo.lastLog.TotalCost, 1e-12)
 	require.InDelta(t, expectedActual, usageRepo.lastLog.ActualCost, 1e-12)
 	require.InDelta(t, expectedActual, userRepo.lastAmount, 1e-12)
 	require.NotNil(t, usageRepo.lastLog.AccountStatsCost)
-	offPeakStatsCost := float64(tokens.InputTokens)*0.22e-6 +
+	offPeakStatsCost := (float64(tokens.InputTokens)*0.22e-6 +
 		float64(tokens.OutputTokens)*0.66e-6 +
-		float64(tokens.CacheReadTokens)*0.007e-6
-	peakStatsCost := float64(tokens.InputTokens)*0.44e-6 +
+		float64(tokens.CacheReadTokens)*0.007e-6) * 2
+	peakStatsCost := (float64(tokens.InputTokens)*0.44e-6 +
 		float64(tokens.OutputTokens)*1.32e-6 +
-		float64(tokens.CacheReadTokens)*0.014e-6
+		float64(tokens.CacheReadTokens)*0.014e-6) * 2
 	require.True(t,
 		math.Abs(*usageRepo.lastLog.AccountStatsCost-offPeakStatsCost) <= 1e-12 ||
 			math.Abs(*usageRepo.lastLog.AccountStatsCost-peakStatsCost) <= 1e-12,

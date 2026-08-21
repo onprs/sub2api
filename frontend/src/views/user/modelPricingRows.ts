@@ -45,6 +45,9 @@ export interface ModelPricingRow {
   defaultMultiplier: number
   userMultiplier: number | null
   groupMultiplier: number
+  quotaCostMultiplier: number
+  includedMonthlyUsageUSD: number | null
+  effectiveMultiplier: number
   usageOfferCode: string
   usageMultiplier: number
   pricingSource: string
@@ -194,6 +197,29 @@ function groupMultiplierForGroup(
   }
 }
 
+function quotaCostFields(model: UserSupportedModel): Pick<
+  ModelPricingRow,
+  'quotaCostMultiplier' | 'includedMonthlyUsageUSD'
+> {
+  const quotaCost = model.quota_cost
+  if (
+    !quotaCost ||
+    !Number.isFinite(quotaCost.cost_multiplier) ||
+    quotaCost.cost_multiplier <= 0 ||
+    !Number.isFinite(quotaCost.included_monthly_usage_usd) ||
+    quotaCost.included_monthly_usage_usd < 0
+  ) {
+    return {
+      quotaCostMultiplier: 1,
+      includedMonthlyUsageUSD: null,
+    }
+  }
+  return {
+    quotaCostMultiplier: quotaCost.cost_multiplier,
+    includedMonthlyUsageUSD: quotaCost.included_monthly_usage_usd,
+  }
+}
+
 function usageOfferFields(model: UserSupportedModel): Pick<
   ModelPricingRow,
   'usageOfferCode' | 'usageMultiplier'
@@ -244,6 +270,8 @@ function rowForModelGroup(
   userGroupRates: Record<number, number>,
 ): ModelPricingRow {
   const groupMultiplier = groupMultiplierForGroup(group, userGroupRates)
+  const quotaCost = quotaCostFields(model)
+  const effectiveMultiplier = groupMultiplier.groupMultiplier * quotaCost.quotaCostMultiplier
   const usageOffer = usageOfferFields(model)
   const source = pricingSourceFields(model.pricing)
 
@@ -259,6 +287,8 @@ function rowForModelGroup(
       subscriptionType: group.subscription_type || 'standard',
       isExclusive: group.is_exclusive,
       ...groupMultiplier,
+      ...quotaCost,
+      effectiveMultiplier,
       ...usageOffer,
       ...source,
       billingMode: null,
@@ -279,13 +309,15 @@ function rowForModelGroup(
     subscriptionType: group.subscription_type || 'standard',
     isExclusive: group.is_exclusive,
     ...groupMultiplier,
+    ...quotaCost,
+    effectiveMultiplier,
     ...usageOffer,
     ...source,
     billingMode: model.pricing.billing_mode,
     pricing: pricingValues(model.pricing),
-    actualPricing: actualPricingValues(model.pricing, groupMultiplier.groupMultiplier),
-    intervals: intervalRows(model.pricing, groupMultiplier.groupMultiplier),
-    timeBands: timeBandRows(model.pricing, groupMultiplier.groupMultiplier),
+    actualPricing: actualPricingValues(model.pricing, effectiveMultiplier),
+    intervals: intervalRows(model.pricing, effectiveMultiplier),
+    timeBands: timeBandRows(model.pricing, effectiveMultiplier),
   }
 }
 

@@ -1,9 +1,12 @@
 package service
 
 import (
+	"math"
 	"strings"
 	"time"
 )
+
+const openCodeGoSharedMonthlyQuotaUSD = 60.0
 
 // openCodeGoReferencePrices 是 OpenCode Go 的平台限定标准价目录。
 //
@@ -173,6 +176,66 @@ var openCodeGoReferencePrices = map[string]ModelPricing{
 		CacheCreationPricePerToken: 2.5e-6,
 		CacheReadPricePerToken:     0.25e-6,
 	},
+}
+
+// OpenCodeGoQuotaCost 描述 OpenCode Go 模型的月可用额度及其基础额度成本乘数。
+// 乘数规则由业务方确认：共享月额度除以该模型的官方月可用额度。
+type OpenCodeGoQuotaCost struct {
+	IncludedMonthlyUsageUSD float64
+	Multiplier              float64
+}
+
+// openCodeGoReferenceMonthlyUsageUSD 只收录官方 Go 价格表明确给出 Usage 的型号。
+// 兼容目录中没有 Usage 证据的型号不得默认按 1x 计费。
+var openCodeGoReferenceMonthlyUsageUSD = map[string]float64{
+	"grok-4.5":                     15,
+	"gpt-5.6-luna":                 15,
+	"glm-5.1":                      60,
+	"glm-5.2":                      60,
+	"glm-5.3":                      15,
+	"kimi-k2.6":                    60,
+	"kimi-k2.7-code":               60,
+	"kimi-k3":                      15,
+	"mimo-v2.5":                    60,
+	"mimo-v2.5-pro":                15,
+	"minimax-m2.5":                 60,
+	"minimax-m2.7":                 60,
+	"minimax-m3":                   60,
+	"muse-spark-1.2-contributor":   60,
+	"qwen3.6-plus":                 60,
+	"qwen3.7-max":                  60,
+	"qwen3.7-plus":                 60,
+	"qwen3.8-max":                  15,
+	"deepseek-v4-pro":              15,
+	"deepseek-v4-flash":            30,
+	"deepseek-v4-flash-vision-exp": 15,
+	"hy3":                          60,
+}
+
+func openCodeGoQuotaCostFromMonthlyUsage(monthlyUsageUSD float64) (OpenCodeGoQuotaCost, bool) {
+	if monthlyUsageUSD <= 0 || math.IsNaN(monthlyUsageUSD) || math.IsInf(monthlyUsageUSD, 0) {
+		return OpenCodeGoQuotaCost{}, false
+	}
+	multiplier := openCodeGoSharedMonthlyQuotaUSD / monthlyUsageUSD
+	if multiplier <= 0 || math.IsNaN(multiplier) || math.IsInf(multiplier, 0) {
+		return OpenCodeGoQuotaCost{}, false
+	}
+	return OpenCodeGoQuotaCost{
+		IncludedMonthlyUsageUSD: monthlyUsageUSD,
+		Multiplier:              multiplier,
+	}, true
+}
+
+func openCodeGoReferenceQuotaCost(model string) (OpenCodeGoQuotaCost, bool) {
+	model = billingModelAliasLookupKey(model)
+	if model == "kimi-k2.7" {
+		model = "kimi-k2.7-code"
+	}
+	monthlyUsageUSD, ok := openCodeGoReferenceMonthlyUsageUSD[model]
+	if !ok {
+		return OpenCodeGoQuotaCost{}, false
+	}
+	return openCodeGoQuotaCostFromMonthlyUsage(monthlyUsageUSD)
 }
 
 var openCodeGoReferencePeakPrices = map[string]ModelPricing{

@@ -891,6 +891,34 @@ func (s *BillingService) GetModelPricingForPlatform(platform, model string) (*Mo
 	return s.getModelPricingForPlatformAt(platform, model, time.Now())
 }
 
+// GetOpenCodeGoQuotaCost 返回模型官方月可用额度对应的基础额度成本乘数。
+// 官方动态 Usage 列优先，内置表仅作为同一官方价格表的离线回退。
+func (s *BillingService) GetOpenCodeGoQuotaCost(model string) (OpenCodeGoQuotaCost, bool) {
+	model = strings.ToLower(strings.TrimSpace(model))
+	candidates := billingModelPricingCandidates(model)
+	if s != nil && s.pricingService != nil {
+		for _, candidate := range candidates {
+			pricing := s.pricingService.GetOpenCodeGoModelPricingExact(candidate)
+			if pricing == nil || !isOpenCodeGoPricingPlatform(pricing.LiteLLMProvider) ||
+				pricing.OpenCodeGoPricingAuthority != openCodeGoPricingAuthorityOfficial {
+				continue
+			}
+			if pricing.OpenCodeGoExplicitZeroRate {
+				return OpenCodeGoQuotaCost{Multiplier: 1}, true
+			}
+			if quotaCost, ok := openCodeGoQuotaCostFromMonthlyUsage(pricing.OpenCodeGoMonthlyUsageUSD); ok {
+				return quotaCost, true
+			}
+		}
+	}
+	for _, candidate := range candidates {
+		if quotaCost, ok := openCodeGoReferenceQuotaCost(candidate); ok {
+			return quotaCost, true
+		}
+	}
+	return OpenCodeGoQuotaCost{}, false
+}
+
 func (s *BillingService) getModelPricingForPlatformAt(platform, model string, now time.Time) (*ModelPricing, error) {
 	if platform == PlatformOpenRouter {
 		for _, candidate := range billingModelPricingCandidates(model) {

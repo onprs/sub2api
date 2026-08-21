@@ -75,6 +75,7 @@ func TestToUserSupportedModels_ExposesPricingTimeBands(t *testing.T) {
 			Name:       "deepseek-v4-flash",
 			Platform:   service.PlatformOpenCodeGo,
 			Pricing:    &service.ChannelModelPricing{},
+			QuotaCost:  &service.ModelQuotaCost{IncludedMonthlyUsageUSD: 30, CostMultiplier: 2},
 			UsageOffer: &service.ModelUsageOffer{Code: "opencode_go_usage_offer", UsageMultiplier: 2},
 			PricingTimeBands: []service.ModelPricingTimeBand{
 				{
@@ -99,6 +100,9 @@ func TestToUserSupportedModels_ExposesPricingTimeBands(t *testing.T) {
 	require.Equal(t, []string{"00:00-01:00", "04:00-06:00", "10:00-24:00"}, out[0].Pricing.TimeBands[0].TimeRanges)
 	require.InDelta(t, inputPrice, *out[0].Pricing.TimeBands[0].InputPrice, 1e-15)
 	require.InDelta(t, outputPrice, *out[0].Pricing.TimeBands[0].OutputPrice, 1e-15)
+	require.NotNil(t, out[0].QuotaCost)
+	require.Equal(t, 30.0, out[0].QuotaCost.IncludedMonthlyUsageUSD)
+	require.Equal(t, 2.0, out[0].QuotaCost.CostMultiplier)
 	require.NotNil(t, out[0].UsageOffer)
 	require.Equal(t, "opencode_go_usage_offer", out[0].UsageOffer.Code)
 	require.Equal(t, 2.0, out[0].UsageOffer.UsageMultiplier)
@@ -112,6 +116,10 @@ func TestToUserSupportedModels_ExposesPricingTimeBands(t *testing.T) {
 	timeBands, ok := pricing["time_bands"].([]any)
 	require.True(t, ok)
 	require.Len(t, timeBands, 1)
+	quotaCost, ok := decoded["quota_cost"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, float64(30), quotaCost["included_monthly_usage_usd"])
+	require.Equal(t, float64(2), quotaCost["cost_multiplier"])
 	usageOffer, ok := decoded["usage_offer"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "opencode_go_usage_offer", usageOffer["code"])
@@ -375,16 +383,17 @@ func TestBuildModelPricingChannels_OpenCodeGoFallbackIncludesOfficialCatalogMode
 	require.NotNil(t, glm.Pricing)
 	require.Equal(t, service.PricingSourceCatalog, glm.Pricing.PricingSource)
 	require.NotNil(t, glm.Pricing.InputPrice)
+	require.NotNil(t, glm.QuotaCost)
+	require.Equal(t, 60.0, glm.QuotaCost.IncludedMonthlyUsageUSD)
+	require.Equal(t, 1.0, glm.QuotaCost.CostMultiplier)
 	require.InDelta(t, 0.0000014, *glm.Pricing.InputPrice, 1e-12)
 
 	kimi25 := models["kimi-k2.5"]
 	require.Equal(t, "kimi-k2.5", kimi25.Name)
 	require.NotNil(t, kimi25.Pricing)
-	require.Equal(t, service.PricingSourceCatalog, kimi25.Pricing.PricingSource)
-	require.NotNil(t, kimi25.Pricing.InputPrice)
-	require.InDelta(t, 0.0000006, *kimi25.Pricing.InputPrice, 1e-12)
-	require.NotNil(t, kimi25.Pricing.OutputPrice)
-	require.InDelta(t, 0.000003, *kimi25.Pricing.OutputPrice, 1e-12)
+	require.Equal(t, service.PricingSourceMissing, kimi25.Pricing.PricingSource)
+	require.Nil(t, kimi25.Pricing.InputPrice)
+	require.Nil(t, kimi25.QuotaCost)
 }
 
 func TestBuildModelPricingChannels_ClinePassIncludesEveryReferencePrice(t *testing.T) {

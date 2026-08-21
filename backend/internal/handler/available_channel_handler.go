@@ -120,6 +120,12 @@ type userPricingIntervalDTO struct {
 	PerRequestPrice *float64 `json:"per_request_price"`
 }
 
+// userSupportedModelQuotaCost 用户可见的 OpenCode Go 基础额度成本规则。
+type userSupportedModelQuotaCost struct {
+	IncludedMonthlyUsageUSD float64 `json:"included_monthly_usage_usd"`
+	CostMultiplier          float64 `json:"cost_multiplier"`
+}
+
 // userSupportedModelUsageOffer 用户可见的官方 Usage 活动快照。
 type userSupportedModelUsageOffer struct {
 	Code            string  `json:"code"`
@@ -131,6 +137,7 @@ type userSupportedModel struct {
 	Name       string                        `json:"name"`
 	Platform   string                        `json:"platform"`
 	Pricing    *userSupportedModelPricing    `json:"pricing"`
+	QuotaCost  *userSupportedModelQuotaCost  `json:"quota_cost,omitempty"`
 	UsageOffer *userSupportedModelUsageOffer `json:"usage_offer,omitempty"`
 }
 
@@ -493,10 +500,23 @@ func toUserSupportedModels(
 			Name:       m.Name,
 			Platform:   m.Platform,
 			Pricing:    pricing,
+			QuotaCost:  toUserSupportedModelQuotaCost(m.QuotaCost),
 			UsageOffer: toUserSupportedModelUsageOffer(m.UsageOffer),
 		})
 	}
 	return out
+}
+
+func toUserSupportedModelQuotaCost(quotaCost *service.ModelQuotaCost) *userSupportedModelQuotaCost {
+	if quotaCost == nil || quotaCost.IncludedMonthlyUsageUSD < 0 || quotaCost.CostMultiplier <= 0 ||
+		math.IsNaN(quotaCost.IncludedMonthlyUsageUSD) || math.IsInf(quotaCost.IncludedMonthlyUsageUSD, 0) ||
+		math.IsNaN(quotaCost.CostMultiplier) || math.IsInf(quotaCost.CostMultiplier, 0) {
+		return nil
+	}
+	return &userSupportedModelQuotaCost{
+		IncludedMonthlyUsageUSD: quotaCost.IncludedMonthlyUsageUSD,
+		CostMultiplier:          quotaCost.CostMultiplier,
+	}
 }
 
 func toUserSupportedModelUsageOffer(offer *service.ModelUsageOffer) *userSupportedModelUsageOffer {

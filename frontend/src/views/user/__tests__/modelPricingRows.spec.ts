@@ -158,10 +158,14 @@ describe('buildModelPricingRows', () => {
     expect(enterprise?.actualPricing.outputPrice).toBe(0.000001)
   })
 
-  it('preserves OpenCode Go time bands and applies only the effective group multiplier', () => {
+  it('preserves OpenCode Go time bands and combines quota cost with the effective group multiplier', () => {
     const channels = makeChannels()
     const pricing = channels[0].platforms[0].supported_models[0].pricing
     if (!pricing) throw new Error('test pricing is required')
+    channels[0].platforms[0].supported_models[0].quota_cost = {
+      included_monthly_usage_usd: 30,
+      cost_multiplier: 2,
+    }
     channels[0].platforms[0].supported_models[0].usage_offer = {
       code: 'opencode_go_usage_offer',
       usage_multiplier: 2,
@@ -190,6 +194,9 @@ describe('buildModelPricingRows', () => {
     const rows = buildModelPricingRows(channels, { 20: 0.5 })
     const enterprise = rows.find((row) => row.groupId === 20 && row.modelName === 'gpt-4o-mini')
 
+    expect(enterprise?.quotaCostMultiplier).toBe(2)
+    expect(enterprise?.includedMonthlyUsageUSD).toBe(30)
+    expect(enterprise?.effectiveMultiplier).toBe(1)
     expect(enterprise?.usageOfferCode).toBe('opencode_go_usage_offer')
     expect(enterprise?.usageMultiplier).toBe(2)
     expect(enterprise?.timeBands).toEqual([
@@ -206,10 +213,10 @@ describe('buildModelPricingRows', () => {
           perRequestPrice: null,
         },
         actualPricing: {
-          inputPrice: 0.11e-6,
-          outputPrice: 0.33e-6,
+          inputPrice: 0.22e-6,
+          outputPrice: 0.66e-6,
           cacheWritePrice: null,
-          cacheReadPrice: 0.0035e-6,
+          cacheReadPrice: 0.007e-6,
           imageOutputPrice: null,
           perRequestPrice: null,
         },
@@ -227,10 +234,10 @@ describe('buildModelPricingRows', () => {
           perRequestPrice: null,
         },
         actualPricing: {
-          inputPrice: 0.22e-6,
-          outputPrice: 0.66e-6,
+          inputPrice: 0.44e-6,
+          outputPrice: 1.32e-6,
           cacheWritePrice: null,
-          cacheReadPrice: 0.007e-6,
+          cacheReadPrice: 0.014e-6,
           imageOutputPrice: null,
           perRequestPrice: null,
         },
