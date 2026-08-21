@@ -13,10 +13,6 @@ export default {
     empty: 'No model pricing data',
     copyModelId: 'Copy Model ID',
     modelCopied: 'Model ID copied',
-    modes: {
-      raw: 'Standard Price',
-      actual: 'Actual Price'
-    },
     columns: {
       channel: 'Channel',
       platform: 'Platform',
@@ -25,8 +21,7 @@ export default {
       group: 'Group',
       multiplier: 'Multiplier',
       groupMultiplier: 'Group Multiplier',
-      monthlyUsage: 'Monthly Usage',
-      quotaCostMultiplier: 'Quota Cost Multiplier',
+      modelSpecificMultiplier: 'Model-Specific Multiplier',
       effectiveMultiplier: 'Effective Multiplier',
       usageOffer: 'Official Quota Offer',
       source: 'Source',

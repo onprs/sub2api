@@ -119,10 +119,7 @@
             </button>
           </div>
 
-          <div
-            v-if="hasSelectedGroup"
-            class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
-          >
+          <div v-if="hasSelectedGroup" class="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div class="relative w-full sm:w-80">
               <Icon
                 name="search"
@@ -137,34 +134,13 @@
                 data-test="pricing-search"
               />
             </div>
-
-            <div
-              class="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-gray-200 bg-gray-200 dark:border-dark-600 dark:bg-dark-600"
-            >
-              <button
-                v-for="option in pricingModeOptions"
-                :key="option.value"
-                type="button"
-                class="min-h-10 min-w-0 bg-white px-3 py-2 text-sm font-medium transition-colors focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 dark:bg-dark-800"
-                :class="
-                  pricingMode === option.value
-                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/25 dark:text-primary-300'
-                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-dark-700 dark:hover:text-white'
-                "
-                :aria-pressed="pricingMode === option.value"
-                :data-pricing-mode="option.value"
-                @click="pricingMode = option.value"
-              >
-                {{ option.label }}
-              </button>
-            </div>
           </div>
         </div>
       </template>
 
       <template #table>
         <div class="table-wrapper model-pricing-table-wrapper">
-          <table class="min-w-[2020px] border-collapse text-xs">
+          <table class="min-w-[1900px] border-collapse text-xs">
             <thead
               class="model-pricing-sticky-header sticky top-0 z-20 bg-gray-50/95 text-left font-medium uppercase text-gray-500 shadow-sm backdrop-blur dark:bg-dark-800/95 dark:text-gray-400"
             >
@@ -175,8 +151,7 @@
                 <th class="w-80 px-4 py-3">{{ t('modelPricing.columns.contextTier') }}</th>
                 <th class="w-64 px-4 py-3">{{ t('modelPricing.columns.group') }}</th>
                 <th class="w-28 px-4 py-3">{{ t('modelPricing.columns.groupMultiplier') }}</th>
-                <th class="w-28 px-4 py-3">{{ t('modelPricing.columns.monthlyUsage') }}</th>
-                <th class="w-32 px-4 py-3">{{ t('modelPricing.columns.quotaCostMultiplier') }}</th>
+                <th class="w-32 px-4 py-3">{{ t('modelPricing.columns.modelSpecificMultiplier') }}</th>
                 <th class="w-32 px-4 py-3">{{ t('modelPricing.columns.effectiveMultiplier') }}</th>
                 <th class="w-36 px-4 py-3">{{ t('modelPricing.columns.usageOffer') }}</th>
                 <th class="w-40 px-4 py-3">{{ t('modelPricing.columns.source') }}</th>
@@ -191,7 +166,7 @@
 
             <tbody v-if="loading">
               <tr>
-                <td colspan="17" class="py-10 text-center">
+                <td colspan="16" class="py-10 text-center">
                   <Icon name="refresh" size="lg" class="inline-block animate-spin text-gray-400" />
                 </td>
               </tr>
@@ -199,7 +174,7 @@
 
             <tbody v-else-if="filteredRows.length === 0">
               <tr>
-                <td colspan="17" class="py-12 text-center">
+                <td colspan="16" class="py-12 text-center">
                   <Icon name="inbox" size="xl" class="mx-auto mb-3 h-12 w-12 text-gray-400" />
                   <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('modelPricing.empty') }}</p>
                 </td>
@@ -291,18 +266,11 @@
                 </td>
 
                 <td class="px-4 py-3 align-top">
-                  <span v-if="row.includedMonthlyUsageUSD !== null" class="font-mono text-[12px] text-gray-700 dark:text-gray-300">
-                    {{ row.includedMonthlyUsageUSD > 0 ? formatScaled(row.includedMonthlyUsageUSD, 1) : '-' }}
-                  </span>
-                  <span v-else class="text-gray-400 dark:text-gray-500">-</span>
-                </td>
-
-                <td class="px-4 py-3 align-top">
                   <span
-                    v-if="row.includedMonthlyUsageUSD !== null"
+                    v-if="row.modelSpecificMultiplier !== null"
                     class="font-mono text-[12px] font-semibold text-gray-900 dark:text-white"
                   >
-                    {{ formatMultiplier(row.quotaCostMultiplier) }}
+                    {{ formatMultiplier(row.modelSpecificMultiplier) }}
                   </span>
                   <span v-else class="text-gray-400 dark:text-gray-500">-</span>
                 </td>
@@ -418,7 +386,6 @@ import {
   type ModelPricingValues,
 } from './modelPricingRows'
 
-type PricingMode = 'raw' | 'actual'
 type TokenPriceKey = 'inputPrice' | 'outputPrice' | 'cacheWritePrice' | 'cacheReadPrice'
 
 interface ModelPricingLine {
@@ -465,7 +432,6 @@ const loading = ref(false)
 const selectedPlatform = ref<string | null>(null)
 const selectedGroupId = ref<number | null>(null)
 const searchQuery = ref('')
-const pricingMode = ref<PricingMode>('actual')
 const perMillionScale = 1_000_000
 
 const { copyToClipboard } = useClipboard()
@@ -482,11 +448,6 @@ async function handleCopyModel(modelName: string) {
     }, 1500)
   }
 }
-
-const pricingModeOptions = computed<Array<{ value: PricingMode; label: string }>>(() => [
-  { value: 'raw', label: t('modelPricing.modes.raw') },
-  { value: 'actual', label: t('modelPricing.modes.actual') },
-])
 
 const rows = computed(() => buildModelPricingRows(channels.value, userGroupRates.value))
 
@@ -583,18 +544,6 @@ function reconcileSelection() {
   }
 }
 
-function selectedPricing(row: ModelPricingRow): ModelPricingValues {
-  return pricingMode.value === 'actual' ? row.actualPricing : row.pricing
-}
-
-function selectedIntervalPricing(interval: ModelPricingIntervalRow): ModelPricingValues {
-  return pricingMode.value === 'actual' ? interval.actualPricing : interval.pricing
-}
-
-function selectedTimeBandPricing(timeBand: ModelPricingTimeBandRow): ModelPricingValues {
-  return pricingMode.value === 'actual' ? timeBand.actualPricing : timeBand.pricing
-}
-
 function formatContextTokenCount(tokens: number): string {
   if (tokens >= 1_000_000 && tokens % 1_000_000 === 0) {
     return `${tokens / 1_000_000}M`
@@ -639,7 +588,7 @@ function pricingLines(row: ModelPricingRow): ModelPricingLine[] {
     return row.timeBands.map((timeBand, index) => ({
       key: `${timeBand.code}:${index}`,
       label: timeBandLabel(timeBand),
-      pricing: selectedTimeBandPricing(timeBand),
+      pricing: timeBand.pricing,
     }))
   }
   if (row.intervals.length === 0) {
@@ -647,14 +596,14 @@ function pricingLines(row: ModelPricingRow): ModelPricingLine[] {
       {
         key: 'all',
         label: t('modelPricing.contextTiers.all'),
-        pricing: selectedPricing(row),
+        pricing: row.pricing,
       },
     ]
   }
   return row.intervals.map((interval, index) => ({
     key: `${interval.minTokens}:${interval.maxTokens ?? 'max'}:${index}`,
     label: contextTierLabel(interval),
-    pricing: selectedIntervalPricing(interval),
+    pricing: interval.pricing,
   }))
 }
 

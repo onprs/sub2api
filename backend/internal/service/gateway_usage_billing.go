@@ -156,7 +156,7 @@ func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *bill
 	}
 
 	if p.shouldUpdateAccountQuota() {
-		accountCost := cost.TotalCost * p.AccountRateMultiplier
+		accountCost := costBeforeGroupMultiplier(cost) * p.AccountRateMultiplier
 		if err := deps.accountRepo.IncrementQuotaUsed(billingCtx, p.Account.ID, accountCost); err != nil {
 			slog.Error("increment account quota used failed", "account_id", p.Account.ID, "cost", accountCost, "error", err)
 		}
@@ -249,7 +249,7 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 			if !ok {
 				err = openCodeGoQuotaCostUnavailableError(candidate)
 			} else {
-				applyCostBreakdownMultiplier(cost, quotaCost.Multiplier)
+				applyModelSpecificMultiplierToCost(cost, quotaCost.Multiplier)
 			}
 		}
 		if err == nil {
@@ -266,16 +266,30 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 	return nil, "", lastErr
 }
 
-func applyCostBreakdownMultiplier(cost *CostBreakdown, multiplier float64) {
-	if cost == nil || multiplier == 1 {
+func modelSpecificMultiplierForCost(cost *CostBreakdown) float64 {
+	if cost == nil || cost.ModelSpecificMultiplier <= 0 {
+		return 1
+	}
+	return cost.ModelSpecificMultiplier
+}
+
+// costBeforeGroupMultiplier 返回应用模型特有倍率、但尚未应用分组倍率的成本。
+// usage_logs.total_cost 保持原价；账号配额和账号统计仍需使用该模型的真实额度成本。
+func costBeforeGroupMultiplier(cost *CostBreakdown) float64 {
+	if cost == nil {
+		return 0
+	}
+	return cost.TotalCost * modelSpecificMultiplierForCost(cost)
+}
+
+// applyModelSpecificMultiplierToCost 只调整真实扣费，不改写价格与倍率前成本。
+// 这样 usage history 满足 actual_cost = total_cost * rate_multiplier，且其中
+// rate_multiplier 可以直接展示完整的实际计费倍率。
+func applyModelSpecificMultiplierToCost(cost *CostBreakdown, multiplier float64) {
+	if cost == nil || multiplier <= 0 {
 		return
 	}
-	cost.InputCost *= multiplier
-	cost.OutputCost *= multiplier
-	cost.ImageOutputCost *= multiplier
-	cost.CacheCreationCost *= multiplier
-	cost.CacheReadCost *= multiplier
-	cost.TotalCost *= multiplier
+	cost.ModelSpecificMultiplier = multiplier
 	cost.ActualCost *= multiplier
 }
 
@@ -327,10 +341,8 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		}
 	}
 
-	// Record subscription / balance cost using ActualCost so the group (and any
-	// user-specific) rate multiplier consumes subscription quota at the expected
-	// speed. TotalCost remains the raw (pre-multiplier) value; downstream guards
-	// on "> 0" still correctly skip free subscriptions (RateMultiplier == 0).
+	// Subscription / balance 使用 ActualCost；它已经包含分组、用户专属、分组高峰和模型特有倍率。
+	// TotalCost 与各分项成本始终保持价格表原价，便于 usage history 直接核对。
 	if p.IsSubscriptionBill && p.Cost.TotalCost > 0 {
 		cmd.SubscriptionID = nil
 		if p.APIKey != nil && p.APIKey.GroupID != nil {
@@ -348,7 +360,7 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		cmd.APIKeyRateLimitCost = p.Cost.ActualCost
 	}
 	if p.shouldUpdateAccountQuota() {
-		cmd.AccountQuotaCost = p.Cost.TotalCost * p.AccountRateMultiplier
+		cmd.AccountQuotaCost = costBeforeGroupMultiplier(p.Cost) * p.AccountRateMultiplier
 	}
 
 	cmd.Normalize()
@@ -525,7 +537,7 @@ func notifyAccountQuota(p *postUsageBillingParams, deps *billingDeps, result *Us
 		)
 		return
 	}
-	accountCost := p.Cost.TotalCost * p.AccountRateMultiplier
+	accountCost := costBeforeGroupMultiplier(p.Cost) * p.AccountRateMultiplier
 	var quotaState *AccountQuotaState
 	if result != nil {
 		quotaState = result.QuotaState
@@ -784,7 +796,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		requestedModel = input.OriginalModel
 	}
 
-	// 计算费用
+	// 计算费用。OpenCode Go 的模型特有倍率只进入 ActualCost；价格与 TotalCost 保持原价。
 	cost, _, costErr := s.calculateRecordUsageCostFromCandidates(ctx, result, apiKey, billingModels, multiplier, imageMultiplier, opts)
 	if costErr != nil {
 		if account != nil && (account.IsOpenCodeGo() || account.IsClinePass()) && isUsagePricingUnavailableError(costErr) {
@@ -805,7 +817,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
 		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost, opts)
 
-	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
+	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）。
+	// OpenCode Go 的账号额度成本包含模型特有倍率，但 usage_logs.total_cost 仍保持原价。
+	accountStatsBaseCost := costBeforeGroupMultiplier(cost)
 	if apiKey.GroupID != nil {
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
 			account.ID, *apiKey.GroupID, result.UpstreamModel, result.Model,
@@ -818,8 +832,13 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 				CacheReadTokens:     result.Usage.CacheReadInputTokens,
 				ImageOutputTokens:   result.Usage.ImageOutputTokens,
 			},
-			cost.TotalCost,
+			accountStatsBaseCost,
 		)
+	}
+	// 没有关联渠道时 resolver 会返回 nil；显式写入模型倍率后的成本，避免账号 A $ 回退到原价。
+	if account.IsOpenCodeGo() && usageLog.AccountStatsCost == nil && accountStatsBaseCost > 0 {
+		accountStatsCost := accountStatsBaseCost
+		usageLog.AccountStatsCost = &accountStatsCost
 	}
 
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
@@ -1013,6 +1032,7 @@ func (s *GatewayService) buildRecordUsageLog(
 ) *UsageLog {
 	durationMs := int(result.Duration.Milliseconds())
 	requestID := resolveUsageBillingRequestID(ctx, result.RequestID)
+	modelSpecificMultiplier := modelSpecificMultiplierForCost(cost)
 	usageLog := &UsageLog{
 		UserID:                user.ID,
 		APIKeyID:              apiKey.ID,
@@ -1031,7 +1051,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		CacheCreation5mTokens: result.Usage.CacheCreation5mTokens,
 		CacheCreation1hTokens: result.Usage.CacheCreation1hTokens,
 		ImageOutputTokens:     result.Usage.ImageOutputTokens,
-		RateMultiplier:        multiplier,
+		RateMultiplier:        multiplier * modelSpecificMultiplier,
 		AccountRateMultiplier: &accountRateMultiplier,
 		BillingType:           billingType,
 		BillingMode:           resolveBillingMode(result, cost),
@@ -1054,7 +1074,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		CreatedAt:             time.Now(),
 	}
 	if result.ImageCount > 0 && (cost == nil || cost.BillingMode != string(BillingModeToken)) {
-		usageLog.RateMultiplier = imageMultiplier
+		usageLog.RateMultiplier = imageMultiplier * modelSpecificMultiplier
 	}
 	if cost != nil {
 		usageLog.InputCost = cost.InputCost

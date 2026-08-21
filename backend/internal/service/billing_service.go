@@ -243,15 +243,16 @@ type UsageTokens struct {
 
 // CostBreakdown 费用明细
 type CostBreakdown struct {
-	InputCost         float64
-	OutputCost        float64
-	ImageOutputCost   float64
-	CacheCreationCost float64
-	CacheReadCost     float64
-	TotalCost         float64
-	ActualCost        float64 // 应用倍率后的实际费用
-	BillingMode       string  // 计费模式（"token"/"per_request"/"image"），由 CalculateCostUnified 填充
-	AllowZeroRate     bool    // 内部标记：价格源明确允许零费率，避免被静默零成本保护误判
+	InputCost               float64
+	OutputCost              float64
+	ImageOutputCost         float64
+	CacheCreationCost       float64
+	CacheReadCost           float64
+	TotalCost               float64
+	ActualCost              float64 // 应用实际计费倍率后的费用
+	BillingMode             string  // 计费模式（"token"/"per_request"/"image"），由 CalculateCostUnified 填充
+	AllowZeroRate           bool    // 内部标记：价格源明确允许零费率，避免被静默零成本保护误判
+	ModelSpecificMultiplier float64 // 内部快照；0 表示未单独配置，按 1 处理
 }
 
 // ErrModelPricingUnavailable indicates that none of the configured pricing

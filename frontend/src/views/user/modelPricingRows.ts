@@ -22,7 +22,6 @@ export interface ModelPricingIntervalRow {
   maxTokens: number | null
   tierLabel: string
   pricing: ModelPricingValues
-  actualPricing: ModelPricingValues
 }
 
 export interface ModelPricingTimeBandRow {
@@ -30,7 +29,6 @@ export interface ModelPricingTimeBandRow {
   timeZone: string
   timeRanges: string[]
   pricing: ModelPricingValues
-  actualPricing: ModelPricingValues
 }
 
 export interface ModelPricingRow {
@@ -45,8 +43,7 @@ export interface ModelPricingRow {
   defaultMultiplier: number
   userMultiplier: number | null
   groupMultiplier: number
-  quotaCostMultiplier: number
-  includedMonthlyUsageUSD: number | null
+  modelSpecificMultiplier: number | null
   effectiveMultiplier: number
   usageOfferCode: string
   usageMultiplier: number
@@ -55,7 +52,6 @@ export interface ModelPricingRow {
   pricingSourceDetail: string
   billingMode: BillingMode | null
   pricing: ModelPricingValues
-  actualPricing: ModelPricingValues
   intervals: ModelPricingIntervalRow[]
   timeBands: ModelPricingTimeBandRow[]
 }
@@ -78,11 +74,6 @@ function normalizePrice(value: number | null | undefined): number | null {
   return value == null ? null : value
 }
 
-function multiplyPrice(value: number | null | undefined, multiplier: number): number | null {
-  const normalized = normalizePrice(value)
-  return normalized == null ? null : normalized * multiplier
-}
-
 function pricingValues(pricing: UserSupportedModelPricing): ModelPricingValues {
   return {
     inputPrice: normalizePrice(pricing.input_price),
@@ -91,17 +82,6 @@ function pricingValues(pricing: UserSupportedModelPricing): ModelPricingValues {
     cacheReadPrice: normalizePrice(pricing.cache_read_price),
     imageOutputPrice: normalizePrice(pricing.image_output_price),
     perRequestPrice: normalizePrice(pricing.per_request_price),
-  }
-}
-
-function actualPricingValues(pricing: UserSupportedModelPricing, multiplier: number): ModelPricingValues {
-  return {
-    inputPrice: multiplyPrice(pricing.input_price, multiplier),
-    outputPrice: multiplyPrice(pricing.output_price, multiplier),
-    cacheWritePrice: multiplyPrice(pricing.cache_write_price, multiplier),
-    cacheReadPrice: multiplyPrice(pricing.cache_read_price, multiplier),
-    imageOutputPrice: multiplyPrice(pricing.image_output_price, multiplier),
-    perRequestPrice: multiplyPrice(pricing.per_request_price, multiplier),
   }
 }
 
@@ -116,24 +96,12 @@ function intervalValues(interval: UserPricingInterval): ModelPricingValues {
   }
 }
 
-function actualIntervalValues(interval: UserPricingInterval, multiplier: number): ModelPricingValues {
-  return {
-    inputPrice: multiplyPrice(interval.input_price, multiplier),
-    outputPrice: multiplyPrice(interval.output_price, multiplier),
-    cacheWritePrice: multiplyPrice(interval.cache_write_price, multiplier),
-    cacheReadPrice: multiplyPrice(interval.cache_read_price, multiplier),
-    imageOutputPrice: null,
-    perRequestPrice: multiplyPrice(interval.per_request_price, multiplier),
-  }
-}
-
-function intervalRows(pricing: UserSupportedModelPricing, multiplier: number): ModelPricingIntervalRow[] {
+function intervalRows(pricing: UserSupportedModelPricing): ModelPricingIntervalRow[] {
   return (pricing.intervals || []).map((interval) => ({
     minTokens: interval.min_tokens,
     maxTokens: interval.max_tokens,
     tierLabel: interval.tier_label || '',
     pricing: intervalValues(interval),
-    actualPricing: actualIntervalValues(interval, multiplier),
   }))
 }
 
@@ -148,20 +116,12 @@ function timeBandValues(timeBand: UserPricingTimeBand): ModelPricingValues {
   }
 }
 
-function timeBandRows(pricing: UserSupportedModelPricing, multiplier: number): ModelPricingTimeBandRow[] {
+function timeBandRows(pricing: UserSupportedModelPricing): ModelPricingTimeBandRow[] {
   return (pricing.time_bands || []).map((timeBand) => ({
     code: timeBand.code,
     timeZone: timeBand.time_zone,
     timeRanges: [...timeBand.time_ranges],
     pricing: timeBandValues(timeBand),
-    actualPricing: {
-      inputPrice: multiplyPrice(timeBand.input_price, multiplier),
-      outputPrice: multiplyPrice(timeBand.output_price, multiplier),
-      cacheWritePrice: multiplyPrice(timeBand.cache_write_price, multiplier),
-      cacheReadPrice: multiplyPrice(timeBand.cache_read_price, multiplier),
-      imageOutputPrice: null,
-      perRequestPrice: null,
-    },
   }))
 }
 
@@ -197,27 +157,12 @@ function groupMultiplierForGroup(
   }
 }
 
-function quotaCostFields(model: UserSupportedModel): Pick<
-  ModelPricingRow,
-  'quotaCostMultiplier' | 'includedMonthlyUsageUSD'
-> {
-  const quotaCost = model.quota_cost
-  if (
-    !quotaCost ||
-    !Number.isFinite(quotaCost.cost_multiplier) ||
-    quotaCost.cost_multiplier <= 0 ||
-    !Number.isFinite(quotaCost.included_monthly_usage_usd) ||
-    quotaCost.included_monthly_usage_usd < 0
-  ) {
-    return {
-      quotaCostMultiplier: 1,
-      includedMonthlyUsageUSD: null,
-    }
+function modelSpecificMultiplierForModel(model: UserSupportedModel): number | null {
+  const multiplier = model.model_specific_multiplier
+  if (multiplier == null || !Number.isFinite(multiplier) || multiplier <= 0) {
+    return null
   }
-  return {
-    quotaCostMultiplier: quotaCost.cost_multiplier,
-    includedMonthlyUsageUSD: quotaCost.included_monthly_usage_usd,
-  }
+  return multiplier
 }
 
 function usageOfferFields(model: UserSupportedModel): Pick<
@@ -270,8 +215,8 @@ function rowForModelGroup(
   userGroupRates: Record<number, number>,
 ): ModelPricingRow {
   const groupMultiplier = groupMultiplierForGroup(group, userGroupRates)
-  const quotaCost = quotaCostFields(model)
-  const effectiveMultiplier = groupMultiplier.groupMultiplier * quotaCost.quotaCostMultiplier
+  const modelSpecificMultiplier = modelSpecificMultiplierForModel(model)
+  const effectiveMultiplier = groupMultiplier.groupMultiplier * (modelSpecificMultiplier ?? 1)
   const usageOffer = usageOfferFields(model)
   const source = pricingSourceFields(model.pricing)
 
@@ -287,13 +232,12 @@ function rowForModelGroup(
       subscriptionType: group.subscription_type || 'standard',
       isExclusive: group.is_exclusive,
       ...groupMultiplier,
-      ...quotaCost,
+      modelSpecificMultiplier,
       effectiveMultiplier,
       ...usageOffer,
       ...source,
       billingMode: null,
       pricing: empty,
-      actualPricing: emptyPricingValues(),
       intervals: [],
       timeBands: [],
     }
@@ -309,15 +253,14 @@ function rowForModelGroup(
     subscriptionType: group.subscription_type || 'standard',
     isExclusive: group.is_exclusive,
     ...groupMultiplier,
-    ...quotaCost,
+    modelSpecificMultiplier,
     effectiveMultiplier,
     ...usageOffer,
     ...source,
     billingMode: model.pricing.billing_mode,
     pricing: pricingValues(model.pricing),
-    actualPricing: actualPricingValues(model.pricing, effectiveMultiplier),
-    intervals: intervalRows(model.pricing, effectiveMultiplier),
-    timeBands: timeBandRows(model.pricing, effectiveMultiplier),
+    intervals: intervalRows(model.pricing),
+    timeBands: timeBandRows(model.pricing),
   }
 }
 

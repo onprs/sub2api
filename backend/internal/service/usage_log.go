@@ -148,9 +148,12 @@ type UsageLog struct {
 	OutputCost        float64
 	CacheCreationCost float64
 	CacheReadCost     float64
-	TotalCost         float64
-	ActualCost        float64
-	RateMultiplier    float64
+	// TotalCost 是所选计费档位（包括波峰/波谷、上下文档位）的原价成本，不包含实际计费倍率。
+	TotalCost float64
+	// RateMultiplier 是完整实际计费倍率，包含分组/用户专属/分组高峰及适用的模型特有倍率。
+	RateMultiplier float64
+	// ActualCost 是真实扣费，满足 actual_cost = total_cost * rate_multiplier。
+	ActualCost float64
 	// AccountRateMultiplier 账号计费倍率快照（nil 表示历史数据，按 1.0 处理）
 	AccountRateMultiplier *float64
 	// AccountStatsCost 账号统计定价预计算费用（nil = 使用默认公式 total_cost × account_rate_multiplier）
