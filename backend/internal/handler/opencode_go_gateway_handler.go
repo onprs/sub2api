@@ -360,7 +360,7 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
-				if c.Writer.Size() != writerSizeBeforeForward {
+				if !openCodeGoForwardMayFailover(c, writerSizeBeforeForward, failoverErr) {
 					h.handleFailoverExhausted(c, failoverErr, errorFormat, true)
 					return
 				}
@@ -618,6 +618,16 @@ func (h *OpenCodeGoGatewayHandler) mapUpstreamError(statusCode int) (int, string
 	default:
 		return http.StatusBadGateway, "upstream_error", "Upstream request failed"
 	}
+}
+
+func openCodeGoForwardMayFailover(c *gin.Context, writerSizeBeforeForward int, failoverErr *service.UpstreamFailoverError) bool {
+	if c == nil || c.Writer == nil {
+		return false
+	}
+	if c.Writer.Size() == writerSizeBeforeForward {
+		return true
+	}
+	return failoverErr != nil && failoverErr.SafeToFailoverAfterWrite
 }
 
 func standardGatewayForwardErrorAlreadyCommunicated(c *gin.Context, writerSizeBeforeForward int) bool {
