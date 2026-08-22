@@ -1094,6 +1094,7 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 			if err := terminalStage.CommitTo(c.Writer); err != nil {
 				return fmt.Errorf("commit OpenCode Go terminal stage: %w", err)
 			}
+			terminalStage = nil
 		}
 		if !clientOutputStarted && len(pendingPreamble) > 0 {
 			for _, framed := range pendingPreamble {
