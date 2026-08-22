@@ -8,6 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -83,7 +85,7 @@ func classifyNoAccountError(
 		return noAccountErrorClassification{
 			Status:        http.StatusNotFound,
 			ErrType:       "model_not_found",
-			Message:       fmt.Sprintf("Model %q is not supported by any configured account in this group", displayModel),
+			Message:       modelNotFoundMessage(displayModel),
 			ModelNotFound: true,
 		}
 	}
@@ -106,4 +108,52 @@ func classifyNoAccountErrorFromGin(
 		ctx = c.Request.Context()
 	}
 	return classifyNoAccountError(ctx, diag, apiKey, routingModel, displayModel, platform)
+}
+
+// classifyFailoverExhaustedModelErrorFromGin 在上游尝试耗尽后重新检查模型。
+// 这条路径不能只依赖最后一个中转的 5xx，因为部分 OpenAI 兼容中转会把
+// model_not_found 泛化成 503。只有诊断能够确定模型不受支持时才改写错误。
+func classifyFailoverExhaustedModelErrorFromGin(
+	c *gin.Context,
+	diag service.ModelAvailabilityDiagnoser,
+	platform string,
+) (noAccountErrorClassification, bool) {
+	if c == nil {
+		return noAccountErrorClassification{}, false
+	}
+	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil {
+		return noAccountErrorClassification{}, false
+	}
+	value, ok := c.Get(opsModelKey)
+	if !ok {
+		return noAccountErrorClassification{}, false
+	}
+	model, ok := value.(string)
+	if !ok || strings.TrimSpace(model) == "" {
+		return noAccountErrorClassification{}, false
+	}
+	cls := classifyNoAccountErrorFromGin(c, diag, apiKey, model, model, platform)
+	return cls, cls.ModelNotFound
+}
+
+func modelNotFoundMessage(displayModel string) string {
+	if suggested := suggestedOpenAIModelID(displayModel); suggested != "" {
+		return fmt.Sprintf("Model %q is not supported; use model ID %q or choose an exact ID returned by GET /v1/models", displayModel, suggested)
+	}
+	return fmt.Sprintf("Model %q is not supported; choose an exact model ID returned by GET /v1/models", displayModel)
+}
+
+func suggestedOpenAIModelID(displayModel string) string {
+	displayModel = strings.TrimSpace(displayModel)
+	if displayModel == "" {
+		return ""
+	}
+	normalized := strings.Join(strings.Fields(strings.ToLower(displayModel)), "-")
+	for _, model := range openai.DefaultModels {
+		if strings.EqualFold(displayModel, model.DisplayName) || normalized == strings.ToLower(model.ID) {
+			return model.ID
+		}
+	}
+	return ""
 }

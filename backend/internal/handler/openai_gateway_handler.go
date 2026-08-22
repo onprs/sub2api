@@ -1185,6 +1185,10 @@ func (h *OpenAIGatewayHandler) anthropicStreamingAwareError(c *gin.Context, stat
 
 // handleAnthropicFailoverExhausted maps upstream failover errors to Anthropic format.
 func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
+	if cls, ok := classifyFailoverExhaustedModelErrorFromGin(c, h.gatewayService, service.PlatformOpenAI); ok {
+		h.anthropicStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
+		return
+	}
 	status, errType, errMsg := h.mapUpstreamError(failoverErr.StatusCode)
 	h.anthropicStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
@@ -2247,6 +2251,11 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 	upstreamMsg := service.ExtractUpstreamErrorMessage(responseBody)
 	service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
 
+	if cls, ok := classifyFailoverExhaustedModelErrorFromGin(c, h.gatewayService, service.PlatformOpenAI); ok {
+		h.handleStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
+		return
+	}
+
 	// 使用默认的错误映射
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
@@ -2256,6 +2265,10 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 func (h *OpenAIGatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
 	service.SetOpsUpstreamError(c, statusCode, errMsg, "")
+	if cls, ok := classifyFailoverExhaustedModelErrorFromGin(c, h.gatewayService, service.PlatformOpenAI); ok {
+		h.handleStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
+		return
+	}
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
 

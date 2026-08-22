@@ -10,7 +10,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -23,6 +26,33 @@ type fakeDiagnoseCall struct {
 	GroupID  *int64
 	Model    string
 	Platform string
+}
+
+type failoverModelAccountRepo struct {
+	service.AccountRepository
+	accounts []service.Account
+}
+
+func (r failoverModelAccountRepo) ListSchedulableByGroupIDAndPlatform(_ context.Context, _ int64, platform string) ([]service.Account, error) {
+	return r.accountsForPlatform(platform), nil
+}
+
+func (r failoverModelAccountRepo) ListSchedulableByPlatform(_ context.Context, platform string) ([]service.Account, error) {
+	return r.accountsForPlatform(platform), nil
+}
+
+func (r failoverModelAccountRepo) ListSchedulableUngroupedByPlatform(_ context.Context, platform string) ([]service.Account, error) {
+	return r.accountsForPlatform(platform), nil
+}
+
+func (r failoverModelAccountRepo) accountsForPlatform(platform string) []service.Account {
+	accounts := make([]service.Account, 0, len(r.accounts))
+	for _, account := range r.accounts {
+		if account.Platform == platform {
+			accounts = append(accounts, account)
+		}
+	}
+	return accounts
 }
 
 func (f *fakeDiagnoser) DiagnoseModelAvailabilityForPlatform(
@@ -158,4 +188,117 @@ func TestClassifyNoAccountError_FromGin_NilContextStillSafe(t *testing.T) {
 
 	require.Equal(t, http.StatusNotFound, cls.Status, "even with a nil gin context the classifier must still run and yield a coherent response")
 	require.True(t, cls.ModelNotFound)
+}
+
+func TestClassifyNoAccountError_DisplayNameSuggestsExactModelID(t *testing.T) {
+	c := newTestGinContextWithRequest()
+	fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: false}}
+	apiKey := &service.APIKey{GroupID: ptrInt64(7)}
+
+	cls := classifyNoAccountErrorFromGin(c, fd, apiKey, "GPT-5.6 Luna", "GPT-5.6 Luna", service.PlatformOpenAI)
+
+	require.Equal(t, http.StatusNotFound, cls.Status)
+	require.Equal(t, "model_not_found", cls.ErrType)
+	require.Contains(t, cls.Message, `use model ID "gpt-5.6-luna"`)
+	require.Contains(t, cls.Message, "GET /v1/models")
+}
+
+func TestClassifyFailoverExhaustedModelErrorFromGin_UsesRequestModel(t *testing.T) {
+	c := newTestGinContextWithRequest()
+	apiKey := &service.APIKey{GroupID: ptrInt64(7)}
+	c.Set(string(middleware.ContextKeyAPIKey), apiKey)
+	c.Set(opsModelKey, "GPT-5.6 Luna")
+	fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: false}}
+
+	cls, ok := classifyFailoverExhaustedModelErrorFromGin(c, fd, service.PlatformOpenAI)
+
+	require.True(t, ok)
+	require.True(t, cls.ModelNotFound)
+	require.Equal(t, http.StatusNotFound, cls.Status)
+	require.Len(t, fd.calls, 1)
+	require.Equal(t, "GPT-5.6 Luna", fd.calls[0].Model)
+}
+
+func TestClassifyFailoverExhaustedModelErrorFromGin_KeepsRealUpstreamFailure(t *testing.T) {
+	c := newTestGinContextWithRequest()
+	apiKey := &service.APIKey{GroupID: ptrInt64(7)}
+	c.Set(string(middleware.ContextKeyAPIKey), apiKey)
+	c.Set(opsModelKey, "gpt-5.6-luna")
+	fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: true}}
+
+	_, ok := classifyFailoverExhaustedModelErrorFromGin(c, fd, service.PlatformOpenAI)
+
+	require.False(t, ok)
+}
+
+func TestOpenAIHandleFailoverExhausted_RefinesDisplayNameOnly(t *testing.T) {
+	gateway := newFailoverModelOpenAIGatewayService()
+	h := &OpenAIGatewayHandler{gatewayService: gateway}
+	failoverErr := &service.UpstreamFailoverError{
+		StatusCode:   http.StatusServiceUnavailable,
+		ResponseBody: []byte(`{"error":{"message":"Service temporarily unavailable","type":"api_error"}}`),
+	}
+
+	t.Run("display_name_becomes_model_not_found", func(t *testing.T) {
+		c, recorder := newFailoverModelErrorContext("GPT-5.6 Luna")
+
+		h.handleFailoverExhausted(c, failoverErr, false)
+
+		require.Equal(t, http.StatusNotFound, recorder.Code)
+		require.Equal(t, "model_not_found", gjson.GetBytes(recorder.Body.Bytes(), "error.type").String())
+		require.Contains(t, gjson.GetBytes(recorder.Body.Bytes(), "error.message").String(), "gpt-5.6-luna")
+	})
+
+	t.Run("valid_model_keeps_upstream_error", func(t *testing.T) {
+		c, recorder := newFailoverModelErrorContext("gpt-5.6-luna")
+
+		h.handleFailoverExhausted(c, failoverErr, false)
+
+		require.Equal(t, http.StatusBadGateway, recorder.Code)
+		require.Equal(t, "upstream_error", gjson.GetBytes(recorder.Body.Bytes(), "error.type").String())
+		require.Equal(t, "Upstream service temporarily unavailable", gjson.GetBytes(recorder.Body.Bytes(), "error.message").String())
+	})
+}
+
+func newFailoverModelOpenAIGatewayService() *service.OpenAIGatewayService {
+	repo := failoverModelAccountRepo{accounts: []service.Account{{
+		ID:          1,
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Status:      service.StatusActive,
+		Schedulable: true,
+	}}}
+	return service.NewOpenAIGatewayService(
+		repo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		&config.Config{},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+}
+
+func newFailoverModelErrorContext(model string) (*gin.Context, *httptest.ResponseRecorder) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{GroupID: ptrInt64(7)})
+	setOpsRequestContext(c, model, false)
+	return c, recorder
 }
