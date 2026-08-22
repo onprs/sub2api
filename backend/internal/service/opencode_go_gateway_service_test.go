@@ -633,7 +633,10 @@ func TestOpenCodeGoResponsesStreamPayloadHasOutput(t *testing.T) {
 		want    bool
 	}{
 		{name: "created", payload: `{"type":"response.created","response":{"status":"in_progress"}}`, want: false},
+		{name: "empty message item added", payload: `{"type":"response.output_item.added","item":{"type":"message","content":[]}}`, want: false},
 		{name: "empty reasoning item added", payload: `{"type":"response.output_item.added","item":{"type":"reasoning","summary":[]}}`, want: false},
+		{name: "function call item added", payload: `{"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_test","name":"lookup","arguments":""}}`, want: true},
+		{name: "custom tool call item added", payload: `{"type":"response.output_item.added","item":{"type":"custom_tool_call","call_id":"call_test","name":"shell","input":"pwd"}}`, want: true},
 		{name: "empty content part added", payload: `{"type":"response.content_part.added","part":{"type":"output_text","text":""}}`, want: false},
 		{name: "reasoning delta", payload: `{"type":"response.reasoning_summary_text.delta","delta":"plan"}`, want: true},
 		{name: "text delta", payload: `{"type":"response.output_text.delta","delta":"ok"}`, want: true},
@@ -782,7 +785,7 @@ func TestOpenCodeGoGatewayServiceResponsesPrematureEOFAfterDeltaDoesNotFailover(
 	}
 }
 
-func TestOpenCodeGoGatewayServiceMuseResponsesPrematureEOFAfterDeltaStaysVisible(t *testing.T) {
+func TestOpenCodeGoGatewayServiceMuseResponsesPrematureEOFAfterToolStartStaysVisible(t *testing.T) {
 	const model = "muse-spark-1.2-contributor"
 	svc := &OpenCodeGoGatewayService{cfg: &config.Config{}}
 	requestBody := []byte(`{"model":"muse-spark-1.2-contributor","input":"hello","stream":true}`)
@@ -802,10 +805,7 @@ func TestOpenCodeGoGatewayServiceMuseResponsesPrematureEOFAfterDeltaStaysVisible
 		`data: {"type":"response.created","response":{"id":"resp_muse_eof","status":"in_progress","output":[]}}`,
 		"",
 		`event: response.output_item.added`,
-		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_muse_eof","role":"assistant","status":"in_progress","content":[]}}`,
-		"",
-		`event: response.output_text.delta`,
-		`data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"item_id":"msg_muse_eof","delta":"partial"}`,
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_muse_eof","call_id":"call_muse_eof","name":"lookup","arguments":"{\"query\":\"status\"}","status":"in_progress"}}`,
 		"",
 	}, "\n")
 	resp := &http.Response{
@@ -834,11 +834,11 @@ func TestOpenCodeGoGatewayServiceMuseResponsesPrematureEOFAfterDeltaStaysVisible
 		t.Fatalf("Muse stream with visible output must not be replayed: %+v", failoverErr)
 	}
 	wire := rec.Recorder.Body.String()
-	if !rec.Context.Writer.Written() || !strings.Contains(wire, `"delta":"partial"`) {
-		t.Fatalf("Muse semantic output must remain visible after EOF: status=%d body=%q", rec.Recorder.Code, wire)
+	if !rec.Context.Writer.Written() || !strings.Contains(wire, `"call_id":"call_muse_eof"`) || !strings.Contains(wire, `"arguments":"{\"query\":\"status\"}"`) {
+		t.Fatalf("Muse tool start must remain visible after EOF: status=%d body=%q", rec.Recorder.Code, wire)
 	}
 	if result == nil || result.FirstTokenMs == nil {
-		t.Fatalf("upstream semantic delta must record first output latency: %+v", result)
+		t.Fatalf("upstream tool start must record first output latency: %+v", result)
 	}
 	streamErr, ok := GetOpsStreamError(rec.Context)
 	if !ok || streamErr.ErrType != "upstream_error" || streamErr.IntendedStatus != http.StatusBadGateway || streamErr.Message != errOpenCodeGoResponsesStreamMissingTerminal.Error() {
@@ -881,16 +881,13 @@ func TestOpenCodeGoGatewayServiceMuseResponsesStreamsBeforeTerminal(t *testing.T
 			want: []string{`event: response.output_text.delta`, `"delta":"live-text"`},
 		},
 		{
-			name: "tool_call",
+			name: "tool_call_without_argument_delta",
 			preterminal: strings.Join([]string{
 				`event: response.created`,
 				`data: {"type":"response.created","response":{"id":"resp_muse_tool","status":"in_progress","output":[]}}`,
 				"",
 				`event: response.output_item.added`,
-				`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_muse","call_id":"call_muse","name":"lookup","arguments":"","status":"in_progress"}}`,
-				"",
-				`event: response.function_call_arguments.delta`,
-				`data: {"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_muse","delta":"{\"query\":\""}`,
+				`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_muse","call_id":"call_muse","name":"lookup","arguments":"{\"query\":\"status\"}","status":"in_progress"}}`,
 				"",
 				"",
 			}, "\n"),
@@ -905,7 +902,7 @@ func TestOpenCodeGoGatewayServiceMuseResponsesStreamsBeforeTerminal(t *testing.T
 				`data: {"type":"response.completed","response":{"id":"resp_muse_tool","status":"completed","output":[],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`,
 				"",
 			}, "\n"),
-			want: []string{`event: response.function_call_arguments.delta`, `"delta":"{\"query\":\""`},
+			want: []string{`event: response.output_item.added`, `"call_id":"call_muse"`, `"arguments":"{\"query\":\"status\"}"`},
 		},
 	}
 

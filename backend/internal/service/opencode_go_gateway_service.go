@@ -731,8 +731,17 @@ func openCodeGoStreamPayloadHasOutput(payload []byte, actualProtocol protocolcon
 }
 
 func openCodeGoResponsesStreamPayloadHasOutput(payload []byte) bool {
-	switch strings.TrimSpace(gjson.GetBytes(payload, "type").String()) {
-	case "", "response.created", "response.queued", "response.in_progress", "response.output_item.added", "response.content_part.added", "response.reasoning_summary_part.added", "response.failed":
+	eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
+	if eventType == "response.output_item.added" {
+		switch strings.TrimSpace(gjson.GetBytes(payload, "item.type").String()) {
+		case "", "message", "reasoning":
+			return false
+		default:
+			return true
+		}
+	}
+	switch eventType {
+	case "", "response.created", "response.queued", "response.in_progress", "response.content_part.added", "response.reasoning_summary_part.added", "response.failed":
 		return false
 	default:
 		return true
