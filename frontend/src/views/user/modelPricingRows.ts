@@ -43,6 +43,11 @@ export interface ModelPricingRow {
   defaultMultiplier: number
   userMultiplier: number | null
   groupMultiplier: number
+  peakRateEnabled: boolean
+  peakStart: string
+  peakEnd: string
+  peakRateMultiplier: number
+  currentPeakMultiplier: number
   modelSpecificMultiplier: number | null
   effectiveMultiplier: number
   usageOfferCode: string
@@ -72,6 +77,14 @@ function emptyPricingValues(): ModelPricingValues {
 
 function normalizePrice(value: number | null | undefined): number | null {
   return value == null ? null : value
+}
+
+export function calculateActualTokenPrice(
+  value: number | null | undefined,
+  effectiveMultiplier: number,
+): number | null {
+  const price = normalizePrice(value)
+  return price == null ? null : price * clampMultiplier(effectiveMultiplier)
 }
 
 function pricingValues(pricing: UserSupportedModelPricing): ModelPricingValues {
@@ -157,6 +170,31 @@ function groupMultiplierForGroup(
   }
 }
 
+function peakRateFields(group: UserAvailableGroup): Pick<
+  ModelPricingRow,
+  | 'peakRateEnabled'
+  | 'peakStart'
+  | 'peakEnd'
+  | 'peakRateMultiplier'
+  | 'currentPeakMultiplier'
+> {
+  const configuredMultiplier = group.peak_rate_multiplier
+  const currentMultiplier = group.current_peak_multiplier
+  return {
+    peakRateEnabled: Boolean(group.peak_rate_enabled),
+    peakStart: group.peak_start || '',
+    peakEnd: group.peak_end || '',
+    peakRateMultiplier:
+      configuredMultiplier != null && Number.isFinite(configuredMultiplier) && configuredMultiplier >= 0
+        ? configuredMultiplier
+        : 1,
+    currentPeakMultiplier:
+      currentMultiplier != null && Number.isFinite(currentMultiplier) && currentMultiplier >= 0
+        ? currentMultiplier
+        : 1,
+  }
+}
+
 function modelSpecificMultiplierForModel(model: UserSupportedModel): number | null {
   const multiplier = model.model_specific_multiplier
   if (multiplier == null || !Number.isFinite(multiplier) || multiplier <= 0) {
@@ -215,8 +253,12 @@ function rowForModelGroup(
   userGroupRates: Record<number, number>,
 ): ModelPricingRow {
   const groupMultiplier = groupMultiplierForGroup(group, userGroupRates)
+  const peakRate = peakRateFields(group)
   const modelSpecificMultiplier = modelSpecificMultiplierForModel(model)
-  const effectiveMultiplier = groupMultiplier.groupMultiplier * (modelSpecificMultiplier ?? 1)
+  const effectiveMultiplier =
+    groupMultiplier.groupMultiplier *
+    peakRate.currentPeakMultiplier *
+    (modelSpecificMultiplier ?? 1)
   const usageOffer = usageOfferFields(model)
   const source = pricingSourceFields(model.pricing)
 
@@ -232,6 +274,7 @@ function rowForModelGroup(
       subscriptionType: group.subscription_type || 'standard',
       isExclusive: group.is_exclusive,
       ...groupMultiplier,
+      ...peakRate,
       modelSpecificMultiplier,
       effectiveMultiplier,
       ...usageOffer,
@@ -253,6 +296,7 @@ function rowForModelGroup(
     subscriptionType: group.subscription_type || 'standard',
     isExclusive: group.is_exclusive,
     ...groupMultiplier,
+    ...peakRate,
     modelSpecificMultiplier,
     effectiveMultiplier,
     ...usageOffer,

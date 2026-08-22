@@ -13,6 +13,10 @@ export default {
     empty: 'No model pricing data',
     copyModelId: 'Copy Model ID',
     modelCopied: 'Model ID copied',
+    modes: {
+      raw: 'Original Billing',
+      actual: 'Actual Billing'
+    },
     columns: {
       channel: 'Channel',
       platform: 'Platform',
