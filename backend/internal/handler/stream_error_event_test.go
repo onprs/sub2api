@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -187,6 +188,7 @@ func TestOpenCodeGoStreamingErrorsUseSourceRenderer(t *testing.T) {
 		want   string
 	}{
 		{name: "chat", format: openCodeGoHandlerErrorChat, want: "data: "},
+		{name: "responses", format: openCodeGoHandlerErrorResponses, want: "event: response.failed\n"},
 		{name: "anthropic", format: openCodeGoHandlerErrorAnthropic, want: "event: error\n"},
 	}
 	for _, test := range tests {
@@ -198,6 +200,11 @@ func TestOpenCodeGoStreamingErrorsUseSourceRenderer(t *testing.T) {
 
 			assert.True(t, strings.HasPrefix(w.Body.String(), test.want), "got: %q", w.Body.String())
 			assert.Contains(t, w.Body.String(), `"message":"boom"`)
+			streamErr, ok := service.GetOpsStreamError(c)
+			assert.True(t, ok)
+			assert.Equal(t, "upstream_error", streamErr.ErrType)
+			assert.Equal(t, "boom", streamErr.Message)
+			assert.Equal(t, http.StatusBadGateway, streamErr.IntendedStatus)
 		})
 	}
 }

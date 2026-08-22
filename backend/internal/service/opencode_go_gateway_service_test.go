@@ -718,7 +718,7 @@ func TestOpenCodeGoGatewayServiceResponsesPrematureEOFAfterDeltaDoesNotFailover(
 	}, "\n")
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid-eof-after-output"}},
 		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
 	}
 	rec := newTestGinContextRecorder(http.MethodPost, "/v1/responses", string(requestBody))
@@ -746,6 +746,196 @@ func TestOpenCodeGoGatewayServiceResponsesPrematureEOFAfterDeltaDoesNotFailover(
 	}
 	if result == nil || result.FirstTokenMs == nil {
 		t.Fatalf("semantic delta must record first output: %+v", result)
+	}
+	rawEvents, ok := rec.Context.Get(OpsUpstreamErrorsKey)
+	events, eventsOK := rawEvents.([]*OpsUpstreamErrorEvent)
+	if !ok || !eventsOK || len(events) != 1 || events[0].Kind != "premature_eof_after_output" {
+		t.Fatalf("post-output EOF must record ops context, got %#v", rawEvents)
+	}
+	if events[0].UpstreamRequestID != "rid-eof-after-output" {
+		t.Fatalf("unexpected upstream request ID: %+v", events[0])
+	}
+}
+
+func TestOpenCodeGoGatewayServiceMuseResponsesPrematureEOFAfterDeltaTriggersFailover(t *testing.T) {
+	const model = "muse-spark-1.2-contributor"
+	svc := &OpenCodeGoGatewayService{cfg: &config.Config{}}
+	requestBody := []byte(`{"model":"muse-spark-1.2-contributor","input":"hello","stream":true}`)
+	pipeline, _, err := newOpenCodeGoPipelineRequest(
+		requestBody,
+		protocolconv.ProtocolOpenAIResponses,
+		protocolconv.ProtocolOpenAIResponses,
+		nil,
+		model,
+		model,
+	)
+	if err != nil {
+		t.Fatalf("newOpenCodeGoPipelineRequest error: %v", err)
+	}
+	upstreamBody := strings.Join([]string{
+		`event: response.created`,
+		`data: {"type":"response.created","response":{"id":"resp_muse_eof","status":"in_progress","output":[]}}`,
+		"",
+		`event: response.output_item.added`,
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_muse_eof","role":"assistant","status":"in_progress","content":[]}}`,
+		"",
+		`event: response.output_text.delta`,
+		`data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"item_id":"msg_muse_eof","delta":"partial"}`,
+		"",
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid-muse-eof-after-output"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/responses", string(requestBody))
+
+	result, err := svc.streamStandardResponse(
+		rec.Context,
+		resp,
+		&Account{ID: 42, Name: "test-account"},
+		pipeline,
+		protocolconv.ProtocolOpenAIResponses,
+		protocolconv.ProtocolOpenAIResponses,
+		model,
+		model,
+		time.Now(),
+	)
+	var failoverErr *UpstreamFailoverError
+	if !errors.As(err, &failoverErr) {
+		t.Fatalf("expected Muse EOF to trigger failover, got result=%+v err=%T %v", result, err, err)
+	}
+	if !failoverErr.SafeToFailoverAfterWrite {
+		t.Fatalf("Muse staged EOF must be safe to fail over: %+v", failoverErr)
+	}
+	if rec.Context.Writer.Written() || rec.Recorder.Body.Len() != 0 {
+		t.Fatalf("Muse semantic output must remain attempt-local before terminal: status=%d body=%q", rec.Recorder.Code, rec.Recorder.Body.String())
+	}
+	if result == nil || result.FirstTokenMs == nil {
+		t.Fatalf("upstream semantic delta must still record first output latency: %+v", result)
+	}
+}
+
+func TestOpenCodeGoGatewayServiceMuseResponsesStagedEOFRemainsFailoverSafeAfterKeepalive(t *testing.T) {
+	const model = "muse-spark-1.2-contributor"
+	svc := &OpenCodeGoGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}}}
+	requestBody := []byte(`{"model":"muse-spark-1.2-contributor","input":"hello","stream":true}`)
+	pipeline, _, err := newOpenCodeGoPipelineRequest(
+		requestBody,
+		protocolconv.ProtocolOpenAIResponses,
+		protocolconv.ProtocolOpenAIResponses,
+		nil,
+		model,
+		model,
+	)
+	if err != nil {
+		t.Fatalf("newOpenCodeGoPipelineRequest error: %v", err)
+	}
+	upstreamBody := strings.Join([]string{
+		`event: response.created`,
+		`data: {"type":"response.created","response":{"id":"resp_muse_keepalive","status":"in_progress","output":[]}}`,
+		"",
+		`event: response.output_text.delta`,
+		`data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"item_id":"msg_muse_keepalive","delta":"must-stay-staged"}`,
+		"",
+		"",
+	}, "\n")
+	reader, writer := io.Pipe()
+	go func() {
+		_, _ = io.WriteString(writer, upstreamBody)
+		time.Sleep(1100 * time.Millisecond)
+		_ = writer.Close()
+	}()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       reader,
+	}
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/responses", string(requestBody))
+
+	_, err = svc.streamStandardResponse(
+		rec.Context,
+		resp,
+		&Account{ID: 42, Name: "test-account"},
+		pipeline,
+		protocolconv.ProtocolOpenAIResponses,
+		protocolconv.ProtocolOpenAIResponses,
+		model,
+		model,
+		time.Now(),
+	)
+	var failoverErr *UpstreamFailoverError
+	if !errors.As(err, &failoverErr) || !failoverErr.SafeToFailoverAfterWrite {
+		t.Fatalf("expected keepalive-only Muse attempt to remain failover-safe, got %T %+v", err, failoverErr)
+	}
+	wire := rec.Recorder.Body.String()
+	if !rec.Context.Writer.Written() || wire == "" {
+		t.Fatalf("expected staged attempt to emit a keepalive")
+	}
+	if strings.Contains(wire, "must-stay-staged") {
+		t.Fatalf("failed attempt leaked semantic output after keepalive: %q", wire)
+	}
+}
+
+func TestOpenCodeGoGatewayServiceMuseResponsesCommitsStagedOutputAtTerminal(t *testing.T) {
+	const model = "muse-spark-1.2-contributor"
+	svc := &OpenCodeGoGatewayService{cfg: &config.Config{}}
+	requestBody := []byte(`{"model":"muse-spark-1.2-contributor","input":"hello","stream":true}`)
+	pipeline, _, err := newOpenCodeGoPipelineRequest(
+		requestBody,
+		protocolconv.ProtocolOpenAIResponses,
+		protocolconv.ProtocolOpenAIResponses,
+		nil,
+		model,
+		model,
+	)
+	if err != nil {
+		t.Fatalf("newOpenCodeGoPipelineRequest error: %v", err)
+	}
+	upstreamBody := strings.Join([]string{
+		`event: response.created`,
+		`data: {"type":"response.created","response":{"id":"resp_muse_complete","object":"response","model":"muse-spark-1.2-contributor","status":"in_progress","output":[]}}`,
+		"",
+		`event: response.output_item.added`,
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_muse_complete","role":"assistant","status":"in_progress","content":[]}}`,
+		"",
+		`event: response.output_text.delta`,
+		`data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"item_id":"msg_muse_complete","delta":"complete"}`,
+		"",
+		`event: response.output_item.done`,
+		`data: {"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg_muse_complete","role":"assistant","status":"completed","content":[{"type":"output_text","text":"complete"}]}}`,
+		"",
+		`event: response.completed`,
+		`data: {"type":"response.completed","response":{"id":"resp_muse_complete","object":"response","model":"muse-spark-1.2-contributor","status":"completed","output":[{"type":"message","id":"msg_muse_complete","role":"assistant","status":"completed","content":[{"type":"output_text","text":"complete"}]}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`,
+		"",
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/responses", string(requestBody))
+
+	result, err := svc.streamStandardResponse(
+		rec.Context,
+		resp,
+		&Account{ID: 42, Name: "test-account"},
+		pipeline,
+		protocolconv.ProtocolOpenAIResponses,
+		protocolconv.ProtocolOpenAIResponses,
+		model,
+		model,
+		time.Now(),
+	)
+	if err != nil {
+		t.Fatalf("completed Muse stream error: %v", err)
+	}
+	wire := rec.Recorder.Body.String()
+	if !strings.Contains(wire, `"delta":"complete"`) || !strings.Contains(wire, `"type":"response.completed"`) {
+		t.Fatalf("staged Muse output was not committed at terminal: %s", wire)
+	}
+	if result == nil || result.FirstTokenMs == nil || result.Usage.InputTokens != 10 || result.Usage.OutputTokens != 2 {
+		t.Fatalf("unexpected completed Muse result: %+v", result)
 	}
 }
 

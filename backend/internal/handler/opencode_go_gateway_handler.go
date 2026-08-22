@@ -650,6 +650,7 @@ func (h *OpenCodeGoGatewayHandler) ensureForwardErrorResponse(c *gin.Context, fo
 
 func (h *OpenCodeGoGatewayHandler) handleStreamingAwareError(c *gin.Context, status int, format openCodeGoHandlerErrorFormat, errType string, message string, streamStarted bool) {
 	if streamStarted || (c != nil && c.Writer != nil && c.Writer.Written()) {
+		service.MarkOpsStreamError(c, errType, message, status)
 		if format == openCodeGoHandlerErrorResponses && writeResponsesFailedSSE(c, errType, message) {
 			return
 		}
