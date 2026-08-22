@@ -908,6 +908,9 @@ func TestOpenCodeGoGatewayServiceMuseResponsesCommitsStagedOutputAtTerminal(t *t
 		`event: response.completed`,
 		`data: {"type":"response.completed","response":{"id":"resp_muse_complete","object":"response","model":"muse-spark-1.2-contributor","status":"completed","output":[{"type":"message","id":"msg_muse_complete","role":"assistant","status":"completed","content":[{"type":"output_text","text":"complete"}]}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`,
 		"",
+		`event: response.output_text.done`,
+		`data: {"type":"response.output_text.done","output_index":0,"content_index":0,"item_id":"msg_muse_complete","text":"complete"}`,
+		"",
 	}, "\n")
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
