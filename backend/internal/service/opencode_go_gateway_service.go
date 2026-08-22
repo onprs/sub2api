@@ -374,16 +374,18 @@ func (s *OpenCodeGoGatewayService) forwardMessagesBody(
 	}
 }
 
-func normalizeOpenCodeGoResponsesBody(body []byte, models ...string) ([]byte, error) {
-	isMuseSpark := false
+func isOpenCodeGoMuseSparkModel(models ...string) bool {
 	for _, model := range models {
 		normalized := strings.ToLower(strings.TrimSpace(model))
 		if strings.Contains(normalized, "muse-spark") || strings.Contains(normalized, "muse_spark") {
-			isMuseSpark = true
-			break
+			return true
 		}
 	}
-	if !isMuseSpark {
+	return false
+}
+
+func normalizeOpenCodeGoResponsesBody(body []byte, models ...string) ([]byte, error) {
+	if !isOpenCodeGoMuseSparkModel(models...) {
 		return body, nil
 	}
 
@@ -639,9 +641,14 @@ func (s *OpenCodeGoGatewayService) streamStandardResponse(
 		}
 		return s.openCodeGoResponsesFailure(c, resp, account, payload, sourceProtocol, clientOutputStarted)
 	}
-	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, actualProtocol, sourceProtocol, observe, checkSemanticFailure)
-	if errors.Is(err, errOpenCodeGoResponsesStreamMissingTerminal) && firstTokenMs == nil {
-		err = openCodeGoResponsesPrematureEOFFailover(c, resp, account)
+	stageResponsesUntilTerminal := actualProtocol == protocolconv.ProtocolOpenAIResponses && isOpenCodeGoMuseSparkModel(originalModel, upstreamModel)
+	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, actualProtocol, sourceProtocol, observe, checkSemanticFailure, stageResponsesUntilTerminal)
+	if errors.Is(err, errOpenCodeGoResponsesStreamMissingTerminal) {
+		if stageResponsesUntilTerminal || firstTokenMs == nil {
+			err = openCodeGoResponsesPrematureEOFFailover(c, resp, account)
+		} else {
+			recordOpenCodeGoResponsesPrematureEOF(c, resp, account, "premature_eof_after_output")
+		}
 	}
 	out := openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, actualProtocol, true, startTime)
 	out.ClientDisconnect = clientDisconnected
@@ -886,7 +893,7 @@ func (s *OpenCodeGoGatewayService) streamChatPassthrough(
 			firstTokenMs = &ms
 		}
 	}
-	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolOpenAIChat, observe, nil)
+	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolOpenAIChat, observe, nil, false)
 	out := openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolOpenAIChat, true, startTime)
 	out.ClientDisconnect = clientDisconnected
 	out.FirstTokenMs = firstTokenMs
@@ -919,7 +926,7 @@ func (s *OpenCodeGoGatewayService) streamAnthropicPassthrough(
 			mergeAnthropicUsage(&usage, *event.Usage)
 		}
 	}
-	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolAnthropic, protocolconv.ProtocolAnthropic, observe, nil)
+	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolAnthropic, protocolconv.ProtocolAnthropic, observe, nil, false)
 	out := openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolAnthropic, true, startTime)
 	out.ClientDisconnect = clientDisconnected
 	out.FirstTokenMs = firstTokenMs
@@ -952,7 +959,7 @@ func (s *OpenCodeGoGatewayService) streamAnthropicToChat(
 			mergeAnthropicUsage(&usage, *event.Usage)
 		}
 	}
-	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, observe, nil)
+	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, observe, nil, false)
 	return &ForwardResult{
 		RequestID: resp.Header.Get("x-request-id"), ActualProtocol: protocolconv.ProtocolAnthropic,
 		Usage: usage, Model: originalModel,
@@ -983,7 +990,7 @@ func (s *OpenCodeGoGatewayService) streamChatToAnthropic(
 			firstTokenMs = &ms
 		}
 	}
-	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, observe, nil)
+	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolAnthropic, observe, nil, false)
 	return &ForwardResult{
 		RequestID: resp.Header.Get("x-request-id"), ActualProtocol: protocolconv.ProtocolOpenAIChat,
 		Usage: usage, Model: originalModel,
@@ -1000,6 +1007,7 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 	sourceProtocol protocolconv.Protocol,
 	observe func([]byte),
 	semanticFailure func([]byte, bool) error,
+	stageResponsesUntilTerminal bool,
 ) (bool, error) {
 	maxRecordSize := defaultMaxLineSize
 	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
@@ -1033,6 +1041,11 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 	lastDownstreamWriteAt := time.Now()
 	var pendingPreamble [][]byte
 	var pendingPreambleBytes int64
+	var terminalStage *openAIFirstOutputStage
+	if stageResponsesUntilTerminal {
+		terminalStage = newDefaultOpenAIFirstOutputStage()
+		defer func() { _ = terminalStage.Close() }()
+	}
 	ensureHeaders := func() error {
 		if headersWritten {
 			return nil
@@ -1043,8 +1056,9 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 		headersWritten = true
 		return nil
 	}
-	writePayloads := func(payloads [][]byte, startsClientOutput bool) error {
-		if clientDisconnected || len(payloads) == 0 {
+	writePayloads := func(payloads [][]byte, startsClientOutput bool, releaseStagedResponses bool) error {
+		shouldReleaseTerminalStage := releaseStagedResponses && terminalStage != nil && terminalStage.Buffered() > 0
+		if clientDisconnected || (len(payloads) == 0 && !shouldReleaseTerminalStage) {
 			return nil
 		}
 		framedPayloads := make([][]byte, 0, len(payloads))
@@ -1054,6 +1068,14 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 				return err
 			}
 			framedPayloads = append(framedPayloads, framed)
+		}
+		if terminalStage != nil && !releaseStagedResponses {
+			for _, framed := range framedPayloads {
+				if _, err := terminalStage.Write(framed); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
 		if actualProtocol == protocolconv.ProtocolOpenAIResponses && !clientOutputStarted && !startsClientOutput {
 			for _, framed := range framedPayloads {
@@ -1067,6 +1089,11 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 		}
 		if err := ensureHeaders(); err != nil {
 			return err
+		}
+		if terminalStage != nil && terminalStage.Buffered() > 0 {
+			if err := terminalStage.CommitTo(c.Writer); err != nil {
+				return fmt.Errorf("commit OpenCode Go terminal stage: %w", err)
+			}
 		}
 		if !clientOutputStarted && len(pendingPreamble) > 0 {
 			for _, framed := range pendingPreamble {
@@ -1177,7 +1204,8 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 					return clientDisconnected, failureErr
 				}
 			}
-			if actualProtocol == protocolconv.ProtocolOpenAIResponses && openAIStreamEventIsTerminal(string(record.Data)) {
+			isResponsesTerminal := actualProtocol == protocolconv.ProtocolOpenAIResponses && openAIStreamEventIsTerminal(string(record.Data))
+			if isResponsesTerminal {
 				responsesTerminal = true
 				if identityStream {
 					identityTerminal = true
@@ -1190,7 +1218,7 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 			if convertErr != nil {
 				return clientDisconnected, convertErr
 			}
-			if err := writePayloads(payloads, startsClientOutput); err != nil {
+			if err := writePayloads(payloads, startsClientOutput, isResponsesTerminal); err != nil {
 				return clientDisconnected, err
 			}
 
@@ -1204,7 +1232,7 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 			return clientDisconnected, errors.New("OpenCode Go stream data interval timeout")
 
 		case <-keepaliveCh:
-			if clientDisconnected || !clientOutputStarted || parser.Progress().InRecord || time.Since(lastDownstreamWriteAt) < keepaliveInterval {
+			if clientDisconnected || (!clientOutputStarted && !stageResponsesUntilTerminal) || parser.Progress().InRecord || time.Since(lastDownstreamWriteAt) < keepaliveInterval {
 				continue
 			}
 			if err := ensureHeaders(); err != nil {
@@ -1228,7 +1256,7 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 	if err != nil {
 		return clientDisconnected, err
 	}
-	if err := writePayloads(payloads, true); err != nil {
+	if err := writePayloads(payloads, true, true); err != nil {
 		return clientDisconnected, err
 	}
 	if !clientDisconnected {
@@ -1563,12 +1591,29 @@ func openCodeGoResponsesFailureMessage(payload []byte) string {
 	return "OpenCode Go upstream response failed"
 }
 
-func openCodeGoResponsesPrematureEOFFailover(c *gin.Context, resp *http.Response, account *Account) error {
+func recordOpenCodeGoResponsesPrematureEOF(c *gin.Context, resp *http.Response, account *Account, kind string) {
 	const message = "OpenCode Go responses stream ended without terminal event"
 	requestID := ""
-	headers := make(http.Header)
 	if resp != nil {
 		requestID = resp.Header.Get("x-request-id")
+	}
+	setOpsUpstreamError(c, http.StatusBadGateway, message, "")
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Platform:           PlatformOpenCodeGo,
+		AccountID:          accountID(account),
+		AccountName:        accountName(account),
+		UpstreamStatusCode: http.StatusBadGateway,
+		UpstreamRequestID:  requestID,
+		Passthrough:        false,
+		Kind:               kind,
+		Message:            message,
+	})
+}
+
+func openCodeGoResponsesPrematureEOFFailover(c *gin.Context, resp *http.Response, account *Account) error {
+	const message = "OpenCode Go responses stream ended without terminal event"
+	headers := make(http.Header)
+	if resp != nil {
 		headers = protocoltransport.CloneHeaders(resp.Header)
 	}
 	responseBody, _ := json.Marshal(map[string]any{
@@ -1578,17 +1623,7 @@ func openCodeGoResponsesPrematureEOFFailover(c *gin.Context, resp *http.Response
 			"message": message,
 		},
 	})
-	setOpsUpstreamError(c, http.StatusBadGateway, message, "")
-	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-		Platform:           PlatformOpenCodeGo,
-		AccountID:          accountID(account),
-		AccountName:        accountName(account),
-		UpstreamStatusCode: http.StatusBadGateway,
-		UpstreamRequestID:  requestID,
-		Passthrough:        false,
-		Kind:               "premature_eof_failover",
-		Message:            message,
-	})
+	recordOpenCodeGoResponsesPrematureEOF(c, resp, account, "premature_eof_failover")
 	return &UpstreamFailoverError{
 		StatusCode:               http.StatusBadGateway,
 		ResponseBody:             responseBody,
@@ -1603,7 +1638,7 @@ func (s *OpenCodeGoGatewayService) openCodeGoResponsesFailure(
 	account *Account,
 	payload []byte,
 	sourceProtocol protocolconv.Protocol,
-	afterCommit bool,
+	clientOutputStarted bool,
 ) error {
 	message := openCodeGoResponsesFailureMessage(payload)
 	status := openAIStreamFailedEventSemanticStatus(payload, message)
@@ -1616,7 +1651,8 @@ func (s *OpenCodeGoGatewayService) openCodeGoResponsesFailure(
 		requestID = resp.Header.Get("x-request-id")
 		headers = protocoltransport.CloneHeaders(resp.Header)
 	}
-	shouldFailover := !afterCommit && openAIStreamFailedEventShouldFailover(payload, message)
+	wireCommitted := c != nil && c.Writer != nil && c.Writer.Written()
+	shouldFailover := !clientOutputStarted && openAIStreamFailedEventShouldFailover(payload, message)
 	kind := "passthrough"
 	passthrough := true
 	if shouldFailover {
@@ -1646,12 +1682,13 @@ func (s *OpenCodeGoGatewayService) openCodeGoResponsesFailure(
 
 	if shouldFailover {
 		return &UpstreamFailoverError{
-			StatusCode:      status,
-			ResponseBody:    openAIStreamFailedEventPassthroughBody(payload, message),
-			ResponseHeaders: headers,
+			StatusCode:               status,
+			ResponseBody:             openAIStreamFailedEventPassthroughBody(payload, message),
+			ResponseHeaders:          headers,
+			SafeToFailoverAfterWrite: true,
 		}
 	}
-	if afterCommit {
+	if clientOutputStarted || wireCommitted {
 		if writeOpenCodeGoStreamFailure(c, sourceProtocol, status, message, payload) {
 			MarkResponseCommitted(c)
 		}
