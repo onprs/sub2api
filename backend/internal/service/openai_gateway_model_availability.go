@@ -27,6 +27,12 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 	if requestedModel == "" {
 		return ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: true}
 	}
+	if groupID != nil {
+		mapping, _ := s.ResolveChannelMappingAndRestrict(ctx, groupID, requestedModel)
+		if mapping.Mapped && strings.TrimSpace(mapping.MappedModel) != "" {
+			requestedModel = strings.TrimSpace(mapping.MappedModel)
+		}
+	}
 
 	accounts, err := s.listSchedulableAccounts(ctx, groupID, platform)
 	if err != nil {
@@ -38,14 +44,20 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 	diag := ModelAvailabilityDiagnosis{}
 	for i := range accounts {
 		diag.HasAccountsInPool = true
-		// Mirrors the per-candidate filter used during account selection
-		// (openai_account_scheduler.isAccountRequestCompatible): empty
-		// model_mapping accepts everything; otherwise the explicit / wildcard
-		// mapping must match.
+		// 显式映射仍可声明包含空白的兼容别名；空映射仅对格式正常的
+		// 自定义 ID 保持“允许全部”。带内部空白的值通常是客户端误传的
+		// display_name，不能在错误诊断时据此把模型判为可用。
+		if len(accounts[i].GetExplicitModelMapping()) == 0 && openAIModelIDContainsWhitespace(requestedModel) {
+			continue
+		}
 		if accounts[i].IsModelSupported(requestedModel) {
 			diag.HasModelSupport = true
 			return diag
 		}
 	}
 	return diag
+}
+
+func openAIModelIDContainsWhitespace(model string) bool {
+	return strings.ContainsAny(model, " \t\r\n")
 }
