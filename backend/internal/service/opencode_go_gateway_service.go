@@ -27,6 +27,8 @@ var openCodeGoAllowedHeaders = map[string]bool{
 	"accept-language": true,
 }
 
+var errOpenCodeGoResponsesStreamMissingTerminal = errors.New("OpenCode Go responses stream ended without terminal event")
+
 const (
 	openCodeGoUpstreamUserAgent        = "opencode/1.0.0 (linux; x64) node/24.3.0"
 	openCodeGoMuseSparkMaxOutputTokens = 64_000
@@ -638,6 +640,9 @@ func (s *OpenCodeGoGatewayService) streamStandardResponse(
 		return s.openCodeGoResponsesFailure(c, resp, account, payload, sourceProtocol, clientOutputStarted)
 	}
 	clientDisconnected, err := s.convertOpenCodeGoStream(c, resp, pipeline, actualProtocol, sourceProtocol, observe, checkSemanticFailure)
+	if errors.Is(err, errOpenCodeGoResponsesStreamMissingTerminal) && firstTokenMs == nil {
+		err = openCodeGoResponsesPrematureEOFFailover(c, resp, account)
+	}
 	out := openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, actualProtocol, true, startTime)
 	out.ClientDisconnect = clientDisconnected
 	out.FirstTokenMs = firstTokenMs
@@ -712,9 +717,18 @@ func openCodeGoStreamPayloadHasOutput(payload []byte, actualProtocol protocolcon
 		typeName := gjson.GetBytes(payload, "type").String()
 		return typeName != "" && typeName != "message_start" && typeName != "message_stop"
 	case protocolconv.ProtocolOpenAIResponses:
-		return openAIStreamDataStartsClientOutput(string(payload), gjson.GetBytes(payload, "type").String())
+		return openCodeGoResponsesStreamPayloadHasOutput(payload)
 	default:
 		return !isOpenAIChatUsageOnlyStreamChunk(string(payload))
+	}
+}
+
+func openCodeGoResponsesStreamPayloadHasOutput(payload []byte) bool {
+	switch strings.TrimSpace(gjson.GetBytes(payload, "type").String()) {
+	case "", "response.created", "response.queued", "response.in_progress", "response.output_item.added", "response.content_part.added", "response.reasoning_summary_part.added", "response.failed":
+		return false
+	default:
+		return true
 	}
 }
 
@@ -1205,7 +1219,7 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 		}
 	}
 	if actualProtocol == protocolconv.ProtocolOpenAIResponses && !responsesTerminal {
-		return clientDisconnected, errors.New("OpenCode Go responses stream ended without terminal event")
+		return clientDisconnected, errOpenCodeGoResponsesStreamMissingTerminal
 	}
 	if identityStream && !identityTerminal {
 		return clientDisconnected, fmt.Errorf("OpenCode Go %s stream ended without terminal event", actualProtocol)
@@ -1547,6 +1561,40 @@ func openCodeGoResponsesFailureMessage(payload []byte) string {
 		}
 	}
 	return "OpenCode Go upstream response failed"
+}
+
+func openCodeGoResponsesPrematureEOFFailover(c *gin.Context, resp *http.Response, account *Account) error {
+	const message = "OpenCode Go responses stream ended without terminal event"
+	requestID := ""
+	headers := make(http.Header)
+	if resp != nil {
+		requestID = resp.Header.Get("x-request-id")
+		headers = protocoltransport.CloneHeaders(resp.Header)
+	}
+	responseBody, _ := json.Marshal(map[string]any{
+		"error": map[string]any{
+			"type":    "upstream_error",
+			"code":    "premature_eof",
+			"message": message,
+		},
+	})
+	setOpsUpstreamError(c, http.StatusBadGateway, message, "")
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Platform:           PlatformOpenCodeGo,
+		AccountID:          accountID(account),
+		AccountName:        accountName(account),
+		UpstreamStatusCode: http.StatusBadGateway,
+		UpstreamRequestID:  requestID,
+		Passthrough:        false,
+		Kind:               "premature_eof_failover",
+		Message:            message,
+	})
+	return &UpstreamFailoverError{
+		StatusCode:               http.StatusBadGateway,
+		ResponseBody:             responseBody,
+		ResponseHeaders:          headers,
+		SafeToFailoverAfterWrite: true,
+	}
 }
 
 func (s *OpenCodeGoGatewayService) openCodeGoResponsesFailure(

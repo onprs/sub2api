@@ -601,6 +601,154 @@ func TestOpenCodeGoGatewayServiceIdentityChatStreamRejectsPrematureEOF(t *testin
 	}
 }
 
+func TestOpenCodeGoResponsesStreamPayloadHasOutput(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		want    bool
+	}{
+		{name: "created", payload: `{"type":"response.created","response":{"status":"in_progress"}}`, want: false},
+		{name: "empty reasoning item added", payload: `{"type":"response.output_item.added","item":{"type":"reasoning","summary":[]}}`, want: false},
+		{name: "empty content part added", payload: `{"type":"response.content_part.added","part":{"type":"output_text","text":""}}`, want: false},
+		{name: "reasoning delta", payload: `{"type":"response.reasoning_summary_text.delta","delta":"plan"}`, want: true},
+		{name: "text delta", payload: `{"type":"response.output_text.delta","delta":"ok"}`, want: true},
+		{name: "function arguments delta", payload: `{"type":"response.function_call_arguments.delta","delta":"{}"}`, want: true},
+		{name: "item done", payload: `{"type":"response.output_item.done","item":{"type":"message","status":"completed"}}`, want: true},
+		{name: "completed", payload: `{"type":"response.completed","response":{"status":"completed"}}`, want: true},
+		{name: "failed", payload: `{"type":"response.failed","response":{"status":"failed"}}`, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := openCodeGoResponsesStreamPayloadHasOutput([]byte(tt.payload)); got != tt.want {
+				t.Fatalf("openCodeGoResponsesStreamPayloadHasOutput() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOpenCodeGoGatewayServiceResponsesPrematureEOFBeforeDeltaTriggersFailover(t *testing.T) {
+	svc := &OpenCodeGoGatewayService{cfg: &config.Config{}}
+	requestBody := []byte(`{"model":"gpt-5.6-luna","input":"hello","stream":true}`)
+	pipeline, _, err := newOpenCodeGoPipelineRequest(
+		requestBody,
+		protocolconv.ProtocolOpenAIResponses,
+		protocolconv.ProtocolOpenAIResponses,
+		nil,
+		"gpt-5.6-luna",
+		"gpt-5.6-luna",
+	)
+	if err != nil {
+		t.Fatalf("newOpenCodeGoPipelineRequest error: %v", err)
+	}
+	upstreamBody := strings.Join([]string{
+		`event: response.created`,
+		`data: {"type":"response.created","response":{"id":"resp_eof","status":"in_progress","output":[]}}`,
+		"",
+		`event: response.in_progress`,
+		`data: {"type":"response.in_progress","response":{"id":"resp_eof","status":"in_progress","output":[]}}`,
+		"",
+		`event: response.output_item.added`,
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"reason_eof","status":"in_progress","summary":[]}}`,
+		"",
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid-premature-eof"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/responses", string(requestBody))
+
+	result, err := svc.streamStandardResponse(
+		rec.Context,
+		resp,
+		&Account{ID: 42, Name: "test-account"},
+		pipeline,
+		protocolconv.ProtocolOpenAIResponses,
+		protocolconv.ProtocolOpenAIResponses,
+		"gpt-5.6-luna",
+		"gpt-5.6-luna",
+		time.Now(),
+	)
+	var failoverErr *UpstreamFailoverError
+	if !errors.As(err, &failoverErr) {
+		t.Fatalf("expected UpstreamFailoverError, got result=%+v err=%T %v", result, err, err)
+	}
+	if failoverErr.StatusCode != http.StatusBadGateway || !failoverErr.SafeToFailoverAfterWrite {
+		t.Fatalf("unexpected failover error: %+v", failoverErr)
+	}
+	if !strings.Contains(string(failoverErr.ResponseBody), `"code":"premature_eof"`) {
+		t.Fatalf("missing premature EOF diagnostic: %s", failoverErr.ResponseBody)
+	}
+	if rec.Context.Writer.Written() || rec.Recorder.Body.Len() != 0 {
+		t.Fatalf("structural preamble must remain attempt-local: status=%d body=%q", rec.Recorder.Code, rec.Recorder.Body.String())
+	}
+	if result == nil || result.FirstTokenMs != nil {
+		t.Fatalf("premature EOF before delta must not record first output: %+v", result)
+	}
+}
+
+func TestOpenCodeGoGatewayServiceResponsesPrematureEOFAfterDeltaDoesNotFailover(t *testing.T) {
+	svc := &OpenCodeGoGatewayService{cfg: &config.Config{}}
+	requestBody := []byte(`{"model":"gpt-5.6-luna","input":"hello","stream":true}`)
+	pipeline, _, err := newOpenCodeGoPipelineRequest(
+		requestBody,
+		protocolconv.ProtocolOpenAIResponses,
+		protocolconv.ProtocolOpenAIResponses,
+		nil,
+		"gpt-5.6-luna",
+		"gpt-5.6-luna",
+	)
+	if err != nil {
+		t.Fatalf("newOpenCodeGoPipelineRequest error: %v", err)
+	}
+	upstreamBody := strings.Join([]string{
+		`event: response.created`,
+		`data: {"type":"response.created","response":{"id":"resp_eof_delta","status":"in_progress","output":[]}}`,
+		"",
+		`event: response.output_item.added`,
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_eof_delta","role":"assistant","status":"in_progress","content":[]}}`,
+		"",
+		`event: response.content_part.added`,
+		`data: {"type":"response.content_part.added","output_index":0,"content_index":0,"item_id":"msg_eof_delta","part":{"type":"output_text","text":""}}`,
+		"",
+		`event: response.output_text.delta`,
+		`data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"item_id":"msg_eof_delta","delta":"partial"}`,
+		"",
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/responses", string(requestBody))
+
+	result, err := svc.streamStandardResponse(
+		rec.Context,
+		resp,
+		&Account{ID: 42, Name: "test-account"},
+		pipeline,
+		protocolconv.ProtocolOpenAIResponses,
+		protocolconv.ProtocolOpenAIResponses,
+		"gpt-5.6-luna",
+		"gpt-5.6-luna",
+		time.Now(),
+	)
+	if !errors.Is(err, errOpenCodeGoResponsesStreamMissingTerminal) {
+		t.Fatalf("expected premature EOF error, got %T %v", err, err)
+	}
+	var failoverErr *UpstreamFailoverError
+	if errors.As(err, &failoverErr) {
+		t.Fatalf("stream with semantic delta must not be replayed: %+v", failoverErr)
+	}
+	if !strings.Contains(rec.Recorder.Body.String(), `"delta":"partial"`) {
+		t.Fatalf("expected partial semantic output to remain visible: %s", rec.Recorder.Body.String())
+	}
+	if result == nil || result.FirstTokenMs == nil {
+		t.Fatalf("semantic delta must record first output: %+v", result)
+	}
+}
+
 func TestOpenCodeGoGatewayServiceIdentityStreamRejectsMalformedJSONBeforeCommit(t *testing.T) {
 	svc := &OpenCodeGoGatewayService{cfg: &config.Config{}}
 	pipeline, _, err := newOpenCodeGoPipelineRequest(
