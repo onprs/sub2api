@@ -68,6 +68,31 @@ type testGinContextRecorder struct {
 	Recorder *httptest.ResponseRecorder
 }
 
+type testFlushResponseRecorder struct {
+	*httptest.ResponseRecorder
+	flushed chan struct{}
+}
+
+func (r *testFlushResponseRecorder) Flush() {
+	r.ResponseRecorder.Flush()
+	select {
+	case r.flushed <- struct{}{}:
+	default:
+	}
+}
+
+func newTestGinStreamingContextRecorder(method string, path string, body string) (*gin.Context, *testFlushResponseRecorder) {
+	recorder := &testFlushResponseRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		flushed:          make(chan struct{}, 8),
+	}
+	c, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+	return c, recorder
+}
+
 func newTestGinContextRecorder(method string, path string, body string) *testGinContextRecorder {
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -757,7 +782,7 @@ func TestOpenCodeGoGatewayServiceResponsesPrematureEOFAfterDeltaDoesNotFailover(
 	}
 }
 
-func TestOpenCodeGoGatewayServiceMuseResponsesPrematureEOFAfterDeltaTriggersFailover(t *testing.T) {
+func TestOpenCodeGoGatewayServiceMuseResponsesPrematureEOFAfterDeltaStaysVisible(t *testing.T) {
 	const model = "muse-spark-1.2-contributor"
 	svc := &OpenCodeGoGatewayService{cfg: &config.Config{}}
 	requestBody := []byte(`{"model":"muse-spark-1.2-contributor","input":"hello","stream":true}`)
@@ -801,83 +826,182 @@ func TestOpenCodeGoGatewayServiceMuseResponsesPrematureEOFAfterDeltaTriggersFail
 		model,
 		time.Now(),
 	)
+	if !errors.Is(err, errOpenCodeGoResponsesStreamMissingTerminal) {
+		t.Fatalf("expected Muse premature EOF error, got result=%+v err=%T %v", result, err, err)
+	}
 	var failoverErr *UpstreamFailoverError
-	if !errors.As(err, &failoverErr) {
-		t.Fatalf("expected Muse EOF to trigger failover, got result=%+v err=%T %v", result, err, err)
-	}
-	if !failoverErr.SafeToFailoverAfterWrite {
-		t.Fatalf("Muse staged EOF must be safe to fail over: %+v", failoverErr)
-	}
-	if rec.Context.Writer.Written() || rec.Recorder.Body.Len() != 0 {
-		t.Fatalf("Muse semantic output must remain attempt-local before terminal: status=%d body=%q", rec.Recorder.Code, rec.Recorder.Body.String())
-	}
-	if result == nil || result.FirstTokenMs == nil {
-		t.Fatalf("upstream semantic delta must still record first output latency: %+v", result)
-	}
-}
-
-func TestOpenCodeGoGatewayServiceMuseResponsesStagedEOFRemainsFailoverSafeAfterKeepalive(t *testing.T) {
-	const model = "muse-spark-1.2-contributor"
-	svc := &OpenCodeGoGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}}}
-	requestBody := []byte(`{"model":"muse-spark-1.2-contributor","input":"hello","stream":true}`)
-	pipeline, _, err := newOpenCodeGoPipelineRequest(
-		requestBody,
-		protocolconv.ProtocolOpenAIResponses,
-		protocolconv.ProtocolOpenAIResponses,
-		nil,
-		model,
-		model,
-	)
-	if err != nil {
-		t.Fatalf("newOpenCodeGoPipelineRequest error: %v", err)
-	}
-	upstreamBody := strings.Join([]string{
-		`event: response.created`,
-		`data: {"type":"response.created","response":{"id":"resp_muse_keepalive","status":"in_progress","output":[]}}`,
-		"",
-		`event: response.output_text.delta`,
-		`data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"item_id":"msg_muse_keepalive","delta":"must-stay-staged"}`,
-		"",
-		"",
-	}, "\n")
-	reader, writer := io.Pipe()
-	go func() {
-		_, _ = io.WriteString(writer, upstreamBody)
-		time.Sleep(1100 * time.Millisecond)
-		_ = writer.Close()
-	}()
-	resp := &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
-		Body:       reader,
-	}
-	rec := newTestGinContextRecorder(http.MethodPost, "/v1/responses", string(requestBody))
-
-	_, err = svc.streamStandardResponse(
-		rec.Context,
-		resp,
-		&Account{ID: 42, Name: "test-account"},
-		pipeline,
-		protocolconv.ProtocolOpenAIResponses,
-		protocolconv.ProtocolOpenAIResponses,
-		model,
-		model,
-		time.Now(),
-	)
-	var failoverErr *UpstreamFailoverError
-	if !errors.As(err, &failoverErr) || !failoverErr.SafeToFailoverAfterWrite {
-		t.Fatalf("expected keepalive-only Muse attempt to remain failover-safe, got %T %+v", err, failoverErr)
+	if errors.As(err, &failoverErr) {
+		t.Fatalf("Muse stream with visible output must not be replayed: %+v", failoverErr)
 	}
 	wire := rec.Recorder.Body.String()
-	if !rec.Context.Writer.Written() || wire == "" {
-		t.Fatalf("expected staged attempt to emit a keepalive")
+	if !rec.Context.Writer.Written() || !strings.Contains(wire, `"delta":"partial"`) {
+		t.Fatalf("Muse semantic output must remain visible after EOF: status=%d body=%q", rec.Recorder.Code, wire)
 	}
-	if strings.Contains(wire, "must-stay-staged") {
-		t.Fatalf("failed attempt leaked semantic output after keepalive: %q", wire)
+	if result == nil || result.FirstTokenMs == nil {
+		t.Fatalf("upstream semantic delta must record first output latency: %+v", result)
+	}
+	streamErr, ok := GetOpsStreamError(rec.Context)
+	if !ok || streamErr.ErrType != "upstream_error" || streamErr.IntendedStatus != http.StatusBadGateway || streamErr.Message != errOpenCodeGoResponsesStreamMissingTerminal.Error() {
+		t.Fatalf("Muse EOF after output must remain visible in ops errors: %+v ok=%v", streamErr, ok)
+	}
+	rawEvents, ok := rec.Context.Get(OpsUpstreamErrorsKey)
+	events, eventsOK := rawEvents.([]*OpsUpstreamErrorEvent)
+	if !ok || !eventsOK || len(events) != 1 || events[0].Kind != "premature_eof_after_output" || events[0].UpstreamRequestID != "rid-muse-eof-after-output" {
+		t.Fatalf("Muse EOF must retain upstream diagnostics: %#v", rawEvents)
 	}
 }
 
-func TestOpenCodeGoGatewayServiceMuseResponsesCommitsStagedOutputAtTerminal(t *testing.T) {
+func TestOpenCodeGoGatewayServiceMuseResponsesStreamsBeforeTerminal(t *testing.T) {
+	const model = "muse-spark-1.2-contributor"
+	tests := []struct {
+		name        string
+		preterminal string
+		terminal    string
+		want        []string
+	}{
+		{
+			name: "text",
+			preterminal: strings.Join([]string{
+				`event: response.created`,
+				`data: {"type":"response.created","response":{"id":"resp_muse_text","status":"in_progress","output":[]}}`,
+				"",
+				`event: response.output_text.delta`,
+				`data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"item_id":"msg_muse_text","delta":"live-text"}`,
+				"",
+				"",
+			}, "\n"),
+			terminal: strings.Join([]string{
+				`event: response.output_text.done`,
+				`data: {"type":"response.output_text.done","output_index":0,"content_index":0,"item_id":"msg_muse_text","text":"live-text"}`,
+				"",
+				`event: response.completed`,
+				`data: {"type":"response.completed","response":{"id":"resp_muse_text","status":"completed","output":[],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`,
+				"",
+			}, "\n"),
+			want: []string{`event: response.output_text.delta`, `"delta":"live-text"`},
+		},
+		{
+			name: "tool_call",
+			preterminal: strings.Join([]string{
+				`event: response.created`,
+				`data: {"type":"response.created","response":{"id":"resp_muse_tool","status":"in_progress","output":[]}}`,
+				"",
+				`event: response.output_item.added`,
+				`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_muse","call_id":"call_muse","name":"lookup","arguments":"","status":"in_progress"}}`,
+				"",
+				`event: response.function_call_arguments.delta`,
+				`data: {"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_muse","delta":"{\"query\":\""}`,
+				"",
+				"",
+			}, "\n"),
+			terminal: strings.Join([]string{
+				`event: response.function_call_arguments.done`,
+				`data: {"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_muse","arguments":"{\"query\":\"status\"}"}`,
+				"",
+				`event: response.output_item.done`,
+				`data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_muse","call_id":"call_muse","name":"lookup","arguments":"{\"query\":\"status\"}","status":"completed"}}`,
+				"",
+				`event: response.completed`,
+				`data: {"type":"response.completed","response":{"id":"resp_muse_tool","status":"completed","output":[],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`,
+				"",
+			}, "\n"),
+			want: []string{`event: response.function_call_arguments.delta`, `"delta":"{\"query\":\""`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &OpenCodeGoGatewayService{cfg: &config.Config{}}
+			requestBody := []byte(`{"model":"muse-spark-1.2-contributor","input":"hello","stream":true}`)
+			pipeline, _, err := newOpenCodeGoPipelineRequest(
+				requestBody,
+				protocolconv.ProtocolOpenAIResponses,
+				protocolconv.ProtocolOpenAIResponses,
+				nil,
+				model,
+				model,
+			)
+			if err != nil {
+				t.Fatalf("newOpenCodeGoPipelineRequest error: %v", err)
+			}
+
+			reader, writer := io.Pipe()
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body:       reader,
+			}
+			c, recorder := newTestGinStreamingContextRecorder(http.MethodPost, "/v1/responses", string(requestBody))
+			type streamResult struct {
+				result *ForwardResult
+				err    error
+			}
+			done := make(chan streamResult, 1)
+			go func() {
+				result, streamErr := svc.streamStandardResponse(
+					c,
+					resp,
+					&Account{ID: 42, Name: "test-account"},
+					pipeline,
+					protocolconv.ProtocolOpenAIResponses,
+					protocolconv.ProtocolOpenAIResponses,
+					model,
+					model,
+					time.Now(),
+				)
+				done <- streamResult{result: result, err: streamErr}
+			}()
+
+			if _, err := io.WriteString(writer, tt.preterminal); err != nil {
+				_ = writer.Close()
+				t.Fatalf("write preterminal stream: %v", err)
+			}
+			select {
+			case <-recorder.flushed:
+			case outcome := <-done:
+				_ = writer.Close()
+				t.Fatalf("stream ended before flushing semantic output: result=%+v err=%v", outcome.result, outcome.err)
+			case <-time.After(2 * time.Second):
+				_ = writer.Close()
+				t.Fatal("timed out waiting for semantic output flush")
+			}
+
+			wireBeforeTerminal := recorder.Body.String()
+			for _, fragment := range tt.want {
+				if !strings.Contains(wireBeforeTerminal, fragment) {
+					t.Errorf("semantic output was not flushed before terminal; missing %q in %s", fragment, wireBeforeTerminal)
+				}
+			}
+			if strings.Contains(wireBeforeTerminal, `"type":"response.completed"`) {
+				t.Errorf("terminal event arrived before the timing assertion: %s", wireBeforeTerminal)
+			}
+
+			if _, err := io.WriteString(writer, tt.terminal); err != nil {
+				_ = writer.Close()
+				t.Fatalf("write terminal stream: %v", err)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatalf("close terminal stream: %v", err)
+			}
+			select {
+			case outcome := <-done:
+				if outcome.err != nil {
+					t.Fatalf("completed Muse stream error: %v", outcome.err)
+				}
+				if outcome.result == nil || outcome.result.FirstTokenMs == nil || outcome.result.Usage.InputTokens != 10 || outcome.result.Usage.OutputTokens != 2 {
+					t.Fatalf("unexpected completed Muse result: %+v", outcome.result)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out waiting for completed Muse stream")
+			}
+			if !strings.Contains(recorder.Body.String(), `"type":"response.completed"`) {
+				t.Fatalf("completed Muse stream lost terminal event: %s", recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestOpenCodeGoGatewayServiceMuseResponsesCompletedStreamPreservesTerminal(t *testing.T) {
 	const model = "muse-spark-1.2-contributor"
 	svc := &OpenCodeGoGatewayService{cfg: &config.Config{}}
 	requestBody := []byte(`{"model":"muse-spark-1.2-contributor","input":"hello","stream":true}`)
@@ -935,7 +1059,7 @@ func TestOpenCodeGoGatewayServiceMuseResponsesCommitsStagedOutputAtTerminal(t *t
 	}
 	wire := rec.Recorder.Body.String()
 	if !strings.Contains(wire, `"delta":"complete"`) || !strings.Contains(wire, `"type":"response.completed"`) {
-		t.Fatalf("staged Muse output was not committed at terminal: %s", wire)
+		t.Fatalf("completed Muse stream lost output or terminal: %s", wire)
 	}
 	if result == nil || result.FirstTokenMs == nil || result.Usage.InputTokens != 10 || result.Usage.OutputTokens != 2 {
 		t.Fatalf("unexpected completed Muse result: %+v", result)
