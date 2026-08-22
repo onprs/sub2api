@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { UserAvailableChannel } from '@/api/channels'
 import { BILLING_MODE_PER_REQUEST, BILLING_MODE_TOKEN } from '@/constants/channel'
-import { buildModelPricingRows, filterModelPricingRows } from '../modelPricingRows'
+import {
+  buildModelPricingRows,
+  calculateActualTokenPrice,
+  filterModelPricingRows,
+} from '../modelPricingRows'
 
 function makeChannels(): UserAvailableChannel[] {
   return [
@@ -18,6 +22,11 @@ function makeChannels(): UserAvailableChannel[] {
               platform: 'openai',
               subscription_type: 'standard',
               rate_multiplier: 1,
+              peak_rate_enabled: false,
+              peak_start: '',
+              peak_end: '',
+              peak_rate_multiplier: 1,
+              current_peak_multiplier: 1,
               is_exclusive: false,
             },
             {
@@ -26,6 +35,11 @@ function makeChannels(): UserAvailableChannel[] {
               platform: 'openai',
               subscription_type: 'subscription',
               rate_multiplier: 2,
+              peak_rate_enabled: false,
+              peak_start: '',
+              peak_end: '',
+              peak_rate_multiplier: 1,
+              current_peak_multiplier: 1,
               is_exclusive: true,
             },
           ],
@@ -92,6 +106,11 @@ function makeChannels(): UserAvailableChannel[] {
               platform: 'gemini',
               subscription_type: 'standard',
               rate_multiplier: 0,
+              peak_rate_enabled: false,
+              peak_start: '',
+              peak_end: '',
+              peak_rate_multiplier: 1,
+              current_peak_multiplier: 1,
               is_exclusive: false,
             },
           ],
@@ -159,10 +178,16 @@ describe('buildModelPricingRows', () => {
     expect(enterprise?.pricing.outputPrice).toBe(0.000002)
   })
 
-  it('preserves OpenCode Go time bands and combines the model-specific multiplier with the effective group multiplier', () => {
+  it('preserves OpenCode Go time bands and combines every current token billing multiplier', () => {
     const channels = makeChannels()
     const pricing = channels[0].platforms[0].supported_models[0].pricing
+    const enterpriseGroup = channels[0].platforms[0].groups[1]
     if (!pricing) throw new Error('test pricing is required')
+    enterpriseGroup.peak_rate_enabled = true
+    enterpriseGroup.peak_start = '14:00'
+    enterpriseGroup.peak_end = '18:00'
+    enterpriseGroup.peak_rate_multiplier = 3
+    enterpriseGroup.current_peak_multiplier = 3
     channels[0].platforms[0].supported_models[0].model_specific_multiplier = 2
     channels[0].platforms[0].supported_models[0].usage_offer = {
       code: 'opencode_go_usage_offer',
@@ -193,7 +218,8 @@ describe('buildModelPricingRows', () => {
     const enterprise = rows.find((row) => row.groupId === 20 && row.modelName === 'gpt-4o-mini')
 
     expect(enterprise?.modelSpecificMultiplier).toBe(2)
-    expect(enterprise?.effectiveMultiplier).toBe(1)
+    expect(enterprise?.currentPeakMultiplier).toBe(3)
+    expect(enterprise?.effectiveMultiplier).toBe(3)
     expect(enterprise?.usageOfferCode).toBe('opencode_go_usage_offer')
     expect(enterprise?.usageMultiplier).toBe(2)
     expect(enterprise?.timeBands).toEqual([
@@ -224,9 +250,11 @@ describe('buildModelPricingRows', () => {
         },
       },
     ])
+    expect(calculateActualTokenPrice(enterprise?.timeBands[0].pricing.inputPrice, enterprise?.effectiveMultiplier ?? 0)).toBeCloseTo(0.66e-6)
+    expect(calculateActualTokenPrice(null, enterprise?.effectiveMultiplier ?? 0)).toBeNull()
   })
 
-  it('keeps token and per-request prices independent from multipliers', () => {
+  it('keeps original token and per-request prices independent from multipliers', () => {
     const rows = buildModelPricingRows(makeChannels(), {})
     const enterprise = rows.find((row) => row.groupId === 20 && row.modelName === 'gpt-4o-mini')
     const perRequest = rows.find((row) => row.groupId === 20 && row.modelName === 'image-pro')

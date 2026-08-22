@@ -10,8 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -44,6 +46,29 @@ func TestFilterUserVisibleGroups_IntersectionOnly(t *testing.T) {
 	require.Len(t, visible, 2)
 	ids := []int64{visible[0].ID, visible[1].ID}
 	require.ElementsMatch(t, []int64{1, 3}, ids)
+}
+
+func TestUserAvailableGroupFromService_PreservesPeakRateFields(t *testing.T) {
+	pricingAt := time.Date(2026, 8, 22, 15, 30, 0, 0, timezone.Location())
+	got := userAvailableGroupFromServiceAt(service.Group{
+		ID:                 17,
+		Name:               "OpenCode Go",
+		Platform:           service.PlatformOpenCodeGo,
+		SubscriptionType:   service.SubscriptionTypeSubscription,
+		RateMultiplier:     0.75,
+		PeakRateEnabled:    true,
+		PeakStart:          "14:00",
+		PeakEnd:            "18:00",
+		PeakRateMultiplier: 2.5,
+		IsExclusive:        true,
+	}, pricingAt)
+
+	require.Equal(t, int64(17), got.ID)
+	require.True(t, got.PeakRateEnabled)
+	require.Equal(t, "14:00", got.PeakStart)
+	require.Equal(t, "18:00", got.PeakEnd)
+	require.Equal(t, 2.5, got.PeakRateMultiplier)
+	require.Equal(t, 2.5, got.CurrentPeakMultiplier)
 }
 
 func TestToUserSupportedModels_FiltersByAllowedPlatforms(t *testing.T) {
@@ -193,7 +218,7 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 	require.NoError(t, err)
 	var groupDecoded map[string]any
 	require.NoError(t, json.Unmarshal(rawGroup, &groupDecoded))
-	for _, key := range []string{"id", "name", "platform", "subscription_type", "rate_multiplier", "peak_rate_enabled", "peak_start", "peak_end", "peak_rate_multiplier", "is_exclusive"} {
+	for _, key := range []string{"id", "name", "platform", "subscription_type", "rate_multiplier", "peak_rate_enabled", "peak_start", "peak_end", "peak_rate_multiplier", "current_peak_multiplier", "is_exclusive"} {
 		_, exists := groupDecoded[key]
 		require.Truef(t, exists, "group DTO must expose %q", key)
 	}

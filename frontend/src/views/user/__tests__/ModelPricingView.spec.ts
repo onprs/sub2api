@@ -27,6 +27,8 @@ const messages: Record<string, string> = {
   'modelPricing.columns.model': 'Model',
   'modelPricing.copyModelId': 'Copy Model ID',
   'modelPricing.modelCopied': 'Model ID copied',
+  'modelPricing.modes.raw': 'Original Billing',
+  'modelPricing.modes.actual': 'Actual Billing',
   'modelPricing.columns.contextTier': 'Pricing Period / Context Tier',
   'modelPricing.columns.group': 'Group',
   'modelPricing.columns.groupMultiplier': 'Group Multiplier',
@@ -138,10 +140,11 @@ function makeChannel(): UserAvailableChannel[] {
               platform: 'opencode_go',
               subscription_type: 'subscription',
               rate_multiplier: 2,
-              peak_rate_enabled: false,
-              peak_start: '',
-              peak_end: '',
-              peak_rate_multiplier: 1,
+              peak_rate_enabled: true,
+              peak_start: '14:00',
+              peak_end: '18:00',
+              peak_rate_multiplier: 3,
+              current_peak_multiplier: 3,
               is_exclusive: true,
             },
           ],
@@ -203,6 +206,7 @@ function makeChannel(): UserAvailableChannel[] {
               peak_start: '',
               peak_end: '',
               peak_rate_multiplier: 1,
+              current_peak_multiplier: 1,
               is_exclusive: false,
             },
           ],
@@ -295,6 +299,10 @@ describe('ModelPricingView', () => {
         subscriptionType: 'subscription',
         defaultMultiplier: 2,
         userMultiplier: 0.5,
+        peakRateEnabled: true,
+        peakStart: '14:00',
+        peakEnd: '18:00',
+        peakRateMultiplier: 3,
         isExclusive: true,
       },
     ])
@@ -320,6 +328,10 @@ describe('ModelPricingView', () => {
         subscriptionType: 'standard',
         defaultMultiplier: 0,
         userMultiplier: null,
+        peakRateEnabled: false,
+        peakStart: '',
+        peakEnd: '',
+        peakRateMultiplier: 1,
         isExclusive: false,
       },
     ])
@@ -366,6 +378,10 @@ describe('ModelPricingView', () => {
         subscriptionType: 'subscription',
         defaultMultiplier: 2,
         userMultiplier: null,
+        peakRateEnabled: true,
+        peakStart: '14:00',
+        peakEnd: '18:00',
+        peakRateMultiplier: 3,
         isExclusive: true,
       },
     ])
@@ -373,7 +389,7 @@ describe('ModelPricingView', () => {
     expect(wrapper.find('[data-test="pricing-search"]').exists()).toBe(false)
   })
 
-  it('loads pricing rows, refreshes, and always keeps prices independent from multipliers', async () => {
+  it('loads pricing rows, refreshes, and switches between original and actual token prices', async () => {
     getAvailable.mockResolvedValue(makeChannel())
     getUserGroupRates.mockResolvedValue({ 20: 0.5 })
 
@@ -396,16 +412,31 @@ describe('ModelPricingView', () => {
     expect(wrapper.text()).not.toContain('Quota Cost Multiplier')
     expect(wrapper.text()).toContain('0.5x')
     expect(wrapper.text()).toContain('2x usage limits')
-    expect(wrapper.text()).toContain('$0.22')
-    expect(wrapper.text()).toContain('$0.44')
+    expect(wrapper.get('tbody td:nth-child(8)').text()).toBe('3x')
+
+    const rawMode = wrapper.get('[data-pricing-mode="raw"]')
+    const actualMode = wrapper.get('[data-pricing-mode="actual"]')
+    const inputPrices = () => wrapper.get('tbody td:nth-child(12)').text()
+    expect(rawMode.text()).toBe('Original Billing')
+    expect(actualMode.text()).toBe('Actual Billing')
+    expect(actualMode.attributes('aria-pressed')).toBe('true')
+    expect(inputPrices()).toContain('$0.66')
+    expect(inputPrices()).toContain('$1.32')
+    expect(inputPrices()).not.toContain('$0.22')
+
+    await rawMode.trigger('click')
+    expect(rawMode.attributes('aria-pressed')).toBe('true')
+    expect(inputPrices()).toContain('$0.22')
+    expect(inputPrices()).toContain('$0.44')
+    expect(inputPrices()).not.toContain('$1.32')
 
     await wrapper.get('button[title="Refresh"]').trigger('click')
     await flushPromises()
     expect(getAvailable).toHaveBeenCalledTimes(2)
     expect(getAvailable).toHaveBeenLastCalledWith({ purpose: 'model_pricing' })
     expect(wrapper.find('table').exists()).toBe(true)
-    expect(wrapper.find('[data-pricing-mode]').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('Actual Price')
+    expect(wrapper.findAll('[data-pricing-mode]')).toHaveLength(2)
+    expect(wrapper.get('[data-pricing-mode="raw"]').attributes('aria-pressed')).toBe('true')
   })
 
   it('renders every context tier and its token prices', async () => {
@@ -445,11 +476,13 @@ describe('ModelPricingView', () => {
     expect(wrapper.text()).toContain('Context Tier')
     expect(wrapper.text()).toContain('Up to 256K')
     expect(wrapper.text()).toContain('Above 256K')
-    expect(wrapper.text()).toContain('$0.4')
-    expect(wrapper.text()).toContain('$1.2')
+    await wrapper.get('[data-pricing-mode="raw"]').trigger('click')
+    const inputPrices = wrapper.get('tbody td:nth-child(12)').text()
+    expect(inputPrices).toContain('$0.4')
+    expect(inputPrices).toContain('$1.2')
     expect(wrapper.text()).toContain('$0.04')
     expect(wrapper.text()).toContain('$0.12')
-    expect(wrapper.find('[data-pricing-mode]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-pricing-mode]')).toHaveLength(2)
   })
 
   it('shows an app error when available channels fail to load', async () => {

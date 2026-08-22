@@ -13,6 +13,10 @@ export default {
     empty: '暂无模型计费数据',
     copyModelId: '复制模型 ID',
     modelCopied: '已复制模型 ID',
+    modes: {
+      raw: '原始计费',
+      actual: '实际计费'
+    },
     columns: {
       channel: '渠道',
       platform: '平台',

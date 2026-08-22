@@ -70,6 +70,10 @@
                       :subscription-type="(option as unknown as ModelPricingGroupOption).subscriptionType"
                       :rate-multiplier="(option as unknown as ModelPricingGroupOption).defaultMultiplier"
                       :user-rate-multiplier="(option as unknown as ModelPricingGroupOption).userMultiplier"
+                      :peak-rate-enabled="(option as unknown as ModelPricingGroupOption).peakRateEnabled"
+                      :peak-start="(option as unknown as ModelPricingGroupOption).peakStart"
+                      :peak-end="(option as unknown as ModelPricingGroupOption).peakEnd"
+                      :peak-rate-multiplier="(option as unknown as ModelPricingGroupOption).peakRateMultiplier"
                       always-show-rate
                     />
                     <span v-else class="text-gray-400 dark:text-gray-500">
@@ -86,6 +90,10 @@
                           :subscription-type="(option as unknown as ModelPricingGroupOption).subscriptionType"
                           :rate-multiplier="(option as unknown as ModelPricingGroupOption).defaultMultiplier"
                           :user-rate-multiplier="(option as unknown as ModelPricingGroupOption).userMultiplier"
+                          :peak-rate-enabled="(option as unknown as ModelPricingGroupOption).peakRateEnabled"
+                          :peak-start="(option as unknown as ModelPricingGroupOption).peakStart"
+                          :peak-end="(option as unknown as ModelPricingGroupOption).peakEnd"
+                          :peak-rate-multiplier="(option as unknown as ModelPricingGroupOption).peakRateMultiplier"
                           always-show-rate
                         />
                         <Icon
@@ -119,7 +127,10 @@
             </button>
           </div>
 
-          <div v-if="hasSelectedGroup" class="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div
+            v-if="hasSelectedGroup"
+            class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+          >
             <div class="relative w-full sm:w-80">
               <Icon
                 name="search"
@@ -133,6 +144,27 @@
                 class="input pl-10"
                 data-test="pricing-search"
               />
+            </div>
+
+            <div
+              class="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-gray-200 bg-gray-200 dark:border-dark-600 dark:bg-dark-600"
+            >
+              <button
+                v-for="option in pricingModeOptions"
+                :key="option.value"
+                type="button"
+                class="min-h-10 min-w-0 bg-white px-3 py-2 text-sm font-medium transition-colors focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 dark:bg-dark-800"
+                :class="
+                  pricingMode === option.value
+                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/25 dark:text-primary-300'
+                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-dark-700 dark:hover:text-white'
+                "
+                :aria-pressed="pricingMode === option.value"
+                :data-pricing-mode="option.value"
+                @click="pricingMode = option.value"
+              >
+                {{ option.label }}
+              </button>
             </div>
           </div>
         </div>
@@ -246,6 +278,10 @@
                       :subscription-type="row.subscriptionType as SubscriptionType"
                       :rate-multiplier="row.defaultMultiplier"
                       :user-rate-multiplier="row.userMultiplier"
+                      :peak-rate-enabled="row.peakRateEnabled"
+                      :peak-start="row.peakStart"
+                      :peak-end="row.peakEnd"
+                      :peak-rate-multiplier="row.peakRateMultiplier"
                       always-show-rate
                     />
                   </div>
@@ -311,7 +347,7 @@
                     :key="line.key"
                     class="model-pricing-tier-line whitespace-nowrap"
                   >
-                    {{ tokenPrice(line.pricing, 'inputPrice') }}
+                    {{ tokenPrice(row, line.pricing, 'inputPrice') }}
                   </div>
                 </td>
                 <td class="px-4 py-3 text-right align-top font-mono text-[12px]">
@@ -320,7 +356,7 @@
                     :key="line.key"
                     class="model-pricing-tier-line whitespace-nowrap"
                   >
-                    {{ tokenPrice(line.pricing, 'outputPrice') }}
+                    {{ tokenPrice(row, line.pricing, 'outputPrice') }}
                   </div>
                 </td>
                 <td class="px-4 py-3 text-right align-top font-mono text-[12px]">
@@ -329,7 +365,7 @@
                     :key="line.key"
                     class="model-pricing-tier-line whitespace-nowrap"
                   >
-                    {{ tokenPrice(line.pricing, 'cacheWritePrice') }}
+                    {{ tokenPrice(row, line.pricing, 'cacheWritePrice') }}
                   </div>
                 </td>
                 <td class="px-4 py-3 text-right align-top font-mono text-[12px]">
@@ -338,7 +374,7 @@
                     :key="line.key"
                     class="model-pricing-tier-line whitespace-nowrap"
                   >
-                    {{ tokenPrice(line.pricing, 'cacheReadPrice') }}
+                    {{ tokenPrice(row, line.pricing, 'cacheReadPrice') }}
                   </div>
                 </td>
                 <td class="px-4 py-3 text-right align-top font-mono text-[12px]">
@@ -379,6 +415,7 @@ import { formatScaled } from '@/utils/pricing'
 import { useClipboard } from '@/composables/useClipboard'
 import {
   buildModelPricingRows,
+  calculateActualTokenPrice,
   filterModelPricingRows,
   type ModelPricingIntervalRow,
   type ModelPricingRow,
@@ -387,6 +424,7 @@ import {
 } from './modelPricingRows'
 
 type TokenPriceKey = 'inputPrice' | 'outputPrice' | 'cacheWritePrice' | 'cacheReadPrice'
+type PricingMode = 'raw' | 'actual'
 
 interface ModelPricingLine {
   key: string
@@ -406,6 +444,10 @@ interface ModelPricingGroupOption extends Record<string, unknown> {
   subscriptionType: SubscriptionType
   defaultMultiplier: number
   userMultiplier: number | null
+  peakRateEnabled: boolean
+  peakStart: string
+  peakEnd: string
+  peakRateMultiplier: number
   isExclusive: boolean
 }
 
@@ -432,6 +474,7 @@ const loading = ref(false)
 const selectedPlatform = ref<string | null>(null)
 const selectedGroupId = ref<number | null>(null)
 const searchQuery = ref('')
+const pricingMode = ref<PricingMode>('actual')
 const perMillionScale = 1_000_000
 
 const { copyToClipboard } = useClipboard()
@@ -448,6 +491,11 @@ async function handleCopyModel(modelName: string) {
     }, 1500)
   }
 }
+
+const pricingModeOptions = computed<Array<{ value: PricingMode; label: string }>>(() => [
+  { value: 'raw', label: t('modelPricing.modes.raw') },
+  { value: 'actual', label: t('modelPricing.modes.actual') },
+])
 
 const rows = computed(() => buildModelPricingRows(channels.value, userGroupRates.value))
 
@@ -475,6 +523,10 @@ const groupOptions = computed<ModelPricingGroupOption[]>(() => {
       subscriptionType: row.subscriptionType as SubscriptionType,
       defaultMultiplier: row.defaultMultiplier,
       userMultiplier: row.userMultiplier,
+      peakRateEnabled: row.peakRateEnabled,
+      peakStart: row.peakStart,
+      peakEnd: row.peakEnd,
+      peakRateMultiplier: row.peakRateMultiplier,
       isExclusive: row.isExclusive,
     })
   }
@@ -607,8 +659,16 @@ function pricingLines(row: ModelPricingRow): ModelPricingLine[] {
   }))
 }
 
-function tokenPrice(pricing: ModelPricingValues, key: TokenPriceKey): string {
-  return formatScaled(pricing[key], perMillionScale)
+function tokenPrice(
+  row: ModelPricingRow,
+  pricing: ModelPricingValues,
+  key: TokenPriceKey,
+): string {
+  const price =
+    pricingMode.value === 'actual'
+      ? calculateActualTokenPrice(pricing[key], row.effectiveMultiplier)
+      : pricing[key]
+  return formatScaled(price, perMillionScale)
 }
 
 function unitPrice(pricing: ModelPricingValues): string {
