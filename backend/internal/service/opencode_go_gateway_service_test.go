@@ -689,6 +689,70 @@ func newOpenCodeGoResponsesTestAccount() *Account {
 	}
 }
 
+func TestOpenCodeGoGatewayServiceCapsMuseSparkResponsesOutputBudget(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const model = "muse-spark-1.2-contributor"
+	upstreamBody := `{"id":"resp_muse","object":"response","model":"muse-spark-1.2-contributor","status":"completed","output":[{"type":"message","id":"msg_muse","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}`
+	tests := []struct {
+		name        string
+		source      protocolconv.Protocol
+		requestBody string
+	}{
+		{name: "chat", source: protocolconv.ProtocolOpenAIChat, requestBody: `{"model":"muse-spark-1.2-contributor","messages":[{"role":"user","content":"hello"}],"max_tokens":1048576,"stream":false}`},
+		{name: "responses", source: protocolconv.ProtocolOpenAIResponses, requestBody: `{"model":"muse-spark-1.2-contributor","input":"hello","max_output_tokens":1048576,"stream":false}`},
+		{name: "messages", source: protocolconv.ProtocolAnthropic, requestBody: `{"model":"muse-spark-1.2-contributor","messages":[{"role":"user","content":"hello"}],"max_tokens":1048576,"stream":false}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+			}}
+			svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+			account := &Account{
+				ID: 42, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 1,
+				Credentials: map[string]any{
+					"api_key": "ocg-secret", "base_url": "https://opencode.ai/zen/go/v1",
+					"model_protocols": map[string]any{model: OpenCodeGoProtocolResponses},
+				},
+			}
+			rec := newTestGinContextRecorder(http.MethodPost, "/matrix", tt.requestBody)
+
+			var err error
+			switch tt.source {
+			case protocolconv.ProtocolOpenAIChat:
+				_, err = svc.ForwardChatCompletions(context.Background(), rec.Context, account, []byte(tt.requestBody))
+			case protocolconv.ProtocolOpenAIResponses:
+				_, err = svc.ForwardResponses(context.Background(), rec.Context, account, []byte(tt.requestBody), model)
+			case protocolconv.ProtocolAnthropic:
+				_, err = svc.ForwardMessages(context.Background(), rec.Context, account, []byte(tt.requestBody))
+			}
+			if err != nil {
+				t.Fatalf("forward error: %v", err)
+			}
+			if got := upstream.req.URL.Path; got != "/zen/go/v1/responses" {
+				t.Fatalf("unexpected upstream path: %s", got)
+			}
+			if got := gjson.Get(upstream.body, "max_output_tokens").Int(); got != openCodeGoMuseSparkMaxOutputTokens {
+				t.Fatalf("max_output_tokens = %d, want %d, body=%s", got, openCodeGoMuseSparkMaxOutputTokens, upstream.body)
+			}
+		})
+	}
+}
+
+func TestNormalizeOpenCodeGoResponsesBodyLeavesOtherModelsUnchanged(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-luna","input":"hello","max_output_tokens":1048576}`)
+	normalized, err := normalizeOpenCodeGoResponsesBody(body, "gpt-5.6-luna")
+	if err != nil {
+		t.Fatalf("normalize error: %v", err)
+	}
+	if string(normalized) != string(body) {
+		t.Fatalf("non-Muse request changed: got=%s want=%s", normalized, body)
+	}
+}
+
 func TestOpenCodeGoGatewayServiceResponsesUpstreamBufferedMatrix(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstreamBody := `{"id":"resp_luna","object":"response","model":"gpt-5.6-luna","status":"completed","output":[{"type":"message","id":"msg_luna","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":100,"output_tokens":20,"total_tokens":120,"input_tokens_details":{"cached_tokens":60,"cache_write_tokens":10}}}`
@@ -2046,6 +2110,12 @@ func TestShouldFailoverOpenCodeGoResponse(t *testing.T) {
 			want:   true,
 		},
 		{
+			name:   "console go deterministic provider validation failure",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"type":"invalid_request_error","message":"Error from provider (Console Go): Upstream request failed: [invalid_request_error] The request contains invalid parameters. Check the request body for any errors or inconsistencies."}}`,
+			want:   false,
+		},
+		{
 			name:   "client validation failure",
 			status: http.StatusBadRequest,
 			body:   `{"error":{"type":"invalid_request_error","message":"max_tokens must be greater than zero"}}`,
@@ -2109,6 +2179,43 @@ func TestOpenCodeGoGatewayServiceProviderWrappedBadRequestTriggersFailover(t *te
 	}
 	if rec.Recorder.Body.Len() != 0 {
 		t.Fatalf("failover response must remain unwritten, got %s", rec.Recorder.Body.String())
+	}
+}
+
+func TestOpenCodeGoGatewayServiceProviderWrappedValidationBadRequestDoesNotFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := `{"error":{"message":"Error from provider (Console Go): Upstream request failed: [invalid_request_error] The request contains invalid parameters. Check the request body for any errors or inconsistencies.","param":null,"type":"invalid_request_error"},"model":"muse-spark-1.2-contributor"}`
+	upstream := &openCodeGoHTTPUpstreamStub{resp: &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}}
+	svc := &OpenCodeGoGatewayService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{
+		ID: 42, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key": "ocg-secret",
+			"model_protocols": map[string]any{
+				"muse-spark-1.2-contributor": OpenCodeGoProtocolResponses,
+			},
+		},
+	}
+	requestBody := `{"model":"muse-spark-1.2-contributor","messages":[{"role":"user","content":"hi"}],"max_tokens":1048576,"stream":true}`
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", requestBody)
+
+	_, err := svc.ForwardChatCompletions(context.Background(), rec.Context, account, []byte(requestBody))
+	var failoverErr *UpstreamFailoverError
+	if errors.As(err, &failoverErr) {
+		t.Fatalf("deterministic validation error must not fail over: %+v", failoverErr)
+	}
+	if rec.Recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body=%s", rec.Recorder.Code, rec.Recorder.Body.String())
+	}
+	if !strings.Contains(rec.Recorder.Body.String(), "The request contains invalid parameters") {
+		t.Fatalf("upstream validation detail not preserved: %s", rec.Recorder.Body.String())
+	}
+	if got := gjson.Get(upstream.body, "max_output_tokens").Int(); got != openCodeGoMuseSparkMaxOutputTokens {
+		t.Fatalf("max_output_tokens = %d, want %d, body=%s", got, openCodeGoMuseSparkMaxOutputTokens, upstream.body)
 	}
 }
 

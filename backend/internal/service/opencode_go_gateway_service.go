@@ -27,7 +27,10 @@ var openCodeGoAllowedHeaders = map[string]bool{
 	"accept-language": true,
 }
 
-const openCodeGoUpstreamUserAgent = "opencode/1.0.0 (linux; x64) node/24.3.0"
+const (
+	openCodeGoUpstreamUserAgent        = "opencode/1.0.0 (linux; x64) node/24.3.0"
+	openCodeGoMuseSparkMaxOutputTokens = 64_000
+)
 
 // OpenCodeGoGatewayService forwards requests to the OpenCode Go API.
 type OpenCodeGoGatewayService struct {
@@ -369,6 +372,30 @@ func (s *OpenCodeGoGatewayService) forwardMessagesBody(
 	}
 }
 
+func normalizeOpenCodeGoResponsesBody(body []byte, models ...string) ([]byte, error) {
+	isMuseSpark := false
+	for _, model := range models {
+		normalized := strings.ToLower(strings.TrimSpace(model))
+		if strings.Contains(normalized, "muse-spark") || strings.Contains(normalized, "muse_spark") {
+			isMuseSpark = true
+			break
+		}
+	}
+	if !isMuseSpark {
+		return body, nil
+	}
+
+	maxOutputTokens := gjson.GetBytes(body, "max_output_tokens")
+	if !maxOutputTokens.Exists() || maxOutputTokens.Int() <= openCodeGoMuseSparkMaxOutputTokens {
+		return body, nil
+	}
+	normalized, err := sjson.SetBytes(body, "max_output_tokens", openCodeGoMuseSparkMaxOutputTokens)
+	if err != nil {
+		return nil, fmt.Errorf("cap Muse Spark max_output_tokens: %w", err)
+	}
+	return normalized, nil
+}
+
 func (s *OpenCodeGoGatewayService) forwardResponsesBody(
 	ctx context.Context,
 	c *gin.Context,
@@ -380,6 +407,11 @@ func (s *OpenCodeGoGatewayService) forwardResponsesBody(
 	protocol string,
 	pipeline *protocolconv.Pipeline,
 ) (*ForwardResult, error) {
+	body, err := normalizeOpenCodeGoResponsesBody(body, originalModel, upstreamModel)
+	if err != nil {
+		writeOpenCodeGoError(c, http.StatusBadRequest, responseMode.errorFormat(), "invalid_request_error", "Failed to normalize OpenCode Go responses request")
+		return nil, err
+	}
 	targetURL, err := s.openCodeGoEndpointURL(account, "/v1/responses")
 	if err != nil {
 		writeOpenCodeGoError(c, http.StatusBadRequest, responseMode.errorFormat(), "invalid_request_error", err.Error())
@@ -1644,11 +1676,10 @@ func shouldFailoverOpenCodeGoResponse(status int, body []byte) bool {
 	if errType != "invalid_request_error" || !strings.Contains(message, "error from provider") || !strings.Contains(message, "upstream request failed") {
 		return false
 	}
-	// Deterministic client validation errors must not fail over - they will fail
-	// on every account and waste the entire pool. The muse-spark family is
-	// especially prone to three variants observed in prod ops_error_logs:
-	//   `input` must be non-empty  /  tool_choice only auto  /  reasoning.effort unknown variant
-	if strings.Contains(message, "`input` must be non-empty") ||
+	// Console Go 也会用同一层外部错误包装确定性的供应商参数校验失败，
+	// 此时内层供应商错误类型才是可靠的判定依据。
+	if strings.Contains(message, "[invalid_request_error]") ||
+		strings.Contains(message, "`input` must be non-empty") ||
 		strings.Contains(message, "tool_choice") ||
 		strings.Contains(message, "reasoning.effort") ||
 		strings.Contains(message, "unknown variant") ||
