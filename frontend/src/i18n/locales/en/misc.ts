@@ -20,29 +20,29 @@ export default {
     help: {
       open: 'View pricing guide',
       title: 'Model Pricing Guide',
-      intro: 'All prices on this page are in USD. Token prices are shown per million tokens; the final charge depends on the pricing period or context tier matched by the request and the multipliers active at that time.',
+      intro: 'All prices on this page are in USD and token prices are shown per million tokens. A model time band or context tier first selects the original unit price; the actual price then applies the selected group rate and the offer-adjusted model quota multiplier.',
       priceModes: {
         title: 'Original and actual prices',
         rawTitle: 'Original price',
-        rawDescription: 'The base unit price selected after the request matches a pricing period or context tier, before the group, group peak, and model-specific multipliers are applied.',
+        rawDescription: 'The base unit price selected by the model’s peak/off-peak period or context tier. Peak and off-peak values are different original prices and are not applied again as multipliers.',
         actualTitle: 'Actual price',
-        actualDescription: 'The token unit price converted with the effective multiplier currently loaded on the page. Use it to estimate input, output, cache write, and cache read costs.',
+        actualDescription: 'The token unit price converted with the effective multiplier currently loaded on the page. Use it to estimate the actual charge for input, output, cache write, and cache read usage.',
         formula: 'Actual token unit price = Original token unit price × Effective multiplier',
-        example: 'For example, with an original price of $1/M, a 0.8x group multiplier, a current 1.5x group peak factor, and a 2x model-specific multiplier, the effective multiplier is 2.4x and the actual price is $2.4/M.',
+        example: 'For example, if the selected original price is $1/M, the group multiplier is 0.8x, the base model quota multiplier is 2x, and an official 2x usage offer adjusts the model multiplier to 1x, the effective multiplier is 0.8x and the actual price is $0.8/M.',
         unitPriceNote: 'Per-request/image prices always show the configured unit price and do not change with the price mode switch. Per-request and image requests use their dedicated billing rules and multipliers.',
-        snapshotNote: 'Effective multipliers and official offers are snapshots taken when the page loads. Refresh after crossing a peak boundary or when an offer changes.'
+        snapshotNote: 'Effective multipliers and official quota offers are snapshots taken when the page loads. Refresh after crossing a peak/off-peak boundary, a group period boundary, or when an offer changes.'
       },
       multipliers: {
-        title: 'How multipliers combine',
+        title: 'How actual multipliers are formed',
         groupTitle: 'Group multiplier',
         groupDescription: 'The base multiplier for the current user in the selected group. A user-specific multiplier replaces the group default instead of multiplying it again. 1x is the original rate, below 1x is a discount, above 1x is a markup, and 0x applies a zero multiplier to that cost.',
-        peakTitle: 'Group peak factor',
-        peakDescription: 'Applies only inside the peak window shown on the group; outside the window it is 1x. It affects token billing, including image tokens billed by token, but not per-image billing.',
-        modelTitle: 'Model-specific multiplier',
-        modelDescription: 'An additional factor used by certain models to represent their actual quota cost. A dash means no additional model multiplier and is treated as 1x. This factor is included in the actual charge.',
+        peakTitle: 'Group period multiplier (optional)',
+        peakDescription: 'This is not the model’s peak/off-peak price. It applies only when an administrator separately configures a period rule on a subscription group and the request falls inside that window; otherwise it is 1x. It affects token billing, but not per-image billing.',
+        modelTitle: 'Offer-adjusted model multiplier',
+        modelDescription: 'For OpenCode Go, the base model multiplier is the shared monthly quota divided by the model’s official monthly usage. While an official Nx usage offer is active, the base model multiplier is divided by N. A dash means no additional model multiplier and is treated as 1x.',
         effectiveTitle: 'Effective multiplier',
-        effectiveDescription: 'The complete multiplier used to convert token prices for the current request. The page shows the result loaded for the current point in time.',
-        formula: 'Effective multiplier = Group multiplier × Current group peak factor × Model-specific multiplier'
+        effectiveDescription: 'The complete multiplier used both to convert token prices and to record the real charge for the current request. The page shows the result loaded for the current point in time.',
+        formula: 'Effective multiplier = Group multiplier × Current group period multiplier (1x when not configured) × Offer-adjusted model multiplier'
       },
       contextTiers: {
         title: 'Context tiers',
@@ -51,15 +51,15 @@ export default {
         noTier: '“All contexts” means there is no tier split and every context size uses the same base prices.'
       },
       timeBands: {
-        title: 'Peak, off-peak, and group peak rules',
+        title: 'Peak and off-peak original prices',
         pricingDescription: 'Peak and off-peak prices are time-based base-price tiers for the model. The request selects the tier matching the listed time zone and range. That tier is the original price, not an extra multiplier.',
-        groupPeakDescription: 'The group peak factor is a separate rule. When active, it is multiplied on top of the selected peak or off-peak price, so both rules can apply at the same time.',
-        timezone: 'Each time-based tier shows its time zone. Compare UTC tiers directly with the UTC clock at the top right; group peak windows use the server time zone shown on the group label.'
+        groupPeakDescription: 'Once a period is matched, that period’s price is the original price. Peak or off-peak is not converted into another multiplier and is never multiplied a second time.',
+        timezone: 'Each time-based tier shows its time zone. Compare UTC tiers directly with the UTC clock at the top right.'
       },
       offers: {
         title: 'Official quota offers',
-        description: 'For example, “2x usage limits” means the official service currently grants that model twice the usage limit during the offer window. It is offer status, not a model-specific multiplier, and does not mean a price increase or discount.',
-        noPricingEffect: 'Official quota offers do not change token prices, user charges on this service, or costs recorded in Usage History.'
+        description: 'For example, “2x usage limits” means the official service currently doubles that model’s usable quota. The system divides the base model quota multiplier by the offer multiplier to obtain the offer-adjusted model multiplier.',
+        noPricingEffect: 'The adjustment is reflected in actual token prices, user charges on this service, actual costs in Usage History, and account quota statistics. The model’s original unit price remains unchanged.'
       },
       columns: {
         title: 'Other billing fields',
@@ -76,7 +76,7 @@ export default {
       group: 'Group',
       multiplier: 'Multiplier',
       groupMultiplier: 'Group Multiplier',
-      modelSpecificMultiplier: 'Model-Specific Multiplier',
+      modelSpecificMultiplier: 'Offer-Adjusted Model Multiplier',
       effectiveMultiplier: 'Effective Multiplier',
       usageOffer: 'Official Quota Offer',
       source: 'Source',
@@ -89,7 +89,7 @@ export default {
     },
     usageOffers: {
       multiplier: '{multiplier} usage limits',
-      detail: 'Official quota offer information; it does not change token prices, user charges, or Usage History'
+      detail: 'The offer multiplier is included in the model quota multiplier, actual prices, user charges, and Usage History'
     },
     timeBands: {
       off_peak: 'Off-Peak',

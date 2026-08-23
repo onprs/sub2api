@@ -178,8 +178,9 @@ var openCodeGoReferencePrices = map[string]ModelPricing{
 	},
 }
 
-// OpenCodeGoQuotaCost 描述 OpenCode Go 模型的月可用额度及其基础额度成本乘数。
-// 乘数规则由业务方确认：共享月额度除以该模型的官方月可用额度。
+// OpenCodeGoQuotaCost 描述 OpenCode Go 模型当前有效的月可用额度及额度成本乘数。
+// 基础规则由业务方确认：共享月额度除以该模型的官方月可用额度；
+// 有效的官方 usage offer 会先扩大月可用额度，再据此计算乘数。
 type OpenCodeGoQuotaCost struct {
 	IncludedMonthlyUsageUSD float64
 	Multiplier              float64

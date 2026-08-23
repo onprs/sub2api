@@ -18,7 +18,7 @@ export interface UserAvailableGroup {
   peak_start: string
   peak_end: string
   peak_rate_multiplier: number
-  /** 价格响应生成时，后端按实际扣费时区和边界规则计算出的当前 Token 高峰倍率。 */
+  /** 价格响应生成时，后端按实际扣费时区和边界规则计算出的订阅分组当前可选时段倍率。 */
   current_peak_multiplier?: number
   /** true = 专属分组（小范围授权）；false = 公开分组。 */
   is_exclusive: boolean
@@ -69,6 +69,7 @@ export interface UserSupportedModel {
   name: string
   platform: string
   pricing: UserSupportedModelPricing | null
+  /** 当前模型额度倍率；OpenCode Go 官方 usage offer 已由后端折算。 */
   model_specific_multiplier?: number | null
   usage_offer?: UserSupportedModelUsageOffer | null
 }

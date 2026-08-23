@@ -178,7 +178,7 @@ describe('buildModelPricingRows', () => {
     expect(enterprise?.pricing.outputPrice).toBe(0.000002)
   })
 
-  it('preserves OpenCode Go time bands and combines every current token billing multiplier', () => {
+  it('preserves OpenCode Go time bands and uses the offer-adjusted model multiplier', () => {
     const channels = makeChannels()
     const pricing = channels[0].platforms[0].supported_models[0].pricing
     const enterpriseGroup = channels[0].platforms[0].groups[1]
@@ -188,7 +188,7 @@ describe('buildModelPricingRows', () => {
     enterpriseGroup.peak_end = '18:00'
     enterpriseGroup.peak_rate_multiplier = 3
     enterpriseGroup.current_peak_multiplier = 3
-    channels[0].platforms[0].supported_models[0].model_specific_multiplier = 2
+    channels[0].platforms[0].supported_models[0].model_specific_multiplier = 1
     channels[0].platforms[0].supported_models[0].usage_offer = {
       code: 'opencode_go_usage_offer',
       usage_multiplier: 2,
@@ -217,9 +217,9 @@ describe('buildModelPricingRows', () => {
     const rows = buildModelPricingRows(channels, { 20: 0.5 })
     const enterprise = rows.find((row) => row.groupId === 20 && row.modelName === 'gpt-4o-mini')
 
-    expect(enterprise?.modelSpecificMultiplier).toBe(2)
+    expect(enterprise?.modelSpecificMultiplier).toBe(1)
     expect(enterprise?.currentPeakMultiplier).toBe(3)
-    expect(enterprise?.effectiveMultiplier).toBe(3)
+    expect(enterprise?.effectiveMultiplier).toBe(1.5)
     expect(enterprise?.usageOfferCode).toBe('opencode_go_usage_offer')
     expect(enterprise?.usageMultiplier).toBe(2)
     expect(enterprise?.timeBands).toEqual([
@@ -250,7 +250,7 @@ describe('buildModelPricingRows', () => {
         },
       },
     ])
-    expect(calculateActualTokenPrice(enterprise?.timeBands[0].pricing.inputPrice, enterprise?.effectiveMultiplier ?? 0)).toBeCloseTo(0.66e-6)
+    expect(calculateActualTokenPrice(enterprise?.timeBands[0].pricing.inputPrice, enterprise?.effectiveMultiplier ?? 0)).toBeCloseTo(0.33e-6)
     expect(calculateActualTokenPrice(null, enterprise?.effectiveMultiplier ?? 0)).toBeNull()
   })
 
