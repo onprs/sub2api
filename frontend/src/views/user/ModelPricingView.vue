@@ -203,14 +203,13 @@
 
       <template #table>
         <div class="table-wrapper model-pricing-table-wrapper">
-          <table class="min-w-[1600px] border-collapse text-xs">
+          <table class="min-w-[1360px] border-collapse text-xs">
             <thead
               class="model-pricing-sticky-header sticky top-0 z-20 bg-gray-50/95 text-left font-medium uppercase text-gray-500 shadow-sm backdrop-blur dark:bg-dark-800/95 dark:text-gray-400"
             >
               <tr class="border-b border-gray-100 dark:border-dark-700">
                 <th class="model-pricing-sticky-model w-56 px-4 py-3">{{ t('modelPricing.columns.model') }}</th>
                 <th class="w-80 px-4 py-3">{{ t('modelPricing.columns.contextTier') }}</th>
-                <th class="w-64 px-4 py-3">{{ t('modelPricing.columns.group') }}</th>
                 <th class="w-28 px-4 py-3">{{ t('modelPricing.columns.groupMultiplier') }}</th>
                 <th class="w-32 px-4 py-3">{{ t('modelPricing.columns.modelSpecificMultiplier') }}</th>
                 <th class="w-32 px-4 py-3">{{ t('modelPricing.columns.effectiveMultiplier') }}</th>
@@ -227,7 +226,7 @@
 
             <tbody v-if="loading">
               <tr>
-                <td colspan="14" class="py-10 text-center">
+                <td colspan="13" class="py-10 text-center">
                   <Icon name="refresh" size="lg" class="inline-block animate-spin text-gray-400" />
                 </td>
               </tr>
@@ -235,7 +234,7 @@
 
             <tbody v-else-if="filteredRows.length === 0">
               <tr>
-                <td colspan="14" class="py-12 text-center">
+                <td colspan="13" class="py-12 text-center">
                   <Icon name="inbox" size="xl" class="mx-auto mb-3 h-12 w-12 text-gray-400" />
                   <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('modelPricing.empty') }}</p>
                 </td>
@@ -270,30 +269,6 @@
                     class="model-pricing-tier-line whitespace-nowrap"
                   >
                     {{ line.label }}
-                  </div>
-                </td>
-
-                <td class="px-4 py-3 align-top">
-                  <div class="flex flex-wrap items-center gap-1.5">
-                    <span
-                      v-if="row.isExclusive"
-                      class="inline-flex items-center gap-0.5 text-[10px] font-medium uppercase text-purple-600 dark:text-purple-400"
-                    >
-                      <Icon name="shield" size="xs" class="h-3 w-3" />
-                      {{ t('availableChannels.exclusive') }}
-                    </span>
-                    <GroupBadge
-                      :name="row.groupName"
-                      :platform="row.platform as GroupPlatform"
-                      :subscription-type="row.subscriptionType as SubscriptionType"
-                      :rate-multiplier="row.defaultMultiplier"
-                      :user-rate-multiplier="row.userMultiplier"
-                      :peak-rate-enabled="row.peakRateEnabled"
-                      :peak-start="row.peakStart"
-                      :peak-end="row.peakEnd"
-                      :peak-rate-multiplier="row.peakRateMultiplier"
-                      always-show-rate
-                    />
                   </div>
                 </td>
 
