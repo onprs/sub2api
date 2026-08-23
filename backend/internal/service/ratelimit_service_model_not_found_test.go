@@ -5,8 +5,10 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,9 +27,15 @@ type modelNotFoundRateLimitCall struct {
 
 type modelNotFoundAccountRepoStub struct {
 	mockAccountRepoForGemini
+	setErrorCalls       int
 	tempCalls           int
 	modelRateLimitCalls []modelNotFoundRateLimitCall
 	modelRateLimitErr   error
+}
+
+func (r *modelNotFoundAccountRepoStub) SetError(_ context.Context, _ int64, _ string) error {
+	r.setErrorCalls++
+	return nil
 }
 
 func (r *modelNotFoundAccountRepoStub) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
@@ -125,6 +133,117 @@ func TestOpenAICompatErrorResponse_ChatGPTCodexUnsupportedTriggersFailover(t *te
 	require.Zero(t, repo.tempCalls)
 	require.Len(t, repo.modelRateLimitCalls, 1)
 	require.Equal(t, "gpt-5.6-sol", repo.modelRateLimitCalls[0].scope)
+}
+
+func TestRateLimitService_HandleUpstreamError_OpenCodeGoModelUnsupportedUsesModelRateLimit(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := &Account{
+		ID:          202,
+		Platform:    PlatformOpenCodeGo,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"custom_error_codes_enabled": true,
+			"custom_error_codes":         []any{float64(http.StatusTooManyRequests)},
+		},
+	}
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusUnauthorized,
+		http.Header{},
+		[]byte(`{"type":"error","error":{"type":"ModelError","message":"Model is not supported"}}`),
+		"qwen3.7-max",
+	)
+
+	require.True(t, handled)
+	require.Zero(t, repo.setErrorCalls)
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, account.ID, call.accountID)
+	require.Equal(t, "qwen3.7-max", call.scope)
+	require.Equal(t, upstreamModelUnsupportedReason, call.reason)
+	require.WithinDuration(t, time.Now().Add(openCodeGoModelUnsupportedCooldown), call.resetAt, 5*time.Second)
+	require.True(t, account.IsSchedulable())
+}
+
+func TestRateLimitService_HandleUpstreamError_OpenCodeGoUnauthorizedStillSetsError(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := &Account{
+		ID:          203,
+		Platform:    PlatformOpenCodeGo,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusUnauthorized,
+		http.Header{},
+		[]byte(`{"type":"error","error":{"type":"authentication_error","message":"Invalid API key"}}`),
+		"qwen3.7-max",
+	)
+
+	require.True(t, handled)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Zero(t, repo.tempCalls)
+	require.Empty(t, repo.modelRateLimitCalls)
+}
+
+func TestOpenCodeGoGatewayServiceModelUnsupportedUsesMappedModelRateLimit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &modelNotFoundAccountRepoStub{}
+	upstreamBody := `{"type":"error","error":{"type":"ModelError","message":"Model is not supported"}}`
+	upstream := &openCodeGoHTTPUpstreamStub{
+		resp: &http.Response{
+			StatusCode: http.StatusUnauthorized,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+		},
+	}
+	svc := &OpenCodeGoGatewayService{
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{accountRepo: repo},
+	}
+	account := &Account{
+		ID:          204,
+		Platform:    PlatformOpenCodeGo,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key": "ocg-secret",
+			"model_mapping": map[string]any{
+				"opencode-go/qwen": "qwen3.7-max",
+			},
+			"model_protocols": map[string]any{
+				"qwen3.7-max": OpenCodeGoProtocolChatCompletions,
+			},
+		},
+	}
+	requestBody := []byte(`{"model":"opencode-go/qwen","messages":[{"role":"user","content":"hi"}],"stream":false}`)
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", string(requestBody))
+
+	_, err := svc.ForwardChatCompletions(context.Background(), rec.Context, account, requestBody)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusUnauthorized, failoverErr.StatusCode)
+	require.False(t, rec.Context.Writer.Written())
+	require.Zero(t, repo.setErrorCalls)
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, "qwen3.7-max", repo.modelRateLimitCalls[0].scope)
+	require.Equal(t, upstreamModelUnsupportedReason, repo.modelRateLimitCalls[0].reason)
+	require.True(t, account.IsSchedulable())
 }
 
 func TestRateLimitService_HandleUpstreamError_ModelNotFoundWriteFailureDoesNotTempUnschedule(t *testing.T) {

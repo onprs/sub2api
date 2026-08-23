@@ -170,10 +170,10 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 // HandleUpstreamError 处理上游错误响应，标记账号状态
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
-	// OpenAI model availability is account-specific scheduler feedback. Handle
-	// it before pool/custom whole-account policies so an unsupported model can
-	// fail over without disabling the account or being ignored by code filters.
-	if account != nil && account.Platform == PlatformOpenAI && len(requestedModel) > 0 &&
+	// OpenAI 与 OpenCode Go 的模型可用性取决于具体账号。必须先于整账号错误策略处理，
+	// 避免单个模型不受支持时禁用整个账号或被自定义错误码过滤掉。
+	if account != nil && len(requestedModel) > 0 &&
+		(account.Platform == PlatformOpenAI || account.Platform == PlatformOpenCodeGo) &&
 		s.HandleUpstreamModelNotFound(ctx, account, requestedModel[0], statusCode, responseBody) {
 		return true
 	}
@@ -2013,7 +2013,9 @@ func parseOpenAIImageTryAgainCooldown(body []byte) time.Duration {
 }
 
 const upstreamModelNotFoundCooldown = 30 * time.Minute
+const openCodeGoModelUnsupportedCooldown = 5 * time.Minute
 const upstreamModelNotFoundReason = "upstream_404_model_not_found"
+const upstreamModelUnsupportedReason = "upstream_model_not_supported"
 const tempUnschedBodyMaxBytes = 64 << 10
 const tempUnschedMessageMaxBytes = 2048
 
@@ -2021,21 +2023,26 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	if s == nil || account == nil || s.accountRepo == nil {
 		return false
 	}
-	if !isUpstreamModelNotFoundError(statusCode, responseBody) {
+	if !isUpstreamModelNotFoundErrorForAccount(account, statusCode, responseBody) {
 		return false
 	}
-	// This is account-model capability feedback, not a whole-account error
-	// policy. OpenAI must still fail over and cool down only the rejected model
-	// when custom_error_codes omits 400/404.
-	if account.Platform != PlatformOpenAI && !account.ShouldHandleErrorCode(statusCode) {
+	// 这是账号与模型组合的能力反馈，不是整账号错误策略。OpenAI 与 OpenCode Go
+	// 即使自定义错误码未包含对应状态码，也必须切换账号并只冷却被拒绝的模型。
+	if account.Platform != PlatformOpenAI && account.Platform != PlatformOpenCodeGo && !account.ShouldHandleErrorCode(statusCode) {
 		return false
 	}
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)
 	if modelKey == "" {
 		return false
 	}
-	resetAt := time.Now().Add(upstreamModelNotFoundCooldown)
-	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, modelKey, resetAt, upstreamModelNotFoundReason); err != nil {
+	cooldown := upstreamModelNotFoundCooldown
+	reason := upstreamModelNotFoundReason
+	if account.Platform == PlatformOpenCodeGo {
+		cooldown = openCodeGoModelUnsupportedCooldown
+		reason = upstreamModelUnsupportedReason
+	}
+	resetAt := time.Now().Add(cooldown)
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, modelKey, resetAt, reason); err != nil {
 		slog.Warn("upstream_model_not_found_set_model_rate_limit_failed", "account_id", account.ID, "model", modelKey, "error", err)
 		return true
 	}
