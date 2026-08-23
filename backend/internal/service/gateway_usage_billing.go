@@ -273,7 +273,7 @@ func modelSpecificMultiplierForCost(cost *CostBreakdown) float64 {
 	return cost.ModelSpecificMultiplier
 }
 
-// costBeforeGroupMultiplier 返回应用模型特有倍率、但尚未应用分组倍率的成本。
+// costBeforeGroupMultiplier 返回应用活动折算后模型倍率、但尚未应用分组倍率的成本。
 // usage_logs.total_cost 保持原价；账号配额和账号统计仍需使用该模型的真实额度成本。
 func costBeforeGroupMultiplier(cost *CostBreakdown) float64 {
 	if cost == nil {
@@ -341,7 +341,7 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		}
 	}
 
-	// Subscription / balance 使用 ActualCost；它已经包含分组、用户专属、分组高峰和模型特有倍率。
+	// Subscription / balance 使用 ActualCost；它已经包含分组、用户专属、分组可选时段和活动折算后模型倍率。
 	// TotalCost 与各分项成本始终保持价格表原价，便于 usage history 直接核对。
 	if p.IsSubscriptionBill && p.Cost.TotalCost > 0 {
 		cmd.SubscriptionID = nil
@@ -796,7 +796,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		requestedModel = input.OriginalModel
 	}
 
-	// 计算费用。OpenCode Go 的模型特有倍率只进入 ActualCost；价格与 TotalCost 保持原价。
+	// 计算费用。OpenCode Go 活动折算后的模型倍率只进入 ActualCost；价格与 TotalCost 保持原价。
 	cost, _, costErr := s.calculateRecordUsageCostFromCandidates(ctx, result, apiKey, billingModels, multiplier, imageMultiplier, opts)
 	if costErr != nil {
 		if account != nil && (account.IsOpenCodeGo() || account.IsClinePass()) && isUsagePricingUnavailableError(costErr) {
@@ -818,7 +818,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost, opts)
 
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）。
-	// OpenCode Go 的账号额度成本包含模型特有倍率，但 usage_logs.total_cost 仍保持原价。
+	// OpenCode Go 的账号额度成本包含活动折算后的模型倍率，但 usage_logs.total_cost 仍保持原价。
 	accountStatsBaseCost := costBeforeGroupMultiplier(cost)
 	if apiKey.GroupID != nil {
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,

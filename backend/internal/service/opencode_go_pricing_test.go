@@ -139,7 +139,7 @@ func TestOpenCodeGoReferenceQuotaCostsLockOfficialMonthlyUsage(t *testing.T) {
 	}
 }
 
-func TestBillingServiceOpenCodeGoQuotaCostUsesDynamicUsageAndIgnoresUsageOffer(t *testing.T) {
+func TestBillingServiceOpenCodeGoQuotaCostUsesDynamicUsageAndAppliesUsageOffer(t *testing.T) {
 	now := time.Now()
 	pricingSvc := &PricingService{
 		openCodeGoPricing: map[string]*LiteLLMModelPricing{
@@ -156,14 +156,27 @@ func TestBillingServiceOpenCodeGoQuotaCostUsesDynamicUsageAndIgnoresUsageOffer(t
 		},
 		openCodeGoPricingConfirmedAt: now,
 		openCodeGoUsageOffers: map[string]openCodeGoUsageOffer{
-			"glm-5.2": {usageMultiplier: 8, confirmedAt: now},
+			"glm-5.2":           {usageMultiplier: 8, confirmedAt: now},
+			"deepseek-v4-flash": {usageMultiplier: 2, confirmedAt: now},
+			"deepseek-v4-pro": {
+				usageMultiplier: 2,
+				confirmedAt:     now.Add(-openCodeGoUsageOfferEvidenceTTL - time.Second),
+			},
 		},
 	}
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 
 	quotaCost, ok := billingSvc.GetOpenCodeGoQuotaCost("opencode-go/glm-5.2")
 	require.True(t, ok)
-	require.Equal(t, OpenCodeGoQuotaCost{IncludedMonthlyUsageUSD: 15, Multiplier: 4}, quotaCost)
+	require.Equal(t, OpenCodeGoQuotaCost{IncludedMonthlyUsageUSD: 120, Multiplier: 0.5}, quotaCost)
+
+	reference, ok := billingSvc.GetOpenCodeGoQuotaCost("deepseek-v4-flash")
+	require.True(t, ok)
+	require.Equal(t, OpenCodeGoQuotaCost{IncludedMonthlyUsageUSD: 60, Multiplier: 1}, reference)
+
+	expired, ok := billingSvc.GetOpenCodeGoQuotaCost("deepseek-v4-pro")
+	require.True(t, ok)
+	require.Equal(t, OpenCodeGoQuotaCost{IncludedMonthlyUsageUSD: 15, Multiplier: 4}, expired)
 
 	free, ok := billingSvc.GetOpenCodeGoQuotaCost("ox-alpha-free")
 	require.True(t, ok)

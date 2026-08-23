@@ -391,13 +391,13 @@ type ChannelUsageFields struct {
 	ModelMappingChain  string // 映射链描述，如 "a→b→c"
 }
 
-// ModelUsageOffer 是用户价格页展示用的官方 Usage 活动，不参与任何费用计算。
+// ModelUsageOffer 是当前有效的官方 Usage 活动快照；OpenCode Go 额度成本会按该活动折算。
 type ModelUsageOffer struct {
 	Code            string
 	UsageMultiplier float64
 }
 
-// ModelQuotaCost 是用户价格页展示用的 OpenCode Go 基础额度成本规则。
+// ModelQuotaCost 是用户价格页展示用的 OpenCode Go 当前有效额度成本规则（已包含官方活动折算）。
 type ModelQuotaCost struct {
 	IncludedMonthlyUsageUSD float64
 	CostMultiplier          float64
@@ -417,7 +417,7 @@ type SupportedModel struct {
 	Platform         string                 // 所属平台
 	Pricing          *ChannelModelPricing   // 定价详情（nil 表示未配置定价）
 	PricingSource    string                 // channel/catalog/missing，仅用于用户侧展示来源
-	QuotaCost        *ModelQuotaCost        // OpenCode Go 月可用额度与基础额度成本乘数
+	QuotaCost        *ModelQuotaCost        // OpenCode Go 当前月可用额度与活动折算后的额度成本乘数
 	UsageOffer       *ModelUsageOffer       // 官方 Usage 活动；nil 表示当前无有效证据
 	PricingTimeBands []ModelPricingTimeBand // 分时定价；空切片表示全天同价
 }

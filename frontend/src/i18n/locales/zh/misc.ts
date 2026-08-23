@@ -20,29 +20,29 @@ export default {
     help: {
       open: '查看计费说明',
       title: '模型计费说明',
-      intro: '本页价格均以美元显示。Token 价格按每百万 Token 展示；最终扣费取决于请求实际命中的计费时段或上下文档位，以及当时生效的倍率。',
+      intro: '本页价格均以美元显示。Token 价格按每百万 Token 展示。模型峰谷时段或上下文档位先决定原始单价；实际价格再按所选分组与活动折算后的模型额度倍率换算。',
       priceModes: {
         title: '原始价格与实际价格',
         rawTitle: '原始价格',
-        rawDescription: '请求命中某个计费时段或上下文档位后得到的基础单价，尚未叠加分组倍率、分组高峰因子和模型特有倍率。',
+        rawDescription: '请求按模型规则命中峰谷时段或上下文档位后得到的基础单价。峰谷价直接是不同的原始单价，不会再作为倍率叠加。',
         actualTitle: '实际价格',
-        actualDescription: '使用页面当前加载到的实际计费倍率换算后的 Token 单价，可直接用于估算输入、输出、缓存写入和缓存读取费用。',
+        actualDescription: '使用页面当前加载到的实际计费倍率换算后的 Token 单价，可直接用于估算输入、输出、缓存写入和缓存读取的实际扣费。',
         formula: '实际 Token 单价 = 原始 Token 单价 × 实际计费倍率',
-        example: '例如原始价为 $1/M，分组倍率为 0.8x、当前分组高峰因子为 1.5x、模型特有倍率为 2x，则实际计费倍率为 2.4x，实际价为 $2.4/M。',
+        example: '例如当前档位原始价为 $1/M，分组倍率为 0.8x，模型基础额度倍率为 2x，官方 2x 用量活动会把模型倍率折算为 1x，因此实际计费倍率为 0.8x，实际价为 $0.8/M。',
         unitPriceNote: '“按次/图片价”始终显示配置单价，不随价格模式切换；按次或图片请求按其专用计费规则和倍率结算。',
-        snapshotNote: '实际计费倍率和官方活动是加载时快照。跨过高峰边界或活动发生变化后，请刷新页面获取最新值。'
+        snapshotNote: '实际计费倍率和官方额度活动均为加载时快照。跨过峰谷边界、分组时段边界或活动发生变化后，请刷新页面获取最新值。'
       },
       multipliers: {
-        title: '各个倍率如何叠加',
+        title: '实际计费倍率如何形成',
         groupTitle: '分组倍率',
         groupDescription: '当前用户在所选分组中的基础倍率。用户专属倍率存在时会替代分组默认倍率，而不是与默认倍率再次相乘；1x 为原价，低于 1x 为折扣，高于 1x 为加价，0x 表示该部分按零倍率计费。',
-        peakTitle: '分组高峰因子',
-        peakDescription: '仅在分组标注的高峰窗口内生效，窗口外按 1x。它只叠加到 Token 计费，包括按 Token 计费的图片 Token；图片按次计费不受该因子影响。',
-        modelTitle: '模型特有倍率',
-        modelDescription: '特定模型用于折算实际额度成本的附加因子。“-”表示没有额外模型倍率，计算时按 1x；该倍率会进入实际扣费。',
+        peakTitle: '分组时段倍率（可选）',
+        peakDescription: '这不是模型峰谷价。它只在管理员为订阅分组另行配置了时段规则、且请求处于该窗口时生效；未配置或窗口外按 1x。它影响 Token 计费，不影响图片按次计费。',
+        modelTitle: '活动折算后的模型倍率',
+        modelDescription: 'OpenCode Go 先按共享月额度除以模型官方月可用额度得到基础模型倍率；官方 Nx 用量活动生效时，再用基础模型倍率除以 N。“-”表示没有额外模型倍率，计算时按 1x。',
         effectiveTitle: '实际计费倍率',
-        effectiveDescription: '当前请求用于换算 Token 实际价格的完整倍率。页面显示的是当前时刻加载到的结果。',
-        formula: '实际计费倍率 = 分组倍率 × 当前分组高峰因子 × 模型特有倍率'
+        effectiveDescription: '当前请求用于换算 Token 实际价格并写入真实扣费的完整倍率。页面显示的是当前时刻加载到的结果。',
+        formula: '实际计费倍率 = 分组倍率 × 分组当前时段倍率（未配置时 1x）× 活动折算后的模型倍率'
       },
       contextTiers: {
         title: '上下文档位',
@@ -51,15 +51,15 @@ export default {
         noTier: '显示“全部上下文”表示没有分段，所有上下文规模使用同一组基础单价。'
       },
       timeBands: {
-        title: '波峰价、波谷价与分组高峰',
+        title: '峰谷原始价格',
         pricingDescription: '波峰价和波谷价是模型基础单价的分时档位。请求按表格列出的时区和时间范围选择对应档位，该档位价格本身就是原始价格，不是一个额外倍率。',
-        groupPeakDescription: '分组高峰因子是另一套独立规则，会在生效时继续乘到已选中的波峰价或波谷价上；两者可能同时存在。',
-        timezone: '每个分时档位都会明确标注时区。标为 UTC 的档位可直接与页面右上角 UTC 时钟对照；分组高峰窗口则以分组标签标注的服务器时区为准。'
+        groupPeakDescription: '峰谷档位命中后，该档价格就是原始价格；不会把“峰”或“谷”再转换成倍率，也不会重复乘价。',
+        timezone: '每个分时档位都会明确标注时区。标为 UTC 的档位可直接与页面右上角 UTC 时钟对照。'
       },
       offers: {
         title: '官方额度活动',
-        description: '例如“2x 用量额度”表示官方服务在当前活动窗口为该模型提供 2 倍 usage limit。它是官方活动状态，不是模型特有倍率，也不代表价格翻倍或打折。',
-        noPricingEffect: '官方额度活动不会改变 Token 单价、本站用户扣费或用量记录中的费用。'
+        description: '例如“2x 用量额度”表示官方服务在当前活动窗口把该模型可用额度扩大到 2 倍。系统会用模型基础额度倍率除以活动倍数，得到活动折算后的模型倍率。',
+        noPricingEffect: '活动折算会反映到实际 Token 价格、本站用户扣费、Usage History 实际费用和账号额度统计；模型原始单价保持不变。'
       },
       columns: {
         title: '其他计费字段',
@@ -76,7 +76,7 @@ export default {
       group: '分组',
       multiplier: '倍率',
       groupMultiplier: '分组倍率',
-      modelSpecificMultiplier: '模型特有倍率',
+      modelSpecificMultiplier: '活动后模型倍率',
       effectiveMultiplier: '实际计费倍率',
       usageOffer: '官方额度活动',
       source: '来源',
@@ -89,7 +89,7 @@ export default {
     },
     usageOffers: {
       multiplier: '{multiplier} 用量额度',
-      detail: '官方额度活动信息，不改变 Token 单价、用户扣费或 Usage History'
+      detail: '活动倍数已除入模型额度倍率，并反映到实际价格、用户扣费和 Usage History'
     },
     timeBands: {
       off_peak: '波谷价',

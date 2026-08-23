@@ -33,15 +33,15 @@ const messages: Record<string, string> = {
   'modelPricing.help.open': 'View pricing guide',
   'modelPricing.help.title': 'Model Pricing Guide',
   'modelPricing.help.priceModes.formula': 'Actual token unit price = Original token unit price × Effective multiplier',
-  'modelPricing.help.multipliers.title': 'How multipliers combine',
+  'modelPricing.help.multipliers.title': 'How actual multipliers are formed',
   'modelPricing.help.contextTiers.title': 'Context tiers',
-  'modelPricing.help.timeBands.title': 'Peak, off-peak, and group peak rules',
+  'modelPricing.help.timeBands.title': 'Peak and off-peak original prices',
   'modelPricing.help.offers.title': 'Official quota offers',
-  'modelPricing.help.offers.noPricingEffect': 'Official quota offers do not change token prices, user charges, or Usage History.',
+  'modelPricing.help.offers.noPricingEffect': 'The offer is reflected in actual prices, charges, and Usage History.',
   'modelPricing.columns.contextTier': 'Pricing Period / Context Tier',
   'modelPricing.columns.group': 'Group',
   'modelPricing.columns.groupMultiplier': 'Group Multiplier',
-  'modelPricing.columns.modelSpecificMultiplier': 'Model-Specific Multiplier',
+  'modelPricing.columns.modelSpecificMultiplier': 'Offer-Adjusted Model Multiplier',
   'modelPricing.columns.effectiveMultiplier': 'Effective Multiplier',
   'modelPricing.columns.usageOffer': 'Official Quota Offer',
   'modelPricing.columns.source': 'Source',
@@ -53,7 +53,7 @@ const messages: Record<string, string> = {
   'modelPricing.columns.unitPrice': 'Per Request/Image',
   'modelPricing.sources.channel': 'Channel Pricing',
   'modelPricing.usageOffers.multiplier': '{multiplier} usage limits',
-  'modelPricing.usageOffers.detail': 'Does not change token prices',
+  'modelPricing.usageOffers.detail': 'Included in actual prices and charges',
   'modelPricing.timeBands.off_peak': 'Off-Peak',
   'modelPricing.timeBands.peak': 'Peak',
   'modelPricing.billingModes.token': 'Per Token',
@@ -161,7 +161,7 @@ function makeChannel(): UserAvailableChannel[] {
             {
               name: 'deepseek-v4-flash',
               platform: 'opencode_go',
-              model_specific_multiplier: 2,
+              model_specific_multiplier: 1,
               usage_offer: {
                 code: 'opencode_go_usage_offer',
                 usage_multiplier: 2,
@@ -418,13 +418,13 @@ describe('ModelPricingView', () => {
     expect(wrapper.text()).toContain('Channel Pricing')
     expect(wrapper.text()).toContain('Off-Peak · UTC 00:00-01:00, 04:00-06:00, 10:00-24:00')
     expect(wrapper.text()).toContain('Peak · UTC 01:00-04:00, 06:00-10:00')
-    expect(wrapper.text()).toContain('Model-Specific Multiplier')
+    expect(wrapper.text()).toContain('Offer-Adjusted Model Multiplier')
     expect(wrapper.text()).toContain('Effective Multiplier')
     expect(wrapper.text()).not.toContain('Monthly Usage')
     expect(wrapper.text()).not.toContain('Quota Cost Multiplier')
     expect(wrapper.text()).toContain('0.5x')
     expect(wrapper.text()).toContain('2x usage limits')
-    expect(wrapper.get('tbody td:nth-child(5)').text()).toBe('3x')
+    expect(wrapper.get('tbody td:nth-child(5)').text()).toBe('1.5x')
 
     const headers = wrapper.findAll('thead th').map((header) => header.text())
     expect(headers).toHaveLength(13)
@@ -440,15 +440,15 @@ describe('ModelPricingView', () => {
     expect(rawMode.text()).toBe('Original Billing')
     expect(actualMode.text()).toBe('Actual Billing')
     expect(actualMode.attributes('aria-pressed')).toBe('true')
+    expect(inputPrices()).toContain('$0.33')
     expect(inputPrices()).toContain('$0.66')
-    expect(inputPrices()).toContain('$1.32')
     expect(inputPrices()).not.toContain('$0.22')
 
     await rawMode.trigger('click')
     expect(rawMode.attributes('aria-pressed')).toBe('true')
     expect(inputPrices()).toContain('$0.22')
     expect(inputPrices()).toContain('$0.44')
-    expect(inputPrices()).not.toContain('$1.32')
+    expect(inputPrices()).not.toContain('$0.66')
 
     await wrapper.get('button[title="Refresh"]').trigger('click')
     await flushPromises()
@@ -549,10 +549,10 @@ describe('ModelPricingView', () => {
     expect(helpButton.attributes('aria-expanded')).toBe('true')
     expect(dialog).not.toBeNull()
     expect(dialog?.textContent).toContain('Actual token unit price = Original token unit price × Effective multiplier')
-    expect(dialog?.textContent).toContain('How multipliers combine')
+    expect(dialog?.textContent).toContain('How actual multipliers are formed')
     expect(dialog?.textContent).toContain('Context tiers')
-    expect(dialog?.textContent).toContain('Peak, off-peak, and group peak rules')
-    expect(dialog?.textContent).toContain('Official quota offers do not change token prices')
+    expect(dialog?.textContent).toContain('Peak and off-peak original prices')
+    expect(dialog?.textContent).toContain('The offer is reflected in actual prices, charges, and Usage History.')
 
     const modal = dialog?.closest('[role="dialog"]')
     const closeButton = Array.from(modal?.querySelectorAll('button') ?? []).find(

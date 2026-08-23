@@ -530,8 +530,8 @@ func TestGatewayServiceRecordUsage_OpenCodeGoStoresBasePricesAndEffectiveMultipl
 	require.Equal(t, PricingSourceChannel, displayed.PricingSource)
 	require.NotNil(t, displayed.Pricing)
 	require.NotNil(t, displayed.QuotaCost)
-	require.Equal(t, 30.0, displayed.QuotaCost.IncludedMonthlyUsageUSD)
-	require.Equal(t, 2.0, displayed.QuotaCost.CostMultiplier)
+	require.Equal(t, 60.0, displayed.QuotaCost.IncludedMonthlyUsageUSD)
+	require.Equal(t, 1.0, displayed.QuotaCost.CostMultiplier)
 	require.NotNil(t, displayed.UsageOffer)
 	require.Equal(t, 2.0, displayed.UsageOffer.UsageMultiplier)
 
@@ -579,7 +579,7 @@ func TestGatewayServiceRecordUsage_OpenCodeGoStoresBasePricesAndEffectiveMultipl
 	expectedTotal := float64(tokens.InputTokens)*inputPrice +
 		float64(tokens.OutputTokens)*outputPrice +
 		float64(tokens.CacheReadTokens)*cacheReadPrice
-	expectedRateMultiplier := groupMultiplier * 2
+	expectedRateMultiplier := groupMultiplier
 	expectedActual := expectedTotal * expectedRateMultiplier
 	require.InDelta(t, float64(tokens.InputTokens)*inputPrice, usageRepo.lastLog.InputCost, 1e-12)
 	require.InDelta(t, float64(tokens.OutputTokens)*outputPrice, usageRepo.lastLog.OutputCost, 1e-12)
@@ -592,7 +592,7 @@ func TestGatewayServiceRecordUsage_OpenCodeGoStoresBasePricesAndEffectiveMultipl
 	require.InDelta(t, expectedActual, billingRepo.lastCmd.BalanceCost, 1e-12)
 	require.Zero(t, userRepo.deductCalls)
 	require.NotNil(t, usageRepo.lastLog.AccountStatsCost)
-	require.InDelta(t, expectedTotal*2, *usageRepo.lastLog.AccountStatsCost, 1e-12)
+	require.InDelta(t, expectedTotal, *usageRepo.lastLog.AccountStatsCost, 1e-12)
 }
 
 func TestGatewayServiceRecordUsage_OpenCodeGoWithoutChannelPreservesWeightedAccountStats(t *testing.T) {

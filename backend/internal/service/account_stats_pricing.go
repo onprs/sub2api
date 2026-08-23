@@ -11,13 +11,13 @@ import (
 // 优先级（先命中为准）：
 //  1. 自定义规则（始终尝试，不依赖 ApplyPricingToAccountStats 开关）
 //  2. ApplyPricingToAccountStats 启用时，直接使用调用方提供的账号基础成本
-//     （不含用户组倍率；可包含平台要求的模型特有倍率）
+//     （不含用户组倍率；可包含平台要求的活动折算后模型倍率）
 //  3. 模型定价文件（LiteLLM）中上游模型的默认价格
 //  4. nil → 走默认公式（total_cost × account_rate_multiplier）
 //
 // upstreamModel 是最终发往上游的模型 ID。
 // accountBaseCost 是调用方预计算的账号基础成本，不包含用户组倍率；
-// OpenCode Go 调用方会在这里保留模型特有倍率。
+// OpenCode Go 调用方会在这里保留活动折算后的模型倍率。
 func resolveAccountStatsCost(
 	ctx context.Context,
 	channelService *ChannelService,

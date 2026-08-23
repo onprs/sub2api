@@ -601,7 +601,7 @@ func TestBuildCatalogSupportedModel_OpenCodeGoShowsOfficialPeakAndOffPeakPricing
 	require.Empty(t, hy3.PricingTimeBands)
 }
 
-func TestBuildCatalogSupportedModel_OpenCodeGoUsageOfferDoesNotChangeTokenPricing(t *testing.T) {
+func TestBuildCatalogSupportedModel_OpenCodeGoUsageOfferPreservesOriginalPricingAndAdjustsQuotaCost(t *testing.T) {
 	confirmedAt := time.Now()
 	pricingSvc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{},
@@ -617,6 +617,9 @@ func TestBuildCatalogSupportedModel_OpenCodeGoUsageOfferDoesNotChangeTokenPricin
 	require.NotNil(t, model.Pricing)
 	require.InDelta(t, 0.22e-6, *model.Pricing.InputPrice, 1e-15)
 	require.InDelta(t, 0.66e-6, *model.Pricing.OutputPrice, 1e-15)
+	require.NotNil(t, model.QuotaCost)
+	require.Equal(t, 60.0, model.QuotaCost.IncludedMonthlyUsageUSD)
+	require.Equal(t, 1.0, model.QuotaCost.CostMultiplier)
 	require.NotNil(t, model.UsageOffer)
 	require.Equal(t, "opencode_go_usage_offer", model.UsageOffer.Code)
 	require.Equal(t, 2.0, model.UsageOffer.UsageMultiplier)

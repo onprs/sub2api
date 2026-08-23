@@ -252,7 +252,7 @@ type CostBreakdown struct {
 	ActualCost              float64 // 应用实际计费倍率后的费用
 	BillingMode             string  // 计费模式（"token"/"per_request"/"image"），由 CalculateCostUnified 填充
 	AllowZeroRate           bool    // 内部标记：价格源明确允许零费率，避免被静默零成本保护误判
-	ModelSpecificMultiplier float64 // 内部快照；0 表示未单独配置，按 1 处理
+	ModelSpecificMultiplier float64 // 活动折算后的模型额度倍率快照；0 表示未单独配置，按 1 处理
 }
 
 // ErrModelPricingUnavailable indicates that none of the configured pricing
@@ -892,11 +892,13 @@ func (s *BillingService) GetModelPricingForPlatform(platform, model string) (*Mo
 	return s.getModelPricingForPlatformAt(platform, model, time.Now())
 }
 
-// GetOpenCodeGoQuotaCost 返回模型官方月可用额度对应的基础额度成本乘数。
-// 官方动态 Usage 列优先，内置表仅作为同一官方价格表的离线回退。
+// GetOpenCodeGoQuotaCost 返回模型当前有效月可用额度对应的额度成本乘数。
+// 官方动态 Usage 列优先，内置表仅作为同一官方价格表的离线回退；
+// 有效期内的官方 usage offer 会扩大月可用额度，并相应降低额度成本乘数。
 func (s *BillingService) GetOpenCodeGoQuotaCost(model string) (OpenCodeGoQuotaCost, bool) {
 	model = strings.ToLower(strings.TrimSpace(model))
 	candidates := billingModelPricingCandidates(model)
+	now := time.Now()
 	if s != nil && s.pricingService != nil {
 		for _, candidate := range candidates {
 			pricing := s.pricingService.GetOpenCodeGoModelPricingExact(candidate)
@@ -908,16 +910,40 @@ func (s *BillingService) GetOpenCodeGoQuotaCost(model string) (OpenCodeGoQuotaCo
 				return OpenCodeGoQuotaCost{Multiplier: 1}, true
 			}
 			if quotaCost, ok := openCodeGoQuotaCostFromMonthlyUsage(pricing.OpenCodeGoMonthlyUsageUSD); ok {
-				return quotaCost, true
+				return s.adjustOpenCodeGoQuotaCostForUsageOffer(candidates, quotaCost, now), true
 			}
 		}
 	}
 	for _, candidate := range candidates {
 		if quotaCost, ok := openCodeGoReferenceQuotaCost(candidate); ok {
-			return quotaCost, true
+			return s.adjustOpenCodeGoQuotaCostForUsageOffer(candidates, quotaCost, now), true
 		}
 	}
 	return OpenCodeGoQuotaCost{}, false
+}
+
+func (s *BillingService) adjustOpenCodeGoQuotaCostForUsageOffer(
+	candidates []string,
+	quotaCost OpenCodeGoQuotaCost,
+	now time.Time,
+) OpenCodeGoQuotaCost {
+	if s == nil || s.pricingService == nil || quotaCost.IncludedMonthlyUsageUSD <= 0 {
+		return quotaCost
+	}
+	for _, candidate := range candidates {
+		usageMultiplier := s.pricingService.OpenCodeGoUsageOfferMultiplier(candidate, now)
+		if usageMultiplier <= 1 {
+			continue
+		}
+		adjusted, ok := openCodeGoQuotaCostFromMonthlyUsage(
+			quotaCost.IncludedMonthlyUsageUSD * usageMultiplier,
+		)
+		if ok {
+			return adjusted
+		}
+		return quotaCost
+	}
+	return quotaCost
 }
 
 func (s *BillingService) getModelPricingForPlatformAt(platform, model string, now time.Time) (*ModelPricing, error) {
