@@ -305,7 +305,7 @@ func (s *OpenCodeGoGatewayService) forwardChatBody(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if err := s.handleUpstreamError(ctx, c, account, resp, protocolconv.ProtocolOpenAIChat, responseMode.errorFormat(), gjson.GetBytes(body, "stream").Bool()); err != nil {
+	if err := s.handleUpstreamError(ctx, c, account, resp, originalModel, protocolconv.ProtocolOpenAIChat, responseMode.errorFormat(), gjson.GetBytes(body, "stream").Bool()); err != nil {
 		return nil, err
 	}
 	if gjson.GetBytes(body, "stream").Bool() {
@@ -351,7 +351,7 @@ func (s *OpenCodeGoGatewayService) forwardMessagesBody(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if err := s.handleUpstreamError(ctx, c, account, resp, protocolconv.ProtocolAnthropic, responseMode.errorFormat(), gjson.GetBytes(body, "stream").Bool()); err != nil {
+	if err := s.handleUpstreamError(ctx, c, account, resp, originalModel, protocolconv.ProtocolAnthropic, responseMode.errorFormat(), gjson.GetBytes(body, "stream").Bool()); err != nil {
 		return nil, err
 	}
 	if gjson.GetBytes(body, "stream").Bool() {
@@ -429,7 +429,7 @@ func (s *OpenCodeGoGatewayService) forwardResponsesBody(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if err := s.handleUpstreamError(ctx, c, account, resp, protocolconv.ProtocolOpenAIResponses, responseMode.errorFormat(), stream); err != nil {
+	if err := s.handleUpstreamError(ctx, c, account, resp, originalModel, protocolconv.ProtocolOpenAIResponses, responseMode.errorFormat(), stream); err != nil {
 		return nil, err
 	}
 	if stream {
@@ -518,6 +518,7 @@ func (s *OpenCodeGoGatewayService) handleUpstreamError(
 	c *gin.Context,
 	account *Account,
 	resp *http.Response,
+	requestedModel string,
 	actualProtocol protocolconv.Protocol,
 	format openCodeGoErrorFormat,
 	streamRequested bool,
@@ -545,7 +546,7 @@ func (s *OpenCodeGoGatewayService) handleUpstreamError(
 	setOpsUpstreamError(c, upstream.StatusCode, upstreamMsg, detail)
 
 	if shouldFailoverOpenCodeGoResponse(upstream.StatusCode, body) {
-		s.applyOpenCodeGoFailureSideEffects(ctx, account, upstream.StatusCode, upstream.Headers, body)
+		s.applyOpenCodeGoFailureSideEffects(ctx, account, requestedModel, upstream.StatusCode, upstream.Headers, body)
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform:           account.Platform,
 			AccountID:          account.ID,
@@ -577,11 +578,11 @@ func (s *OpenCodeGoGatewayService) handleUpstreamError(
 	return fmt.Errorf("opencode go upstream returned status %d", upstream.StatusCode)
 }
 
-func (s *OpenCodeGoGatewayService) applyOpenCodeGoFailureSideEffects(ctx context.Context, account *Account, statusCode int, headers http.Header, body []byte) {
+func (s *OpenCodeGoGatewayService) applyOpenCodeGoFailureSideEffects(ctx context.Context, account *Account, requestedModel string, statusCode int, headers http.Header, body []byte) {
 	if s == nil || s.rateLimitService == nil || account == nil {
 		return
 	}
-	s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, headers, body)
+	s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, headers, body, requestedModel)
 }
 
 func (s *OpenCodeGoGatewayService) bufferStandardResponse(

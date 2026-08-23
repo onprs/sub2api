@@ -21,6 +21,22 @@ func isUpstreamModelNotFoundError(statusCode int, body []byte) bool {
 	return false
 }
 
+func isUpstreamModelNotFoundErrorForAccount(account *Account, statusCode int, body []byte) bool {
+	if isUpstreamModelNotFoundError(statusCode, body) {
+		return true
+	}
+	return account != nil && account.Platform == PlatformOpenCodeGo &&
+		isOpenCodeGoModelUnsupportedError(statusCode, body)
+}
+
+func isOpenCodeGoModelUnsupportedError(statusCode int, body []byte) bool {
+	if statusCode != http.StatusUnauthorized && statusCode != http.StatusForbidden {
+		return false
+	}
+	message := normalizeModelNotFoundBody([]byte(extractUpstreamErrorMessage(body)))
+	return strings.Contains(message, "model") && strings.Contains(message, "not supported")
+}
+
 func isModelNotFoundError(statusCode int, body []byte) bool {
 	return isUpstreamModelNotFoundError(statusCode, body) || statusCode == http.StatusNotFound
 }
