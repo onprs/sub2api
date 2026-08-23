@@ -116,15 +116,46 @@
               </div>
             </div>
 
-            <button
-              type="button"
-              class="btn btn-secondary self-end"
-              :disabled="loading"
-              :title="t('common.refresh', 'Refresh')"
-              @click="loadPricing"
-            >
-              <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
-            </button>
+            <div class="flex items-center gap-2 self-end">
+              <div
+                class="flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-gray-700 shadow-sm dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200"
+                data-test="utc-clock"
+                role="timer"
+              >
+                <Icon name="clock" size="sm" class="shrink-0 text-gray-400 dark:text-gray-500" />
+                <span class="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">UTC</span>
+                <time
+                  :datetime="utcDateTime"
+                  class="whitespace-nowrap font-mono text-xs tabular-nums"
+                >
+                  <span data-test="utc-date" class="mr-1 hidden sm:inline">{{ utcDate }}</span>
+                  <span data-test="utc-time">{{ utcTime }}</span>
+                </time>
+              </div>
+
+              <button
+                type="button"
+                class="btn btn-secondary h-10 w-10 p-0"
+                :title="t('modelPricing.help.open')"
+                :aria-label="t('modelPricing.help.open')"
+                aria-haspopup="dialog"
+                :aria-expanded="showPricingHelp"
+                data-test="pricing-help-button"
+                @click="showPricingHelp = true"
+              >
+                <Icon name="questionCircle" size="md" />
+              </button>
+
+              <button
+                type="button"
+                class="btn btn-secondary"
+                :disabled="loading"
+                :title="t('common.refresh', 'Refresh')"
+                @click="loadPricing"
+              >
+                <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
+              </button>
+            </div>
           </div>
 
           <div
@@ -172,13 +203,11 @@
 
       <template #table>
         <div class="table-wrapper model-pricing-table-wrapper">
-          <table class="min-w-[1900px] border-collapse text-xs">
+          <table class="min-w-[1600px] border-collapse text-xs">
             <thead
               class="model-pricing-sticky-header sticky top-0 z-20 bg-gray-50/95 text-left font-medium uppercase text-gray-500 shadow-sm backdrop-blur dark:bg-dark-800/95 dark:text-gray-400"
             >
               <tr class="border-b border-gray-100 dark:border-dark-700">
-                <th class="w-40 px-4 py-3">{{ t('modelPricing.columns.channel') }}</th>
-                <th class="w-36 px-4 py-3">{{ t('modelPricing.columns.platform') }}</th>
                 <th class="model-pricing-sticky-model w-56 px-4 py-3">{{ t('modelPricing.columns.model') }}</th>
                 <th class="w-80 px-4 py-3">{{ t('modelPricing.columns.contextTier') }}</th>
                 <th class="w-64 px-4 py-3">{{ t('modelPricing.columns.group') }}</th>
@@ -198,7 +227,7 @@
 
             <tbody v-if="loading">
               <tr>
-                <td colspan="16" class="py-10 text-center">
+                <td colspan="14" class="py-10 text-center">
                   <Icon name="refresh" size="lg" class="inline-block animate-spin text-gray-400" />
                 </td>
               </tr>
@@ -206,7 +235,7 @@
 
             <tbody v-else-if="filteredRows.length === 0">
               <tr>
-                <td colspan="16" class="py-12 text-center">
+                <td colspan="14" class="py-12 text-center">
                   <Icon name="inbox" size="xl" class="mx-auto mb-3 h-12 w-12 text-gray-400" />
                   <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('modelPricing.empty') }}</p>
                 </td>
@@ -219,25 +248,6 @@
                 :key="rowKey(row)"
                 class="border-b border-gray-100 transition-colors last:border-b-0 hover:bg-gray-50/60 dark:border-dark-800 dark:hover:bg-dark-800/50"
               >
-                <td class="px-4 py-3 align-top">
-                  <div class="font-medium text-gray-900 dark:text-white">{{ row.channelName }}</div>
-                  <div v-if="row.description" class="mt-1 max-w-40 truncate text-[11px] text-gray-500 dark:text-gray-400">
-                    {{ row.description }}
-                  </div>
-                </td>
-
-                <td class="px-4 py-3 align-top">
-                  <span
-                    :class="[
-                      'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium uppercase',
-                      platformBadgeClass(row.platform),
-                    ]"
-                  >
-                    <PlatformIcon :platform="row.platform as GroupPlatform" size="xs" />
-                    {{ row.platform }}
-                  </span>
-                </td>
-
                 <td class="model-pricing-sticky-model px-4 py-3 align-top font-mono text-[12px] text-gray-900 dark:text-gray-100">
                   <div class="group/model flex items-center justify-between gap-2">
                     <span class="truncate select-all" :title="row.modelName">{{ row.modelName }}</span>
@@ -392,11 +402,13 @@
         </div>
       </template>
     </TablePageLayout>
+
+    <ModelPricingHelpDialog :show="showPricingHelp" @close="showPricingHelp = false" />
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -404,13 +416,14 @@ import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
+import ModelPricingHelpDialog from '@/components/user/ModelPricingHelpDialog.vue'
 import userChannelsAPI, { type UserAvailableChannel } from '@/api/channels'
 import userGroupsAPI from '@/api/groups'
 import { BILLING_MODE_IMAGE, BILLING_MODE_PER_REQUEST, BILLING_MODE_TOKEN, type BillingMode } from '@/constants/channel'
 import { useAppStore } from '@/stores/app'
 import type { GroupPlatform, SubscriptionType } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
-import { platformBadgeClass, platformLabel } from '@/utils/platformColors'
+import { platformLabel } from '@/utils/platformColors'
 import { formatScaled } from '@/utils/pricing'
 import { useClipboard } from '@/composables/useClipboard'
 import {
@@ -475,11 +488,31 @@ const selectedPlatform = ref<string | null>(null)
 const selectedGroupId = ref<number | null>(null)
 const searchQuery = ref('')
 const pricingMode = ref<PricingMode>('actual')
+const showPricingHelp = ref(false)
 const perMillionScale = 1_000_000
 
 const { copyToClipboard } = useClipboard()
 const copiedModel = ref<string | null>(null)
+const utcDate = ref('')
+const utcTime = ref('')
+const utcDateTime = ref('')
 let copyTimeout: ReturnType<typeof setTimeout> | null = null
+let utcClockTimer: ReturnType<typeof setInterval> | null = null
+
+function updateUtcClock() {
+  const now = new Date()
+  const parts = [
+    now.getUTCFullYear(),
+    String(now.getUTCMonth() + 1).padStart(2, '0'),
+    String(now.getUTCDate()).padStart(2, '0'),
+    String(now.getUTCHours()).padStart(2, '0'),
+    String(now.getUTCMinutes()).padStart(2, '0'),
+    String(now.getUTCSeconds()).padStart(2, '0'),
+  ]
+  utcDate.value = `${parts[0]}-${parts[1]}-${parts[2]}`
+  utcTime.value = `${parts[3]}:${parts[4]}:${parts[5]}`
+  utcDateTime.value = now.toISOString()
+}
 
 async function handleCopyModel(modelName: string) {
   const success = await copyToClipboard(modelName, t('modelPricing.modelCopied'))
@@ -733,7 +766,16 @@ async function loadPricing() {
   }
 }
 
-onMounted(loadPricing)
+onMounted(() => {
+  updateUtcClock()
+  utcClockTimer = setInterval(updateUtcClock, 1000)
+  void loadPricing()
+})
+
+onUnmounted(() => {
+  if (utcClockTimer) clearInterval(utcClockTimer)
+  if (copyTimeout) clearTimeout(copyTimeout)
+})
 </script>
 
 <style scoped>
