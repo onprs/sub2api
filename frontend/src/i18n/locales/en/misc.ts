@@ -17,6 +17,57 @@ export default {
       raw: 'Original Billing',
       actual: 'Actual Billing'
     },
+    help: {
+      open: 'View pricing guide',
+      title: 'Model Pricing Guide',
+      intro: 'All prices on this page are in USD. Token prices are shown per million tokens; the final charge depends on the pricing period or context tier matched by the request and the multipliers active at that time.',
+      priceModes: {
+        title: 'Original and actual prices',
+        rawTitle: 'Original price',
+        rawDescription: 'The base unit price selected after the request matches a pricing period or context tier, before the group, group peak, and model-specific multipliers are applied.',
+        actualTitle: 'Actual price',
+        actualDescription: 'The token unit price converted with the effective multiplier currently loaded on the page. Use it to estimate input, output, cache write, and cache read costs.',
+        formula: 'Actual token unit price = Original token unit price × Effective multiplier',
+        example: 'For example, with an original price of $1/M, a 0.8x group multiplier, a current 1.5x group peak factor, and a 2x model-specific multiplier, the effective multiplier is 2.4x and the actual price is $2.4/M.',
+        unitPriceNote: 'Per-request/image prices always show the configured unit price and do not change with the price mode switch. Per-request and image requests use their dedicated billing rules and multipliers.',
+        snapshotNote: 'Effective multipliers and official offers are snapshots taken when the page loads. Refresh after crossing a peak boundary or when an offer changes.'
+      },
+      multipliers: {
+        title: 'How multipliers combine',
+        groupTitle: 'Group multiplier',
+        groupDescription: 'The base multiplier for the current user in the selected group. A user-specific multiplier replaces the group default instead of multiplying it again. 1x is the original rate, below 1x is a discount, above 1x is a markup, and 0x applies a zero multiplier to that cost.',
+        peakTitle: 'Group peak factor',
+        peakDescription: 'Applies only inside the peak window shown on the group; outside the window it is 1x. It affects token billing, including image tokens billed by token, but not per-image billing.',
+        modelTitle: 'Model-specific multiplier',
+        modelDescription: 'An additional factor used by certain models to represent their actual quota cost. A dash means no additional model multiplier and is treated as 1x. This factor is included in the actual charge.',
+        effectiveTitle: 'Effective multiplier',
+        effectiveDescription: 'The complete multiplier used to convert token prices for the current request. The page shows the result loaded for the current point in time.',
+        formula: 'Effective multiplier = Group multiplier × Current group peak factor × Model-specific multiplier'
+      },
+      contextTiers: {
+        title: 'Context tiers',
+        description: 'Token requests normally match a tier using the input-side context total: input tokens plus cache write and cache read tokens. Once matched, that tier supplies the original input, output, and cache prices.',
+        boundary: '“Up to 256K” includes the upper bound; “Above 256K” starts after that boundary. When a custom tier label is shown, the configured rule represented by that label applies.',
+        noTier: '“All contexts” means there is no tier split and every context size uses the same base prices.'
+      },
+      timeBands: {
+        title: 'Peak, off-peak, and group peak rules',
+        pricingDescription: 'Peak and off-peak prices are time-based base-price tiers for the model. The request selects the tier matching the listed time zone and range. That tier is the original price, not an extra multiplier.',
+        groupPeakDescription: 'The group peak factor is a separate rule. When active, it is multiplied on top of the selected peak or off-peak price, so both rules can apply at the same time.',
+        timezone: 'Each time-based tier shows its time zone. Compare UTC tiers directly with the UTC clock at the top right; group peak windows use the server time zone shown on the group label.'
+      },
+      offers: {
+        title: 'Official quota offers',
+        description: 'For example, “2x usage limits” means the official service currently grants that model twice the usage limit during the offer window. It is offer status, not a model-specific multiplier, and does not mean a price increase or discount.',
+        noPricingEffect: 'Official quota offers do not change token prices, user charges on this service, or costs recorded in Usage History.'
+      },
+      columns: {
+        title: 'Other billing fields',
+        tokenPrices: 'Input, output, cache write, and cache read prices are shown per million tokens. A dash means no displayable price is available for that item.',
+        billingMode: 'Billing mode determines whether a request is charged per token, per request, or per image. The Per Request/Image column shows the corresponding configured unit price.',
+        source: 'Channel Pricing uses an administrator-configured price; Pricing Catalog uses a verified catalog price; Missing means no reliable unit price is currently available.'
+      }
+    },
     columns: {
       channel: 'Channel',
       platform: 'Platform',

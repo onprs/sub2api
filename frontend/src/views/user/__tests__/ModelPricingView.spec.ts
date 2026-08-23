@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ModelPricingView from '../ModelPricingView.vue'
 import type { UserAvailableChannel } from '@/api/channels'
@@ -16,6 +16,7 @@ const { getAvailable, getUserGroupRates, showError, showSuccess, extractApiError
 
 const messages: Record<string, string> = {
   'common.refresh': 'Refresh',
+  'common.close': 'Close',
   'modelPricing.selection.platform': 'Available Platform',
   'modelPricing.selection.group': 'Available Group',
   'modelPricing.selection.platformPlaceholder': 'Select a platform',
@@ -29,6 +30,14 @@ const messages: Record<string, string> = {
   'modelPricing.modelCopied': 'Model ID copied',
   'modelPricing.modes.raw': 'Original Billing',
   'modelPricing.modes.actual': 'Actual Billing',
+  'modelPricing.help.open': 'View pricing guide',
+  'modelPricing.help.title': 'Model Pricing Guide',
+  'modelPricing.help.priceModes.formula': 'Actual token unit price = Original token unit price × Effective multiplier',
+  'modelPricing.help.multipliers.title': 'How multipliers combine',
+  'modelPricing.help.contextTiers.title': 'Context tiers',
+  'modelPricing.help.timeBands.title': 'Peak, off-peak, and group peak rules',
+  'modelPricing.help.offers.title': 'Official quota offers',
+  'modelPricing.help.offers.noPricingEffect': 'Official quota offers do not change token prices, user charges, or Usage History.',
   'modelPricing.columns.contextTier': 'Pricing Period / Context Tier',
   'modelPricing.columns.group': 'Group',
   'modelPricing.columns.groupMultiplier': 'Group Multiplier',
@@ -271,6 +280,10 @@ describe('ModelPricingView', () => {
     extractApiErrorMessage.mockReturnValue('Load failed')
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('requires a platform and matching group before showing pricing rows', async () => {
     getAvailable.mockResolvedValue(makeChannel())
     getUserGroupRates.mockResolvedValue({ 20: 0.5 })
@@ -400,7 +413,7 @@ describe('ModelPricingView', () => {
     expect(getAvailable).toHaveBeenCalledTimes(1)
     expect(getAvailable).toHaveBeenLastCalledWith({ purpose: 'model_pricing' })
     expect(getUserGroupRates).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('Gateway A')
+    expect(wrapper.text()).not.toContain('Gateway A')
     expect(wrapper.text()).toContain('deepseek-v4-flash')
     expect(wrapper.text()).toContain('Enterprise')
     expect(wrapper.text()).toContain('Channel Pricing')
@@ -412,11 +425,17 @@ describe('ModelPricingView', () => {
     expect(wrapper.text()).not.toContain('Quota Cost Multiplier')
     expect(wrapper.text()).toContain('0.5x')
     expect(wrapper.text()).toContain('2x usage limits')
-    expect(wrapper.get('tbody td:nth-child(8)').text()).toBe('3x')
+    expect(wrapper.get('tbody td:nth-child(6)').text()).toBe('3x')
+
+    const headers = wrapper.findAll('thead th').map((header) => header.text())
+    expect(headers).toHaveLength(14)
+    expect(headers).not.toContain('Channel')
+    expect(headers).not.toContain('Platform')
+    expect(wrapper.get('tbody tr').findAll('td')).toHaveLength(14)
 
     const rawMode = wrapper.get('[data-pricing-mode="raw"]')
     const actualMode = wrapper.get('[data-pricing-mode="actual"]')
-    const inputPrices = () => wrapper.get('tbody td:nth-child(12)').text()
+    const inputPrices = () => wrapper.get('tbody td:nth-child(10)').text()
     expect(rawMode.text()).toBe('Original Billing')
     expect(actualMode.text()).toBe('Actual Billing')
     expect(actualMode.attributes('aria-pressed')).toBe('true')
@@ -477,12 +496,75 @@ describe('ModelPricingView', () => {
     expect(wrapper.text()).toContain('Up to 256K')
     expect(wrapper.text()).toContain('Above 256K')
     await wrapper.get('[data-pricing-mode="raw"]').trigger('click')
-    const inputPrices = wrapper.get('tbody td:nth-child(12)').text()
+    const inputPrices = wrapper.get('tbody td:nth-child(10)').text()
     expect(inputPrices).toContain('$0.4')
     expect(inputPrices).toContain('$1.2')
     expect(wrapper.text()).toContain('$0.04')
     expect(wrapper.text()).toContain('$0.12')
     expect(wrapper.findAll('[data-pricing-mode]')).toHaveLength(2)
+  })
+
+  it('shows the current UTC time and updates it every second', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-12T03:04:05Z'))
+    getAvailable.mockResolvedValue(makeChannel())
+    getUserGroupRates.mockResolvedValue({})
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const clock = wrapper.get('[data-test="utc-clock"]')
+    expect(clock.text()).toContain('UTC')
+    expect(clock.get('[data-test="utc-date"]').text()).toBe('2026-08-12')
+    expect(clock.get('[data-test="utc-time"]').text()).toBe('03:04:05')
+    expect(clock.get('time').attributes('datetime')).toBe('2026-08-12T03:04:05.000Z')
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(clock.get('[data-test="utc-time"]').text()).toBe('03:04:06')
+    expect(clock.get('time').attributes('datetime')).toBe('2026-08-12T03:04:06.000Z')
+    wrapper.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('opens and closes the pricing guide from the top-right help button', async () => {
+    getAvailable.mockResolvedValue(makeChannel())
+    getUserGroupRates.mockResolvedValue({})
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const helpButton = wrapper.get('[data-test="pricing-help-button"]')
+    expect(helpButton.attributes('title')).toBe('View pricing guide')
+    expect(helpButton.attributes('aria-haspopup')).toBe('dialog')
+    expect(helpButton.attributes('aria-expanded')).toBe('false')
+    expect(helpButton.get('[data-icon="questionCircle"]').exists()).toBe(true)
+    expect(document.body.querySelector('[data-test="pricing-help-dialog"]')).toBeNull()
+
+    await helpButton.trigger('click')
+    await wrapper.vm.$nextTick()
+
+    const dialog = document.body.querySelector<HTMLElement>('[data-test="pricing-help-dialog"]')
+    expect(helpButton.attributes('aria-expanded')).toBe('true')
+    expect(dialog).not.toBeNull()
+    expect(dialog?.textContent).toContain('Actual token unit price = Original token unit price × Effective multiplier')
+    expect(dialog?.textContent).toContain('How multipliers combine')
+    expect(dialog?.textContent).toContain('Context tiers')
+    expect(dialog?.textContent).toContain('Peak, off-peak, and group peak rules')
+    expect(dialog?.textContent).toContain('Official quota offers do not change token prices')
+
+    const modal = dialog?.closest('[role="dialog"]')
+    const closeButton = Array.from(modal?.querySelectorAll('button') ?? []).find(
+      (button) => button.textContent?.trim() === 'Close',
+    )
+    expect(closeButton).toBeDefined()
+    closeButton?.click()
+    await wrapper.vm.$nextTick()
+
+    expect(helpButton.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.findComponent({ name: 'ModelPricingHelpDialog' }).props('show')).toBe(false)
+    wrapper.unmount()
+    modal?.remove()
   })
 
   it('shows an app error when available channels fail to load', async () => {
