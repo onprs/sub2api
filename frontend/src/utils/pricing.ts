@@ -7,7 +7,7 @@
  *
  * Uses toPrecision(10) then strips trailing zeros to avoid IEEE 754 display noise.
  */
-export function formatScaled(value: number | null, scale: number): string {
+export function formatScaled(value: number | null, scale: number, currencySymbol = '$'): string {
   if (value == null) return '-'
-  return `$${(value * scale).toPrecision(10).replace(/\.?0+$/, '')}`
+  return `${currencySymbol}${(value * scale).toPrecision(10).replace(/\.?0+$/, '')}`
 }

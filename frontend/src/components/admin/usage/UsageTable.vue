@@ -209,7 +209,7 @@
           <span v-if="isErrorRecord(row)" class="text-sm text-gray-400 dark:text-gray-500">-</span>
           <div v-else class="text-sm">
             <div class="flex items-center gap-1.5">
-              <span class="font-medium text-green-600 dark:text-green-400">${{ row.actual_cost?.toFixed(6) || '0.000000' }}</span>
+              <span class="font-medium text-green-600 dark:text-green-400">{{ actualCostSymbol }}{{ row.actual_cost?.toFixed(6) || '0.000000' }}</span>
               <!-- Cost Detail Tooltip -->
               <div
                 class="group relative"
@@ -450,7 +450,7 @@
           </div>
           <div class="flex items-center justify-between gap-6">
             <span class="text-gray-400">{{ t('usage.userBilled') }}</span>
-            <span class="font-semibold text-green-400">${{ tooltipData?.actual_cost?.toFixed(6) || '0.000000' }}</span>
+            <span class="font-semibold text-green-400">{{ actualCostSymbol }}{{ tooltipData?.actual_cost?.toFixed(6) || '0.000000' }}</span>
           </div>
           <!-- Account billing (separated from user billing) -->
           <template v-if="showAccountBilling">
@@ -541,6 +541,7 @@ interface Props {
   showAccountBilling?: boolean
   showUpstreamEndpoint?: boolean
   formatRequestIds?: boolean
+  actualCostSymbol?: string
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
 }
@@ -553,6 +554,7 @@ const props = withDefaults(defineProps<Props>(), {
   showAccountBilling: true,
   showUpstreamEndpoint: true,
   formatRequestIds: false,
+  actualCostSymbol: '$',
   flat: false
 })
 const emit = defineEmits<{
@@ -564,6 +566,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const showAccountBilling = props.showAccountBilling
 const showUpstreamEndpoint = props.showUpstreamEndpoint
+const actualCostSymbol = props.actualCostSymbol
 const displayedRequestId = (requestId: string | null | undefined) =>
   props.formatRequestIds ? formatRequestId(requestId) : requestId?.trim() ?? ''
 const isErrorRecord = (row: UsageTableRow): row is UserRequestRecord =>

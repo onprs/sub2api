@@ -67,7 +67,7 @@
                   {{ t('profile.accountBalance') }}
                 </p>
                 <p class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">
-                  {{ formatCurrency(user?.balance || 0) }}
+                  {{ formatAccountBalance(user?.balance || 0) }}
                 </p>
               </div>
               <div
@@ -187,6 +187,7 @@ import ProfileAvatarCard from '@/components/user/profile/ProfileAvatarCard.vue'
 import ProfileEditForm from '@/components/user/profile/ProfileEditForm.vue'
 import ProfileIdentityBindingsSection from '@/components/user/profile/ProfileIdentityBindingsSection.vue'
 import type { User, UserAuthBindingStatus, UserAuthProvider, UserProfileSourceContext } from '@/types'
+import { formatAccountBalance } from '@/utils/currencyDisplay'
 
 const props = withDefaults(defineProps<{
   user: User | null
@@ -271,10 +272,6 @@ const providerLabels = computed<Record<UserAuthProvider, string>>(() => ({
   github: 'GitHub',
   google: 'Google'
 }))
-
-function formatCurrency(value: number): string {
-  return `$${value.toFixed(2)}`
-}
 
 function normalizeProvider(value: string): UserAuthProvider | null {
   const normalized = value.trim().toLowerCase()

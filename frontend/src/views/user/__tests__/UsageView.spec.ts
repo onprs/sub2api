@@ -105,7 +105,10 @@ vi.mock('vue-i18n', async () => {
 })
 
 const simpleStub = { template: '<div><slot /></div>' }
-const chartStub = { template: '<div />' }
+const chartStub = {
+  props: ['actualCostSymbol'],
+  template: '<div class="chart-stub" :data-actual-cost-symbol="actualCostSymbol" />',
+}
 
 const usageLog = {
   record_type: 'success',
@@ -177,9 +180,9 @@ function mountUsageView() {
         UsageStatsCards: chartStub,
         UsageTable: {
           name: 'UsageTable',
-          props: ['data', 'columns'],
+          props: ['data', 'columns', 'actualCostSymbol'],
           emits: ['errorClick'],
-          template: '<div class="usage-table-stub"><span v-for="row in data" :key="`${row.record_type}:${row.id}`">{{ row.record_type }}:{{ row.request_id }}:{{ row.category }}:{{ row.status_code }}</span></div>',
+          template: '<div class="usage-table-stub" :data-actual-cost-symbol="actualCostSymbol"><span v-for="row in data" :key="`${row.record_type}:${row.id}`">{{ row.record_type }}:{{ row.request_id }}:{{ row.category }}:{{ row.status_code }}</span></div>',
         },
         ModelDistributionChart: chartStub,
         GroupDistributionChart: chartStub,
@@ -253,6 +256,20 @@ describe('user UsageView', () => {
     }))
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
+  })
+
+  it('passes the renminbi symbol to every actual-cost display', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+
+    const symbolTargets = [
+      ...wrapper.findAll('.chart-stub'),
+      wrapper.get('.usage-table-stub'),
+    ]
+    expect(symbolTargets).toHaveLength(6)
+    for (const target of symbolTargets) {
+      expect(target.attributes('data-actual-cost-symbol')).toBe('¥')
+    }
   })
 
   it('shows successful and failed requests in one table with shared metadata columns', async () => {

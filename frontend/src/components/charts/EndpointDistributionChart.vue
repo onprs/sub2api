@@ -107,7 +107,7 @@
                   {{ formatTokens(item.total_tokens) }}
                 </td>
                 <td class="py-1.5 text-right text-green-600 dark:text-green-400">
-                  ${{ formatCost(item.actual_cost) }}
+                  {{ actualCostSymbol }}{{ formatCost(item.actual_cost) }}
                 </td>
                 <td class="py-1.5 text-right text-gray-400 dark:text-gray-500">
                   ${{ formatCost(item.cost) }}
@@ -164,6 +164,7 @@ const props = withDefaults(
     startDate?: string
     endDate?: string
     filters?: Record<string, any>
+    actualCostSymbol?: string
   }>(),
   {
     upstreamEndpointStats: () => [],
@@ -174,7 +175,8 @@ const props = withDefaults(
     source: 'inbound',
     showMetricToggle: false,
     showSourceToggle: false,
-    enableBreakdown: true
+    enableBreakdown: true,
+    actualCostSymbol: '$'
   }
 )
 
@@ -269,7 +271,7 @@ const doughnutOptions = computed(() => ({
           const total = context.dataset.data.reduce((a: number, b: number) => a + b, 0)
           const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0'
           const formattedValue = props.metric === 'actual_cost'
-            ? `$${formatCost(value)}`
+            ? `${props.actualCostSymbol}${formatCost(value)}`
             : formatTokens(value)
           return `${context.label}: ${formattedValue} (${percentage}%)`
         }

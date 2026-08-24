@@ -400,6 +400,7 @@ import type { GroupPlatform, SubscriptionType } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { platformLabel } from '@/utils/platformColors'
 import { formatScaled } from '@/utils/pricing'
+import { ACTUAL_COST_SYMBOL } from '@/utils/currencyDisplay'
 import { useClipboard } from '@/composables/useClipboard'
 import {
   buildModelPricingRows,
@@ -667,6 +668,10 @@ function pricingLines(row: ModelPricingRow): ModelPricingLine[] {
   }))
 }
 
+const pricingCurrencySymbol = computed(() =>
+  pricingMode.value === 'actual' ? ACTUAL_COST_SYMBOL : '$',
+)
+
 function tokenPrice(
   row: ModelPricingRow,
   pricing: ModelPricingValues,
@@ -676,16 +681,16 @@ function tokenPrice(
     pricingMode.value === 'actual'
       ? calculateActualTokenPrice(pricing[key], row.effectiveMultiplier)
       : pricing[key]
-  return formatScaled(price, perMillionScale)
+  return formatScaled(price, perMillionScale, pricingCurrencySymbol.value)
 }
 
 function unitPrice(pricing: ModelPricingValues): string {
   const parts: string[] = []
   if (pricing.perRequestPrice != null) {
-    parts.push(`${formatScaled(pricing.perRequestPrice, 1)} ${t('modelPricing.units.request')}`)
+    parts.push(`${formatScaled(pricing.perRequestPrice, 1, pricingCurrencySymbol.value)} ${t('modelPricing.units.request')}`)
   }
   if (pricing.imageOutputPrice != null) {
-    parts.push(`${formatScaled(pricing.imageOutputPrice, 1)} ${t('modelPricing.units.image')}`)
+    parts.push(`${formatScaled(pricing.imageOutputPrice, 1, pricingCurrencySymbol.value)} ${t('modelPricing.units.image')}`)
   }
   return parts.length > 0 ? parts.join(' / ') : '-'
 }

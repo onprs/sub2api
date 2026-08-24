@@ -440,9 +440,10 @@ describe('ModelPricingView', () => {
     expect(rawMode.text()).toBe('Original Billing')
     expect(actualMode.text()).toBe('Actual Billing')
     expect(actualMode.attributes('aria-pressed')).toBe('true')
-    expect(inputPrices()).toContain('$0.33')
-    expect(inputPrices()).toContain('$0.66')
-    expect(inputPrices()).not.toContain('$0.22')
+    expect(inputPrices()).toContain('¥0.33')
+    expect(inputPrices()).toContain('¥0.66')
+    expect(inputPrices()).not.toContain('¥0.22')
+    expect(inputPrices()).not.toContain('$0.33')
 
     await rawMode.trigger('click')
     expect(rawMode.attributes('aria-pressed')).toBe('true')

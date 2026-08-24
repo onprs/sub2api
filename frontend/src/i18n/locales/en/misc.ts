@@ -20,7 +20,7 @@ export default {
     help: {
       open: 'View pricing guide',
       title: 'Model Pricing Guide',
-      intro: 'All prices on this page are in USD and token prices are shown per million tokens. A model time band or context tier first selects the original unit price; the actual price then applies the selected group rate and the offer-adjusted model quota multiplier.',
+      intro: 'Original prices on this page use the US dollar symbol, while actual prices use the renminbi symbol. Token prices are shown per million tokens. A model time band or context tier first selects the original unit price; the actual price then applies the selected group rate and the offer-adjusted model quota multiplier.',
       priceModes: {
         title: 'Original and actual prices',
         rawTitle: 'Original price',
@@ -28,7 +28,7 @@ export default {
         actualTitle: 'Actual price',
         actualDescription: 'The token unit price converted with the effective multiplier currently loaded on the page. Use it to estimate the actual charge for input, output, cache write, and cache read usage.',
         formula: 'Actual token unit price = Original token unit price × Effective multiplier',
-        example: 'For example, if the selected original price is $1/M, the group multiplier is 0.8x, the base model quota multiplier is 2x, and an official 2x usage offer adjusts the model multiplier to 1x, the effective multiplier is 0.8x and the actual price is $0.8/M.',
+        example: 'For example, if the selected original price is $1/M, the group multiplier is 0.8x, the base model quota multiplier is 2x, and an official 2x usage offer adjusts the model multiplier to 1x, the effective multiplier is 0.8x and the actual price is ¥0.8/M.',
         unitPriceNote: 'Per-request/image prices always show the configured unit price and do not change with the price mode switch. Per-request and image requests use their dedicated billing rules and multipliers.',
         snapshotNote: 'Effective multipliers and official quota offers are snapshots taken when the page loads. Refresh after crossing a peak/off-peak boundary, a group period boundary, or when an offer changes.'
       },
