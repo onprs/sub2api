@@ -143,7 +143,7 @@
                   {{ formatTokens(model.total_tokens) }}
                 </td>
                 <td class="py-1.5 text-right text-green-600 dark:text-green-400">
-                  ${{ formatCost(model.actual_cost) }}
+                  {{ actualCostSymbol }}{{ formatCost(model.actual_cost) }}
                 </td>
                 <td v-if="showAccountCost" class="py-1.5 text-right text-orange-500 dark:text-orange-400">
                   ${{ formatCost(model.account_cost) }}
@@ -226,7 +226,7 @@
                 {{ formatTokens(item.tokens) }}
               </td>
               <td class="py-1.5 text-right text-green-600 dark:text-green-400">
-                ${{ formatCost(item.actual_cost) }}
+                {{ actualCostSymbol }}{{ formatCost(item.actual_cost) }}
               </td>
             </tr>
           </tbody>
@@ -280,6 +280,7 @@ const props = withDefaults(defineProps<{
   startDate?: string
   endDate?: string
   filters?: Record<string, any>
+  actualCostSymbol?: string
 }>(), {
   upstreamModelStats: () => [],
   mappingModelStats: () => [],
@@ -296,7 +297,8 @@ const props = withDefaults(defineProps<{
   enableBreakdown: true,
   showAccountCost: true,
   rankingLoading: false,
-  rankingError: false
+  rankingError: false,
+  actualCostSymbol: '$'
 })
 
 const expandedKey = ref<string | null>(null)
@@ -450,7 +452,7 @@ const doughnutOptions = computed(() => ({
           const total = context.dataset.data.reduce((a: number, b: number) => a + b, 0)
           const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0'
           const formattedValue = props.metric === 'actual_cost'
-            ? `$${formatCost(value)}`
+            ? `${props.actualCostSymbol}${formatCost(value)}`
             : formatTokens(value)
           return `${context.label}: ${formattedValue} (${percentage}%)`
         }
@@ -472,7 +474,7 @@ const rankingDoughnutOptions = computed(() => ({
           const value = context.raw as number
           const total = context.dataset.data.reduce((a: number, b: number) => a + b, 0)
           const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0'
-          return `${context.label}: $${formatCost(value)} (${percentage}%)`
+          return `${context.label}: ${props.actualCostSymbol}${formatCost(value)} (${percentage}%)`
         }
       }
     }

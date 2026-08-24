@@ -171,6 +171,45 @@ describe('admin UsageTable tooltip', () => {
     expect(text).toContain('$0.069568')
   })
 
+  it('uses the configured symbol for actual charges while preserving standard prices', async () => {
+    const row = {
+      ...baseImageRow,
+      actual_cost: 0.4,
+      total_cost: 0.5,
+      billing_mode: 'token',
+      input_cost: 0.2,
+      input_tokens: 1000,
+    }
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [row],
+        loading: false,
+        columns: [],
+        showAccountBilling: false,
+        actualCostSymbol: '¥',
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('¥0.400000')
+    const tooltipTriggers = wrapper.findAll('.group.relative')
+    await tooltipTriggers[tooltipTriggers.length - 1].trigger('mouseenter')
+    await nextTick()
+
+    const text = wrapper.text()
+    expect(text).toContain('User billed¥0.400000')
+    expect(text).toContain('Original$0.500000')
+    expect(text).toContain('Input Cost$0.200000')
+    expect(text).not.toContain('Original¥0.500000')
+  })
+
   it('marks inferred cache writes', () => {
     const row = {
       ...baseImageRow,

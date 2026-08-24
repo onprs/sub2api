@@ -20,6 +20,7 @@ vi.mock('vue-i18n', async () => {
 
 vi.mock('vue-chartjs', () => ({
   Line: {
+    name: 'Line',
     props: ['data', 'options'],
     template: '<div class="chart-data">{{ JSON.stringify(data) }}</div>',
   },
@@ -116,5 +117,36 @@ describe('TokenUsageTrend', () => {
     )
     // Hit rate = 500 / (200 + 500 + 300) * 100 = 50%
     expect(hitRateDataset.data[0]).toBe(50)
+  })
+
+  it('uses a separate symbol for actual cost in the tooltip footer', () => {
+    const trendData = [
+      {
+        date: '2026-05-08',
+        requests: 1,
+        input_tokens: 500,
+        output_tokens: 100,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 1500,
+        cost: 0.01,
+        actual_cost: 0.005,
+      },
+    ]
+    const wrapper = mount(TokenUsageTrend, {
+      props: {
+        trendData,
+        actualCostSymbol: '¥',
+      },
+      global: {
+        stubs: {
+          LoadingSpinner: true,
+        },
+      },
+    })
+
+    const options = wrapper.getComponent({ name: 'Line' }).props('options') as any
+    expect(options.plugins.tooltip.callbacks.footer([{ dataIndex: 0 }])).toBe(
+      'Actual: ¥0.0050 | Standard: $0.010',
+    )
   })
 })

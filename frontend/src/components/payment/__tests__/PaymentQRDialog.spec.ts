@@ -73,7 +73,7 @@ describe('PaymentQRDialog currency display', () => {
     vi.useRealTimers()
   })
 
-  it('uses order currency for pay_amount and USD for credited amount', async () => {
+  it('uses order currency for pay_amount and preserves the subscription amount in USD', async () => {
     const wrapper = mount(PaymentQRDialog, {
       props: {
         show: false,

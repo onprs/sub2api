@@ -1,7 +1,12 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
-      <UsageStatsCards :stats="usageStats" :show-account-cost="false" :strike-standard-cost="true" />
+      <UsageStatsCards
+        :stats="usageStats"
+        :show-account-cost="false"
+        :strike-standard-cost="true"
+        :actual-cost-symbol="ACTUAL_COST_SYMBOL"
+      />
 
       <div class="space-y-4">
         <div class="card p-4">
@@ -32,6 +37,7 @@
             :show-metric-toggle="true"
             :enable-breakdown="false"
             :show-account-cost="false"
+            :actual-cost-symbol="ACTUAL_COST_SYMBOL"
             :start-date="startDate"
             :end-date="endDate"
           />
@@ -42,6 +48,7 @@
             :show-metric-toggle="true"
             :enable-breakdown="false"
             :show-account-cost="false"
+            :actual-cost-symbol="ACTUAL_COST_SYMBOL"
             :start-date="startDate"
             :end-date="endDate"
           />
@@ -58,11 +65,16 @@
             :show-source-toggle="false"
             :show-metric-toggle="true"
             :enable-breakdown="false"
+            :actual-cost-symbol="ACTUAL_COST_SYMBOL"
             :title="t('usage.endpointDistribution')"
             :start-date="startDate"
             :end-date="endDate"
           />
-          <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
+          <TokenUsageTrend
+            :trend-data="trendData"
+            :loading="chartsLoading"
+            :actual-cost-symbol="ACTUAL_COST_SYMBOL"
+          />
         </div>
       </div>
 
@@ -159,6 +171,7 @@
         :show-account-billing="false"
         :show-upstream-endpoint="false"
         :format-request-ids="true"
+        :actual-cost-symbol="ACTUAL_COST_SYMBOL"
         default-sort-key="created_at"
         default-sort-order="desc"
         @sort="handleSort"
@@ -206,6 +219,7 @@ import { formatReasoningEffort } from '@/utils/format'
 import { BILLING_MODE_IMAGE, getBillingModeLabel } from '@/utils/billingMode'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
 import { formatRequestId } from '@/utils/requestId'
+import { ACTUAL_COST_SYMBOL } from '@/utils/currencyDisplay'
 import type {
   ApiKey,
   EndpointStat,

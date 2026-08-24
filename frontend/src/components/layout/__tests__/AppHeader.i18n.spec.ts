@@ -68,6 +68,7 @@ describe('AppHeader role label', () => {
     })
 
     expect(english.text()).toContain('Admin')
+    expect(english.text()).toContain('¥0.00')
 
     testLocale.value = 'zh'
     const chinese = mount(AppHeader, {

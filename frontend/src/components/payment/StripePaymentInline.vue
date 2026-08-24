@@ -72,6 +72,7 @@ import { paymentAPI } from '@/api/payment'
 import { useAppStore } from '@/stores'
 import { getPaymentPopupFeatures } from '@/components/payment/providerConfig'
 import { currencySymbol } from '@/components/payment/currency'
+import { ACCOUNT_BALANCE_SYMBOL } from '@/utils/currencyDisplay'
 import type { Stripe, StripeElements } from '@stripe/stripe-js'
 import Icon from '@/components/icons/Icon.vue'
 
@@ -103,7 +104,9 @@ const cancelling = ref(false)
 const success = ref(false)
 const ready = ref(false)
 const selectedType = ref('')
-const creditedAmountSymbol = currencySymbol('USD')
+const creditedAmountSymbol = computed(() =>
+  props.orderType === 'balance' ? ACCOUNT_BALANCE_SYMBOL : currencySymbol('USD')
+)
 const paymentAmountSymbol = computed(() => currencySymbol(props.currency))
 
 let stripeInstance: Stripe | null = null

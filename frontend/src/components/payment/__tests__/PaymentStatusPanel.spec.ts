@@ -96,6 +96,7 @@ describe('PaymentStatusPanel', () => {
     await flushPromises()
 
     expect(pollOrderStatus).toHaveBeenCalledWith(42)
+    expect(wrapper.text()).toContain('¥88.00')
     expect(wrapper.text()).toContain('payment.result.success')
     expect(wrapper.emitted('success')).toHaveLength(1)
   })

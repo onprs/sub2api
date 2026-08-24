@@ -251,6 +251,7 @@ import AnnouncementBell from '@/components/common/AnnouncementBell.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { sanitizeUrl } from '@/utils/url'
 import { getUserRoleLabelKey } from '@/utils/i18nLabels'
+import { formatAccountBalance } from '@/utils/currencyDisplay'
 
 const router = useRouter()
 const route = useRoute()
@@ -356,8 +357,7 @@ function handleReplayGuide() {
 }
 
 function formatHeaderMoney(value: number) {
-  if (!Number.isFinite(value)) return '$0.00'
-  return `$${value.toFixed(2)}`
+  return formatAccountBalance(value)
 }
 
 function handleClickOutside(event: MouseEvent) {

@@ -11,7 +11,7 @@
         </div>
         <div>
           <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.balance') }}</p>
-          <p class="text-xl font-bold text-emerald-600 dark:text-emerald-400">${{ formatBalance(balance) }}</p>
+          <p class="text-xl font-bold text-emerald-600 dark:text-emerald-400">{{ ACCOUNT_BALANCE_SYMBOL }}{{ formatBalance(balance) }}</p>
           <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('common.available') }}</p>
         </div>
       </div>
@@ -228,6 +228,7 @@ import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import type { UserDashboardStats as UserStatsType } from '@/api/usage'
 import type { PlatformQuotaItem } from '@/types'
+import { ACCOUNT_BALANCE_SYMBOL } from '@/utils/currencyDisplay'
 
 interface FusedPlatformCard {
   platform: string

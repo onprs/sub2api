@@ -64,4 +64,24 @@ describe('UsageStatsCards', () => {
     expect(text).toContain('Cache Read')
     expect(text).toContain('22')
   })
+
+  it('uses the configured symbol only for actual cost', () => {
+    const wrapper = mount(UsageStatsCards, {
+      props: {
+        stats,
+        showAccountCost: false,
+        actualCostSymbol: '¥',
+      },
+      global: {
+        stubs: {
+          Icon: true,
+        },
+      },
+    })
+
+    const text = wrapper.text()
+    expect(text).toContain('¥0.0010')
+    expect(text).toContain('Standard $0.0010')
+    expect(text).not.toContain('Standard ¥0.0010')
+  })
 })
