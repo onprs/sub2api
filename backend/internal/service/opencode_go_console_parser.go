@@ -71,15 +71,17 @@ var (
 		regexp.MustCompile(`lite\.subscription\.get\["(wrk_[A-Za-z0-9]+)"\]`),
 		regexp.MustCompile(`/workspace/(wrk_[A-Za-z0-9]+)/go`),
 	}
-	opencodeGoUsageWindowPatterns = map[string]*regexp.Regexp{
-		"rolling": regexp.MustCompile(`rollingUsage:[^=]*=\{status:"([^"]+)",resetInSec:(\d+),usagePercent:(\d+(?:\.\d+)?)\}`),
-		"weekly":  regexp.MustCompile(`weeklyUsage:[^=]*=\{status:"([^"]+)",resetInSec:(\d+),usagePercent:(\d+(?:\.\d+)?)\}`),
-		"monthly": regexp.MustCompile(`monthlyUsage:[^=]*=\{status:"([^"]+)",resetInSec:(\d+),usagePercent:(\d+(?:\.\d+)?)\}`),
-	}
-	opencodeGoReferralRewardPattern  = regexp.MustCompile(`\{id:"([^"]+)",source:"([^"]*)",status:"([^"]*)",email:"([^"]*)",amount:(\d+),timeCreated:[^=]*=new Date\("([^"]+)"\),timeApplied:(null|new Date\("[^"]+"\)|"[^"]*"|[^}\]]+)`)
-	opencodeGoServerRefConstPattern  = regexp.MustCompile(`const\s+([A-Za-z0-9_$]+)\s*=\s*createServerReference\("([a-f0-9]{32,})"\)`)
-	opencodeGoServerRefUsePattern    = regexp.MustCompile(`(?:query|action)\(\s*([A-Za-z0-9_$]+)\s*,\s*"([^"]+)"\s*\)`)
-	opencodeGoServerRefDirectPattern = regexp.MustCompile(`(?:query|action)\(\s*createServerReference\("([a-f0-9]{32,})"\)\s*,\s*"([^"]+)"\s*\)`)
+	opencodeGoUsageSummaryPattern = regexp.MustCompile(
+		`rollingUsage:\s*(?:[^=,{\s]+\s*=\s*)?\{([^{}]*)\}` +
+			`[^{}]*weeklyUsage:\s*(?:[^=,{\s]+\s*=\s*)?\{([^{}]*)\}` +
+			`[^{}]*monthlyUsage:\s*(?:[^=,{\s]+\s*=\s*)?\{([^{}]*)\}`,
+	)
+	opencodeGoUsageResetInSecValuePattern = regexp.MustCompile(`^\d+$`)
+	opencodeGoUsagePercentValuePattern    = regexp.MustCompile(`^\d+(?:\.\d+)?$`)
+	opencodeGoReferralRewardPattern       = regexp.MustCompile(`\{id:"([^"]+)",source:"([^"]*)",status:"([^"]*)",email:"([^"]*)",amount:(\d+),timeCreated:[^=]*=new Date\("([^"]+)"\),timeApplied:(null|new Date\("[^"]+"\)|"[^"]*"|[^}\]]+)`)
+	opencodeGoServerRefConstPattern       = regexp.MustCompile(`const\s+([A-Za-z0-9_$]+)\s*=\s*createServerReference\("([a-f0-9]{32,})"\)`)
+	opencodeGoServerRefUsePattern         = regexp.MustCompile(`(?:query|action)\(\s*([A-Za-z0-9_$]+)\s*,\s*"([^"]+)"\s*\)`)
+	opencodeGoServerRefDirectPattern      = regexp.MustCompile(`(?:query|action)\(\s*createServerReference\("([a-f0-9]{32,})"\)\s*,\s*"([^"]+)"\s*\)`)
 )
 
 func ParseOpenCodeGoConsolePage(html string, fetchedAt time.Time) (*OpenCodeGoConsoleSummary, error) {
@@ -93,15 +95,7 @@ func ParseOpenCodeGoConsolePage(html string, fetchedAt time.Time) (*OpenCodeGoCo
 	}
 
 	fetchedAt = fetchedAt.UTC()
-	rolling, err := parseOpenCodeGoUsageWindow(html, "rolling", fetchedAt)
-	if err != nil {
-		return nil, err
-	}
-	weekly, err := parseOpenCodeGoUsageWindow(html, "weekly", fetchedAt)
-	if err != nil {
-		return nil, err
-	}
-	monthly, err := parseOpenCodeGoUsageWindow(html, "monthly", fetchedAt)
+	usage, err := parseOpenCodeGoConsoleUsage(html, fetchedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -111,12 +105,8 @@ func ParseOpenCodeGoConsolePage(html string, fetchedAt time.Time) (*OpenCodeGoCo
 	return &OpenCodeGoConsoleSummary{
 		WorkspaceID: workspaceID,
 		FetchedAt:   fetchedAt,
-		Usage: OpenCodeGoConsoleUsage{
-			FiveHour:  rolling,
-			SevenDay:  weekly,
-			ThirtyDay: monthly,
-		},
-		Referral: referral,
+		Usage:       usage,
+		Referral:    referral,
 	}, nil
 }
 
@@ -129,26 +119,102 @@ func parseOpenCodeGoWorkspaceID(html string) string {
 	return ""
 }
 
-func parseOpenCodeGoUsageWindow(html, name string, fetchedAt time.Time) (OpenCodeGoUsageWindow, error) {
-	pattern := opencodeGoUsageWindowPatterns[name]
-	if pattern == nil {
-		return OpenCodeGoUsageWindow{}, fmt.Errorf("unknown opencode go usage window %q", name)
+func parseOpenCodeGoConsoleUsage(html string, fetchedAt time.Time) (OpenCodeGoConsoleUsage, error) {
+	matches := opencodeGoUsageSummaryPattern.FindAllStringSubmatch(html, -1)
+	candidates := make([]OpenCodeGoConsoleUsage, 0, len(matches))
+	var firstCandidateErr error
+	for _, match := range matches {
+		usage, err := parseOpenCodeGoConsoleUsageCandidate(match, fetchedAt)
+		if err != nil {
+			if firstCandidateErr == nil {
+				firstCandidateErr = err
+			}
+			continue
+		}
+		candidates = append(candidates, usage)
 	}
-	match := pattern.FindStringSubmatch(html)
+
+	switch len(candidates) {
+	case 0:
+		if firstCandidateErr != nil {
+			return OpenCodeGoConsoleUsage{}, firstCandidateErr
+		}
+		return OpenCodeGoConsoleUsage{}, fmt.Errorf("opencode go usage summary not found")
+	case 1:
+		return candidates[0], nil
+	default:
+		return OpenCodeGoConsoleUsage{}, fmt.Errorf("multiple opencode go usage summaries found")
+	}
+}
+
+func parseOpenCodeGoConsoleUsageCandidate(match []string, fetchedAt time.Time) (OpenCodeGoConsoleUsage, error) {
 	if len(match) != 4 {
-		return OpenCodeGoUsageWindow{}, fmt.Errorf("opencode go %s usage not found", name)
+		return OpenCodeGoConsoleUsage{}, fmt.Errorf("opencode go usage summary is invalid")
 	}
-	resetInSec, err := strconv.Atoi(match[2])
+	rolling, err := parseOpenCodeGoUsageWindowFields(match[1], "rolling", fetchedAt)
+	if err != nil {
+		return OpenCodeGoConsoleUsage{}, err
+	}
+	weekly, err := parseOpenCodeGoUsageWindowFields(match[2], "weekly", fetchedAt)
+	if err != nil {
+		return OpenCodeGoConsoleUsage{}, err
+	}
+	monthly, err := parseOpenCodeGoUsageWindowFields(match[3], "monthly", fetchedAt)
+	if err != nil {
+		return OpenCodeGoConsoleUsage{}, err
+	}
+	return OpenCodeGoConsoleUsage{
+		FiveHour:  rolling,
+		SevenDay:  weekly,
+		ThirtyDay: monthly,
+	}, nil
+}
+
+func parseOpenCodeGoUsageWindowFields(fields, name string, fetchedAt time.Time) (OpenCodeGoUsageWindow, error) {
+	values := make(map[string]string, 3)
+	for _, field := range strings.Split(fields, ",") {
+		key, value, ok := strings.Cut(field, ":")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		switch key {
+		case "status", "resetInSec", "usagePercent":
+			if _, exists := values[key]; exists {
+				return OpenCodeGoUsageWindow{}, fmt.Errorf("opencode go %s usage field %s is duplicated", name, key)
+			}
+			values[key] = strings.TrimSpace(value)
+		}
+	}
+	for _, key := range []string{"status", "resetInSec", "usagePercent"} {
+		if values[key] == "" {
+			return OpenCodeGoUsageWindow{}, fmt.Errorf("opencode go %s usage field %s not found", name, key)
+		}
+	}
+
+	status, err := strconv.Unquote(values["status"])
+	if err != nil || status == "" {
+		return OpenCodeGoUsageWindow{}, fmt.Errorf("parse opencode go %s usage status", name)
+	}
+	resetInSecRaw := values["resetInSec"]
+	if !opencodeGoUsageResetInSecValuePattern.MatchString(resetInSecRaw) {
+		return OpenCodeGoUsageWindow{}, fmt.Errorf("parse opencode go %s reset seconds: invalid value", name)
+	}
+	resetInSec, err := strconv.Atoi(resetInSecRaw)
 	if err != nil {
 		return OpenCodeGoUsageWindow{}, fmt.Errorf("parse opencode go %s reset seconds: %w", name, err)
 	}
-	percent, err := strconv.ParseFloat(match[3], 64)
+	usagePercentRaw := values["usagePercent"]
+	if !opencodeGoUsagePercentValuePattern.MatchString(usagePercentRaw) {
+		return OpenCodeGoUsageWindow{}, fmt.Errorf("parse opencode go %s usage percent: invalid value", name)
+	}
+	percent, err := strconv.ParseFloat(usagePercentRaw, 64)
 	if err != nil {
 		return OpenCodeGoUsageWindow{}, fmt.Errorf("parse opencode go %s usage percent: %w", name, err)
 	}
 	resetsAt := fetchedAt.Add(time.Duration(resetInSec) * time.Second)
 	return OpenCodeGoUsageWindow{
-		Status:       match[1],
+		Status:       status,
 		UsagePercent: percent,
 		ResetInSec:   resetInSec,
 		ResetsAt:     &resetsAt,
