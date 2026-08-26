@@ -286,7 +286,7 @@ describe('ModelPricingView', () => {
     vi.useRealTimers()
   })
 
-  it('shows official context and promotion metadata beside the model ID', async () => {
+  it('shows official context beside the model ID and promotion in the offer column', async () => {
     const channels = makeChannel()
     const section = channels[0].platforms[0]
     const model = section.supported_models[0]
@@ -302,6 +302,11 @@ describe('ModelPricingView', () => {
       term: 'ends December 31, 2026',
       expires_at: '2026-12-31T23:59:59Z',
     }
+    model.usage_offer = {
+      code: 'official-deal',
+      label: '50% off',
+      usage_multiplier: 1,
+    }
 
     getAvailable.mockResolvedValue(channels)
     getUserGroupRates.mockResolvedValue({})
@@ -310,10 +315,12 @@ describe('ModelPricingView', () => {
     await selectPricingScope(wrapper, 'commandcode', 20)
 
     expect(wrapper.get('[data-test="model-context-window"]').text()).toBe('1.05M context')
-    const promotion = wrapper.get('[data-test="model-promotion"]')
-    expect(promotion.text()).toBe('50% off')
-    expect(promotion.attributes('title')).toContain('ends December 31, 2026')
-    expect(promotion.attributes('title')).toContain('2026-12-31')
+    const offerCell = wrapper
+      .findAll('td')
+      .find((td) => td.text().includes('50% off'))
+    expect(offerCell).toBeTruthy()
+    const offerSpan = offerCell!.find('span[title]')
+    expect(offerSpan.attributes('title')).toContain('ends December 31, 2026')
   })
 
   it('requires a platform and matching group before showing pricing rows', async () => {

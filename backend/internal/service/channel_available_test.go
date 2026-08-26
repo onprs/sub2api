@@ -588,6 +588,9 @@ func TestFillGlobalPricingFallbackCommandCodeAddsPromotionAfterCatalogResolution
 	require.Equal(t, 1_048_576, models[0].ContextWindow)
 	require.NotNil(t, models[0].Promotion)
 	require.Equal(t, "50% off", models[0].Promotion.Label)
+	require.NotNil(t, models[0].UsageOffer)
+	require.Equal(t, "50% off", models[0].UsageOffer.Label)
+	require.Equal(t, float64(1), models[0].UsageOffer.UsageMultiplier)
 }
 
 func TestBuildCatalogSupportedModel_CommandCode(t *testing.T) {

@@ -56,6 +56,7 @@ export interface ModelPricingRow {
   modelSpecificMultiplier: number | null
   effectiveMultiplier: number
   usageOfferCode: string
+  usageOfferLabel: string
   usageMultiplier: number
   pricingSource: string
   pricingSourceLabel: string
@@ -228,23 +229,24 @@ function modelSpecificMultiplierForModel(model: UserSupportedModel): number | nu
 
 function usageOfferFields(model: UserSupportedModel): Pick<
   ModelPricingRow,
-  'usageOfferCode' | 'usageMultiplier'
+  'usageOfferCode' | 'usageOfferLabel' | 'usageMultiplier'
 > {
   const offer = model.usage_offer
   if (
     !offer ||
     !offer.code ||
-    !Number.isFinite(offer.usage_multiplier) ||
-    offer.usage_multiplier <= 1
+    (!offer.label && (!Number.isFinite(offer.usage_multiplier) || offer.usage_multiplier <= 1))
   ) {
     return {
       usageOfferCode: '',
+      usageOfferLabel: '',
       usageMultiplier: 1,
     }
   }
   return {
     usageOfferCode: offer.code,
-    usageMultiplier: offer.usage_multiplier,
+    usageOfferLabel: offer.label || '',
+    usageMultiplier: Number.isFinite(offer.usage_multiplier) ? offer.usage_multiplier : 1,
   }
 }
 

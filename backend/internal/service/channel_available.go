@@ -441,6 +441,14 @@ func (s *ChannelService) fillCommandCodeMetadataForName(model *SupportedModel, p
 	model.ContextWindow = contextWindow
 	if model.PricingSource == PricingSourceCatalog {
 		model.Promotion = promotion
+		if promotion != nil {
+			// 官方促销（50% off / Free）在价格页“官方额度活动”列展示。
+			model.UsageOffer = &ModelUsageOffer{
+				Code:            promotion.Code,
+				Label:           promotion.Label,
+				UsageMultiplier: 1,
+			}
+		}
 	}
 }
 

@@ -260,29 +260,13 @@
                       <Icon :name="copiedModel === row.modelName ? 'check' : 'copy'" size="xs" />
                     </button>
                   </div>
-                  <div
-                    v-if="row.contextLength !== null || row.promotionLabel"
-                    class="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 font-sans"
-                  >
+                  <div class="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 font-sans">
                     <span
                       v-if="row.contextLength !== null"
                       class="text-[10px] text-gray-500 dark:text-gray-400"
                       data-test="model-context-window"
                     >
                       {{ t('modelPricing.contextWindow', { tokens: formatContextTokenCount(row.contextLength) }) }}
-                    </span>
-                    <span
-                      v-if="row.promotionLabel"
-                      class="inline-flex max-w-full rounded border px-1.5 py-0.5 text-[10px] font-semibold"
-                      :class="
-                        row.promotionFree
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
-                          : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
-                      "
-                      :title="promotionTitle(row)"
-                      data-test="model-promotion"
-                    >
-                      <span class="truncate">{{ row.promotionLabel }}</span>
                     </span>
                   </div>
                 </td>
@@ -330,10 +314,21 @@
                 <td class="px-4 py-3 align-top">
                   <span
                     v-if="row.usageOfferCode"
-                    class="inline-flex rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-                    :title="t('modelPricing.usageOffers.detail')"
+                    class="inline-flex max-w-40 items-center rounded-md border px-2 py-1 text-[11px] font-medium"
+                    :class="
+                      row.usageOfferLabel
+                        ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                        : 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+                    "
+                    :title="
+                      row.usageOfferLabel
+                        ? usageOfferTitle(row)
+                        : t('modelPricing.usageOffers.detail')
+                    "
                   >
-                    {{ t('modelPricing.usageOffers.multiplier', { multiplier: formatMultiplier(row.usageMultiplier) }) }}
+                    <span class="truncate">
+                      {{ row.usageOfferLabel || t('modelPricing.usageOffers.multiplier', { multiplier: formatMultiplier(row.usageMultiplier) }) }}
+                    </span>
                   </span>
                   <span v-else class="text-gray-400 dark:text-gray-500">-</span>
                 </td>
@@ -670,9 +665,8 @@ function timeBandLabel(timeBand: ModelPricingTimeBandRow): string {
   return `${name} · ${timeBand.timeZone} ${timeBand.timeRanges.join(', ')}`
 }
 
-function promotionTitle(row: ModelPricingRow): string {
+function usageOfferTitle(row: ModelPricingRow): string {
   return [
-    t('modelPricing.promotion.title'),
     row.promotionTerm,
     row.promotionExpiresAt ? row.promotionExpiresAt.slice(0, 10) : '',
   ]

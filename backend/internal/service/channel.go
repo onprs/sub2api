@@ -402,8 +402,11 @@ type ModelPromotion struct {
 }
 
 // ModelUsageOffer 是当前有效的官方 Usage 活动快照；OpenCode Go 额度成本会按该活动折算。
+// Label 用于展示型活动（如 Command Code 的 50% off / Free），UsageMultiplier 仅对
+// 影响额度成本的 usage offer 有效（1 表示纯展示）。
 type ModelUsageOffer struct {
 	Code            string
+	Label           string
 	UsageMultiplier float64
 }
 

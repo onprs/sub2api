@@ -528,6 +528,13 @@ func callProviderWithClient(
 		text, extractErr := extractClinePassChatText(respBytes)
 		return text, string(respBytes), status, extractErr
 	}
+	if provider == MonitorProviderCommandCode {
+		if apiMode == MonitorAPIModeMessages {
+			return extractOpenCodeGoMessagesText(respBytes), string(respBytes), status, nil
+		}
+		// Command Code 的 chat 响应 content 可能是字符串或数组，复用能处理两种格式的抽取。
+		return extractOpenCodeGoChatText(respBytes), string(respBytes), status, nil
+	}
 	if provider == MonitorProviderOpenRouter {
 		return extractOpenRouterChatText(respBytes), string(respBytes), status, nil
 	}

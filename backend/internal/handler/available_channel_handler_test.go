@@ -124,6 +124,31 @@ func TestToUserSupportedModels_ExposesOfficialContextAndPromotion(t *testing.T) 
 	require.Contains(t, string(raw), `"promotion"`)
 }
 
+func TestToUserSupportedModels_ExposesCommandCodePromotionAsOfferLabel(t *testing.T) {
+	src := []service.SupportedModel{
+		{
+			Name:     "google/gemini-3.7-flash",
+			Platform: service.PlatformCommandCode,
+			UsageOffer: &service.ModelUsageOffer{
+				Code:            "gemini-3.7-flash-50-off",
+				Label:           "50% off",
+				UsageMultiplier: 1,
+			},
+		},
+	}
+
+	out := toUserSupportedModels(src, nil)
+	require.Len(t, out, 1)
+	require.NotNil(t, out[0].UsageOffer)
+	require.Equal(t, "gemini-3.7-flash-50-off", out[0].UsageOffer.Code)
+	require.Equal(t, "50% off", out[0].UsageOffer.Label)
+	require.Equal(t, float64(1), out[0].UsageOffer.UsageMultiplier)
+
+	raw, err := json.Marshal(out[0])
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"label":"50% off"`)
+}
+
 func TestToUserSupportedModels_ExposesPricingTimeBands(t *testing.T) {
 	inputPrice := 0.22e-6
 	outputPrice := 0.66e-6

@@ -133,8 +133,11 @@ type userSupportedModelPromotion struct {
 }
 
 // userSupportedModelUsageOffer 用户可见的官方 Usage 活动快照。
+// Label 非空表示纯展示型活动（如 Command Code 的 50% off / Free），
+// 此时 usage_multiplier 无实际折算含义。
 type userSupportedModelUsageOffer struct {
 	Code            string  `json:"code"`
+	Label           string  `json:"label,omitempty"`
 	UsageMultiplier float64 `json:"usage_multiplier"`
 }
 
@@ -561,12 +564,18 @@ func toUserSupportedModelMultiplier(quotaCost *service.ModelQuotaCost) *float64 
 }
 
 func toUserSupportedModelUsageOffer(offer *service.ModelUsageOffer) *userSupportedModelUsageOffer {
-	if offer == nil || strings.TrimSpace(offer.Code) == "" || offer.UsageMultiplier <= 1 ||
-		math.IsNaN(offer.UsageMultiplier) || math.IsInf(offer.UsageMultiplier, 0) {
+	if offer == nil || strings.TrimSpace(offer.Code) == "" {
+		return nil
+	}
+	// 纯展示型活动（Label 非空）允许 multiplier=1；
+	// 无 Label 的 usage offer 必须 multiplier > 1 才有折算意义。
+	if strings.TrimSpace(offer.Label) == "" &&
+		(offer.UsageMultiplier <= 1 || math.IsNaN(offer.UsageMultiplier) || math.IsInf(offer.UsageMultiplier, 0)) {
 		return nil
 	}
 	return &userSupportedModelUsageOffer{
 		Code:            offer.Code,
+		Label:           offer.Label,
 		UsageMultiplier: offer.UsageMultiplier,
 	}
 }

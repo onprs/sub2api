@@ -71,6 +71,7 @@ export interface UserSupportedModelPromotion {
 
 export interface UserSupportedModelUsageOffer {
   code: string
+  label?: string
   usage_multiplier: number
 }
 
