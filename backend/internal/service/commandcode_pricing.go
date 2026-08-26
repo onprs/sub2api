@@ -31,6 +31,9 @@ var commandCodeDeepSeekPeakModels = map[string]bool{
 // gemini-3.7-flash 50% 促销截止时间（UTC）。到期后恢复列表价。
 var commandCodeGemini37FlashDealExpiry = time.Date(2026, 12, 31, 23, 59, 59, 0, time.UTC)
 
+// minimax 免费模型促销截止时间（UTC）。
+var commandCodeMiniMaxFreeDealExpiry = time.Date(2026, 9, 5, 23, 59, 59, 0, time.UTC)
+
 var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	// Anthropic（上游原生 /provider/v1/messages）
 	"claude-sonnet-5":            {input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5},
@@ -44,9 +47,9 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"claude-haiku-4-5-20251001":  {input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25},
 
 	// OpenAI
-	"gpt-5.6-sol":   {input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25, longCtxAbove: 272000, longCtxIn: 2, longCtxOut: 1.5},
-	"gpt-5.6-terra": {input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5, longCtxAbove: 272000, longCtxIn: 2, longCtxOut: 1.5},
-	"gpt-5.6-luna":  {input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25, longCtxAbove: 272000, longCtxIn: 2, longCtxOut: 1.5},
+	"gpt-5.6-sol":   {input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25},
+	"gpt-5.6-terra": {input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5},
+	"gpt-5.6-luna":  {input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25},
 	"gpt-5.5":       {input: 5, output: 30, cacheRead: 0.5},
 	"gpt-5.4":       {input: 2.5, output: 15, cacheRead: 0.25},
 	"gpt-5.4-mini":  {input: 0.75, output: 4.5, cacheRead: 0.075},
@@ -82,14 +85,14 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"xiaomi/mimo-v2.5-pro": {input: 0.435, output: 0.87, cacheRead: 0.0036},
 	"xiaomi/mimo-v2.5":     {input: 0.14, output: 0.28, cacheRead: 0.0028},
 
-	// Qwen（>256K 长上下文分层）
+	// Qwen
 	"qwen/qwen3.8-max":         {input: 2, output: 6, cacheRead: 0.25, cacheWrite: 2.5},
 	"qwen/qwen3.8-27b":         {input: 0.4, output: 3, cacheRead: 0.04},
-	"qwen/qwen3.7-max":         {input: 5, output: 15, cacheRead: 1, cacheWrite: 6.26},
-	"qwen/qwen3.7-plus":        {input: 0.4, output: 1.6, cacheRead: 0.08, cacheWrite: 0.5, longCtxAbove: 256000, longCtxIn: 3, longCtxOut: 3},
-	"qwen/qwen3.7-flash":       {input: 0.1, output: 0.4, cacheRead: 0.02, cacheWrite: 0.125, longCtxAbove: 256000, longCtxIn: 2, longCtxOut: 2},
+	"qwen/qwen3.7-max":         {input: 2.5, output: 7.5, cacheRead: 0.5, cacheWrite: 3.13},
+	"qwen/qwen3.7-plus":        {input: 0.4, output: 1.6, cacheRead: 0.08, cacheWrite: 0.5},
+	"qwen/qwen3.7-flash":       {input: 0.03, output: 0.13, cacheRead: 0.006, cacheWrite: 0.038},
 	"qwen/qwen3.6-max-preview": {input: 1.3, output: 7.8, cacheRead: 0.26, cacheWrite: 1.63},
-	"qwen/qwen3.6-plus":        {input: 0.5, output: 3, cacheRead: 0.1, longCtxAbove: 256000, longCtxIn: 4, longCtxOut: 2},
+	"qwen/qwen3.6-plus":        {input: 0.5, output: 3, cacheRead: 0.1},
 
 	// StepFun
 	"stepfun/step-3.7-flash": {input: 0.2, output: 1.15, cacheRead: 0.04},
@@ -112,11 +115,12 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"thinkingmachines/inkling-small":    {input: 0.5, output: 1.2, cacheRead: 0.1},
 	"stealth/ox-alpha":                  {input: 0, output: 0, cacheRead: 0, allowZero: true},
 	"poolside/laguna-s-2.1-free":        {input: 0, output: 0, cacheRead: 0, allowZero: true},
+	"ling/ling-3.0-flash":               {input: 0, output: 0, cacheRead: 0, allowZero: true},
 	"meta/muse-spark-1.1":               {input: 1.25, output: 4.25, cacheRead: 0.15},
 	"meta/muse-spark-1.2":               {input: 1.25, output: 4.25, cacheRead: 0.15},
 	"meta/muse-spark-1.2-contributor":   {input: 0.1, output: 0.2, cacheRead: 0.002},
 	"xai/grok-4.5":                      {input: 2, output: 6, cacheRead: 0.5},
-	"xai/grok-4.6":                      {input: 2, output: 6, cacheRead: 0.5, longCtxAbove: 200000, longCtxIn: 2, longCtxOut: 2},
+	"xai/grok-4.6":                      {input: 2, output: 6, cacheRead: 0.5},
 }
 
 // commandCodeModelAliases 把官方文档/CLI 常用的短名映射到 Provider API 模型 ID。
@@ -161,6 +165,9 @@ var commandCodeModelAliases = map[string]string{
 	"qwen-3.7-flash":       "qwen/qwen3.7-flash",
 	"qwen-3.6-max-preview": "qwen/qwen3.6-max-preview",
 	"qwen-3.6-plus":        "qwen/qwen3.6-plus",
+
+	"ling-3.0-flash": "ling/ling-3.0-flash",
+	"ling-3-flash":   "ling/ling-3.0-flash",
 
 	"step-3.7-flash": "stepfun/step-3.7-flash",
 	"step-3.5-flash": "stepfun/step-3.5-flash",
@@ -253,6 +260,14 @@ func commandCodeReferencePricingAt(model string, now time.Time) (*ModelPricing, 
 		output = 7.5
 		cacheRead = 0.15
 		entry.cacheWrite = 0.08334
+	}
+
+	// minimax 免费模型促销到期（2026-09-05）后恢复标准 MiniMax 价格。
+	if (key == "minimax/minimax-m3-free" || key == "minimax/minimax-m2.7-free") && now.After(commandCodeMiniMaxFreeDealExpiry) {
+		input = 0.3
+		output = 1.2
+		cacheRead = 0.06
+		entry.allowZero = false
 	}
 
 	pricing := &ModelPricing{

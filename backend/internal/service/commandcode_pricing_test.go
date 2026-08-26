@@ -27,10 +27,23 @@ func TestCommandCodeReferencePricingCoversOfficialRates(t *testing.T) {
 
 	pricing, ok = commandCodeReferencePricingAt("Qwen/Qwen3.7-Max", offPeak)
 	require.True(t, ok)
-	// qwen-3.7-max 促销已于 2026-06-22 过期，恢复列表价。
-	require.InDelta(t, 5e-6, pricing.InputPricePerToken, 1e-12)
-	require.InDelta(t, 15e-6, pricing.OutputPricePerToken, 1e-12)
-	require.InDelta(t, 6.26e-6, pricing.CacheCreationPricePerToken, 1e-12)
+	require.InDelta(t, 2.5e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 7.5e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.5e-6, pricing.CacheReadPricePerToken, 1e-12)
+	require.InDelta(t, 3.13e-6, pricing.CacheCreationPricePerToken, 1e-12)
+
+	pricing, ok = commandCodeReferencePricingAt("Qwen/Qwen3.7-Flash", offPeak)
+	require.True(t, ok)
+	require.InDelta(t, 0.03e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 0.13e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.006e-6, pricing.CacheReadPricePerToken, 1e-12)
+	require.InDelta(t, 0.038e-6, pricing.CacheCreationPricePerToken, 1e-12)
+
+	pricing, ok = commandCodeReferencePricingAt("xiaomi/mimo-v2.5-pro", offPeak)
+	require.True(t, ok)
+	require.InDelta(t, 0.435e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 0.87e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.0036e-6, pricing.CacheReadPricePerToken, 1e-12)
 }
 
 func TestCommandCodeReferencePricingResolvesAliasesAndCase(t *testing.T) {
@@ -99,19 +112,8 @@ func TestCommandCodeReferencePricingGemini37FlashDealExpiry(t *testing.T) {
 	require.InDelta(t, 0.08334e-6, pricing.CacheCreationPricePerToken, 1e-12)
 }
 
-func TestCommandCodeReferencePricingLongContextAndZeroRate(t *testing.T) {
+func TestCommandCodeReferencePricingZeroRatesAndPromos(t *testing.T) {
 	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
-
-	pricing, ok := commandCodeReferencePricingAt("gpt-5.6-sol", now)
-	require.True(t, ok)
-	require.Equal(t, 272000, pricing.LongContextInputThreshold)
-	require.InDelta(t, 2.0, pricing.LongContextInputMultiplier, 1e-9)
-	require.InDelta(t, 1.5, pricing.LongContextOutputMultiplier, 1e-9)
-
-	pricing, ok = commandCodeReferencePricingAt("qwen/qwen3.7-plus", now)
-	require.True(t, ok)
-	require.Equal(t, 256000, pricing.LongContextInputThreshold)
-	require.InDelta(t, 3.0, pricing.LongContextInputMultiplier, 1e-9)
 
 	free, ok := commandCodeReferencePricingAt("stealth/ox-alpha", now)
 	require.True(t, ok)
@@ -121,6 +123,22 @@ func TestCommandCodeReferencePricingLongContextAndZeroRate(t *testing.T) {
 	free, ok = commandCodeReferencePricingAt("minimax/minimax-m3-free", now)
 	require.True(t, ok)
 	require.True(t, free.AllowZeroRate)
+
+	free, ok = commandCodeReferencePricingAt("ling/ling-3.0-flash", now)
+	require.True(t, ok)
+	require.True(t, free.AllowZeroRate)
+
+	free, ok = commandCodeReferencePricingAt("poolside/laguna-s-2.1-free", now)
+	require.True(t, ok)
+	require.True(t, free.AllowZeroRate)
+
+	// minimax 免费模型到期后恢复收费。
+	afterExpiry := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
+	paid, ok := commandCodeReferencePricingAt("minimax/minimax-m3-free", afterExpiry)
+	require.True(t, ok)
+	require.False(t, paid.AllowZeroRate)
+	require.InDelta(t, 0.3e-6, paid.InputPricePerToken, 1e-12)
+	require.InDelta(t, 1.2e-6, paid.OutputPricePerToken, 1e-12)
 }
 
 func TestBillingServiceCommandCodePlatformPricingFailsClosed(t *testing.T) {

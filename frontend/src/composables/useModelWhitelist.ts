@@ -391,6 +391,7 @@ const commandCodeModels = [
   'meta/muse-spark-1.2',
   'meta/muse-spark-1.2-contributor',
   'stealth/ox-alpha',
+  'ling/ling-3.0-flash',
   'deepseek/deepseek-v4-pro',
   'deepseek/deepseek-v4-flash',
   'deepseek/deepseek-v4-flash-vision-exp',
