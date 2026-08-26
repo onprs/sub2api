@@ -44,6 +44,59 @@ func commandCodeJSONResponse(status int, body string) *http.Response {
 	}
 }
 
+func TestCommandCodeClientFetchUsageParsesRootLevelWindowLimits(t *testing.T) {
+	now := time.Now().UTC()
+	fiveHourReset := now.Add(90 * time.Minute)
+	weeklyReset := now.Add(3 * 24 * time.Hour)
+	periodEnd := now.Add(20 * 24 * time.Hour)
+
+	// Command Code API 线上返回的实际结构：credits 与 windowLimits 处于同级根节点。
+	upstream := &commandCodeHTTPUpstreamStub{responses: map[string]*http.Response{
+		"/alpha/whoami": commandCodeJSONResponse(http.StatusOK, `{"org":{"id":"org-cc-103"}}`),
+		"/alpha/billing/credits": commandCodeJSONResponse(http.StatusOK, fmt.Sprintf(`{
+			"credits": {
+				"planId": "individual-goat",
+				"monthlyCredits": 51.5,
+				"purchasedCredits": 0,
+				"freeCredits": 0
+			},
+			"windowLimits": {
+				"limited": true,
+				"fiveHour": {"used": 3.5, "cap": 14, "resetAt": %d},
+				"weekly": {"used": 10.25, "cap": 35, "resetAt": %d}
+			}
+		}`, fiveHourReset.UnixMilli(), weeklyReset.UnixMilli())),
+		"/alpha/billing/subscriptions": commandCodeJSONResponse(http.StatusOK, fmt.Sprintf(`{
+			"data": {
+				"planId": "individual-goat",
+				"status": "active",
+				"currentPeriodStart": %q,
+				"currentPeriodEnd": %q
+			}
+		}`, now.Add(-10*24*time.Hour).Format(time.RFC3339), periodEnd.Format(time.RFC3339))),
+	}}
+	account := &Account{
+		ID: 103, Platform: PlatformCommandCode, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{"api_key": "cc-key", "base_url": DefaultCommandCodeBaseURL},
+	}
+	client := NewCommandCodeClient(upstream, &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}, nil)
+
+	snapshot, err := client.FetchUsage(context.Background(), account)
+	require.NoError(t, err)
+	require.Equal(t, "individual-goat", snapshot.PlanID)
+	require.Equal(t, 51.5, snapshot.MonthlyRemaining)
+	require.Equal(t, 70.0, snapshot.PlanMonthlyCap)
+
+	require.NotNil(t, snapshot.FiveHour)
+	require.Equal(t, 3.5, snapshot.FiveHour.Used)
+	require.Equal(t, 14.0, snapshot.FiveHour.Cap)
+	require.NotNil(t, snapshot.FiveHour.ResetAt)
+
+	require.NotNil(t, snapshot.Weekly)
+	require.Equal(t, 10.25, snapshot.Weekly.Used)
+	require.Equal(t, 35.0, snapshot.Weekly.Cap)
+}
+
 func TestCommandCodeClientFetchUsageParsesWindowsAndSubscription(t *testing.T) {
 	now := time.Now().UTC()
 	fiveHourReset := now.Add(90 * time.Minute)

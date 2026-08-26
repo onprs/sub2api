@@ -143,18 +143,51 @@ func (c *CommandCodeClient) FetchUsage(ctx context.Context, account *Account) (*
 func parseCommandCodeCredits(body []byte, snapshot *CommandCodeUsageSnapshot) {
 	credits := gjson.GetBytes(body, "credits")
 	if !credits.Exists() {
-		return
+		credits = gjson.ParseBytes(body)
 	}
-	snapshot.MonthlyRemaining = credits.Get("monthlyCredits").Float()
-	snapshot.PurchasedRemaining = credits.Get("purchasedCredits").Float()
-	snapshot.FreeRemaining = credits.Get("freeCredits").Float()
-	snapshot.PlanID = strings.TrimSpace(credits.Get("planId").String())
+	if monthly := credits.Get("monthlyCredits"); monthly.Exists() {
+		snapshot.MonthlyRemaining = monthly.Float()
+	} else if monthlySnake := credits.Get("monthly_credits"); monthlySnake.Exists() {
+		snapshot.MonthlyRemaining = monthlySnake.Float()
+	}
+	if purchased := credits.Get("purchasedCredits"); purchased.Exists() {
+		snapshot.PurchasedRemaining = purchased.Float()
+	} else if purchasedSnake := credits.Get("purchased_credits"); purchasedSnake.Exists() {
+		snapshot.PurchasedRemaining = purchasedSnake.Float()
+	}
+	if free := credits.Get("freeCredits"); free.Exists() {
+		snapshot.FreeRemaining = free.Float()
+	} else if freeSnake := credits.Get("free_credits"); freeSnake.Exists() {
+		snapshot.FreeRemaining = freeSnake.Float()
+	}
+	if planID := strings.TrimSpace(credits.Get("planId").String()); planID != "" {
+		snapshot.PlanID = planID
+	} else if planIDSnake := strings.TrimSpace(credits.Get("plan_id").String()); planIDSnake != "" {
+		snapshot.PlanID = planIDSnake
+	}
 
-	if window := credits.Get("windowLimits.fiveHour"); window.Exists() {
-		snapshot.FiveHour = parseCommandCodeUsageWindow(window)
+	windowLimits := gjson.GetBytes(body, "windowLimits")
+	if !windowLimits.Exists() {
+		windowLimits = gjson.GetBytes(body, "window_limits")
 	}
-	if window := credits.Get("windowLimits.weekly"); window.Exists() {
-		snapshot.Weekly = parseCommandCodeUsageWindow(window)
+	if !windowLimits.Exists() {
+		windowLimits = credits.Get("windowLimits")
+	}
+	if !windowLimits.Exists() {
+		windowLimits = credits.Get("window_limits")
+	}
+
+	fiveHour := windowLimits.Get("fiveHour")
+	if !fiveHour.Exists() {
+		fiveHour = windowLimits.Get("five_hour")
+	}
+	if fiveHour.Exists() {
+		snapshot.FiveHour = parseCommandCodeUsageWindow(fiveHour)
+	}
+
+	weekly := windowLimits.Get("weekly")
+	if weekly.Exists() {
+		snapshot.Weekly = parseCommandCodeUsageWindow(weekly)
 	}
 }
 
