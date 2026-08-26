@@ -738,6 +738,12 @@ func emptyMonitorResponseMessage(provider, rawBody string) string {
 		}
 		return "OpenRouter returned 2xx but response text was empty; verify that the endpoint and API key belong to the same service"
 	}
+	if provider == MonitorProviderCommandCode {
+		if snippet := strings.TrimSpace(truncateForErrorBody(rawBody)); snippet != "" {
+			return "Command Code returned 2xx but response text was empty; body: " + snippet
+		}
+		return "Command Code returned 2xx but response text was empty; check endpoint, api_mode, and response format"
+	}
 	return "upstream returned 2xx but response text was empty; check endpoint, api_mode, and response format"
 }
 
