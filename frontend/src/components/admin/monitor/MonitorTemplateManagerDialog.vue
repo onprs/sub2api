@@ -253,6 +253,7 @@ import {
   PROVIDER_OPENCODE_GO,
   PROVIDER_CLINEPASS,
   PROVIDER_OPENROUTER,
+  PROVIDER_COMMANDCODE,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_MESSAGES,
   API_MODE_RESPONSES,
@@ -280,6 +281,7 @@ const providerTabs = computed<{ value: Provider; label: string }[]>(() => [
   { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
   { value: PROVIDER_CLINEPASS, label: t('monitorCommon.providers.clinepass') },
   { value: PROVIDER_OPENROUTER, label: t('monitorCommon.providers.openrouter') },
+  { value: PROVIDER_COMMANDCODE, label: t('monitorCommon.providers.commandcode') },
 ])
 
 const activeProvider = ref<Provider>(PROVIDER_ANTHROPIC)
@@ -300,6 +302,7 @@ const countByProvider = computed<Record<Provider, number>>(() => {
     opencode_go: 0,
     clinepass: 0,
     openrouter: 0,
+    commandcode: 0,
   }
   for (const t of templates.value) out[t.provider]++
   return out

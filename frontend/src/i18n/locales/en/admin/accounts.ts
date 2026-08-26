@@ -107,6 +107,7 @@ export default {
         opencode_go: 'OpenCode Go',
         clinepass: 'ClinePass',
         openrouter: 'OpenRouter',
+        commandcode: 'Command Code',
       },
       types: {
         oauth: 'OAuth',
@@ -543,6 +544,11 @@ export default {
         baseUrlHint: 'Use the official OpenRouter API root (https://openrouter.ai/api/v1) unless your deployment requires an approved compatible relay.',
         apiKeyHint: 'Enter the API key issued for OpenRouter.',
         usageSource: 'Official OpenRouter usage limits'
+      },
+      commandCode: {
+        baseUrlHint: 'Use the official Command Code API root (https://api.commandcode.ai) unless your deployment requires an approved compatible relay.',
+        apiKeyHint: 'Enter the API key issued in Command Code Studio (Provider plan or higher).',
+        usageSource: 'Official Command Code usage limits'
       },
       anthropic: {
         apiKeyPassthrough: 'Auto passthrough (auth only)',

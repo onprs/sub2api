@@ -223,6 +223,7 @@ export default {
         opencode_go: 'OpenCode Go',
         clinepass: 'ClinePass',
         openrouter: 'OpenRouter',
+        commandcode: 'Command Code',
       },
       types: {
         oauth: 'OAuth',
@@ -619,6 +620,11 @@ export default {
         baseUrlHint: '除非部署使用已批准的兼容中继，否则请保留 OpenRouter 官方 API Root (https://openrouter.ai/api/v1)。',
         apiKeyHint: '请输入 OpenRouter 签发的 API Key。',
         usageSource: 'OpenRouter 官方用量限制'
+      },
+      commandCode: {
+        baseUrlHint: '除非部署使用已批准的兼容中继，否则请保留 Command Code 官方 API Root (https://api.commandcode.ai)。',
+        apiKeyHint: '请输入 Command Code Studio 签发的 API Key（Provider 套餐或更高）。',
+        usageSource: 'Command Code 官方用量限制'
       },
       anthropic: {
         apiKeyPassthrough: '自动透传（仅替换认证）',

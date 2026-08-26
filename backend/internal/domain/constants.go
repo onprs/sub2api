@@ -25,6 +25,7 @@ const (
 	PlatformOpenCodeGo  = "opencode_go"
 	PlatformClinePass   = "clinepass"
 	PlatformOpenRouter  = "openrouter"
+	PlatformCommandCode = "commandcode"
 	PlatformGemini      = "gemini"
 	PlatformAntigravity = "antigravity"
 	PlatformGrok        = "grok"

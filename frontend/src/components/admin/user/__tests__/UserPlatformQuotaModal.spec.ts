@@ -101,13 +101,13 @@ describe('UserPlatformQuotaModal', () => {
     })
     const w = await mountAndOpen()
     const inputs = w.findAll('input[type=number]')
-    // 8 platforms × 3 windows = 24 inputs
-    expect(inputs.length).toBe(24)
+    // 9 platforms × 3 windows = 27 inputs
+    expect(inputs.length).toBe(27)
     // 第一个 input 是 anthropic.daily = 10
     expect((inputs[0].element as HTMLInputElement).value).toBe('10')
   })
 
-  it('保存提交完整 8 platform payload', async () => {
+  it('保存提交完整 9 platform payload', async () => {
     apiMocks.getPlatformQuotas.mockResolvedValueOnce({
       platform_quotas: [
         { platform: 'openai', daily_limit_usd: null, weekly_limit_usd: 20, monthly_limit_usd: null,
@@ -124,7 +124,7 @@ describe('UserPlatformQuotaModal', () => {
     expect(apiMocks.updatePlatformQuotas).toHaveBeenCalledTimes(1)
     const [uid, payload] = apiMocks.updatePlatformQuotas.mock.calls[0]
     expect(uid).toBe(99)
-    expect(payload).toHaveLength(8) // 8 platforms always submitted
+    expect(payload).toHaveLength(9) // 9 platforms always submitted
     const openai = payload.find((p: any) => p.platform === 'openai')
     expect(openai.weekly_limit_usd).toBe(20)
     expect(payload.some((p: any) => p.platform === 'opencode_go')).toBe(true)

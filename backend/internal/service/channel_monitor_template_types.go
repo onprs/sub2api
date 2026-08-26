@@ -55,10 +55,10 @@ var (
 		"CHANNEL_MONITOR_TEMPLATE_NOT_FOUND", "channel monitor request template not found",
 	)
 	ErrChannelMonitorTemplateInvalidProvider = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_TEMPLATE_INVALID_PROVIDER", "template provider must be one of openai/anthropic/gemini/opencode_go/clinepass/openrouter/antigravity_claude/antigravity_gemini",
+		"CHANNEL_MONITOR_TEMPLATE_INVALID_PROVIDER", "template provider must be one of openai/anthropic/gemini/opencode_go/clinepass/openrouter/commandcode/antigravity_claude/antigravity_gemini",
 	)
 	ErrChannelMonitorTemplateInvalidAPIMode = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_TEMPLATE_INVALID_API_MODE", "template api_mode must be chat_completions, messages, or responses; responses is supported for openai/opencode_go and messages is supported for opencode_go",
+		"CHANNEL_MONITOR_TEMPLATE_INVALID_API_MODE", "template api_mode must be chat_completions, messages, or responses; responses is supported for openai/opencode_go and messages is supported for opencode_go/commandcode",
 	)
 	ErrChannelMonitorTemplateMissingName = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_TEMPLATE_MISSING_NAME", "template name is required",

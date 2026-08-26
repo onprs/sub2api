@@ -3634,6 +3634,7 @@ const platformOptions = computed(() => [
   { value: "grok", label: "Grok" },
   { value: "opencode_go", label: "OpenCode Go" },
   { value: "clinepass", label: "ClinePass" },
+  { value: "commandcode", label: "Command Code" },
   { value: "openrouter", label: "OpenRouter" },
 ]);
 
@@ -3646,6 +3647,7 @@ const platformFilterOptions = computed(() => [
   { value: "grok", label: "Grok" },
   { value: "opencode_go", label: "OpenCode Go" },
   { value: "clinepass", label: "ClinePass" },
+  { value: "commandcode", label: "Command Code" },
   { value: "openrouter", label: "OpenRouter" },
 ]);
 

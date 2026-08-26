@@ -955,6 +955,16 @@ func (s *BillingService) getModelPricingForPlatformAt(platform, model string, no
 		}
 		return s.GetModelPricing(model)
 	}
+	if platform == PlatformCommandCode {
+		// Command Code 模型命名与 OpenRouter/LiteLLM 命名空间重叠，必须平台隔离；
+		// 参考价表未覆盖的模型 fail-closed，避免退回通用目录后按错误价格计费。
+		for _, candidate := range billingModelPricingCandidates(model) {
+			if pricing, ok := commandCodeReferencePricingAt(candidate, now); ok {
+				return pricing, nil
+			}
+		}
+		return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
+	}
 	if !isOpenCodeGoPricingPlatform(platform) {
 		return s.GetModelPricing(model)
 	}

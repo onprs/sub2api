@@ -5,7 +5,7 @@
 
 import { apiClient } from '../client'
 
-export type Provider = 'openai' | 'anthropic' | 'gemini' | 'antigravity_claude' | 'antigravity_gemini' | 'opencode_go' | 'clinepass' | 'openrouter'
+export type Provider = 'openai' | 'anthropic' | 'gemini' | 'antigravity_claude' | 'antigravity_gemini' | 'opencode_go' | 'clinepass' | 'openrouter' | 'commandcode'
 export type MonitorStatus = 'operational' | 'degraded' | 'failed' | 'error'
 export type BodyOverrideMode = 'off' | 'merge' | 'replace'
 export type APIMode = 'chat_completions' | 'responses' | 'messages'
@@ -155,6 +155,11 @@ export async function listOpenRouterModels(): Promise<string[]> {
   return data.models || []
 }
 
+export async function listCommandCodeModels(): Promise<string[]> {
+  const { data } = await apiClient.get<{ models: string[] }>('/admin/channel-monitors/commandcode-models')
+  return data.models || []
+}
+
 /**
  * Get a channel monitor by ID
  */
@@ -214,6 +219,7 @@ export const channelMonitorAPI = {
   list,
   listClinePassModels,
   listOpenRouterModels,
+  listCommandCodeModels,
   get,
   create,
   update,

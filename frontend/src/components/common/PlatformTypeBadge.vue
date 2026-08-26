@@ -81,6 +81,7 @@ const platformLabel = computed(() => {
   if (props.platform === 'opencode_go') return 'OpenCode Go'
   if (props.platform === 'clinepass') return 'ClinePass'
   if (props.platform === 'openrouter') return 'OpenRouter'
+  if (props.platform === 'commandcode') return 'Command Code'
   return 'Gemini'
 })
 
@@ -130,6 +131,9 @@ const platformClass = computed(() => {
   if (props.platform === 'openrouter') {
     return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
   }
+  if (props.platform === 'commandcode') {
+    return 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300'
+  }
   return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
 })
 
@@ -154,6 +158,9 @@ const typeClass = computed(() => {
   }
   if (props.platform === 'openrouter') {
     return 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-300'
+  }
+  if (props.platform === 'commandcode') {
+    return 'bg-lime-100 text-lime-600 dark:bg-lime-900/30 dark:text-lime-300'
   }
   return 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
 })

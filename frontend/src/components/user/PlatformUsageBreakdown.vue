@@ -98,7 +98,8 @@ const PLATFORM_LABELS: Record<string, string> = {
   grok: 'Grok',
   opencode_go: 'OpenCode Go',
   clinepass: 'ClinePass',
-  openrouter: 'OpenRouter'
+  openrouter: 'OpenRouter',
+  commandcode: 'Command Code'
 }
 
 function platformLabel(platform: string): string {

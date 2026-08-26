@@ -382,6 +382,36 @@ const antigravityPresetMappings = [
 const opencodeGoPresetMappings: typeof anthropicPresetMappings = []
 const clinePassPresetMappings: typeof anthropicPresetMappings = []
 const openRouterPresetMappings: typeof anthropicPresetMappings = []
+const commandCodeModels = [
+  'claude-sonnet-5',
+  'claude-sonnet-4-6',
+  'claude-sonnet-4-5-20250929',
+  'claude-opus-5',
+  'claude-opus-4-8',
+  'claude-opus-4-7',
+  'claude-opus-4-6',
+  'claude-haiku-4-5-20251001',
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
+  'deepseek/deepseek-v4-pro',
+  'deepseek/deepseek-v4-flash',
+  'moonshotai/Kimi-K3',
+  'moonshotai/Kimi-K2.7-Code',
+  'zai-org/GLM-5.3',
+  'zai-org/GLM-5.2',
+  'MiniMaxAI/MiniMax-M3',
+  'xiaomi/mimo-v2.5-pro',
+  'Qwen/Qwen3.8-Max',
+  'Qwen/Qwen3.7-Plus',
+  'Qwen/Qwen3.7-Flash',
+  'google/gemini-3.7-flash',
+  'xai/grok-4.6',
+  'xai/grok-4.5',
+  'stealth/ox-alpha',
+  'meta/muse-spark-1.2-contributor'
+]
+const commandCodePresetMappings: typeof anthropicPresetMappings = []
 
 // Bedrock 预设映射（与后端 DefaultBedrockModelMapping 保持一致）
 const bedrockPresetMappings = [
@@ -456,6 +486,7 @@ export function getModelsByPlatform(platform: string, context: ModelCatalogConte
     case 'opencode_go': return opencodeGoModels
     case 'clinepass': return clinePassModels
     case 'openrouter': return openRouterModels
+    case 'commandcode': return commandCodeModels
     case 'zhipu': return zhipuModels
     case 'qwen': return qwenModels
     case 'deepseek': return deepseekModels
@@ -485,6 +516,7 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'opencode_go') return opencodeGoPresetMappings
   if (platform === 'clinepass') return clinePassPresetMappings
   if (platform === 'openrouter') return openRouterPresetMappings
+  if (platform === 'commandcode') return commandCodePresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings
   return anthropicPresetMappings
 }

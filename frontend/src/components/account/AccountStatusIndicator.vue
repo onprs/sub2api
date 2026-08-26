@@ -363,10 +363,52 @@ const openRouterOfficialUsageRateLimitResetMs = (account: Account): number | nul
   return null
 }
 
+const commandCodeOfficialUsageRateLimitResetMs = (account: Account): number | null => {
+  if (account.platform !== 'commandcode' || account.type !== 'apikey') return null
+  const extra = account.extra as Record<string, unknown> | undefined
+  if (!extra || String(extra.commandcode_usage_source || '').trim() !== 'official_api') return null
+
+  // 充值余额（purchased/free）可绕过窗口与月度限制：余额未耗尽时不视为超限。
+  const balance =
+    (numberFromExtra(extra.commandcode_usage_purchased_usd) ?? 0) +
+    (numberFromExtra(extra.commandcode_usage_free_usd) ?? 0)
+  if (balance > 0.005) return null
+
+  const windowExhausted = (window: string): number | null => {
+    const usedPercent = numberFromExtra(extra['commandcode_usage_' + window + '_used_percent'])
+    if (usedPercent === null || usedPercent < 100) return null
+    return timeFromExtra(extra['commandcode_usage_' + window + '_resets_at'])
+  }
+
+  let latest: number | null = null
+  const consider = (resetMs: number | null): void => {
+    if (resetMs === null || resetMs <= Date.now()) return
+    if (latest === null || resetMs > latest) latest = resetMs
+  }
+
+  let anyWindowExhausted = false
+  for (const window of ['5h', '7d']) {
+    const resetMs = windowExhausted(window)
+    if (resetMs !== null) anyWindowExhausted = true
+    consider(resetMs)
+  }
+
+  const monthlyRemaining = numberFromExtra(extra.commandcode_usage_monthly_usd)
+  const monthlyUsedPercent = numberFromExtra(extra.commandcode_usage_30d_used_percent)
+  const monthlyExhausted =
+    monthlyRemaining !== null && monthlyRemaining <= 0.005 &&
+    monthlyUsedPercent !== null && monthlyUsedPercent >= 100
+  if (monthlyExhausted) consider(timeFromExtra(extra.commandcode_usage_period_end))
+
+  if (!anyWindowExhausted && !monthlyExhausted) return null
+  return latest ?? ((timeFromExtra(extra.commandcode_usage_updated_at) ?? Date.now()) + 10 * 60 * 1000)
+}
+
 const isOfficialUsageExceeded = computed(() => {
   return openCodeGoOfficialUsageRateLimitResetMs(props.account) !== null ||
     clinePassOfficialUsageRateLimitResetMs(props.account) !== null ||
-    openRouterOfficialUsageRateLimitResetMs(props.account) !== null
+    openRouterOfficialUsageRateLimitResetMs(props.account) !== null ||
+    commandCodeOfficialUsageRateLimitResetMs(props.account) !== null
 })
 
 const effectiveRateLimitResetAt = computed(() => {
@@ -376,7 +418,8 @@ const effectiveRateLimitResetAt = computed(() => {
   }
   const providerResetMs = openCodeGoOfficialUsageRateLimitResetMs(props.account) ??
     clinePassOfficialUsageRateLimitResetMs(props.account) ??
-    openRouterOfficialUsageRateLimitResetMs(props.account)
+    openRouterOfficialUsageRateLimitResetMs(props.account) ??
+    commandCodeOfficialUsageRateLimitResetMs(props.account)
   if (providerResetMs !== null && providerResetMs > Date.now()) {
     return new Date(providerResetMs).toISOString()
   }

@@ -42,6 +42,7 @@ const (
 	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
 	PlatformClinePass   = domain.PlatformClinePass
 	PlatformOpenRouter  = domain.PlatformOpenRouter
+	PlatformCommandCode = domain.PlatformCommandCode
 	PlatformGemini      = domain.PlatformGemini
 	PlatformAntigravity = domain.PlatformAntigravity
 	PlatformGrok        = domain.PlatformGrok
@@ -56,6 +57,7 @@ var AllowedQuotaPlatforms = []string{
 	PlatformOpenCodeGo,
 	PlatformClinePass,
 	PlatformOpenRouter,
+	PlatformCommandCode,
 	PlatformGemini,
 	PlatformAntigravity,
 	PlatformGrok,

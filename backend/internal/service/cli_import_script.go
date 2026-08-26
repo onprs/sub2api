@@ -424,6 +424,8 @@ func DefaultModelIDsForPlatform(platform string) []string {
 		return ClinePassDefaultModelIDs()
 	case PlatformOpenRouter:
 		return OpenRouterDefaultModelIDs()
+	case PlatformCommandCode:
+		return CommandCodeDefaultModelIDs()
 	case PlatformAntigravity:
 		return DefaultAntigravityRouteModelIDs()
 	default:

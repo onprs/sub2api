@@ -47,7 +47,9 @@
                         ? CLINEPASS_DEFAULT_BASE_URL
                         : account.platform === 'openrouter'
                           ? OPENROUTER_DEFAULT_BASE_URL
-                          : 'https://api.anthropic.com'
+                          : account.platform === 'commandcode'
+                            ? COMMANDCODE_DEFAULT_BASE_URL
+                            : 'https://api.anthropic.com'
             "
           />
           <p class="input-hint">{{ baseUrlHint }}</p>
@@ -69,7 +71,7 @@
                   ? 'AIza...'
                   : account.platform === 'antigravity'
                     ? 'sk-...'
-                    : account.platform === 'opencode_go' || account.platform === 'clinepass' || account.platform === 'openrouter'
+                    : account.platform === 'opencode_go' || account.platform === 'clinepass' || account.platform === 'openrouter' || account.platform === 'commandcode'
                       ? 'sk-...'
                       : 'sk-ant-...'
             "
@@ -2749,6 +2751,7 @@ const authStore = useAuthStore()
 const OPENCODE_GO_DEFAULT_BASE_URL = 'https://opencode.ai/zen/go/v1'
 const CLINEPASS_DEFAULT_BASE_URL = 'https://api.cline.bot/api/v1'
 const OPENROUTER_DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1'
+const COMMANDCODE_DEFAULT_BASE_URL = 'https://api.commandcode.ai'
 
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。
@@ -2768,6 +2771,7 @@ const baseUrlHint = computed(() => {
   if (props.account.platform === 'opencode_go') return t('admin.accounts.opencodeGo.baseUrlHint')
   if (props.account.platform === 'clinepass') return t('admin.accounts.clinePass.baseUrlHint')
   if (props.account.platform === 'openrouter') return t('admin.accounts.openRouter.baseUrlHint')
+  if (props.account.platform === 'commandcode') return t('admin.accounts.commandCode.baseUrlHint')
   return t('admin.accounts.baseUrlHint')
 })
 
@@ -3189,6 +3193,7 @@ const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'opencode_go') return OPENCODE_GO_DEFAULT_BASE_URL
   if (props.account?.platform === 'clinepass') return CLINEPASS_DEFAULT_BASE_URL
   if (props.account?.platform === 'openrouter') return OPENROUTER_DEFAULT_BASE_URL
+  if (props.account?.platform === 'commandcode') return COMMANDCODE_DEFAULT_BASE_URL
   return 'https://api.anthropic.com'
 })
 
@@ -3683,7 +3688,9 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
               ? CLINEPASS_DEFAULT_BASE_URL
               : newAccount.platform === 'openrouter'
                 ? OPENROUTER_DEFAULT_BASE_URL
-                : 'https://api.anthropic.com'
+                : newAccount.platform === 'commandcode'
+                  ? COMMANDCODE_DEFAULT_BASE_URL
+                  : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
 
     // Load model mappings and detect mode
@@ -3769,7 +3776,9 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
               ? CLINEPASS_DEFAULT_BASE_URL
               : newAccount.platform === 'openrouter'
                 ? OPENROUTER_DEFAULT_BASE_URL
-                : 'https://api.anthropic.com'
+                : newAccount.platform === 'commandcode'
+                  ? COMMANDCODE_DEFAULT_BASE_URL
+                  : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl
 
     // Load model mappings for OpenAI/Grok OAuth accounts

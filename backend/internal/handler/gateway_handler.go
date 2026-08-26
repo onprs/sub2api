@@ -1099,6 +1099,11 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
+	if platform == service.PlatformCommandCode {
+		writeModelsList(c, service.CommandCodeDefaultModelIDs())
+		return
+	}
+
 	if platform == service.PlatformClinePass {
 		writeModelsList(c, service.ClinePassDefaultModelIDs())
 		return
@@ -1240,6 +1245,8 @@ func defaultModelIDsForPlatform(platform string) []string {
 		return service.ClinePassDefaultModelIDs()
 	case service.PlatformOpenRouter:
 		return service.OpenRouterDefaultModelIDs()
+	case service.PlatformCommandCode:
+		return service.CommandCodeDefaultModelIDs()
 	case service.PlatformAntigravity:
 		return service.DefaultAntigravityRouteModelIDs()
 	case service.PlatformAnthropic:

@@ -18,6 +18,7 @@ export const PROVIDER_ANTIGRAVITY_GEMINI: Provider = 'antigravity_gemini'
 export const PROVIDER_OPENCODE_GO: Provider = 'opencode_go'
 export const PROVIDER_CLINEPASS: Provider = 'clinepass'
 export const PROVIDER_OPENROUTER: Provider = 'openrouter'
+export const PROVIDER_COMMANDCODE: Provider = 'commandcode'
 
 export const API_MODE_CHAT_COMPLETIONS: APIMode = 'chat_completions'
 export const API_MODE_RESPONSES: APIMode = 'responses'
@@ -32,6 +33,7 @@ export const PROVIDERS: readonly Provider[] = [
   PROVIDER_OPENCODE_GO,
   PROVIDER_CLINEPASS,
   PROVIDER_OPENROUTER,
+  PROVIDER_COMMANDCODE,
 ]
 
 export const API_MODES: readonly APIMode[] = [
@@ -64,6 +66,7 @@ const MONITOR_PROVIDER_KEY_GROUP_PLATFORM: Record<Provider, GroupPlatform> = {
   opencode_go: 'opencode_go',
   clinepass: 'clinepass',
   openrouter: 'openrouter',
+  commandcode: 'commandcode',
 }
 
 export function monitorProviderKeyGroupPlatform(provider: Provider): GroupPlatform {
@@ -79,6 +82,9 @@ export function monitorPayloadAPIMode(provider: Provider, apiMode: APIMode): API
     if (apiMode === API_MODE_RESPONSES) return API_MODE_RESPONSES
     return API_MODE_CHAT_COMPLETIONS
   }
+  if (provider === PROVIDER_COMMANDCODE) {
+    return apiMode === API_MODE_MESSAGES ? API_MODE_MESSAGES : API_MODE_CHAT_COMPLETIONS
+  }
   return API_MODE_CHAT_COMPLETIONS
 }
 
@@ -88,6 +94,9 @@ export function monitorSelectableAPIModes(provider: Provider): readonly APIMode[
   }
   if (provider === PROVIDER_OPENCODE_GO) {
     return [API_MODE_CHAT_COMPLETIONS, API_MODE_RESPONSES, API_MODE_MESSAGES]
+  }
+  if (provider === PROVIDER_COMMANDCODE) {
+    return [API_MODE_CHAT_COMPLETIONS, API_MODE_MESSAGES]
   }
   return [API_MODE_CHAT_COMPLETIONS]
 }

@@ -199,6 +199,19 @@
             <PlatformIcon platform="openrouter" size="sm" />
             OpenRouter
           </button>
+          <button
+            type="button"
+            @click="form.platform = 'commandcode'"
+            :class="[
+              'flex min-w-[8.5rem] flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'commandcode'
+                ? 'bg-white text-lime-600 shadow-sm dark:bg-dark-600 dark:text-lime-300'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <PlatformIcon platform="commandcode" size="sm" />
+            Command Code
+          </button>
         </div>
       </div>
 
@@ -1132,7 +1145,9 @@
                       ? CLINEPASS_DEFAULT_BASE_URL
                       : form.platform === 'openrouter'
                         ? OPENROUTER_DEFAULT_BASE_URL
-                        : 'https://api.anthropic.com'
+                        : form.platform === 'commandcode'
+                          ? COMMANDCODE_DEFAULT_BASE_URL
+                          : 'https://api.anthropic.com'
             "
           />
           <p class="input-hint">{{ baseUrlHint }}</p>
@@ -1149,7 +1164,7 @@
                 ? 'sk-proj-...'
                 : form.platform === 'gemini'
                   ? 'AIza...'
-                  : form.platform === 'opencode_go' || form.platform === 'clinepass' || form.platform === 'openrouter'
+                  : form.platform === 'opencode_go' || form.platform === 'clinepass' || form.platform === 'openrouter' || form.platform === 'commandcode'
                     ? 'sk-...'
                     : 'sk-ant-...'
             "
@@ -3620,6 +3635,7 @@ const authStore = useAuthStore()
 const OPENCODE_GO_DEFAULT_BASE_URL = 'https://opencode.ai/zen/go/v1'
 const CLINEPASS_DEFAULT_BASE_URL = 'https://api.cline.bot/api/v1'
 const OPENROUTER_DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1'
+const COMMANDCODE_DEFAULT_BASE_URL = 'https://api.commandcode.ai'
 
 const oauthStepTitle = computed(() => {
   if (form.platform === 'opencode_go') return '官方用量同步'
@@ -3638,6 +3654,7 @@ const baseUrlHint = computed(() => {
   if (form.platform === 'opencode_go') return t('admin.accounts.opencodeGo.baseUrlHint')
   if (form.platform === 'clinepass') return t('admin.accounts.clinePass.baseUrlHint')
   if (form.platform === 'openrouter') return t('admin.accounts.openRouter.baseUrlHint')
+  if (form.platform === 'commandcode') return t('admin.accounts.commandCode.baseUrlHint')
   return t('admin.accounts.baseUrlHint')
 })
 
@@ -3648,6 +3665,7 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'opencode_go') return t('admin.accounts.opencodeGo.apiKeyHint')
   if (form.platform === 'clinepass') return t('admin.accounts.clinePass.apiKeyHint')
   if (form.platform === 'openrouter') return t('admin.accounts.openRouter.apiKeyHint')
+  if (form.platform === 'commandcode') return t('admin.accounts.commandCode.apiKeyHint')
   return t('admin.accounts.apiKeyHint')
 })
 
@@ -4070,7 +4088,7 @@ const form = reactive({
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
-  if (form.platform === 'opencode_go' || form.platform === 'clinepass' || form.platform === 'openrouter') {
+  if (form.platform === 'opencode_go' || form.platform === 'clinepass' || form.platform === 'openrouter' || form.platform === 'commandcode') {
     return false
   }
   // Antigravity upstream 类型不需要 OAuth 流程
@@ -4157,7 +4175,7 @@ watch(
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
-    if (form.platform === 'opencode_go' || form.platform === 'clinepass' || form.platform === 'openrouter') {
+    if (form.platform === 'opencode_go' || form.platform === 'clinepass' || form.platform === 'openrouter' || form.platform === 'commandcode') {
       form.type = 'apikey'
       return
     }
@@ -4200,7 +4218,9 @@ watch(
                 ? CLINEPASS_DEFAULT_BASE_URL
                 : newPlatform === 'openrouter'
                   ? OPENROUTER_DEFAULT_BASE_URL
-                  : 'https://api.anthropic.com'
+                  : newPlatform === 'commandcode'
+                    ? COMMANDCODE_DEFAULT_BASE_URL
+                    : 'https://api.anthropic.com'
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
@@ -4219,7 +4239,7 @@ watch(
       poolModeEnabled.value = false
       customErrorCodesEnabled.value = false
       tempUnschedEnabled.value = false
-    } else if (newPlatform === 'clinepass' || newPlatform === 'openrouter') {
+    } else if (newPlatform === 'clinepass' || newPlatform === 'openrouter' || newPlatform === 'commandcode') {
       accountCategory.value = 'apikey'
       modelRestrictionMode.value = 'whitelist'
       poolModeEnabled.value = false
@@ -5130,7 +5150,9 @@ const handleSubmit = async () => {
             ? CLINEPASS_DEFAULT_BASE_URL
             : form.platform === 'openrouter'
               ? OPENROUTER_DEFAULT_BASE_URL
-              : 'https://api.anthropic.com'
+              : form.platform === 'commandcode'
+                ? COMMANDCODE_DEFAULT_BASE_URL
+                : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {

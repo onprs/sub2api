@@ -191,7 +191,7 @@
     </template>
 
     <!-- API-key providers with official 5h/7d/30d usage windows. -->
-    <template v-else-if="(account.platform === 'opencode_go' || account.platform === 'clinepass' || account.platform === 'openrouter') && account.type === 'apikey'">
+    <template v-else-if="(account.platform === 'opencode_go' || account.platform === 'clinepass' || account.platform === 'openrouter' || account.platform === 'commandcode') && account.type === 'apikey'">
       <div v-if="loading" class="space-y-1.5">
         <div v-for="label in ['5h', '7d', '30d']" :key="label" class="flex items-center gap-1">
           <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
@@ -242,7 +242,7 @@
             {{ t('admin.accounts.usageWindow.estimatedData') }}
           </span>
           <span
-            v-else-if="openCodeGoUsageOfficial || account.platform === 'clinepass' || account.platform === 'openrouter'"
+            v-else-if="openCodeGoUsageOfficial || account.platform === 'clinepass' || account.platform === 'openrouter' || account.platform === 'commandcode'"
             class="text-[9px] text-emerald-600 dark:text-emerald-400"
             :title="apiKeyUsageSourceLabel"
           >
@@ -809,7 +809,7 @@ let visibilityObserver: IntersectionObserver | null = null
 const showUsageWindows = computed(() => {
   // Gemini: we can always compute local usage windows from DB logs (simulated quotas).
   if (props.account.platform === 'gemini') return true
-  if (props.account.platform === 'opencode_go' || props.account.platform === 'clinepass' || props.account.platform === 'openrouter') return props.account.type === 'apikey'
+  if (props.account.platform === 'opencode_go' || props.account.platform === 'clinepass' || props.account.platform === 'openrouter' || props.account.platform === 'commandcode') return props.account.type === 'apikey'
   return props.account.type === 'oauth' || props.account.type === 'setup-token'
 })
 
@@ -829,7 +829,7 @@ const shouldFetchUsage = computed(() => {
   if (props.account.platform === 'openai') {
     return props.account.type === 'oauth' || props.account.type === 'apikey'
   }
-  if (props.account.platform === 'opencode_go' || props.account.platform === 'clinepass' || props.account.platform === 'openrouter') {
+  if (props.account.platform === 'opencode_go' || props.account.platform === 'clinepass' || props.account.platform === 'openrouter' || props.account.platform === 'commandcode') {
     return props.account.type === 'apikey'
   }
   return false
@@ -937,6 +937,7 @@ const openCodeGoUsageSourceLabel = computed(() => {
 const apiKeyUsageSourceLabel = computed(() => {
   if (props.account.platform === 'clinepass') return t('admin.accounts.clinePass.usageSource')
   if (props.account.platform === 'openrouter') return t('admin.accounts.openRouter.usageSource')
+  if (props.account.platform === 'commandcode') return t('admin.accounts.commandCode.usageSource')
   return openCodeGoUsageSourceLabel.value
 })
 

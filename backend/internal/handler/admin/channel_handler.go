@@ -476,7 +476,7 @@ func (h *ChannelHandler) Delete(c *gin.Context) {
 }
 
 // GetModelDefaultPricing 获取模型的默认定价（用于前端自动填充）
-// GET /api/v1/admin/channels/model-pricing?model=claude-sonnet-4
+// GET /api/v1/admin/channels/model-pricing?model=claude-sonnet-4&platform=anthropic
 func (h *ChannelHandler) GetModelDefaultPricing(c *gin.Context) {
 	model := strings.TrimSpace(c.Query("model"))
 	if model == "" {
@@ -485,8 +485,15 @@ func (h *ChannelHandler) GetModelDefaultPricing(c *gin.Context) {
 		return
 	}
 
-	pricing, err := h.billingService.GetModelPricing(model)
-	if err != nil {
+	platform := strings.TrimSpace(c.Query("platform"))
+	var pricing *service.ModelPricing
+	var err error
+	if platform != "" {
+		pricing, err = h.billingService.GetModelPricingForPlatform(platform, model)
+	} else {
+		pricing, err = h.billingService.GetModelPricing(model)
+	}
+	if err != nil || pricing == nil {
 		// 模型不在定价列表中
 		response.Success(c, gin.H{"found": false})
 		return
@@ -512,13 +519,32 @@ var platformToLiteLLMProvider = map[string]string{
 	service.PlatformGrok:        "xai",
 }
 
-// SyncPricingModels 返回 LiteLLM 定价目录中指定平台的最新模型列表
+// SyncPricingModels 返回 LiteLLM 定价目录或内置/动态平台目录中指定平台的最新模型列表
 // GET /api/v1/admin/channels/pricing/sync-models?platform=anthropic
 func (h *ChannelHandler) SyncPricingModels(c *gin.Context) {
 	platform := strings.ToLower(strings.TrimSpace(c.Query("platform")))
 	if platform == "" {
 		response.ErrorFrom(c, infraerrors.BadRequest("MISSING_PARAMETER", "platform parameter is required").
 			WithMetadata(map[string]string{"param": "platform"}))
+		return
+	}
+
+	switch platform {
+	case service.PlatformCommandCode:
+		models := service.CommandCodeDefaultModelIDs()
+		response.Success(c, gin.H{"models": models})
+		return
+	case service.PlatformClinePass:
+		models := service.ClinePassDefaultModelIDs()
+		response.Success(c, gin.H{"models": models})
+		return
+	case service.PlatformOpenRouter:
+		models := service.OpenRouterDefaultModelIDs()
+		response.Success(c, gin.H{"models": models})
+		return
+	case service.PlatformOpenCodeGo:
+		models := service.OpenCodeGoDefaultModelIDs()
+		response.Success(c, gin.H{"models": models})
 		return
 	}
 

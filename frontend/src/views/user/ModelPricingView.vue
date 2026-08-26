@@ -449,6 +449,7 @@ const platformOrder: GroupPlatform[] = [
   'opencode_go',
   'clinepass',
   'openrouter',
+  'commandcode',
 ]
 const platformOrderIndex = new Map<string, number>(
   platformOrder.map((platform, index) => [platform, index]),

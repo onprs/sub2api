@@ -66,6 +66,11 @@ const PROVIDER_ICONS: Partial<Record<Provider, IconData>> = {
       'M12 2v20M2 12h20M17 7l5 5-5 5M7 7l-5 5 5 5',
     ],
   },
+  commandcode: {
+    paths: [
+      'M5 8l4 4-4 4M11 16h8',
+    ],
+  },
 }
 
 const props = withDefaults(defineProps<{

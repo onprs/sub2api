@@ -25,8 +25,15 @@ func isUpstreamModelNotFoundErrorForAccount(account *Account, statusCode int, bo
 	if isUpstreamModelNotFoundError(statusCode, body) {
 		return true
 	}
-	return account != nil && account.Platform == PlatformOpenCodeGo &&
-		isOpenCodeGoModelUnsupportedError(statusCode, body)
+	if account != nil && account.Platform == PlatformOpenCodeGo &&
+		isOpenCodeGoModelUnsupportedError(statusCode, body) {
+		return true
+	}
+	// Command Code 400 unsupported_model：模型不在目录中，属于确定性的
+	// 账号×模型能力反馈，与 OpenCode Go 的模型不支持同构。
+	return account != nil && account.Platform == PlatformCommandCode &&
+		statusCode == http.StatusBadRequest &&
+		strings.EqualFold(strings.TrimSpace(extractUpstreamErrorCode(body)), "unsupported_model")
 }
 
 func isOpenCodeGoModelUnsupportedError(statusCode int, body []byte) bool {
