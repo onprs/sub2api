@@ -1679,6 +1679,7 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForImages(
 	excludedIDs map[int64]struct{},
 	requiredCapability OpenAIImagesCapability,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	ctx, _ = withSchedulerSnapshotRetryState(ctx)
 	selection, decision, err := s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", requiredCapability, false, PlatformOpenAI, false)
 	if err == nil && selection != nil && selection.Account != nil {
 		return selection, decision, nil
@@ -1691,6 +1692,44 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForImages(
 }
 
 func (s *OpenAIGatewayService) selectAccountWithScheduler(
+	ctx context.Context,
+	groupID *int64,
+	previousResponseID string,
+	sessionHash string,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	requiredTransport OpenAIUpstreamTransport,
+	requiredCapability OpenAIEndpointCapability,
+	requiredImageCapability OpenAIImagesCapability,
+	requireCompact bool,
+	platform string,
+	previousResponseCanMove bool,
+) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	type schedulerResult struct {
+		selection *AccountSelectionResult
+		decision  OpenAIAccountScheduleDecision
+	}
+	result, err := selectWithSchedulerSnapshotRetry(ctx, isNoAvailableAccountSelectionError, func(attemptCtx context.Context) (schedulerResult, error) {
+		selection, decision, selectErr := s.selectAccountWithSchedulerOnce(
+			attemptCtx,
+			groupID,
+			previousResponseID,
+			sessionHash,
+			requestedModel,
+			excludedIDs,
+			requiredTransport,
+			requiredCapability,
+			requiredImageCapability,
+			requireCompact,
+			platform,
+			previousResponseCanMove,
+		)
+		return schedulerResult{selection: selection, decision: decision}, selectErr
+	})
+	return result.selection, result.decision, err
+}
+
+func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	ctx context.Context,
 	groupID *int64,
 	previousResponseID string,

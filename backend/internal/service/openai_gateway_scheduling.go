@@ -146,7 +146,9 @@ func (s *OpenAIGatewayService) SelectAccountForModel(ctx context.Context, groupI
 // SelectAccountForModelWithExclusions selects an account supporting the requested model while excluding specified accounts.
 // SelectAccountForModelWithExclusions 选择支持指定模型的账号，同时排除指定的账号。
 func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
-	return s.selectAccountForModelWithExclusions(s.withOpenAIQuotaAutoPauseContext(ctx), groupID, PlatformOpenAI, sessionHash, requestedModel, excludedIDs, false, 0, "")
+	return selectWithSchedulerSnapshotRetry(ctx, isNoAvailableAccountSelectionError, func(attemptCtx context.Context) (*Account, error) {
+		return s.selectAccountForModelWithExclusions(s.withOpenAIQuotaAutoPauseContext(attemptCtx), groupID, PlatformOpenAI, sessionHash, requestedModel, excludedIDs, false, 0, "")
+	})
 }
 
 // noAvailableOpenAISelectionError builds the standard "no account available" error
@@ -789,7 +791,9 @@ func (s *OpenAIGatewayService) isBetterAccount(candidate, current *Account) bool
 
 // SelectAccountWithLoadAwareness selects an account with load-awareness and wait plan.
 func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*AccountSelectionResult, error) {
-	return s.selectAccountWithLoadAwareness(s.withOpenAIQuotaAutoPauseContext(ctx), groupID, PlatformOpenAI, sessionHash, requestedModel, excludedIDs, false, "")
+	return selectWithSchedulerSnapshotRetry(ctx, isNoAvailableAccountSelectionError, func(attemptCtx context.Context) (*AccountSelectionResult, error) {
+		return s.selectAccountWithLoadAwareness(s.withOpenAIQuotaAutoPauseContext(attemptCtx), groupID, PlatformOpenAI, sessionHash, requestedModel, excludedIDs, false, "")
+	})
 }
 
 func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability) (*AccountSelectionResult, error) {

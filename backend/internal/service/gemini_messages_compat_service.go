@@ -118,6 +118,12 @@ func (s *GeminiMessagesCompatService) SelectAccountForModel(ctx context.Context,
 }
 
 func (s *GeminiMessagesCompatService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+	return selectWithSchedulerSnapshotRetry(ctx, isNoAvailableAccountSelectionError, func(attemptCtx context.Context) (*Account, error) {
+		return s.selectAccountForModelWithExclusionsOnce(attemptCtx, groupID, sessionHash, requestedModel, excludedIDs)
+	})
+}
+
+func (s *GeminiMessagesCompatService) selectAccountForModelWithExclusionsOnce(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
 	// 1. 确定目标平台和调度模式
 	// Determine target platform and scheduling mode
 	platform, useMixedScheduling, hasForcePlatform, err := s.resolvePlatformAndSchedulingMode(ctx, groupID)
@@ -515,6 +521,12 @@ func (s *GeminiMessagesCompatService) HasAntigravityAccounts(ctx context.Context
 // 3) OAuth accounts explicitly marked as ai_studio
 // 4) Any remaining Gemini accounts (fallback)
 func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx context.Context, groupID *int64) (*Account, error) {
+	return selectWithSchedulerSnapshotRetry(ctx, isNoAvailableAccountSelectionError, func(attemptCtx context.Context) (*Account, error) {
+		return s.selectAccountForAIStudioEndpointsOnce(attemptCtx, groupID)
+	})
+}
+
+func (s *GeminiMessagesCompatService) selectAccountForAIStudioEndpointsOnce(ctx context.Context, groupID *int64) (*Account, error) {
 	accounts, err := s.listSchedulableAccountsOnce(ctx, groupID, PlatformGemini, true)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
@@ -532,7 +544,7 @@ func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx cont
 			if strings.TrimSpace(a.GetCredential("api_key")) != "" {
 				return 0
 			}
-			return 9
+			return 999
 		case AccountTypeOAuth:
 			if strings.TrimSpace(a.GetCredential("project_id")) == "" {
 				return 1
@@ -547,13 +559,16 @@ func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx cont
 			// endpoint (generativelanguage.googleapis.com), so they cannot serve these requests.
 			return 999
 		default:
-			return 10
+			return 999
 		}
 	}
 
 	var selected *Account
 	for i := range accounts {
 		acc := &accounts[i]
+		if !acc.IsSchedulable() || rank(acc) >= 999 {
+			continue
+		}
 		if selected == nil {
 			selected = acc
 			continue
@@ -591,7 +606,14 @@ func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx cont
 	if selected == nil {
 		return nil, errors.New("no available Gemini accounts")
 	}
-	return s.hydrateSelectedAccount(ctx, selected)
+	hydrated, err := s.hydrateSelectedAccount(ctx, selected)
+	if err != nil {
+		return nil, err
+	}
+	if hydrated == nil || !hydrated.IsSchedulable() || rank(hydrated) >= 999 {
+		return nil, errors.New("no available Gemini accounts")
+	}
+	return hydrated, nil
 }
 
 func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*ForwardResult, error) {

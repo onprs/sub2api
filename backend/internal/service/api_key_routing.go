@@ -99,6 +99,14 @@ type apiKeyRoutingCandidate struct {
 
 // ResolveAPIKeyRoutingGroup 从 Key 的候选集合中解析本次请求的实际分组。
 func (s *GatewayService) ResolveAPIKeyRoutingGroup(ctx context.Context, apiKey *APIKey, input APIKeyRoutingResolveInput) (*APIKey, error) {
+	return selectWithSchedulerSnapshotRetry(ctx, func(err error) bool {
+		return err == ErrNoAvailableRoutingGroup
+	}, func(attemptCtx context.Context) (*APIKey, error) {
+		return s.resolveAPIKeyRoutingGroupOnce(attemptCtx, apiKey, input)
+	})
+}
+
+func (s *GatewayService) resolveAPIKeyRoutingGroupOnce(ctx context.Context, apiKey *APIKey, input APIKeyRoutingResolveInput) (*APIKey, error) {
 	if apiKey == nil {
 		return nil, ErrNoAvailableRoutingGroup
 	}
@@ -122,10 +130,16 @@ func (s *GatewayService) ResolveAPIKeyRoutingGroup(ctx context.Context, apiKey *
 	}
 	candidates := make([]apiKeyRoutingCandidate, 0, len(bindings))
 	for index, binding := range bindings {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		candidate, ok := s.buildAPIKeyRoutingCandidate(ctx, apiKey, binding, input, index, subscriptionsByGroup, healthByGroup)
 		if ok {
 			candidates = append(candidates, candidate)
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if len(candidates) == 0 {
 		return nil, ErrNoAvailableRoutingGroup
@@ -204,9 +218,18 @@ func (s *GatewayService) buildAPIKeyRoutingCandidate(
 	if err != nil {
 		return apiKeyRoutingCandidate{}, false
 	}
+	model := strings.TrimSpace(input.Model)
+	if input.Capability == APIKeyRoutingCapabilityMessages && (group.Platform == PlatformOpenAI || group.Platform == PlatformGrok) {
+		if mapped := group.ResolveMessagesDispatchModel(model); mapped != "" {
+			model = mapped
+		}
+	}
 	eligibleAccounts := accounts[:0]
 	for i := range accounts {
 		account := accounts[i]
+		if !account.IsSchedulableForModelWithContext(ctx, model) {
+			continue
+		}
 		if group.RequireOAuthOnly && account.Type == AccountTypeAPIKey {
 			continue
 		}
@@ -225,12 +248,6 @@ func (s *GatewayService) buildAPIKeyRoutingCandidate(
 		return apiKeyRoutingCandidate{}, false
 	}
 
-	model := strings.TrimSpace(input.Model)
-	if input.Capability == APIKeyRoutingCapabilityMessages && (group.Platform == PlatformOpenAI || group.Platform == PlatformGrok) {
-		if mapped := group.ResolveMessagesDispatchModel(model); mapped != "" {
-			model = mapped
-		}
-	}
 	modelDirect := model == ""
 	accountIDs := make([]int64, 0, len(accounts))
 	maxConcurrency := 0

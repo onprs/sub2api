@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"golang.org/x/sync/singleflight"
 )
 
 var (
@@ -19,8 +20,11 @@ var (
 )
 
 const (
-	outboxEventTimeout          = 2 * time.Minute
-	schedulerOutboxCleanupBatch = 5000
+	outboxEventTimeout                      = 2 * time.Minute
+	schedulerOutboxCleanupBatch             = 5000
+	schedulerAuthoritativeRefreshCooldown   = time.Second
+	schedulerAuthoritativeRefreshTimeout    = 5 * time.Second
+	schedulerAuthoritativeRefreshMaxEntries = 1024
 )
 
 // batchSeenKey tracks which (groupID, platform) bucket sets have already been
@@ -31,18 +35,32 @@ type batchSeenKey struct {
 	platform string
 }
 
+type schedulerAuthoritativeRefreshEntry struct {
+	accounts    []Account
+	err         error
+	completedAt time.Time
+}
+
+type schedulerAuthoritativeLoadResult struct {
+	accounts      []Account
+	authoritative bool
+}
+
 type SchedulerSnapshotService struct {
-	cache         SchedulerCache
-	outboxRepo    SchedulerOutboxRepository
-	accountRepo   AccountRepository
-	groupRepo     GroupRepository
-	cfg           *config.Config
-	stopCh        chan struct{}
-	stopOnce      sync.Once
-	wg            sync.WaitGroup
-	fallbackLimit *fallbackLimiter
-	lagMu         sync.Mutex
-	lagFailures   int
+	cache                SchedulerCache
+	outboxRepo           SchedulerOutboxRepository
+	accountRepo          AccountRepository
+	groupRepo            GroupRepository
+	cfg                  *config.Config
+	stopCh               chan struct{}
+	stopOnce             sync.Once
+	wg                   sync.WaitGroup
+	fallbackLimit        *fallbackLimiter
+	lagMu                sync.Mutex
+	lagFailures          int
+	authoritativeRefresh singleflight.Group
+	authoritativeMu      sync.Mutex
+	authoritativeRecent  map[string]schedulerAuthoritativeRefreshEntry
 }
 
 func NewSchedulerSnapshotService(
@@ -57,13 +75,14 @@ func NewSchedulerSnapshotService(
 		maxQPS = cfg.Gateway.Scheduling.DbFallbackMaxQPS
 	}
 	return &SchedulerSnapshotService{
-		cache:         cache,
-		outboxRepo:    outboxRepo,
-		accountRepo:   accountRepo,
-		groupRepo:     groupRepo,
-		cfg:           cfg,
-		stopCh:        make(chan struct{}),
-		fallbackLimit: newFallbackLimiter(maxQPS),
+		cache:               cache,
+		outboxRepo:          outboxRepo,
+		accountRepo:         accountRepo,
+		groupRepo:           groupRepo,
+		cfg:                 cfg,
+		stopCh:              make(chan struct{}),
+		fallbackLimit:       newFallbackLimiter(maxQPS),
+		authoritativeRecent: make(map[string]schedulerAuthoritativeRefreshEntry),
 	}
 }
 
@@ -112,17 +131,31 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 	mode := s.resolveMode(platform, hasForcePlatform)
 	bucket := s.bucketFor(groupID, platform, mode)
 
-	if s.cache != nil {
+	if s.cache != nil && !isSchedulerSnapshotAuthoritativeRead(ctx) {
 		cached, hit, err := s.cache.GetSnapshot(ctx, bucket)
 		if err != nil {
 			logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] cache read failed: bucket=%s err=%v", bucket.String(), err)
 		} else if hit {
+			markSchedulerSnapshotCacheHit(ctx)
 			return derefAccounts(cached), useMixed, nil
 		}
 	}
 
+	if isSchedulerSnapshotAuthoritativeRead(ctx) {
+		accounts, authoritative, err := s.loadAccountsAuthoritatively(ctx, bucket, useMixed)
+		if err == nil && authoritative {
+			rememberSchedulerAuthoritativeAccounts(ctx, accounts)
+		}
+		return accounts, useMixed, err
+	}
+
+	accounts, err := s.loadAndCacheAccounts(ctx, bucket, useMixed)
+	return accounts, useMixed, err
+}
+
+func (s *SchedulerSnapshotService) loadAndCacheAccounts(ctx context.Context, bucket SchedulerBucket, useMixed bool) ([]Account, error) {
 	if err := s.guardFallback(ctx); err != nil {
-		return nil, useMixed, err
+		return nil, err
 	}
 
 	fallbackCtx, cancel := s.withFallbackTimeout(ctx)
@@ -130,7 +163,7 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 
 	accounts, err := s.loadAccountsFromDB(fallbackCtx, bucket, useMixed)
 	if err != nil {
-		return nil, useMixed, err
+		return nil, err
 	}
 
 	if s.cache != nil {
@@ -139,14 +172,134 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 		}
 	}
 
-	return accounts, useMixed, nil
+	return accounts, nil
+}
+
+func (s *SchedulerSnapshotService) loadAccountsAuthoritatively(ctx context.Context, bucket SchedulerBucket, useMixed bool) ([]Account, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	if accounts, err, ok := s.recentAuthoritativeRefresh(bucket, time.Now()); ok {
+		return accounts, err == nil, err
+	}
+
+	resultCh := s.authoritativeRefresh.DoChan(bucket.String(), func() (any, error) {
+		if accounts, err, ok := s.recentAuthoritativeRefresh(bucket, time.Now()); ok {
+			return schedulerAuthoritativeLoadResult{accounts: accounts, authoritative: err == nil}, err
+		}
+
+		refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.authoritativeRefreshTimeout())
+		defer cancel()
+		accounts, err := s.loadAndCacheAccounts(refreshCtx, bucket, useMixed)
+		if recordErr := s.recordAuthoritativeRefresh(bucket, accounts, err, time.Now()); recordErr != nil {
+			return nil, recordErr
+		}
+		if err != nil {
+			return nil, err
+		}
+		return schedulerAuthoritativeLoadResult{accounts: accounts, authoritative: true}, nil
+	})
+
+	select {
+	case result := <-resultCh:
+		if result.Err != nil {
+			return nil, false, result.Err
+		}
+		loaded, _ := result.Val.(schedulerAuthoritativeLoadResult)
+		accounts, err := cloneSchedulerAccounts(loaded.accounts)
+		if err != nil {
+			return nil, false, err
+		}
+		return accounts, loaded.authoritative, nil
+	case <-ctx.Done():
+		return nil, false, ctx.Err()
+	}
+}
+
+func (s *SchedulerSnapshotService) recentAuthoritativeRefresh(bucket SchedulerBucket, now time.Time) ([]Account, error, bool) {
+	s.authoritativeMu.Lock()
+	defer s.authoritativeMu.Unlock()
+	entry, ok := s.authoritativeRecent[bucket.String()]
+	if !ok {
+		return nil, nil, false
+	}
+	if now.Sub(entry.completedAt) >= schedulerAuthoritativeRefreshCooldown {
+		delete(s.authoritativeRecent, bucket.String())
+		return nil, nil, false
+	}
+	cloned, cloneErr := cloneSchedulerAccounts(entry.accounts)
+	if cloneErr != nil {
+		return nil, cloneErr, true
+	}
+	return cloned, entry.err, true
+}
+
+func (s *SchedulerSnapshotService) recordAuthoritativeRefresh(bucket SchedulerBucket, accounts []Account, err error, completedAt time.Time) error {
+	cloned, cloneErr := cloneSchedulerAccounts(accounts)
+	if cloneErr != nil {
+		cloned = nil
+		err = cloneErr
+	}
+	s.authoritativeMu.Lock()
+	defer s.authoritativeMu.Unlock()
+	if s.authoritativeRecent == nil {
+		s.authoritativeRecent = make(map[string]schedulerAuthoritativeRefreshEntry)
+	}
+	for key, entry := range s.authoritativeRecent {
+		if completedAt.Sub(entry.completedAt) >= schedulerAuthoritativeRefreshCooldown {
+			delete(s.authoritativeRecent, key)
+		}
+	}
+	if len(s.authoritativeRecent) >= schedulerAuthoritativeRefreshMaxEntries {
+		var oldestKey string
+		var oldestAt time.Time
+		for key, entry := range s.authoritativeRecent {
+			if oldestKey == "" || entry.completedAt.Before(oldestAt) {
+				oldestKey = key
+				oldestAt = entry.completedAt
+			}
+		}
+		delete(s.authoritativeRecent, oldestKey)
+	}
+	s.authoritativeRecent[bucket.String()] = schedulerAuthoritativeRefreshEntry{
+		accounts:    cloned,
+		err:         err,
+		completedAt: completedAt,
+	}
+	return cloneErr
+}
+
+func (s *SchedulerSnapshotService) authoritativeRefreshTimeout() time.Duration {
+	if s.cfg != nil && s.cfg.Gateway.Scheduling.DbFallbackTimeoutSeconds > 0 {
+		return time.Duration(s.cfg.Gateway.Scheduling.DbFallbackTimeoutSeconds) * time.Second
+	}
+	return schedulerAuthoritativeRefreshTimeout
+}
+
+func cloneSchedulerAccounts(accounts []Account) ([]Account, error) {
+	if accounts == nil {
+		return nil, nil
+	}
+	payload, err := json.Marshal(accounts)
+	if err != nil {
+		return nil, err
+	}
+	var cloned []Account
+	if err := json.Unmarshal(payload, &cloned); err != nil {
+		return nil, err
+	}
+	return cloned, nil
 }
 
 func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int64) (*Account, error) {
 	if accountID <= 0 {
 		return nil, nil
 	}
-	if s.cache != nil {
+	authoritativeRead := isSchedulerSnapshotAuthoritativeRead(ctx)
+	if account, ok := schedulerAuthoritativeAccountFromContext(ctx, accountID); ok {
+		return account, nil
+	}
+	if s.cache != nil && (!authoritativeRead || s.accountRepo == nil) {
 		account, err := s.cache.GetAccount(ctx, accountID)
 		if err != nil {
 			logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] account cache read failed: id=%d err=%v", accountID, err)
