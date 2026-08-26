@@ -98,10 +98,18 @@ const (
 	DefaultOpenCodeGoBaseURL           = "https://opencode.ai/zen/go/v1"
 	DefaultClinePassBaseURL            = "https://api.cline.bot/api/v1"
 	DefaultOpenRouterBaseURL           = "https://openrouter.ai/api/v1"
+	DefaultCommandCodeBaseURL          = "https://api.commandcode.ai"
 	OpenCodeGoProtocolChatCompletions  = "chat_completions"
 	OpenCodeGoProtocolResponses        = "responses"
 	OpenCodeGoProtocolMessages         = "messages"
 	openCodeGoModelProtocolsCredential = "model_protocols"
+)
+
+// Command Code 上游原生协议：claude-* 模型走 Anthropic Messages，
+// 其余模型走 OpenAI Chat Completions。Provider API 不提供 Responses 入口。
+const (
+	CommandCodeProtocolChatCompletions = "chat_completions"
+	CommandCodeProtocolMessages        = "messages"
 )
 
 var openCodeGoBuiltinModelProtocols = map[string]string{
@@ -1384,6 +1392,14 @@ func (a *Account) IsOpenRouterAPIKey() bool {
 	return a.IsOpenRouter() && a.Type == AccountTypeAPIKey
 }
 
+func (a *Account) IsCommandCode() bool {
+	return a != nil && a.Platform == PlatformCommandCode
+}
+
+func (a *Account) IsCommandCodeAPIKey() bool {
+	return a.IsCommandCode() && a.Type == AccountTypeAPIKey
+}
+
 func (a *Account) IsOpenAIOAuth() bool {
 	return a.IsOpenAI() && a.Type == AccountTypeOAuth
 }
@@ -1549,6 +1565,39 @@ func (a *Account) GetOpenRouterBaseURL() string {
 		return DefaultOpenRouterBaseURL
 	}
 	return baseURL
+}
+
+func (a *Account) GetCommandCodeAPIKey() string {
+	if !a.IsCommandCodeAPIKey() {
+		return ""
+	}
+	return strings.TrimSpace(a.GetCredential("api_key"))
+}
+
+func (a *Account) GetCommandCodeBaseURL() string {
+	if !a.IsCommandCode() {
+		return ""
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(a.GetCredential("base_url")), "/")
+	if baseURL == "" {
+		return DefaultCommandCodeBaseURL
+	}
+	return baseURL
+}
+
+// ResolveCommandCodeModelProtocol 返回上游模型应使用的 Command Code 原生协议。
+// Command Code 严格要求 claude-* 模型走 Anthropic Messages，其余模型走 OpenAI
+// Chat Completions；错误端点会返回 400 invalid_request_error。
+func (a *Account) ResolveCommandCodeModelProtocol(upstreamModel string) (string, bool) {
+	model := strings.ToLower(strings.TrimSpace(upstreamModel))
+	if model == "" {
+		return "", false
+	}
+	model = strings.TrimPrefix(model, "commandcode/")
+	if strings.HasPrefix(model, "claude-") {
+		return CommandCodeProtocolMessages, true
+	}
+	return CommandCodeProtocolChatCompletions, true
 }
 
 func (a *Account) GetOpenCodeGoModelProtocols() map[string]string {
@@ -2718,6 +2767,65 @@ func (a *Account) IsClinePassOfficialUsageExhausted() bool {
 	return a.ClinePassOfficialUsageRateLimitResetAt(time.Now()) != nil
 }
 
+// IsCommandCodeOfficialUsageExhausted 报告官方快照是否显示账号当前完全无法服务。
+func (a *Account) IsCommandCodeOfficialUsageExhausted() bool {
+	return a.CommandCodeOfficialUsageRateLimitResetAt(time.Now()) != nil
+}
+
+// CommandCodeOfficialUsageRateLimitResetAt 返回账号应被限流到的最早解禁时间。
+// Command Code 语义：窗口限额只约束月度额度，充值（purchased/free）余额
+// 可绕过窗口限制；因此仅在充值余额耗尽且（任一窗口用满或月度额度耗尽）
+// 时返回解禁时间：窗口用满取窗口 resetAt，月度耗尽取订阅周期结束时间，
+// 取两者中最晚的（需所有枯竭维度都恢复后账号才能服务）。其余情况返回 nil。
+func (a *Account) CommandCodeOfficialUsageRateLimitResetAt(now time.Time) *time.Time {
+	if a == nil || !a.IsCommandCodeAPIKey() || len(a.Extra) == 0 {
+		return nil
+	}
+	if strings.TrimSpace(a.getExtraString("commandcode_usage_source")) != commandCodeUsageSourceOfficialAPI {
+		return nil
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	// 充值余额可绕过窗口与月度限制：余额未耗尽时不限流。
+	balance := a.getExtraFloat64("commandcode_usage_purchased_usd") + a.getExtraFloat64("commandcode_usage_free_usd")
+	if balance > commandCodeBalanceExhaustedEpsilon {
+		return nil
+	}
+
+	var latest *time.Time
+	recordLater := func(resetAt time.Time) {
+		if resetAt.IsZero() || !now.Before(resetAt) {
+			return
+		}
+		if latest == nil || resetAt.After(*latest) {
+			copyResetAt := resetAt
+			latest = &copyResetAt
+		}
+	}
+
+	windowExhausted := false
+	for _, window := range []string{"5h", "7d"} {
+		if a.getExtraFloat64("commandcode_usage_"+window+"_used_percent") < 100 {
+			continue
+		}
+		windowExhausted = true
+		if resetAt := a.getExtraTime("commandcode_usage_" + window + "_resets_at"); !resetAt.IsZero() {
+			recordLater(resetAt)
+		}
+	}
+	monthlyExhausted := a.getExtraFloat64("commandcode_usage_monthly_usd") <= commandCodeBalanceExhaustedEpsilon &&
+		a.getExtraFloat64("commandcode_usage_30d_used_percent") >= 100
+	if monthlyExhausted {
+		if periodEnd := a.getExtraTime("commandcode_usage_period_end"); !periodEnd.IsZero() {
+			recordLater(periodEnd)
+		}
+	}
+	if !windowExhausted && !monthlyExhausted {
+		return nil
+	}
+	return latest
+}
 func (a *Account) ClinePassOfficialUsageRateLimitResetAt(now time.Time) *time.Time {
 	if a == nil || !a.IsClinePassAPIKey() || len(a.Extra) == 0 {
 		return nil
@@ -2777,7 +2885,7 @@ func (a *Account) IsWeeklyQuotaPeriodExpired() bool {
 
 // IsQuotaExceeded 检查 API Key 账号配额是否已超限（任一维度超限即返回 true）
 func (a *Account) IsQuotaExceeded() bool {
-	if a.IsOpenCodeGoOfficialUsageExhausted() || a.IsClinePassOfficialUsageExhausted() {
+	if a.IsOpenCodeGoOfficialUsageExhausted() || a.IsClinePassOfficialUsageExhausted() || a.IsCommandCodeOfficialUsageExhausted() {
 		return true
 	}
 	// 总额度

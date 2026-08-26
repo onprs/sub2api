@@ -1423,7 +1423,7 @@ describe("admin SettingsView platform quota matrix", () => {
     // 应携带嵌套对象，而非扁平字段
     expect(payload).toHaveProperty("default_platform_quotas");
     const quotas = payload["default_platform_quotas"] as Record<string, unknown>;
-    const platforms = ["anthropic", "openai", "gemini", "antigravity", "grok", "opencode_go", "clinepass", "openrouter"];
+    const platforms = ["anthropic", "openai", "gemini", "antigravity", "grok", "opencode_go", "clinepass", "openrouter", "commandcode"];
     for (const p of platforms) {
       expect(quotas).toHaveProperty(p);
       const pq = quotas[p] as Record<string, unknown>;

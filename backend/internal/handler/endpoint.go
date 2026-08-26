@@ -206,6 +206,11 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 			return inbound
 		}
 
+	case service.PlatformCommandCode:
+		// Command Code 实际上游协议由模型决定（claude-* → messages，其余 →
+		// chat completions），在网关服务内解析；这里保留入口端点用于路由统计。
+		return inbound
+
 	case service.PlatformAnthropic:
 		return EndpointMessages
 

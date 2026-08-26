@@ -241,6 +241,7 @@ const defaultClientTab = computed(() => {
     case 'opencode_go':
     case 'clinepass':
     case 'openrouter':
+    case 'commandcode':
       return 'opencode'
     default:
       return 'claude'
@@ -340,6 +341,7 @@ const clientTabs = computed((): TabConfig[] => {
     case 'opencode_go':
     case 'clinepass':
     case 'openrouter':
+    case 'commandcode':
       return [
         { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
         { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
@@ -393,6 +395,7 @@ const platformDescription = computed(() => {
     case 'opencode_go':
     case 'clinepass':
     case 'openrouter':
+    case 'commandcode':
       if (activeClientTab.value === 'codex') {
         return t('keys.useKeyModal.openai.description')
       }
@@ -434,6 +437,7 @@ const platformNote = computed(() => {
     case 'opencode_go':
     case 'clinepass':
     case 'openrouter':
+    case 'commandcode':
       if (activeClientTab.value === 'gemini') {
         return t('keys.useKeyModal.gemini.note')
       }
@@ -580,6 +584,7 @@ const currentFiles = computed((): FileConfig[] => {
     case 'opencode_go':
     case 'clinepass':
     case 'openrouter':
+    case 'commandcode':
       if (activeClientTab.value === 'codex') {
         return generateOpenAIFiles(baseUrl, apiKey)
       }

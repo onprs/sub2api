@@ -63,6 +63,8 @@ const (
 	providerClinePassChatPath = "/chat/completions"
 	// providerOpenRouterChatPath works with both the local gateway root and OpenRouter's /api/v1 root.
 	providerOpenRouterChatPath = "/chat/completions"
+	// providerCommandCodeChatPath Command Code Provider API Chat Completions path.
+	providerCommandCodeChatPath = "/provider/v1/chat/completions"
 
 	// MonitorProvider* provider 字符串常量（也是 ent enum 的实际值）。
 	MonitorProviderOpenAI            = "openai"
@@ -71,6 +73,7 @@ const (
 	MonitorProviderOpenCodeGo        = "opencode_go"
 	MonitorProviderClinePass         = "clinepass"
 	MonitorProviderOpenRouter        = "openrouter"
+	MonitorProviderCommandCode       = "commandcode"
 	MonitorProviderAntigravityClaude = "antigravity_claude"
 	MonitorProviderAntigravityGemini = "antigravity_gemini"
 
@@ -113,6 +116,8 @@ const (
 	monitorClinePassChallengeMaxTokens = 4096
 	// monitorOpenRouterChallengeMaxTokens 为 OpenRouter reasoning 模型保留充足的输出预算，避免思考过程挤占全部 output 导致最终 content 被截断。
 	monitorOpenRouterChallengeMaxTokens = 4096
+	// monitorCommandCodeChallengeMaxTokens 为 Command Code 推理模型（如 ox-alpha）保留输出预算。
+	monitorCommandCodeChallengeMaxTokens = 4096
 	// monitorAntigravityGeminiChallengeMaxTokens 为 Antigravity Gemini thinking/agent 模型保留更多输出预算。
 	monitorAntigravityGeminiChallengeMaxTokens = 1024
 	// monitorAntigravityGeminiThinkingLevel 渠道监控只做极简探活，Gemini 3 用 low 降低 thinking 消耗与首 token 延迟。
@@ -157,10 +162,10 @@ var (
 		"CHANNEL_MONITOR_GROUP_ALREADY_MONITORED", "the selected group already has a local monitor",
 	)
 	ErrChannelMonitorInvalidProvider = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/opencode_go/clinepass/openrouter/antigravity_claude/antigravity_gemini",
+		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/opencode_go/clinepass/openrouter/commandcode/antigravity_claude/antigravity_gemini",
 	)
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, messages, or responses; responses is supported for openai/opencode_go and messages is supported for opencode_go",
+		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, messages, or responses; responses is supported for openai/opencode_go and messages is supported for opencode_go/commandcode",
 	)
 	ErrChannelMonitorInvalidRequestBody = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_REQUEST_BODY", "replace-mode body_override must include non-empty messages for chat_completions/messages or non-empty instructions and input for responses",

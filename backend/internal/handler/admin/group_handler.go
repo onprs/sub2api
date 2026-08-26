@@ -84,7 +84,7 @@ func NewGroupHandler(adminService service.AdminService, dashboardService *servic
 type CreateGroupRequest struct {
 	Name             string             `json:"name" binding:"required"`
 	Description      string             `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai opencode_go clinepass openrouter gemini antigravity grok"`
+	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai opencode_go clinepass openrouter commandcode gemini antigravity grok"`
 	RateMultiplier   float64            `json:"rate_multiplier"`
 	IsExclusive      bool               `json:"is_exclusive"`
 	SubscriptionType string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
@@ -139,7 +139,7 @@ type CreateGroupRequest struct {
 type UpdateGroupRequest struct {
 	Name             string             `json:"name"`
 	Description      *string            `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai opencode_go clinepass openrouter gemini antigravity grok"`
+	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai opencode_go clinepass openrouter commandcode gemini antigravity grok"`
 	RateMultiplier   *float64           `json:"rate_multiplier"`
 	IsExclusive      *bool              `json:"is_exclusive"`
 	Status           string             `json:"status" binding:"omitempty,oneof=active inactive"`
@@ -454,7 +454,7 @@ func rejectAPIKeyOnlyPlatformRequireOAuthOnly(c *gin.Context, platform string, r
 	if !requireOAuthOnly {
 		return false
 	}
-	if platform != service.PlatformOpenCodeGo && platform != service.PlatformClinePass && platform != service.PlatformOpenRouter {
+	if platform != service.PlatformOpenCodeGo && platform != service.PlatformClinePass && platform != service.PlatformOpenRouter && platform != service.PlatformCommandCode {
 		return false
 	}
 	response.BadRequest(c, "require_oauth_only is not supported for "+platform+" groups")

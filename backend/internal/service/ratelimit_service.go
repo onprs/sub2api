@@ -173,7 +173,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	// OpenAI 与 OpenCode Go 的模型可用性取决于具体账号。必须先于整账号错误策略处理，
 	// 避免单个模型不受支持时禁用整个账号或被自定义错误码过滤掉。
 	if account != nil && len(requestedModel) > 0 &&
-		(account.Platform == PlatformOpenAI || account.Platform == PlatformOpenCodeGo) &&
+		(account.Platform == PlatformOpenAI || account.Platform == PlatformOpenCodeGo || account.Platform == PlatformCommandCode) &&
 		s.HandleUpstreamModelNotFound(ctx, account, requestedModel[0], statusCode, responseBody) {
 		return true
 	}
@@ -999,6 +999,18 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 				slog.Info("account_rate_limited", "account_id", account.ID, "platform", account.Platform, "reset_at", resetTime, "reset_in", time.Until(resetTime).Truncate(time.Second))
 				return
 			}
+		case PlatformCommandCode:
+			// Command Code 窗口限额 429：error.rateLimit.reset 为 Unix 秒。
+			if resetAt := parseCommandCodeRateLimitResetTime(responseBody); resetAt != nil {
+				resetTime := time.Unix(*resetAt, 0)
+				s.notifyAccountSchedulingBlocked(account, resetTime, "429")
+				if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {
+					slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
+					return
+				}
+				slog.Info("commandcode_account_rate_limited", "account_id", account.ID, "reset_at", resetTime, "reset_in", time.Until(resetTime).Truncate(time.Second))
+				return
+			}
 		}
 
 		// Anthropic 平台：没有限流重置时间的 429 可能是非真实限流（如 Extra usage required），
@@ -1506,6 +1518,62 @@ func parseOpenAIRateLimitResetTime(body []byte) *int64 {
 	}
 
 	return nil
+}
+
+// parseCommandCodeRateLimitResetTime 解析 Command Code 窗口限额 429 的重置时间。
+// 官方错误信封：{"error":{"code":"RATE_LIMITED","rateLimit":{"window":"fiveHour"|"weekly","reset":<unix秒>}}}。
+// 仅在能识别出 fiveHour/weekly 窗口时返回重置时间，普通上游限流交给默认兑底冷却。
+func parseCommandCodeRateLimitResetTime(body []byte) *int64 {
+	if len(body) == 0 {
+		return nil
+	}
+	rateLimit := gjson.GetBytes(body, "error.rateLimit")
+	if !rateLimit.Exists() {
+		rateLimit = gjson.GetBytes(body, "rateLimit")
+	}
+	if !rateLimit.Exists() || !rateLimit.IsObject() {
+		return nil
+	}
+	window := strings.ToLower(strings.TrimSpace(rateLimit.Get("window").String()))
+	if window != "fivehour" && window != "weekly" {
+		return nil
+	}
+	reset := rateLimit.Get("reset")
+	if !reset.Exists() {
+		return nil
+	}
+	switch reset.Type {
+	case gjson.Number:
+		ts := reset.Int()
+		if ts <= 0 {
+			return nil
+		}
+		if ts > 1e12 { // 兼容毫秒时间戳
+			ts /= 1000
+		}
+		result := ts
+		return &result
+	case gjson.String:
+		raw := strings.TrimSpace(reset.String())
+		if raw == "" {
+			return nil
+		}
+		if ts, err := strconv.ParseInt(raw, 10, 64); err == nil && ts > 0 {
+			if ts > 1e12 {
+				ts /= 1000
+			}
+			return &ts
+		}
+		if parsed, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+			ts := parsed.Unix()
+			if ts > 0 {
+				return &ts
+			}
+		}
+		return nil
+	default:
+		return nil
+	}
 }
 
 func parseOpenAIRateLimitPlanType(body []byte) string {
@@ -2026,9 +2094,9 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	if !isUpstreamModelNotFoundErrorForAccount(account, statusCode, responseBody) {
 		return false
 	}
-	// 这是账号与模型组合的能力反馈，不是整账号错误策略。OpenAI 与 OpenCode Go
-	// 即使自定义错误码未包含对应状态码，也必须切换账号并只冷却被拒绝的模型。
-	if account.Platform != PlatformOpenAI && account.Platform != PlatformOpenCodeGo && !account.ShouldHandleErrorCode(statusCode) {
+	// 这是账号与模型组合的能力反馈，不是整账号错误策略。OpenAI、OpenCode Go 与
+	// Command Code 即使自定义错误码未包含对应状态码，也必须切换账号并只冷却被拒绝的模型。
+	if account.Platform != PlatformOpenAI && account.Platform != PlatformOpenCodeGo && account.Platform != PlatformCommandCode && !account.ShouldHandleErrorCode(statusCode) {
 		return false
 	}
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)

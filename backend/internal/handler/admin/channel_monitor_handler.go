@@ -37,7 +37,7 @@ func NewChannelMonitorHandler(monitorService *service.ChannelMonitorService) *Ch
 
 type channelMonitorCreateRequest struct {
 	Name             string            `json:"name" binding:"required,max=100"`
-	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini opencode_go clinepass openrouter antigravity_claude antigravity_gemini"`
+	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini opencode_go clinepass openrouter commandcode antigravity_claude antigravity_gemini"`
 	APIMode          string            `json:"api_mode" binding:"omitempty,oneof=chat_completions messages responses"`
 	TargetType       string            `json:"target_type" binding:"omitempty,oneof=local external"`
 	GroupID          *int64            `json:"group_id" binding:"omitempty,min=1"`
@@ -57,7 +57,7 @@ type channelMonitorCreateRequest struct {
 
 type channelMonitorUpdateRequest struct {
 	Name             *string            `json:"name" binding:"omitempty,max=100"`
-	Provider         *string            `json:"provider" binding:"omitempty,oneof=openai anthropic gemini opencode_go clinepass openrouter antigravity_claude antigravity_gemini"`
+	Provider         *string            `json:"provider" binding:"omitempty,oneof=openai anthropic gemini opencode_go clinepass openrouter commandcode antigravity_claude antigravity_gemini"`
 	APIMode          *string            `json:"api_mode" binding:"omitempty,oneof=chat_completions messages responses"`
 	TargetType       *string            `json:"target_type" binding:"omitempty,oneof=local external"`
 	GroupID          *int64             `json:"group_id" binding:"omitempty,min=1"`
@@ -239,6 +239,11 @@ func (h *ChannelMonitorHandler) ClinePassModels(c *gin.Context) {
 // OpenRouterModels GET /api/v1/admin/channel-monitors/openrouter-models
 func (h *ChannelMonitorHandler) OpenRouterModels(c *gin.Context) {
 	response.Success(c, gin.H{"models": service.OpenRouterDefaultModelIDs()})
+}
+
+// CommandCodeModels GET /api/v1/admin/channel-monitors/commandcode-models
+func (h *ChannelMonitorHandler) CommandCodeModels(c *gin.Context) {
+	response.Success(c, gin.H{"models": service.CommandCodeDefaultModelIDs()})
 }
 
 // List GET /api/v1/admin/channel-monitors

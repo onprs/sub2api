@@ -27,6 +27,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/tidwall/gjson"
 )
 
 // sseDataPrefix matches SSE data lines with optional whitespace after colon.
@@ -77,6 +78,7 @@ type AccountTestService struct {
 	tlsFPProfileService       *TLSFingerprintProfileService
 	clinePassClient           *ClinePassClient
 	openRouterClient          *OpenRouterClient
+	commandCodeClient         *CommandCodeClient
 }
 
 // NewAccountTestService creates a new AccountTestService
@@ -91,6 +93,7 @@ func NewAccountTestService(
 	tlsFPProfileService *TLSFingerprintProfileService,
 	clinePassClient *ClinePassClient,
 	openRouterClient *OpenRouterClient,
+	commandCodeClient *CommandCodeClient,
 ) *AccountTestService {
 	return &AccountTestService{
 		accountRepo:               accountRepo,
@@ -103,6 +106,7 @@ func NewAccountTestService(
 		tlsFPProfileService:       tlsFPProfileService,
 		clinePassClient:           clinePassClient,
 		openRouterClient:          openRouterClient,
+		commandCodeClient:         commandCodeClient,
 	}
 }
 
@@ -201,6 +205,9 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if account.IsOpenRouter() {
 		return s.testOpenRouterAccountConnection(c, account, modelID)
 	}
+	if account.IsCommandCode() {
+		return s.testCommandCodeAccountConnection(c, account, modelID)
+	}
 	if account.IsOpenCodeGo() {
 		return s.testOpenCodeGoAccountConnection(c, account, modelID)
 	}
@@ -292,6 +299,83 @@ func (s *AccountTestService) testOpenRouterAccountConnection(c *gin.Context, acc
 	s.sendEvent(c, TestEvent{Type: "content", Text: text})
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 	return nil
+}
+
+func (s *AccountTestService) testCommandCodeAccountConnection(c *gin.Context, account *Account, requestedModel string) error {
+	if account == nil || !account.IsCommandCodeAPIKey() {
+		return s.sendErrorAndEnd(c, "Command Code accounts must use API key credentials")
+	}
+	if s.commandCodeClient == nil {
+		return s.sendErrorAndEnd(c, "Command Code client is not configured")
+	}
+	modelID, err := accountGenerationTestModel(account, requestedModel)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
+
+	// claude-* 模型必须走 Anthropic Messages 端点，其余模型走 Chat Completions。
+	protocol, protocolOK := account.ResolveCommandCodeModelProtocol(modelID)
+	useMessages := protocolOK && protocol == CommandCodeProtocolMessages
+	statusText := "正在通过 Chat Completions 发起真实 Command Code 生成请求"
+	if useMessages {
+		statusText = "正在通过 Anthropic Messages 发起真实 Command Code 生成请求"
+	}
+
+	prepareAccountTestEventStream(c)
+	s.sendEvent(c, TestEvent{Type: "status", Text: statusText})
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: modelID})
+
+	var (
+		payload []byte
+	)
+	if useMessages {
+		anthropicPayload, buildErr := createCommandCodeMessagesTestPayload(modelID)
+		if buildErr != nil {
+			return s.sendErrorAndEnd(c, "Failed to create Command Code generation test payload")
+		}
+		payload = anthropicPayload
+	} else {
+		chatPayload, buildErr := createAccountGenerationTestPayload(modelID)
+		if buildErr != nil {
+			return s.sendErrorAndEnd(c, "Failed to create Command Code generation test payload")
+		}
+		payload = chatPayload
+	}
+
+	probe, recorder := newAccountGenerationProbeContext(c.Request.Context(), payload)
+	gateway := NewCommandCodeGatewayService(s.commandCodeClient, s.cfg, nil)
+	var forwardErr error
+	if useMessages {
+		_, forwardErr = gateway.ForwardMessages(c.Request.Context(), probe, account, payload)
+	} else {
+		_, forwardErr = gateway.ForwardChatCompletions(c.Request.Context(), probe, account, payload)
+	}
+	if forwardErr != nil {
+		return s.sendErrorAndEnd(c, "Command Code generation test failed: "+accountGenerationProbeError(forwardErr, recorder.Body.Bytes()))
+	}
+	var text string
+	if useMessages {
+		text = strings.TrimSpace(gjson.GetBytes(recorder.Body.Bytes(), "content.0.text").String())
+	} else {
+		text = strings.TrimSpace(extractOpenCodeGoChatText(recorder.Body.Bytes()))
+	}
+	if text == "" {
+		return s.sendErrorAndEnd(c, "Command Code generation test returned no visible response text")
+	}
+
+	s.sendEvent(c, TestEvent{Type: "content", Text: text})
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
+}
+
+func createCommandCodeMessagesTestPayload(modelID string) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"model":      modelID,
+		"max_tokens": 64,
+		"messages": []map[string]string{
+			{"role": "user", "content": "Reply with exactly: ok"},
+		},
+	})
 }
 
 func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, account *Account, requestedModel string) error {

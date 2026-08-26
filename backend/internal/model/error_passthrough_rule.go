@@ -37,6 +37,7 @@ const (
 	PlatformOpenCodeGo  = "opencode_go"
 	PlatformClinePass   = "clinepass"
 	PlatformOpenRouter  = "openrouter"
+	PlatformCommandCode = "commandcode"
 	PlatformGemini      = "gemini"
 	PlatformAntigravity = "antigravity"
 	PlatformGrok        = "grok"
@@ -44,7 +45,7 @@ const (
 
 // AllPlatforms 返回所有支持的平台列表
 func AllPlatforms() []string {
-	return []string{PlatformAnthropic, PlatformOpenAI, PlatformOpenCodeGo, PlatformClinePass, PlatformOpenRouter, PlatformGemini, PlatformAntigravity, PlatformGrok}
+	return []string{PlatformAnthropic, PlatformOpenAI, PlatformOpenCodeGo, PlatformClinePass, PlatformOpenRouter, PlatformCommandCode, PlatformGemini, PlatformAntigravity, PlatformGrok}
 }
 
 // Validate 验证规则配置的有效性

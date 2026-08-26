@@ -46,7 +46,7 @@ func RegisterGatewayRoutes(
 	}
 	isStandardProtocolGatewayPlatform := func(c *gin.Context) bool {
 		platform := getGroupPlatform(c)
-		return platform == service.PlatformOpenCodeGo || platform == service.PlatformClinePass || platform == service.PlatformOpenRouter
+		return platform == service.PlatformOpenCodeGo || platform == service.PlatformClinePass || platform == service.PlatformOpenRouter || platform == service.PlatformCommandCode
 	}
 	imagesHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {
@@ -146,7 +146,7 @@ func RegisterGatewayRoutes(
 				h.OpenAIGateway.CountTokens(c)
 				return
 			}
-			if platform == service.PlatformOpenCodeGo || platform == service.PlatformClinePass || platform == service.PlatformOpenRouter || isOpenAIResponsesCompatibleGatewayPlatform(c) {
+			if platform == service.PlatformOpenCodeGo || platform == service.PlatformClinePass || platform == service.PlatformOpenRouter || platform == service.PlatformCommandCode || isOpenAIResponsesCompatibleGatewayPlatform(c) {
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 				c.JSON(http.StatusNotFound, gin.H{
 					"type": "error",
@@ -387,6 +387,46 @@ func RegisterGatewayRoutes(
 		antigravityV1Beta.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
 	}
 
+	// Command Code Provider API 兼容路由（/provider/v1）
+	providerV1 := r.Group("/provider/v1")
+	providerV1.Use(bodyLimit)
+	providerV1.Use(clientRequestID)
+	providerV1.Use(opsErrorLogger)
+	providerV1.Use(endpointNorm)
+	providerV1.Use(gin.HandlerFunc(apiKeyAuth))
+	providerV1.Use(routeAPIKeyGroup)
+	providerV1.Use(requireGroupAnthropic)
+	{
+		providerV1.POST("/chat/completions", func(c *gin.Context) {
+			if isStandardProtocolGatewayPlatform(c) {
+				h.OpenCodeGo.ChatCompletions(c)
+				return
+			}
+			if isOpenAIResponsesCompatibleGatewayPlatform(c) {
+				h.OpenAIGateway.ChatCompletions(c)
+				return
+			}
+			h.Gateway.ChatCompletions(c)
+		})
+		providerV1.POST("/messages", func(c *gin.Context) {
+			if isStandardProtocolGatewayPlatform(c) {
+				h.OpenCodeGo.Messages(c)
+				return
+			}
+			if isOpenAIResponsesCompatibleGatewayPlatform(c) {
+				h.OpenAIGateway.Messages(c)
+				return
+			}
+			h.Gateway.Messages(c)
+		})
+		providerV1.GET("/models", func(c *gin.Context) {
+			if isStandardProtocolGatewayPlatform(c) && h.OpenCodeGo != nil {
+				h.OpenCodeGo.Models(c)
+				return
+			}
+			h.Gateway.Models(c)
+		})
+	}
 }
 
 // getGroupPlatform 返回 API Key 固定路由平台；实际分组会在请求模型解析后写入上下文。

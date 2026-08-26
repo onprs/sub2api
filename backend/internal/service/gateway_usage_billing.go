@@ -736,7 +736,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	user := input.User
 	account := input.Account
 	subscription := input.Subscription
-	if account != nil && account.IsOpenCodeGo() {
+	if account != nil && (account.IsOpenCodeGo() || account.IsClinePass() || account.IsOpenRouter() || account.IsCommandCode()) {
 		opts.PricingPlatform = account.Platform
 	}
 	ApplyForwardImageBillingResolution(result)
@@ -799,7 +799,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	// 计算费用。OpenCode Go 活动折算后的模型倍率只进入 ActualCost；价格与 TotalCost 保持原价。
 	cost, _, costErr := s.calculateRecordUsageCostFromCandidates(ctx, result, apiKey, billingModels, multiplier, imageMultiplier, opts)
 	if costErr != nil {
-		if account != nil && (account.IsOpenCodeGo() || account.IsClinePass()) && isUsagePricingUnavailableError(costErr) {
+		if account != nil && (account.IsOpenCodeGo() || account.IsClinePass() || account.IsOpenRouter() || account.IsCommandCode()) && isUsagePricingUnavailableError(costErr) {
 			return costErr
 		}
 		logger.LegacyPrintf("service.gateway", "Calculate cost failed for billing models %s: %v", strings.Join(billingModels, ","), costErr)

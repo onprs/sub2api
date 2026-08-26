@@ -1668,7 +1668,7 @@ const handleAccountUpdated = (updatedAccount: Account) => {
   const currentAccount = accounts.value.find(account => account.id === updatedAccount.id)
   const usageRefreshNeeded =
     (currentAccount && buildAccountUsageRefreshKey(currentAccount) !== buildAccountUsageRefreshKey(updatedAccount)) ||
-    ((updatedAccount.platform === 'opencode_go' || updatedAccount.platform === 'clinepass' || updatedAccount.platform === 'openrouter') && updatedAccount.type === 'apikey')
+    ((updatedAccount.platform === 'opencode_go' || updatedAccount.platform === 'clinepass' || updatedAccount.platform === 'openrouter' || updatedAccount.platform === 'commandcode') && updatedAccount.type === 'apikey')
   patchAccountInList(updatedAccount)
   if (usageRefreshNeeded) {
     usageManualRefreshToken.value += 1

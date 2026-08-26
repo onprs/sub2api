@@ -308,6 +308,7 @@ type AccountUsageService struct {
 	tlsFPProfileService             *TLSFingerprintProfileService
 	clinePassClient                 *ClinePassClient
 	openRouterClient                *OpenRouterClient
+	commandCodeClient               *CommandCodeClient
 	openCodeGoConsoleSummaryFetch   OpenCodeGoConsoleSummaryFetcher
 	openCodeGoReferralActionApplier OpenCodeGoReferralActionApplier
 	httpUpstream                    HTTPUpstream
@@ -328,6 +329,7 @@ func NewAccountUsageService(
 	tlsFPProfileService *TLSFingerprintProfileService,
 	clinePassClient *ClinePassClient,
 	openRouterClient *OpenRouterClient,
+	commandCodeClient *CommandCodeClient,
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
 ) *AccountUsageService {
@@ -344,6 +346,7 @@ func NewAccountUsageService(
 		tlsFPProfileService:     tlsFPProfileService,
 		clinePassClient:         clinePassClient,
 		openRouterClient:        openRouterClient,
+		commandCodeClient:       commandCodeClient,
 		httpUpstream:            httpUpstream,
 		cfg:                     cfg,
 	}
@@ -379,6 +382,10 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 
 	if account.IsOpenRouterAPIKey() {
 		return s.getOpenRouterUsage(ctx, account, forceProbe)
+	}
+
+	if account.IsCommandCodeAPIKey() {
+		return s.getCommandCodeUsage(ctx, account, forceProbe)
 	}
 
 	if account.Platform == PlatformOpenAI && account.Type == AccountTypeOAuth {

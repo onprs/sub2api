@@ -64,6 +64,12 @@ func (s *AccountUsageService) GetStoredUsageSnapshot(account *Account, now time.
 		}
 		return nil, ErrObserverQuotaUnavailable
 
+	case PlatformCommandCode:
+		if usage := buildCommandCodeUsageFromExtra(account.Extra, now); usage != nil {
+			return usage, nil
+		}
+		return nil, ErrObserverQuotaUnavailable
+
 	default:
 		return nil, ErrObserverQuotaUnavailable
 	}

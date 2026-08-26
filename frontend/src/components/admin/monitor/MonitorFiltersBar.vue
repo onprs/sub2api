@@ -75,6 +75,7 @@ import {
   PROVIDER_OPENCODE_GO,
   PROVIDER_CLINEPASS,
   PROVIDER_OPENROUTER,
+  PROVIDER_COMMANDCODE,
 } from '@/constants/channelMonitor'
 
 defineProps<{
@@ -104,6 +105,7 @@ const providerFilterOptions = computed(() => [
   { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
   { value: PROVIDER_CLINEPASS, label: t('monitorCommon.providers.clinepass') },
   { value: PROVIDER_OPENROUTER, label: t('monitorCommon.providers.openrouter') },
+  { value: PROVIDER_COMMANDCODE, label: t('monitorCommon.providers.commandcode') },
 ])
 
 const enabledFilterOptions = computed(() => [

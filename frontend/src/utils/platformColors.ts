@@ -5,7 +5,7 @@
  * instead of defining their own color mappings.
  */
 
-export type Platform = 'anthropic' | 'openai' | 'antigravity' | 'gemini' | 'grok' | 'opencode_go' | 'clinepass' | 'openrouter'
+export type Platform = 'anthropic' | 'openai' | 'antigravity' | 'gemini' | 'grok' | 'opencode_go' | 'clinepass' | 'openrouter' | 'commandcode'
 
 // ── Badge (bg + text + border, for inline badges with border) ───────
 const BADGE: Record<Platform, string> = {
@@ -17,6 +17,7 @@ const BADGE: Record<Platform, string> = {
   opencode_go: 'bg-cyan-500/10 text-cyan-600 border-cyan-500/30 dark:text-cyan-300',
   clinepass: 'bg-rose-500/10 text-rose-600 border-rose-500/30 dark:text-rose-300',
   openrouter: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/30 dark:text-indigo-300',
+  commandcode: 'bg-lime-500/10 text-lime-600 border-lime-500/30 dark:text-lime-300',
 }
 const BADGE_DEFAULT = 'bg-slate-500/10 text-slate-600 border-slate-500/30 dark:text-slate-400'
 
@@ -30,6 +31,7 @@ const BADGE_LIGHT: Record<Platform, string> = {
   opencode_go: 'bg-cyan-500/10 text-cyan-600 dark:bg-cyan-500/10 dark:text-cyan-300',
   clinepass: 'bg-rose-500/10 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300',
   openrouter: 'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300',
+  commandcode: 'bg-lime-500/10 text-lime-600 dark:bg-lime-500/10 dark:text-lime-300',
 }
 
 // ── Border ──────────────────────────────────────────────────────────
@@ -42,6 +44,7 @@ const BORDER: Record<Platform, string> = {
   opencode_go: 'border-cyan-500/20 dark:border-cyan-500/20',
   clinepass: 'border-rose-500/20 dark:border-rose-500/20',
   openrouter: 'border-indigo-500/20 dark:border-indigo-500/20',
+  commandcode: 'border-lime-500/20 dark:border-lime-500/20',
 }
 const BORDER_DEFAULT = 'border-gray-200 dark:border-dark-700'
 
@@ -55,6 +58,7 @@ const ACCENT_BAR: Record<Platform, string> = {
   opencode_go: 'bg-gradient-to-r from-cyan-400 to-teal-500',
   clinepass: 'bg-gradient-to-r from-rose-400 to-red-500',
   openrouter: 'bg-gradient-to-r from-indigo-400 to-violet-500',
+  commandcode: 'bg-gradient-to-r from-lime-400 to-emerald-500',
 }
 const ACCENT_BAR_DEFAULT = 'bg-gradient-to-r from-primary-400 to-primary-500'
 
@@ -68,6 +72,7 @@ const TEXT: Record<Platform, string> = {
   opencode_go: 'text-cyan-600 dark:text-cyan-300',
   clinepass: 'text-rose-600 dark:text-rose-300',
   openrouter: 'text-indigo-600 dark:text-indigo-300',
+  commandcode: 'text-lime-600 dark:text-lime-300',
 }
 const TEXT_DEFAULT = 'text-primary-600 dark:text-primary-400'
 
@@ -81,6 +86,7 @@ const ICON: Record<Platform, string> = {
   opencode_go: 'text-cyan-500 dark:text-cyan-300',
   clinepass: 'text-rose-500 dark:text-rose-300',
   openrouter: 'text-indigo-500 dark:text-indigo-300',
+  commandcode: 'text-lime-500 dark:text-lime-300',
 }
 const ICON_DEFAULT = 'text-primary-500 dark:text-primary-400'
 
@@ -94,6 +100,7 @@ const BUTTON: Record<Platform, string> = {
   opencode_go: 'bg-cyan-600 text-white hover:bg-cyan-700 active:bg-cyan-800 dark:bg-cyan-600/80 dark:hover:bg-cyan-600',
   clinepass: 'bg-rose-600 text-white hover:bg-rose-700 active:bg-rose-800 dark:bg-rose-600/80 dark:hover:bg-rose-600',
   openrouter: 'bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800 dark:bg-indigo-600/80 dark:hover:bg-indigo-600',
+  commandcode: 'bg-lime-600 text-white hover:bg-lime-700 active:bg-lime-800 dark:bg-lime-600/80 dark:hover:bg-lime-600',
 }
 const BUTTON_DEFAULT = 'bg-primary-500 text-white hover:bg-primary-600 dark:bg-primary-600 dark:hover:bg-primary-500'
 
@@ -107,6 +114,7 @@ const DISCOUNT: Record<Platform, string> = {
   opencode_go: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
   clinepass: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
   openrouter: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
+  commandcode: 'bg-lime-100 text-lime-700 dark:bg-lime-900/40 dark:text-lime-300',
 }
 const DISCOUNT_DEFAULT = 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
 
@@ -120,6 +128,7 @@ const GRADIENT: Record<Platform, string> = {
   opencode_go: 'from-cyan-500 to-teal-600',
   clinepass: 'from-rose-500 to-red-600',
   openrouter: 'from-indigo-500 to-violet-600',
+  commandcode: 'from-lime-500 to-emerald-600',
 }
 const GRADIENT_DEFAULT = 'from-primary-500 to-primary-600'
 
@@ -133,6 +142,7 @@ const GRADIENT_TEXT: Record<Platform, string> = {
   opencode_go: 'text-cyan-50',
   clinepass: 'text-rose-50',
   openrouter: 'text-indigo-50',
+  commandcode: 'text-lime-50',
 }
 const GRADIENT_TEXT_DEFAULT = 'text-primary-100'
 
@@ -145,13 +155,14 @@ const GRADIENT_SUBTEXT: Record<Platform, string> = {
   opencode_go: 'text-cyan-100',
   clinepass: 'text-rose-100',
   openrouter: 'text-indigo-100',
+  commandcode: 'text-lime-100',
 }
 const GRADIENT_SUBTEXT_DEFAULT = 'text-primary-200'
 
 // ── Public API ──────────────────────────────────────────────────────
 
 function isPlatform(p: string): p is Platform {
-  return p === 'anthropic' || p === 'openai' || p === 'antigravity' || p === 'gemini' || p === 'grok' || p === 'opencode_go' || p === 'clinepass' || p === 'openrouter'
+  return p === 'anthropic' || p === 'openai' || p === 'antigravity' || p === 'gemini' || p === 'grok' || p === 'opencode_go' || p === 'clinepass' || p === 'openrouter' || p === 'commandcode'
 }
 
 export function platformBadgeClass(p: string): string {
@@ -208,6 +219,7 @@ export function platformLabel(p: string): string {
     case 'opencode_go': return 'OpenCode Go'
     case 'clinepass': return 'ClinePass'
     case 'openrouter': return 'OpenRouter'
+    case 'commandcode': return 'Command Code'
     default: return p || 'API'
   }
 }

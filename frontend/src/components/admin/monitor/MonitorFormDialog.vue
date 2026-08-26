@@ -111,13 +111,16 @@
           class="input font-medium"
           :class="getPlatformTextClass(form.provider)"
           :placeholder="t('admin.channelMonitor.form.primaryModelPlaceholder')"
-          :list="form.provider === PROVIDER_CLINEPASS ? 'clinepass-monitor-models' : form.provider === PROVIDER_OPENROUTER ? 'openrouter-monitor-models' : undefined"
+          :list="form.provider === PROVIDER_CLINEPASS ? 'clinepass-monitor-models' : form.provider === PROVIDER_OPENROUTER ? 'openrouter-monitor-models' : form.provider === PROVIDER_COMMANDCODE ? 'commandcode-monitor-models' : undefined"
         />
         <datalist v-if="form.provider === PROVIDER_CLINEPASS" id="clinepass-monitor-models">
           <option v-for="model in clinePassModels" :key="model" :value="model" />
         </datalist>
         <datalist v-if="form.provider === PROVIDER_OPENROUTER" id="openrouter-monitor-models">
           <option v-for="model in openRouterModels" :key="model" :value="model" />
+        </datalist>
+        <datalist v-if="form.provider === PROVIDER_COMMANDCODE" id="commandcode-monitor-models">
+          <option v-for="model in commandCodeModels" :key="model" :value="model" />
         </datalist>
       </div>
 
@@ -256,6 +259,7 @@ import {
   PROVIDER_OPENCODE_GO,
   PROVIDER_CLINEPASS,
   PROVIDER_OPENROUTER,
+  PROVIDER_COMMANDCODE,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_MESSAGES,
   API_MODE_RESPONSES,
@@ -294,6 +298,7 @@ const groups = ref<AdminGroup[]>([])
 const groupsLoading = ref(false)
 const clinePassModels = ref<string[]>([])
 const openRouterModels = ref<string[]>([])
+const commandCodeModels = ref<string[]>([])
 
 interface MonitorForm {
   name: string
@@ -495,6 +500,15 @@ async function loadOpenRouterModels() {
   }
 }
 
+async function loadCommandCodeModels() {
+  if (commandCodeModels.value.length > 0) return
+  try {
+    commandCodeModels.value = await adminAPI.channelMonitor.listCommandCodeModels()
+  } catch {
+    commandCodeModels.value = []
+  }
+}
+
 function clearRequestSnapshot() {
   form.template_id = null
   form.extra_headers = {}
@@ -516,6 +530,7 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
   { value: PROVIDER_CLINEPASS, label: t('monitorCommon.providers.clinepass') },
   { value: PROVIDER_OPENROUTER, label: t('monitorCommon.providers.openrouter') },
+  { value: PROVIDER_COMMANDCODE, label: t('monitorCommon.providers.commandcode') },
 ])
 
 // provider 变化时清除外站凭据，并移除平台不兼容的本站分组。
@@ -533,6 +548,8 @@ watch(() => form.provider, (provider) => {
     void loadClinePassModels()
   } else if (provider === PROVIDER_OPENROUTER) {
     void loadOpenRouterModels()
+  } else if (provider === PROVIDER_COMMANDCODE) {
+    void loadCommandCodeModels()
   }
   clearRequestSnapshot()
 }, { flush: 'sync' })
@@ -598,6 +615,7 @@ watch(
     void loadGroups()
     if (m?.provider === PROVIDER_CLINEPASS) void loadClinePassModels()
     if (m?.provider === PROVIDER_OPENROUTER) void loadOpenRouterModels()
+    if (m?.provider === PROVIDER_COMMANDCODE) void loadCommandCodeModels()
     if (m) loadFromMonitor(m)
     else resetForm()
   },

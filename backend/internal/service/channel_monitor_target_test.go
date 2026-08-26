@@ -207,6 +207,98 @@ func TestChannelMonitorLocalOpenCodeGoMessagesUsesInProcessGateway(t *testing.T)
 	require.Equal(t, MonitorStatusOperational, result.Status, result.Message)
 }
 
+func TestChannelMonitorLocalCommandCodeSupportsChatAndMessages(t *testing.T) {
+	groupID := int64(38)
+	group := activeMonitorTargetGroup(groupID, "Command Code", PlatformCommandCode)
+	svc := NewChannelMonitorService(&channelMonitorTargetRepoStub{}, &channelMonitorTargetEncryptorStub{})
+
+	// 1. Chat Completions
+	chatMonitor := &ChannelMonitor{
+		ID:           47,
+		Provider:     MonitorProviderCommandCode,
+		APIMode:      MonitorAPIModeChatCompletions,
+		TargetType:   ChannelMonitorTargetLocal,
+		GroupID:      &groupID,
+		Group:        group,
+		PrimaryModel: "deepseek-v4-pro",
+	}
+	svc.SetLocalRequestHandler(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		require.Equal(t, "/provider/v1/chat/completions", request.URL.Path)
+		require.Equal(t, "sub2api.internal", request.Host)
+		apiKey, ok := InternalChannelMonitorAPIKey(request.Context())
+		require.True(t, ok)
+		require.Equal(t, groupID, *apiKey.GroupID)
+
+		var payload struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
+		userContent := ""
+		for _, msg := range payload.Messages {
+			if msg.Role == "user" {
+				userContent = msg.Content
+			}
+		}
+		checkCode := regexp.MustCompile(`\d{6}`).FindString(userContent)
+		require.NotEmpty(t, checkCode)
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]string{"role": "assistant", "content": checkCode}},
+			},
+		}))
+	}))
+	chatResult := svc.runLocalCheckForModel(context.Background(), chatMonitor, chatMonitor.PrimaryModel, &CheckOptions{
+		APIMode: MonitorAPIModeChatCompletions,
+	})
+	require.Equal(t, MonitorStatusOperational, chatResult.Status, chatResult.Message)
+
+	// 2. Messages
+	messagesMonitor := &ChannelMonitor{
+		ID:           48,
+		Provider:     MonitorProviderCommandCode,
+		APIMode:      MonitorAPIModeMessages,
+		TargetType:   ChannelMonitorTargetLocal,
+		GroupID:      &groupID,
+		Group:        group,
+		PrimaryModel: "claude-sonnet-5",
+	}
+	svc.SetLocalRequestHandler(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		require.Equal(t, "/provider/v1/messages", request.URL.Path)
+		require.Equal(t, "sub2api.internal", request.Host)
+		apiKey, ok := InternalChannelMonitorAPIKey(request.Context())
+		require.True(t, ok)
+		require.Equal(t, groupID, *apiKey.GroupID)
+
+		var payload struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
+		userContent := ""
+		for _, msg := range payload.Messages {
+			if msg.Role == "user" || msg.Role == "" {
+				userContent = msg.Content
+			}
+		}
+		checkCode := regexp.MustCompile(`\d{6}`).FindString(userContent)
+		require.NotEmpty(t, checkCode)
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"content": []map[string]string{{"type": "text", "text": checkCode}},
+		}))
+	}))
+	messagesResult := svc.runLocalCheckForModel(context.Background(), messagesMonitor, messagesMonitor.PrimaryModel, &CheckOptions{
+		APIMode: MonitorAPIModeMessages,
+	})
+	require.Equal(t, MonitorStatusOperational, messagesResult.Status, messagesResult.Message)
+}
+
 func TestChannelMonitorCreateLocalBindsGroupWithoutCredentials(t *testing.T) {
 	groupID := int64(20)
 	repo := &channelMonitorTargetRepoStub{}

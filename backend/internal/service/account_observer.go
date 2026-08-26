@@ -306,7 +306,7 @@ func (s *AccountObserverService) ListAccounts(ctx context.Context, params Observ
 			created_at, updated_at, extra
 		FROM accounts
 		WHERE deleted_at IS NULL
-			AND platform IN ('anthropic', 'openai', 'opencode_go', 'clinepass', 'openrouter', 'gemini', 'antigravity', 'grok')
+			AND platform IN ('anthropic', 'openai', 'opencode_go', 'clinepass', 'openrouter', 'commandcode', 'gemini', 'antigravity', 'grok')
 			AND id > $1
 			AND ($2::timestamptz IS NULL OR updated_at >= $2)
 		ORDER BY id ASC

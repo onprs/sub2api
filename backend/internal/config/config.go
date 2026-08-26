@@ -1691,6 +1691,7 @@ func setDefaults() {
 		"opencode.ai",
 		"api.cline.bot",
 		"openrouter.ai",
+		"api.commandcode.ai",
 		"generativelanguage.googleapis.com",
 		"daily-cloudcode-pa.googleapis.com",
 		"cloudcode-pa.googleapis.com",

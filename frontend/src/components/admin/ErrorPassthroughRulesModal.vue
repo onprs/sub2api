@@ -493,7 +493,8 @@ const platformOptions = [
   { value: 'grok', label: 'Grok' },
   { value: 'opencode_go', label: 'OpenCode Go' },
   { value: 'clinepass', label: 'ClinePass' },
-  { value: 'openrouter', label: 'OpenRouter' }
+  { value: 'openrouter', label: 'OpenRouter' },
+  { value: 'commandcode', label: 'Command Code' }
 ]
 
 // Load rules when dialog opens

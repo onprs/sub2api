@@ -465,7 +465,8 @@ export default {
       antigravity_gemini: 'Antigravity Gemini',
       opencode_go: 'OpenCode Go',
       clinepass: 'ClinePass',
-      openrouter: 'OpenRouter'
+      openrouter: 'OpenRouter',
+      commandcode: 'Command Code'
     },
     extraModelsHeader: '附加模型',
     extraModelsEmpty: '无附加模型',

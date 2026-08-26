@@ -32,7 +32,7 @@ func validateAPIMode(provider, apiMode string) error {
 		}
 		return ErrChannelMonitorInvalidAPIMode
 	case MonitorAPIModeMessages:
-		if provider == "" || provider == MonitorProviderOpenCodeGo {
+		if provider == "" || provider == MonitorProviderOpenCodeGo || provider == MonitorProviderCommandCode {
 			return nil
 		}
 		return ErrChannelMonitorInvalidAPIMode
@@ -83,7 +83,7 @@ func validateEndpointForProvider(provider, ep string) error {
 	if u.Host == "" {
 		return ErrChannelMonitorInvalidEndpoint
 	}
-	if provider != MonitorProviderOpenCodeGo && provider != MonitorProviderClinePass && provider != MonitorProviderOpenRouter && u.Path != "" && u.Path != "/" {
+	if provider != MonitorProviderOpenCodeGo && provider != MonitorProviderClinePass && provider != MonitorProviderOpenRouter && provider != MonitorProviderCommandCode && u.Path != "" && u.Path != "/" {
 		return ErrChannelMonitorEndpointPath
 	}
 	if u.RawQuery != "" || u.Fragment != "" {

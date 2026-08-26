@@ -274,7 +274,8 @@ const platformOrder: GroupPlatform[] = [
   'grok',
   'opencode_go',
   'clinepass',
-  'openrouter'
+  'openrouter',
+  'commandcode'
 ]
 
 const groupCatalog = computed(() => {
