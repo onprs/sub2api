@@ -433,7 +433,7 @@ func (s *ChannelService) fillModelPricingTimeBands(models []SupportedModel) {
 }
 
 func (s *ChannelService) fillModelPricingTimeBandsForName(model *SupportedModel, pricingModel string, existing *ChannelModelPricing) {
-	if s == nil || model == nil || model.Pricing == nil || !isOpenCodeGoPricingPlatform(model.Platform) {
+	if s == nil || model == nil || model.Pricing == nil || (!isOpenCodeGoPricingPlatform(model.Platform) && model.Platform != PlatformCommandCode) {
 		return
 	}
 	if existing != nil && (existing.BillingMode == BillingModePerRequest || existing.BillingMode == BillingModeImage || len(existing.Intervals) > 0) {

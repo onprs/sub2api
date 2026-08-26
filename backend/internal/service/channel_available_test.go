@@ -573,6 +573,45 @@ func TestBuildSupportedModelForPricingGroup_OpenCodeGoPartialChannelPricingUsesC
 	require.InDelta(t, 0.044e-6, *peak.Pricing.CacheReadPrice, 1e-15)
 }
 
+func TestBuildCatalogSupportedModel_CommandCode(t *testing.T) {
+	pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{}}
+	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
+	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
+
+	// 1. DeepSeek peak/off-peak
+	ds := svc.BuildCatalogSupportedModel("deepseek/deepseek-v4-pro", PlatformCommandCode, nil)
+	require.Equal(t, PricingSourceCatalog, ds.PricingSource)
+	require.NotNil(t, ds.Pricing)
+	require.Len(t, ds.PricingTimeBands, 2)
+	offPeak := ds.PricingTimeBands[0]
+	require.Equal(t, "off_peak", offPeak.Code)
+	require.InDelta(t, 0.66e-6, *offPeak.Pricing.InputPrice, 1e-15)
+	require.InDelta(t, 1.98e-6, *offPeak.Pricing.OutputPrice, 1e-15)
+	require.InDelta(t, 0.022e-6, *offPeak.Pricing.CacheReadPrice, 1e-15)
+	peak := ds.PricingTimeBands[1]
+	require.Equal(t, "peak", peak.Code)
+	require.InDelta(t, 1.32e-6, *peak.Pricing.InputPrice, 1e-15)
+	require.InDelta(t, 3.96e-6, *peak.Pricing.OutputPrice, 1e-15)
+	require.InDelta(t, 0.044e-6, *peak.Pricing.CacheReadPrice, 1e-15)
+
+	// 2. Qwen 3.7 Max flat with cache write
+	qwen := svc.BuildCatalogSupportedModel("Qwen/Qwen3.7-Max", PlatformCommandCode, nil)
+	require.Equal(t, PricingSourceCatalog, qwen.PricingSource)
+	require.NotNil(t, qwen.Pricing)
+	require.Empty(t, qwen.PricingTimeBands)
+	require.InDelta(t, 2.5e-6, *qwen.Pricing.InputPrice, 1e-15)
+	require.InDelta(t, 7.5e-6, *qwen.Pricing.OutputPrice, 1e-15)
+	require.InDelta(t, 0.5e-6, *qwen.Pricing.CacheReadPrice, 1e-15)
+	require.InDelta(t, 3.13e-6, *qwen.Pricing.CacheWritePrice, 1e-15)
+
+	// 3. Ox Alpha zero rate
+	ox := svc.BuildCatalogSupportedModel("stealth/ox-alpha", PlatformCommandCode, nil)
+	require.Equal(t, PricingSourceCatalog, ox.PricingSource)
+	require.NotNil(t, ox.Pricing)
+	require.InDelta(t, 0.0, *ox.Pricing.InputPrice, 1e-15)
+	require.InDelta(t, 0.0, *ox.Pricing.OutputPrice, 1e-15)
+}
+
 func TestBuildCatalogSupportedModel_OpenCodeGoShowsOfficialPeakAndOffPeakPricing(t *testing.T) {
 	pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{}}
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
