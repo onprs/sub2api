@@ -166,6 +166,29 @@ describe('buildModelPricingRows', () => {
     })
   })
 
+  it('preserves official context windows and pricing promotions', () => {
+    const channels = makeChannels()
+    const model = channels[0].platforms[0].supported_models[0]
+    model.context_length = 1_050_000
+    model.promotion = {
+      code: 'official-deal',
+      label: '50% off',
+      discount_percent: 50,
+      free: false,
+      term: 'ends December 31, 2026',
+      expires_at: '2026-12-31T23:59:59Z',
+    }
+
+    const row = buildModelPricingRows(channels, {})[0]
+    expect(row).toMatchObject({
+      contextLength: 1_050_000,
+      promotionLabel: '50% off',
+      promotionTerm: 'ends December 31, 2026',
+      promotionExpiresAt: '2026-12-31T23:59:59Z',
+      promotionFree: false,
+    })
+  })
+
   it('uses user-specific multipliers without changing prices', () => {
     const rows = buildModelPricingRows(makeChannels(), { 20: 0.5 })
     const enterprise = rows.find((row) => row.groupId === 20 && row.modelName === 'gpt-4o-mini')

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	stdhtml "html"
 	"math"
@@ -235,21 +236,28 @@ type PricingService struct {
 	cliImportCatalog             map[string]map[string]CLIImportModelCapability
 	usageOfferMu                 sync.RWMutex
 	openCodeGoUsageOffers        map[string]openCodeGoUsageOffer
+	commandCodeCatalog           *CommandCodeCatalog
 
 	// 停止信号
-	stopCh chan struct{}
-	wg     sync.WaitGroup
+	stopCh                   chan struct{}
+	wg                       sync.WaitGroup
+	commandCodeCatalogCtx    context.Context
+	commandCodeCatalogCancel context.CancelFunc
 }
 
 // NewPricingService 创建价格服务
 func NewPricingService(cfg *config.Config, remoteClient PricingRemoteClient) *PricingService {
+	commandCodeCatalogCtx, commandCodeCatalogCancel := context.WithCancel(context.Background())
 	s := &PricingService{
-		cfg:                   cfg,
-		remoteClient:          remoteClient,
-		pricingData:           make(map[string]*LiteLLMModelPricing),
-		openCodeGoPricing:     make(map[string]*LiteLLMModelPricing),
-		openCodeGoUsageOffers: make(map[string]openCodeGoUsageOffer),
-		stopCh:                make(chan struct{}),
+		cfg:                      cfg,
+		remoteClient:             remoteClient,
+		pricingData:              make(map[string]*LiteLLMModelPricing),
+		openCodeGoPricing:        make(map[string]*LiteLLMModelPricing),
+		openCodeGoUsageOffers:    make(map[string]openCodeGoUsageOffer),
+		commandCodeCatalog:       defaultCommandCodeCatalog,
+		stopCh:                   make(chan struct{}),
+		commandCodeCatalogCtx:    commandCodeCatalogCtx,
+		commandCodeCatalogCancel: commandCodeCatalogCancel,
 	}
 	return s
 }
@@ -275,6 +283,17 @@ func (s *PricingService) Initialize() error {
 	s.refreshOpenCodeGoPricingBestEffortWithTimeout()
 	s.refreshOpenCodeGoUsageOffersBestEffortWithTimeout()
 
+	// Command Code 启动时先恢复最后成功快照，再由独立后台任务校验双官方源。
+	commandCodeCatalogPath := s.getCommandCodeCatalogFilePath()
+	commandCodeCatalog := s.commandCodeCatalog
+	if commandCodeCatalog == nil {
+		commandCodeCatalog = defaultCommandCodeCatalog
+	}
+	if err := commandCodeCatalog.LoadSnapshot(commandCodeCatalogPath); err != nil {
+		logger.LegacyPrintf("service.pricing", "[Pricing] Command Code cache file not loaded (will use built-in catalog until refresh): %v", err)
+	}
+	s.startCommandCodeCatalogScheduler()
+
 	// 启动定时更新
 	s.startUpdateScheduler()
 
@@ -284,9 +303,56 @@ func (s *PricingService) Initialize() error {
 
 // Stop 停止价格服务
 func (s *PricingService) Stop() {
+	if s.commandCodeCatalogCancel != nil {
+		s.commandCodeCatalogCancel()
+	}
 	close(s.stopCh)
 	s.wg.Wait()
 	logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Service stopped")
+}
+
+func (s *PricingService) getCommandCodeCatalogFilePath() string {
+	if s == nil || s.cfg == nil || strings.TrimSpace(s.cfg.Pricing.DataDir) == "" {
+		return ""
+	}
+	return filepath.Join(s.cfg.Pricing.DataDir, "commandcode_goat_catalog.json")
+}
+
+func (s *PricingService) startCommandCodeCatalogScheduler() {
+	if s == nil || s.commandCodeCatalogCtx == nil {
+		return
+	}
+	filePath := s.getCommandCodeCatalogFilePath()
+	if filePath == "" {
+		return
+	}
+	catalog := s.commandCodeCatalog
+	if catalog == nil {
+		catalog = defaultCommandCodeCatalog
+	}
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		refresh := func(force bool) {
+			ctx, cancel := context.WithTimeout(s.commandCodeCatalogCtx, commandCodeCatalogHTTPTimeout)
+			defer cancel()
+			if err := catalog.RefreshAndSave(ctx, filePath, force); err != nil && !errors.Is(err, context.Canceled) {
+				logger.LegacyPrintf("service.pricing", "[Pricing] Command Code catalog refresh failed; keeping last-known-good data: %v", err)
+			}
+		}
+
+		refresh(true)
+		ticker := time.NewTicker(commandCodeCatalogTTL)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				refresh(false)
+			case <-s.commandCodeCatalogCtx.Done():
+				return
+			}
+		}
+	}()
 }
 
 // startUpdateScheduler 启动定时更新调度器

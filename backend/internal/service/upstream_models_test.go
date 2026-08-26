@@ -284,6 +284,19 @@ func TestBuildAnthropicUpstreamModelsRequestRejectsBedrock(t *testing.T) {
 	require.Equal(t, UpstreamModelSyncErrorUnsupported, syncErr.Kind)
 }
 
+func TestFetchUpstreamSupportedModelsUsesCommandCodeGoatCatalog(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	models, err := (&AccountTestService{}).FetchUpstreamSupportedModels(ctx, &Account{
+		Platform: PlatformCommandCode,
+		Type:     AccountTypeAPIKey,
+	})
+	require.NoError(t, err)
+	require.Contains(t, models, "gpt-5.6-luna")
+	require.Contains(t, models, "deepseek/deepseek-v4-flash")
+	require.NotContains(t, models, "stealth/ox-alpha")
+}
+
 func TestFetchUpstreamSupportedModelsParsesOpenAIResponse(t *testing.T) {
 	t.Parallel()
 

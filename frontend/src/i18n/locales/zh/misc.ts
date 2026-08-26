@@ -13,6 +13,10 @@ export default {
     empty: '暂无模型计费数据',
     copyModelId: '复制模型 ID',
     modelCopied: '已复制模型 ID',
+    contextWindow: '{tokens} 上下文',
+    promotion: {
+      title: '官方价格活动'
+    },
     modes: {
       raw: '原始计费',
       actual: '实际计费'

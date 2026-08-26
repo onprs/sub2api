@@ -28,6 +28,8 @@ const messages: Record<string, string> = {
   'modelPricing.columns.model': 'Model',
   'modelPricing.copyModelId': 'Copy Model ID',
   'modelPricing.modelCopied': 'Model ID copied',
+  'modelPricing.contextWindow': '{tokens} context',
+  'modelPricing.promotion.title': 'Official pricing promotion',
   'modelPricing.modes.raw': 'Original Billing',
   'modelPricing.modes.actual': 'Actual Billing',
   'modelPricing.help.open': 'View pricing guide',
@@ -282,6 +284,36 @@ describe('ModelPricingView', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('shows official context and promotion metadata beside the model ID', async () => {
+    const channels = makeChannel()
+    const section = channels[0].platforms[0]
+    const model = section.supported_models[0]
+    section.platform = 'commandcode'
+    section.groups[0].platform = 'commandcode'
+    model.platform = 'commandcode'
+    model.context_length = 1_050_000
+    model.promotion = {
+      code: 'official-deal',
+      label: '50% off',
+      discount_percent: 50,
+      free: false,
+      term: 'ends December 31, 2026',
+      expires_at: '2026-12-31T23:59:59Z',
+    }
+
+    getAvailable.mockResolvedValue(channels)
+    getUserGroupRates.mockResolvedValue({})
+    const wrapper = mountView()
+    await flushPromises()
+    await selectPricingScope(wrapper, 'commandcode', 20)
+
+    expect(wrapper.get('[data-test="model-context-window"]').text()).toBe('1.05M context')
+    const promotion = wrapper.get('[data-test="model-promotion"]')
+    expect(promotion.text()).toBe('50% off')
+    expect(promotion.attributes('title')).toContain('ends December 31, 2026')
+    expect(promotion.attributes('title')).toContain('2026-12-31')
   })
 
   it('requires a platform and matching group before showing pricing rows', async () => {

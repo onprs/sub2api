@@ -260,6 +260,31 @@
                       <Icon :name="copiedModel === row.modelName ? 'check' : 'copy'" size="xs" />
                     </button>
                   </div>
+                  <div
+                    v-if="row.contextLength !== null || row.promotionLabel"
+                    class="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 font-sans"
+                  >
+                    <span
+                      v-if="row.contextLength !== null"
+                      class="text-[10px] text-gray-500 dark:text-gray-400"
+                      data-test="model-context-window"
+                    >
+                      {{ t('modelPricing.contextWindow', { tokens: formatContextTokenCount(row.contextLength) }) }}
+                    </span>
+                    <span
+                      v-if="row.promotionLabel"
+                      class="inline-flex max-w-full rounded border px-1.5 py-0.5 text-[10px] font-semibold"
+                      :class="
+                        row.promotionFree
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+                          : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                      "
+                      :title="promotionTitle(row)"
+                      data-test="model-promotion"
+                    >
+                      <span class="truncate">{{ row.promotionLabel }}</span>
+                    </span>
+                  </div>
                 </td>
 
                 <td class="px-4 py-3 align-top text-gray-600 dark:text-gray-300">
@@ -607,8 +632,8 @@ function reconcileSelection() {
 }
 
 function formatContextTokenCount(tokens: number): string {
-  if (tokens >= 1_000_000 && tokens % 1_000_000 === 0) {
-    return `${tokens / 1_000_000}M`
+  if (tokens >= 1_000_000) {
+    return `${Number((tokens / 1_000_000).toFixed(3))}M`
   }
   if (tokens >= 1_000 && tokens % 1_000 === 0) {
     return `${tokens / 1_000}K`
@@ -643,6 +668,16 @@ function timeBandLabel(timeBand: ModelPricingTimeBandRow): string {
   const key = `modelPricing.timeBands.${timeBand.code}`
   const name = te(key) ? t(key) : timeBand.code
   return `${name} · ${timeBand.timeZone} ${timeBand.timeRanges.join(', ')}`
+}
+
+function promotionTitle(row: ModelPricingRow): string {
+  return [
+    t('modelPricing.promotion.title'),
+    row.promotionTerm,
+    row.promotionExpiresAt ? row.promotionExpiresAt.slice(0, 10) : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 function pricingLines(row: ModelPricingRow): ModelPricingLine[] {

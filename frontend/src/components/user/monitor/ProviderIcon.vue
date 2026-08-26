@@ -3,6 +3,10 @@
     v-if="provider === 'clinepass'"
     :size="size"
   />
+  <CommandCodeIcon
+    v-else-if="provider === 'commandcode'"
+    :size="size"
+  />
   <svg
     v-else-if="iconInfo"
     :width="size"
@@ -32,6 +36,7 @@
 import { computed } from 'vue'
 import type { Provider } from '@/api/admin/channelMonitor'
 import ClineIcon from '@/components/icons/ClineIcon.vue'
+import CommandCodeIcon from '@/components/icons/CommandCodeIcon.vue'
 
 interface IconData {
   paths: string[]
@@ -64,11 +69,6 @@ const PROVIDER_ICONS: Partial<Record<Provider, IconData>> = {
   openrouter: {
     paths: [
       'M12 2v20M2 12h20M17 7l5 5-5 5M7 7l-5 5 5 5',
-    ],
-  },
-  commandcode: {
-    paths: [
-      'M5 8l4 4-4 4M11 16h8',
     ],
   },
 }

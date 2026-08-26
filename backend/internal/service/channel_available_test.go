@@ -573,6 +573,23 @@ func TestBuildSupportedModelForPricingGroup_OpenCodeGoPartialChannelPricingUsesC
 	require.InDelta(t, 0.044e-6, *peak.Pricing.CacheReadPrice, 1e-15)
 }
 
+func TestFillGlobalPricingFallbackCommandCodeAddsPromotionAfterCatalogResolution(t *testing.T) {
+	pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{}}
+	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
+	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
+	models := []SupportedModel{{
+		Name:     "google/gemini-3.7-flash",
+		Platform: PlatformCommandCode,
+	}}
+
+	svc.fillGlobalPricingFallback(models)
+
+	require.Equal(t, PricingSourceCatalog, models[0].PricingSource)
+	require.Equal(t, 1_048_576, models[0].ContextWindow)
+	require.NotNil(t, models[0].Promotion)
+	require.Equal(t, "50% off", models[0].Promotion.Label)
+}
+
 func TestBuildCatalogSupportedModel_CommandCode(t *testing.T) {
 	pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{}}
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
@@ -581,7 +598,11 @@ func TestBuildCatalogSupportedModel_CommandCode(t *testing.T) {
 	// 1. DeepSeek peak/off-peak
 	ds := svc.BuildCatalogSupportedModel("deepseek/deepseek-v4-pro", PlatformCommandCode, nil)
 	require.Equal(t, PricingSourceCatalog, ds.PricingSource)
-	require.NotNil(t, ds.Pricing)
+	require.Equal(t, 1_000_000, ds.ContextWindow)
+	require.Nil(t, ds.Promotion)
+	require.NotNil(t, ds.QuotaCost)
+	require.InDelta(t, 20, ds.QuotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 3.5, ds.QuotaCost.CostMultiplier, 1e-9)
 	require.Len(t, ds.PricingTimeBands, 2)
 	offPeak := ds.PricingTimeBands[0]
 	require.Equal(t, "off_peak", offPeak.Code)
@@ -598,18 +619,36 @@ func TestBuildCatalogSupportedModel_CommandCode(t *testing.T) {
 	qwen := svc.BuildCatalogSupportedModel("Qwen/Qwen3.7-Max", PlatformCommandCode, nil)
 	require.Equal(t, PricingSourceCatalog, qwen.PricingSource)
 	require.NotNil(t, qwen.Pricing)
+	require.NotNil(t, qwen.QuotaCost)
+	require.InDelta(t, 33, qwen.QuotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 70.0/33.0, qwen.QuotaCost.CostMultiplier, 1e-9)
 	require.Empty(t, qwen.PricingTimeBands)
 	require.InDelta(t, 2.5e-6, *qwen.Pricing.InputPrice, 1e-15)
 	require.InDelta(t, 7.5e-6, *qwen.Pricing.OutputPrice, 1e-15)
 	require.InDelta(t, 0.5e-6, *qwen.Pricing.CacheReadPrice, 1e-15)
 	require.InDelta(t, 3.13e-6, *qwen.Pricing.CacheWritePrice, 1e-15)
 
-	// 3. Ox Alpha zero rate
-	ox := svc.BuildCatalogSupportedModel("stealth/ox-alpha", PlatformCommandCode, nil)
-	require.Equal(t, PricingSourceCatalog, ox.PricingSource)
-	require.NotNil(t, ox.Pricing)
-	require.InDelta(t, 0.0, *ox.Pricing.InputPrice, 1e-15)
-	require.InDelta(t, 0.0, *ox.Pricing.OutputPrice, 1e-15)
+	// 3. 官方免费模型与活动元数据
+	free := svc.BuildCatalogSupportedModel("poolside/laguna-s-2.1-free", PlatformCommandCode, nil)
+	require.Equal(t, PricingSourceCatalog, free.PricingSource)
+	require.Equal(t, 256_000, free.ContextWindow)
+	require.NotNil(t, free.Promotion)
+	require.True(t, free.Promotion.Free)
+	require.Equal(t, "Free", free.Promotion.Label)
+	require.NotNil(t, free.Pricing)
+	require.InDelta(t, 0.0, *free.Pricing.InputPrice, 1e-15)
+	require.InDelta(t, 0.0, *free.Pricing.OutputPrice, 1e-15)
+
+	// 4. 官方促销与上下文档位
+	gemini := svc.BuildCatalogSupportedModel("google/gemini-3.7-flash", PlatformCommandCode, nil)
+	require.Equal(t, 1_048_576, gemini.ContextWindow)
+	require.NotNil(t, gemini.Promotion)
+	require.Equal(t, "50% off", gemini.Promotion.Label)
+
+	qwenFlash := svc.BuildCatalogSupportedModel("Qwen/Qwen3.7-Flash", PlatformCommandCode, nil)
+	require.Len(t, qwenFlash.Pricing.Intervals, 3)
+	require.Equal(t, 32_000, *qwenFlash.Pricing.Intervals[0].MaxTokens)
+	require.Equal(t, 256_000, *qwenFlash.Pricing.Intervals[1].MaxTokens)
 }
 
 func TestBuildCatalogSupportedModel_OpenCodeGoShowsOfficialPeakAndOffPeakPricing(t *testing.T) {

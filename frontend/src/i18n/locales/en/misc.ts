@@ -13,6 +13,10 @@ export default {
     empty: 'No model pricing data',
     copyModelId: 'Copy Model ID',
     modelCopied: 'Model ID copied',
+    contextWindow: '{tokens} context',
+    promotion: {
+      title: 'Official pricing promotion'
+    },
     modes: {
       raw: 'Original Billing',
       actual: 'Actual Billing'

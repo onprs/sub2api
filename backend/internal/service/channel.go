@@ -391,6 +391,16 @@ type ChannelUsageFields struct {
 	ModelMappingChain  string // 映射链描述，如 "a→b→c"
 }
 
+// ModelPromotion 是用户价格页展示用的 Command Code 官方促销快照。
+type ModelPromotion struct {
+	Code            string
+	Label           string
+	DiscountPercent float64
+	Free            bool
+	Term            string
+	ExpiresAt       *time.Time
+}
+
 // ModelUsageOffer 是当前有效的官方 Usage 活动快照；OpenCode Go 额度成本会按该活动折算。
 type ModelUsageOffer struct {
 	Code            string
@@ -415,6 +425,8 @@ type ModelPricingTimeBand struct {
 type SupportedModel struct {
 	Name             string                 // 用户侧模型名
 	Platform         string                 // 所属平台
+	ContextWindow    int                    // 官方最大上下文 token 数；0 表示来源未提供
+	Promotion        *ModelPromotion        // 当前有效的官方价格活动；nil 表示无活动
 	Pricing          *ChannelModelPricing   // 定价详情（nil 表示未配置定价）
 	PricingSource    string                 // channel/catalog/missing，仅用于用户侧展示来源
 	QuotaCost        *ModelQuotaCost        // OpenCode Go 当前月可用额度与活动折算后的额度成本乘数

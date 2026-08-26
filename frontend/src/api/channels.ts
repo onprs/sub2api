@@ -60,6 +60,15 @@ export interface UserSupportedModelPricing {
   time_bands?: UserPricingTimeBand[]
 }
 
+export interface UserSupportedModelPromotion {
+  code: string
+  label: string
+  discount_percent: number
+  free: boolean
+  term?: string
+  expires_at?: string
+}
+
 export interface UserSupportedModelUsageOffer {
   code: string
   usage_multiplier: number
@@ -68,6 +77,9 @@ export interface UserSupportedModelUsageOffer {
 export interface UserSupportedModel {
   name: string
   platform: string
+  /** 官方模型最大上下文 token 数；缺失表示渠道未提供。 */
+  context_length?: number
+  promotion?: UserSupportedModelPromotion | null
   pricing: UserSupportedModelPricing | null
   /** 当前模型额度倍率；OpenCode Go 官方 usage offer 已由后端折算。 */
   model_specific_multiplier?: number | null

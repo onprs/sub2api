@@ -2381,6 +2381,11 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	if account.IsCommandCode() {
+		response.Success(c, commandCodeAvailableModels(account))
+		return
+	}
+
 	// Handle Grok accounts
 	if account.Platform == service.PlatformGrok {
 		defaultModels := xai.DefaultModels()
@@ -2597,6 +2602,19 @@ func openCodeGoAvailableModels(account *service.Account) []openai.Model {
 	}
 	if len(ids) == 0 {
 		ids = service.OpenCodeGoDefaultModelIDs()
+	}
+	return accountTestModels(ids)
+}
+
+func commandCodeAvailableModels(account *service.Account) []openai.Model {
+	ids := []string{}
+	if account != nil {
+		for requestedModel := range account.GetExplicitModelMapping() {
+			ids = append(ids, requestedModel)
+		}
+	}
+	if len(ids) == 0 {
+		ids = service.CommandCodeDefaultModelIDs()
 	}
 	return accountTestModels(ids)
 }

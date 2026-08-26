@@ -98,6 +98,13 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 		}
 		return models, nil
 	}
+	if account.IsCommandCodeAPIKey() {
+		models := defaultCommandCodeCatalog.ModelIDs(ctx)
+		if len(models) == 0 {
+			return nil, newUpstreamModelSyncUpstreamError("Command Code GOAT model catalog is unavailable", nil)
+		}
+		return models, nil
+	}
 
 	if s.httpUpstream == nil {
 		return nil, newUpstreamModelSyncConfigError("Upstream HTTP client is not configured", nil)

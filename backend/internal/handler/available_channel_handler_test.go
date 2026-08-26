@@ -92,6 +92,38 @@ func TestToUserSupportedModels_NilAllowedPlatformsKeepsAll(t *testing.T) {
 	require.Len(t, toUserSupportedModels(src, nil), 2)
 }
 
+func TestToUserSupportedModels_ExposesOfficialContextAndPromotion(t *testing.T) {
+	expiresAt := time.Date(2026, 12, 31, 23, 59, 59, 0, time.UTC)
+	src := []service.SupportedModel{
+		{
+			Name:          "google/gemini-3.7-flash",
+			Platform:      service.PlatformCommandCode,
+			ContextWindow: 1_048_576,
+			Promotion: &service.ModelPromotion{
+				Code:            "gemini-deal",
+				Label:           "50% off",
+				DiscountPercent: 50,
+				Term:            "ends December 31, 2026",
+				ExpiresAt:       &expiresAt,
+			},
+		},
+	}
+
+	out := toUserSupportedModels(src, nil)
+	require.Len(t, out, 1)
+	require.Equal(t, 1_048_576, out[0].ContextLength)
+	require.NotNil(t, out[0].Promotion)
+	require.Equal(t, "gemini-deal", out[0].Promotion.Code)
+	require.Equal(t, "50% off", out[0].Promotion.Label)
+	require.Equal(t, float64(50), out[0].Promotion.DiscountPercent)
+	require.Equal(t, expiresAt, *out[0].Promotion.ExpiresAt)
+
+	raw, err := json.Marshal(out[0])
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"context_length":1048576`)
+	require.Contains(t, string(raw), `"promotion"`)
+}
+
 func TestToUserSupportedModels_ExposesPricingTimeBands(t *testing.T) {
 	inputPrice := 0.22e-6
 	outputPrice := 0.66e-6

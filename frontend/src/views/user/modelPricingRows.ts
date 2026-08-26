@@ -36,6 +36,11 @@ export interface ModelPricingRow {
   description: string
   platform: string
   modelName: string
+  contextLength: number | null
+  promotionLabel: string
+  promotionTerm: string
+  promotionExpiresAt: string
+  promotionFree: boolean
   groupId: number
   groupName: string
   subscriptionType: string
@@ -195,6 +200,24 @@ function peakRateFields(group: UserAvailableGroup): Pick<
   }
 }
 
+function commandCodeMetadataFields(model: UserSupportedModel): Pick<
+  ModelPricingRow,
+  'contextLength' | 'promotionLabel' | 'promotionTerm' | 'promotionExpiresAt' | 'promotionFree'
+> {
+  const contextLength = model.context_length
+  const promotion = model.promotion
+  return {
+    contextLength:
+      contextLength != null && Number.isFinite(contextLength) && contextLength > 0
+        ? Math.floor(contextLength)
+        : null,
+    promotionLabel: promotion?.label || '',
+    promotionTerm: promotion?.term || '',
+    promotionExpiresAt: promotion?.expires_at || '',
+    promotionFree: Boolean(promotion?.free),
+  }
+}
+
 function modelSpecificMultiplierForModel(model: UserSupportedModel): number | null {
   const multiplier = model.model_specific_multiplier
   if (multiplier == null || !Number.isFinite(multiplier) || multiplier <= 0) {
@@ -260,6 +283,7 @@ function rowForModelGroup(
     peakRate.currentPeakMultiplier *
     (modelSpecificMultiplier ?? 1)
   const usageOffer = usageOfferFields(model)
+  const metadata = commandCodeMetadataFields(model)
   const source = pricingSourceFields(model.pricing)
 
   if (!model.pricing) {
@@ -269,6 +293,7 @@ function rowForModelGroup(
       description: channel.description || '',
       platform,
       modelName: model.name,
+      ...metadata,
       groupId: group.id,
       groupName: group.name,
       subscriptionType: group.subscription_type || 'standard',
@@ -291,6 +316,7 @@ function rowForModelGroup(
     description: channel.description || '',
     platform,
     modelName: model.name,
+    ...metadata,
     groupId: group.id,
     groupName: group.name,
     subscriptionType: group.subscription_type || 'standard',
@@ -333,6 +359,8 @@ export function filterModelPricingRows(rows: ModelPricingRow[], query: string): 
       row.description,
       row.platform,
       row.modelName,
+      row.promotionLabel,
+      row.promotionTerm,
       row.groupName,
       row.subscriptionType,
       row.usageOfferCode,

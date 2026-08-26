@@ -101,25 +101,27 @@ type BillingCache interface {
 
 // ModelPricing 模型价格配置（per-token价格，与LiteLLM格式一致）
 type ModelPricing struct {
-	InputPricePerToken                 float64 // 每token输入价格 (USD)
-	InputPricePerTokenPriority         float64 // priority service tier 下每token输入价格 (USD)
-	ImageInputPricePerToken            float64 // 图片输入 token 价格 (USD)，用于多模态 embedding 等图文不同价场景；为 0 时回退到 InputPricePerToken
-	OutputPricePerToken                float64 // 每token输出价格 (USD)
-	OutputPricePerTokenPriority        float64 // priority service tier 下每token输出价格 (USD)
-	CacheCreationPricePerToken         float64 // 缓存创建每token价格 (USD)
-	CacheCreationPricePerTokenPriority float64 // priority service tier 下缓存创建每token价格 (USD)
-	CacheCreationPriceExplicit         bool    // 是否由渠道/区间定价显式设定（为 true 时即使 == 0 也不回退）
-	CacheReadPricePerToken             float64 // 缓存读取每token价格 (USD)
-	CacheReadPricePerTokenPriority     float64 // priority service tier 下缓存读取每token价格 (USD)
-	CacheCreation5mPrice               float64 // 5分钟缓存创建每token价格 (USD)
-	CacheCreation1hPrice               float64 // 1小时缓存创建每token价格 (USD)
-	SupportsCacheBreakdown             bool    // 是否支持详细的缓存分类
-	LongContextInputThreshold          int     // 超过阈值后按整次会话提升输入价格
-	LongContextInputMultiplier         float64 // 长上下文整次会话输入倍率
-	LongContextOutputMultiplier        float64 // 长上下文整次会话输出倍率
-	ImageOutputPricePerToken           float64 // 图片输出 token 价格 (USD)
-	ImageOutputPriceExplicit           bool    // 是否由渠道定价显式设定（为 true 时即使 == 0 也不回退）
-	AllowZeroRate                      bool    // 明确允许零费率（免费模型，如 OpenRouter free tier），不视为缺失价格
+	InputPricePerToken                 float64           // 每token输入价格 (USD)
+	InputPricePerTokenPriority         float64           // priority service tier 下每token输入价格 (USD)
+	ImageInputPricePerToken            float64           // 图片输入 token 价格 (USD)，用于多模态 embedding 等图文不同价场景；为 0 时回退到 InputPricePerToken
+	OutputPricePerToken                float64           // 每token输出价格 (USD)
+	OutputPricePerTokenPriority        float64           // priority service tier 下每token输出价格 (USD)
+	CacheCreationPricePerToken         float64           // 缓存创建每token价格 (USD)
+	CacheCreationPricePerTokenPriority float64           // priority service tier 下缓存创建每token价格 (USD)
+	CacheCreationPriceExplicit         bool              // 是否由渠道/区间定价显式设定（为 true 时即使 == 0 也不回退）
+	CacheReadPricePerToken             float64           // 缓存读取每token价格 (USD)
+	CacheReadPricePerTokenPriority     float64           // priority service tier 下缓存读取每token价格 (USD)
+	CacheCreation5mPrice               float64           // 5分钟缓存创建每token价格 (USD)
+	CacheCreation1hPrice               float64           // 1小时缓存创建每token价格 (USD)
+	SupportsCacheBreakdown             bool              // 是否支持详细的缓存分类
+	LongContextInputThreshold          int               // 超过阈值后按整次会话提升输入价格
+	LongContextInputMultiplier         float64           // 长上下文整次会话输入倍率
+	LongContextOutputMultiplier        float64           // 长上下文整次会话输出倍率
+	ImageOutputPricePerToken           float64           // 图片输出 token 价格 (USD)
+	ImageOutputPriceExplicit           bool              // 是否由渠道定价显式设定（为 true 时即使 == 0 也不回退）
+	AllowZeroRate                      bool              // 明确允许零费率（免费模型，如 OpenRouter free tier），不视为缺失价格
+	Intervals                          []PricingInterval // 官方目录提供的整次上下文价格档位；渠道显式定价仍优先
+	IntervalsRequireMatch              bool              // 有上下文用量时必须命中官方档位，否则闭合失败
 }
 
 const (
@@ -1397,10 +1399,21 @@ func (s *BillingService) CalculateCostForPlatform(platform, model string, tokens
 	if err != nil {
 		return nil, err
 	}
+	applyLongContextPricing := true
+	if len(pricing.Intervals) > 0 {
+		totalContextTokens := tokens.InputTokens + tokens.CacheCreationTokens + tokens.CacheReadTokens
+		if interval := FindMatchingInterval(pricing.Intervals, totalContextTokens); interval != nil {
+			pricing = intervalToModelPricing(interval, pricing.SupportsCacheBreakdown, nil)
+		} else if totalContextTokens > 0 {
+			return nil, tokenPricingUnavailableError(model)
+		}
+		// 官方区间已经表达整次长上下文价格，不能再叠加模型级旧倍率。
+		applyLongContextPricing = false
+	}
 	if !hasBillableTokenPricing(pricing) {
 		return nil, tokenPricingUnavailableError(model)
 	}
-	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, "", true), nil
+	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, "", applyLongContextPricing), nil
 }
 
 func (s *BillingService) CalculateCostWithServiceTier(model string, tokens UsageTokens, rateMultiplier float64, serviceTier string) (*CostBreakdown, error) {

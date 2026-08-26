@@ -25,6 +25,9 @@ type ResolvedPricing struct {
 	// Token 模式：区间定价列表（如有，覆盖 BasePricing 中的对应字段）
 	Intervals []PricingInterval
 
+	// Token 模式：官方目录档位必须命中，不能在区间外回退基础价
+	IntervalsRequireMatch bool
+
 	// 按次/图片模式：分层定价
 	RequestTiers []PricingInterval
 
@@ -96,6 +99,10 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 		Source:                 source,
 		SupportsCacheBreakdown: basePricing != nil && basePricing.SupportsCacheBreakdown,
 	}
+	if basePricing != nil && len(basePricing.Intervals) > 0 {
+		resolved.Intervals = append([]PricingInterval(nil), basePricing.Intervals...)
+		resolved.IntervalsRequireMatch = basePricing.IntervalsRequireMatch
+	}
 
 	// 2. 如果有 GroupID，尝试渠道覆盖
 	if chPricing != nil {
@@ -162,6 +169,7 @@ func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricin
 	// 如果有有效的区间定价，使用区间
 	if len(validIntervals) > 0 {
 		resolved.Intervals = validIntervals
+		resolved.IntervalsRequireMatch = false
 		// 区间不匹配时回退到 BasePricing，也需要覆盖图片价格
 		if resolved.BasePricing == nil {
 			resolved.BasePricing = &ModelPricing{}
@@ -179,7 +187,25 @@ func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricin
 		return
 	}
 
-	// 否则用 flat 字段覆盖 BasePricing
+	// 否则用 flat 字段覆盖 BasePricing；部分覆盖会合并进每个官方目录档位。
+	if len(resolved.Intervals) > 0 {
+		merged := append([]PricingInterval(nil), resolved.Intervals...)
+		for index := range merged {
+			if chPricing.InputPrice != nil {
+				merged[index].InputPrice = chPricing.InputPrice
+			}
+			if chPricing.OutputPrice != nil {
+				merged[index].OutputPrice = chPricing.OutputPrice
+			}
+			if chPricing.CacheWritePrice != nil {
+				merged[index].CacheWritePrice = chPricing.CacheWritePrice
+			}
+			if chPricing.CacheReadPrice != nil {
+				merged[index].CacheReadPrice = chPricing.CacheReadPrice
+			}
+		}
+		resolved.Intervals = merged
+	}
 	if resolved.BasePricing == nil {
 		resolved.BasePricing = &ModelPricing{}
 	} else {
@@ -247,6 +273,9 @@ func (r *ModelPricingResolver) GetIntervalPricing(resolved *ResolvedPricing, tot
 
 	iv := FindMatchingInterval(resolved.Intervals, totalContextTokens)
 	if iv == nil {
+		if resolved.IntervalsRequireMatch && totalContextTokens > 0 {
+			return nil
+		}
 		return resolved.BasePricing
 	}
 

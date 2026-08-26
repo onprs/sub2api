@@ -41,6 +41,17 @@ describe('PlatformTypeBadge', () => {
     expect(wrapper.find('svg[viewBox="0 0 466.73 487.04"] path').attributes('d')).toContain('M463.6,275.08')
   })
 
+  it('renders the official Command Code Symbol for Command Code', () => {
+    const wrapper = mount(PlatformTypeBadge, {
+      props: { platform: 'commandcode', type: 'apikey' }
+    })
+
+    expect(wrapper.text()).toContain('Command Code')
+    const icon = wrapper.get('[data-command-code-icon]')
+    expect(icon.findAll('svg[viewBox="0 0 446 446"]')).toHaveLength(2)
+    expect(icon.get('path').attributes('d')).toContain('M226.665 18.1979')
+  })
+
   it('renders OpenRouter as an independent API key platform', () => {
     testLocale.value = 'en'
     const wrapper = mount(PlatformTypeBadge, {

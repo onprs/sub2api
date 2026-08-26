@@ -122,6 +122,16 @@ type userPricingIntervalDTO struct {
 	PerRequestPrice *float64 `json:"per_request_price"`
 }
 
+// userSupportedModelPromotion 用户可见的官方价格活动快照。
+type userSupportedModelPromotion struct {
+	Code            string     `json:"code"`
+	Label           string     `json:"label"`
+	DiscountPercent float64    `json:"discount_percent"`
+	Free            bool       `json:"free"`
+	Term            string     `json:"term,omitempty"`
+	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
+}
+
 // userSupportedModelUsageOffer 用户可见的官方 Usage 活动快照。
 type userSupportedModelUsageOffer struct {
 	Code            string  `json:"code"`
@@ -132,6 +142,8 @@ type userSupportedModelUsageOffer struct {
 type userSupportedModel struct {
 	Name                    string                        `json:"name"`
 	Platform                string                        `json:"platform"`
+	ContextLength           int                           `json:"context_length,omitempty"`
+	Promotion               *userSupportedModelPromotion  `json:"promotion,omitempty"`
 	Pricing                 *userSupportedModelPricing    `json:"pricing"`
 	ModelSpecificMultiplier *float64                      `json:"model_specific_multiplier,omitempty"`
 	UsageOffer              *userSupportedModelUsageOffer `json:"usage_offer,omitempty"`
@@ -514,12 +526,29 @@ func toUserSupportedModels(
 		out = append(out, userSupportedModel{
 			Name:                    m.Name,
 			Platform:                m.Platform,
+			ContextLength:           m.ContextWindow,
+			Promotion:               toUserSupportedModelPromotion(m.Promotion),
 			Pricing:                 pricing,
 			ModelSpecificMultiplier: toUserSupportedModelMultiplier(m.QuotaCost),
 			UsageOffer:              toUserSupportedModelUsageOffer(m.UsageOffer),
 		})
 	}
 	return out
+}
+
+func toUserSupportedModelPromotion(promotion *service.ModelPromotion) *userSupportedModelPromotion {
+	if promotion == nil || strings.TrimSpace(promotion.Code) == "" || strings.TrimSpace(promotion.Label) == "" ||
+		promotion.DiscountPercent <= 0 || math.IsNaN(promotion.DiscountPercent) || math.IsInf(promotion.DiscountPercent, 0) {
+		return nil
+	}
+	return &userSupportedModelPromotion{
+		Code:            promotion.Code,
+		Label:           promotion.Label,
+		DiscountPercent: promotion.DiscountPercent,
+		Free:            promotion.Free,
+		Term:            promotion.Term,
+		ExpiresAt:       promotion.ExpiresAt,
+	}
 }
 
 func toUserSupportedModelMultiplier(quotaCost *service.ModelQuotaCost) *float64 {

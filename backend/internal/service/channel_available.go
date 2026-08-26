@@ -124,6 +124,7 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 //  2. Pricing 非 nil 但所有价格字段为空（admin UI 建了条目但没填价格）
 func (s *ChannelService) fillGlobalPricingFallback(models []SupportedModel) {
 	for i := range models {
+		s.fillCommandCodeMetadataForName(&models[i], models[i].Name)
 		if !pricingNeedsFallback(models[i].Pricing) {
 			if models[i].PricingSource == "" {
 				models[i].PricingSource = PricingSourceChannel
@@ -137,6 +138,7 @@ func (s *ChannelService) fillGlobalPricingFallback(models []SupportedModel) {
 		}
 		models[i].Pricing = pricing
 		models[i].PricingSource = PricingSourceCatalog
+		s.fillCommandCodeMetadataForName(&models[i], models[i].Name)
 	}
 }
 
@@ -168,6 +170,7 @@ func (s *ChannelService) BuildCatalogSupportedModel(displayName, platform string
 		}
 		s.fillModelPricingTimeBandsForName(&model, candidate, nil)
 		s.fillModelUsageOfferForName(&model, candidate)
+		s.fillCommandCodeMetadataForName(&model, candidate)
 		return model
 	}
 	s.fillModelUsageOfferForName(&model, model.Name)
@@ -205,6 +208,7 @@ func (s *ChannelService) BuildSupportedModelForPricingGroup(
 				}
 				s.fillModelPricingTimeBandsForName(&model, candidate, pricing)
 				s.fillModelUsageOfferForName(&model, candidate)
+				s.fillCommandCodeMetadataForName(&model, candidate)
 				return model
 			}
 		}
@@ -222,6 +226,7 @@ func (s *ChannelService) BuildSupportedModelForPricingGroup(
 		}
 		s.fillModelPricingTimeBandsForName(&model, candidate, nil)
 		s.fillModelUsageOfferForName(&model, candidate)
+		s.fillCommandCodeMetadataForName(&model, candidate)
 		return model
 	}
 	s.fillModelUsageOfferForName(&model, model.Name)
@@ -390,14 +395,31 @@ func (s *ChannelService) fillModelQuotaCosts(models []SupportedModel) {
 }
 
 func (s *ChannelService) fillModelQuotaCostForName(model *SupportedModel, pricingModel string) bool {
-	if s == nil || model == nil || !isOpenCodeGoPricingPlatform(model.Platform) {
-		return model != nil && !isOpenCodeGoPricingPlatform(model.Platform)
+	if s == nil || model == nil {
+		return false
 	}
 	billingService := s.billingService
 	if billingService == nil {
 		billingService = &BillingService{pricingService: s.pricingService}
 	}
-	quotaCost, ok := billingService.GetOpenCodeGoQuotaCost(pricingModel)
+	var quotaCost OpenCodeGoQuotaCost
+	var ok bool
+	switch {
+	case isOpenCodeGoPricingPlatform(model.Platform):
+		quotaCost, ok = billingService.GetOpenCodeGoQuotaCost(pricingModel)
+	case model.Platform == PlatformCommandCode:
+		quotaCost, ok = billingService.GetCommandCodeQuotaCost(pricingModel)
+		if !ok {
+			// 免费模型无 credits 属于正常情况，返回成功但不设置倍率。
+			pricing, pricingOK := commandCodeReferencePricingAt(pricingModel, time.Now())
+			if pricingOK && pricing.AllowZeroRate {
+				return true
+			}
+			return false
+		}
+	default:
+		return true
+	}
 	if !ok {
 		return false
 	}
@@ -406,6 +428,20 @@ func (s *ChannelService) fillModelQuotaCostForName(model *SupportedModel, pricin
 		CostMultiplier:          quotaCost.Multiplier,
 	}
 	return true
+}
+
+func (s *ChannelService) fillCommandCodeMetadataForName(model *SupportedModel, pricingModel string) {
+	if model == nil || model.Platform != PlatformCommandCode {
+		return
+	}
+	contextWindow, promotion, ok := commandCodeReferenceMetadataAt(pricingModel, time.Now())
+	if !ok {
+		return
+	}
+	model.ContextWindow = contextWindow
+	if model.PricingSource == PricingSourceCatalog {
+		model.Promotion = promotion
+	}
 }
 
 func (s *ChannelService) fillModelUsageOfferForName(model *SupportedModel, pricingModel string) {
@@ -437,6 +473,19 @@ func (s *ChannelService) fillModelPricingTimeBandsForName(model *SupportedModel,
 		return
 	}
 	if existing != nil && (existing.BillingMode == BillingModePerRequest || existing.BillingMode == BillingModeImage || len(existing.Intervals) > 0) {
+		return
+	}
+	if model.Platform == PlatformCommandCode {
+		bands := commandCodeReferencePricingTimeBandsAt(pricingModel, time.Now())
+		if len(bands) == 0 {
+			return
+		}
+		if existing != nil {
+			for index := range bands {
+				preserveExplicitDisplayPrices(bands[index].Pricing, existing)
+			}
+		}
+		model.PricingTimeBands = bands
 		return
 	}
 	offPeak, offPeakOK := s.displayPricingForModelAt(model.Platform, pricingModel, nil, openCodeGoOffPeakSampleTime)
@@ -604,7 +653,11 @@ func synthesizePricingFromModelPricing(mp *ModelPricing, existing *ChannelModelP
 		}
 	}
 	if mode == BillingModeToken {
-		pricing.Intervals = longContextDisplayIntervals(mp)
+		if len(mp.Intervals) > 0 {
+			pricing.Intervals = append([]PricingInterval(nil), mp.Intervals...)
+		} else {
+			pricing.Intervals = longContextDisplayIntervals(mp)
+		}
 	}
 	return pricing
 }

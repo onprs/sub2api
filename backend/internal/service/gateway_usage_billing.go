@@ -244,12 +244,27 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 			continue
 		}
 		cost, err := s.calculateRecordUsageCost(ctx, result, apiKey, candidate, multiplier, imageMultiplier, opts)
-		if err == nil && opts != nil && isOpenCodeGoPricingPlatform(opts.PricingPlatform) {
-			quotaCost, ok := s.billingService.GetOpenCodeGoQuotaCost(candidate)
-			if !ok {
-				err = openCodeGoQuotaCostUnavailableError(candidate)
-			} else {
-				applyModelSpecificMultiplierToCost(cost, quotaCost.Multiplier)
+		if err == nil && opts != nil {
+			switch opts.PricingPlatform {
+			case PlatformOpenCodeGo:
+				quotaCost, ok := s.billingService.GetOpenCodeGoQuotaCost(candidate)
+				if !ok {
+					err = openCodeGoQuotaCostUnavailableError(candidate)
+				} else {
+					applyModelSpecificMultiplierToCost(cost, quotaCost.Multiplier)
+				}
+			case PlatformCommandCode:
+				if cost.AllowZeroRate {
+					// 免费模型按 $0 计费，不消耗 GOAT 额度池，无需模型倍率。
+					applyModelSpecificMultiplierToCost(cost, 1)
+					break
+				}
+				quotaCost, ok := s.billingService.GetCommandCodeQuotaCost(candidate)
+				if !ok {
+					err = openCodeGoQuotaCostUnavailableError(candidate)
+				} else {
+					applyModelSpecificMultiplierToCost(cost, quotaCost.Multiplier)
+				}
 			}
 		}
 		if err == nil {
