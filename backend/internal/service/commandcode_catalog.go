@@ -23,25 +23,18 @@ const (
 	commandCodeCatalogBodyLimit   = 2 << 20
 )
 
-// commandCodeFallbackModels 是 Command Code Provider API 目录的离线回退，
-// 覆盖官方发布的主要模型。线上以 /provider/v1/models 实时目录为准。
+// commandCodeFallbackModels 是 Command Code GOAT 订阅计划的标准默认模型目录。
+// 官方计划体系（Go < GOAT < Pro < Max）下，GOAT 涵盖全部 Go 开源模型以及
+// gpt-5.6-sol、google/gemini-3.7-flash、meta/muse-spark-1.2、xai/grok-4.6 等。
 var commandCodeFallbackModels = []string{
-	"claude-sonnet-5",
-	"claude-sonnet-4-6",
-	"claude-sonnet-4-5-20250929",
-	"claude-fable-5",
-	"claude-opus-5",
-	"claude-opus-4-8",
-	"claude-opus-4-7",
-	"claude-opus-4-6",
-	"claude-haiku-4-5-20251001",
 	"gpt-5.6-sol",
-	"gpt-5.6-terra",
 	"gpt-5.6-luna",
-	"gpt-5.5",
-	"gpt-5.4",
-	"gpt-5.4-mini",
-	"gpt-5.3-codex",
+	"google/gemini-3.7-flash",
+	"xai/grok-4.6",
+	"xai/grok-4.5",
+	"meta/muse-spark-1.2",
+	"meta/muse-spark-1.2-contributor",
+	"stealth/ox-alpha",
 	"deepseek/deepseek-v4-pro",
 	"deepseek/deepseek-v4-flash",
 	"deepseek/deepseek-v4-flash-vision-exp",
@@ -72,22 +65,10 @@ var commandCodeFallbackModels = []string{
 	"stepfun/Step-3.7-Flash",
 	"stepfun/Step-3.5-Flash",
 	"tencent/hy3-paid",
-	"google/gemini-3.7-flash",
-	"google/gemini-3.6-flash",
-	"google/gemini-3.5-flash",
-	"google/gemini-3.5-flash-lite",
-	"google/gemini-3.1-flash-lite",
-	"sakana/fugu-ultra",
 	"nvidia/nemotron-3-ultra-550b-a55b",
 	"thinkingmachines/inkling",
 	"thinkingmachines/inkling-small",
-	"stealth/ox-alpha",
 	"poolside/laguna-s-2.1-free",
-	"meta/muse-spark-1.1",
-	"meta/muse-spark-1.2",
-	"meta/muse-spark-1.2-contributor",
-	"xai/grok-4.5",
-	"xai/grok-4.6",
 }
 
 // CommandCodeCatalog maintains a last-known-good copy of the Command Code

@@ -46,6 +46,6 @@ func TestCommandCodeCatalogExposesFallbackWithoutNetwork(t *testing.T) {
 	catalog := NewCommandCodeCatalog(nil)
 	models := catalog.ModelIDs(context.TODO())
 	require.NotEmpty(t, models)
-	require.Contains(t, models, "claude-sonnet-5")
+	require.Contains(t, models, "gpt-5.6-sol")
 	require.Contains(t, models, "deepseek/deepseek-v4-flash")
 }
