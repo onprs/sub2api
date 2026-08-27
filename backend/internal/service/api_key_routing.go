@@ -99,6 +99,14 @@ type apiKeyRoutingCandidate struct {
 
 // ResolveAPIKeyRoutingGroup 从 Key 的候选集合中解析本次请求的实际分组。
 func (s *GatewayService) ResolveAPIKeyRoutingGroup(ctx context.Context, apiKey *APIKey, input APIKeyRoutingResolveInput) (*APIKey, error) {
+	routingPlatform := ""
+	if apiKey != nil {
+		routingPlatform = apiKey.RoutingPlatformValue()
+	}
+	if s != nil && s.settingService != nil &&
+		(routingPlatform == PlatformOpenAI || strings.TrimSpace(input.ForcePlatform) == PlatformOpenAI) {
+		ctx = withOpenAIQuotaAutoPauseSettings(ctx, s.settingService.GetOpenAIQuotaAutoPauseSettings(ctx))
+	}
 	return selectWithSchedulerSnapshotRetry(ctx, func(err error) bool {
 		return err == ErrNoAvailableRoutingGroup
 	}, func(attemptCtx context.Context) (*APIKey, error) {
@@ -227,7 +235,18 @@ func (s *GatewayService) buildAPIKeyRoutingCandidate(
 	eligibleAccounts := accounts[:0]
 	for i := range accounts {
 		account := accounts[i]
-		if !account.IsSchedulableForModelWithContext(ctx, model) {
+		if platform == PlatformOpenAI || platform == PlatformGrok {
+			if !isOpenAICompatibleAccountEligibleForRequest(
+				ctx,
+				&account,
+				platform,
+				model,
+				false,
+				input.RequiredEndpointCapability,
+			) {
+				continue
+			}
+		} else if !account.IsSchedulableForModelWithContext(ctx, model) {
 			continue
 		}
 		if group.RequireOAuthOnly && account.Type == AccountTypeAPIKey {

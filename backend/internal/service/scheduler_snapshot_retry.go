@@ -32,6 +32,17 @@ func markSchedulerSnapshotCacheHit(ctx context.Context) {
 	}
 }
 
+func schedulerSnapshotCacheWasHit(ctx context.Context) bool {
+	state, _ := ctx.Value(schedulerSnapshotRetryStateKey{}).(*schedulerSnapshotRetryState)
+	return state != nil && state.cacheHit.Load()
+}
+
+// shouldPersistSchedulerPrivacyFailure 避免精简或陈旧的缓存账号在权威重读验证前
+// 修改持久化账号状态。
+func shouldPersistSchedulerPrivacyFailure(ctx context.Context) bool {
+	return isSchedulerSnapshotAuthoritativeRead(ctx) || !schedulerSnapshotCacheWasHit(ctx)
+}
+
 func isSchedulerSnapshotAuthoritativeRead(ctx context.Context) bool {
 	requested, _ := ctx.Value(schedulerSnapshotAuthoritativeReadKey{}).(bool)
 	return requested

@@ -1112,11 +1112,14 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		if s.service.isOpenAIAccountRuntimeBlocked(account) {
 			continue
 		}
-		// require_privacy_set: 跳过 privacy 未设置的账号并标记异常
+		// 缓存元数据可能来自旧版本或暂时缺字段；首次缓存命中只跳过候选，
+		// 由统一权威重读复核。只有 DB/权威账号仍未设置隐私时才持久化错误。
 		if schedGroup != nil && schedGroup.RequirePrivacySet && !account.IsPrivacySet() {
-			s.service.BlockAccountScheduling(account, time.Time{}, "privacy_not_set")
-			_ = s.service.accountRepo.SetError(ctx, account.ID,
-				fmt.Sprintf("Privacy not set, required by group [%s]", schedGroup.Name))
+			if shouldPersistSchedulerPrivacyFailure(ctx) {
+				s.service.BlockAccountScheduling(account, time.Time{}, "privacy_not_set")
+				_ = s.service.accountRepo.SetError(ctx, account.ID,
+					fmt.Sprintf("Privacy not set, required by group [%s]", schedGroup.Name))
+			}
 			continue
 		}
 		if !s.isAccountRequestCompatible(ctx, account, req) {
@@ -2203,14 +2206,24 @@ func openAIQuotaHeadroomFactor(account *Account, now time.Time) float64 {
 	if account == nil || len(account.Extra) == 0 || openAIQuotaHeadroomSnapshotStale(account.Extra, now) {
 		return openAIQuotaHeadroomNeutralFactor
 	}
-	primaryUsedPercent, ok := resolveAccountExtraNumber(account.Extra, "codex_primary_used_percent", "codex_7d_used_percent")
-	if !ok || openAIQuotaWindowResetAny(account.Extra, now, "primary", "7d") {
+	primaryUsedPercent, ok := resolveAccountExtraNumber(account.Extra, "codex_7d_used_percent")
+	primaryWindow := "7d"
+	if !ok {
+		primaryUsedPercent, ok = resolveAccountExtraNumber(account.Extra, "codex_primary_used_percent")
+		primaryWindow = "primary"
+	}
+	if !ok || openAIQuotaWindowReset(account.Extra, primaryWindow, now) {
 		return openAIQuotaHeadroomNeutralFactor
 	}
 
 	factor := 1 - clamp01(primaryUsedPercent/100)
-	if secondaryUsedPercent, ok := resolveAccountExtraNumber(account.Extra, "codex_secondary_used_percent", "codex_5h_used_percent"); ok &&
-		!openAIQuotaWindowResetAny(account.Extra, now, "secondary", "5h") {
+	secondaryUsedPercent, secondaryOK := resolveAccountExtraNumber(account.Extra, "codex_5h_used_percent")
+	secondaryWindow := "5h"
+	if !secondaryOK {
+		secondaryUsedPercent, secondaryOK = resolveAccountExtraNumber(account.Extra, "codex_secondary_used_percent")
+		secondaryWindow = "secondary"
+	}
+	if secondaryOK && !openAIQuotaWindowReset(account.Extra, secondaryWindow, now) {
 		secondaryRemaining := 1 - clamp01(secondaryUsedPercent/100)
 		if secondaryRemaining < openAIQuotaHeadroomSecondaryLowRemain {
 			factor *= openAIQuotaHeadroomNeutralFactor
@@ -2229,15 +2242,6 @@ func openAIQuotaHeadroomSnapshotStale(extra map[string]any, now time.Time) bool 
 		return true
 	}
 	return now.Sub(updatedAt) >= openAIQuotaHeadroomSnapshotStaleAfter
-}
-
-func openAIQuotaWindowResetAny(extra map[string]any, now time.Time, windows ...string) bool {
-	for _, window := range windows {
-		if openAIQuotaWindowReset(extra, window, now) {
-			return true
-		}
-	}
-	return false
 }
 
 func clamp01(value float64) float64 {

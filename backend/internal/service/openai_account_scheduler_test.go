@@ -57,6 +57,29 @@ func (r schedulerTestOpenAIAccountRepo) ListSchedulableUngroupedByPlatform(ctx c
 	return r.ListSchedulableByPlatform(ctx, platform)
 }
 
+type schedulerPrivacyAccountRepo struct {
+	schedulerTestOpenAIAccountRepo
+	setErrorCalls int
+}
+
+func (r *schedulerPrivacyAccountRepo) SetError(context.Context, int64, string) error {
+	r.setErrorCalls++
+	return nil
+}
+
+type schedulerPrivacyGroupRepo struct {
+	GroupRepository
+	group *Group
+}
+
+func (r schedulerPrivacyGroupRepo) GetByID(_ context.Context, id int64) (*Group, error) {
+	if r.group == nil || r.group.ID != id {
+		return nil, ErrGroupNotFound
+	}
+	group := *r.group
+	return &group, nil
+}
+
 type schedulerGroupAwareOpenAIAccountRepo struct {
 	schedulerTestOpenAIAccountRepo
 }
@@ -277,6 +300,10 @@ func (s *openAISnapshotCacheStub) GetSnapshot(ctx context.Context, bucket Schedu
 	return out, true, nil
 }
 
+func (s *openAISnapshotCacheStub) SetSnapshot(context.Context, SchedulerBucket, []Account) error {
+	return nil
+}
+
 func (s *openAISnapshotCacheStub) GetAccount(ctx context.Context, accountID int64) (*Account, error) {
 	if s.accountsByID == nil {
 		return nil, nil
@@ -287,6 +314,98 @@ func (s *openAISnapshotCacheStub) GetAccount(ctx context.Context, accountID int6
 	}
 	cloned := *account
 	return &cloned, nil
+}
+
+func TestOpenAIGatewayService_AdvancedSchedulerVerifiesPrivacyFromAuthoritativeAccount(t *testing.T) {
+	tests := []struct {
+		name          string
+		privacyMode   string
+		wantErr       bool
+		wantSetErrors int
+	}{
+		{name: "数据库已设置隐私时恢复账号", privacyMode: PrivacyModeTrainingOff},
+		{name: "数据库仍未设置隐私时持久化一次", wantErr: true, wantSetErrors: 1},
+	}
+
+	for index, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			groupID := int64(10089 + index)
+			fullAccount := Account{
+				ID:          groupID,
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 1,
+				GroupIDs:    []int64{groupID},
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"gpt-5.1": "gpt-5.1"},
+				},
+			}
+			if tt.privacyMode != "" {
+				fullAccount.Extra = map[string]any{"privacy_mode": tt.privacyMode}
+			}
+			cachedAccount := fullAccount
+			cachedAccount.Extra = nil // 模拟旧版精简快照遗漏 privacy_mode。
+
+			accountRepo := &schedulerPrivacyAccountRepo{
+				schedulerTestOpenAIAccountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{fullAccount}},
+			}
+			group := &Group{
+				ID:                groupID,
+				Name:              "privacy-required",
+				Platform:          PlatformOpenAI,
+				Status:            StatusActive,
+				RequirePrivacySet: true,
+			}
+			snapshotCache := &openAISnapshotCacheStub{
+				snapshotAccounts: []*Account{&cachedAccount},
+				accountsByID:     map[int64]*Account{fullAccount.ID: &fullAccount},
+			}
+			cfg := &config.Config{}
+			cfg.Gateway.Scheduling.DbFallbackEnabled = true
+			snapshotService := NewSchedulerSnapshotService(
+				snapshotCache,
+				nil,
+				accountRepo,
+				schedulerPrivacyGroupRepo{group: group},
+				cfg,
+			)
+			svc := &OpenAIGatewayService{
+				accountRepo:        accountRepo,
+				cache:              &schedulerTestGatewayCache{},
+				cfg:                cfg,
+				rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
+				concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+				schedulerSnapshot:  snapshotService,
+			}
+
+			selection, _, err := svc.SelectAccountWithScheduler(
+				ctx,
+				&groupID,
+				"",
+				"",
+				"gpt-5.1",
+				nil,
+				OpenAIUpstreamTransportAny,
+				false,
+			)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Nil(t, selection)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, selection)
+				require.NotNil(t, selection.Account)
+				require.Equal(t, fullAccount.ID, selection.Account.ID)
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+				}
+			}
+			require.Equal(t, tt.wantSetErrors, accountRepo.setErrorCalls)
+		})
+	}
 }
 
 func TestOpenAIGatewayService_OpenAIAdvancedSchedulerRuntimeSettings_DBOverridesConfig(t *testing.T) {

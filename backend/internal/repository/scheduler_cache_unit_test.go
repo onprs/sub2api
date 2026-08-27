@@ -3,10 +3,13 @@
 package repository
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,6 +38,84 @@ func TestBuildSchedulerMetadataAccount_KeepsOpenAIWSFlags(t *testing.T) {
 	require.Equal(t, false, got.Extra["openai_responses_supported"])
 	require.Equal(t, true, got.Extra["mixed_scheduling"])
 	require.Nil(t, got.Extra["unused_large_field"])
+}
+
+func TestSchedulerCacheSnapshotPreservesOpenAISelectionMetadata(t *testing.T) {
+	ctx := context.Background()
+	server := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { require.NoError(t, rdb.Close()) })
+	cache := NewSchedulerCache(rdb)
+	bucket := service.SchedulerBucket{GroupID: 89, Platform: service.PlatformOpenAI, Mode: service.SchedulerModeSingle}
+	account := service.Account{
+		ID:          89,
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"openai_capabilities": []any{string(service.OpenAIEndpointCapabilityEmbeddings)},
+		},
+		Extra: map[string]any{
+			"privacy_mode":             service.PrivacyModeTrainingOff,
+			"openai_passthrough":       true,
+			"openai_oauth_passthrough": true,
+			"openai_compact_mode":      service.OpenAICompactModeForceOn,
+			"openai_compact_supported": true,
+			"unused_large_field":       "drop-me",
+		},
+	}
+
+	require.NoError(t, cache.SetSnapshot(ctx, bucket, []service.Account{account}))
+	snapshot, hit, err := cache.GetSnapshot(ctx, bucket)
+	require.NoError(t, err)
+	require.True(t, hit)
+	require.Len(t, snapshot, 1)
+
+	got := snapshot[0]
+	require.True(t, got.IsPrivacySet())
+	require.True(t, got.IsOpenAIPassthroughEnabled())
+	require.Equal(t, service.OpenAICompactModeForceOn, got.GetOpenAICompactMode())
+	compactSupported, compactKnown := got.OpenAICompactSupportKnown()
+	require.True(t, compactKnown)
+	require.True(t, compactSupported)
+	require.True(t, got.SupportsOpenAIEndpointCapability(service.OpenAIEndpointCapabilityEmbeddings))
+	require.False(t, got.SupportsOpenAIEndpointCapability(service.OpenAIEndpointCapabilityChatCompletions))
+	require.Equal(t, true, got.Extra["openai_oauth_passthrough"])
+	require.NotContains(t, got.Extra, "unused_large_field")
+}
+
+func TestSchedulerCacheSnapshotPreservesGrokQuotaMetadata(t *testing.T) {
+	ctx := context.Background()
+	server := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { require.NoError(t, rdb.Close()) })
+	cache := NewSchedulerCache(rdb)
+	bucket := service.SchedulerBucket{GroupID: 90, Platform: service.PlatformGrok, Mode: service.SchedulerModeSingle}
+	account := service.Account{
+		ID:          90,
+		Platform:    service.PlatformGrok,
+		Type:        service.AccountTypeOAuth,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Extra: map[string]any{
+			"grok_usage_snapshot": map[string]any{
+				"requests":   map[string]any{"limit": 100, "remaining": 0},
+				"updated_at": time.Now().UTC().Format(time.RFC3339),
+			},
+		},
+	}
+
+	require.NoError(t, cache.SetSnapshot(ctx, bucket, []service.Account{account}))
+	snapshot, hit, err := cache.GetSnapshot(ctx, bucket)
+	require.NoError(t, err)
+	require.True(t, hit)
+	require.Len(t, snapshot, 1)
+
+	grokUsage := service.NewGrokQuotaFetcher().BuildUsageInfo(snapshot[0])
+	require.NotNil(t, grokUsage.GrokRequestQuota)
+	require.NotNil(t, grokUsage.GrokRequestQuota.Remaining)
+	require.Zero(t, *grokUsage.GrokRequestQuota.Remaining)
 }
 
 func TestBuildSchedulerMetadataAccount_KeepsSlimGroupMembership(t *testing.T) {
@@ -90,9 +171,11 @@ func TestBuildSchedulerMetadataAccount_KeepsQuotaAutoPauseFields(t *testing.T) {
 			"codex_5h_window_minutes":              300,
 			"codex_7d_window_minutes":              10080,
 			"codex_primary_used_percent":           80.0,
+			"codex_primary_reset_at":               "2026-06-03T10:00:00Z",
 			"codex_primary_reset_after_seconds":    7000,
 			"codex_primary_window_minutes":         300,
 			"codex_secondary_used_percent":         93.0,
+			"codex_secondary_reset_at":             "2026-05-30T10:00:00Z",
 			"codex_secondary_reset_after_seconds":  437150,
 			"codex_secondary_window_minutes":       10080,
 			"codex_primary_over_secondary_percent": 0.0,
@@ -119,9 +202,11 @@ func TestBuildSchedulerMetadataAccount_KeepsQuotaAutoPauseFields(t *testing.T) {
 	require.Equal(t, 300, got.Extra["codex_5h_window_minutes"])
 	require.Equal(t, 10080, got.Extra["codex_7d_window_minutes"])
 	require.Equal(t, 80.0, got.Extra["codex_primary_used_percent"])
+	require.Equal(t, "2026-06-03T10:00:00Z", got.Extra["codex_primary_reset_at"])
 	require.Equal(t, 7000, got.Extra["codex_primary_reset_after_seconds"])
 	require.Equal(t, 300, got.Extra["codex_primary_window_minutes"])
 	require.Equal(t, 93.0, got.Extra["codex_secondary_used_percent"])
+	require.Equal(t, "2026-05-30T10:00:00Z", got.Extra["codex_secondary_reset_at"])
 	require.Equal(t, 437150, got.Extra["codex_secondary_reset_after_seconds"])
 	require.Equal(t, 10080, got.Extra["codex_secondary_window_minutes"])
 	require.Equal(t, 0.0, got.Extra["codex_primary_over_secondary_percent"])

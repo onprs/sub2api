@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -303,6 +304,102 @@ func TestResolveAPIKeyRoutingGroup_PrefersDirectModelSupportBeforeStrategy(t *te
 	got, err := svc.ResolveAPIKeyRoutingGroup(context.Background(), key, APIKeyRoutingResolveInput{Model: "requested-model"})
 	require.NoError(t, err)
 	require.Equal(t, direct.ID, *got.GroupID)
+}
+
+func TestResolveAPIKeyRoutingGroup_SkipsQuotaPausedGroup(t *testing.T) {
+	quotaPaused := newAPIKeyRoutingTestGroup(421)
+	healthy := newAPIKeyRoutingTestGroup(422)
+	key := newAPIKeyRoutingTestKey(APIKeyRoutingStrategyManual, quotaPaused, healthy)
+	pausedAccount := newAPIKeyRoutingTestAccount(1421, "gpt-route")
+	pausedAccount.Extra = map[string]any{
+		"codex_5h_used_percent":   96.0,
+		"auto_pause_5h_threshold": 0.95,
+	}
+	svc := newAPIKeyRoutingTestService(map[int64][]Account{
+		quotaPaused.ID: {pausedAccount},
+		healthy.ID:     {newAPIKeyRoutingTestAccount(1422, "gpt-route")},
+	}, nil)
+
+	got, err := svc.ResolveAPIKeyRoutingGroup(context.Background(), key, APIKeyRoutingResolveInput{Model: "gpt-route"})
+	require.NoError(t, err)
+	require.Equal(t, healthy.ID, *got.GroupID)
+}
+
+func TestResolveAPIKeyRoutingGroup_SkipsQuotaPausedGroupWithGlobalThreshold(t *testing.T) {
+	quotaPaused := newAPIKeyRoutingTestGroup(421)
+	healthy := newAPIKeyRoutingTestGroup(422)
+	key := newAPIKeyRoutingTestKey(APIKeyRoutingStrategyManual, quotaPaused, healthy)
+	pausedAccount := newAPIKeyRoutingTestAccount(1421, "gpt-route")
+	pausedAccount.Extra = map[string]any{"codex_5h_used_percent": 96.0}
+	svc := newAPIKeyRoutingTestService(map[int64][]Account{
+		quotaPaused.ID: {pausedAccount},
+		healthy.ID:     {newAPIKeyRoutingTestAccount(1422, "gpt-route")},
+	}, nil)
+	svc.settingService = &SettingService{}
+	svc.settingService.SetOpenAIQuotaAutoPauseSettings(OpsOpenAIAccountQuotaAutoPauseSettings{
+		DefaultThreshold5h: 0.95,
+	})
+
+	got, err := svc.ResolveAPIKeyRoutingGroup(context.Background(), key, APIKeyRoutingResolveInput{Model: "gpt-route"})
+	require.NoError(t, err)
+	require.Equal(t, healthy.ID, *got.GroupID)
+}
+
+func TestResolveAPIKeyRoutingGroup_SkipsQuotaPausedGroupWithForcedOpenAIPlatform(t *testing.T) {
+	quotaPaused := newAPIKeyRoutingTestGroup(425)
+	healthy := newAPIKeyRoutingTestGroup(426)
+	quotaPaused.Platform = PlatformAnthropic
+	healthy.Platform = PlatformAnthropic
+	key := newAPIKeyRoutingTestKey(APIKeyRoutingStrategyManual, quotaPaused, healthy)
+
+	pausedAccount := newAPIKeyRoutingTestAccount(1425, "gpt-route")
+	pausedAccount.Extra = map[string]any{"codex_5h_used_percent": 96.0}
+	svc := newAPIKeyRoutingTestService(map[int64][]Account{
+		quotaPaused.ID: {pausedAccount},
+		healthy.ID:     {newAPIKeyRoutingTestAccount(1426, "gpt-route")},
+	}, nil)
+	svc.settingService = &SettingService{}
+	svc.settingService.SetOpenAIQuotaAutoPauseSettings(OpsOpenAIAccountQuotaAutoPauseSettings{
+		DefaultThreshold5h: 0.95,
+	})
+
+	got, err := svc.ResolveAPIKeyRoutingGroup(context.Background(), key, APIKeyRoutingResolveInput{
+		Model:         "gpt-route",
+		ForcePlatform: PlatformOpenAI,
+	})
+	require.NoError(t, err)
+	require.Equal(t, healthy.ID, *got.GroupID)
+}
+
+func TestResolveAPIKeyRoutingGroup_SkipsExhaustedGrokGroup(t *testing.T) {
+	quotaPaused := newAPIKeyRoutingTestGroup(423)
+	healthy := newAPIKeyRoutingTestGroup(424)
+	quotaPaused.Platform = PlatformGrok
+	healthy.Platform = PlatformGrok
+	key := newAPIKeyRoutingTestKey(APIKeyRoutingStrategyManual, quotaPaused, healthy)
+
+	limit, remaining := int64(100), int64(0)
+	resetUnix := time.Now().Add(time.Hour).Unix()
+	pausedAccount := newAPIKeyRoutingTestAccount(1423, "grok-route")
+	pausedAccount.Platform = PlatformGrok
+	pausedAccount.Type = AccountTypeOAuth
+	pausedAccount.Extra = map[string]any{
+		grokQuotaSnapshotExtraKey: xai.QuotaSnapshot{
+			Requests:  &xai.QuotaWindow{Limit: &limit, Remaining: &remaining, ResetUnix: &resetUnix},
+			UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+	healthyAccount := newAPIKeyRoutingTestAccount(1424, "grok-route")
+	healthyAccount.Platform = PlatformGrok
+	healthyAccount.Type = AccountTypeOAuth
+	svc := newAPIKeyRoutingTestService(map[int64][]Account{
+		quotaPaused.ID: {pausedAccount},
+		healthy.ID:     {healthyAccount},
+	}, nil)
+
+	got, err := svc.ResolveAPIKeyRoutingGroup(context.Background(), key, APIKeyRoutingResolveInput{Model: "grok-route"})
+	require.NoError(t, err)
+	require.Equal(t, healthy.ID, *got.GroupID)
 }
 
 func TestResolveAPIKeyRoutingGroup_MessagesIgnoresLegacyDispatchGate(t *testing.T) {

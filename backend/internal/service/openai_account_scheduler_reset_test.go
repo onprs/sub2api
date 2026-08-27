@@ -99,6 +99,23 @@ func TestOpenAIQuotaHeadroomFactor_PrimaryUsedPercent(t *testing.T) {
 	require.InDelta(t, 0.8, openAIQuotaHeadroomFactor(account, now), 0.0001)
 }
 
+func TestOpenAIQuotaHeadroomFactor_PrefersCanonicalWindowsOverRawOrder(t *testing.T) {
+	now := time.Date(2026, 3, 11, 10, 0, 0, 0, time.UTC)
+	account := &Account{
+		Extra: map[string]any{
+			"codex_7d_used_percent":        20.0,
+			"codex_7d_reset_at":            now.Add(24 * time.Hour).Format(time.RFC3339),
+			"codex_5h_used_percent":        20.0,
+			"codex_5h_reset_at":            now.Add(2 * time.Hour).Format(time.RFC3339),
+			"codex_primary_used_percent":   80.0,
+			"codex_secondary_used_percent": 95.0,
+			"codex_usage_updated_at":       now.Add(-time.Minute).Format(time.RFC3339),
+		},
+	}
+
+	require.InDelta(t, 0.8, openAIQuotaHeadroomFactor(account, now), 0.0001)
+}
+
 func TestOpenAIQuotaHeadroomFactor_PrimaryMissingIsNeutral(t *testing.T) {
 	now := time.Date(2026, 3, 11, 10, 0, 0, 0, time.UTC)
 	account := &Account{

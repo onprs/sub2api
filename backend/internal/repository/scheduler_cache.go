@@ -518,7 +518,17 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 	if len(credentials) == 0 {
 		return nil
 	}
-	keys := []string{"model_mapping", "compact_model_mapping", "model_protocols", "api_key", "base_url", "project_id", "oauth_type", "plan_type"}
+	keys := []string{
+		"model_mapping",
+		"compact_model_mapping",
+		"model_protocols",
+		"openai_capabilities",
+		"api_key",
+		"base_url",
+		"project_id",
+		"oauth_type",
+		"plan_type",
+	}
 	filtered := make(map[string]any)
 	for _, key := range keys {
 		if value, ok := credentials[key]; ok && value != nil {
@@ -564,6 +574,12 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"openai_ws_force_http",
 		"openai_responses_mode",
 		"openai_responses_supported",
+		"privacy_mode",
+		"openai_passthrough",
+		"openai_oauth_passthrough",
+		"openai_compact_mode",
+		"openai_compact_supported",
+		"grok_usage_snapshot",
 		"codex_5h_used_percent",
 		"codex_7d_used_percent",
 		"codex_5h_reset_at",
@@ -573,9 +589,11 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"codex_5h_window_minutes",
 		"codex_7d_window_minutes",
 		"codex_primary_used_percent",
+		"codex_primary_reset_at",
 		"codex_primary_reset_after_seconds",
 		"codex_primary_window_minutes",
 		"codex_secondary_used_percent",
+		"codex_secondary_reset_at",
 		"codex_secondary_reset_after_seconds",
 		"codex_secondary_window_minutes",
 		"codex_primary_over_secondary_percent",

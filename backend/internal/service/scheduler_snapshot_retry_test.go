@@ -231,6 +231,17 @@ func newSchedulerSnapshotRetryGroup(id int64, platform string) *Group {
 	}
 }
 
+func TestShouldPersistSchedulerPrivacyFailureWaitsForAuthoritativeReadAfterCacheHit(t *testing.T) {
+	ctx, _ := withSchedulerSnapshotRetryState(context.Background())
+	require.True(t, shouldPersistSchedulerPrivacyFailure(ctx))
+
+	markSchedulerSnapshotCacheHit(ctx)
+	require.False(t, shouldPersistSchedulerPrivacyFailure(ctx))
+
+	authoritativeCtx := context.WithValue(ctx, schedulerSnapshotAuthoritativeReadKey{}, true)
+	require.True(t, shouldPersistSchedulerPrivacyFailure(authoritativeCtx))
+}
+
 func TestGatewaySchedulingRetriesNonEmptyStaleSnapshotOnce(t *testing.T) {
 	groupID := int64(701)
 	model := "claude-snapshot-retry"
