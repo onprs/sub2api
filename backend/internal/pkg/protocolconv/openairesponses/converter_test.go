@@ -92,6 +92,35 @@ func TestRequestRoundTripPreservesExtendedToolSemantics(t *testing.T) {
 	require.Equal(t, "send", gjson.GetBytes(encoded, "tools.2.tools.0.name").String())
 }
 
+func TestDecodeRequestMergesAdditionalToolsCarrier(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-5.4",
+		"input":[
+			{"type":"additional_tools","role":"developer","tools":[
+				{"type":"custom","name":"exec"},
+				{"type":"tool_search"},
+				{"type":"namespace","name":"gmail","tools":[{"type":"function","name":"send","parameters":{"type":"object"}}]}
+			]},
+			{"role":"user","content":"hello"}
+		],
+		"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]
+	}`)
+
+	request, warnings, err := New().DecodeRequest(body, protocolconv.Options{LossPolicy: protocolconv.LossError})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Len(t, request.Messages, 1)
+	require.Equal(t, ir.RoleUser, request.Messages[0].Role)
+	require.Equal(t, "hello", request.Messages[0].Content[0].Text)
+	require.Len(t, request.Tools, 4)
+	require.Equal(t, "function", request.Tools[0].ProviderType)
+	require.Equal(t, "custom", request.Tools[1].ProviderType)
+	require.Equal(t, "tool_search", request.Tools[2].ProviderType)
+	require.Equal(t, "namespace", request.Tools[3].ProviderType)
+	require.Equal(t, "gmail", request.Tools[3].Name)
+	require.Equal(t, "send", request.Tools[3].Children[0].Name)
+}
+
 func TestRequestRoundTripPreservesMultimodalToolResult(t *testing.T) {
 	body := []byte(`{
 		"model":"gpt-5.4",

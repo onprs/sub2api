@@ -478,7 +478,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						h.handleFailoverExhausted(c, failoverErr, service.PlatformGemini, true)
 						return
 					}
-					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr)
+					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
 					switch action {
 					case FailoverContinue:
 						continue
@@ -921,7 +921,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						h.handleFailoverExhausted(c, failoverErr, account.Platform, true)
 						return
 					}
-					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr)
+					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
 					switch action {
 					case FailoverContinue:
 						continue
@@ -1663,6 +1663,7 @@ func (h *GatewayHandler) buildSubscriptionUsagePayload(group *service.Group, sub
 		"daily_usage_usd":      sub.DailyUsageUSD,
 		"weekly_usage_usd":     sub.WeeklyUsageUSD,
 		"monthly_usage_usd":    sub.MonthlyUsageUSD,
+		"weekly_window_start":  sub.WeeklyWindowStart,
 		"five_hour_limit_usd":  sub.FiveHourLimitUSD,
 		"seven_day_limit_usd":  sub.SevenDayLimitUSD,
 		"thirty_day_limit_usd": sub.ThirtyDayLimitUSD,

@@ -98,6 +98,7 @@ type inputItemWire struct {
 	Namespace        string                       `json:"namespace,omitempty"`
 	ID               string                       `json:"id,omitempty"`
 	Summary          []apicompat.ResponsesSummary `json:"summary,omitempty"`
+	Tools            []apicompat.ResponsesTool    `json:"tools,omitempty"`
 	EncryptedContent string                       `json:"encrypted_content,omitempty"`
 }
 
@@ -118,10 +119,11 @@ func (*Converter) DecodeRequest(body []byte, _ protocolconv.Options) (*ir.Reques
 	if err := decodeInstructions(wire.Instructions, &out.SystemInstruction); err != nil {
 		return nil, nil, fieldError("instructions", err)
 	}
-	if err := decodeInput(wire.Input, &out.Messages); err != nil {
+	var additionalTools []apicompat.ResponsesTool
+	if err := decodeInput(wire.Input, &out.Messages, &additionalTools); err != nil {
 		return nil, nil, fieldError("input", err)
 	}
-	out.Tools = decodeTools(wire.Tools)
+	out.Tools = decodeTools(append(wire.Tools, additionalTools...))
 	out.ToolChoice = decodeToolChoice(wire.ToolChoice)
 	if wire.ParallelToolCalls != nil {
 		out.ToolConfig = &ir.ToolConfig{DisableParallel: boolPointer(!*wire.ParallelToolCalls)}

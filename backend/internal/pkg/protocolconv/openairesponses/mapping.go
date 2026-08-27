@@ -66,7 +66,7 @@ func encodeInstructions(parts []ir.ContentPart) (json.RawMessage, error) {
 	return json.Marshal(encoded)
 }
 
-func decodeInput(raw json.RawMessage, messages *[]ir.Message) error {
+func decodeInput(raw json.RawMessage, messages *[]ir.Message, additionalTools *[]apicompat.ResponsesTool) error {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil
 	}
@@ -81,6 +81,8 @@ func decodeInput(raw json.RawMessage, messages *[]ir.Message) error {
 	}
 	for _, item := range items {
 		switch item.Type {
+		case "additional_tools":
+			*additionalTools = append(*additionalTools, item.Tools...)
 		case "function_call", "custom_tool_call", "tool_search_call":
 			args := decodeToolArguments(item.Type, item.Arguments, item.Input)
 			*messages = append(*messages, ir.Message{Role: ir.RoleAssistant, Content: []ir.ContentPart{{

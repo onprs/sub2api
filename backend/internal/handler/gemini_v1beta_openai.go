@@ -177,7 +177,7 @@ func (h *GatewayHandler) forwardGeminiIngressToStandardProvider(
 				if platform == service.PlatformOpenAI {
 					h.openAIGatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
 				}
-				switch fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr) {
+				switch fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr) {
 				case FailoverContinue:
 					continue
 				case FailoverCanceled:
