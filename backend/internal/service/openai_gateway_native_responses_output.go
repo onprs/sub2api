@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -535,6 +536,12 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStreamWithReasoning(
 			dataBytes = normalizedData
 			eventType = strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())
 		}
+		if restoredData, restoreErr := restoreOpenAIResponsesNamespacePayload(c, dataBytes); restoreErr != nil {
+			return fmt.Errorf("restore OpenAI namespace response: %w", restoreErr)
+		} else if !bytes.Equal(restoredData, dataBytes) {
+			dataBytes = restoredData
+			eventType = strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())
+		}
 		if sanitizedData, sanitized := sanitizeOpenAIResponseFailedEventForClient(dataBytes, eventType, clientOutputStarted()); sanitized {
 			dataBytes = sanitizedData
 		}
@@ -836,6 +843,12 @@ func (s *OpenAIGatewayService) handleStructuredResponsesPassthroughStream(
 		eventType := strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())
 		if normalizedData, normalized := normalizeOpenAIResponsesFunctionCallArguments(dataBytes); normalized {
 			dataBytes = normalizedData
+			eventType = strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())
+		}
+		if restoredData, restoreErr := restoreOpenAIResponsesNamespacePayload(c, dataBytes); restoreErr != nil {
+			return resultWithUsage(), fmt.Errorf("restore OpenAI namespace response: %w", restoreErr)
+		} else if !bytes.Equal(restoredData, dataBytes) {
+			dataBytes = restoredData
 			eventType = strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())
 		}
 		if eventType == "response.failed" {

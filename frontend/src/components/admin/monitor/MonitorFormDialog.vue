@@ -31,15 +31,16 @@
 
       <div>
         <label class="input-label">{{ t('admin.channelMonitor.form.provider') }} <span class="text-red-500">*</span></label>
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <button
             v-for="opt in providerOptions"
             :key="opt.value"
             type="button"
+            :data-testid="`monitor-provider-${opt.value}`"
             :aria-pressed="form.provider === opt.value"
             class="flex items-center justify-center gap-2 rounded-lg border-2 px-3 py-2.5 text-sm font-medium transition-colors"
             :class="providerPickerClass(opt.value, form.provider === opt.value)"
-            @click="form.provider = opt.value"
+            @click="selectProvider(opt.value)"
           >
             <ProviderIcon :provider="opt.value" :size="18" />
             <span>{{ opt.label }}</span>
@@ -67,13 +68,19 @@
 
       <div v-if="isExternalTarget">
         <label class="input-label">{{ t('admin.channelMonitor.form.endpoint') }} <span class="text-red-500">*</span></label>
-        <input
-          v-model="form.endpoint"
-          type="url"
-          required
-          class="input"
-          :placeholder="t('admin.channelMonitor.form.endpointPlaceholder')"
-        />
+        <div class="flex gap-2">
+          <input
+            v-model="form.endpoint"
+            data-testid="monitor-endpoint"
+            type="url"
+            required
+            class="input flex-1"
+            :placeholder="t('admin.channelMonitor.form.endpointPlaceholder')"
+          />
+          <button type="button" class="btn btn-secondary whitespace-nowrap" @click="useCurrentDomain">
+            {{ t('admin.channelMonitor.form.useCurrentDomain') }}
+          </button>
+        </div>
         <p v-if="form.provider === PROVIDER_CLINEPASS" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
           {{ t('admin.channelMonitor.form.clinePassEndpointHint') }}
         </p>
@@ -106,6 +113,7 @@
         <label class="input-label">{{ t('admin.channelMonitor.form.primaryModel') }} <span class="text-red-500">*</span></label>
         <input
           v-model="form.primary_model"
+          data-testid="monitor-primary-model"
           type="text"
           required
           class="input font-medium"
@@ -254,6 +262,7 @@ import {
   PROVIDER_OPENAI,
   PROVIDER_ANTHROPIC,
   PROVIDER_GEMINI,
+  PROVIDER_GROK,
   PROVIDER_ANTIGRAVITY_CLAUDE,
   PROVIDER_ANTIGRAVITY_GEMINI,
   PROVIDER_OPENCODE_GO,
@@ -263,6 +272,8 @@ import {
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_MESSAGES,
   API_MODE_RESPONSES,
+  DEFAULT_GROK_ENDPOINT,
+  DEFAULT_GROK_MODEL,
   DEFAULT_INTERVAL_SECONDS,
   monitorPayloadAPIMode,
   monitorProviderKeyGroupPlatform,
@@ -525,6 +536,7 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_ANTHROPIC, label: t('monitorCommon.providers.anthropic') },
   { value: PROVIDER_OPENAI, label: t('monitorCommon.providers.openai') },
   { value: PROVIDER_GEMINI, label: t('monitorCommon.providers.gemini') },
+  { value: PROVIDER_GROK, label: t('monitorCommon.providers.grok') },
   { value: PROVIDER_ANTIGRAVITY_CLAUDE, label: t('monitorCommon.providers.antigravity_claude') },
   { value: PROVIDER_ANTIGRAVITY_GEMINI, label: t('monitorCommon.providers.antigravity_gemini') },
   { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
@@ -533,12 +545,29 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_COMMANDCODE, label: t('monitorCommon.providers.commandcode') },
 ])
 
-// provider 变化时清除外站凭据，并移除平台不兼容的本站分组。
+function selectProvider(provider: Provider) {
+  if (form.provider === provider) return
+  const previousProvider = form.provider
+  const clearGrokEndpoint =
+    previousProvider === PROVIDER_GROK && form.endpoint === DEFAULT_GROK_ENDPOINT
+  const clearGrokModel =
+    previousProvider === PROVIDER_GROK && form.primary_model === DEFAULT_GROK_MODEL
+
+  form.provider = provider
+  if (provider === PROVIDER_GROK) {
+    if (!form.endpoint.trim()) form.endpoint = DEFAULT_GROK_ENDPOINT
+    if (!form.primary_model.trim()) form.primary_model = DEFAULT_GROK_MODEL
+    return
+  }
+  if (clearGrokEndpoint) form.endpoint = ''
+  if (clearGrokModel) form.primary_model = ''
+}
+
+// provider 变化时清除外站 API Key，并移除平台不兼容的本站分组。
 // 同时清空 template_id（模板有 provider 归属，跨平台不通用）。
 watch(() => form.provider, (provider) => {
   if (suppressFormWatchers) return
   form.api_key = ''
-  form.endpoint = ''
   form.api_mode = normalizeAPIModeForProvider(provider, form.api_mode)
   const selectedGroup = groups.value.find((group) => group.id === form.group_id)
   if (selectedGroup && selectedGroup.platform !== monitorProviderKeyGroupPlatform(provider)) {
@@ -621,6 +650,10 @@ watch(
   },
   { immediate: true },
 )
+
+function useCurrentDomain() {
+  form.endpoint = window.location.origin
+}
 
 function buildPayload(): CreateParams {
   const payload: CreateParams = {

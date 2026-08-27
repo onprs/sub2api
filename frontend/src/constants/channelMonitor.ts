@@ -13,12 +13,16 @@ import type { GroupPlatform } from '@/types'
 export const PROVIDER_OPENAI: Provider = 'openai'
 export const PROVIDER_ANTHROPIC: Provider = 'anthropic'
 export const PROVIDER_GEMINI: Provider = 'gemini'
+export const PROVIDER_GROK: Provider = 'grok'
 export const PROVIDER_ANTIGRAVITY_CLAUDE: Provider = 'antigravity_claude'
 export const PROVIDER_ANTIGRAVITY_GEMINI: Provider = 'antigravity_gemini'
 export const PROVIDER_OPENCODE_GO: Provider = 'opencode_go'
 export const PROVIDER_CLINEPASS: Provider = 'clinepass'
 export const PROVIDER_OPENROUTER: Provider = 'openrouter'
 export const PROVIDER_COMMANDCODE: Provider = 'commandcode'
+
+export const DEFAULT_GROK_ENDPOINT = 'https://api.x.ai'
+export const DEFAULT_GROK_MODEL = 'grok-4.5'
 
 export const API_MODE_CHAT_COMPLETIONS: APIMode = 'chat_completions'
 export const API_MODE_RESPONSES: APIMode = 'responses'
@@ -28,6 +32,7 @@ export const PROVIDERS: readonly Provider[] = [
   PROVIDER_OPENAI,
   PROVIDER_ANTHROPIC,
   PROVIDER_GEMINI,
+  PROVIDER_GROK,
   PROVIDER_ANTIGRAVITY_CLAUDE,
   PROVIDER_ANTIGRAVITY_GEMINI,
   PROVIDER_OPENCODE_GO,
@@ -61,6 +66,7 @@ const MONITOR_PROVIDER_KEY_GROUP_PLATFORM: Record<Provider, GroupPlatform> = {
   openai: 'openai',
   anthropic: 'anthropic',
   gemini: 'gemini',
+  grok: 'grok',
   antigravity_claude: 'antigravity',
   antigravity_gemini: 'antigravity',
   opencode_go: 'opencode_go',

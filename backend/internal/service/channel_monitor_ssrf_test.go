@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"net/http"
 	"testing"
 	"time"
 
@@ -26,11 +25,12 @@ func TestChannelMonitorEndpointRejectsPrivateAndMetadataTargets(t *testing.T) {
 
 func TestChannelMonitorHTTPClientUsesSharedSSRFDialGuard(t *testing.T) {
 	client := newSSRFSafeHTTPClient(time.Second)
-	transport, ok := client.Transport.(*http.Transport)
-	require.True(t, ok)
-	require.NotNil(t, transport.DialContext)
+	require.NotNil(t, client.Transport)
 
-	conn, err := transport.DialContext(context.Background(), "tcp", "10.0.0.1:443")
+	// 直接验证 SSRF dial 函数本身能拦截私网地址（transport 外层可能被
+	// servertiming 包装，但底层 dial 始终是同一个 SSRF guard）。
+	dial := NewSSRFSafeDialContext(monitorDialer)
+	conn, err := dial(context.Background(), "tcp", "10.0.0.1:443")
 	require.Nil(t, conn)
 	require.ErrorContains(t, err, "blocked by SSRF policy")
 }

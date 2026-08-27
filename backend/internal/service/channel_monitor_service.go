@@ -157,7 +157,7 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 		Group:            group,
 		Endpoint:         endpoint,
 		APIKey:           encryptedKey,
-		PrimaryModel:     strings.TrimSpace(p.PrimaryModel),
+		PrimaryModel:     normalizeMonitorPrimaryModel(p.Provider, p.PrimaryModel),
 		ExtraModels:      normalizeModels(p.ExtraModels),
 		GroupName:        groupName,
 		Enabled:          p.Enabled,
@@ -228,7 +228,7 @@ func validateCreateParams(p ChannelMonitorCreateParams) error {
 	if err := validateJitter(p.JitterSeconds, p.IntervalSeconds); err != nil {
 		return err
 	}
-	if strings.TrimSpace(p.PrimaryModel) == "" {
+	if normalizeMonitorPrimaryModel(p.Provider, p.PrimaryModel) == "" {
 		return ErrChannelMonitorMissingPrimaryModel
 	}
 	return validateMonitorTargetType(normalizeMonitorTargetType(p.TargetType, p.Endpoint, p.APIKey))
@@ -645,11 +645,17 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 		if err := validateProvider(*p.Provider); err != nil {
 			return err
 		}
+		providerChanged = existing.Provider != *p.Provider
 		existing.Provider = *p.Provider
-		providerChanged = true
 	}
 	if p.PrimaryModel != nil {
-		existing.PrimaryModel = strings.TrimSpace(*p.PrimaryModel)
+		primaryModel := normalizeMonitorPrimaryModel(existing.Provider, *p.PrimaryModel)
+		if primaryModel == "" {
+			return ErrChannelMonitorMissingPrimaryModel
+		}
+		existing.PrimaryModel = primaryModel
+	} else if providerChanged && existing.Provider == MonitorProviderGrok {
+		existing.PrimaryModel = MonitorDefaultGrokModel
 	}
 	if p.ExtraModels != nil {
 		existing.ExtraModels = normalizeModels(*p.ExtraModels)

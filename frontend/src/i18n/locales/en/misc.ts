@@ -652,6 +652,7 @@ export default {
       queryRefundStatus: 'Query refund status',
       refundInfo: 'Refund Info',
       refundEnabled: 'Refund Enabled',
+      allowUserRefund: 'Allow User Refund',
       alreadyRefunded: 'Already Refunded',
       deductBalance: 'Deduct Balance',
       deductBalanceHint: 'Subtract recharged amount from user balance',

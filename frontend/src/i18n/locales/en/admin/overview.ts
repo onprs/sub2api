@@ -15,6 +15,7 @@ export default {
       totalRequests: 'Total Requests',
       todayCost: 'Today Cost',
       totalCost: 'Total Cost',
+      newUsersToday: 'New Users Today',
       todayTokens: 'Today Tokens',
       totalTokens: 'Total Tokens',
       input: 'Input',
@@ -23,6 +24,10 @@ export default {
       performance: 'Performance',
       avgResponse: 'Avg Response',
       averageTime: 'Average Time',
+      active: 'Active',
+      ok: 'OK',
+      err: 'Error',
+      create: 'Create',
       activeUsers: 'active users',
       timeRange: 'Time Range',
       granularity: 'Granularity',
@@ -33,6 +38,7 @@ export default {
       metricTokens: 'By Tokens',
       metricActualCost: 'By Actual Cost',
       tokenUsageTrend: 'Token Usage Trend',
+      userUsageTrend: 'User Usage Trend (Top 12)',
       model: 'Model',
       group: 'Group',
       noGroup: 'No Group',
@@ -1031,7 +1037,15 @@ export default {
         noRules: 'No routing rules',
         noRulesHint: 'Add routing rules to route specific model requests to designated accounts',
         searchAccountPlaceholder: 'Search accounts...',
-        accountsHint: 'Select accounts to prioritize for this model pattern'
+        accountsHint: 'Select accounts to prioritize for this model pattern',
+        claudeMaxSimulation: {
+          title: 'Claude Max Usage Simulation',
+          tooltip:
+            'When enabled, for Claude models without upstream cache-write usage, the system deterministically maps tokens to a small input plus 1h cache creation while keeping the total token count unchanged.',
+          enabled: 'Enabled (simulate 1h cache)',
+          disabled: 'Disabled',
+          hint: 'Only adjusts token categories in usage billing logs. It does not persist per-request mapping state.'
+        }
       },
       mcpXml: {
         title: 'MCP XML Protocol Injection',

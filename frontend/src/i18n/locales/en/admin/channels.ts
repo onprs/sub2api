@@ -535,6 +535,7 @@ export default {
         apiModeMessagesHint: 'Use /v1/messages for OpenCode Go Anthropic-style models.',
         endpoint: 'Endpoint',
         endpointPlaceholder: 'https://api.example.com',
+        useCurrentDomain: 'Use current domain',
         clinePassEndpointHint: 'Enter the external ClinePass API root. The monitor appends /chat/completions automatically.',
         openRouterEndpointHint: 'Enter the external OpenRouter API root. The monitor appends /chat/completions automatically.',
         apiKey: 'API Key',

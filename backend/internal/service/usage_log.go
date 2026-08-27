@@ -154,6 +154,8 @@ type UsageLog struct {
 	RateMultiplier float64
 	// ActualCost 是真实扣费，满足 actual_cost = total_cost * rate_multiplier。
 	ActualCost float64
+	// LongContextBillingApplied 表示本次请求按长上下文档位计价。
+	LongContextBillingApplied bool
 	// AccountRateMultiplier 账号计费倍率快照（nil 表示历史数据，按 1.0 处理）
 	AccountRateMultiplier *float64
 	// AccountStatsCost 账号统计定价预计算费用（nil = 使用默认公式 total_cost × account_rate_multiplier）

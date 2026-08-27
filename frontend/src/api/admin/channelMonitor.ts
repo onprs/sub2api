@@ -5,7 +5,7 @@
 
 import { apiClient } from '../client'
 
-export type Provider = 'openai' | 'anthropic' | 'gemini' | 'antigravity_claude' | 'antigravity_gemini' | 'opencode_go' | 'clinepass' | 'openrouter' | 'commandcode'
+export type Provider = 'openai' | 'anthropic' | 'gemini' | 'grok' | 'antigravity_claude' | 'antigravity_gemini' | 'opencode_go' | 'clinepass' | 'openrouter' | 'commandcode'
 export type MonitorStatus = 'operational' | 'degraded' | 'failed' | 'error'
 export type BodyOverrideMode = 'off' | 'merge' | 'replace'
 export type APIMode = 'chat_completions' | 'responses' | 'messages'

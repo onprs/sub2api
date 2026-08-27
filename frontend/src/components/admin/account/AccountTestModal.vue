@@ -251,6 +251,7 @@ import { Icon } from '@/components/icons'
 import { useClipboard } from '@/composables/useClipboard'
 import { GEMINI_AI_STUDIO_FREE_MODELS } from '@/constants/geminiModels'
 import { buildApiUrl } from '@/api/client'
+import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { adminAPI } from '@/api/admin'
 import type { Account, ClaudeModel } from '@/types'
 import { getAccountStatusLabelKey, getAccountTypeLabelKey } from '@/utils/i18nLabels'
@@ -451,7 +452,8 @@ const startTest = async () => {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        [ADMIN_UI_REQUEST_HEADER]: '1'
       },
       body: JSON.stringify(requestBody),
       signal: abortController.signal

@@ -103,6 +103,10 @@ func (UsageLog) Fields() []ent.Field {
 			Default(1).
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}),
 
+		field.Bool("long_context_billing_applied").
+			Default(false).
+			Comment("Whether long-context pricing changed token prices for this request"),
+
 		// account_rate_multiplier: 账号计费倍率快照（NULL 表示按 1.0 处理）
 		field.Float("account_rate_multiplier").
 			Optional().

@@ -72,6 +72,7 @@ var usageLogInsertArgTypes = [...]string{
 	"text",        // upstream_endpoint
 	"boolean",     // cache_ttl_overridden
 	"boolean",     // cache_write_inferred
+	"boolean",     // long_context_billing_applied
 	"bigint",      // channel_id
 	"text",        // model_mapping_chain
 	"text",        // billing_tier
@@ -265,6 +266,7 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			upstream_endpoint,
 			cache_ttl_overridden,
 			cache_write_inferred,
+			long_context_billing_applied,
 			channel_id,
 			model_mapping_chain,
 			billing_tier,
@@ -717,6 +719,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			upstream_endpoint,
 			cache_ttl_overridden,
 			cache_write_inferred,
+			long_context_billing_applied,
 			channel_id,
 			model_mapping_chain,
 			billing_tier,
@@ -802,6 +805,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				upstream_endpoint,
 				cache_ttl_overridden,
 				cache_write_inferred,
+				long_context_billing_applied,
 				channel_id,
 				model_mapping_chain,
 				billing_tier,
@@ -858,6 +862,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				upstream_endpoint,
 				cache_ttl_overridden,
 				cache_write_inferred,
+				long_context_billing_applied,
 				channel_id,
 				model_mapping_chain,
 				billing_tier,
@@ -954,6 +959,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			upstream_endpoint,
 			cache_ttl_overridden,
 			cache_write_inferred,
+			long_context_billing_applied,
 			channel_id,
 			model_mapping_chain,
 			billing_tier,
@@ -1036,6 +1042,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			upstream_endpoint,
 			cache_ttl_overridden,
 			cache_write_inferred,
+			long_context_billing_applied,
 			channel_id,
 			model_mapping_chain,
 			billing_tier,
@@ -1092,6 +1099,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			upstream_endpoint,
 			cache_ttl_overridden,
 			cache_write_inferred,
+			long_context_billing_applied,
 			channel_id,
 			model_mapping_chain,
 			billing_tier,
@@ -1156,6 +1164,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			upstream_endpoint,
 			cache_ttl_overridden,
 			cache_write_inferred,
+			long_context_billing_applied,
 			channel_id,
 			model_mapping_chain,
 			billing_tier,
@@ -1274,6 +1283,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			upstreamEndpoint,
 			log.CacheTTLOverridden,
 			log.CacheWriteInferred,
+			log.LongContextBillingApplied,
 			channelID,
 			modelMappingChain,
 			billingTier,

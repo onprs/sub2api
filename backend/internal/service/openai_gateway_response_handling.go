@@ -476,6 +476,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithOutputAndReasoning(ctx
 				forceFlushFailedEvent = true
 				sawFailedEvent = true
 			}
+			if normalizedData, normalized := normalizeCompletedImageGenerationStatus(dataBytes); normalized {
+				dataBytes = normalizedData
+				data = string(normalizedData)
+				line = "data: " + data
+			}
 			imageCounter.AddSSEData(dataBytes)
 
 			// Correct Codex tool calls if needed (apply_patch -> edit, etc.)
@@ -497,6 +502,17 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithOutputAndReasoning(ctx
 			if normalizedData, normalized := normalizeResponsesStreamingTerminalOutput(dataBytes, streamOutputAccumulator, streamImageOutputs); normalized {
 				dataBytes = normalizedData
 				data = string(normalizedData)
+				line = "data: " + data
+				eventType = strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())
+			}
+			restoredData, restoreErr := restoreOpenAIResponsesNamespacePayload(c, dataBytes)
+			if restoreErr != nil {
+				streamEarlyErr = fmt.Errorf("restore OpenAI namespace response: %w", restoreErr)
+				return
+			}
+			if !bytes.Equal(restoredData, dataBytes) {
+				dataBytes = restoredData
+				data = string(restoredData)
 				line = "data: " + data
 				eventType = strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())
 			}
@@ -1134,7 +1150,11 @@ func (s *OpenAIGatewayService) handleNonStreamingResponseWithOutput(ctx context.
 	if originalModel != mappedModel {
 		downstreamBody = s.replaceModelInResponseBody(downstreamBody, mappedModel, originalModel)
 	}
-
+	restoredBody, restoreErr := restoreOpenAIResponsesNamespacePayload(c, downstreamBody)
+	if restoreErr != nil {
+		return nil, fmt.Errorf("restore OpenAI namespace response: %w", restoreErr)
+	}
+	downstreamBody = restoredBody
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 
 	contentType := "application/json"
@@ -1233,6 +1253,11 @@ func (s *OpenAIGatewayService) handleSSEToJSONWithOutput(resp *http.Response, c 
 		}
 		// Correct tool calls in final response
 		body = s.correctToolCallsInResponseBody(body)
+		restoredBody, restoreErr := restoreOpenAIResponsesNamespacePayload(c, body)
+		if restoreErr != nil {
+			return nil, fmt.Errorf("restore OpenAI namespace response: %w", restoreErr)
+		}
+		body = restoredBody
 	} else {
 		terminalType, terminalPayload, terminalOK := extractOpenAISSETerminalEvent(bodyText)
 		if terminalOK && terminalType == "response.failed" {
@@ -1406,6 +1431,9 @@ func extractCodexFinalResponse(body string) ([]byte, bool) {
 		if finalResponse != nil {
 			return
 		}
+		if normalized, changed := normalizeCompletedImageGenerationStatus(data); changed {
+			data = normalized
+		}
 		eventType := gjson.GetBytes(data, "type").String()
 		if eventType == "response.done" || eventType == "response.completed" {
 			if response := gjson.GetBytes(data, "response"); response.Exists() && response.Type == gjson.JSON && response.Raw != "" {
@@ -1512,7 +1540,8 @@ func responsesStreamEventMayContributeToOutput(eventType string) bool {
 }
 
 // collectRawResponsesOutputItemsFromSSE 按到达顺序收集 SSE 流中
-// response.output_item.done 携带的原始 item。item 以 raw JSON 逐字节保留，
+// response.output_item.done 携带的原始 item。除已产生结果但仍停留在进行中
+// 的图片状态外，item 以 raw JSON 逐字节保留，
 // 避免经窄结构体重建时丢弃 encrypted_content/summary/opaque 等 compact
 // 专属或未来新增字段（#3777 问题 2）。若整条流没有任何 done 事件，退回
 // 收集 output_item.added 中的 compaction 类 item——compaction 结果没有
@@ -1539,6 +1568,9 @@ func collectRawResponsesOutputItemsFromSSE(bodyText string) ([]byte, bool) {
 		items = append(items, json.RawMessage(item.Raw))
 	}
 	forEachOpenAISSEDataPayload(bodyText, func(data []byte) {
+		if normalized, changed := normalizeCompletedImageGenerationStatus(data); changed {
+			data = normalized
+		}
 		if strings.TrimSpace(gjson.GetBytes(data, "type").String()) != "response.output_item.done" {
 			return
 		}

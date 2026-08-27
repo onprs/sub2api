@@ -240,7 +240,7 @@ func TestForwardAsChatCompletions_UnknownModelDoesNotUseDefaultMappedModel(t *te
 		},
 	}
 
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "gpt-5.4")
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
 	require.Error(t, err)
 	require.Nil(t, result)
 	require.Equal(t, "gpt6", gjson.GetBytes(upstream.lastBody, "model").String())

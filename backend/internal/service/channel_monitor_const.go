@@ -47,6 +47,8 @@ const (
 
 	// providerOpenAIPath OpenAI Chat Completions 路径。
 	providerOpenAIPath = "/v1/chat/completions"
+	// providerGrokPath Grok OpenAI-compatible Chat Completions 路径。
+	providerGrokPath = "/v1/chat/completions"
 	// providerOpenAIResponsesPath OpenAI Responses API 路径。
 	providerOpenAIResponsesPath = "/v1/responses"
 	// providerAnthropicPath Anthropic Messages 路径。
@@ -70,12 +72,16 @@ const (
 	MonitorProviderOpenAI            = "openai"
 	MonitorProviderAnthropic         = "anthropic"
 	MonitorProviderGemini            = "gemini"
+	MonitorProviderGrok              = "grok"
 	MonitorProviderOpenCodeGo        = "opencode_go"
 	MonitorProviderClinePass         = "clinepass"
 	MonitorProviderOpenRouter        = "openrouter"
 	MonitorProviderCommandCode       = "commandcode"
 	MonitorProviderAntigravityClaude = "antigravity_claude"
 	MonitorProviderAntigravityGemini = "antigravity_gemini"
+
+	// MonitorDefaultGrokModel 是新增 Grok 监控未显式指定模型时使用的轻量测活模型。
+	MonitorDefaultGrokModel = "grok-4.5"
 
 	// MonitorStatusOperational 等监控状态字符串常量（与 ent enum 一致）。
 	MonitorStatusOperational = "operational"
@@ -162,7 +168,7 @@ var (
 		"CHANNEL_MONITOR_GROUP_ALREADY_MONITORED", "the selected group already has a local monitor",
 	)
 	ErrChannelMonitorInvalidProvider = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/opencode_go/clinepass/openrouter/commandcode/antigravity_claude/antigravity_gemini",
+		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/grok/opencode_go/clinepass/openrouter/commandcode/antigravity_claude/antigravity_gemini",
 	)
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, messages, or responses; responses is supported for openai/opencode_go and messages is supported for opencode_go/commandcode",

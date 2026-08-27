@@ -16,6 +16,7 @@ import {
   PROVIDER_OPENAI,
   PROVIDER_ANTHROPIC,
   PROVIDER_GEMINI,
+  PROVIDER_GROK,
   PROVIDER_ANTIGRAVITY_CLAUDE,
   PROVIDER_ANTIGRAVITY_GEMINI,
   PROVIDER_OPENCODE_GO,
@@ -66,6 +67,7 @@ export function useChannelMonitorFormat() {
       p === PROVIDER_OPENAI ||
       p === PROVIDER_ANTHROPIC ||
       p === PROVIDER_GEMINI ||
+      p === PROVIDER_GROK ||
       p === PROVIDER_ANTIGRAVITY_CLAUDE ||
       p === PROVIDER_ANTIGRAVITY_GEMINI ||
       p === PROVIDER_OPENCODE_GO ||
@@ -85,6 +87,8 @@ export function useChannelMonitorFormat() {
         return 'bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300'
       case PROVIDER_GEMINI:
         return 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300'
+      case PROVIDER_GROK:
+        return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-500/15 dark:text-zinc-300'
       case PROVIDER_OPENCODE_GO:
         return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-300'
       case PROVIDER_CLINEPASS:
@@ -118,6 +122,10 @@ export function useChannelMonitorFormat() {
         return active
           ? 'border-sky-500 bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300 dark:border-sky-400'
           : 'border-gray-200 bg-white text-gray-600 hover:border-sky-300 hover:text-sky-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-sky-500/50'
+      case PROVIDER_GROK:
+        return active
+          ? 'border-zinc-500 bg-zinc-50 text-zinc-800 dark:bg-zinc-500/15 dark:text-zinc-200 dark:border-zinc-400'
+          : 'border-gray-200 bg-white text-gray-600 hover:border-zinc-400 hover:text-zinc-800 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-zinc-500/50'
       case PROVIDER_OPENCODE_GO:
         return active
           ? 'border-cyan-500 bg-cyan-50 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-300 dark:border-cyan-400'
@@ -206,6 +214,8 @@ export function providerGradient(provider: string): string {
       return 'bg-gradient-to-br from-orange-50 to-amber-100 dark:from-orange-500/10 dark:to-amber-500/20'
     case PROVIDER_GEMINI:
       return 'bg-gradient-to-br from-sky-50 to-indigo-100 dark:from-sky-500/10 dark:to-indigo-500/20'
+    case PROVIDER_GROK:
+      return 'bg-gradient-to-br from-zinc-50 to-neutral-200 dark:from-zinc-500/10 dark:to-neutral-500/20'
     case PROVIDER_OPENCODE_GO:
       return 'bg-gradient-to-br from-cyan-50 to-teal-100 dark:from-cyan-500/10 dark:to-teal-500/20'
     case PROVIDER_ANTIGRAVITY_CLAUDE:

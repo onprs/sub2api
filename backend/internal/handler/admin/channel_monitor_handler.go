@@ -37,7 +37,7 @@ func NewChannelMonitorHandler(monitorService *service.ChannelMonitorService) *Ch
 
 type channelMonitorCreateRequest struct {
 	Name             string            `json:"name" binding:"required,max=100"`
-	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini opencode_go clinepass openrouter commandcode antigravity_claude antigravity_gemini"`
+	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini grok opencode_go clinepass openrouter commandcode antigravity_claude antigravity_gemini"`
 	APIMode          string            `json:"api_mode" binding:"omitempty,oneof=chat_completions messages responses"`
 	TargetType       string            `json:"target_type" binding:"omitempty,oneof=local external"`
 	GroupID          *int64            `json:"group_id" binding:"omitempty,min=1"`
@@ -57,7 +57,7 @@ type channelMonitorCreateRequest struct {
 
 type channelMonitorUpdateRequest struct {
 	Name             *string            `json:"name" binding:"omitempty,max=100"`
-	Provider         *string            `json:"provider" binding:"omitempty,oneof=openai anthropic gemini opencode_go clinepass openrouter commandcode antigravity_claude antigravity_gemini"`
+	Provider         *string            `json:"provider" binding:"omitempty,oneof=openai anthropic gemini grok opencode_go clinepass openrouter commandcode antigravity_claude antigravity_gemini"`
 	APIMode          *string            `json:"api_mode" binding:"omitempty,oneof=chat_completions messages responses"`
 	TargetType       *string            `json:"target_type" binding:"omitempty,oneof=local external"`
 	GroupID          *int64             `json:"group_id" binding:"omitempty,min=1"`

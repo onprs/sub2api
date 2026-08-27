@@ -535,6 +535,7 @@ export default {
         apiModeMessagesHint: '使用 /v1/messages，适合 OpenCode Go 的 Anthropic 风格模型。',
         endpoint: '上游地址',
         endpointPlaceholder: 'https://api.example.com',
+        useCurrentDomain: '使用当前域名',
         clinePassEndpointHint: '填写 ClinePass 外站 API 根地址，检测器会自动拼接 /chat/completions。',
         openRouterEndpointHint: '填写 OpenRouter 外站 API 根地址，检测器会自动拼接 /chat/completions。',
         apiKey: 'API Key',

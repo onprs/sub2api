@@ -468,6 +468,7 @@ export default {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
       gemini: 'Gemini',
+      grok: 'Grok',
       antigravity_claude: 'Antigravity Claude',
       antigravity_gemini: 'Antigravity Gemini',
       opencode_go: 'OpenCode Go',
