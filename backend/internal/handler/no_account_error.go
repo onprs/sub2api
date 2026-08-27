@@ -157,3 +157,31 @@ func suggestedOpenAIModelID(displayModel string) string {
 	}
 	return ""
 }
+
+func classifyOpenAICompatibleNoAccountErrorFromGin(
+	c *gin.Context,
+	diag service.ModelAvailabilityDiagnoser,
+	apiKey *service.APIKey,
+	routingModel string,
+	displayModel string,
+) noAccountErrorClassification {
+	return classifyNoAccountErrorFromGin(
+		c,
+		diag,
+		apiKey,
+		routingModel,
+		displayModel,
+		openAICompatibleRequestPlatform(apiKey),
+	)
+}
+
+func openAICompatibleSelectionErrorForLog(err error, platform string) error {
+	if err == nil || platform != service.PlatformGrok {
+		return err
+	}
+	message := strings.ReplaceAll(err.Error(), "OpenAI accounts", "Grok accounts")
+	if message == err.Error() {
+		return err
+	}
+	return fmt.Errorf("%s", message)
+}

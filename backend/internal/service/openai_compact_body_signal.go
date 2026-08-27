@@ -79,7 +79,7 @@ func applyOpenAICodexBetaFeatures(c *gin.Context, account *Account, h http.Heade
 }
 
 // HasCompactionTriggerInInput 检查 input 中是否存在 compaction_trigger。
-// handler 会结合请求路径和 stream 标志区分原生 v2 与旧式 compact 桥接。
+// handler 会结合请求路径、stream 标志和能力协商头区分原生 v2 与旧式 compact 桥接。
 func HasCompactionTriggerInInput(body []byte) bool {
 	if len(body) == 0 {
 		return false

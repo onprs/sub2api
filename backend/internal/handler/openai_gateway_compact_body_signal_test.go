@@ -28,16 +28,18 @@ func newCompactBodySignalTestContext(t *testing.T, path string, body []byte) *gi
 func TestNormalizeOpenAIResponsesCompactRequest_RemoteV2StaysOnResponses(t *testing.T) {
 	h := &OpenAIGatewayHandler{}
 	body := []byte(`{
-		"model":"gpt-5.5",
+		"model":"gpt-5.6-sol",
 		"stream":true,
 		"store":true,
 		"prompt_cache_key":"pck-signal-1",
+		"reasoning":{"effort":"max","context":"all_turns"},
 		"input":[
 			{"type":"message","role":"user","content":"hello"},
 			{"type":"compaction_trigger"}
 		]
 	}`)
 	c := newCompactBodySignalTestContext(t, "/v1/responses", body)
+	c.Request.Header.Set("x-codex-beta-features", "responses_websockets_v2, remote_compaction_v2, another_feature")
 
 	normalized, ok := h.normalizeOpenAIResponsesCompactRequest(c, zap.NewNop(), body)
 	require.True(t, ok)
@@ -48,6 +50,14 @@ func TestNormalizeOpenAIResponsesCompactRequest_RemoteV2StaysOnResponses(t *test
 	require.True(t, gjson.GetBytes(normalized, "stream").Bool())
 	require.True(t, gjson.GetBytes(normalized, "store").Bool())
 	require.Equal(t, "pck-signal-1", gjson.GetBytes(normalized, "prompt_cache_key").String())
+	require.Equal(t, "max", gjson.GetBytes(normalized, "reasoning.effort").String())
+	require.Equal(t, "all_turns", gjson.GetBytes(normalized, "reasoning.context").String())
+
+	reqStream, streamOK := parseOpenAICompatibleStream(normalized)
+	require.True(t, streamOK)
+	require.True(t, reqStream)
+	_, seedExists := c.Get(service.OpenAICompactSessionSeedKeyForTest())
+	require.False(t, seedExists)
 	_, streamMarkerExists := c.Get(service.OpenAICompactClientStreamKeyForTest())
 	require.False(t, streamMarkerExists)
 }
@@ -57,6 +67,7 @@ func TestNormalizeOpenAIResponsesCompactRequest_RemoteV2PathAliasesStayOnRespons
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"compaction_trigger"}]}`)
 	for _, path := range []string{
 		"/v1/responses",
+		"/v1/responses/",
 		"/openai/v1/responses",
 		"/responses/",
 		"/backend-api/codex/responses",
@@ -72,7 +83,7 @@ func TestNormalizeOpenAIResponsesCompactRequest_RemoteV2PathAliasesStayOnRespons
 	}
 }
 
-func TestNormalizeOpenAIResponsesCompactRequest_BodySignalTrailingSlash(t *testing.T) {
+func TestNormalizeOpenAIResponsesCompactRequest_BodySignalTrailingSlashPromoted(t *testing.T) {
 	h := &OpenAIGatewayHandler{}
 	body := []byte(`{"model":"gpt-5.5","input":[{"type":"compaction_trigger"}]}`)
 	c := newCompactBodySignalTestContext(t, "/v1/responses/", body)
@@ -109,6 +120,7 @@ func TestNormalizeOpenAIResponsesCompactRequest_PathBasedNoDoubleSuffix(t *testi
 	h := &OpenAIGatewayHandler{}
 	body := []byte(`{"model":"gpt-5.5","stream":true,"store":true,"input":[{"type":"message","role":"user","content":"hello"}]}`)
 	c := newCompactBodySignalTestContext(t, "/v1/responses/compact", body)
+	c.Request.Header.Set("x-codex-beta-features", "remote_compaction_v2")
 
 	normalized, ok := h.normalizeOpenAIResponsesCompactRequest(c, zap.NewNop(), body)
 	require.True(t, ok)

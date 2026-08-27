@@ -197,6 +197,7 @@ func RegisterGatewayRoutes(
 			}
 			h.Gateway.Responses(c)
 		}))
+		gateway.POST("/alpha/search", h.OpenAIGateway.AlphaSearch)
 		gateway.GET("/responses", func(c *gin.Context) {
 			if isStandardProtocolGatewayPlatform(c) {
 				writeOpenCodeGoResponsesWebSocketUnsupported(c)
@@ -295,6 +296,7 @@ func RegisterGatewayRoutes(
 		}
 		responsesHandler(c)
 	}))
+	r.POST("/alpha/search", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), routeAPIKeyGroup, requireGroupAnthropic, h.OpenAIGateway.AlphaSearch)
 	r.GET("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), routeAPIKeyGroup, requireGroupAnthropic, func(c *gin.Context) {
 		if isStandardProtocolGatewayPlatform(c) {
 			writeOpenCodeGoResponsesWebSocketUnsupported(c)
@@ -313,6 +315,7 @@ func RegisterGatewayRoutes(
 			}
 			responsesHandler(c)
 		}))
+		codexDirect.POST("/alpha/search", h.OpenAIGateway.AlphaSearch)
 		codexDirect.GET("/responses", func(c *gin.Context) {
 			if isStandardProtocolGatewayPlatform(c) {
 				writeOpenCodeGoResponsesWebSocketUnsupported(c)

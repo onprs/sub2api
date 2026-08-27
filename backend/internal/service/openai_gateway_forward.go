@@ -53,7 +53,6 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 	originalModel := reqModel
 
 	if account.Platform == PlatformGrok {
-		_ = promptCacheKey
 		return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)
 	}
 

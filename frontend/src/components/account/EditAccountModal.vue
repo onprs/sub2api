@@ -40,19 +40,21 @@
                 : account.platform === 'gemini'
                   ? 'https://generativelanguage.googleapis.com'
                   : account.platform === 'antigravity'
-                    ? 'https://gateway.example.com/antigravity'
-                    : account.platform === 'opencode_go'
-                      ? OPENCODE_GO_DEFAULT_BASE_URL
-                      : account.platform === 'clinepass'
-                        ? CLINEPASS_DEFAULT_BASE_URL
-                        : account.platform === 'openrouter'
-                          ? OPENROUTER_DEFAULT_BASE_URL
-                          : account.platform === 'commandcode'
-                            ? COMMANDCODE_DEFAULT_BASE_URL
-                            : 'https://api.anthropic.com'
+                    ? 'https://cloudcode-pa.googleapis.com'
+                    : account.platform === 'grok'
+                      ? 'https://api.x.ai/v1'
+                      : account.platform === 'opencode_go'
+                        ? OPENCODE_GO_DEFAULT_BASE_URL
+                        : account.platform === 'clinepass'
+                          ? CLINEPASS_DEFAULT_BASE_URL
+                          : account.platform === 'openrouter'
+                            ? OPENROUTER_DEFAULT_BASE_URL
+                            : account.platform === 'commandcode'
+                              ? COMMANDCODE_DEFAULT_BASE_URL
+                              : 'https://api.anthropic.com'
             "
           />
-          <p class="input-hint">{{ baseUrlHint }}</p>
+          <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
@@ -71,8 +73,10 @@
                   ? 'AIza...'
                   : account.platform === 'antigravity'
                     ? 'sk-...'
-                    : account.platform === 'opencode_go' || account.platform === 'clinepass' || account.platform === 'openrouter' || account.platform === 'commandcode'
-                      ? 'sk-...'
+                    : account.platform === 'grok'
+                      ? 'xai-...'
+                      : account.platform === 'opencode_go' || account.platform === 'clinepass' || account.platform === 'openrouter' || account.platform === 'commandcode'
+                        ? 'sk-...'
                       : 'sk-ant-...'
             "
           />
@@ -2768,6 +2772,7 @@ const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
+  if (props.account.platform === 'grok') return t('admin.accounts.grok.baseUrlHint')
   if (props.account.platform === 'opencode_go') return t('admin.accounts.opencodeGo.baseUrlHint')
   if (props.account.platform === 'clinepass') return t('admin.accounts.clinePass.baseUrlHint')
   if (props.account.platform === 'openrouter') return t('admin.accounts.openRouter.baseUrlHint')
@@ -3190,6 +3195,7 @@ const tempUnschedPresets = computed(() => buildTempUnschedPresets((key) => t(key
 const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
+  if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
   if (props.account?.platform === 'opencode_go') return OPENCODE_GO_DEFAULT_BASE_URL
   if (props.account?.platform === 'clinepass') return CLINEPASS_DEFAULT_BASE_URL
   if (props.account?.platform === 'openrouter') return OPENROUTER_DEFAULT_BASE_URL
@@ -3682,15 +3688,17 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
         ? 'https://api.openai.com'
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
-          : newAccount.platform === 'opencode_go'
-            ? OPENCODE_GO_DEFAULT_BASE_URL
-            : newAccount.platform === 'clinepass'
-              ? CLINEPASS_DEFAULT_BASE_URL
-              : newAccount.platform === 'openrouter'
-                ? OPENROUTER_DEFAULT_BASE_URL
-                : newAccount.platform === 'commandcode'
-                  ? COMMANDCODE_DEFAULT_BASE_URL
-                  : 'https://api.anthropic.com'
+          : newAccount.platform === 'grok'
+            ? 'https://api.x.ai/v1'
+            : newAccount.platform === 'opencode_go'
+              ? OPENCODE_GO_DEFAULT_BASE_URL
+              : newAccount.platform === 'clinepass'
+                ? CLINEPASS_DEFAULT_BASE_URL
+                : newAccount.platform === 'openrouter'
+                  ? OPENROUTER_DEFAULT_BASE_URL
+                  : newAccount.platform === 'commandcode'
+                    ? COMMANDCODE_DEFAULT_BASE_URL
+                    : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
 
     // Load model mappings and detect mode
@@ -3770,15 +3778,17 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
         ? 'https://api.openai.com'
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
-          : newAccount.platform === 'opencode_go'
-            ? OPENCODE_GO_DEFAULT_BASE_URL
-            : newAccount.platform === 'clinepass'
-              ? CLINEPASS_DEFAULT_BASE_URL
-              : newAccount.platform === 'openrouter'
-                ? OPENROUTER_DEFAULT_BASE_URL
-                : newAccount.platform === 'commandcode'
-                  ? COMMANDCODE_DEFAULT_BASE_URL
-                  : 'https://api.anthropic.com'
+          : newAccount.platform === 'grok'
+            ? 'https://api.x.ai/v1'
+            : newAccount.platform === 'opencode_go'
+              ? OPENCODE_GO_DEFAULT_BASE_URL
+              : newAccount.platform === 'clinepass'
+                ? CLINEPASS_DEFAULT_BASE_URL
+                : newAccount.platform === 'openrouter'
+                  ? OPENROUTER_DEFAULT_BASE_URL
+                  : newAccount.platform === 'commandcode'
+                    ? COMMANDCODE_DEFAULT_BASE_URL
+                    : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl
 
     // Load model mappings for OpenAI/Grok OAuth accounts

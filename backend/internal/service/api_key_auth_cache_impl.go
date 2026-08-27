@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 16 // v16：加入 API Key 动态分组路由配置
+const apiKeyAuthSnapshotVersion = 17 // v17：加入动态分组路由与分组网页搜索按次价格
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -355,6 +355,7 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		VideoPrice480P:                  group.VideoPrice480P,
 		VideoPrice720P:                  group.VideoPrice720P,
 		VideoPrice1080P:                 group.VideoPrice1080P,
+		WebSearchPricePerCall:           group.WebSearchPricePerCall,
 		ClaudeCodeOnly:                  group.ClaudeCodeOnly,
 		FallbackGroupID:                 group.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: group.FallbackGroupIDOnInvalidRequest,
@@ -408,6 +409,7 @@ func groupFromAPIKeyAuthSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		VideoPrice480P:                  snapshot.VideoPrice480P,
 		VideoPrice720P:                  snapshot.VideoPrice720P,
 		VideoPrice1080P:                 snapshot.VideoPrice1080P,
+		WebSearchPricePerCall:           snapshot.WebSearchPricePerCall,
 		ClaudeCodeOnly:                  snapshot.ClaudeCodeOnly,
 		FallbackGroupID:                 snapshot.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: snapshot.FallbackGroupIDOnInvalidRequest,
