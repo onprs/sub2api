@@ -127,14 +127,14 @@ func (h *OpenCodeGoGatewayHandler) Models(c *gin.Context) {
 
 	if apiKey != nil && !apiKey.UsesDynamicGroupRouting() && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 		modelIDs = filterModelsByCustomList(modelIDs, defaultModelIDsForPlatform(platform), apiKey.Group.ModelsListConfig.Models)
-		writeModelsList(c, modelIDs)
+		writeModelsList(c, platform, modelIDs)
 		return
 	}
 
 	if len(modelIDs) == 0 {
 		modelIDs = defaultModelIDsForPlatform(platform)
 	}
-	writeModelsList(c, modelIDs)
+	writeModelsList(c, platform, modelIDs)
 }
 
 type openCodeGoInboundProtocol string
