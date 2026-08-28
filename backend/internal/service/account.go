@@ -88,8 +88,12 @@ const openAILongContextBillingEnabledKey = "openai_long_context_billing_enabled"
 const (
 	OpenAIEndpointCapabilityChatCompletions OpenAIEndpointCapability = "chat_completions"
 	OpenAIEndpointCapabilityEmbeddings      OpenAIEndpointCapability = "embeddings"
+	OpenAIEndpointCapabilityAlphaSearch     OpenAIEndpointCapability = "alpha_search"
 	// OpenAIEndpointCapabilityResponses 要求上游真实支持 /v1/responses，
 	// 不能在转发阶段降级到 Chat Completions。
+	// 支持状态来自 accounts.extra 的自动探测标记（openai_responses_supported /
+	// openai_responses_mode），而非 credentials 能力集；用于生图意图的调度，
+	// 避免把请求调度到会在 forward 阶段被降级为 Chat Completions 的账号（#4417）。
 	OpenAIEndpointCapabilityResponses OpenAIEndpointCapability = "responses"
 )
 
@@ -1467,17 +1471,25 @@ func (a *Account) GetOpenAIRefreshToken() string {
 // GetGrokBaseURL selects the upstream used by Grok text and Responses traffic.
 // Grok media traffic has a different transport contract and must use
 // GetGrokMediaBaseURL instead.
+//
+// The stored base_url only rewrites forwarding endpoints. Credential lifecycle
+// traffic (OAuth authorization and token refresh) always uses the official
+// auth endpoints regardless of this value.
 func (a *Account) GetGrokBaseURL() string {
 	if !a.IsGrok() {
 		return ""
 	}
+	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
 	if a.IsGrokOAuth() {
-		// OAuth bearer credentials are subscription credentials and may only be
-		// sent to the supported CLI gateway. Stored base_url values and unsafe
-		// development overrides apply exclusively to API-key accounts.
-		return xai.DefaultCLIBaseURL
+		// Subscription traffic defaults to the supported CLI gateway. Stored
+		// official-host values (written by credential creation/refresh, or
+		// legacy variants) mean "not customized"; only an explicit custom-host
+		// forwarding address redirects traffic.
+		if baseURL == "" || xai.IsOfficialBaseURL(baseURL) {
+			return xai.DefaultCLIBaseURL
+		}
+		return baseURL
 	}
-	baseURL := a.GetCredential("base_url")
 	if baseURL != "" {
 		return baseURL
 	}
@@ -1485,11 +1497,9 @@ func (a *Account) GetGrokBaseURL() string {
 }
 
 // GetGrokMediaBaseURL selects the upstream used by Grok Imagine APIs.
-//
-// OAuth text requests need the CLI subscription proxy, but that proxy has a
-// smaller request-body limit than the official Imagine API. Media requests can
-// contain large base64 inputs, so default OAuth accounts must use api.x.ai.
-// API-key accounts and explicit trusted relays retain their configured base URL.
+// OAuth media remains on the supported CLI gateway even when text and
+// Responses traffic uses an account-level custom forwarding address.
+// API-key media follows the configured forwarding address.
 func (a *Account) GetGrokMediaBaseURL() string {
 	if !a.IsGrok() {
 		return ""
@@ -1738,11 +1748,20 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	switch capability {
 	case OpenAIEndpointCapabilityChatCompletions:
 	case OpenAIEndpointCapabilityResponses:
+		// Responses 支持状态由 accounts.extra 的自动探测标记决定，而非
+		// credentials 能力集。已探测确认不支持 /v1/responses 的 APIKey 上游
+		// 必须排除，否则会在 forward 阶段被静默降级为 Chat Completions。
 		if a.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(a.Extra) {
 			return false
 		}
-		// Responses 账号仍需通过现有 chat_completions 配置集门控。
+		// 支持 Responses 的上游同样需具备 chat 能力：复用下方配置集校验。
 		capability = OpenAIEndpointCapabilityChatCompletions
+	case OpenAIEndpointCapabilityAlphaSearch:
+		// Codex alpha/search 必须使用 ChatGPT/Codex OAuth 凭据；API key
+		// 发往 chatgpt.com/backend-api/codex/alpha/search 会稳定返回 401。
+		if a.Type != AccountTypeOAuth {
+			return false
+		}
 	case OpenAIEndpointCapabilityEmbeddings:
 		if a.Type != AccountTypeAPIKey {
 			return false
@@ -1753,6 +1772,9 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 
 	configured, found := a.openAIEndpointCapabilitySet()
 	if !found {
+		return true
+	}
+	if capability == OpenAIEndpointCapabilityAlphaSearch && configured[string(OpenAIEndpointCapabilityChatCompletions)] {
 		return true
 	}
 	return configured[string(capability)]

@@ -12,6 +12,7 @@ const (
 )
 
 type httpUpstreamProfileContextKey struct{}
+type httpUpstreamDisableRedirectsContextKey struct{}
 
 // WithHTTPUpstreamProfile injects an upstream transport profile into ctx.
 func WithHTTPUpstreamProfile(ctx context.Context, profile HTTPUpstreamProfile) context.Context {
@@ -41,22 +42,16 @@ func HTTPUpstreamProfileFromContext(ctx context.Context) HTTPUpstreamProfile {
 	}
 }
 
-type httpUpstreamRedirectsDisabledContextKey struct{}
-
 // WithHTTPUpstreamRedirectsDisabled 禁止携带凭据的辅助探测跟随重定向，
 // 避免 Authorization 被转发到管理员未明确配置的目标。
 func WithHTTPUpstreamRedirectsDisabled(ctx context.Context) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return context.WithValue(ctx, httpUpstreamRedirectsDisabledContextKey{}, true)
+	return context.WithValue(ctx, httpUpstreamDisableRedirectsContextKey{}, true)
 }
 
 // HTTPUpstreamRedirectsDisabled 返回当前上游请求是否禁止跟随重定向。
 func HTTPUpstreamRedirectsDisabled(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	disabled, _ := ctx.Value(httpUpstreamRedirectsDisabledContextKey{}).(bool)
-	return disabled
+	return ctx != nil && ctx.Value(httpUpstreamDisableRedirectsContextKey{}) == true
 }

@@ -152,12 +152,13 @@ func (s *OpenAIGatewayService) failoverOpenAIStructuredUpstreamError(
 	if account.Platform != PlatformGrok {
 		s.handleOpenAIAccountUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, upstreamModel)
 	}
-	return &UpstreamFailoverError{
-		StatusCode:             upstream.StatusCode,
-		ResponseBody:           upstream.Body,
-		ResponseHeaders:        protocoltransport.CloneHeaders(upstream.Headers),
-		RetryableOnSameAccount: account.IsPoolMode() && (account.IsPoolModeRetryableStatus(upstream.StatusCode) || isOpenAITransientProcessingError(upstream.StatusCode, upstreamMsg, upstream.Body)),
-	}
+	return newOpenAIUpstreamFailoverError(
+		upstream.StatusCode,
+		upstream.Headers,
+		upstream.Body,
+		upstreamMsg,
+		account.IsPoolMode() && (account.IsPoolModeRetryableStatus(upstream.StatusCode) || isOpenAITransientProcessingError(upstream.StatusCode, upstreamMsg, upstream.Body)),
+	)
 }
 
 // openAIChatCompletionsTargetURL 解析账号的（非 Grok）Chat Completions 上游端点。
@@ -232,14 +233,15 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 		upstreamReq.Header.Set("user-agent", userAgent)
 	}
 
-	// 账号级请求头覆写（仅 openai api_key 账号启用时生效）
-	account.ApplyHeaderOverrides(upstreamReq.Header)
 	if account.Platform == PlatformGrok {
 		if account.IsGrokOAuth() {
 			applyGrokCLIHeaders(upstreamReq.Header)
 		}
 		applyGrokCacheHeaders(upstreamReq.Header, grokCacheIdentity)
 	}
+	// 账号级请求头覆写：放在所有内置默认头（含 Grok CLI 身份头）之后应用，
+	// 使配置值获得除共享传输层强制头之外的最高优先级。
+	account.ApplyHeaderOverrides(upstreamReq.Header)
 
 	proxyURL := ""
 	if account.Proxy != nil {

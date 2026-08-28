@@ -103,6 +103,9 @@ func (SubscriptionPlan) Fields() []ent.Field {
 			Validate(validateNonNegativeInt("stock")).
 			Optional().
 			Nillable(),
+		field.String("currency").
+			MaxLen(3).
+			Default(""),
 		field.Int("validity_days").
 			Default(30),
 		field.String("validity_unit").

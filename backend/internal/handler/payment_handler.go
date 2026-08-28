@@ -68,6 +68,7 @@ func (h *PaymentHandler) GetPlans(c *gin.Context) {
 		Description            string   `json:"description"`
 		Price                  float64  `json:"price"`
 		OriginalPrice          *float64 `json:"original_price,omitempty"`
+		Currency               string   `json:"currency,omitempty"`
 		RenewalDiscountPercent *float64 `json:"renewal_discount_percent"`
 		RenewalEligible        bool     `json:"renewal_eligible"`
 		RenewalPrice           *float64 `json:"renewal_price"`
@@ -101,6 +102,7 @@ func (h *PaymentHandler) GetPlans(c *gin.Context) {
 			Name: p.Name, Description: p.Description, Price: p.Price, OriginalPrice: p.OriginalPrice,
 			RenewalDiscountPercent: pricing.RenewalDiscountPercent, RenewalEligible: pricing.RenewalEligible,
 			RenewalPrice: pricing.RenewalPrice, EffectivePrice: pricing.EffectivePrice,
+			Currency:         p.Currency,
 			FiveHourLimitUSD: p.FiveHourLimitUsd, SevenDayLimitUSD: p.SevenDayLimitUsd, ThirtyDayLimitUSD: p.ThirtyDayLimitUsd,
 			Stock: p.Stock, SoldOut: service.SubscriptionPlanSoldOut(p),
 			ValidityDays: p.ValidityDays, ValidityUnit: p.ValidityUnit, Features: p.Features,
@@ -159,6 +161,7 @@ func (h *PaymentHandler) GetCheckoutInfo(c *gin.Context) {
 			Name:        p.Name, Description: p.Description, Price: p.Price, OriginalPrice: p.OriginalPrice,
 			RenewalDiscountPercent: pricing.RenewalDiscountPercent, RenewalEligible: pricing.RenewalEligible,
 			RenewalPrice: pricing.RenewalPrice, EffectivePrice: pricing.EffectivePrice,
+			Currency:     p.Currency,
 			ValidityDays: p.ValidityDays, ValidityUnit: p.ValidityUnit, Features: parseFeatures(p.Features),
 			ProductName: p.ProductName,
 		})
@@ -218,6 +221,7 @@ type checkoutPlan struct {
 	Description            string   `json:"description"`
 	Price                  float64  `json:"price"`
 	OriginalPrice          *float64 `json:"original_price,omitempty"`
+	Currency               string   `json:"currency,omitempty"`
 	RenewalDiscountPercent *float64 `json:"renewal_discount_percent"`
 	RenewalEligible        bool     `json:"renewal_eligible"`
 	RenewalPrice           *float64 `json:"renewal_price"`

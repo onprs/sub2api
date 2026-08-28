@@ -34,6 +34,8 @@ const (
 	FieldThirtyDayLimitUsd = "thirty_day_limit_usd"
 	// FieldStock holds the string denoting the stock field in the database.
 	FieldStock = "stock"
+	// FieldCurrency holds the string denoting the currency field in the database.
+	FieldCurrency = "currency"
 	// FieldValidityDays holds the string denoting the validity_days field in the database.
 	FieldValidityDays = "validity_days"
 	// FieldValidityUnit holds the string denoting the validity_unit field in the database.
@@ -85,6 +87,7 @@ var Columns = []string{
 	FieldSevenDayLimitUsd,
 	FieldThirtyDayLimitUsd,
 	FieldStock,
+	FieldCurrency,
 	FieldValidityDays,
 	FieldValidityUnit,
 	FieldFeatures,
@@ -120,6 +123,10 @@ var (
 	ThirtyDayLimitUsdValidator func(float64) error
 	// StockValidator is a validator for the "stock" field. It is called by the builders before save.
 	StockValidator func(int) error
+	// DefaultCurrency holds the default value on creation for the "currency" field.
+	DefaultCurrency string
+	// CurrencyValidator is a validator for the "currency" field. It is called by the builders before save.
+	CurrencyValidator func(string) error
 	// DefaultValidityDays holds the default value on creation for the "validity_days" field.
 	DefaultValidityDays int
 	// DefaultValidityUnit holds the default value on creation for the "validity_unit" field.
@@ -200,6 +207,11 @@ func ByThirtyDayLimitUsd(opts ...sql.OrderTermOption) OrderOption {
 // ByStock orders the results by the stock field.
 func ByStock(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStock, opts...).ToFunc()
+}
+
+// ByCurrency orders the results by the currency field.
+func ByCurrency(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCurrency, opts...).ToFunc()
 }
 
 // ByValidityDays orders the results by the validity_days field.

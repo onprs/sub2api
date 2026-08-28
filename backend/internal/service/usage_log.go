@@ -141,6 +141,8 @@ type UsageLog struct {
 	// CacheWriteInferred 表示上游遗漏写入用量时使用了分组级推断。
 	CacheWriteInferred bool
 
+	ImageInputTokens  int
+	ImageInputCost    float64
 	ImageOutputTokens int
 	ImageOutputCost   float64
 

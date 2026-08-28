@@ -163,6 +163,7 @@ type CreatePlanRequest struct {
 	Description            string   `json:"description"`
 	Price                  float64  `json:"price"`
 	OriginalPrice          *float64 `json:"original_price"`
+	Currency               string   `json:"currency"`
 	RenewalDiscountPercent *float64 `json:"renewal_discount_percent"`
 	FiveHourLimitUSD       *float64 `json:"five_hour_limit_usd"`
 	SevenDayLimitUSD       *float64 `json:"seven_day_limit_usd"`
@@ -182,6 +183,7 @@ type UpdatePlanRequest struct {
 	Description            *string            `json:"description"`
 	Price                  *float64           `json:"price"`
 	OriginalPrice          *float64           `json:"original_price"`
+	Currency               *string            `json:"currency"`
 	RenewalDiscountPercent NullableFloatPatch `json:"renewal_discount_percent"`
 	FiveHourLimitUSD       NullableFloatPatch `json:"five_hour_limit_usd"`
 	SevenDayLimitUSD       NullableFloatPatch `json:"seven_day_limit_usd"`

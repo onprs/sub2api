@@ -33,6 +33,8 @@ func ProvideRouter(
 	jwtAuth middleware2.JWTAuthMiddleware,
 	adminAuth middleware2.AdminAuthMiddleware,
 	apiKeyAuth middleware2.APIKeyAuthMiddleware,
+	auditLog middleware2.AuditLogMiddleware,
+	stepUpAuth middleware2.StepUpAuthMiddleware,
 	apiKeyService *service.APIKeyService,
 	subscriptionService *service.SubscriptionService,
 	opsService *service.OpsService,
@@ -96,7 +98,7 @@ func ProvideRouter(
 		service.SetWebSearchManager(websearch.NewManager(configs, redisClient))
 	})
 
-	router := SetupRouter(r, handlers, jwtAuth, adminAuth, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, cfg, redisClient)
+	router := SetupRouter(r, handlers, jwtAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, cfg, redisClient)
 	if channelMonitorService != nil {
 		channelMonitorService.SetLocalRequestHandler(router)
 	}

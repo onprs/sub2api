@@ -95,6 +95,11 @@
       </div>
       <div class="grid grid-cols-2 gap-4">
         <div><label class="input-label">{{ t('payment.admin.sortOrder') }}</label><input v-model.number="planForm.sort_order" type="number" min="0" class="input" /></div>
+        <div>
+          <label class="input-label">{{ t('payment.admin.currency') }}</label>
+          <input v-model="planForm.currency" type="text" maxlength="3" class="input uppercase" :placeholder="t('payment.admin.currencyPlaceholder')" />
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('payment.admin.currencyHint') }}</p>
+        </div>
       </div>
       <div>
         <label class="input-label">{{ t('payment.admin.features') }}</label>
@@ -174,6 +179,7 @@ const planForm = reactive({
   five_hour_limit_usd: null as QuotaLimitInput,
   seven_day_limit_usd: null as QuotaLimitInput,
   thirty_day_limit_usd: null as QuotaLimitInput,
+  currency: '',
   sort_order: 0,
   for_sale: true,
 })
@@ -242,6 +248,7 @@ watch(() => props.show, (visible) => {
       five_hour_limit_usd: props.plan.five_hour_limit_usd ?? null,
       seven_day_limit_usd: props.plan.seven_day_limit_usd ?? null,
       thirty_day_limit_usd: props.plan.thirty_day_limit_usd ?? null,
+      currency: props.plan.currency || '',
       sort_order: props.plan.sort_order || 0,
       for_sale: props.plan.for_sale,
     })
@@ -260,6 +267,7 @@ watch(() => props.show, (visible) => {
       five_hour_limit_usd: null,
       seven_day_limit_usd: null,
       thirty_day_limit_usd: null,
+      currency: '',
       sort_order: 0,
       for_sale: true,
     })
@@ -305,6 +313,7 @@ function buildPlanPayload() {
     original_price: planForm.original_price || 0,
     renewal_discount_percent: normalizeLimitInput(planForm.renewal_discount_percent),
     stock: normalizeLimitInput(planForm.stock),
+    currency: planForm.currency.trim().toUpperCase(),
     validity_days: planForm.validity_days,
     validity_unit: planForm.validity_unit,
     five_hour_limit_usd: normalizeLimitInput(planForm.five_hour_limit_usd),

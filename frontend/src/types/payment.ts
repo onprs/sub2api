@@ -135,6 +135,8 @@ export interface SubscriptionPlan {
   effective_price?: number
   stock?: number | null
   sold_out?: boolean
+  /** Display-only ISO 4217 currency label (e.g. "NZD"); empty means no label */
+  currency?: string
   validity_days: number
   validity_unit: string
   /** Stored as JSON string in backend; API layer should parse before use */

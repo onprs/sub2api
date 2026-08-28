@@ -8,6 +8,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
+	"github.com/Wei-Shaw/sub2api/internal/payment"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
@@ -15,6 +16,19 @@ const (
 	validityUnitDay  = "day"
 	validityUnitDays = "days"
 )
+
+// normalizePlanCurrency validates and normalizes the display-only currency label.
+// Empty means "no label" and is kept as-is so existing plans stay unchanged.
+func normalizePlanCurrency(raw string) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return "", nil
+	}
+	currency, err := payment.NormalizePaymentCurrency(raw)
+	if err != nil {
+		return "", infraerrors.BadRequest("PLAN_CURRENCY_INVALID", "currency must be a 3-letter ISO currency code")
+	}
+	return currency, nil
+}
 
 // validatePlanRequired checks that all required fields for a plan are provided.
 // The optional numeric tail is kept for historical tests: first three values are
@@ -297,13 +311,17 @@ func (s *PaymentConfigService) CreatePlan(ctx context.Context, req CreatePlanReq
 	if err := validatePlanRequired(req.Name, req.GroupID, req.Price, req.ValidityDays, req.ValidityUnit, req.OriginalPrice, req.FiveHourLimitUSD, req.SevenDayLimitUSD, req.ThirtyDayLimitUSD, req.RenewalDiscountPercent); err != nil {
 		return nil, err
 	}
+	currency, err := normalizePlanCurrency(req.Currency)
+	if err != nil {
+		return nil, err
+	}
 	if err := validatePlanStock(req.Stock); err != nil {
 		return nil, err
 	}
 	validityUnit := normalizePlanValidityUnit(req.ValidityUnit)
 	b := s.entClient.SubscriptionPlan.Create().
 		SetGroupID(req.GroupID).SetName(req.Name).SetDescription(req.Description).
-		SetPrice(req.Price).SetValidityDays(req.ValidityDays).SetValidityUnit(validityUnit).
+		SetPrice(req.Price).SetCurrency(currency).SetValidityDays(req.ValidityDays).SetValidityUnit(validityUnit).
 		SetFeatures(req.Features).SetProductName(req.ProductName).
 		SetForSale(req.ForSale).SetSortOrder(req.SortOrder)
 	if req.OriginalPrice != nil {
@@ -391,6 +409,13 @@ func (s *PaymentConfigService) UpdatePlan(ctx context.Context, id int64, req Upd
 		} else {
 			u.SetStock(*req.Stock.Value)
 		}
+	}
+	if req.Currency != nil {
+		currency, err := normalizePlanCurrency(*req.Currency)
+		if err != nil {
+			return nil, err
+		}
+		u.SetCurrency(currency)
 	}
 	if req.ValidityDays != nil {
 		u.SetValidityDays(*req.ValidityDays)

@@ -40584,6 +40584,7 @@ type SubscriptionPlanMutation struct {
 	addthirty_day_limit_usd     *float64
 	stock                       *int
 	addstock                    *int
+	currency                    *string
 	validity_days               *int
 	addvalidity_days            *int
 	validity_unit               *string
@@ -41308,6 +41309,42 @@ func (m *SubscriptionPlanMutation) ResetStock() {
 	delete(m.clearedFields, subscriptionplan.FieldStock)
 }
 
+// SetCurrency sets the "currency" field.
+func (m *SubscriptionPlanMutation) SetCurrency(s string) {
+	m.currency = &s
+}
+
+// Currency returns the value of the "currency" field in the mutation.
+func (m *SubscriptionPlanMutation) Currency() (r string, exists bool) {
+	v := m.currency
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCurrency returns the old "currency" field's value of the SubscriptionPlan entity.
+// If the SubscriptionPlan object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SubscriptionPlanMutation) OldCurrency(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCurrency is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCurrency requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCurrency: %w", err)
+	}
+	return oldValue.Currency, nil
+}
+
+// ResetCurrency resets all changes to the "currency" field.
+func (m *SubscriptionPlanMutation) ResetCurrency() {
+	m.currency = nil
+}
+
 // SetValidityDays sets the "validity_days" field.
 func (m *SubscriptionPlanMutation) SetValidityDays(i int) {
 	m.validity_days = &i
@@ -41778,7 +41815,7 @@ func (m *SubscriptionPlanMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *SubscriptionPlanMutation) Fields() []string {
-	fields := make([]string, 0, 18)
+	fields := make([]string, 0, 19)
 	if m.group_id != nil {
 		fields = append(fields, subscriptionplan.FieldGroupID)
 	}
@@ -41808,6 +41845,9 @@ func (m *SubscriptionPlanMutation) Fields() []string {
 	}
 	if m.stock != nil {
 		fields = append(fields, subscriptionplan.FieldStock)
+	}
+	if m.currency != nil {
+		fields = append(fields, subscriptionplan.FieldCurrency)
 	}
 	if m.validity_days != nil {
 		fields = append(fields, subscriptionplan.FieldValidityDays)
@@ -41861,6 +41901,8 @@ func (m *SubscriptionPlanMutation) Field(name string) (ent.Value, bool) {
 		return m.ThirtyDayLimitUsd()
 	case subscriptionplan.FieldStock:
 		return m.Stock()
+	case subscriptionplan.FieldCurrency:
+		return m.Currency()
 	case subscriptionplan.FieldValidityDays:
 		return m.ValidityDays()
 	case subscriptionplan.FieldValidityUnit:
@@ -41906,6 +41948,8 @@ func (m *SubscriptionPlanMutation) OldField(ctx context.Context, name string) (e
 		return m.OldThirtyDayLimitUsd(ctx)
 	case subscriptionplan.FieldStock:
 		return m.OldStock(ctx)
+	case subscriptionplan.FieldCurrency:
+		return m.OldCurrency(ctx)
 	case subscriptionplan.FieldValidityDays:
 		return m.OldValidityDays(ctx)
 	case subscriptionplan.FieldValidityUnit:
@@ -42000,6 +42044,13 @@ func (m *SubscriptionPlanMutation) SetField(name string, value ent.Value) error 
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetStock(v)
+		return nil
+	case subscriptionplan.FieldCurrency:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCurrency(v)
 		return nil
 	case subscriptionplan.FieldValidityDays:
 		v, ok := value.(int)
@@ -42297,6 +42348,9 @@ func (m *SubscriptionPlanMutation) ResetField(name string) error {
 		return nil
 	case subscriptionplan.FieldStock:
 		m.ResetStock()
+		return nil
+	case subscriptionplan.FieldCurrency:
+		m.ResetCurrency()
 		return nil
 	case subscriptionplan.FieldValidityDays:
 		m.ResetValidityDays()
