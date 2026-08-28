@@ -24,6 +24,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c *gin.Context, account *Account, body []byte, output openAIProtocolOutput) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
+	// 固定渠道映射后的请求级 canonical body；账号 normalize/strip 不得改写跨 failover hint。
+	canonicalImageIntentBody := body
 
 	restrictionResult := s.detectCodexClientRestriction(c, account, body)
 	apiKeyID := getAPIKeyIDFromContext(c)
@@ -45,6 +47,19 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 	}
 	if normalized {
 		body = normalizedBody
+	}
+	if account.IsOpenAIOAuth() && isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) {
+		liteBody, changed, liteErr := normalizeOpenAIResponsesLiteToolsPayload(body)
+		if liteErr != nil {
+			setOpsUpstreamError(c, http.StatusBadRequest, liteErr.Error(), "")
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
+				"type": "invalid_request_error", "message": liteErr.Error(), "param": "tools",
+			}})
+			return nil, liteErr
+		}
+		if changed {
+			body = liteBody
+		}
 	}
 	wsDecision := s.getOpenAIWSProtocolResolver().Resolve(account)
 	// 仅允许 WS 入站请求走 WS 上游，避免出现 HTTP -> WS 协议混用。
@@ -111,6 +126,7 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 		return nil, errors.New("openai ws v1 is temporarily unsupported; use ws v2")
 	}
 	if passthroughEnabled {
+		attemptImageIntentInvalidated := false
 		if isCodexCLI && codexImageGenerationExplicitToolPolicy == codexImageGenerationExplicitToolPolicyStrip {
 			strippedBody, changed, stripErr := stripOpenAIImageGenerationToolsFromRawPayload(body)
 			if stripErr != nil {
@@ -119,6 +135,7 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 			if changed {
 				body = strippedBody
 				originalBody = strippedBody
+				attemptImageIntentInvalidated = true
 				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Stripped /responses image_generation tool for Codex client by account policy")
 			}
 		}
@@ -127,7 +144,19 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 		reasoningEffort := extractOpenAIReasoningEffortFromBody(body, mappedModel)
 		// 国产模型默认 effort 补充：也要用 mappedModel 判定是否是 passback-required 上游。
 		reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
-		return s.forwardOpenAIPassthrough(ctx, c, account, originalBody, reqModel, reasoningEffort, reqStream, startTime, output)
+		return s.forwardOpenAIPassthrough(
+			ctx,
+			c,
+			account,
+			originalBody,
+			canonicalImageIntentBody,
+			reqModel,
+			attemptImageIntentInvalidated,
+			reasoningEffort,
+			reqStream,
+			startTime,
+			output,
+		)
 	}
 
 	bodyModified := false
@@ -192,6 +221,7 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 		codexImageGenerationExplicitToolPolicy != codexImageGenerationExplicitToolPolicyStrip &&
 		s.isCodexImageGenerationBridgeEnabled(ctx, account, apiKey)
 	var imageIntent bool
+	canonicalImageIntent := resolveOpenAIImageIntentHint(c, reqModel, canonicalImageIntentBody, IsImageGenerationIntent)
 	if isCodexCLI && codexImageGenerationExplicitToolPolicy == codexImageGenerationExplicitToolPolicyStrip {
 		decoded, decodeErr := ensureReqBody()
 		if decodeErr != nil {
@@ -203,7 +233,7 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 		}
 		imageIntent = IsImageGenerationIntentMap(openAIResponsesEndpoint, reqModel, decoded)
 	} else {
-		imageIntent = IsImageGenerationIntent(openAIResponsesEndpoint, reqModel, body)
+		imageIntent = canonicalImageIntent
 	}
 	if imageIntent && !imageGenerationAllowed {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
@@ -503,6 +533,7 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 		var wsResult *OpenAIForwardResult
 		var wsErr error
 		wsLastFailureReason := ""
+		agentTaskRecoveryTried := false
 		wsPrevResponseRecoveryTried := false
 		wsInvalidEncryptedContentRecoveryTried := false
 		recoverPrevResponseNotFound := func(attempt int) bool {
@@ -587,12 +618,17 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 				startTime,
 				attempt,
 				wsLastFailureReason,
+				&agentTaskRecoveryTried,
 			)
 			if wsErr == nil {
 				break
 			}
 			if c != nil && c.Writer != nil && c.Writer.Written() {
 				break
+			}
+			var taskRecoveredErr *agentIdentityTaskRecoveredError
+			if errors.As(wsErr, &taskRecoveredErr) {
+				continue
 			}
 
 			reason, retryable := classifyOpenAIWSReconnectReason(wsErr)
@@ -706,8 +742,8 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 	if reasoningEffort != nil {
 		reasoningEffortValue = *reasoningEffort
 	}
-
 	httpInvalidEncryptedContentRetryTried := false
+	agentTaskRecoveryTried := false
 	httpAttempt := 0
 	for {
 		httpAttempt++
@@ -808,6 +844,15 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 			_ = resp.Body.Close()
 
 			upstreamCode := extractUpstreamErrorCode(upstream.Body)
+			if !agentTaskRecoveryTried && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(upstream.StatusCode, upstream.Body) {
+				agentTaskRecoveryTried = true
+				expectedTaskID := account.GetCredential("task_id")
+				if err := s.recoverAgentIdentityTask(ctx, account, expectedTaskID); err != nil {
+					return nil, fmt.Errorf("agent identity task recovery failed: %w", err)
+				}
+				continue
+			}
+			upstream.Body = s.redactAgentIdentitySensitiveBody(ctx, account, upstream.Body)
 			if !httpInvalidEncryptedContentRetryTried && upstream.StatusCode == http.StatusBadRequest && upstreamCode == "invalid_encrypted_content" {
 				decoded, decodeErr := ensureReqBody()
 				if decodeErr != nil {
@@ -950,8 +995,17 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	}
 	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
 
-	// Set authentication header
-	req.Header.Set("authorization", "Bearer "+token)
+	// Build authentication for this request. Agent Identity signs a fresh
+	// assertion here; OAuth/PAT/API-key keep their existing Bearer behavior.
+	authHeaders, err := s.buildOpenAIAuthenticationHeaders(ctx, account, token)
+	if err != nil {
+		return nil, fmt.Errorf("build openai authentication headers: %w", err)
+	}
+	for key, values := range authHeaders {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
 
 	// Set headers specific to OAuth accounts (ChatGPT internal API)
 	if account.Type == AccountTypeOAuth {

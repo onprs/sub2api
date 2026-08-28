@@ -11,6 +11,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -18,11 +19,15 @@ import (
 // forwardAnthropicViaRawChatCompletions serves /v1/messages clients through
 // an OpenAI-compatible upstream that only supports /v1/chat/completions.
 //
-// Requests, responses, and streams use one standard request-scoped pipeline.
+// Conversion chain (direct, no Responses intermediary):
+//
+//	Request:  Anthropic Messages → Chat Completions (AnthropicToChatCompletionsRequest)
+//	Response: CC chunk/response → Anthropic events/response (direct bridge)
 //
 // This is the /v1/messages counterpart of forwardResponsesViaRawChatCompletions
-// (which serves /v1/responses clients). The same conversion bridges are reused;
-// only the inbound/outbound framing differs.
+// (which serves /v1/responses clients). Unlike the Responses path, the direct
+// bridge skips the Responses API intermediate representation entirely — every
+// streaming token runs through a single state machine instead of two.
 func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	ctx context.Context,
 	c *gin.Context,
@@ -46,37 +51,14 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	applyOpenAICompatModelNormalization(&anthropicReq)
 	clientStream := anthropicReq.Stream
 
-	// 2. Apply the OpenAI-account model policy, then run standard Anthropic →
-	// Chat conversion through one request-scoped pipeline.
-	normalizedBody, err := json.Marshal(&anthropicReq)
-	if err != nil {
-		return nil, fmt.Errorf("marshal normalized anthropic request: %w", err)
-	}
-	billingModel := resolveOpenAIForwardModel(account, anthropicReq.Model, defaultMappedModel)
-	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
-	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
-		Route: protocolconv.Route{
-			Source:         protocolconv.ProtocolAnthropic,
-			IntendedTarget: protocolconv.ProtocolOpenAIChat,
-			ClientModel:    originalModel,
-			UpstreamModel:  upstreamModel,
-			Provider:       account.Platform,
-			AccountID:      account.ID,
-		},
-		Options: protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossError},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create anthropic chat fallback pipeline: %w", err)
-	}
-	convertedRequest, err := pipeline.ConvertRequest(normalizedBody)
+	// 2. Anthropic → Chat Completions (direct, no Responses intermediary)
+	chatReq, err := apicompat.AnthropicToChatCompletionsRequest(&anthropicReq)
 	if err != nil {
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("convert anthropic to chat completions: %w", err)
 	}
-	var chatReq apicompat.ChatCompletionsRequest
-	if err := json.Unmarshal(convertedRequest.Body, &chatReq); err != nil {
-		return nil, fmt.Errorf("decode converted chat completions request: %w", err)
-	}
+	billingModel := resolveOpenAIForwardModel(account, anthropicReq.Model, defaultMappedModel)
+	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
 	chatReq.Model = upstreamModel
 	chatReq.Stream = clientStream
 	if clientStream {
@@ -131,16 +113,15 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 
 	// 5. Convert response
 	if clientStream {
-		return s.streamChatCompletionsAsAnthropic(c, resp, pipeline, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		return s.streamChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	return s.bufferChatCompletionsAsAnthropic(c, resp, pipeline, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+	return s.bufferChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 }
 
 func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(
 	c *gin.Context,
 	resp *http.Response,
-	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
@@ -148,48 +129,35 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(
 	serviceTier *string,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
-	_, usage, upstreamBody, err := s.readCCUpstreamJSONResult(c, resp, writeAnthropicError)
+	requestID := resp.Header.Get("x-request-id")
+	ccResp, usage, err := s.readCCUpstreamJSONResponse(c, resp, writeAnthropicError)
 	if err != nil {
 		return nil, err
 	}
-	structured, result, err := s.collectBufferedChatCompletionsResponse(
-		resp.StatusCode,
-		resp.Header,
-		upstreamBody,
-		usage,
-		originalModel,
-		billingModel,
-		upstreamModel,
-		reasoningEffort,
-		serviceTier,
-		startTime,
-	)
-	if err != nil {
-		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Failed to collect upstream response")
-		return nil, err
+	anthropicResp := apicompat.ChatCompletionsResponseToAnthropic(ccResp, originalModel)
+
+	if s.responseHeaderFilter != nil {
+		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
-	convertedResponse, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
-	if result != nil {
-		result.ActualProtocol = structured.ActualProtocol
-	}
-	if err != nil {
-		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Failed to convert upstream response")
-		return nil, fmt.Errorf("convert anthropic chat fallback response: %w", err)
-	}
-	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolAnthropic)
-	if err != nil {
-		return nil, err
-	}
-	if err := renderer.RenderJSON(c.Writer, http.StatusOK, structured.Headers, convertedResponse.Body); err != nil {
-		return nil, fmt.Errorf("render anthropic chat fallback response: %w", err)
-	}
-	return result, nil
+	c.JSON(http.StatusOK, anthropicResp)
+
+	return &OpenAIForwardResult{
+		RequestID:       requestID,
+		Usage:           usage,
+		Model:           originalModel,
+		BillingModel:    billingModel,
+		UpstreamModel:   upstreamModel,
+		ReasoningEffort: reasoningEffort,
+		ServiceTier:     serviceTier,
+		Stream:          false,
+		ActualProtocol:  protocolconv.ProtocolOpenAIChat,
+		Duration:        time.Since(startTime),
+	}, nil
 }
 
 func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	c *gin.Context,
 	resp *http.Response,
-	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
@@ -197,83 +165,90 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	serviceTier *string,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
-	stream, err := s.collectCCUpstreamStream(resp, startTime)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = stream.Close() }()
-	requestID := stream.RequestID
-	session, err := pipeline.NewStreamProcessor(stream.ActualProtocol)
-	if err != nil {
-		return nil, fmt.Errorf("create Anthropic fallback stream processor: %w", err)
-	}
-	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolAnthropic)
-	if err != nil {
-		return nil, err
-	}
+	requestID := resp.Header.Get("x-request-id")
+	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
 
-	headersWritten := false
+	anthropicState := apicompat.NewChatCompletionsToAnthropicStreamState(originalModel)
 	clientDisconnected := false
-	writePayloads := func(payloads [][]byte) error {
-		if clientDisconnected || len(payloads) == 0 {
-			return nil
+
+	// 与 responses 兄弟不同：客户端断开后仍继续做事件转换（喂 anthropicState），
+	// 仅跳过写出，保证 finalize 阶段的 usage 汇总不受断开影响。
+	emitChunk := func(chunk *apicompat.ChatCompletionsChunk) {
+		// CC chunk → Anthropic events (direct, single state machine)
+		anthropicEvents := apicompat.ChatCompletionsChunkToAnthropicEvents(chunk, anthropicState)
+		if clientDisconnected {
+			return
 		}
-		if !headersWritten {
-			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
-				return err
-			}
-			headersWritten = true
-		}
-		for _, payload := range payloads {
-			framed, err := renderer.FrameStreamEvent(payload)
+		for _, aEvt := range anthropicEvents {
+			sse, err := apicompat.ResponsesAnthropicEventToSSE(aEvt)
 			if err != nil {
-				return err
+				continue
 			}
-			if _, err := c.Writer.Write(framed); err != nil {
+			writeStreamHeaders()
+			if _, err := fmt.Fprint(c.Writer, sse); err != nil {
 				clientDisconnected = true
-				return nil
+				break
 			}
 		}
-		c.Writer.Flush()
-		return nil
+		if !clientDisconnected && len(anthropicEvents) > 0 {
+			c.Writer.Flush()
+		}
 	}
 
-	scan := s.scanCCStream(stream, "openai messages chat fallback", startTime, func(raw []byte, _ *apicompat.ChatCompletionsChunk) error {
-		payloads, _, err := session.Convert(raw)
-		if err != nil {
-			return fmt.Errorf("convert Chat Completions stream event: %w", err)
+	scan := s.scanCCStream(resp, "openai messages chat fallback", requestID, startTime, emitChunk)
+	usage := scan.Usage
+
+	if scan.Err != nil {
+		// Broken upstream read: skip finalization so no synthetic message_stop
+		// masks the truncation, and surface the error to flag usage incomplete
+		// (mirrors forwardResponsesViaRawChatCompletions).
+		return &OpenAIForwardResult{
+			RequestID:        requestID,
+			Usage:            usage,
+			Model:            originalModel,
+			BillingModel:     billingModel,
+			UpstreamModel:    upstreamModel,
+			ReasoningEffort:  reasoningEffort,
+			ServiceTier:      serviceTier,
+			Stream:           true,
+			ActualProtocol:   protocolconv.ProtocolOpenAIChat,
+			Duration:         time.Since(startTime),
+			FirstTokenMs:     scan.FirstTokenMs,
+			ClientDisconnect: clientDisconnected,
+		}, fmt.Errorf("stream usage incomplete: %w", scan.Err)
+	}
+
+	// Finalize: close open blocks + emit message_delta/message_stop.
+	finalEvents := apicompat.FinalizeChatCompletionsAnthropicStream(anthropicState)
+	if !clientDisconnected {
+		for _, aEvt := range finalEvents {
+			sse, err := apicompat.ResponsesAnthropicEventToSSE(aEvt)
+			if err != nil {
+				continue
+			}
+			writeStreamHeaders()
+			if _, err := fmt.Fprint(c.Writer, sse); err != nil {
+				clientDisconnected = true
+				break
+			}
 		}
-		return writePayloads(payloads)
-	})
-	result := &OpenAIForwardResult{
+	}
+	if !scan.SawDone {
+		logCCStreamMissingDoneSentinel("openai messages chat fallback", requestID)
+	}
+
+	return &OpenAIForwardResult{
 		RequestID:        requestID,
-		ResponseID:       scan.ResponseID,
-		ActualProtocol:   stream.ActualProtocol,
-		Usage:            scan.Usage,
+		Usage:            usage,
 		Model:            originalModel,
 		BillingModel:     billingModel,
 		UpstreamModel:    upstreamModel,
 		ReasoningEffort:  reasoningEffort,
 		ServiceTier:      serviceTier,
 		Stream:           true,
+		ActualProtocol:   protocolconv.ProtocolOpenAIChat,
 		Duration:         time.Since(startTime),
 		FirstTokenMs:     scan.FirstTokenMs,
 		ClientDisconnect: clientDisconnected,
-	}
-	if scan.Err != nil {
-		return result, fmt.Errorf("stream usage incomplete: %w", scan.Err)
-	}
-
-	finalPayloads, _, err := session.Finalize()
-	if err != nil {
-		return result, fmt.Errorf("finalize Anthropic fallback stream: %w", err)
-	}
-	if err := writePayloads(finalPayloads); err != nil {
-		return result, fmt.Errorf("render Anthropic fallback stream: %w", err)
-	}
-	result.ClientDisconnect = clientDisconnected
-	if !scan.SawDone {
-		logCCStreamMissingDoneSentinel("openai messages chat fallback", requestID)
-	}
-	return result, nil
+	}, nil
 }

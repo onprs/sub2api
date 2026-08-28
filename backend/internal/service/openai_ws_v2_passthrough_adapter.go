@@ -304,8 +304,15 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if account == nil {
 		return errors.New("account is nil")
 	}
-	if strings.TrimSpace(token) == "" {
-		return errors.New("token is empty")
+	if err := validateOpenAIWSBearerToken(account, token); err != nil {
+		return err
+	}
+	if account.IsOpenAIOAuth() && isOpenAIResponsesLiteWebSocketPayload(firstClientMessage) {
+		liteFirstMessage, _, liteErr := normalizeOpenAIResponsesLiteToolsPayload(firstClientMessage)
+		if liteErr != nil {
+			return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, liteErr.Error(), liteErr)
+		}
+		firstClientMessage = liteFirstMessage
 	}
 	requestModel := strings.TrimSpace(gjson.GetBytes(firstClientMessage, "model").String())
 	requestPreviousResponseID := strings.TrimSpace(gjson.GetBytes(firstClientMessage, "previous_response_id").String())
@@ -440,10 +447,34 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		return errors.New("openai ws passthrough dialer is nil")
 	}
 
-	dialCtx, cancelDial := context.WithTimeout(ctx, s.openAIWSDialTimeout())
-	defer cancelDial()
-	upstreamConn, statusCode, handshakeHeaders, err := dialer.Dial(dialCtx, wsURL, headers, proxyURL)
-	if err != nil {
+	agentTaskRecoveryTried := false
+	var upstreamConn openAIWSClientConn
+	statusCode := 0
+	var handshakeHeaders http.Header
+	for {
+		headers, err = s.refreshOpenAIAgentIdentityHeaders(ctx, account, headers)
+		if err != nil {
+			return fmt.Errorf("refresh ws authentication headers: %w", err)
+		}
+		dialCtx, cancelDial := context.WithTimeout(ctx, s.openAIWSDialTimeout())
+		upstreamConn, statusCode, handshakeHeaders, err = dialer.Dial(dialCtx, wsURL, headers, proxyURL)
+		cancelDial()
+		if err == nil {
+			break
+		}
+		var handshakeErr *openAIWSHandshakeError
+		responseBody := []byte(nil)
+		if errors.As(err, &handshakeErr) && handshakeErr != nil {
+			responseBody = handshakeErr.Body
+		}
+		dialErr := &openAIWSDialError{StatusCode: statusCode, ResponseBody: responseBody, Err: err}
+		if s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidWSDialError(dialErr) && !agentTaskRecoveryTried {
+			agentTaskRecoveryTried = true
+			if recoveryErr := s.recoverAgentIdentityTask(ctx, account, account.GetCredential("task_id")); recoveryErr != nil {
+				return fmt.Errorf("agent identity task recovery failed: %w", recoveryErr)
+			}
+			continue
+		}
 		logOpenAIWSV2Passthrough(
 			"relay_dial_failed account_id=%d status_code=%d err=%s",
 			account.ID,
@@ -520,6 +551,15 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if msgType != coderws.MessageText {
 				return payload, nil, nil
 			}
+			if strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.create" {
+				if account.IsOpenAIOAuth() && isOpenAIResponsesLiteWebSocketPayload(payload) {
+					litePayload, _, liteErr := normalizeOpenAIResponsesLiteToolsPayload(payload)
+					if liteErr != nil {
+						return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, liteErr.Error(), liteErr)
+					}
+					payload = litePayload
+				}
+			}
 			eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
 			isResponseCreate := eventType == "response.create"
 			turnNo := int(completedTurns.Load()) + 1
@@ -532,24 +572,24 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				if requestModelForThisFrame == "" {
 					requestModelForThisFrame = capturedSessionModel
 				}
-				if hooks != nil && hooks.BeforeRequest != nil {
-					if err := hooks.BeforeRequest(turnNo, payload, requestModelForThisFrame); err != nil {
-						return payload, nil, err
-					}
+			}
+			if isResponseCreate && hooks != nil && hooks.BeforeRequest != nil {
+				if err := hooks.BeforeRequest(turnNo, payload, requestModelForThisFrame); err != nil {
+					return payload, nil, err
 				}
-				if hooks != nil && hooks.BeforeTurn != nil {
-					if err := hooks.BeforeTurn(turnNo); err != nil {
-						return payload, nil, err
-					}
+			}
+			if isResponseCreate && hooks != nil && hooks.BeforeTurn != nil {
+				if err := hooks.BeforeTurn(turnNo); err != nil {
+					return payload, nil, err
 				}
-				if hooks != nil && hooks.MapRequestModel != nil {
-					upstreamModel, err := hooks.MapRequestModel(turnNo, requestModelForThisFrame)
-					if err != nil {
-						return payload, nil, err
-					}
-					if upstreamModel = strings.TrimSpace(upstreamModel); upstreamModel != "" {
-						payload = s.ReplaceModelInBody(payload, upstreamModel)
-					}
+			}
+			if isResponseCreate && hooks != nil && hooks.MapRequestModel != nil {
+				upstreamModel, err := hooks.MapRequestModel(turnNo, requestModelForThisFrame)
+				if err != nil {
+					return payload, nil, err
+				}
+				if upstreamModel = strings.TrimSpace(upstreamModel); upstreamModel != "" {
+					payload = s.ReplaceModelInBody(payload, upstreamModel)
 				}
 			}
 			// 在评估策略前先刷新 capturedSessionModel：客户端可能通过
@@ -842,9 +882,15 @@ func (s *OpenAIGatewayService) mapOpenAIWSPassthroughDialError(
 	wrappedErr := err
 	var dialErr *openAIWSDialError
 	if !errors.As(err, &dialErr) {
+		var handshakeErr *openAIWSHandshakeError
+		var responseBody []byte
+		if errors.As(err, &handshakeErr) && handshakeErr != nil {
+			responseBody = append([]byte(nil), handshakeErr.Body...)
+		}
 		wrappedErr = &openAIWSDialError{
 			StatusCode:      statusCode,
 			ResponseHeaders: cloneHeader(handshakeHeaders),
+			ResponseBody:    responseBody,
 			Err:             err,
 		}
 	}

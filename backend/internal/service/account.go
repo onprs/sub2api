@@ -6,7 +6,6 @@ import (
 	"errors"
 	"hash/fnv"
 	"log/slog"
-	"net/url"
 	"reflect"
 	"sort"
 	"strconv"
@@ -1472,16 +1471,13 @@ func (a *Account) GetGrokBaseURL() string {
 	if !a.IsGrok() {
 		return ""
 	}
-	baseURL := a.GetCredential("base_url")
 	if a.IsGrokOAuth() {
-		if strings.TrimSpace(baseURL) == "" || isOfficialGrokAPIBaseURL(baseURL) {
-			return xai.DefaultCLIBaseURL
-		}
-		if _, err := xai.ValidateTrustedBaseURL(baseURL); err == nil {
-			return baseURL
-		}
+		// OAuth bearer credentials are subscription credentials and may only be
+		// sent to the supported CLI gateway. Stored base_url values and unsafe
+		// development overrides apply exclusively to API-key accounts.
 		return xai.DefaultCLIBaseURL
 	}
+	baseURL := a.GetCredential("base_url")
 	if baseURL != "" {
 		return baseURL
 	}
@@ -1498,48 +1494,10 @@ func (a *Account) GetGrokMediaBaseURL() string {
 	if !a.IsGrok() {
 		return ""
 	}
-	if !a.IsGrokOAuth() {
-		return a.GetGrokBaseURL()
+	if a.IsGrokOAuth() {
+		return xai.DefaultCLIBaseURL
 	}
-
-	baseURL := a.GetCredential("base_url")
-	if strings.TrimSpace(baseURL) == "" || isOfficialGrokAPIBaseURL(baseURL) || isOfficialGrokCLIBaseURL(baseURL) {
-		return xai.DefaultBaseURL
-	}
-	if _, err := xai.ValidateTrustedBaseURL(baseURL); err == nil {
-		return baseURL
-	}
-	return xai.DefaultBaseURL
-}
-
-func isOfficialGrokAPIBaseURL(raw string) bool {
-	return isOfficialGrokBaseURL(raw, xai.DefaultBaseURL)
-}
-
-func isOfficialGrokCLIBaseURL(raw string) bool {
-	return isOfficialGrokBaseURL(raw, xai.DefaultCLIBaseURL)
-}
-
-func isOfficialGrokBaseURL(raw, expected string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed == nil || parsed.Opaque != "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return false
-	}
-	defaultURL, err := url.Parse(expected)
-	if err != nil {
-		return false
-	}
-	if !strings.EqualFold(parsed.Scheme, defaultURL.Scheme) || !strings.EqualFold(parsed.Hostname(), defaultURL.Hostname()) {
-		return false
-	}
-	if port := parsed.Port(); port != "" {
-		portNumber, err := strconv.Atoi(port)
-		if err != nil || portNumber != 443 {
-			return false
-		}
-	}
-	path := strings.TrimRight(parsed.Path, "/")
-	return path == "" || path == strings.TrimRight(defaultURL.Path, "/")
+	return a.GetGrokBaseURL()
 }
 
 func (a *Account) GetGrokAccessToken() string {

@@ -48,6 +48,15 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithOutputAndReasoning(ctx
 	if output != nil {
 		return s.handleStructuredResponsesStreamWithReasoning(ctx, resp, c, account, startTime, originalModel, output, reasoningEffort)
 	}
+	return s.handleStreamingResponseWithReasoning(ctx, resp, c, account, startTime, originalModel, mappedModel, reasoningEffort)
+}
+
+func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel, reasoningEffort string) (*openaiStreamingResult, error) {
+	return s.handleStreamingResponseWithReasoningImpl(ctx, resp, c, account, startTime, originalModel, mappedModel, reasoningEffort)
+}
+
+func (s *OpenAIGatewayService) handleStreamingResponseWithReasoningImpl(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel, reasoningEffort string) (*openaiStreamingResult, error) {
+	output := openAIProtocolOutput(nil)
 	firstOutputTimeout := time.Duration(0)
 	if account != nil && account.Platform == PlatformOpenAI {
 		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffort)
@@ -69,6 +78,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithOutputAndReasoning(ctx
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
+
 	// Attempt-local headers remain private until a complete semantic event wins.
 	if !guardFirstOutput && resp.Header.Get("x-request-id") != "" {
 		c.Header("x-request-id", resp.Header.Get("x-request-id"))
@@ -147,6 +157,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithOutputAndReasoning(ctx
 	if guardFirstOutput {
 		scanner.Split(openAIFirstOutputDynamicScanLines(&firstOutputScanGuard))
 	}
+	documentScanner := newOpenAISSEJSONDocumentScanner(scanner)
 
 	streamInterval := time.Duration(0)
 	if s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
@@ -328,16 +339,6 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithOutputAndReasoning(ctx
 		}
 		flushPending("Client disconnected during final flush, returning collected usage")
 		if !sawTerminalEvent {
-			if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
-				return resultWithUsage(), s.newOpenAIStreamFailoverError(
-					c,
-					account,
-					false,
-					upstreamRequestID,
-					nil,
-					"OpenAI stream ended before a terminal event",
-				)
-			}
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: missing terminal event")
 		}
 		if sawFailedEvent {
@@ -352,12 +353,14 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithOutputAndReasoning(ctx
 		}
 		if !clientDisconnected {
 			hadBufferedData := bufferedWriter.Buffered() > 0
-			if err := flushBuffered(); err != nil {
-				clientDisconnected = true
-				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during final flush, returning collected usage")
-			} else if hadBufferedData {
-				clientOutputStarted = true
-				lastDownstreamWriteAt = time.Now()
+			if hadBufferedData {
+				if err := flushBuffered(); err != nil {
+					clientDisconnected = true
+					logger.LegacyPrintf("service.openai_gateway", "Client disconnected during final flush, returning collected usage")
+				} else {
+					clientOutputStarted = true
+					lastDownstreamWriteAt = time.Now()
+				}
 			}
 		}
 		return resultWithUsage(), nil
@@ -394,6 +397,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithOutputAndReasoning(ctx
 		// 客户端断开/取消请求时，上游读取往往会返回 context canceled。
 		// /v1/responses 的 SSE 事件必须符合 OpenAI 协议；这里不注入自定义 error event，避免下游 SDK 解析失败。
 		if errors.Is(scanErr, context.Canceled) || errors.Is(scanErr, context.DeadlineExceeded) {
+			if eventShouldFlush {
+				flushPending("Client disconnected during canceled stream flush, returning collected usage")
+			}
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", scanErr), true
 		}
 		if errors.Is(scanErr, bufio.ErrTooLong) {
@@ -401,7 +407,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithOutputAndReasoning(ctx
 			sendErrorEvent("response_too_large")
 			return resultWithUsage(), scanErr, true
 		}
-		if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+		if !openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush {
 			msg := "OpenAI stream disconnected before completion"
 			if errText := strings.TrimSpace(scanErr.Error()); errText != "" {
 				msg += ": " + errText
@@ -614,13 +620,13 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithOutputAndReasoning(ctx
 	// 无超时/无 keepalive 的常见路径走同步扫描，减少 goroutine 与 channel 开销。
 	if streamInterval <= 0 && keepaliveInterval <= 0 && firstOutputTimeout <= 0 {
 		defer putSSEScannerBuf64K(scanBuf)
-		for scanner.Scan() {
-			processSSELine(scanner.Text(), true)
+		for documentScanner.Scan() {
+			processSSELine(documentScanner.Text(), true)
 			if streamEarlyErr != nil {
 				return resultWithUsage(), streamEarlyErr
 			}
 		}
-		if result, err, done := handleScanErr(scanner.Err()); done {
+		if result, err, done := handleScanErr(documentScanner.Err()); done {
 			return result, err
 		}
 		return finalizeStream()
@@ -666,13 +672,13 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithOutputAndReasoning(ctx
 	go func(scanBuf *sseScannerBuf64K) {
 		defer putSSEScannerBuf64K(scanBuf)
 		defer close(events)
-		for scanner.Scan() {
+		for documentScanner.Scan() {
 			atomic.StoreInt64(&lastReadAt, time.Now().UnixNano())
-			if !sendEvent(scanEvent{line: scanner.Text()}) {
+			if !sendEvent(scanEvent{line: documentScanner.Text()}) {
 				return
 			}
 		}
-		if err := scanner.Err(); err != nil {
+		if err := documentScanner.Err(); err != nil {
 			_ = sendEvent(scanEvent{err: err})
 		}
 	}(scanBuf)
@@ -745,6 +751,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithOutputAndReasoning(ctx
 			if output != nil || clientDisconnected || eventInProgress {
 				continue
 			}
+			if eventInProgress {
+				continue
+			}
 			if time.Since(lastDownstreamWriteAt) < keepaliveInterval {
 				continue
 			}
@@ -790,6 +799,47 @@ func extractOpenAISSEDataLine(line string) (string, bool) {
 		start++
 	}
 	return line[start:], true
+}
+
+type openAICompatSSEFrame struct {
+	EventType string
+	Data      string
+}
+
+type openAICompatSSEFrameParser struct {
+	eventType string
+	dataLines []string
+}
+
+func (p *openAICompatSSEFrameParser) AddLine(line string) (openAICompatSSEFrame, bool) {
+	if line == "" {
+		return p.dispatch()
+	}
+	if strings.HasPrefix(line, ":") {
+		return openAICompatSSEFrame{}, false
+	}
+	if eventType, ok := extractOpenAISSEEventLine(line); ok {
+		p.eventType = eventType
+		return openAICompatSSEFrame{}, false
+	}
+	if data, ok := extractOpenAISSEDataLine(line); ok {
+		p.dataLines = append(p.dataLines, data)
+	}
+	return openAICompatSSEFrame{}, false
+}
+
+func (p *openAICompatSSEFrameParser) Finish() (openAICompatSSEFrame, bool) {
+	return p.dispatch()
+}
+
+func (p *openAICompatSSEFrameParser) dispatch() (openAICompatSSEFrame, bool) {
+	frame := openAICompatSSEFrame{
+		EventType: p.eventType,
+		Data:      strings.Join(p.dataLines, "\n"),
+	}
+	p.eventType = ""
+	p.dataLines = nil
+	return frame, frame.Data != ""
 }
 
 func extractOpenAISSEEventLine(line string) (string, bool) {

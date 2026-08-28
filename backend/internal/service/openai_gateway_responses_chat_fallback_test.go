@@ -61,11 +61,9 @@ func TestCollectCCUpstreamStreamParsesBoundedRecordsAndOwnsBody(t *testing.T) {
 	require.Empty(t, stream.Headers.Get("X-Internal-Secret"))
 
 	var chunks int
-	scan := svc.scanCCStream(stream, "test", time.Now(), func(raw []byte, chunk *apicompat.ChatCompletionsChunk) error {
+	scan := svc.scanCCStreamEvents(stream, "test", time.Now(), func(chunk *apicompat.ChatCompletionsChunk) {
 		chunks++
-		require.JSONEq(t, "{\"id\":\"chatcmpl_structured\",\"object\":\"chat.completion.chunk\",\n\"model\":\"gpt-5.4\",\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}", string(raw))
 		require.Equal(t, "chatcmpl_structured", chunk.ID)
-		return nil
 	})
 	require.NoError(t, scan.Err)
 	require.True(t, scan.SawDone)

@@ -45,8 +45,28 @@ func (c *schedulerOpenCodeGoBucketCache) GetSnapshot(context.Context, SchedulerB
 	return nil, false, nil
 }
 
-func (c *schedulerOpenCodeGoBucketCache) SetSnapshot(_ context.Context, bucket SchedulerBucket, _ []Account) error {
+func (c *schedulerOpenCodeGoBucketCache) SetSnapshot(_ context.Context, bucket SchedulerBucket, _ SchedulerBucketWriteToken, _ []Account) error {
 	c.buckets = append(c.buckets, bucket)
+	return nil
+}
+
+func (c *schedulerOpenCodeGoBucketCache) CaptureBucketWriteToken(_ context.Context, bucket SchedulerBucket) (SchedulerBucketWriteToken, error) {
+	return SchedulerBucketWriteToken{Bucket: bucket, Epoch: 1}, nil
+}
+
+func (c *schedulerOpenCodeGoBucketCache) RetireBucket(context.Context, SchedulerBucket) error {
+	return nil
+}
+
+func (c *schedulerOpenCodeGoBucketCache) ReopenBucket(context.Context, SchedulerBucket) (SchedulerBucketWriteToken, error) {
+	return SchedulerBucketWriteToken{Epoch: 1}, nil
+}
+
+func (c *schedulerOpenCodeGoBucketCache) TryAcquireGroupLifecycleLease(context.Context, int64, time.Duration) (SchedulerGroupLifecycleLease, bool, error) {
+	return SchedulerGroupLifecycleLease{}, true, nil
+}
+
+func (c *schedulerOpenCodeGoBucketCache) ReleaseGroupLifecycleLease(context.Context, SchedulerGroupLifecycleLease) error {
 	return nil
 }
 

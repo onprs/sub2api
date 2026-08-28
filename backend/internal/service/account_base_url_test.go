@@ -93,7 +93,7 @@ func TestGetGrokMediaBaseURL(t *testing.T) {
 				Platform:    PlatformGrok,
 				Credentials: map[string]any{"base_url": "https://CLI-CHAT-PROXY.GROK.COM:443/v1/"},
 			},
-			expected: "https://api.x.ai/v1",
+			expected: xai.DefaultCLIBaseURL,
 		},
 		{
 			name: "oauth untrusted custom relay falls back to official media API",
@@ -102,7 +102,7 @@ func TestGetGrokMediaBaseURL(t *testing.T) {
 				Platform:    PlatformGrok,
 				Credentials: map[string]any{"base_url": "https://grok-relay.example.com/v1"},
 			},
-			expected: xai.DefaultBaseURL,
+			expected: xai.DefaultCLIBaseURL,
 		},
 		{
 			name: "API key CLI URL remains pinned",
@@ -140,7 +140,9 @@ func TestGetGrokMediaBaseURLAllowsExplicitOAuthOverrideWhenUnsafeOverridesEnable
 		Credentials: map[string]any{"base_url": "https://grok-relay.example.com/v1"},
 	}
 
-	require.Equal(t, "https://grok-relay.example.com/v1", account.GetGrokMediaBaseURL())
+	// 官方 v0.1.156：OAuth 媒体流量固定走 CLI subscription proxy，
+	// unsafe override 不再覆盖。
+	require.Equal(t, xai.DefaultCLIBaseURL, account.GetGrokMediaBaseURL())
 }
 
 func TestGetGeminiBaseURL(t *testing.T) {
@@ -318,7 +320,7 @@ func TestGetGrokBaseURLUsesSubscriptionProxyForOAuth(t *testing.T) {
 			expected: xai.DefaultCLIBaseURL,
 		},
 		{
-			name: "oauth non-default API port remains an explicit override",
+			name: "oauth non-default API port remains pinned to CLI proxy",
 			account: Account{
 				Type:     AccountTypeOAuth,
 				Platform: PlatformGrok,
@@ -326,7 +328,7 @@ func TestGetGrokBaseURLUsesSubscriptionProxyForOAuth(t *testing.T) {
 					"base_url": "https://api.x.ai:8443/v1",
 				},
 			},
-			expected: "https://api.x.ai:8443/v1",
+			expected: xai.DefaultCLIBaseURL,
 		},
 		{
 			name: "oauth explicit custom base_url stays pinned to CLI proxy by default",
@@ -357,7 +359,7 @@ func TestGetGrokBaseURLUsesSubscriptionProxyForOAuth(t *testing.T) {
 	}
 }
 
-func TestGetGrokBaseURLAllowsExplicitOAuthOverrideWhenUnsafeOverridesEnabled(t *testing.T) {
+func TestGetGrokBaseURLPinsOAuthWhenUnsafeOverridesEnabled(t *testing.T) {
 	t.Setenv(xai.EnvAllowUnsafeURLOverrides, "true")
 	account := Account{
 		Type:     AccountTypeOAuth,
@@ -367,26 +369,26 @@ func TestGetGrokBaseURLAllowsExplicitOAuthOverrideWhenUnsafeOverridesEnabled(t *
 		},
 	}
 
-	require.Equal(t, "https://custom.example.com/v1", account.GetGrokBaseURL())
+	require.Equal(t, xai.DefaultCLIBaseURL, account.GetGrokBaseURL())
 }
 
-func TestGetGrokMediaBaseURLSeparatesOAuthMediaFromCLIProxy(t *testing.T) {
+func TestGetGrokMediaBaseURLPinsOAuthMediaToCLIProxy(t *testing.T) {
 	tests := []struct {
 		name     string
 		account  Account
 		expected string
 	}{
 		{
-			name: "oauth without base_url uses official media API",
+			name: "oauth without base_url uses CLI subscription proxy",
 			account: Account{
 				Type:        AccountTypeOAuth,
 				Platform:    PlatformGrok,
 				Credentials: map[string]any{},
 			},
-			expected: xai.DefaultBaseURL,
+			expected: xai.DefaultCLIBaseURL,
 		},
 		{
-			name: "oauth stored CLI proxy uses official media API",
+			name: "oauth stored CLI proxy stays on CLI subscription proxy",
 			account: Account{
 				Type:     AccountTypeOAuth,
 				Platform: PlatformGrok,
@@ -394,10 +396,10 @@ func TestGetGrokMediaBaseURLSeparatesOAuthMediaFromCLIProxy(t *testing.T) {
 					"base_url": xai.DefaultCLIBaseURL,
 				},
 			},
-			expected: xai.DefaultBaseURL,
+			expected: xai.DefaultCLIBaseURL,
 		},
 		{
-			name: "oauth stored CLI proxy variant uses official media API",
+			name: "oauth stored CLI proxy variant is canonicalized to CLI proxy",
 			account: Account{
 				Type:     AccountTypeOAuth,
 				Platform: PlatformGrok,
@@ -405,10 +407,10 @@ func TestGetGrokMediaBaseURLSeparatesOAuthMediaFromCLIProxy(t *testing.T) {
 					"base_url": "HTTPS://CLI-CHAT-PROXY.GROK.COM:443/%76%31/",
 				},
 			},
-			expected: xai.DefaultBaseURL,
+			expected: xai.DefaultCLIBaseURL,
 		},
 		{
-			name: "oauth legacy official API remains on official media API",
+			name: "oauth legacy official API is pinned to CLI proxy",
 			account: Account{
 				Type:     AccountTypeOAuth,
 				Platform: PlatformGrok,
@@ -416,10 +418,10 @@ func TestGetGrokMediaBaseURLSeparatesOAuthMediaFromCLIProxy(t *testing.T) {
 					"base_url": xai.DefaultBaseURL,
 				},
 			},
-			expected: xai.DefaultBaseURL,
+			expected: xai.DefaultCLIBaseURL,
 		},
 		{
-			name: "oauth untrusted custom base_url is pinned to official media API",
+			name: "oauth untrusted custom base_url is pinned to CLI proxy",
 			account: Account{
 				Type:     AccountTypeOAuth,
 				Platform: PlatformGrok,
@@ -427,7 +429,7 @@ func TestGetGrokMediaBaseURLSeparatesOAuthMediaFromCLIProxy(t *testing.T) {
 					"base_url": "https://custom.example.com/v1",
 				},
 			},
-			expected: xai.DefaultBaseURL,
+			expected: xai.DefaultCLIBaseURL,
 		},
 		{
 			name: "API key retains its configured media API",
@@ -456,4 +458,17 @@ func TestGetGrokMediaBaseURLSeparatesOAuthMediaFromCLIProxy(t *testing.T) {
 			require.Equal(t, tt.expected, tt.account.GetGrokMediaBaseURL())
 		})
 	}
+}
+
+func TestGetGrokMediaBaseURLPinsOAuthWhenUnsafeOverridesEnabled(t *testing.T) {
+	t.Setenv(xai.EnvAllowUnsafeURLOverrides, "true")
+	account := Account{
+		Type:     AccountTypeOAuth,
+		Platform: PlatformGrok,
+		Credentials: map[string]any{
+			"base_url": "https://custom.example.com/v1",
+		},
+	}
+
+	require.Equal(t, xai.DefaultCLIBaseURL, account.GetGrokMediaBaseURL())
 }

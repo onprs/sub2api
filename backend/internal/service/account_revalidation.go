@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"fmt"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
 // AccountEligibilityRequest describes the routing contract that must still be
@@ -74,9 +76,13 @@ func (s *OpenAIGatewayService) RevalidateSelectedAccount(ctx context.Context, ac
 		invalidateSticky()
 		return nil, fmt.Errorf("revalidate openai account %d: %w", accountID, err)
 	}
+	// simple 模式下选号主路径（ListSchedulableByPlatform）不校验分组归属，
+	// 复核保持一致，避免无分组账号被误拒（官方测试账号无分组绑定）。
+	// cfg 为 nil（测试/误配）时仍保留 group 检查，与 HEAD 既有语义一致。
+	groupMatched := (s.cfg != nil && s.cfg.RunMode == config.RunModeSimple) || openAIStickyAccountMatchesGroup(account, req.GroupID)
 	if !isOpenAICompatibleAccountEligibleForRequest(ctx, account, req.Platform, req.RequestedModel, req.RequireCompact, req.RequiredCapability) ||
 		!account.SupportsOpenAIImageCapability(req.RequiredImageCapability) ||
-		!openAIStickyAccountMatchesGroup(account, req.GroupID) ||
+		!groupMatched ||
 		!s.isOpenAIAccountTransportCompatible(account, req.RequiredTransport) ||
 		!parentHealthyForShadow(account, s.parentAccountLookup(ctx)) ||
 		s.isOpenAIAccountRuntimeBlocked(account) {

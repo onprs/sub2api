@@ -78,6 +78,7 @@ const { t } = useI18n()
 interface Props {
   platform: AccountPlatform
   type: AccountType
+  authMode?: string
   planType?: string
   privacyMode?: string
   subscriptionExpiresAt?: string
@@ -97,9 +98,20 @@ const platformLabel = computed(() => {
   return 'Gemini'
 })
 
-const typeLabel = computed(() =>
-  t(getAccountTypeLabelKey(props.type), { value: props.type })
+const normalizedAuthMode = computed(() =>
+  (props.authMode || '').trim().toLowerCase().replace(/[\s_-]+/g, '')
 )
+
+const typeLabel = computed(() => {
+  // 官方语义：OpenAI OAuth 账号按认证模式细分（Agent Identity / PAT），
+  // 无 authMode 时回落 "OAuth"；其余类型沿用 HEAD 的 i18n 标签。
+  if (props.platform === 'openai' && props.type === 'oauth') {
+    if (normalizedAuthMode.value === 'agentidentity') return 'Agent Identity'
+    if (normalizedAuthMode.value === 'personalaccesstoken') return 'PAT'
+    return 'OAuth'
+  }
+  return t(getAccountTypeLabelKey(props.type), { value: props.type })
+})
 
 const normalizedPlanType = computed(() =>
   (props.planType || '').trim().toLowerCase().replace(/[\s_-]+/g, '')

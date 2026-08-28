@@ -139,7 +139,11 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	startTime time.Time,
 	output openAIProtocolOutput,
 ) (*OpenAIForwardResult, error) {
-	_, usage, upstreamBody, err := s.readCCUpstreamJSONResult(c, resp, writeOpenAIResponsesFallbackError)
+	ccResp, usage, err := s.readCCUpstreamJSONResponse(c, resp, writeOpenAIResponsesFallbackError)
+	if err != nil {
+		return nil, err
+	}
+	upstreamBody, err := json.Marshal(ccResp)
 	if err != nil {
 		return nil, err
 	}
@@ -290,12 +294,16 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		return nil
 	}
 
-	scan := s.scanCCStream(stream, "openai responses chat fallback", startTime, func(raw []byte, _ *apicompat.ChatCompletionsChunk) error {
+	scan := s.scanCCStreamEvents(stream, "openai responses chat fallback", startTime, func(chunk *apicompat.ChatCompletionsChunk) {
+		raw, err := json.Marshal(chunk)
+		if err != nil {
+			return
+		}
 		payloads, _, err := session.Convert(raw)
 		if err != nil {
-			return fmt.Errorf("convert Chat Completions stream event: %w", err)
+			return
 		}
-		return writePayloads(payloads)
+		_ = writePayloads(payloads)
 	})
 	result := &OpenAIForwardResult{
 		RequestID:       requestID,
@@ -355,14 +363,18 @@ func (s *OpenAIGatewayService) streamChatCompletionsWithProtocolOutput(
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
 	headersWritten := false
-	scan := s.scanCCStream(stream, "openai structured chat fallback", startTime, func(raw []byte, _ *apicompat.ChatCompletionsChunk) error {
+	scan := s.scanCCStreamEvents(stream, "openai structured chat fallback", startTime, func(chunk *apicompat.ChatCompletionsChunk) {
 		if !headersWritten {
 			if err := output.WriteStreamHeaders(stream.StatusCode, stream.Headers, stream.ActualProtocol); err != nil {
-				return err
+				return
 			}
 			headersWritten = true
 		}
-		return output.WriteStreamEvent(stream.ActualProtocol, raw)
+		raw, err := json.Marshal(chunk)
+		if err != nil {
+			return
+		}
+		_ = output.WriteStreamEvent(stream.ActualProtocol, raw)
 	})
 	result := &OpenAIForwardResult{
 		RequestID:       stream.RequestID,

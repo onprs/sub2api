@@ -200,6 +200,49 @@ func TestFetchCodexModelsManifestPassthrough(t *testing.T) {
 	}
 }
 
+func TestFetchCodexModelsManifestAgentIdentityUsesAssertionWithoutOAuthToken(t *testing.T) {
+	key, privateKey := newTestAgentIdentityKey(t)
+	account := &Account{
+		ID:       3,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"auth_mode":          OpenAIAuthModeAgentIdentity,
+			"agent_runtime_id":   key.runtimeID,
+			"agent_private_key":  privateKey,
+			"task_id":            key.taskID,
+			"chatgpt_account_id": "acc-agent",
+		},
+	}
+
+	var gotAuth, gotAccountID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotAccountID = r.Header.Get("chatgpt-account-id")
+		_, _ = w.Write([]byte(`{"models":[]}`))
+	}))
+	defer server.Close()
+
+	original := chatgptCodexModelsURL
+	chatgptCodexModelsURL = server.URL
+	defer func() { chatgptCodexModelsURL = original }()
+
+	s := &OpenAIGatewayService{}
+	manifest, err := s.FetchCodexModelsManifest(context.Background(), account, "0.137.0", "")
+	if err != nil {
+		t.Fatalf("FetchCodexModelsManifest returned error: %v", err)
+	}
+	if string(manifest.Body) != `{"models":[]}` {
+		t.Fatalf("unexpected manifest body: %q", manifest.Body)
+	}
+	if !strings.HasPrefix(gotAuth, "AgentAssertion ") {
+		t.Fatalf("authorization scheme: got %q", strings.SplitN(gotAuth, " ", 2)[0])
+	}
+	if gotAccountID != "acc-agent" {
+		t.Fatalf("chatgpt-account-id header: got %q", gotAccountID)
+	}
+}
+
 func TestFetchCodexModelsManifestDefaultClientVersion(t *testing.T) {
 	var gotClientVersion string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -389,7 +432,27 @@ func (c *codexModelsSnapshotHydrationCache) GetSnapshot(ctx context.Context, buc
 	return c.snapshot, true, nil
 }
 
-func (c *codexModelsSnapshotHydrationCache) SetSnapshot(ctx context.Context, bucket SchedulerBucket, accounts []Account) error {
+func (c *codexModelsSnapshotHydrationCache) SetSnapshot(ctx context.Context, bucket SchedulerBucket, _ SchedulerBucketWriteToken, accounts []Account) error {
+	return nil
+}
+
+func (c *codexModelsSnapshotHydrationCache) CaptureBucketWriteToken(ctx context.Context, bucket SchedulerBucket) (SchedulerBucketWriteToken, error) {
+	return SchedulerBucketWriteToken{}, nil
+}
+
+func (c *codexModelsSnapshotHydrationCache) RetireBucket(ctx context.Context, bucket SchedulerBucket) error {
+	return nil
+}
+
+func (c *codexModelsSnapshotHydrationCache) ReopenBucket(ctx context.Context, bucket SchedulerBucket) (SchedulerBucketWriteToken, error) {
+	return SchedulerBucketWriteToken{}, nil
+}
+
+func (c *codexModelsSnapshotHydrationCache) TryAcquireGroupLifecycleLease(ctx context.Context, groupID int64, ttl time.Duration) (SchedulerGroupLifecycleLease, bool, error) {
+	return SchedulerGroupLifecycleLease{}, true, nil
+}
+
+func (c *codexModelsSnapshotHydrationCache) ReleaseGroupLifecycleLease(ctx context.Context, lease SchedulerGroupLifecycleLease) error {
 	return nil
 }
 

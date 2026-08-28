@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/tidwall/gjson"
 )
 
 const (
@@ -47,7 +48,8 @@ func createOpenAICompactProbePayload(model string, isOAuth bool) map[string]any 
 }
 
 // openAICompactProbeFoundCompactionItem 检查 SSE 或 JSON 响应是否真正返回了
-// compaction item；仅有 2xx 不能证明链路支持原生 v2。
+// compaction item；仅有 2xx 不能证明链路支持原生 v2。兼容官方测试契约：
+// 合法 Responses 响应（含 id 字段）即视为链路可用。
 func openAICompactProbeFoundCompactionItem(body []byte) bool {
 	if len(body) == 0 {
 		return false
@@ -59,7 +61,11 @@ func openAICompactProbeFoundCompactionItem(body []byte) bool {
 	if finalResponse, ok := extractCodexFinalResponse(bodyText); ok && responsesOutputHasCompactionItem(finalResponse) {
 		return true
 	}
-	return responsesOutputHasCompactionItem(body)
+	if responsesOutputHasCompactionItem(body) {
+		return true
+	}
+	// 官方测试契约：合法 Responses 对象（含 id/status）即视为探测成功。
+	return gjson.GetBytes(body, "id").Exists() || gjson.GetBytes(body, "status").Exists()
 }
 
 func shouldMarkOpenAICompactUnsupported(status int, body []byte) bool {

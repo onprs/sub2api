@@ -56,7 +56,7 @@ func (c *schedulerSnapshotRetryCacheStub) GetSnapshot(_ context.Context, bucket 
 	return result, true, nil
 }
 
-func (c *schedulerSnapshotRetryCacheStub) SetSnapshot(_ context.Context, bucket SchedulerBucket, accounts []Account) error {
+func (c *schedulerSnapshotRetryCacheStub) SetSnapshot(_ context.Context, bucket SchedulerBucket, _ SchedulerBucketWriteToken, accounts []Account) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.setSnapshotCalls++
@@ -68,6 +68,26 @@ func (c *schedulerSnapshotRetryCacheStub) SetSnapshot(_ context.Context, bucket 
 		account := accounts[i]
 		c.accountsByID[account.ID] = &account
 	}
+	return nil
+}
+
+func (c *schedulerSnapshotRetryCacheStub) CaptureBucketWriteToken(_ context.Context, _ SchedulerBucket) (SchedulerBucketWriteToken, error) {
+	return SchedulerBucketWriteToken{}, nil
+}
+
+func (c *schedulerSnapshotRetryCacheStub) RetireBucket(_ context.Context, _ SchedulerBucket) error {
+	return nil
+}
+
+func (c *schedulerSnapshotRetryCacheStub) ReopenBucket(_ context.Context, _ SchedulerBucket) (SchedulerBucketWriteToken, error) {
+	return SchedulerBucketWriteToken{}, nil
+}
+
+func (c *schedulerSnapshotRetryCacheStub) TryAcquireGroupLifecycleLease(_ context.Context, _ int64, _ time.Duration) (SchedulerGroupLifecycleLease, bool, error) {
+	return SchedulerGroupLifecycleLease{}, true, nil
+}
+
+func (c *schedulerSnapshotRetryCacheStub) ReleaseGroupLifecycleLease(_ context.Context, _ SchedulerGroupLifecycleLease) error {
 	return nil
 }
 

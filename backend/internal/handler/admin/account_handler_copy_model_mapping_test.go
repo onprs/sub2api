@@ -37,7 +37,7 @@ func (s *copyModelMappingAdminService) CopyAccountModelMapping(ctx context.Conte
 func setupCopyModelMappingRouter(svc service.AdminService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router.POST("/api/v1/admin/accounts/model-mapping/copy", handler.CopyModelMapping)
 	return router
 }

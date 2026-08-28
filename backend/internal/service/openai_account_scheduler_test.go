@@ -300,8 +300,12 @@ func (s *openAISnapshotCacheStub) GetSnapshot(ctx context.Context, bucket Schedu
 	return out, true, nil
 }
 
-func (s *openAISnapshotCacheStub) SetSnapshot(context.Context, SchedulerBucket, []Account) error {
+func (s *openAISnapshotCacheStub) SetSnapshot(context.Context, SchedulerBucket, SchedulerBucketWriteToken, []Account) error {
 	return nil
+}
+
+func (s *openAISnapshotCacheStub) CaptureBucketWriteToken(_ context.Context, _ SchedulerBucket) (SchedulerBucketWriteToken, error) {
+	return SchedulerBucketWriteToken{}, nil
 }
 
 func (s *openAISnapshotCacheStub) GetAccount(ctx context.Context, accountID int64) (*Account, error) {
