@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -42,6 +43,7 @@ type OpenCodeGoGatewayHandler struct {
 	usageRecordWorkerPool     *service.UsageRecordWorkerPool
 	errorPassthroughService   *service.ErrorPassthroughService
 	contentModerationService  *service.ContentModerationService
+	securityAuditCoordinator  *securityaudit.Coordinator
 	concurrencyHelper         *ConcurrencyHelper
 	maxAccountSwitches        int
 	cfg                       *config.Config
@@ -213,8 +215,8 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 	case openCodeGoInboundGoogle:
 		moderationProtocol = service.ContentModerationProtocolGemini
 	}
-	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, moderationProtocol, reqModel, body); decision != nil && decision.Blocked {
-		h.errorResponse(c, contentModerationStatus(decision), errorFormat, contentModerationErrorCode(decision), decision.Message)
+	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, moderationProtocol, reqModel, body); decision != nil && !decision.AllowNextStage {
+		h.errorResponse(c, securityAuditStatus(decision), errorFormat, securityAuditErrorCode(decision), securityAuditMessage(decision))
 		return
 	}
 
