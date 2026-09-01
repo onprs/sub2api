@@ -3,8 +3,10 @@ package anthropic
 import (
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/ir"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestStreamDecoderPreservesReasoningSignatureDelta(t *testing.T) {
@@ -31,6 +33,32 @@ func TestStreamDecoderPreservesReasoningSignatureDelta(t *testing.T) {
 		{Type: ir.EventReasoningDelta, BlockIndex: 0, Signature: "sig-1"},
 		{Type: ir.EventContentBlockEnd, BlockIndex: 0},
 	}, events)
+}
+
+func TestStreamEncoderGeneratesAnthropicMessageIDOnlyWhenRequested(t *testing.T) {
+	encodeStartID := func(options protocolconv.Options) string {
+		t.Helper()
+		encoder := newStreamEncoderWithOptions(options)
+		payloads, warnings, err := encoder.Encode(ir.StreamEvent{
+			Type:       ir.EventStreamStart,
+			ResponseID: "upstream-response-id",
+			Model:      "claude-test",
+		})
+		require.NoError(t, err)
+		require.Empty(t, warnings)
+		for _, payload := range payloads {
+			if id := gjson.GetBytes(payload, "message.id"); id.Exists() {
+				return id.String()
+			}
+		}
+		t.Fatalf("Anthropic message_start payload missing: %q", payloads)
+		return ""
+	}
+
+	require.Equal(t, "upstream-response-id", encodeStartID(protocolconv.Options{}))
+	require.Regexp(t, `^msg_01[0-9A-Za-z]{22}$`, encodeStartID(protocolconv.Options{
+		GenerateAnthropicResponseID: true,
+	}))
 }
 
 func TestStreamEncoderPreservesReasoningSignatureDelta(t *testing.T) {

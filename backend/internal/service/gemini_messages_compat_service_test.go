@@ -987,6 +987,7 @@ func TestGeminiMessagesCompatServiceForward_PreservesRequestedModelAndMappedUpst
 	require.Contains(t, httpStub.lastReq.URL.String(), "/models/claude-sonnet-4-20250514:")
 	require.Equal(t, "claude-sonnet-4", gjson.GetBytes(w.Body.Bytes(), "model").String())
 	require.Equal(t, "message", gjson.GetBytes(w.Body.Bytes(), "type").String())
+	require.Regexp(t, `^msg_01[0-9A-Za-z]{22}$`, gjson.GetBytes(w.Body.Bytes(), "id").String())
 }
 
 func TestGeminiMessagesCompatServiceForward_StreamUsesPipelineAndAnthropicRenderer(t *testing.T) {
@@ -1011,6 +1012,7 @@ func TestGeminiMessagesCompatServiceForward_StreamUsesPipelineAndAnthropicRender
 	require.Equal(t, "gemini-upstream", result.UpstreamModel)
 	out := rec.Body.String()
 	require.Contains(t, out, `event: message_start`)
+	require.Regexp(t, `"id":"msg_01[0-9A-Za-z]{22}"`, out)
 	require.Contains(t, out, `"model":"claude-client"`)
 	require.Contains(t, out, `"id":"call_google_0_0"`)
 	require.Contains(t, out, `"stop_reason":"tool_use"`)

@@ -19,8 +19,9 @@ type streamDecoder struct {
 }
 
 type streamEncoder struct {
-	bridge *apicompat.ResponsesEventToAnthropicState
-	inner  protocolconv.StreamEncoder
+	bridge                      *apicompat.ResponsesEventToAnthropicState
+	inner                       protocolconv.StreamEncoder
+	generateAnthropicResponseID bool
 }
 
 func newStreamDecoder() *streamDecoder {
@@ -39,7 +40,11 @@ func newStreamEncoder() *streamEncoder {
 func newStreamEncoderWithOptions(options protocolconv.Options) *streamEncoder {
 	bridge := apicompat.NewResponsesEventToAnthropicState()
 	bridge.Model = options.ResponseModel
-	return &streamEncoder{bridge: bridge, inner: openairesponses.NewStreamEncoderWithOptions(options)}
+	return &streamEncoder{
+		bridge:                      bridge,
+		inner:                       openairesponses.NewStreamEncoderWithOptions(options),
+		generateAnthropicResponseID: options.GenerateAnthropicResponseID,
+	}
 }
 
 func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.Warning, error) {
@@ -104,6 +109,9 @@ func (d *streamDecoder) decodeResponses(responses []apicompat.ResponsesStreamEve
 }
 
 func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.Warning, error) {
+	if e.generateAnthropicResponseID && event.Type == ir.EventStreamStart {
+		event.ResponseID = generateAnthropicMessageID()
+	}
 	responses, warnings, err := e.inner.Encode(event)
 	if err != nil {
 		return nil, warnings, err

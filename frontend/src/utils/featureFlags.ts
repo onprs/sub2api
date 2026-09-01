@@ -109,6 +109,11 @@ export const FeatureFlags = {
     mode: 'opt-in',
     label: 'Model Pricing',
   }),
+  modelPlaza: defineFlag({
+    key: 'model_plaza_enabled',
+    mode: 'opt-in',
+    label: 'Model Plaza',
+  }),
   payment: defineFlag({
     key: 'payment_enabled',
     mode: 'opt-out',
@@ -133,11 +138,13 @@ export type RegisteredFeatureFlag = keyof typeof FeatureFlags
  * `true`  → the feature is enabled (menu/route should render).
  * `false` → the feature is disabled (menu/route should hide).
  */
-export function isFeatureFlagEnabled(flag: FeatureFlagDefinition): boolean {
-  const appStore = useAppStore()
-  const raw = appStore.cachedPublicSettings?.[flag.key] as
-    | boolean
-    | undefined
+export function isFeatureFlagEnabled(
+  flag: FeatureFlagDefinition,
+  settings?: PublicSettings | null,
+): boolean {
+  const resolvedSettings =
+    settings === undefined ? useAppStore().cachedPublicSettings : settings
+  const raw = resolvedSettings?.[flag.key] as boolean | undefined
   if (typeof raw === 'boolean') return raw
   // Settings not yet loaded → fall back to the flag's declared mode:
   //   opt-out → visible by default, opt-in → hidden by default.

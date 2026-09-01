@@ -78,7 +78,11 @@ func (c *Converter) EncodeResponse(response *ir.Response, options protocolconv.O
 	if err := ir.ValidateResponse(response); err != nil {
 		return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidIR, Protocol: c.Protocol(), Cause: err}
 	}
-	wire := responseWire{ID: response.ID, Type: "message", Role: "assistant", Model: response.Model}
+	responseID := response.ID
+	if options.GenerateAnthropicResponseID {
+		responseID = generateAnthropicMessageID()
+	}
+	wire := responseWire{ID: responseID, Type: "message", Role: "assistant", Model: response.Model}
 	var warnings []protocolconv.Warning
 	if len(response.Choices) > 0 {
 		choice := response.Choices[0]

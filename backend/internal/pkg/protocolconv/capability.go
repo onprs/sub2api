@@ -74,6 +74,9 @@ type Options struct {
 	SourceModel string
 	// ResponseModel restores the client-visible model on response/stream paths.
 	ResponseModel string
+	// GenerateAnthropicResponseID replaces an upstream response ID with an
+	// Anthropic-compatible synthetic message ID during cross-protocol rendering.
+	GenerateAnthropicResponseID bool
 	// ToolRoutes is immutable request-scoped metadata populated by Pipeline
 	// after request conversion. Direct registry callers normally leave it nil.
 	ToolRoutes map[string]ToolRoute

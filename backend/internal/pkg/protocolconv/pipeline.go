@@ -155,7 +155,7 @@ func (p *Pipeline) ConvertResponse(body []byte, actualUpstream Protocol) (Conver
 		return ConvertedResponse{}, err
 	}
 
-	options := p.responseOptions()
+	options := p.responseOptionsFor(actualUpstream)
 	var converted []byte
 	var warnings []Warning
 	var err error
@@ -204,7 +204,7 @@ func (p *Pipeline) NewStreamProcessor(actualUpstream Protocol) (*StreamSession, 
 	if actualUpstream == p.config.Route.Source {
 		return newIdentityStreamSession(actualUpstream), nil
 	}
-	session, err := p.registry.NewStreamSessionWithOptions(actualUpstream, p.config.Route.Source, p.responseOptions())
+	session, err := p.registry.NewStreamSessionWithOptions(actualUpstream, p.config.Route.Source, p.responseOptionsFor(actualUpstream))
 	if err != nil {
 		return nil, err
 	}
@@ -234,6 +234,14 @@ func (p *Pipeline) responseOptions() Options {
 		return p.options()
 	}
 	return p.optionsWithBase(*p.config.ResponseOptions)
+}
+
+func (p *Pipeline) responseOptionsFor(actualUpstream Protocol) Options {
+	options := p.responseOptions()
+	if p.config.Route.Source == ProtocolAnthropic && actualUpstream != ProtocolAnthropic {
+		options.GenerateAnthropicResponseID = true
+	}
+	return options
 }
 
 func (p *Pipeline) optionsWithBase(options Options) Options {

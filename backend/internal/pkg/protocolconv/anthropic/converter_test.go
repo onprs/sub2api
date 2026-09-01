@@ -69,6 +69,20 @@ func TestEncodeRequestSerializesStructuredToolResultAsJSONText(t *testing.T) {
 	require.JSONEq(t, `{"content":"found"}`, content.String())
 }
 
+func TestEncodeResponseGeneratesAnthropicMessageIDOnlyWhenRequested(t *testing.T) {
+	response := &ir.Response{ID: "upstream-response-id", Model: "claude-test"}
+
+	preserved, warnings, err := New().EncodeResponse(response, protocolconv.Options{})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, "upstream-response-id", gjson.GetBytes(preserved, "id").String())
+
+	generated, warnings, err := New().EncodeResponse(response, protocolconv.Options{GenerateAnthropicResponseID: true})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Regexp(t, `^msg_01[0-9A-Za-z]{22}$`, gjson.GetBytes(generated, "id").String())
+}
+
 func TestEncodeRequestRejectsURLImageInsideToolResultInStrictMode(t *testing.T) {
 	request := &ir.Request{
 		Model: "claude-test",

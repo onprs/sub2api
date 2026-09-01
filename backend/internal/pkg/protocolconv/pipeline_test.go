@@ -162,6 +162,51 @@ func TestPipelineRequiresExplicitActualUpstreamProtocol(t *testing.T) {
 	require.Equal(t, ErrorUnsupportedProtocol, conversionErr.Code)
 }
 
+func TestPipelineGeneratesAnthropicResponseIDsOnlyForCrossProtocolResponses(t *testing.T) {
+	registry := NewRegistry()
+	source := &stubConverter{
+		protocol: ProtocolAnthropic,
+		encodeResponse: func(response *ir.Response, options Options) ([]byte, []Warning, error) {
+			body, err := json.Marshal(map[string]any{
+				"id":       response.ID,
+				"generate": options.GenerateAnthropicResponseID,
+			})
+			return body, nil, err
+		},
+	}
+	target := &stubConverter{protocol: ProtocolOpenAIChat}
+	require.NoError(t, registry.Register(source))
+	require.NoError(t, registry.Register(target))
+
+	pipeline, err := NewPipeline(registry, PipelineConfig{Route: Route{
+		Source:         ProtocolAnthropic,
+		IntendedTarget: ProtocolOpenAIChat,
+		ClientModel:    "claude-client",
+		UpstreamModel:  "openai-upstream",
+	}})
+	require.NoError(t, err)
+	_, err = pipeline.ConvertRequest([]byte(`{"model":"claude-client"}`))
+	require.NoError(t, err)
+
+	converted, err := pipeline.ConvertResponse(
+		[]byte(`{"id":"upstream-response-id","model":"openai-upstream"}`),
+		ProtocolOpenAIChat,
+	)
+	require.NoError(t, err)
+	var crossProtocol struct {
+		ID       string `json:"id"`
+		Generate bool   `json:"generate"`
+	}
+	require.NoError(t, json.Unmarshal(converted.Body, &crossProtocol))
+	require.Equal(t, "upstream-response-id", crossProtocol.ID)
+	require.True(t, crossProtocol.Generate)
+
+	nativeBody := []byte(" {\n \"id\": \"msg_native\", \"type\": \"message\"\n}\n")
+	native, err := pipeline.ConvertResponse(nativeBody, ProtocolAnthropic)
+	require.NoError(t, err)
+	require.Equal(t, nativeBody, native.Body)
+}
+
 func TestPipelineIdentityResponsePreservesBytes(t *testing.T) {
 	registry := NewRegistry()
 	require.NoError(t, registry.Register(&stubConverter{protocol: ProtocolOpenAIChat}))

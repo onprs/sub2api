@@ -152,6 +152,10 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if containsBetaToken(c.GetHeader("anthropic-beta"), claude.BetaFastMode) {
 		responsesPolicyBody["service_tier"] = "priority"
 	}
+	if reasoning, ok := responsesPolicyBody["reasoning"].(map[string]any); ok {
+		effort := strings.TrimSpace(firstNonEmptyString(reasoning["effort"]))
+		reasoning["effort"] = openAICompatAnthropicReasoningEffort(&anthropicReq, upstreamModel, effort)
+	}
 	if previousResponseID != "" {
 		responsesPolicyBody["previous_response_id"] = previousResponseID
 		trimOpenAICompatResponsesBodyToLatestTurn(responsesPolicyBody)
