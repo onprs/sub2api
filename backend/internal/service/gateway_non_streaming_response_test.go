@@ -219,29 +219,55 @@ func TestHandleNonStreamingResponseAnthropicAPIKeyPassthrough_ValidJSONUnchanged
 	require.JSONEq(t, string(body), rec.Body.String())
 }
 
-func TestHandleNonStreamingResponseAnthropicAPIKeyPassthrough_ForceCacheBillingReclassifiesInput(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-
-	body := []byte(`{"id":"msg_cache","type":"message","usage":{"input_tokens":5,"output_tokens":3}}`)
-	resp := &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(bytes.NewReader(body)),
+func TestHandleNonStreamingResponseAnthropicAPIKeyPassthrough_ForceCacheBillingResponse(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "converts input tokens for downstream billing",
+			body: `{"id":"msg_1","type":"message","content":[{"type":"text","text":"unchanged"}],"usage":{"input_tokens":5,"output_tokens":3}}`,
+			want: `{"id":"msg_1","type":"message","content":[{"type":"text","text":"unchanged"}],"usage":{"input_tokens":0,"output_tokens":3,"cache_read_input_tokens":5}}`,
+		},
+		{
+			name: "adds to genuine cache reads",
+			body: `{"id":"msg_2","type":"message","usage":{"input_tokens":5,"output_tokens":3,"cache_read_input_tokens":7,"cache_creation_input_tokens":11}}`,
+			want: `{"id":"msg_2","type":"message","usage":{"input_tokens":0,"output_tokens":3,"cache_read_input_tokens":12,"cache_creation_input_tokens":11}}`,
+		},
+		{
+			name: "zero input leaves response unchanged",
+			body: `{"id":"msg_3","type":"message","usage":{"input_tokens":0,"output_tokens":3,"cache_read_input_tokens":7}}`,
+			want: `{"id":"msg_3","type":"message","usage":{"input_tokens":0,"output_tokens":3,"cache_read_input_tokens":7}}`,
+		},
 	}
-	svc := &GatewayService{cfg: &config.Config{}}
-	account := &Account{ID: 2, Platform: PlatformAnthropic}
-	pipeline := newAnthropicPassthroughTestPipeline(t, account)
 
-	usage, err := svc.handleNonStreamingResponseAnthropicAPIKeyPassthrough(WithForceCacheBilling(context.Background()), resp, c, account, pipeline)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(bytes.NewBufferString(tt.body)),
+			}
+			svc := &GatewayService{cfg: &config.Config{}}
+			account := &Account{ID: 2, Platform: PlatformAnthropic}
+			pipeline := newAnthropicPassthroughTestPipeline(t, account)
 
-	require.NoError(t, err)
-	require.NotNil(t, usage)
-	require.Equal(t, 5, usage.InputTokens)
-	require.Equal(t, int64(0), gjson.Get(rec.Body.String(), "usage.input_tokens").Int())
-	require.Equal(t, int64(5), gjson.Get(rec.Body.String(), "usage.cache_read_input_tokens").Int())
+			usage, err := svc.handleNonStreamingResponseAnthropicAPIKeyPassthrough(
+				WithForceCacheBilling(context.Background()), resp, c, account, pipeline,
+			)
+
+			require.NoError(t, err)
+			require.NotNil(t, usage)
+			require.Equal(t, int(gjson.Get(tt.body, "usage.input_tokens").Int()), usage.InputTokens)
+			require.Equal(t, int(gjson.Get(tt.body, "usage.cache_read_input_tokens").Int()), usage.CacheReadInputTokens)
+			require.JSONEq(t, tt.want, rec.Body.String())
+		})
+	}
 }
 
 func TestHandleNonStreamingResponse_NonJSON2xxMatchesModelScopedTempUnschedulableRule(t *testing.T) {

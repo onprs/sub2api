@@ -42,16 +42,16 @@ func TestAPIKeyService_RejectsV10AuthSnapshotWithoutModelsListConfig(t *testing.
 	}
 }
 
-func TestAPIKeyServiceRejectsV15SnapshotWithoutDynamicRoutingGroups(t *testing.T) {
+func TestAPIKeyServiceRejectsV17SnapshotWithoutReasoningEffortPolicy(t *testing.T) {
 	svc := &APIKeyService{}
 
-	apiKey, ok, err := svc.applyAuthCacheEntry("k-v15", &APIKeyAuthCacheEntry{
-		Snapshot: &APIKeyAuthSnapshot{Version: 15},
+	apiKey, ok, err := svc.applyAuthCacheEntry("k-v17", &APIKeyAuthCacheEntry{
+		Snapshot: &APIKeyAuthSnapshot{Version: 17},
 	})
 	if err != nil {
 		t.Fatalf("expected stale snapshot to be ignored without error, got %v", err)
 	}
 	if ok || apiKey != nil {
-		t.Fatalf("expected v15 auth snapshot to be rejected, got ok=%v apiKey=%#v", ok, apiKey)
+		t.Fatalf("expected v17 auth snapshot to be rejected, got ok=%v apiKey=%#v", ok, apiKey)
 	}
 }

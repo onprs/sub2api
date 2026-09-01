@@ -192,17 +192,22 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 			return nil, collectErr
 		}
 		if account.Platform == PlatformGrok {
+			shouldFailover := s.shouldFailoverGrokUpstreamError(upstream.StatusCode, upstream.Body)
+			kind := "http_error"
+			if shouldFailover {
+				kind = "failover"
+			}
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,
 				AccountName:        account.Name,
 				UpstreamStatusCode: upstream.StatusCode,
 				UpstreamRequestID:  firstNonEmpty(upstream.RequestID, upstream.Headers.Get("xai-request-id")),
-				Kind:               "failover",
+				Kind:               kind,
 				Message:            upstreamMsg,
 			})
 			s.handleGrokAccountUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body)
-			if s.shouldFailoverUpstreamError(upstream.StatusCode) {
+			if shouldFailover {
 				return nil, &UpstreamFailoverError{
 					StatusCode:             upstream.StatusCode,
 					ResponseBody:           upstream.Body,

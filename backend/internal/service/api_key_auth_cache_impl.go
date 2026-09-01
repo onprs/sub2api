@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 17 // v17：加入动态分组路由与分组网页搜索按次价格
+const apiKeyAuthSnapshotVersion = 18 // v18：动态分组路由快照加入分组推理策略
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -502,6 +502,8 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		InferGPT56CacheWrite:            group.InferGPT56CacheWrite,
 		InferGPT56CacheWriteMinTokens:   group.GPT56CacheWriteInferenceMinTokens(),
 		RPMLimit:                        group.RPMLimit,
+		MaxReasoningEffort:              group.MaxReasoningEffort,
+		ReasoningEffortMappings:         group.ReasoningEffortMappings,
 		PeakRateEnabled:                 group.PeakRateEnabled,
 		PeakStart:                       group.PeakStart,
 		PeakEnd:                         group.PeakEnd,
@@ -556,6 +558,8 @@ func groupFromAPIKeyAuthSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		InferGPT56CacheWrite:            snapshot.InferGPT56CacheWrite,
 		InferGPT56CacheWriteMinTokens:   snapshot.InferGPT56CacheWriteMinTokens,
 		RPMLimit:                        snapshot.RPMLimit,
+		MaxReasoningEffort:              snapshot.MaxReasoningEffort,
+		ReasoningEffortMappings:         snapshot.ReasoningEffortMappings,
 		PeakRateEnabled:                 snapshot.PeakRateEnabled,
 		PeakStart:                       snapshot.PeakStart,
 		PeakEnd:                         snapshot.PeakEnd,

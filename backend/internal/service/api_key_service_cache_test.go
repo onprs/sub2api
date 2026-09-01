@@ -310,6 +310,8 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesDynamicRoutingCandidates(t *te
 		ModelsListConfig:              GroupModelsListConfig{Enabled: true, Models: []string{"gpt-routed"}},
 		InferGPT56CacheWrite:          true,
 		InferGPT56CacheWriteMinTokens: 4096,
+		MaxReasoningEffort:            "medium",
+		ReasoningEffortMappings:       []ReasoningEffortMapping{{From: "max", To: "xhigh"}},
 	}
 	primaryID := first.ID
 	apiKey := &APIKey{
@@ -350,6 +352,47 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesDynamicRoutingCandidates(t *te
 	require.Equal(t, second.ModelsListConfig, roundTrip.RoutingGroups[1].Group.ModelsListConfig)
 	require.Equal(t, second.PeakRateMultiplier, roundTrip.RoutingGroups[1].Group.PeakRateMultiplier)
 	require.Equal(t, second.InferGPT56CacheWriteMinTokens, roundTrip.RoutingGroups[1].Group.InferGPT56CacheWriteMinTokens)
+	require.Equal(t, second.MaxReasoningEffort, roundTrip.RoutingGroups[1].Group.MaxReasoningEffort)
+	require.Equal(t, second.ReasoningEffortMappings, roundTrip.RoutingGroups[1].Group.ReasoningEffortMappings)
+}
+
+func TestAPIKeyService_SnapshotRoundTrip_PreservesReasoningEffortPolicy(t *testing.T) {
+	svc := NewAPIKeyService(nil, nil, nil, nil, nil, nil, &config.Config{})
+	groupID := int64(9)
+	apiKey := &APIKey{
+		ID:      1,
+		UserID:  2,
+		GroupID: &groupID,
+		Key:     "k-reasoning-policy",
+		Status:  StatusActive,
+		User: &User{
+			ID:          2,
+			Status:      StatusActive,
+			Role:        RoleUser,
+			Balance:     10,
+			Concurrency: 3,
+		},
+		Group: &Group{
+			ID:                 groupID,
+			Name:               "openai",
+			Platform:           PlatformOpenAI,
+			Status:             StatusActive,
+			SubscriptionType:   SubscriptionTypeStandard,
+			RateMultiplier:     1,
+			MaxReasoningEffort: "medium",
+			ReasoningEffortMappings: []ReasoningEffortMapping{
+				{From: "max", To: "xhigh"},
+			},
+		},
+	}
+
+	snapshot := svc.snapshotFromAPIKey(context.Background(), apiKey)
+	roundTrip := svc.snapshotToAPIKey(apiKey.Key, snapshot)
+
+	require.NotNil(t, roundTrip)
+	require.NotNil(t, roundTrip.Group)
+	require.Equal(t, "medium", roundTrip.Group.MaxReasoningEffort)
+	require.Equal(t, apiKey.Group.ReasoningEffortMappings, roundTrip.Group.ReasoningEffortMappings)
 }
 
 func TestAPIKeyService_GetByKey_IgnoresLegacyAuthCacheSnapshotWithoutMessagesDispatchConfig(t *testing.T) {

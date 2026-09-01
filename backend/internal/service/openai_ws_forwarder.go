@@ -211,8 +211,12 @@ type OpenAIWSIngressHooks struct {
 	// before channel or account mapping. Ingress modes preserve it for usage
 	// attribution while MapRequestModel determines the upstream model.
 	InitialRequestModel string
-	BeforeTurn          func(turn int) error
-	BeforeRequest       func(turn int, payload []byte, originalModel string) error
+	// MaxReasoningEffort limits explicit reasoning effort values for this WS session.
+	MaxReasoningEffort string
+	// ReasoningEffortMappings rewrites explicit effort values for this WS session.
+	ReasoningEffortMappings []ReasoningEffortMapping
+	BeforeTurn              func(turn int) error
+	BeforeRequest           func(turn int, payload []byte, originalModel string) error
 	// MapRequestModel resolves the current turn's client model to the model
 	// that must be written into the upstream response.create frame.
 	MapRequestModel func(turn int, originalModel string) (string, error)

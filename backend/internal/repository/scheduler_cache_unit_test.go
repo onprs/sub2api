@@ -33,18 +33,17 @@ func newSchedulerCacheUnitWithRedis(t *testing.T) (*schedulerCache, *miniredis.M
 	return cache, mr
 }
 
-func TestSchedulerCacheWriteAccountsSkipsUnencodableTimes(t *testing.T) {
+func TestSchedulerCacheWriteAccountIDsSkipsUnencodableTimes(t *testing.T) {
 	ctx := context.Background()
 	cache := newSchedulerCacheUnit(t)
 	invalidTime := time.Date(10000, time.January, 1, 0, 0, 0, 0, time.UTC)
 
-	cacheable, err := cache.writeAccounts(ctx, []service.Account{
+	accountIDs, err := cache.writeAccountIDs(ctx, []service.Account{
 		{ID: 111, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey},
 		{ID: 112, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, ExpiresAt: &invalidTime},
 	})
 	require.NoError(t, err)
-	require.Len(t, cacheable, 1)
-	require.Equal(t, int64(111), cacheable[0].ID)
+	require.Equal(t, []int64{111}, accountIDs)
 
 	cached, err := cache.GetAccount(ctx, 111)
 	require.NoError(t, err)
@@ -142,6 +141,56 @@ func TestSchedulerCacheSnapshotAccountIDReusePreservesPayloadAndMembers(t *testi
 	missing, err := cache.GetAccount(ctx, invalid.ID)
 	require.NoError(t, err)
 	require.Nil(t, missing)
+}
+
+func TestSchedulerCacheSetSnapshotMatchesIDPublishing(t *testing.T) {
+	ctx := context.Background()
+	cache, _ := newSchedulerCacheUnitWithRedis(t)
+	invalidTime := time.Date(10000, time.January, 1, 0, 0, 0, 0, time.UTC)
+	validOne := service.Account{
+		ID:          721,
+		Name:        "first",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeOAuth,
+		Credentials: map[string]any{"model_mapping": map[string]any{"source": "target"}},
+		Extra:       map[string]any{"mixed_scheduling": true},
+		GroupIDs:    []int64{21},
+	}
+	validTwo := service.Account{ID: 722, Name: "second", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey}
+	invalid := service.Account{ID: 799, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, ExpiresAt: &invalidTime}
+	accounts := []service.Account{validOne, invalid, validTwo, validOne}
+
+	normal := service.SchedulerBucket{GroupID: 21, Platform: service.PlatformOpenAI, Mode: service.SchedulerModeSingle}
+	normalToken, err := cache.CaptureBucketWriteToken(ctx, normal)
+	require.NoError(t, err)
+	require.NoError(t, cache.SetSnapshot(ctx, normal, normalToken, accounts))
+
+	fullBefore, err := cache.rdb.Get(ctx, schedulerAccountKey("721")).Bytes()
+	require.NoError(t, err)
+	metaBefore, err := cache.rdb.Get(ctx, schedulerAccountMetaKey("721")).Bytes()
+	require.NoError(t, err)
+
+	idOnly := service.SchedulerBucket{GroupID: 21, Platform: service.PlatformOpenAI, Mode: service.SchedulerModeForced}
+	idOnlyToken, err := cache.CaptureBucketWriteToken(ctx, idOnly)
+	require.NoError(t, err)
+	accountIDs, err := cache.SetSnapshotAndReturnAccountIDs(ctx, idOnly, idOnlyToken, accounts)
+	require.NoError(t, err)
+	require.Equal(t, []int64{721, 722, 721}, accountIDs)
+
+	fullAfter, err := cache.rdb.Get(ctx, schedulerAccountKey("721")).Bytes()
+	require.NoError(t, err)
+	metaAfter, err := cache.rdb.Get(ctx, schedulerAccountMetaKey("721")).Bytes()
+	require.NoError(t, err)
+	require.Equal(t, fullBefore, fullAfter, "普通快照和 ID 发布必须写入相同完整账号 payload")
+	require.Equal(t, metaBefore, metaAfter, "普通快照和 ID 发布必须写入相同元数据 payload")
+
+	for _, bucket := range []service.SchedulerBucket{normal, idOnly} {
+		version, err := cache.rdb.Get(ctx, schedulerBucketKey(schedulerActivePrefix, bucket)).Result()
+		require.NoError(t, err)
+		members, err := cache.rdb.ZRange(ctx, schedulerSnapshotKey(bucket, version), 0, -1).Result()
+		require.NoError(t, err)
+		require.Equal(t, []string{"722", "721"}, members, bucket.String())
+	}
 }
 
 func TestSchedulerCacheSnapshotAccountIDReuseKeepsEmptySnapshotSemantics(t *testing.T) {
@@ -553,7 +602,6 @@ func TestBuildSchedulerMetadataAccount_KeepsQuotaStateForCachedAccounts(t *testi
 			},
 		},
 	}
-
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			extra := make(map[string]any, len(tc.extra)+1)
@@ -565,9 +613,18 @@ func TestBuildSchedulerMetadataAccount_KeepsQuotaStateForCachedAccounts(t *testi
 				ID: int64(46690 + i), Platform: tc.platform, Type: tc.typ, Extra: extra,
 				Status: service.StatusActive, Schedulable: true,
 			}
+			cache := newSchedulerCacheUnit(t)
+			ctx := context.Background()
+			bucket := service.SchedulerBucket{GroupID: int64(46690 + i), Platform: tc.platform, Mode: service.SchedulerModeSingle}
+			token, err := cache.CaptureBucketWriteToken(ctx, bucket)
+			require.NoError(t, err)
+			require.NoError(t, cache.SetSnapshot(ctx, bucket, token, []service.Account{account}))
 
-			cached := buildSchedulerMetadataAccount(account)
-
+			snapshot, hit, err := cache.GetSnapshot(ctx, bucket)
+			require.NoError(t, err)
+			require.True(t, hit)
+			require.Len(t, snapshot, 1)
+			cached := snapshot[0]
 			require.Equal(t, tc.extra, cached.Extra)
 			require.NotContains(t, cached.Extra, "unrelated")
 			require.Equal(t, tc.quotaExceeded, cached.IsQuotaExceeded())
@@ -741,7 +798,8 @@ func TestSchedulerCacheActivationIsFencedAfterRetire(t *testing.T) {
 	require.NoError(t, err)
 	version, err := cache.allocateSnapshotVersion(ctx, bucket, token)
 	require.NoError(t, err)
-	require.NoError(t, cache.writeSnapshotVersion(ctx, bucket, version, []service.Account{account}))
+	_, err = cache.writeSnapshotVersionAndReturnAccountIDs(ctx, bucket, version, []service.Account{account})
+	require.NoError(t, err)
 
 	// Deterministic race C: retirement and authoritative reopen both happen after
 	// INCR/write but before the old writer activates.

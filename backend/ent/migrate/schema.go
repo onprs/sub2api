@@ -961,6 +961,8 @@ var (
 		{Name: "infer_gpt56_cache_write", Type: field.TypeBool, Default: false},
 		{Name: "infer_gpt56_cache_write_min_tokens", Type: field.TypeInt, Default: 1024},
 		{Name: "rpm_limit", Type: field.TypeInt, Default: 0},
+		{Name: "max_reasoning_effort", Type: field.TypeString, Size: 20, Default: ""},
+		{Name: "reasoning_effort_mappings", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
 	}
 	// GroupsTable holds the schema information for the "groups" table.
 	GroupsTable = &schema.Table{

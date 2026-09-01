@@ -111,6 +111,7 @@ import type { UserSubscription } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { hasPeakRate as groupHasPeakRate, formatPeakRateWindow, serverTimezoneLabel } from '@/utils/peak-rate'
 import { formatUsdLimit, hasRollingQuotaLimits, rollingQuotaWindows } from '@/utils/rollingQuota'
+import { planValiditySuffix } from './validity'
 import { currencySymbol } from '@/components/payment/currency'
 import {
   platformAccentBarClass,
@@ -195,11 +196,6 @@ function formatDiscountPercent(value: number): string {
   return Number(value.toFixed(2)).toString()
 }
 
-function translatedValidityUnit(key: string, fallback: string): string {
-  const label = t(key)
-  return label === key ? fallback : label
-}
-
 function translatedQuotaLabel(key: string, fallback: string): string {
   const label = t(key)
   return label === key ? fallback : label
@@ -237,13 +233,5 @@ const modelScopeLabels = computed(() => {
   return scopes.map(s => MODEL_SCOPE_LABELS[s] || s)
 })
 
-const validitySuffix = computed(() => {
-  const u = (props.plan.validity_unit || 'days').toLowerCase()
-  if (u === 'month') return t('payment.perMonth')
-  if (u === 'months') return `${props.plan.validity_days}${translatedValidityUnit('payment.months', 'months')}`
-  if (u === 'week' || u === 'weeks') return `${props.plan.validity_days}${translatedValidityUnit('payment.weeks', 'weeks')}`
-  if (u === 'year') return t('payment.perYear')
-  if (u === 'years') return `${props.plan.validity_days}${translatedValidityUnit('payment.years', 'years')}`
-  return `${props.plan.validity_days}${translatedValidityUnit('payment.days', 'days')}`
-})
+const validitySuffix = computed(() => planValiditySuffix(props.plan, t))
 </script>

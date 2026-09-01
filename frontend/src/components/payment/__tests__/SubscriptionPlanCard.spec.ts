@@ -16,6 +16,7 @@ const i18n = createI18n({
         days: "days",
         weeks: "weeks",
         months: "months",
+        perMonth: "month",
         models: "Models",
         planCard: {
           dailyLimit: "Daily",
@@ -419,6 +420,13 @@ describe("SubscriptionPlanCard", () => {
     await button.trigger("click");
 
     expect(wrapper.emitted("select")).toBeUndefined();
+  });
+
+  it("renders normalized month, week, and day validity units", () => {
+    expect(mountPlanCard("openai", { validity_days: 1, validity_unit: "months" }).text()).toContain("/ month");
+    expect(mountPlanCard("openai", { validity_days: 3, validity_unit: "months" }).text()).toContain("/ 3months");
+    expect(mountPlanCard("openai", { validity_days: 2, validity_unit: "weeks" }).text()).toContain("/ 2weeks");
+    expect(mountPlanCard("openai", { validity_days: 30, validity_unit: "day" }).text()).toContain("/ 30days");
   });
 
   it("uses the configured currency symbol while preserving USD for legacy plans", () => {

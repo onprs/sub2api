@@ -199,6 +199,7 @@ func testDatabase(c *gin.Context) {
 type TestRedisRequest struct {
 	Host      string `json:"host" binding:"required"`
 	Port      int    `json:"port" binding:"required"`
+	Username  string `json:"username"`
 	Password  string `json:"password"`
 	DB        int    `json:"db"`
 	EnableTLS bool   `json:"enable_tls"`
@@ -225,10 +226,16 @@ func testRedis(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "Invalid Redis database number (0-15)")
 		return
 	}
+	req.Username = strings.TrimSpace(req.Username)
+	if len(req.Username) > 128 {
+		response.Error(c, http.StatusBadRequest, "Invalid Redis username")
+		return
+	}
 
 	cfg := &RedisConfig{
 		Host:      req.Host,
 		Port:      req.Port,
+		Username:  req.Username,
 		Password:  req.Password,
 		DB:        req.DB,
 		EnableTLS: req.EnableTLS,
@@ -273,6 +280,7 @@ func install(c *gin.Context) {
 	req.Database.User = strings.TrimSpace(req.Database.User)
 	req.Database.DBName = strings.TrimSpace(req.Database.DBName)
 	req.Redis.Host = strings.TrimSpace(req.Redis.Host)
+	req.Redis.Username = strings.TrimSpace(req.Redis.Username)
 
 	// ========== COMPREHENSIVE INPUT VALIDATION ==========
 	// Database validation
@@ -304,6 +312,10 @@ func install(c *gin.Context) {
 	}
 	if req.Redis.DB < 0 || req.Redis.DB > 15 {
 		response.Error(c, http.StatusBadRequest, "Invalid Redis database number")
+		return
+	}
+	if len(req.Redis.Username) > 128 {
+		response.Error(c, http.StatusBadRequest, "Invalid Redis username")
 		return
 	}
 

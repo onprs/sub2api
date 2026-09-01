@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -139,6 +140,14 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	platform := input.Platform
 	if platform == "" {
 		platform = PlatformAnthropic
+	}
+	maxReasoningEffort, err := normalizeMaxReasoningEffortForPlatform(platform, input.MaxReasoningEffort)
+	if err != nil {
+		return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_MAX_REASONING_EFFORT", "%v", err)
+	}
+	reasoningEffortMappings, err := NormalizeReasoningEffortMappings(platform, input.ReasoningEffortMappings)
+	if err != nil {
+		return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_REASONING_EFFORT_MAPPING", "%v", err)
 	}
 
 	subscriptionType := input.SubscriptionType
@@ -311,8 +320,11 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		InferGPT56CacheWrite:            inferGPT56CacheWrite,
 		InferGPT56CacheWriteMinTokens:   inferGPT56CacheWriteMinTokens,
 		RPMLimit:                        input.RPMLimit,
+		MaxReasoningEffort:              maxReasoningEffort,
+		ReasoningEffortMappings:         reasoningEffortMappings,
 	}
 	sanitizeGroupMessagesDispatchFields(group)
+	sanitizeGroupReasoningEffortPolicy(group)
 	if err := s.groupRepo.Create(ctx, group); err != nil {
 		return nil, err
 	}
@@ -638,7 +650,22 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.RPMLimit != nil {
 		group.RPMLimit = *input.RPMLimit
 	}
+	if input.MaxReasoningEffort != nil {
+		maxReasoningEffort, err := normalizeMaxReasoningEffortForPlatform(group.Platform, *input.MaxReasoningEffort)
+		if err != nil {
+			return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_MAX_REASONING_EFFORT", "%v", err)
+		}
+		group.MaxReasoningEffort = maxReasoningEffort
+	}
+	if input.ReasoningEffortMappings != nil {
+		reasoningEffortMappings, err := NormalizeReasoningEffortMappings(group.Platform, *input.ReasoningEffortMappings)
+		if err != nil {
+			return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_REASONING_EFFORT_MAPPING", "%v", err)
+		}
+		group.ReasoningEffortMappings = reasoningEffortMappings
+	}
 	sanitizeGroupMessagesDispatchFields(group)
+	sanitizeGroupReasoningEffortPolicy(group)
 
 	if err := s.groupRepo.Update(ctx, group); err != nil {
 		return nil, err

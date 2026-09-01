@@ -101,7 +101,7 @@
     </div>
     <div
       v-else-if="activeView === 'model_distribution' && displayModelStats.length > 0 && chartData"
-      class="flex flex-col items-center gap-6 sm:flex-row"
+      class="flex flex-col items-center gap-4 sm:flex-row sm:gap-6"
     >
       <div class="h-48 w-48 shrink-0">
         <Doughnut :data="chartData" :options="doughnutOptions" />
@@ -182,7 +182,7 @@
     >
       {{ t('admin.dashboard.failedToLoad') }}
     </div>
-    <div v-else-if="rankingDisplayItems.length > 0 && rankingChartData" class="flex flex-col items-center gap-6 sm:flex-row">
+    <div v-else-if="rankingDisplayItems.length > 0 && rankingChartData" class="flex flex-col items-center gap-4 sm:flex-row sm:gap-6">
       <div class="h-48 w-48 shrink-0">
         <Doughnut :data="rankingChartData" :options="rankingDoughnutOptions" />
       </div>

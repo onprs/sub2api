@@ -286,6 +286,7 @@ import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import PaymentStatusPanel from '@/components/payment/PaymentStatusPanel.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { DEFAULT_PAYMENT_CURRENCY, currencySymbol, formatPaymentAmount, normalizePaymentCurrency } from '@/components/payment/currency'
+import { planValiditySuffix as validitySuffixOf } from '@/components/payment/validity'
 import { formatAccountBalance } from '@/utils/currencyDisplay'
 import type { PaymentMethodOption } from '@/components/payment/PaymentMethodSelector.vue'
 import { buildPaymentErrorToastMessage, describePaymentScenarioError } from './paymentUx'
@@ -785,11 +786,6 @@ function translatedQuotaLabel(key: string, fallback: string): string {
   return label === key ? fallback : label
 }
 
-function translatedValidityUnit(key: string, fallback: string): string {
-  const label = t(key)
-  return label === key ? fallback : label
-}
-
 // Renewal modal state
 const showRenewalModal = ref(false)
 const renewGroupId = ref<number | null>(null)
@@ -800,13 +796,7 @@ const renewalPlans = computed(() => {
 
 const planValiditySuffix = computed(() => {
   if (!selectedPlan.value) return ''
-  const u = (selectedPlan.value.validity_unit || 'days').toLowerCase()
-  if (u === 'month') return t('payment.perMonth')
-  if (u === 'months') return `${selectedPlan.value.validity_days}${translatedValidityUnit('payment.months', 'months')}`
-  if (u === 'week' || u === 'weeks') return `${selectedPlan.value.validity_days}${translatedValidityUnit('payment.weeks', 'weeks')}`
-  if (u === 'year') return t('payment.perYear')
-  if (u === 'years') return `${selectedPlan.value.validity_days}${translatedValidityUnit('payment.years', 'years')}`
-  return `${selectedPlan.value.validity_days}${translatedValidityUnit('payment.days', 'days')}`
+  return validitySuffixOf(selectedPlan.value, t)
 })
 
 function planHasPeakRate(plan: SubscriptionPlan): boolean {
