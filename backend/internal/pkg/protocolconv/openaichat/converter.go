@@ -67,9 +67,13 @@ func (c *Converter) DecodeRequest(body []byte, options protocolconv.Options) (*i
 		return nil, warnings, err
 	}
 	request.Stream.IncludeUsage = wire.StreamOptions != nil && wire.StreamOptions.IncludeUsage
-	ir.NormalizeSystemInstruction(request)
+	if !options.PreserveInstructionMessages {
+		ir.NormalizeSystemInstruction(request)
+	}
 	restoreChatToolResultContent(request, toolResultContent)
-	injectChatReasoning(request, wire.Messages)
+	if !options.PreserveChatReasoningText {
+		injectChatReasoning(request, wire.Messages)
+	}
 	return request, warnings, nil
 }
 

@@ -102,7 +102,7 @@ type inputItemWire struct {
 	EncryptedContent string                       `json:"encrypted_content,omitempty"`
 }
 
-func (*Converter) DecodeRequest(body []byte, _ protocolconv.Options) (*ir.Request, []protocolconv.Warning, error) {
+func (*Converter) DecodeRequest(body []byte, options protocolconv.Options) (*ir.Request, []protocolconv.Warning, error) {
 	var wire requestWire
 	if err := decodeJSON(body, &wire); err != nil {
 		return nil, nil, err
@@ -139,7 +139,9 @@ func (*Converter) DecodeRequest(body []byte, _ protocolconv.Options) (*ir.Reques
 		out.Cache = &ir.CacheConfig{Key: wire.PromptCacheKey}
 	}
 	out.Extensions = encodeRequestExtensions(wire)
-	ir.NormalizeSystemInstruction(out)
+	if !options.PreserveInstructionMessages {
+		ir.NormalizeSystemInstruction(out)
+	}
 	if err := ir.ValidateRequest(out); err != nil {
 		return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidIR, Protocol: protocolconv.ProtocolOpenAIResponses, Cause: err}
 	}

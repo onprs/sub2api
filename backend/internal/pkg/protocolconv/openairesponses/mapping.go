@@ -450,7 +450,7 @@ func decodeResponseFormat(raw json.RawMessage) *ir.ResponseFormat {
 	if json.Unmarshal(raw, &value) != nil {
 		return nil
 	}
-	return &ir.ResponseFormat{Type: value.Type, JSONSchema: cloneRaw(value.Schema)}
+	return &ir.ResponseFormat{Type: strings.ToLower(strings.TrimSpace(value.Type)), JSONSchema: cloneRaw(value.Schema)}
 }
 
 func encodeResponseFormat(format *ir.ResponseFormat, _ protocolconv.CapabilitySet, _ protocolconv.Options) (json.RawMessage, []protocolconv.Warning, error) {

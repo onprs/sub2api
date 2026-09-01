@@ -63,6 +63,12 @@ type ChatExtensions struct {
 type Options struct {
 	LossPolicy     LossPolicy
 	ChatExtensions ChatExtensions
+	// PreserveInstructionMessages 仅在来源和目标都能表达对应角色时，
+	// 保留 system/developer 消息，不折叠到 SystemInstruction。
+	PreserveInstructionMessages bool
+	// PreserveChatReasoningText 保留 Chat reasoning_content 的带标签文本表示，
+	// 供不接受 Responses reasoning item 历史输入的上游使用。
+	PreserveChatReasoningText bool
 	// SourceModel supplies model metadata carried outside the JSON body, as in
 	// Google GenAI model-action URLs. It is never inferred by the converter.
 	SourceModel string

@@ -170,6 +170,47 @@ func TestNormalizeResponsesBodyServiceTier(t *testing.T) {
 	require.False(t, gjson.GetBytes(body, "service_tier").Exists())
 }
 
+func TestOpenAIChatResponsesPipelineScopesRequestCompatibilityOptions(t *testing.T) {
+	t.Parallel()
+
+	const requestBody = `{"model":"client-model","messages":[{"role":"system","content":"rules"},{"role":"user","content":"hi"},{"role":"assistant","content":null,"reasoning_content":"plan","tool_calls":[{"id":"call_lookup","type":"function","function":{"name":"lookup","arguments":"{}"}}]}]}`
+
+	openAIOAuthPipeline, err := newOpenAIChatResponsesPipeline(
+		&Account{ID: 305, Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+		"client-model",
+		"upstream-model",
+	)
+	require.NoError(t, err)
+	openAIOAuthRequest, err := openAIOAuthPipeline.ConvertRequest([]byte(requestBody))
+	require.NoError(t, err)
+	require.Equal(t, "system", gjson.GetBytes(openAIOAuthRequest.Body, "input.0.role").String())
+	require.False(t, gjson.GetBytes(openAIOAuthRequest.Body, "instructions").Exists())
+
+	openAIAPIKeyPipeline, err := newOpenAIChatResponsesPipeline(
+		&Account{ID: 306, Platform: PlatformOpenAI, Type: AccountTypeAPIKey},
+		"client-model",
+		"upstream-model",
+	)
+	require.NoError(t, err)
+	openAIAPIKeyRequest, err := openAIAPIKeyPipeline.ConvertRequest([]byte(requestBody))
+	require.NoError(t, err)
+	require.Equal(t, "rules", gjson.GetBytes(openAIAPIKeyRequest.Body, "instructions").String())
+	require.Equal(t, "user", gjson.GetBytes(openAIAPIKeyRequest.Body, "input.0.role").String())
+
+	grokPipeline, err := newOpenAIChatResponsesPipeline(
+		&Account{ID: 307, Platform: PlatformGrok, Type: AccountTypeOAuth},
+		"client-model",
+		"upstream-model",
+	)
+	require.NoError(t, err)
+	grokRequest, err := grokPipeline.ConvertRequest([]byte(requestBody))
+	require.NoError(t, err)
+	require.Equal(t, "rules", gjson.GetBytes(grokRequest.Body, "instructions").String())
+	require.Equal(t, "user", gjson.GetBytes(grokRequest.Body, "input.0.role").String())
+	require.Equal(t, "<thinking>plan</thinking>", gjson.GetBytes(grokRequest.Body, "input.1.content.0.text").String())
+	require.Equal(t, "function_call", gjson.GetBytes(grokRequest.Body, "input.2.type").String())
+}
+
 func TestOpenAIChatResponsesPipeline_APIKeyBufferedResponseDropsReasoningSignatureWithWarning(t *testing.T) {
 	t.Parallel()
 
@@ -389,6 +430,79 @@ func TestForwardAsChatCompletions_OAuthDoesNotInjectDefaultInstructions(t *testi
 	require.True(t, gjson.GetBytes(upstream.lastBody, "instructions").Exists())
 	require.Equal(t, "", gjson.GetBytes(upstream.lastBody, "instructions").String())
 	require.NotContains(t, string(upstream.lastBody), "Communicate with the user by streaming thinking")
+}
+
+func forwardOAuthChatCompletionsForUpstreamBody(t *testing.T, body []byte) []byte {
+	t.Helper()
+
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_chat_system_promotion"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"stop before response parsing"}}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{
+		ID:          4,
+		Name:        "openai-oauth",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token":       "oauth-token",
+			"chatgpt_account_id": "chatgpt-acc",
+		},
+	}
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "gpt-5.4")
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.NotEmpty(t, upstream.lastBody)
+	return upstream.lastBody
+}
+
+func TestForwardAsChatCompletions_OAuthPromotesSystemMessageWithoutDuplication(t *testing.T) {
+	const systemPrompt = "Unique system prefix for token accounting."
+	body := []byte(`{"model":"gpt-5.4","messages":[{"role":"system","content":"` + systemPrompt + `"},{"role":"user","content":"hello"}],"stream":false}`)
+
+	upstreamBody := forwardOAuthChatCompletionsForUpstreamBody(t, body)
+
+	require.Equal(t, systemPrompt, gjson.GetBytes(upstreamBody, "instructions").String())
+	require.Equal(t, int64(1), gjson.GetBytes(upstreamBody, "input.#").Int())
+	require.Equal(t, "user", gjson.GetBytes(upstreamBody, "input.0.role").String())
+	require.Equal(t, 1, strings.Count(string(upstreamBody), systemPrompt))
+}
+
+func TestForwardAsChatCompletions_OAuthJsonObjectKeepsSystemMessageInInput(t *testing.T) {
+	const systemPrompt = "Return JSON only."
+	body := []byte(`{"model":"gpt-5.4","messages":[{"role":"system","content":"` + systemPrompt + `"},{"role":"user","content":"symbol data"}],"response_format":{"type":" JSON_OBJECT "},"stream":false}`)
+
+	upstreamBody := forwardOAuthChatCompletionsForUpstreamBody(t, body)
+
+	require.Equal(t, systemPrompt, gjson.GetBytes(upstreamBody, "instructions").String())
+	require.Equal(t, int64(2), gjson.GetBytes(upstreamBody, "input.#").Int())
+	require.Equal(t, "developer", gjson.GetBytes(upstreamBody, "input.0.role").String())
+	require.Equal(t, systemPrompt, gjson.GetBytes(upstreamBody, "input.0.content").String())
+	require.Equal(t, 2, strings.Count(string(upstreamBody), systemPrompt))
+}
+
+func TestForwardAsChatCompletions_OAuthKeepsMixedSystemContentInInput(t *testing.T) {
+	const systemPrompt = "Inspect this reference image."
+	body := []byte(`{"model":"gpt-5.4","messages":[{"role":"system","content":[{"type":"text","text":"` + systemPrompt + `"},{"type":"image_url","image_url":{"url":"https://example.com/reference.png"}}]},{"role":"user","content":"hello"}],"stream":false}`)
+
+	upstreamBody := forwardOAuthChatCompletionsForUpstreamBody(t, body)
+
+	require.Equal(t, systemPrompt, gjson.GetBytes(upstreamBody, "instructions").String())
+	require.Equal(t, int64(2), gjson.GetBytes(upstreamBody, "input.#").Int())
+	require.Equal(t, "developer", gjson.GetBytes(upstreamBody, "input.0.role").String())
+	require.Equal(t, int64(2), gjson.GetBytes(upstreamBody, "input.0.content.#").Int())
+	require.Equal(t, "input_image", gjson.GetBytes(upstreamBody, "input.0.content.1.type").String())
+	require.Equal(t, "https://example.com/reference.png", gjson.GetBytes(upstreamBody, "input.0.content.1.image_url").String())
 }
 
 func TestForwardAsChatCompletions_ClientDisconnectDrainsUpstreamUsage(t *testing.T) {

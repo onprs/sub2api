@@ -336,6 +336,13 @@ func mergeEmailOAuthBaseConfig(base, override config.EmailOAuthProviderConfig) c
 	if strings.TrimSpace(override.FrontendRedirectURL) != "" {
 		base.FrontendRedirectURL = strings.TrimSpace(override.FrontendRedirectURL)
 	}
+	if override.ProxyID != nil {
+		proxyID := *override.ProxyID
+		base.ProxyID = &proxyID
+	}
+	if strings.TrimSpace(override.ProxyURL) != "" {
+		base.ProxyURL = strings.TrimSpace(override.ProxyURL)
+	}
 	return base
 }
 
@@ -355,7 +362,9 @@ func (s *SettingService) effectiveEmailOAuthConfig(settings map[string]string, p
 		cfg.ClientSecret = firstNonEmpty(settings[SettingKeyGitHubOAuthClientSecret], cfg.ClientSecret)
 		cfg.RedirectURL = firstNonEmpty(settings[SettingKeyGitHubOAuthRedirectURL], cfg.RedirectURL)
 		cfg.FrontendRedirectURL = firstNonEmpty(settings[SettingKeyGitHubOAuthFrontendRedirectURL], cfg.FrontendRedirectURL, defaultGitHubOAuthFrontend)
-		cfg.ProxyID = parseOptionalPositiveInt64(settings[SettingKeyGitHubOAuthProxyID])
+		if raw, ok := settings[SettingKeyGitHubOAuthProxyID]; ok {
+			cfg.ProxyID = parseOptionalPositiveInt64(raw)
+		}
 	case "google":
 		if raw, ok := settings[SettingKeyGoogleOAuthEnabled]; ok {
 			cfg.Enabled = raw == "true"

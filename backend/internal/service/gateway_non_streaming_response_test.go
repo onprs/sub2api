@@ -128,7 +128,7 @@ func TestHandleNonStreamingResponse_StructuredAnthropicOutputPreservesFieldsAndR
 	require.NoError(t, err)
 	require.Equal(t, 4, usage.InputTokens)
 	require.Equal(t, 2, usage.OutputTokens)
-	require.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	require.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
 	require.Equal(t, "rid-structured", rec.Header().Get("X-Request-Id"))
 	require.Equal(t, "1000", rec.Header().Get("X-RateLimit-Limit-Tokens"))
 	require.Empty(t, rec.Header().Get("X-Internal-Upstream"))

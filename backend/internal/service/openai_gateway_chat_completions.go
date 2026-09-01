@@ -40,6 +40,8 @@ var cursorResponsesUnsupportedFields = []string{
 
 // newOpenAIChatResponsesPipeline 保持请求转换严格，同时允许 OpenAI API Key
 // 的 Responses 响应丢弃标准 Chat Completions 无法表达的 provider 专属字段。
+// Codex OAuth 保留 instruction 消息供后续无损提升；Grok 则保留带标签的
+// reasoning 文本，兼容其 Responses 历史输入格式。
 func newOpenAIChatResponsesPipeline(account *Account, clientModel string, upstreamModel string) (*protocolconv.Pipeline, error) {
 	config := protocolconv.PipelineConfig{
 		Route: protocolconv.Route{
@@ -50,7 +52,12 @@ func newOpenAIChatResponsesPipeline(account *Account, clientModel string, upstre
 			Provider:       account.Platform,
 			AccountID:      account.ID,
 		},
-		Options: protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossError},
+		Options: protocolconv.Options{
+			SourceModel:                 upstreamModel,
+			LossPolicy:                  protocolconv.LossError,
+			PreserveInstructionMessages: account.IsOpenAIOAuth(),
+			PreserveChatReasoningText:   account.Platform == PlatformGrok,
+		},
 	}
 	if account.IsOpenAIApiKey() {
 		config.ResponseOptions = &protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossWarn}
@@ -229,8 +236,13 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		if err := json.Unmarshal(responsesBody, &reqBody); err != nil {
 			return nil, fmt.Errorf("unmarshal for codex transform: %w", err)
 		}
+		if !isResponsesShape {
+			restoreCodexChatInstructionStringShape(reqBody, chatReq.Messages)
+		}
+		isJSONObjectFormat := strings.EqualFold(strings.TrimSpace(gjson.GetBytes(responsesBody, "text.format.type").String()), "json_object")
 		codexResult := applyCodexOAuthTransformWithOptions(reqBody, codexOAuthTransformOptions{
-			SkipDefaultInstructions: !isResponsesShape,
+			SkipDefaultInstructions:             !isResponsesShape,
+			OmitPromotedSystemMessagesFromInput: !isResponsesShape && !isJSONObjectFormat,
 		})
 		if !isResponsesShape {
 			ensureCodexOAuthInstructionsField(reqBody)
@@ -375,6 +387,33 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	}
 
 	return result, handleErr
+}
+
+func restoreCodexChatInstructionStringShape(reqBody map[string]any, messages []apicompat.ChatMessage) {
+	input, ok := reqBody["input"].([]any)
+	if !ok || len(input) == 0 {
+		return
+	}
+
+	searchFrom := 0
+	for _, message := range messages {
+		if message.Role != "system" && message.Role != "developer" {
+			continue
+		}
+		var sourceText string
+		if json.Unmarshal(message.Content, &sourceText) != nil {
+			continue
+		}
+		for index := searchFrom; index < len(input); index++ {
+			item, itemOK := input[index].(map[string]any)
+			if !itemOK || item["role"] != message.Role || extractTextFromContent(item["content"]) != sourceText {
+				continue
+			}
+			item["content"] = sourceText
+			searchFrom = index + 1
+			break
+		}
+	}
 }
 
 func normalizeResponsesRequestServiceTier(req *apicompat.ResponsesRequest) {

@@ -49,8 +49,12 @@ func TestWriteProtocolErrorUsesSourceRenderer(t *testing.T) {
 
 			writeProtocolError(c, test.protocol, test.status, test.errorType, test.code, "bad input")
 
+			wantContentType := "application/json"
+			if test.protocol == protocolconv.ProtocolAnthropic {
+				wantContentType = "application/json; charset=utf-8"
+			}
 			require.Equal(t, test.status, recorder.Code)
-			require.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
+			require.Equal(t, wantContentType, recorder.Header().Get("Content-Type"))
 			require.JSONEq(t, test.want, recorder.Body.String())
 		})
 	}

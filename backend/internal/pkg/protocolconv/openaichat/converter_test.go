@@ -14,6 +14,42 @@ func TestDecodeRequestRejectsMultipleJSONValues(t *testing.T) {
 	require.ErrorContains(t, err, "multiple JSON values")
 }
 
+func TestDecodeRequestPreservesInstructionMessagesWhenRequested(t *testing.T) {
+	request, warnings, err := New().DecodeRequest([]byte(`{
+		"model":"model",
+		"messages":[
+			{"role":"system","content":[{"type":"text","text":"inspect"},{"type":"image_url","image_url":{"url":"https://example.com/reference.png"}}]},
+			{"role":"user","content":"hello"}
+		],
+		"response_format":{"type":" JSON_OBJECT "}
+	}`), protocolconv.Options{PreserveInstructionMessages: true})
+
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Empty(t, request.SystemInstruction)
+	require.Len(t, request.Messages, 2)
+	require.Equal(t, ir.RoleSystem, request.Messages[0].Role)
+	require.Len(t, request.Messages[0].Content, 2)
+	require.Equal(t, ir.ContentText, request.Messages[0].Content[0].Type)
+	require.Equal(t, "inspect", request.Messages[0].Content[0].Text)
+	require.Equal(t, ir.ContentImage, request.Messages[0].Content[1].Type)
+	require.Equal(t, "https://example.com/reference.png", request.Messages[0].Content[1].URL)
+	require.NotNil(t, request.ResponseFormat)
+	require.Equal(t, "json_object", request.ResponseFormat.Type)
+}
+
+func TestDecodeRequestPreservesChatReasoningAsTaggedTextWhenRequested(t *testing.T) {
+	body := []byte(`{"model":"model","messages":[{"role":"assistant","reasoning_content":"plan","content":"answer"}]}`)
+	request, warnings, err := New().DecodeRequest(body, protocolconv.Options{PreserveChatReasoningText: true})
+
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Len(t, request.Messages, 1)
+	require.Len(t, request.Messages[0].Content, 1)
+	require.Equal(t, ir.ContentText, request.Messages[0].Content[0].Type)
+	require.Equal(t, "<thinking>plan</thinking>\nanswer", request.Messages[0].Content[0].Text)
+}
+
 func TestEncodeRequestRejectsSignatureInStrictMode(t *testing.T) {
 	request := &ir.Request{Model: "model", Messages: []ir.Message{{Role: ir.RoleAssistant, Content: []ir.ContentPart{{Type: ir.ContentReasoning, Reasoning: "plan", Signature: "sig"}}}}}
 	_, _, err := New().EncodeRequest(request, protocolconv.Options{LossPolicy: protocolconv.LossError})

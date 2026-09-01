@@ -3,6 +3,7 @@ package apicompat
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -32,10 +33,14 @@ func ResponsesToAnthropic(resp *ResponsesResponse, model string) *AnthropicRespo
 					summaryText += s.Text
 				}
 			}
-			if summaryText != "" {
+			// Always surface encrypted_content as thinking.signature so Claude
+			// Code / multi-turn clients can send it back. Signature-only
+			// thinking blocks are valid when the model omits a visible summary.
+			if summaryText != "" || strings.TrimSpace(item.EncryptedContent) != "" {
 				blocks = append(blocks, AnthropicContentBlock{
-					Type:     "thinking",
-					Thinking: summaryText,
+					Type:      "thinking",
+					Thinking:  summaryText,
+					Signature: item.EncryptedContent,
 				})
 			}
 		case "message":
@@ -81,7 +86,7 @@ func ResponsesToAnthropic(resp *ResponsesResponse, model string) *AnthropicRespo
 	}
 	out.Content = blocks
 
-	out.StopReason = responsesStatusToAnthropicStopReason(resp.Status, resp.IncompleteDetails, blocks)
+	out.StopReason = AnthropicStopReasonPtr(responsesStatusToAnthropicStopReason(resp.Status, resp.IncompleteDetails, blocks))
 
 	if resp.Usage != nil {
 		out.Usage = anthropicUsageFromResponsesUsage(resp.Usage)
@@ -171,14 +176,16 @@ type ResponsesEventToAnthropicState struct {
 	MessageStartSent bool
 	MessageStopSent  bool
 
-	ContentBlockIndex         int
-	ContentBlockOpen          bool
-	CurrentBlockType          string // "text" | "thinking" | "tool_use"
-	CurrentToolName           string
-	CurrentToolArgs           string
-	CurrentToolHadDelta       bool
-	CurrentReasoningSignature string
-	HasToolCall               bool
+	ContentBlockIndex   int
+	ContentBlockOpen    bool
+	CurrentBlockType    string // "text" | "thinking" | "tool_use"
+	CurrentToolName     string
+	CurrentToolArgs     string
+	CurrentToolHadDelta bool
+	// PendingThinkingSignature is filled from reasoning.encrypted_content and
+	// emitted as signature_delta before the thinking block is closed.
+	PendingThinkingSignature string
+	HasToolCall              bool
 
 	// OutputIndexToBlockIdx maps Responses output_index → Anthropic content block index.
 	OutputIndexToBlockIdx map[int]int
@@ -301,14 +308,19 @@ func resToAnthHandleCreated(evt *ResponsesStreamEvent, state *ResponsesEventToAn
 	}
 	state.MessageStartSent = true
 
+	// Official Anthropic message_start uses stop_reason: null and usage with
+	// input_tokens when known. We leave StopReason nil (JSON null) and usage
+	// zeros until response.completed; never emit stop_reason:"" which breaks
+	// strict clients' turn-finalization / session usage accounting.
 	return []AnthropicStreamEvent{{
 		Type: "message_start",
 		Message: &AnthropicResponse{
-			ID:      state.ResponseID,
-			Type:    "message",
-			Role:    "assistant",
-			Content: []AnthropicContentBlock{},
-			Model:   state.Model,
+			ID:         state.ResponseID,
+			Type:       "message",
+			Role:       "assistant",
+			Content:    []AnthropicContentBlock{},
+			Model:      state.Model,
+			StopReason: nil,
 			Usage: AnthropicUsage{
 				InputTokens:  0,
 				OutputTokens: 0,
@@ -358,7 +370,7 @@ func resToAnthHandleOutputItemAdded(evt *ResponsesStreamEvent, state *ResponsesE
 		state.OutputIndexToBlockIdx[evt.OutputIndex] = idx
 		state.ContentBlockOpen = true
 		state.CurrentBlockType = "thinking"
-		state.CurrentReasoningSignature = evt.Item.EncryptedContent
+		state.PendingThinkingSignature = strings.TrimSpace(evt.Item.EncryptedContent)
 
 		events = append(events, AnthropicStreamEvent{
 			Type:  "content_block_start",
@@ -537,13 +549,16 @@ func resToAnthHandleOutputItemDone(evt *ResponsesStreamEvent, state *ResponsesEv
 		return nil
 	}
 
-	if evt.Item.Type == "reasoning" && evt.Item.EncryptedContent != "" {
-		state.CurrentReasoningSignature = evt.Item.EncryptedContent
-	}
-
 	// Handle web_search_call → synthesize server_tool_use + web_search_tool_result blocks.
 	if evt.Item.Type == "web_search_call" && evt.Item.Status == "completed" {
 		return resToAnthHandleWebSearchDone(evt, state)
+	}
+
+	// Capture encrypted_content on reasoning item done (often only present here).
+	if evt.Item.Type == "reasoning" {
+		if sig := strings.TrimSpace(evt.Item.EncryptedContent); sig != "" {
+			state.PendingThinkingSignature = sig
+		}
 	}
 
 	if state.ContentBlockOpen {
@@ -668,12 +683,20 @@ func closeCurrentBlock(state *ResponsesEventToAnthropicState) []AnthropicStreamE
 	}
 	idx := state.ContentBlockIndex
 	var events []AnthropicStreamEvent
-	if state.CurrentBlockType == "thinking" && state.CurrentReasoningSignature != "" {
-		events = append(events, AnthropicStreamEvent{
-			Type:  "content_block_delta",
-			Index: &idx,
-			Delta: &AnthropicDelta{Type: "signature_delta", Signature: state.CurrentReasoningSignature},
-		})
+	// Emit signature_delta before stop so Claude clients retain encrypted
+	// reasoning for the next turn.
+	if state.CurrentBlockType == "thinking" {
+		if sig := strings.TrimSpace(state.PendingThinkingSignature); sig != "" {
+			events = append(events, AnthropicStreamEvent{
+				Type:  "content_block_delta",
+				Index: &idx,
+				Delta: &AnthropicDelta{
+					Type:      "signature_delta",
+					Signature: sig,
+				},
+			})
+		}
+		state.PendingThinkingSignature = ""
 	}
 	state.ContentBlockOpen = false
 	state.ContentBlockIndex++
@@ -681,9 +704,9 @@ func closeCurrentBlock(state *ResponsesEventToAnthropicState) []AnthropicStreamE
 	state.CurrentToolName = ""
 	state.CurrentToolArgs = ""
 	state.CurrentToolHadDelta = false
-	state.CurrentReasoningSignature = ""
-	return append(events, AnthropicStreamEvent{
+	events = append(events, AnthropicStreamEvent{
 		Type:  "content_block_stop",
 		Index: &idx,
 	})
+	return events
 }

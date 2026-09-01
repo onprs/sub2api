@@ -103,12 +103,98 @@ type codexModelsManifestUpstreamError struct {
 	err        error
 	retryable  bool
 	statusCode int
+	headers    http.Header
 	body       []byte
 }
 
 func (e *codexModelsManifestUpstreamError) Error() string { return e.err.Error() }
 
 func (e *codexModelsManifestUpstreamError) Unwrap() error { return e.err }
+
+// IsRetryableCodexModelsManifestError reports whether another selected account
+// may succeed without changing the request. Configuration and upstream 4xx
+// responses, except 429 and ChatGPT-backend 401, are intentionally not
+// retried. A manifest 401 from the ChatGPT Codex backend reflects the selected
+// OAuth account's upstream token rather than the client request (the client's
+// own API key was already validated locally), so a different account may still
+// serve the manifest. Custom API key upstreams keep the old no-failover 401
+// behavior because their /models auth semantics are not authoritative for the
+// account.
+func IsRetryableCodexModelsManifestError(err error) bool {
+	var upstreamErr *codexModelsManifestUpstreamError
+	return errors.As(err, &upstreamErr) && upstreamErr.retryable
+}
+
+func isRetryableCodexModelsManifestTransportError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, net.ErrClosed) {
+		return true
+	}
+
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+	var goAwayErr http2.GoAwayError
+	if errors.As(err, &goAwayErr) {
+		return true
+	}
+	var streamErr http2.StreamError
+	if errors.As(err, &streamErr) {
+		return true
+	}
+	var connectionErr http2.ConnectionError
+	if errors.As(err, &connectionErr) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+
+	// net/http uses unexported HTTP/2 error types, so typed matching is not
+	// possible for errors produced by the standard library transport.
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "http2:") &&
+		(strings.Contains(message, "goaway") ||
+			strings.Contains(message, "refused_stream") ||
+			strings.Contains(message, "frame too large")) {
+		return true
+	}
+	if strings.Contains(message, "stream error: stream id ") {
+		return true
+	}
+	for _, code := range []http2.ErrCode{
+		http2.ErrCodeNo,
+		http2.ErrCodeProtocol,
+		http2.ErrCodeInternal,
+		http2.ErrCodeFlowControl,
+		http2.ErrCodeSettingsTimeout,
+		http2.ErrCodeStreamClosed,
+		http2.ErrCodeFrameSize,
+		http2.ErrCodeRefusedStream,
+		http2.ErrCodeCancel,
+		http2.ErrCodeCompression,
+		http2.ErrCodeConnect,
+		http2.ErrCodeEnhanceYourCalm,
+		http2.ErrCodeInadequateSecurity,
+		http2.ErrCodeHTTP11Required,
+	} {
+		if strings.Contains(message, "connection error: "+strings.ToLower(code.String())) {
+			return true
+		}
+	}
+	return false
+}
 
 type codexModelsManifestRequest struct {
 	url                 string
@@ -197,14 +283,6 @@ func (c *codexModelsManifestCache) set(key string, manifest *CodexModelsManifest
 		expiresAt:  now.Add(codexModelsManifestCacheTTL),
 		staleUntil: now.Add(codexModelsManifestCacheStaleTTL),
 	}
-}
-
-// IsRetryableCodexModelsManifestError reports whether another selected account
-// may succeed without changing the request. Configuration and upstream 4xx
-// responses, except 429, are intentionally not retried.
-func IsRetryableCodexModelsManifestError(err error) bool {
-	var upstreamErr *codexModelsManifestUpstreamError
-	return errors.As(err, &upstreamErr) && upstreamErr.retryable
 }
 
 func cloneAccountForCodexModelsManifest(account *Account, credAccount *Account, accessToken string) *Account {
@@ -380,6 +458,7 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 	}
 	manifest, fetchErr := s.fetchCodexModelsManifestUpstream(ctx, request, ifNoneMatch)
 	if !credAccount.IsOpenAIAgentIdentity() || !isAgentIdentityTaskInvalidCodexModelsError(fetchErr) {
+		s.handleCodexModelsManifestAccountAuthError(ctx, account, credAccount, fetchErr)
 		return manifest, fetchErr
 	}
 	expectedTaskID := strings.TrimSpace(credAccount.GetCredential("task_id"))
@@ -405,6 +484,37 @@ func isAgentIdentityTaskInvalidCodexModelsError(err error) bool {
 	var upstreamErr *codexModelsManifestUpstreamError
 	return errors.As(err, &upstreamErr) &&
 		isAgentIdentityTaskInvalidHTTPResponse(upstreamErr.statusCode, upstreamErr.body)
+}
+
+// handleCodexModelsManifestAccountAuthError feeds manifest 401s from the
+// ChatGPT Codex backend into the shared upstream-error state machinery
+// (token cache invalidation, temp-unschedulable cooldown, or permanent
+// disable for token_revoked/token_invalidated). Without this, an account
+// whose OAuth token was revoked upstream stays active and schedulable and
+// keeps being selected for every subsequent /models request (#4544).
+//
+// Scope is deliberately limited to plain OAuth accounts: the manifest
+// endpoint authenticates with the same token as /responses forwarding, so a
+// 401 is authoritative for the account. Agent Identity accounts are excluded
+// because their 401s can be task-scoped and have a dedicated recovery flow,
+// and API key manifests come from custom upstreams whose /models auth may
+// diverge from their chat endpoints.
+func (s *OpenAIGatewayService) handleCodexModelsManifestAccountAuthError(ctx context.Context, account, credAccount *Account, err error) {
+	if s == nil || account == nil || err == nil {
+		return
+	}
+	if credAccount == nil || !credAccount.IsOpenAIOAuth() || credAccount.IsOpenAIAgentIdentity() {
+		return
+	}
+	var upstreamErr *codexModelsManifestUpstreamError
+	if !errors.As(err, &upstreamErr) || upstreamErr.statusCode != http.StatusUnauthorized {
+		return
+	}
+	headers := upstreamErr.headers
+	if headers == nil {
+		headers = http.Header{}
+	}
+	s.handleOpenAIAccountUpstreamError(ctx, account, upstreamErr.statusCode, headers, upstreamErr.body)
 }
 
 func (s *OpenAIGatewayService) fetchCachedAPIKeyCodexModelsManifest(ctx context.Context, request codexModelsManifestRequest, ifNoneMatch string) (*CodexModelsManifest, error) {
@@ -508,8 +618,10 @@ func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstream(ctx context.Cont
 		return nil, &codexModelsManifestUpstreamError{
 			err:        infraerrors.Newf(http.StatusBadGateway, "OPENAI_CODEX_MODELS_UPSTREAM_FAILED", "codex models manifest upstream error %d: %s", resp.StatusCode, message),
 			statusCode: resp.StatusCode,
+			headers:    resp.Header.Clone(),
 			body:       body,
-			retryable: resp.StatusCode == http.StatusTooManyRequests ||
+			retryable: (resp.StatusCode == http.StatusUnauthorized && !request.useAPIKeyUpstream) ||
+				resp.StatusCode == http.StatusTooManyRequests ||
 				(resp.StatusCode >= http.StatusInternalServerError && resp.StatusCode < 600),
 		}
 	}
@@ -520,6 +632,9 @@ func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstream(ctx context.Cont
 			err:       infraerrors.Newf(http.StatusBadGateway, "OPENAI_CODEX_MODELS_UPSTREAM_FAILED", "read codex models manifest response: %v", err),
 			retryable: isRetryableCodexModelsManifestTransportError(err),
 		}
+	}
+	if request.useAPIKeyUpstream {
+		body = convertOpenAIModelListToCodexManifest(body)
 	}
 	if err := validateCodexModelsManifestEnvelope(body); err != nil {
 		return nil, &codexModelsManifestUpstreamError{
@@ -535,75 +650,50 @@ func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstream(ctx context.Cont
 	return &CodexModelsManifest{Body: body, ETag: resp.Header.Get("ETag")}, nil
 }
 
-func isRetryableCodexModelsManifestTransportError(err error) bool {
-	if err == nil || errors.Is(err, context.Canceled) {
-		return false
+// convertOpenAIModelListToCodexManifest rewrites a standard OpenAI
+// GET /v1/models response ({"object":"list","data":[{"id":...},...]}) into the
+// Codex manifest envelope ({"models":[{"slug":...},...]}) so custom API key
+// upstreams that only implement the standard endpoint can serve Codex model
+// discovery. Bodies that already carry a top-level models field, are not the
+// standard list shape, or yield no usable model IDs are returned unchanged so
+// envelope validation reports the original payload.
+func convertOpenAIModelListToCodexManifest(body []byte) []byte {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(body, &envelope); err != nil || envelope == nil {
+		return body
 	}
-	if errors.Is(err, context.DeadlineExceeded) ||
-		errors.Is(err, io.EOF) ||
-		errors.Is(err, io.ErrUnexpectedEOF) ||
-		errors.Is(err, net.ErrClosed) {
-		return true
+	if _, ok := envelope["models"]; ok {
+		return body
 	}
-
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
-		return true
+	data, ok := envelope["data"]
+	if !ok {
+		return body
 	}
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return true
+	var entries []struct {
+		ID string `json:"id"`
 	}
-	var goAwayErr http2.GoAwayError
-	if errors.As(err, &goAwayErr) {
-		return true
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return body
 	}
-	var streamErr http2.StreamError
-	if errors.As(err, &streamErr) {
-		return true
+	type codexModelEntry struct {
+		Slug string `json:"slug"`
 	}
-	var connectionErr http2.ConnectionError
-	if errors.As(err, &connectionErr) {
-		return true
-	}
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		return true
-	}
-
-	// net/http uses unexported HTTP/2 error types, so typed matching is not
-	// possible for errors produced by the standard library transport.
-	message := strings.ToLower(err.Error())
-	if strings.Contains(message, "http2:") &&
-		(strings.Contains(message, "goaway") ||
-			strings.Contains(message, "refused_stream") ||
-			strings.Contains(message, "frame too large")) {
-		return true
-	}
-	if strings.Contains(message, "stream error: stream id ") {
-		return true
-	}
-	for _, code := range []http2.ErrCode{
-		http2.ErrCodeNo,
-		http2.ErrCodeProtocol,
-		http2.ErrCodeInternal,
-		http2.ErrCodeFlowControl,
-		http2.ErrCodeSettingsTimeout,
-		http2.ErrCodeStreamClosed,
-		http2.ErrCodeFrameSize,
-		http2.ErrCodeRefusedStream,
-		http2.ErrCodeCancel,
-		http2.ErrCodeCompression,
-		http2.ErrCodeConnect,
-		http2.ErrCodeEnhanceYourCalm,
-		http2.ErrCodeInadequateSecurity,
-		http2.ErrCodeHTTP11Required,
-	} {
-		if strings.Contains(message, "connection error: "+strings.ToLower(code.String())) {
-			return true
+	models := make([]codexModelEntry, 0, len(entries))
+	for _, entry := range entries {
+		id := strings.TrimSpace(entry.ID)
+		if id == "" {
+			continue
 		}
+		models = append(models, codexModelEntry{Slug: id})
 	}
-	return false
+	if len(models) == 0 {
+		return body
+	}
+	converted, err := json.Marshal(map[string][]codexModelEntry{"models": models})
+	if err != nil {
+		return body
+	}
+	return converted
 }
 
 func validateCodexModelsManifestEnvelope(body []byte) error {

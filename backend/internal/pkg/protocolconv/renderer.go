@@ -41,7 +41,11 @@ func (r *Renderer) RenderJSON(w http.ResponseWriter, status int, headers http.He
 		return &Error{Code: ErrorInvalidJSON, Protocol: r.protocol, Message: "invalid downstream JSON response"}
 	}
 	copyResponseHeaders(w.Header(), headers)
-	w.Header().Set("Content-Type", "application/json")
+	contentType := "application/json"
+	if r.protocol == ProtocolAnthropic {
+		contentType = "application/json; charset=utf-8"
+	}
+	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(normalizeHTTPStatus(status))
 	_, err := w.Write(body)
 	return err

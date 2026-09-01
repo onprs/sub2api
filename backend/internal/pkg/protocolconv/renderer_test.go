@@ -120,7 +120,7 @@ func TestRendererWritesJSONAndSSEHeadersWithoutHopByHopHeaders(t *testing.T) {
 	jsonRecorder := httptest.NewRecorder()
 	require.NoError(t, renderer.RenderJSON(jsonRecorder, http.StatusCreated, headers, []byte(`{"ok":true}`)))
 	require.Equal(t, http.StatusCreated, jsonRecorder.Code)
-	require.Equal(t, "application/json", jsonRecorder.Header().Get("Content-Type"))
+	require.Equal(t, "application/json; charset=utf-8", jsonRecorder.Header().Get("Content-Type"))
 	require.Equal(t, "req-1", jsonRecorder.Header().Get("X-Request-Id"))
 	require.Empty(t, jsonRecorder.Header().Get("Connection"))
 
