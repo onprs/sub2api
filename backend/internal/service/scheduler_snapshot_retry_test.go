@@ -616,6 +616,62 @@ func TestOpenAIAdvancedSchedulingRetriesNonEmptyStaleSnapshot(t *testing.T) {
 	require.Equal(t, 1, setSnapshotCalls)
 }
 
+func TestOpenAIAdvancedSchedulingUsesAuthoritativeCandidateWhenProxyQuarantineFailsOpen(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	groupID := int64(714)
+	model := "gpt-snapshot-quarantine-fail-open"
+	stale := newSchedulerSnapshotRetryAccount(71401, PlatformOpenAI, model)
+	limitedUntil := time.Now().Add(time.Hour)
+	stale.RateLimitResetAt = &limitedUntil
+
+	proxyID := int64(714)
+	fresh := newSchedulerSnapshotRetryAccount(71402, PlatformOpenAI, model)
+	fresh.ProxyID = &proxyID
+
+	cache := newSchedulerSnapshotRetryCacheStub()
+	cache.seed(SchedulerBucket{GroupID: groupID, Platform: PlatformOpenAI, Mode: SchedulerModeSingle}, stale)
+	cache.setSnapshotErr = errors.New("cache write failed")
+	repo := &schedulerSnapshotRetryAccountRepoStub{byGroup: map[int64][]Account{groupID: {fresh}}}
+	cfg := newSchedulerSnapshotRetryConfig()
+	snapshot := NewSchedulerSnapshotService(cache, nil, repo, nil, cfg)
+	circuit := newOpenAIProxyStreamCircuit(openAIProxyStreamCircuitSettings{
+		failureThreshold: 1,
+		failureWindow:    time.Minute,
+		quarantineTTL:    10 * time.Minute,
+		maxEntries:       16,
+	})
+	tripped, _ := circuit.recordFailure(proxyID, time.Now())
+	require.True(t, tripped)
+
+	svc := &OpenAIGatewayService{
+		accountRepo:              repo,
+		schedulerSnapshot:        snapshot,
+		cfg:                      cfg,
+		rateLimitService:         newOpenAIAdvancedSchedulerRateLimitService("true"),
+		openaiProxyStreamCircuit: circuit,
+	}
+
+	selection, _, err := svc.SelectAccountWithScheduler(
+		context.Background(),
+		&groupID,
+		"",
+		"",
+		model,
+		nil,
+		OpenAIUpstreamTransportAny,
+		false,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, fresh.ID, selection.Account.ID)
+	require.NotEqual(t, stale.ID, selection.Account.ID)
+	require.GreaterOrEqual(t, repo.listCallCount(), 1)
+	require.True(t, circuit.isBlocked(proxyID, time.Now()), "fail-open must not clear quarantine")
+}
+
 func TestResolveAPIKeyRoutingGroupRetriesWhenStaleCandidatesAreUnschedulable(t *testing.T) {
 	first := newSchedulerSnapshotRetryGroup(705, PlatformOpenAI)
 	second := newSchedulerSnapshotRetryGroup(706, PlatformOpenAI)

@@ -193,21 +193,9 @@ var smtpSendBackoffs = []time.Duration{0, 400 * time.Millisecond, 1200 * time.Mi
 
 // SendEmailWithConfig 使用指定配置发送邮件
 func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body string) error {
-	// Sanitize all SMTP header fields to prevent header injection (CR/LF removal).
-	to = sanitizeEmailHeader(to)
-	subject = sanitizeEmailHeader(subject)
-
-	from := sanitizeEmailHeader(config.From)
-	if config.FromName != "" {
-		from = fmt.Sprintf("%s <%s>", sanitizeEmailHeader(config.FromName), sanitizeEmailHeader(config.From))
-	}
-
-	// 构造标准 RFC 5322 消息：补全 Date/Message-ID 必需头，并使用
-	// multipart/alternative（base64 编码的 text/plain + text/html），
-	// 避免因缺失必需头或纯 HTML 被收件方判定为垃圾邮件而拦截。
-	msg, err := s.buildMessage(from, to, subject, body, config.Host)
+	message, err := buildSMTPMessage(config, to, subject, body)
 	if err != nil {
-		return fmt.Errorf("build message: %w", err)
+		return err
 	}
 
 	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
@@ -222,9 +210,9 @@ func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body
 		}
 		var sendErr error
 		if config.UseTLS {
-			sendErr = s.sendMailTLS(addr, auth, config.From, to, []byte(msg), config.Host)
+			sendErr = s.sendMailTLS(addr, auth, message.envelopeFrom, message.envelopeTo, message.data, config.Host)
 		} else {
-			sendErr = s.sendMailPlain(addr, auth, config.From, to, []byte(msg), config.Host)
+			sendErr = s.sendMailPlain(addr, auth, message.envelopeFrom, message.envelopeTo, message.data, config.Host)
 		}
 		if sendErr == nil {
 			return nil
@@ -295,12 +283,15 @@ func (s *EmailService) buildMessage(from, to, subject, htmlBody, host string) (s
 	if err != nil {
 		return "", err
 	}
+	return buildMultipartAlternativeMessage(from, to, subject, htmlBody, boundary, messageID), nil
+}
 
+func buildMultipartAlternativeMessage(from, to, subject, htmlBody, boundary, messageID string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "From: %s\r\n", from)
 	fmt.Fprintf(&b, "To: %s\r\n", to)
 	fmt.Fprintf(&b, "Subject: %s\r\n", subject)
-	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().Format(time.RFC1123Z))
+	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
 	fmt.Fprintf(&b, "Message-ID: %s\r\n", messageID)
 	fmt.Fprintf(&b, "MIME-Version: 1.0\r\n")
 	fmt.Fprintf(&b, "Content-Type: multipart/alternative; boundary=\"%s\"\r\n", boundary)
@@ -321,7 +312,7 @@ func (s *EmailService) buildMessage(from, to, subject, htmlBody, host string) (s
 	writeMIMEBase64(&b, htmlBody)
 
 	fmt.Fprintf(&b, "--%s--\r\n", boundary)
-	return b.String(), nil
+	return b.String()
 }
 
 // generateMessageID 生成 RFC 5322 要求的 Message-ID。

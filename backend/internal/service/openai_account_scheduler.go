@@ -3,6 +3,7 @@ package service
 import (
 	"container/heap"
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -1681,7 +1682,7 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if s != nil && s.service != nil && s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
 		return false, "runtime_blocked"
 	}
-	if s != nil && s.service != nil && s.service.isOpenAIProxyStreamQuarantined(account) {
+	if s != nil && s.service != nil && s.service.isOpenAIProxyStreamQuarantined(ctx, account) {
 		return false, "proxy_stream_quarantined"
 	}
 	// Quota auto-pause must be evaluated during the initial filter too. Without it the
@@ -2046,6 +2047,13 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForImages(
 	return selection, decision, err
 }
 
+// selectAccountWithScheduler wraps selectAccountWithSchedulerOnce with a
+// fail-open second pass for the proxy stream circuit (#5056): when the only
+// reason no account is available is that every candidate sits behind a
+// quarantined proxy, the quarantine must degrade to a preference instead of
+// zeroing out capacity. The retry re-runs the exact same selection with the
+// quarantine checks bypassed, so healthy proxies always win the first pass
+// and quarantined ones only serve when nothing else can.
 func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	ctx context.Context,
 	groupID *int64,
@@ -2061,11 +2069,14 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	ctx, _ = withSchedulerSnapshotRetryState(ctx)
 	type schedulerResult struct {
 		selection *AccountSelectionResult
 		decision  OpenAIAccountScheduleDecision
 	}
+	lastAttemptCtx := ctx
 	result, err := selectWithSchedulerSnapshotRetry(ctx, isNoAvailableAccountSelectionError, func(attemptCtx context.Context) (schedulerResult, error) {
+		lastAttemptCtx = attemptCtx
 		selection, decision, selectErr := s.selectAccountWithSchedulerOnce(
 			attemptCtx,
 			groupID,
@@ -2083,7 +2094,36 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 		)
 		return schedulerResult{selection: selection, decision: decision}, selectErr
 	})
-	return result.selection, result.decision, err
+	if err == nil || openAIProxyStreamQuarantineBypassed(ctx) {
+		return result.selection, result.decision, err
+	}
+	if !errors.Is(err, ErrNoAvailableAccounts) && !errors.Is(err, ErrNoAvailableCompactAccounts) {
+		return result.selection, result.decision, err
+	}
+	// The circuit only ever quarantines PlatformOpenAI accounts.
+	if normalizeOpenAICompatiblePlatform(platform) != PlatformOpenAI {
+		return result.selection, result.decision, err
+	}
+	blocked := s.getOpenAIProxyStreamCircuit().activeBlockCount(time.Now())
+	if blocked == 0 {
+		return result.selection, result.decision, err
+	}
+	s.logOpenAIProxyStreamQuarantineFailOpen(requestedModel, blocked)
+	return s.selectAccountWithSchedulerOnce(
+		withOpenAIProxyStreamQuarantineBypass(lastAttemptCtx),
+		groupID,
+		previousResponseID,
+		sessionHash,
+		requestedModel,
+		excludedIDs,
+		requiredTransport,
+		requiredCapability,
+		requiredImageCapability,
+		requireCompact,
+		platform,
+		previousResponseCanMove,
+		useUpstreamTokenCost,
+	)
 }
 
 func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
