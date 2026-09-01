@@ -123,7 +123,7 @@ func TestAuthCacheInvalidationMigration_SecurityCoverageAndNoPlaintextPayload(t 
 	require.NotContains(t, sqlText, plaintext)
 }
 
-func TestLatestGroupAuthCacheInvalidationMigrationPreservesDynamicRoutingAndImagePermission(t *testing.T) {
+func TestLatestGroupAuthCacheInvalidationMigrationPreservesDynamicRoutingAndGroupPermissions(t *testing.T) {
 	files, err := fs.Glob(migrations.FS, "*.sql")
 	require.NoError(t, err)
 
@@ -142,6 +142,7 @@ func TestLatestGroupAuthCacheInvalidationMigrationPreservesDynamicRoutingAndImag
 	for _, required := range []string{
 		declaration,
 		"OLD.allow_image_generation IS NOT DISTINCT FROM NEW.allow_image_generation",
+		"OLD.allow_live IS NOT DISTINCT FROM NEW.allow_live",
 		"k.group_id = target_group_id",
 		"FROM api_key_groups AS akg",
 		"akg.api_key_id = k.id",

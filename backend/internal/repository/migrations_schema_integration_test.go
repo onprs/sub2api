@@ -55,11 +55,12 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "accounts", "session_window_status", "character varying", 20, true)
 	requireIndex(t, tx, "accounts", "idx_accounts_autopause_expiry_due")
 
-	// groups: GPT-5.6 缓存写入推断由请求分组统一控制
+	// groups: 本地缓存写入推断与 OpenAI Live gate 均由分组控制。
 	requireColumn(t, tx, "groups", "infer_gpt56_cache_write", "boolean", 0, false)
 	requireColumnDefaultContains(t, tx, "groups", "infer_gpt56_cache_write", "false")
 	requireColumn(t, tx, "groups", "infer_gpt56_cache_write_min_tokens", "integer", 0, false)
 	requireColumnDefaultContains(t, tx, "groups", "infer_gpt56_cache_write_min_tokens", "1024")
+	requireColumn(t, tx, "groups", "allow_live", "boolean", 0, false)
 
 	// api_keys: key length should be 128
 	requireColumn(t, tx, "api_keys", "key", "character varying", 128, false)

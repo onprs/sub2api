@@ -187,3 +187,59 @@ func TestDecodeRequestSeparatesReasoningFromVisibleText(t *testing.T) {
 	require.Equal(t, ir.ContentText, request.Messages[0].Content[1].Type)
 	require.Equal(t, "answer", request.Messages[0].Content[1].Text)
 }
+
+func TestEncodeResponsePreservesAssistantImageDataAsMarkdown(t *testing.T) {
+	response := &ir.Response{
+		ID: "resp_image", Model: "client-model", Status: "completed",
+		Choices: []ir.Choice{{
+			Index: 0,
+			Message: ir.Message{Role: ir.RoleAssistant, Content: []ir.ContentPart{
+				{Type: ir.ContentText, Text: "rendered image:\n"},
+				{Type: ir.ContentImage, MediaType: "image/png", Data: "aW1hZ2U="},
+				{Type: ir.ContentToolCall, ToolCallID: "call_1", ToolName: "inspect", ToolInput: []byte(`{}`)},
+			}},
+			FinishReason: ir.FinishReason{Reason: "tool_calls"},
+		}},
+	}
+
+	body, warnings, err := New().EncodeResponse(response, protocolconv.Options{LossPolicy: protocolconv.LossError})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, "rendered image:\n![image](data:image/png;base64,aW1hZ2U=)", gjson.GetBytes(body, "choices.0.message.content").String())
+	require.Equal(t, "inspect", gjson.GetBytes(body, "choices.0.message.tool_calls.0.function.name").String())
+	require.Equal(t, "tool_calls", gjson.GetBytes(body, "choices.0.finish_reason").String())
+}
+
+func TestEncodeResponseOmitsInvalidAssistantImageData(t *testing.T) {
+	tests := []struct {
+		name      string
+		mediaType string
+		data      string
+	}{
+		{name: "unsupported MIME type", mediaType: "image/svg+xml", data: "PHN2Zz48L3N2Zz4="},
+		{name: "malformed MIME type", mediaType: "image/png; charset=utf-8", data: "aW1hZ2U="},
+		{name: "malformed base64", mediaType: "image/png", data: "not-valid-base64!!!"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := &ir.Response{
+				ID: "resp_invalid_image", Model: "client-model", Status: "completed",
+				Choices: []ir.Choice{{
+					Index: 0,
+					Message: ir.Message{Role: ir.RoleAssistant, Content: []ir.ContentPart{
+						{Type: ir.ContentText, Text: "before"},
+						{Type: ir.ContentImage, MediaType: tt.mediaType, Data: tt.data},
+						{Type: ir.ContentText, Text: "after"},
+					}},
+					FinishReason: ir.FinishReason{Reason: "stop"},
+				}},
+			}
+
+			body, warnings, err := New().EncodeResponse(response, protocolconv.Options{LossPolicy: protocolconv.LossError})
+			require.NoError(t, err)
+			require.Len(t, warnings, 1)
+			require.Equal(t, protocolconv.WarningDroppedField, warnings[0].Code)
+			require.Equal(t, "beforeafter", gjson.GetBytes(body, "choices.0.message.content").String())
+		})
+	}
+}

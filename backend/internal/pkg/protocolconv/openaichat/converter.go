@@ -3,6 +3,7 @@ package openaichat
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -134,7 +135,9 @@ func (c *Converter) DecodeResponse(body []byte, options protocolconv.Options) (*
 }
 
 func (c *Converter) EncodeResponse(response *ir.Response, options protocolconv.Options) ([]byte, []protocolconv.Warning, error) {
-	canonical, warnings, err := c.responses.EncodeResponse(response, options)
+	normalized, imageWarnings := normalizeAssistantImagesForChat(response)
+	canonical, warnings, err := c.responses.EncodeResponse(normalized, options)
+	warnings = append(imageWarnings, warnings...)
 	if err != nil {
 		return nil, warnings, err
 	}
@@ -142,9 +145,9 @@ func (c *Converter) EncodeResponse(response *ir.Response, options protocolconv.O
 	if err := json.Unmarshal(canonical, &responses); err != nil {
 		return nil, warnings, err
 	}
-	wire := apicompat.ResponsesToChatCompletions(&responses, response.Model)
-	wire.Created = response.Created
-	for _, choice := range response.Choices {
+	wire := apicompat.ResponsesToChatCompletions(&responses, normalized.Model)
+	wire.Created = normalized.Created
+	for _, choice := range normalized.Choices {
 		signatureWarnings, signatureErr := checkSignatures([]ir.Message{choice.Message}, options)
 		warnings = append(warnings, signatureWarnings...)
 		if signatureErr != nil {
@@ -153,6 +156,55 @@ func (c *Converter) EncodeResponse(response *ir.Response, options protocolconv.O
 	}
 	body, err := json.Marshal(wire)
 	return body, warnings, err
+}
+
+func normalizeAssistantImagesForChat(response *ir.Response) (*ir.Response, []protocolconv.Warning) {
+	if response == nil {
+		return nil, nil
+	}
+	normalized := *response
+	normalized.Choices = append([]ir.Choice(nil), response.Choices...)
+	var warnings []protocolconv.Warning
+	for choiceIndex := range normalized.Choices {
+		choice := &normalized.Choices[choiceIndex]
+		choice.Message.Content = append([]ir.ContentPart(nil), choice.Message.Content...)
+		content := make([]ir.ContentPart, 0, len(choice.Message.Content))
+		for partIndex, part := range choice.Message.Content {
+			if part.Type != ir.ContentImage {
+				content = append(content, part)
+				continue
+			}
+			markdown, ok := assistantImageMarkdown(part)
+			if ok {
+				content = append(content, ir.ContentPart{Type: ir.ContentText, Text: markdown})
+				continue
+			}
+			warnings = append(warnings, protocolconv.Warning{
+				Code:       protocolconv.WarningDroppedField,
+				Protocol:   protocolconv.ProtocolOpenAIChat,
+				Capability: protocolconv.CapabilityImageData,
+				Path:       fmt.Sprintf("choices[%d].message.content[%d]", choiceIndex, partIndex),
+				Message:    "assistant image omitted because Chat output requires supported base64 image data",
+			})
+		}
+		choice.Message.Content = content
+	}
+	return &normalized, warnings
+}
+
+func assistantImageMarkdown(part ir.ContentPart) (string, bool) {
+	if part.Data == "" {
+		return "", false
+	}
+	switch part.MediaType {
+	case "image/gif", "image/jpeg", "image/png", "image/webp":
+	default:
+		return "", false
+	}
+	if _, err := base64.StdEncoding.DecodeString(part.Data); err != nil {
+		return "", false
+	}
+	return fmt.Sprintf("![image](data:%s;base64,%s)", part.MediaType, part.Data), true
 }
 
 func checkSignatures(messages []ir.Message, options protocolconv.Options) ([]protocolconv.Warning, error) {

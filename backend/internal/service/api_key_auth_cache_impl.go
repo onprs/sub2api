@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 18 // v18：动态分组路由快照加入分组推理策略
+const apiKeyAuthSnapshotVersion = 19 // v19：动态分组路由快照加入 OpenAI Live gate
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -496,6 +496,7 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		AllowMessagesDispatch:           group.AllowMessagesDispatch,
 		RequireOAuthOnly:                group.RequireOAuthOnly,
 		RequirePrivacySet:               group.RequirePrivacySet,
+		AllowLive:                       group.AllowLive,
 		DefaultMappedModel:              group.DefaultMappedModel,
 		MessagesDispatchModelConfig:     group.MessagesDispatchModelConfig,
 		ModelsListConfig:                group.ModelsListConfig,
@@ -552,6 +553,7 @@ func groupFromAPIKeyAuthSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		AllowMessagesDispatch:           snapshot.AllowMessagesDispatch,
 		RequireOAuthOnly:                snapshot.RequireOAuthOnly,
 		RequirePrivacySet:               snapshot.RequirePrivacySet,
+		AllowLive:                       snapshot.AllowLive,
 		DefaultMappedModel:              snapshot.DefaultMappedModel,
 		MessagesDispatchModelConfig:     snapshot.MessagesDispatchModelConfig,
 		ModelsListConfig:                snapshot.ModelsListConfig,
