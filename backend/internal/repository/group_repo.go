@@ -839,7 +839,12 @@ func (r *groupRepository) DeleteCascade(ctx context.Context, id int64) ([]int64,
 		return nil, err
 	}
 
-	// 4. 先让旧二进制维护的 group_id 修复关联表。否则旧版本改绑/解绑后，
+	// 4. Soft-delete composite model routes owned by this group.
+	if _, err := exec.ExecContext(ctx, "UPDATE composite_model_routes SET deleted_at = NOW() WHERE group_id = $1 AND deleted_at IS NULL", id); err != nil {
+		return nil, err
+	}
+
+	// 5. 先让旧二进制维护的 group_id 修复关联表。否则旧版本改绑/解绑后，
 	// 删除仍滞留在关联表中的候选会反向覆盖旧版本刚写入的值。
 	staleRows, err := exec.QueryContext(ctx, `
 		SELECT ak.id
@@ -903,7 +908,7 @@ func (r *groupRepository) DeleteCascade(ctx context.Context, id int64) ([]int64,
 		}
 	}
 
-	// 5. Remove this group from API Key candidate sets and promote the first remaining candidate.
+	// 6. Remove this group from API Key candidate sets and promote the first remaining candidate.
 	if _, err := exec.ExecContext(ctx, `
 		WITH affected AS (
 			SELECT api_key_id AS id
@@ -946,7 +951,7 @@ func (r *groupRepository) DeleteCascade(ctx context.Context, id int64) ([]int64,
 		return nil, err
 	}
 
-	// 6. Soft-delete group itself.
+	// 7. Soft-delete group itself.
 	if _, err := txClient.Group.Delete().Where(group.IDEQ(id)).Exec(ctx); err != nil {
 		return nil, err
 	}

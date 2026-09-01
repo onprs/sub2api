@@ -2398,7 +2398,7 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 	routingSvc := service.NewGatewayService(
 		accountRepo,
 		nil, nil, nil, nil, nil, nil, routingCache, &routingCfg, nil, nil, nil, nil, nil,
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)
 	h := &OpenAIGatewayHandler{
 		gatewayService:            gatewaySvc,

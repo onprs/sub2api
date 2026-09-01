@@ -24,6 +24,7 @@ type subscriptionPlanResponse struct {
 	Description            string    `json:"description"`
 	Price                  float64   `json:"price"`
 	OriginalPrice          *float64  `json:"original_price,omitempty"`
+	Currency               string    `json:"currency,omitempty"`
 	RenewalDiscountPercent *float64  `json:"renewal_discount_percent"`
 	FiveHourLimitUSD       *float64  `json:"five_hour_limit_usd"`
 	SevenDayLimitUSD       *float64  `json:"seven_day_limit_usd"`
@@ -306,7 +307,88 @@ func (h *PaymentHandler) ListPlans(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, subscriptionPlanResponses(plans))
+	groupInfo := h.configService.GetGroupInfoMap(c.Request.Context(), plans)
+	response.Success(c, adminSubscriptionPlansForResponse(plans, groupInfo))
+}
+
+type AdminSubscriptionPlanResult struct {
+	ID                     int64     `json:"id"`
+	GroupID                int64     `json:"group_id"`
+	GroupPlatform          string    `json:"group_platform,omitempty"`
+	GroupName              string    `json:"group_name,omitempty"`
+	RateMultiplier         float64   `json:"rate_multiplier,omitempty"`
+	PeakRateEnabled        bool      `json:"peak_rate_enabled,omitempty"`
+	PeakStart              string    `json:"peak_start,omitempty"`
+	PeakEnd                string    `json:"peak_end,omitempty"`
+	PeakRateMultiplier     float64   `json:"peak_rate_multiplier,omitempty"`
+	DailyLimitUSD          *float64  `json:"daily_limit_usd,omitempty"`
+	WeeklyLimitUSD         *float64  `json:"weekly_limit_usd,omitempty"`
+	MonthlyLimitUSD        *float64  `json:"monthly_limit_usd,omitempty"`
+	ModelScopes            []string  `json:"supported_model_scopes,omitempty"`
+	Name                   string    `json:"name"`
+	Description            string    `json:"description"`
+	Price                  float64   `json:"price"`
+	OriginalPrice          *float64  `json:"original_price,omitempty"`
+	Currency               string    `json:"currency,omitempty"`
+	RenewalDiscountPercent *float64  `json:"renewal_discount_percent"`
+	FiveHourLimitUSD       *float64  `json:"five_hour_limit_usd"`
+	SevenDayLimitUSD       *float64  `json:"seven_day_limit_usd"`
+	ThirtyDayLimitUSD      *float64  `json:"thirty_day_limit_usd"`
+	Stock                  *int      `json:"stock"`
+	SoldOut                bool      `json:"sold_out"`
+	ValidityDays           int       `json:"validity_days"`
+	ValidityUnit           string    `json:"validity_unit"`
+	Features               string    `json:"features"`
+	ProductName            string    `json:"product_name"`
+	ForSale                bool      `json:"for_sale"`
+	SortOrder              int       `json:"sort_order"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
+}
+
+func adminSubscriptionPlansForResponse(plans []*dbent.SubscriptionPlan, groupInfo map[int64]service.PlanGroupInfo) []AdminSubscriptionPlanResult {
+	result := make([]AdminSubscriptionPlanResult, 0, len(plans))
+	for _, p := range plans {
+		if p == nil {
+			continue
+		}
+		gi := groupInfo[p.GroupID]
+		result = append(result, AdminSubscriptionPlanResult{
+			ID:                     int64(p.ID),
+			GroupID:                p.GroupID,
+			GroupPlatform:          gi.Platform,
+			GroupName:              gi.Name,
+			RateMultiplier:         gi.RateMultiplier,
+			PeakRateEnabled:        gi.PeakRateEnabled,
+			PeakStart:              gi.PeakStart,
+			PeakEnd:                gi.PeakEnd,
+			PeakRateMultiplier:     gi.PeakRateMultiplier,
+			DailyLimitUSD:          gi.DailyLimitUSD,
+			WeeklyLimitUSD:         gi.WeeklyLimitUSD,
+			MonthlyLimitUSD:        gi.MonthlyLimitUSD,
+			ModelScopes:            gi.ModelScopes,
+			Name:                   p.Name,
+			Description:            p.Description,
+			Price:                  p.Price,
+			OriginalPrice:          p.OriginalPrice,
+			Currency:               p.Currency,
+			RenewalDiscountPercent: p.RenewalDiscountPercent,
+			FiveHourLimitUSD:       p.FiveHourLimitUsd,
+			SevenDayLimitUSD:       p.SevenDayLimitUsd,
+			ThirtyDayLimitUSD:      p.ThirtyDayLimitUsd,
+			Stock:                  p.Stock,
+			SoldOut:                service.SubscriptionPlanSoldOut(p),
+			ValidityDays:           p.ValidityDays,
+			ValidityUnit:           p.ValidityUnit,
+			Features:               p.Features,
+			ProductName:            p.ProductName,
+			ForSale:                p.ForSale,
+			SortOrder:              p.SortOrder,
+			CreatedAt:              p.CreatedAt,
+			UpdatedAt:              p.UpdatedAt,
+		})
+	}
+	return result
 }
 
 // CreatePlan creates a new subscription plan.
@@ -381,6 +463,7 @@ func subscriptionPlanResponseFromEnt(plan *dbent.SubscriptionPlan) *subscription
 		Description:            plan.Description,
 		Price:                  plan.Price,
 		OriginalPrice:          plan.OriginalPrice,
+		Currency:               plan.Currency,
 		RenewalDiscountPercent: plan.RenewalDiscountPercent,
 		FiveHourLimitUSD:       plan.FiveHourLimitUsd,
 		SevenDayLimitUSD:       plan.SevenDayLimitUsd,

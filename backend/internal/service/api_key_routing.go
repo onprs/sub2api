@@ -46,6 +46,7 @@ type APIKeyRoutingResolveInput struct {
 	MediaSize                  string
 	SessionKey                 string
 	ForcePlatform              string
+	CompositeEndpoint          string
 	RequiredEndpointCapability OpenAIEndpointCapability
 	RequiredImageCapability    OpenAIImagesCapability
 	RequiredTransport          OpenAIUpstreamTransport
@@ -205,9 +206,6 @@ func (s *GatewayService) buildAPIKeyRoutingCandidate(
 	if strings.TrimSpace(input.ForcePlatform) == "" && group.ClaudeCodeOnly && !IsClaudeCodeClient(ctx) {
 		return apiKeyRoutingCandidate{}, false
 	}
-	if !routingGroupSupportsCapability(group, input.Capability) {
-		return apiKeyRoutingCandidate{}, false
-	}
 	if !s.routingGroupBillingPrecheck(apiKey, group, subscriptionsByGroup) {
 		return apiKeyRoutingCandidate{}, false
 	}
@@ -219,15 +217,26 @@ func (s *GatewayService) buildAPIKeyRoutingCandidate(
 	binding.Group = &groupCopy
 
 	platform := group.Platform
+	model := strings.TrimSpace(input.Model)
 	if strings.TrimSpace(input.ForcePlatform) != "" {
 		platform = strings.TrimSpace(input.ForcePlatform)
+	} else if group.Platform == PlatformComposite {
+		decision, matched, err := s.resolveCompositeRouteDecision(ctx, group, model, input.CompositeEndpoint)
+		if err != nil || !matched {
+			return apiKeyRoutingCandidate{}, false
+		}
+		platform = decision.TargetPlatform
+		model = decision.UpstreamModel
+		ctx = WithCompositeRouteDecision(ctx, decision)
+	}
+	if !routingGroupSupportsCapability(group, platform, input.Capability) {
+		return apiKeyRoutingCandidate{}, false
 	}
 	accounts, _, err := s.listSchedulableAccounts(ctx, &group.ID, platform, input.ForcePlatform != "")
 	if err != nil {
 		return apiKeyRoutingCandidate{}, false
 	}
-	model := strings.TrimSpace(input.Model)
-	if input.Capability == APIKeyRoutingCapabilityMessages && (group.Platform == PlatformOpenAI || group.Platform == PlatformGrok) {
+	if input.Capability == APIKeyRoutingCapabilityMessages && (platform == PlatformOpenAI || platform == PlatformGrok) {
 		if mapped := group.ResolveMessagesDispatchModel(model); mapped != "" {
 			model = mapped
 		}
@@ -361,7 +370,7 @@ func routingImageUnitPrice(group *Group, imageSize string) *float64 {
 	return group.GetImagePrice(tier)
 }
 
-func routingGroupSupportsCapability(group *Group, capability string) bool {
+func routingGroupSupportsCapability(group *Group, platform, capability string) bool {
 	if group == nil {
 		return false
 	}
@@ -371,7 +380,7 @@ func routingGroupSupportsCapability(group *Group, capability string) bool {
 	case APIKeyRoutingCapabilityImage:
 		return GroupAllowsImageGeneration(group)
 	case APIKeyRoutingCapabilityBatchImage:
-		return group.Platform == PlatformGemini && group.AllowBatchImageGeneration
+		return platform == PlatformGemini && group.AllowBatchImageGeneration
 	case APIKeyRoutingCapabilityVideo:
 		return GroupAllowsImageGeneration(group)
 	}

@@ -63,7 +63,10 @@ func (h *GatewayHandler) APIKeyRoutingMiddleware(googleErrors bool) gin.HandlerF
 }
 
 func apiKeyRoutingInputFromRequest(c *gin.Context) (service.APIKeyRoutingResolveInput, bool, error) {
-	input := service.APIKeyRoutingResolveInput{Capability: service.APIKeyRoutingCapabilityText}
+	input := service.APIKeyRoutingResolveInput{
+		Capability:        service.APIKeyRoutingCapabilityText,
+		CompositeEndpoint: apiKeyRoutingCompositeEndpoint(c.Request.URL.Path),
+	}
 	path := c.Request.URL.Path
 	method := c.Request.Method
 
@@ -79,6 +82,9 @@ func apiKeyRoutingInputFromRequest(c *gin.Context) (service.APIKeyRoutingResolve
 			return input, false, nil
 		}
 		input.Capability = service.APIKeyRoutingCapabilityVideo
+		if apiKey.RoutingPlatformValue() == service.PlatformComposite {
+			input.ForcePlatform = service.PlatformGrok
+		}
 		input.SessionKey = service.GrokMediaVideoRequestSessionHash(requestID, subject.UserID, apiKey.ID)
 		if input.SessionKey == "" {
 			return input, false, nil
@@ -133,6 +139,27 @@ func apiKeyRoutingInputFromRequest(c *gin.Context) (service.APIKeyRoutingResolve
 	input.SessionKey = firstNonEmptyRoutingSessionKey(c, body)
 	applyAPIKeyRoutingAccountRequirements(c, body, &input)
 	return input, true, nil
+}
+
+func apiKeyRoutingCompositeEndpoint(path string) string {
+	switch {
+	case strings.Contains(path, "/messages/count_tokens"):
+		return service.CompositeRouteEndpointCountTokens
+	case strings.Contains(path, "/messages"):
+		return service.CompositeRouteEndpointMessages
+	case strings.Contains(path, "/responses"):
+		return service.CompositeRouteEndpointResponses
+	case strings.Contains(path, "/chat/completions"):
+		return service.CompositeRouteEndpointChatCompletions
+	case strings.Contains(path, "/embeddings"):
+		return service.CompositeRouteEndpointEmbeddings
+	case strings.Contains(path, "/images/"):
+		return service.CompositeRouteEndpointImages
+	case strings.Contains(path, "/v1beta/"), strings.Contains(path, "/v1/models/"):
+		return service.CompositeRouteEndpointGemini
+	default:
+		return service.CompositeRouteEndpointAny
+	}
 }
 
 func applyAPIKeyRoutingAccountRequirements(c *gin.Context, body []byte, input *service.APIKeyRoutingResolveInput) {

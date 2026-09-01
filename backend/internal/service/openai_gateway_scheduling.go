@@ -1264,6 +1264,9 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccount(ctx context.
 	if s.isOpenAIAccountRequestRuntimeBlocked(fresh, requestedModel) {
 		return nil
 	}
+	if s.isOpenAIProxyStreamQuarantined(fresh) {
+		return nil
+	}
 	return fresh
 }
 
@@ -1293,6 +1296,9 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 		if !parentHealthyForShadow(account, s.parentAccountLookup(ctx)) {
 			return nil
 		}
+		if s.isOpenAIProxyStreamQuarantined(account) {
+			return nil
+		}
 		return account
 	}
 
@@ -1316,6 +1322,9 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 		return nil
 	}
 	if s.isOpenAIAccountRequestRuntimeBlocked(latest, requestedModel) {
+		return nil
+	}
+	if s.isOpenAIProxyStreamQuarantined(latest) {
 		return nil
 	}
 	return latest

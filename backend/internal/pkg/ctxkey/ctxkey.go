@@ -8,6 +8,18 @@ const (
 	// ForcePlatform 强制平台（用于 /antigravity 路由），由 middleware.ForcePlatform 设置
 	ForcePlatform Key = "ctx_force_platform"
 
+	// ResolvedTargetPlatform 是 composite 分组按请求模型解析出的真实目标平台。
+	ResolvedTargetPlatform Key = "ctx_resolved_target_platform"
+
+	// ResolvedUpstreamModel 是 composite 分组将公开模型名解析到的上游模型名。
+	ResolvedUpstreamModel Key = "ctx_resolved_upstream_model"
+
+	// RequestedPublicModel 是客户端原始请求中的公开模型名。
+	RequestedPublicModel Key = "ctx_requested_public_model"
+
+	// CompositeRouteSource 标识 composite 解析结果来自显式路由还是内置模型探测。
+	CompositeRouteSource Key = "ctx_composite_route_source"
+
 	// RequestID 为服务端生成/透传的请求 ID。
 	RequestID Key = "ctx_request_id"
 
@@ -70,9 +82,4 @@ const (
 
 	// ClaudeCodeVersion stores the extracted Claude Code version from User-Agent (e.g. "2.1.22")
 	ClaudeCodeVersion Key = "ctx_claude_code_version"
-
-	// ResolvedUpstreamModel 是 composite/路由解析将公开模型名解析到的上游模型名。
-	// 本分支尚未引入 composite 分组，该值默认不会被设置，仅用于兼容官方安全修复
-	// 在 handler 层读取“已解析上游模型”（若未设置则为 no-op）。
-	ResolvedUpstreamModel Key = "ctx_resolved_upstream_model"
 )

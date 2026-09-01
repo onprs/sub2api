@@ -1,11 +1,8 @@
 package service
 
 import (
-	"context"
 	"fmt"
 	"strings"
-
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
 
 // 上游 URL 路径片段护栏。
@@ -95,19 +92,4 @@ func validateUpstreamPathSegment(kind, segment string) error {
 	}
 	// 不回显原始输入，避免把它写进日志与错误响应。
 	return fmt.Errorf("invalid %s for upstream url path", kind)
-}
-
-// ResolvedUpstreamModelFromContext 返回请求上下文中已解析出的上游模型名。
-// 官方在 composite 分组中设置该值；本分支尚未引入 composite，值通常不会设置，
-// 保留此函数仅用于兼容官方安全修复在 handler 层的读取（未设置则为 no-op）。
-func ResolvedUpstreamModelFromContext(ctx context.Context) (string, bool) {
-	if ctx == nil {
-		return "", false
-	}
-	model, ok := ctx.Value(ctxkey.ResolvedUpstreamModel).(string)
-	model = strings.TrimSpace(model)
-	if !ok || model == "" {
-		return "", false
-	}
-	return model, true
 }

@@ -27,7 +27,12 @@ func dynamicAPIKeyAvailableModels(ctx context.Context, gateway *service.GatewayS
 			groupPlatform = strings.TrimSpace(platform)
 		}
 		groupID := group.ID
-		available := gateway.GetAvailableModels(ctx, &groupID, groupPlatform)
+		var available []string
+		if groupPlatform == service.PlatformComposite {
+			available = compositeAvailableModelsForGroup(ctx, gateway, &groupID)
+		} else {
+			available = gateway.GetAvailableModels(ctx, &groupID, groupPlatform)
+		}
 		fallback := defaultModelIDsForPlatform(groupPlatform)
 		if group.CustomModelsListEnabled() {
 			available = filterModelsByCustomList(customModelsListSource(groupPlatform, available, fallback), fallback, group.ModelsListConfig.Models)
@@ -37,6 +42,35 @@ func dynamicAPIKeyAvailableModels(ctx context.Context, gateway *service.GatewayS
 		merged = mergeModelIDs(merged, available)
 	}
 	return merged
+}
+
+func compositeAvailableModelsForGroup(ctx context.Context, gateway *service.GatewayService, groupID *int64) []string {
+	if gateway == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	models := make([]string, 0)
+	schedulablePlatforms := gateway.GetSchedulablePlatforms(ctx, groupID)
+	for _, platform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok} {
+		platformModels := gateway.GetAvailableModels(ctx, groupID, platform)
+		if len(platformModels) == 0 {
+			if _, ok := schedulablePlatforms[platform]; ok {
+				platformModels = defaultModelIDsForPlatform(platform)
+			}
+		}
+		for _, model := range platformModels {
+			model = strings.TrimSpace(model)
+			if model == "" {
+				continue
+			}
+			if _, ok := seen[model]; ok {
+				continue
+			}
+			seen[model] = struct{}{}
+			models = append(models, model)
+		}
+	}
+	return models
 }
 
 func dynamicAPIKeyAntigravityMappedModels(ctx context.Context, gateway *service.GatewayService, apiKey *service.APIKey, protocol string) []string {

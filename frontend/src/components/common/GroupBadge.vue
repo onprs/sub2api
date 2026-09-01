@@ -174,6 +174,9 @@ const labelClass = computed(() => {
   if (props.platform === 'commandcode') {
     return `${base} bg-lime-200/60 text-lime-800 dark:bg-lime-800/40 dark:text-lime-300`
   }
+  if (props.platform === 'composite') {
+    return `${base} bg-cyan-200/70 text-cyan-900 dark:bg-cyan-900/50 dark:text-cyan-300`
+  }
   return `${base} bg-violet-200/60 text-violet-800 dark:bg-violet-800/40 dark:text-violet-300`
 })
 
@@ -228,6 +231,11 @@ const badgeClass = computed(() => {
     return isSubscription.value
       ? 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300'
       : 'bg-lime-50 text-lime-700 dark:bg-lime-900/20 dark:text-lime-300'
+  }
+  if (props.platform === 'composite') {
+    return isSubscription.value
+      ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+      : 'bg-cyan-50 text-cyan-800 dark:bg-cyan-900/20 dark:text-cyan-300'
   }
   // Fallback: original colors
   return isSubscription.value

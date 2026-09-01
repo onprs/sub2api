@@ -16,18 +16,19 @@ func TestShouldRouteGeminiIngressToStandardProvider(t *testing.T) {
 	tests := []struct {
 		name             string
 		hasForcePlatform bool
-		group            *service.Group
+		platform         string
 		want             bool
 	}{
-		{name: "OpenAI group", group: &service.Group{Platform: service.PlatformOpenAI}, want: true},
-		{name: "Anthropic group", group: &service.Group{Platform: service.PlatformAnthropic}, want: true},
-		{name: "Gemini group", group: &service.Group{Platform: service.PlatformGemini}},
-		{name: "forced Antigravity route", hasForcePlatform: true, group: &service.Group{Platform: service.PlatformOpenAI}},
-		{name: "missing group"},
+		{name: "OpenAI group", platform: service.PlatformOpenAI, want: true},
+		{name: "Anthropic group", platform: service.PlatformAnthropic, want: true},
+		{name: "Gemini group", platform: service.PlatformGemini},
+		{name: "Composite resolved to OpenAI", platform: service.PlatformOpenAI, want: true},
+		{name: "forced Antigravity route", hasForcePlatform: true, platform: service.PlatformOpenAI},
+		{name: "missing platform"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, shouldRouteGeminiIngressToStandardProvider(tt.hasForcePlatform, tt.group))
+			require.Equal(t, tt.want, shouldRouteGeminiIngressToStandardProvider(tt.hasForcePlatform, tt.platform))
 		})
 	}
 }

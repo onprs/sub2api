@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"io/fs"
 	"strings"
 	"testing"
 	"time"
@@ -120,4 +121,32 @@ func TestAuthCacheInvalidationMigration_SecurityCoverageAndNoPlaintextPayload(t 
 	sum := sha256.Sum256([]byte(plaintext))
 	require.Len(t, hex.EncodeToString(sum[:]), 64)
 	require.NotContains(t, sqlText, plaintext)
+}
+
+func TestLatestGroupAuthCacheInvalidationMigrationPreservesDynamicRoutingAndImagePermission(t *testing.T) {
+	files, err := fs.Glob(migrations.FS, "*.sql")
+	require.NoError(t, err)
+
+	const declaration = "CREATE OR REPLACE FUNCTION enqueue_group_auth_cache_invalidation()"
+	var latestName, latestSQL string
+	for _, name := range files {
+		content, readErr := fs.ReadFile(migrations.FS, name)
+		require.NoError(t, readErr)
+		if sqlText := string(content); strings.Contains(sqlText, declaration) {
+			latestName = name
+			latestSQL = sqlText
+		}
+	}
+	require.NotEmpty(t, latestName)
+
+	for _, required := range []string{
+		declaration,
+		"OLD.allow_image_generation IS NOT DISTINCT FROM NEW.allow_image_generation",
+		"k.group_id = target_group_id",
+		"FROM api_key_groups AS akg",
+		"akg.api_key_id = k.id",
+		"akg.group_id = target_group_id",
+	} {
+		require.Containsf(t, latestSQL, required, "最终函数定义迁移 %s 必须保留组合语义", latestName)
+	}
 }

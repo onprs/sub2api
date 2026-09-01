@@ -108,7 +108,7 @@ func newAPIKeyRoutingMiddlewareHandler(accounts map[int64][]service.Account, cac
 	return &GatewayHandler{gatewayService: service.NewGatewayService(
 		&apiKeyRoutingMiddlewareAccountRepo{byGroup: accounts},
 		nil, nil, nil, nil, nil, nil, cache, nil, nil, nil, nil, nil, nil,
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)}
 }
 
