@@ -78,6 +78,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			if wsDecision.Transport != OpenAIUpstreamTransportResponsesWebsocketV2 {
 				return fmt.Errorf("websocket ingress requires ws_v2 transport, got=%s", wsDecision.Transport)
 			}
+			// 透传 relay 在每个 response.create 前回调 BeforeTurn，并在
+			// response.completed 后回调 AfterTurn，使 handler 能按 turn 重新
+			// 执行利润复核并冻结与本轮计费同源的 pricingAt。
 			return s.proxyResponsesWebSocketV2Passthrough(
 				ctx,
 				c,

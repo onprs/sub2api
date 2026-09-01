@@ -177,9 +177,10 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			return
 		}
 	}
-	requestCtx := c.Request.Context()
+	requestCtx := service.WithOpenAIProfitControlSuppressed(c.Request.Context())
 	revalidationState := NewFailoverState(0, false)
 	failedAccountIDs := revalidationState.FailedAccountIDs
+	profitVetoCount := 0
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
@@ -294,11 +295,20 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
-		accountReleaseFunc, accountAcquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
-		if !accountAcquired {
+		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
+		if slotResult == openAISlotAcquireProfitVetoed {
+			// 媒体路径已显式豁免利润门（suppress 标记），此分支仅防御性兜底，
+			// 同样受否决上限约束。
+			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
+				return
+			}
+			continue
+		}
+		if slotResult != openAISlotAcquireOK {
 			return
 		}
-		freshAccount, accountRevalidated, revalidationExhausted := h.revalidateSelectedAccountAfterAcquire(requestCtx, account, accountReleaseFunc, revalidationState, service.OpenAIAccountEligibilityRequest{
+		freshAccount, accountRevalidated, revalidationExhausted := h.revalidateSelectedAccountAfterAcquire(service.ContextWithSelectionProfitGate(requestCtx, selection), account, accountReleaseFunc, revalidationState, &profitVetoCount, service.OpenAIAccountEligibilityRequest{
 			GroupID:           apiKey.GroupID,
 			SessionHash:       sessionHash,
 			Platform:          service.PlatformGrok,

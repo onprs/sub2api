@@ -81,6 +81,10 @@ func (r schedulerPrivacyGroupRepo) GetByID(_ context.Context, id int64) (*Group,
 	return &group, nil
 }
 
+func (r schedulerPrivacyGroupRepo) GetByIDLite(ctx context.Context, id int64) (*Group, error) {
+	return r.GetByID(ctx, id)
+}
+
 type schedulerGroupAwareOpenAIAccountRepo struct {
 	schedulerTestOpenAIAccountRepo
 }
@@ -178,7 +182,7 @@ func (c *schedulerTestGatewayCache) GetSessionAccountID(ctx context.Context, gro
 	if id, ok := c.sessionBindings[sessionHash]; ok {
 		return id, nil
 	}
-	return 0, errors.New("not found")
+	return 0, ErrStickySessionNotFound
 }
 
 func (c *schedulerTestGatewayCache) SetSessionAccountID(ctx context.Context, groupID int64, sessionHash string, accountID int64, ttl time.Duration) error {

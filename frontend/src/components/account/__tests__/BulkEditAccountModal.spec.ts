@@ -91,6 +91,33 @@ describe('BulkEditAccountModal', () => {
     } as any)
   })
 
+  it('批量修改倍率时提示自动同步账号需要先关闭同步', async () => {
+    const wrapper = mountModal()
+
+    expect(wrapper.find('[data-testid="bulk-rate-sync-warning"]').exists()).toBe(false)
+    await wrapper.get('#bulk-edit-rate-multiplier-enabled').setValue(true)
+
+    expect(wrapper.get('[data-testid="bulk-rate-sync-warning"]').text()).toContain(
+      'admin.accounts.bulkEdit.rateSyncWarning'
+    )
+  })
+
+  it('后端拒绝修改同步账号倍率时展示专用错误', async () => {
+    vi.mocked(adminAPI.accounts.bulkUpdate).mockRejectedValueOnce({
+      status: 409,
+      reason: 'UPSTREAM_BILLING_RATE_SYNC_BULK_CONFLICT',
+      metadata: { count: '2' },
+      message: 'conflict'
+    })
+    const wrapper = mountModal()
+
+    await wrapper.get('#bulk-edit-rate-multiplier-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(showErrorMock).toHaveBeenCalledWith('admin.accounts.bulkEdit.rateSyncConflict')
+  })
+
   it('antigravity 白名单只展示 agy 用户目录并过滤辅助图片模型和普通 GPT 模型', async () => {
     const wrapper = mountModal()
     const selector = wrapper.findComponent(ModelWhitelistSelector)
@@ -349,6 +376,34 @@ describe('BulkEditAccountModal', () => {
     })
   })
 
+  it('OpenAI OAuth 批量编辑可开启 namespace 摊平兼容开关', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth']
+    })
+
+    await wrapper.get('#bulk-edit-openai-flatten-namespaces-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-openai-flatten-namespaces-toggle').trigger('click')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: {
+        openai_responses_flatten_namespaces: true
+      }
+    })
+  })
+
+  it('namespace 摊平开关不对 setup-token 等非 OAuth 选择展示', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth', 'setup-token']
+    })
+
+    expect(wrapper.find('#bulk-edit-openai-flatten-namespaces-enabled').exists()).toBe(false)
+  })
+
   it('OpenAI OAuth 批量编辑应提交 OAuth 专属 WS mode 字段（含 http_bridge）', async () => {
     const wrapper = mountModal({
       selectedPlatforms: ['openai'],
@@ -458,6 +513,23 @@ describe('BulkEditAccountModal', () => {
   it('OpenAI API Key 批量编辑可统一开启上游倍率自动探测', async () => {
     const wrapper = mountModal({
       selectedPlatforms: ['openai'],
+      selectedTypes: ['apikey']
+    })
+
+    await wrapper.get('#bulk-edit-upstream-billing-auto-probe-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      upstream_billing_probe_enabled: true
+    })
+  })
+
+  it('非 OpenAI 平台的 API Key 批量编辑同样可开启上游倍率自动探测', async () => {
+    // 探测已放宽到全部 API-key 平台，混合平台选择只要求类型全为 apikey。
+    const wrapper = mountModal({
+      selectedPlatforms: ['grok', 'anthropic'],
       selectedTypes: ['apikey']
     })
 

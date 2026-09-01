@@ -14,14 +14,19 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
+const mountBar = (selectedIds: number[] = []) =>
+  mount(AccountBulkActionsBar, {
+    props: {
+      selectedIds,
+      totalResults: 45,
+      selectingAll: false,
+      allResultsSelected: false
+    }
+  })
+
 describe('AccountBulkActionsBar', () => {
   it('emits copy-model-mapping when selected accounts exist', async () => {
-    const wrapper = mount(AccountBulkActionsBar, {
-      props: {
-        selectedIds: [10, 11]
-      }
-    })
-
+    const wrapper = mountBar([1])
     const button = wrapper
       .findAll('button')
       .find((candidate) => candidate.text() === 'admin.accounts.bulkActions.copyModelMapping')
@@ -33,12 +38,30 @@ describe('AccountBulkActionsBar', () => {
   })
 
   it('hides copy mapping action when nothing is selected', () => {
-    const wrapper = mount(AccountBulkActionsBar, {
-      props: {
-        selectedIds: []
-      }
-    })
+    const wrapper = mountBar()
 
     expect(wrapper.text()).not.toContain('admin.accounts.bulkActions.copyModelMapping')
+  })
+
+  it('allows selecting all results before any row is selected', async () => {
+    const wrapper = mountBar()
+    const button = wrapper
+      .findAll('button')
+      .find((candidate) => candidate.text().includes('admin.accounts.bulkActions.selectAllResults'))
+
+    expect(button).toBeDefined()
+    await button!.trigger('click')
+    expect(wrapper.emitted('select-all-results')).toHaveLength(1)
+  })
+
+  it('preserves the upstream billing probe action', async () => {
+    const wrapper = mountBar([1])
+    const button = wrapper
+      .findAll('button')
+      .find((candidate) => candidate.text().includes('admin.accounts.bulkActions.probeUpstreamBilling'))
+
+    expect(button).toBeDefined()
+    await button!.trigger('click')
+    expect(wrapper.emitted('probe-upstream-billing')).toHaveLength(1)
   })
 })

@@ -108,11 +108,18 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 
 	searchID := strings.TrimSpace(gjson.GetBytes(body, "id").String())
 	sessionHash := h.gatewayService.GenerateSessionHashWithFallback(c, nil, searchID)
-	failedAccountIDs := make(map[int64]struct{})
+	revalidationState := NewFailoverState(0, false)
+	failedAccountIDs := revalidationState.FailedAccountIDs
+	profitVetoCount := 0
 	var lastFailoverErr *service.UpstreamFailoverError
 	switchCount := 0
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	routingStart := time.Now()
+
+	// 分组利润控制：alpha search 文本入口请求级装门并固定 pricingAt
+	//（记录路径经 service.OpenAIPricingAtFromContext 从请求 ctx 回读）。
+	asPricingCtx, _ := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
+	c.Request = c.Request.WithContext(asPricingCtx)
 
 	for {
 		selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
@@ -152,10 +159,35 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 
 		account := selection.Account
 		setOpsSelectedAccount(c, account.ID, account.Platform)
-		accountRelease, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
-		if !acquired {
+		accountRelease, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
+		if slotResult == openAISlotAcquireProfitVetoed {
+			// 利润终检否决：排除该账号重新选号；否决次数达上限则按无可用账号终止。
+			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
+				return
+			}
+			continue
+		}
+		if slotResult != openAISlotAcquireOK {
 			return
 		}
+		freshAccount, accountRevalidated, revalidationExhausted := h.revalidateSelectedAccountAfterAcquire(service.ContextWithSelectionProfitGate(c.Request.Context(), selection), account, accountRelease, revalidationState, &profitVetoCount, service.OpenAIAccountEligibilityRequest{
+			GroupID:            apiKey.GroupID,
+			SessionHash:        sessionHash,
+			Platform:           service.PlatformOpenAI,
+			RequestedModel:     requestedModel,
+			RequiredCapability: service.OpenAIEndpointCapabilityAlphaSearch,
+			RequiredTransport:  service.OpenAIUpstreamTransportHTTPSSE,
+		}, reqLog)
+		if !accountRevalidated {
+			if revalidationExhausted {
+				h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+				return
+			}
+			continue
+		}
+		account = freshAccount
+		selection.Account = freshAccount
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		writerSizeBeforeForward := c.Writer.Size()
 		forwardStart := time.Now()
@@ -256,6 +288,7 @@ func (h *OpenAIGatewayHandler) recordAlphaSearchUsage(
 			QuotaPlatform:      quotaPlatform,
 			SessionID:          sessionID,
 			ChannelUsageFields: channelMapping.ToUsageFields(requestedModel, result.UpstreamModel),
+			PricingAt:          service.OpenAIPricingAtFromContext(c.Request.Context()),
 		}); err != nil {
 			logger.L().With(
 				zap.String("component", "handler.openai_gateway.alpha_search"),

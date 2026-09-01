@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 19 // v19：动态分组路由快照加入 OpenAI Live gate
+const apiKeyAuthSnapshotVersion = 20 // v20：动态分组路由快照加入利润控制字段
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -509,6 +509,9 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		PeakStart:                       group.PeakStart,
 		PeakEnd:                         group.PeakEnd,
 		PeakRateMultiplier:              group.PeakRateMultiplier,
+		ProfitControlEnabled:            group.ProfitControlEnabled,
+		ProfitMinMargin:                 group.ProfitMinMargin,
+		ProfitSafetyBuffer:              group.ProfitSafetyBuffer,
 	}
 }
 
@@ -566,5 +569,8 @@ func groupFromAPIKeyAuthSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		PeakStart:                       snapshot.PeakStart,
 		PeakEnd:                         snapshot.PeakEnd,
 		PeakRateMultiplier:              snapshot.PeakRateMultiplier,
+		ProfitControlEnabled:            snapshot.ProfitControlEnabled,
+		ProfitMinMargin:                 snapshot.ProfitMinMargin,
+		ProfitSafetyBuffer:              snapshot.ProfitSafetyBuffer,
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
@@ -724,6 +725,40 @@ type streamingResult struct {
 	usage            *ClaudeUsage
 	firstTokenMs     *int
 	clientDisconnect bool // 客户端是否在流式传输过程中断开
+}
+
+// hasObservedTokens 报告流式过程中是否已观测到任何上游计量的 token。
+func (u *ClaudeUsage) hasObservedTokens() bool {
+	if u == nil {
+		return false
+	}
+	return u.InputTokens > 0 || u.OutputTokens > 0 ||
+		u.CacheCreationInputTokens > 0 || u.CacheReadInputTokens > 0 ||
+		u.CacheCreation5mTokens > 0 || u.CacheCreation1hTokens > 0 ||
+		u.ImageOutputTokens > 0
+}
+
+// partialStreamUsageResult 在流式转发中途出错时，把已观测到 usage 的部分结果包装为
+// ForwardResult（与错误一起返回给 handler 记录）。failover 错误必须保持 result=nil，
+// 避免重试成功后重复计费。
+func partialStreamUsageResult(resp *http.Response, streamResult *streamingResult, model, upstreamModel string, startTime time.Time, err error) *ForwardResult {
+	if streamResult == nil || !streamResult.usage.hasObservedTokens() {
+		return nil
+	}
+	var failoverErr *UpstreamFailoverError
+	if errors.As(err, &failoverErr) {
+		return nil
+	}
+	return &ForwardResult{
+		RequestID:        resp.Header.Get("x-request-id"),
+		Usage:            *streamResult.usage,
+		Model:            model,
+		UpstreamModel:    upstreamModel,
+		Stream:           true,
+		Duration:         time.Since(startTime),
+		FirstTokenMs:     streamResult.firstTokenMs,
+		ClientDisconnect: streamResult.clientDisconnect,
+	}
 }
 
 func (s *GatewayService) parseSSEUsage(data string, usage *ClaudeUsage) {

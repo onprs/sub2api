@@ -1,0 +1,31 @@
+package handler
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+// TestOpenAIWSTurnPricingZeroValue 钉死 WS turn 定价的零值语义：
+// 首个 BeforeTurn 成功冻结前保持零值，不能用建连时刻预初始化。
+// 正常 ingress 会在每个 turn 开始时覆盖该值。
+func TestOpenAIWSTurnPricingZeroValue(t *testing.T) {
+	var p openAIWSTurnPricing
+	require.True(t, p.current().IsZero(),
+		"未经 turn 起始回调冻结时必须保持零值，交由 RecordUsage 回退记录时刻")
+}
+
+// TestOpenAIWSTurnPricingFreezePerTurn 钉死每个 turn 的 BeforeTurn 都会覆盖
+// 上一个 turn 的定价时刻：长连接跨峰谷时后续 turn 不得沿用旧时刻。
+func TestOpenAIWSTurnPricingFreezePerTurn(t *testing.T) {
+	var p openAIWSTurnPricing
+	turn1 := time.Now().Add(-time.Hour)
+	turn2 := time.Now()
+
+	p.freeze(turn1)
+	require.Equal(t, turn1, p.current())
+
+	p.freeze(turn2)
+	require.Equal(t, turn2, p.current(), "后续 turn 必须使用自己的定价时刻")
+}

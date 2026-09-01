@@ -29,7 +29,8 @@ vi.mock('@/api/admin', () => ({
       clearFlaggedHashes: vi.fn(),
       unbanUser: vi.fn()
     },
-    groups: { getAll: getGroups }
+    groups: { getAll: getGroups },
+    proxies: { getAll: vi.fn().mockResolvedValue([]) }
   }
 }))
 
@@ -149,7 +150,8 @@ async function mountView() {
         Select: true,
         Toggle: true,
         Pagination: true,
-        ModelWhitelistSelector: true
+        ModelWhitelistSelector: true,
+        ProxySelector: true
       }
     }
   })

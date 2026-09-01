@@ -83,7 +83,9 @@ func (c *Converter) EncodeRequest(request *ir.Request, options protocolconv.Opti
 	if err != nil {
 		return nil, cacheWarnings, err
 	}
-	canonical, warnings, err := c.responses.EncodeRequest(requestWithoutChatCacheHints(request), options)
+	bridgeRequest := requestWithoutChatCacheHints(request)
+	removeIntermediateToolResultImages(bridgeRequest)
+	canonical, warnings, err := c.responses.EncodeRequest(bridgeRequest, options)
 	warnings = append(cacheWarnings, warnings...)
 	if err != nil {
 		return nil, warnings, err
@@ -251,6 +253,29 @@ func cloneChatCacheFreeParts(parts []ir.ContentPart) []ir.ContentPart {
 		}
 	}
 	return cloned
+}
+
+func removeIntermediateToolResultImages(request *ir.Request) {
+	if request == nil {
+		return
+	}
+	for messageIndex := range request.Messages {
+		for partIndex := range request.Messages[messageIndex].Content {
+			part := &request.Messages[messageIndex].Content[partIndex]
+			if part.Type != ir.ContentToolResult || len(part.ToolResultContent) == 0 {
+				continue
+			}
+			// OpenAI Chat 使用下游可逆载体保存多模态 tool result。中间
+			// Responses 桥若也看到图片，会再生成一条媒体 user message。
+			filtered := part.ToolResultContent[:0]
+			for _, resultPart := range part.ToolResultContent {
+				if resultPart.Type != ir.ContentImage {
+					filtered = append(filtered, resultPart)
+				}
+			}
+			part.ToolResultContent = filtered
+		}
+	}
 }
 
 type chatCacheHint struct {

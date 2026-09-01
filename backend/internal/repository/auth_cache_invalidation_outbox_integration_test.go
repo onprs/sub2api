@@ -147,6 +147,10 @@ func TestAuthCacheInvalidationTriggers_CoverSecurityMutationsOnly(t *testing.T) 
 	_, err = integrationDB.ExecContext(ctx, "UPDATE groups SET status = 'active' WHERE id = $1", secondaryGroup.ID)
 	require.NoError(t, err)
 	clear()
+	_, err = integrationDB.ExecContext(ctx, "UPDATE groups SET profit_control_enabled = NOT profit_control_enabled WHERE id = $1", secondaryGroup.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1, count(), "secondary group profit-control changes must enqueue configured keys")
+	clear()
 
 	_, err = integrationDB.ExecContext(ctx,
 		"INSERT INTO user_allowed_groups (user_id, group_id) VALUES ($1, $2)", user.ID, secondaryGroup.ID)
