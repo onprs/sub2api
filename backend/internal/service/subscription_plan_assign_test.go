@@ -151,7 +151,7 @@ func TestAssignSubscriptionPlanConflictsWhenExistingSnapshotDiffers(t *testing.T
 		Save(ctx)
 	require.NoError(t, err)
 
-	start := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	start := time.Now().Add(-time.Hour)
 	oldFive := 1.0
 	subRepo := newSubscriptionUserSubRepoStub()
 	subRepo.seed(&UserSubscription{
@@ -209,7 +209,7 @@ func TestBulkAssignSubscriptionPlanCreatedReusedAndSnapshotConflict(t *testing.T
 		Save(ctx)
 	require.NoError(t, err)
 
-	start := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	start := time.Now().Add(-time.Hour)
 	oldFive := 1.0
 	subRepo := newSubscriptionUserSubRepoStub()
 	subRepo.seed(&UserSubscription{

@@ -73,8 +73,16 @@ func apiKeyRoutingInputFromRequest(c *gin.Context) (service.APIKeyRoutingResolve
 		if requestID == "" {
 			return input, false, nil
 		}
+		apiKey, hasAPIKey := middleware2.GetAPIKeyFromContext(c)
+		subject, hasSubject := middleware2.GetAuthSubjectFromContext(c)
+		if !hasAPIKey || apiKey == nil || !hasSubject {
+			return input, false, nil
+		}
 		input.Capability = service.APIKeyRoutingCapabilityVideo
-		input.SessionKey = service.GrokMediaVideoRequestSessionHash(requestID)
+		input.SessionKey = service.GrokMediaVideoRequestSessionHash(requestID, subject.UserID, apiKey.ID)
+		if input.SessionKey == "" {
+			return input, false, nil
+		}
 		return input, true, nil
 	case method == http.MethodGet && (strings.HasSuffix(path, "/models") || strings.HasSuffix(path, "/usage")):
 		if strings.HasSuffix(path, "/models") &&

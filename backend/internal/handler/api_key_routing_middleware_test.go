@@ -254,11 +254,15 @@ func TestAPIKeyRoutingInputFromRequest_ProtocolCoverage(t *testing.T) {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/video-request-1", nil)
 		c.Params = gin.Params{{Key: "request_id", Value: "video-request-1"}}
+		const userID int64 = 17
+		const apiKeyID int64 = 29
+		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{ID: apiKeyID})
+		c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: userID})
 		input, shouldResolve, err := apiKeyRoutingInputFromRequest(c)
 		require.NoError(t, err)
 		require.True(t, shouldResolve)
 		require.Equal(t, service.APIKeyRoutingCapabilityVideo, input.Capability)
-		require.Equal(t, service.GrokMediaVideoRequestSessionHash("video-request-1"), input.SessionKey)
+		require.Equal(t, service.GrokMediaVideoRequestSessionHash("video-request-1", userID, apiKeyID), input.SessionKey)
 	})
 
 	t.Run("Codex models manifest selects one actual group", func(t *testing.T) {

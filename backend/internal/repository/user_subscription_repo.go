@@ -539,8 +539,11 @@ func (r *userSubscriptionRepository) renewTermLocked(ctx context.Context, input 
 		return nil, translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
 	}
 	existing := userSubscriptionEntityToServicePreserveStatus(existingEntity)
+	if existing.Status == service.SubscriptionStatusSuspended {
+		return nil, service.ErrSubscriptionSuspended
+	}
 
-	activeTerm := existing.ExpiresAt.After(input.Now)
+	activeTerm := existing.Status != service.SubscriptionStatusExpired && existing.ExpiresAt.After(input.Now)
 	startsAt := existing.StartsAt
 	expiresAt := existing.ExpiresAt
 	if activeTerm {

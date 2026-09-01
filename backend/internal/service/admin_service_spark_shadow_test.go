@@ -102,6 +102,35 @@ func (s *sparkShadowRepoStub) Update(_ context.Context, account *Account) error 
 	return nil
 }
 
+func (s *sparkShadowRepoStub) BulkUpdate(_ context.Context, ids []int64, updates AccountBulkUpdate) (int64, error) {
+	var rows int64
+	for _, id := range ids {
+		account, ok := s.accounts[id]
+		if !ok {
+			continue
+		}
+		if updates.ProxyID != nil {
+			if *updates.ProxyID == 0 {
+				account.ProxyID = nil
+			} else {
+				proxyID := *updates.ProxyID
+				account.ProxyID = &proxyID
+			}
+		}
+		if updates.Name != nil {
+			account.Name = *updates.Name
+		}
+		if updates.Priority != nil {
+			account.Priority = *updates.Priority
+		}
+		if updates.Status != nil {
+			account.Status = *updates.Status
+		}
+		rows++
+	}
+	return rows, nil
+}
+
 func (s *sparkShadowRepoStub) Delete(_ context.Context, id int64) error {
 	delete(s.accounts, id)
 	delete(s.mockAccountRepoForGemini.accountsByID, id)

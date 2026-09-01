@@ -82,6 +82,20 @@ func (r stubOpenAIAccountRepo) ListSchedulableUngroupedByPlatform(ctx context.Co
 	return r.ListSchedulableByPlatform(ctx, platform)
 }
 
+func (r stubOpenAIAccountRepo) ListModelAvailabilityCandidates(_ context.Context, _ *int64, platforms []string, _ bool) ([]Account, error) {
+	allowed := make(map[string]struct{}, len(platforms))
+	for _, platform := range platforms {
+		allowed[platform] = struct{}{}
+	}
+	result := make([]Account, 0, len(r.accounts))
+	for _, account := range r.accounts {
+		if _, ok := allowed[account.Platform]; ok {
+			result = append(result, account)
+		}
+	}
+	return result, nil
+}
+
 type groupAwareStubOpenAIAccountRepo struct {
 	stubOpenAIAccountRepo
 }
@@ -420,8 +434,11 @@ func (c stubConcurrencyCache) GetAccountWaitingCount(ctx context.Context, accoun
 }
 
 type stubGatewayCache struct {
-	sessionBindings map[string]int64
-	deletedSessions map[string]int
+	sessionBindings     map[string]int64
+	deletedSessions     map[string]int
+	setSessionErr       error
+	setSessionCalls     int
+	refreshSessionCalls int
 }
 
 func (c *stubGatewayCache) GetSessionAccountID(ctx context.Context, groupID int64, sessionHash string) (int64, error) {
@@ -432,6 +449,10 @@ func (c *stubGatewayCache) GetSessionAccountID(ctx context.Context, groupID int6
 }
 
 func (c *stubGatewayCache) SetSessionAccountID(ctx context.Context, groupID int64, sessionHash string, accountID int64, ttl time.Duration) error {
+	c.setSessionCalls++
+	if c.setSessionErr != nil {
+		return c.setSessionErr
+	}
 	if c.sessionBindings == nil {
 		c.sessionBindings = make(map[string]int64)
 	}
@@ -440,6 +461,7 @@ func (c *stubGatewayCache) SetSessionAccountID(ctx context.Context, groupID int6
 }
 
 func (c *stubGatewayCache) RefreshSessionTTL(ctx context.Context, groupID int64, sessionHash string, ttl time.Duration) error {
+	c.refreshSessionCalls++
 	return nil
 }
 

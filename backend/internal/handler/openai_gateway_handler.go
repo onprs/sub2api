@@ -30,20 +30,25 @@ import (
 
 // OpenAIGatewayHandler handles OpenAI API gateway requests
 type OpenAIGatewayHandler struct {
-	gatewayService            *service.OpenAIGatewayService
-	routingService            *service.GatewayService
-	billingCacheService       *service.BillingCacheService
-	billingEligibilityService service.BillingEligibilityResolver
-	apiKeyService             *service.APIKeyService
-	usageRecordWorkerPool     *service.UsageRecordWorkerPool
-	errorPassthroughService   *service.ErrorPassthroughService
-	contentModerationService  *service.ContentModerationService
-	securityAuditCoordinator  *securityaudit.Coordinator
-	opsService                *service.OpsService
-	concurrencyHelper         *ConcurrencyHelper
-	imageLimiter              *imageConcurrencyLimiter
-	maxAccountSwitches        int
-	cfg                       *config.Config
+	gatewayService             *service.OpenAIGatewayService
+	routingService             *service.GatewayService
+	billingCacheService        *service.BillingCacheService
+	billingEligibilityService  service.BillingEligibilityResolver
+	apiKeyService              *service.APIKeyService
+	usageRecordWorkerPool      *service.UsageRecordWorkerPool
+	errorPassthroughService    *service.ErrorPassthroughService
+	contentModerationService   *service.ContentModerationService
+	securityAuditCoordinator   *securityaudit.Coordinator
+	grokMediaEligibilityProber grokMediaEligibilityProber
+	opsService                 *service.OpsService
+	concurrencyHelper          *ConcurrencyHelper
+	imageLimiter               *imageConcurrencyLimiter
+	maxAccountSwitches         int
+	cfg                        *config.Config
+}
+
+type grokMediaEligibilityProber interface {
+	ProbeMediaEligibility(ctx context.Context, accountID int64) (bool, string, error)
 }
 
 type openAIWSTurnChannelMappingSnapshot struct {
@@ -2505,12 +2510,29 @@ func (h *OpenAIGatewayHandler) mapUpstreamError(statusCode int) (int, string, st
 
 // handleStreamingAwareError handles errors that may occur after streaming has started
 func (h *OpenAIGatewayHandler) handleStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+	h.handleStreamingAwareErrorWithCode(c, status, errType, "", message, streamStarted, false)
+}
+
+func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCode(
+	c *gin.Context,
+	status int,
+	errType string,
+	code string,
+	message string,
+	streamStarted bool,
+	countTowardsSLA bool,
+) {
 	// body-signal compact 心跳可能已把响应头提交为 200：先停心跳（建立
 	// happens-before，接管 ResponseWriter），并升级为流内错误处理。
 	if service.StopOpenAICompactSSEKeepaliveCommitted(c) {
 		streamStarted = true
 	}
 	if streamStarted {
+		if countTowardsSLA {
+			service.MarkOpsStreamFailure(c, errType, code, message, status)
+		} else {
+			service.MarkOpsStreamError(c, errType, message, status)
+		}
 		// /v1/responses 的严格 SDK（Codex CLI）要求终止事件必须属于
 		// response.completed/failed/incomplete/cancelled 集合。
 		// 通用 `event: error` 帧不被识别为终止事件，会导致
@@ -2520,12 +2542,32 @@ func (h *OpenAIGatewayHandler) handleStreamingAwareError(c *gin.Context, status 
 				return
 			}
 		}
-		writeProtocolStreamError(c, protocolconv.ProtocolOpenAIChat, status, errType, errType, message)
+		writeProtocolStreamError(c, protocolconv.ProtocolOpenAIChat, status, errType, code, message)
 		return
 	}
 
 	// Normal case: return JSON response with proper status code
-	h.errorResponse(c, status, errType, message)
+	if code == "" {
+		h.errorResponse(c, status, errType, message)
+		return
+	}
+	c.JSON(status, gin.H{"error": gin.H{
+		"type": errType, "code": code, "message": message,
+	}})
+}
+
+func (h *OpenAIGatewayHandler) ensureOpenAIStreamReadErrorResponse(c *gin.Context, err error, streamStarted bool) bool {
+	code, message, ok := service.OpenAIUpstreamStreamReadErrorDetails(err)
+	if !ok || c == nil || c.Writer == nil || service.IsResponseCommitted(c) {
+		return false
+	}
+	if c.Writer.Written() {
+		streamStarted = true
+	}
+	h.handleStreamingAwareErrorWithCode(
+		c, http.StatusBadGateway, "upstream_error", code, message, streamStarted, true,
+	)
+	return true
 }
 
 // ensureForwardErrorResponse 在 Forward 返回错误但尚未写响应时补写统一错误响应。

@@ -13,14 +13,15 @@ import (
 // SessionBindingContext 全局中间件：将请求的客户端 IP 与 User-Agent 注入
 // request context，供 token 签发路径（登录 / 刷新 / OAuth 回调）读取并写入会话绑定，
 // 同时作为审计日志、会话绑定校验的统一客户端 IP 来源。
-// IP 取值与 API Key IP 限制共用「信任反代传递的客户端 IP」系统开关：
-// 开启时信任反代转发头（CF-Connecting-IP / X-Real-IP / X-Forwarded-For），
-// 关闭时走 trusted_proxies 解析链，避免不可信头伪造绕过绑定。
+// IP 取值与 API Key IP 限制共用 Gin trusted_proxies 解析链；旧设置开关
+// 仅为配置兼容保留，不能单独使直连请求的转发头变为可信。
 func SessionBindingContext(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		userAgent := normalizePersistentText(c.Request.UserAgent(), maxPersistentUserAgentBytes)
+		c.Request.Header.Set("User-Agent", userAgent)
 		binding := &service.SessionBinding{
 			IP:        ip.GetSecurityClientIP(c, cfg.TrustForwardedIPForAPIKeyACL()),
-			UserAgent: c.Request.UserAgent(),
+			UserAgent: userAgent,
 		}
 		c.Request = c.Request.WithContext(service.WithSessionBinding(c.Request.Context(), binding))
 		c.Next()
@@ -36,7 +37,7 @@ func requestSessionBinding(c *gin.Context) *service.SessionBinding {
 	}
 	return &service.SessionBinding{
 		IP:        ip.GetTrustedClientIP(c),
-		UserAgent: c.Request.UserAgent(),
+		UserAgent: normalizePersistentText(c.Request.UserAgent(), maxPersistentUserAgentBytes),
 	}
 }
 
@@ -63,7 +64,16 @@ func enforceSessionBinding(
 	auditService *service.AuditLogService,
 	claims *service.JWTClaims,
 ) bool {
-	if settingService == nil || !settingService.IsSessionBindingEnabled(c.Request.Context()) {
+	if settingService == nil {
+		return true
+	}
+	// 正常装配下必须区分“开关关闭”和“设置存储故障”；后者故障关闭。
+	enabled, err := settingService.GetSessionBindingEnabled(c.Request.Context())
+	if err != nil {
+		AbortWithError(c, 503, "SESSION_BINDING_SETTING_UNAVAILABLE", "Session security setting is unavailable")
+		return false
+	}
+	if !enabled {
 		return true
 	}
 	if claims == nil || claims.BindingHash == "" {
@@ -93,7 +103,7 @@ func enforceSessionBinding(
 			Method:      c.Request.Method,
 			Path:        path,
 			ClientIP:    binding.IP,
-			UserAgent:   c.Request.UserAgent(),
+			UserAgent:   normalizePersistentText(c.Request.UserAgent(), maxPersistentUserAgentBytes),
 			StatusCode:  401,
 		})
 	}

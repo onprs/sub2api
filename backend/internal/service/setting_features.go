@@ -179,14 +179,50 @@ func (s *SettingService) IsTotpEncryptionKeyConfigured() bool {
 	return s.cfg.Totp.EncryptionKeyConfigured
 }
 
-// IsSessionBindingEnabled 检查会话 IP/UA 绑定是否启用（默认开启）。
-// 开启时会话与登录时的 IP/User-Agent 绑定，任一变化立即失效并撤销该会话。
-func (s *SettingService) IsSessionBindingEnabled(ctx context.Context) bool {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeySessionBindingEnabled)
-	if err != nil {
-		return true // 默认开启
+// GetSessionBindingEnabled 返回会话绑定开关，并区分“未配置”和存储故障。
+// 未配置保持向后兼容的默认关闭；其他错误必须由安全调用方故障关闭。
+func (s *SettingService) GetSessionBindingEnabled(ctx context.Context) (bool, error) {
+	if s == nil || s.settingRepo == nil {
+		return false, errors.New("session binding setting repository is unavailable")
 	}
-	return value != "false"
+	value, err := s.settingRepo.GetValue(ctx, SettingKeySessionBindingEnabled)
+	if errors.Is(err, ErrSettingNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("get session binding setting: %w", err)
+	}
+	return value == "true", nil
+}
+
+// IsSessionBindingEnabled 检查会话 IP/UA 绑定是否启用（默认关闭）。
+// 非安全展示调用保留 bool 契约；安全门控应调用 GetSessionBindingEnabled。
+func (s *SettingService) IsSessionBindingEnabled(ctx context.Context) bool {
+	enabled, err := s.GetSessionBindingEnabled(ctx)
+	return err == nil && enabled
+}
+
+// GetStepUpEnabled 返回敏感操作 step-up 开关，并区分“未配置”和存储故障。
+// 未配置保持向后兼容的默认关闭；其他错误必须由安全调用方故障关闭。
+func (s *SettingService) GetStepUpEnabled(ctx context.Context) (bool, error) {
+	if s == nil || s.settingRepo == nil {
+		return false, errors.New("step-up setting repository is unavailable")
+	}
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyStepUpEnabled)
+	if errors.Is(err, ErrSettingNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("get step-up setting: %w", err)
+	}
+	return value == "true", nil
+}
+
+// IsStepUpEnabled 检查敏感操作 step-up 2FA 门控是否启用（默认关闭）。
+// 非安全展示调用保留 bool 契约；安全门控应调用 GetStepUpEnabled。
+func (s *SettingService) IsStepUpEnabled(ctx context.Context) bool {
+	enabled, err := s.GetStepUpEnabled(ctx)
+	return err == nil && enabled
 }
 
 // defaultAuditLogRetentionDays 审计日志默认保留天数。

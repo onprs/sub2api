@@ -160,7 +160,7 @@ const planColumns = computed((): Column[] => [
   { key: 'group_id', label: t('payment.admin.group') },
   { key: 'price', label: t('payment.admin.price') },
   { key: 'renewal_discount_percent', label: t('payment.admin.renewalDiscountPercent') },
-  { key: 'validity_days', label: t('payment.admin.validityDays') },
+  { key: 'validity_days', label: t('payment.admin.validity') },
   { key: 'quota_limits', label: t('payment.admin.rollingQuotaLimits') },
   { key: 'stock', label: t('payment.admin.stock') },
   { key: 'for_sale', label: t('payment.admin.forSale') },

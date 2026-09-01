@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -524,6 +525,15 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Priority:    input.Priority,
 		Status:      StatusActive,
 		Schedulable: true,
+	}
+	if input.ProbeEnabled != nil && *input.ProbeEnabled {
+		if !isUpstreamBillingProbeAccount(account) {
+			return nil, ErrUpstreamBillingProbeAccountInvalid
+		}
+		if account.Extra == nil {
+			account.Extra = make(map[string]any)
+		}
+		account.Extra[UpstreamBillingProbeEnabledExtraKey] = true
 	}
 	// 预计算固定时间重置的下次重置时间
 	if account.Extra != nil {
@@ -1065,7 +1075,7 @@ func cloneCredentials(in map[string]any) map[string]any {
 // BulkUpdateAccounts updates multiple accounts in one request.
 // It merges credentials/extra keys instead of overwriting the whole object.
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
-	// Probe state is updated only through its dedicated endpoints.
+	// Managed probe state may only enter through the dedicated typed field below.
 	delete(input.Extra, UpstreamBillingProbeEnabledExtraKey)
 	delete(input.Extra, UpstreamBillingProbeExtraKey)
 
@@ -1097,12 +1107,29 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate {
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || input.ProbeEnabled != nil {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
 		}
 		cachedTargets = loaded
+	}
+	if input.ProbeEnabled != nil {
+		targetsByID := make(map[int64]*Account, len(cachedTargets))
+		for _, account := range cachedTargets {
+			if account != nil {
+				targetsByID[account.ID] = account
+			}
+		}
+		for _, accountID := range input.AccountIDs {
+			account, ok := targetsByID[accountID]
+			if !ok {
+				return nil, ErrAccountNotFound
+			}
+			if !isUpstreamBillingProbeAccount(account) {
+				return nil, ErrUpstreamBillingProbeAccountInvalid
+			}
+		}
 	}
 	if hasLongContextBillingUpdate {
 		for _, account := range cachedTargets {
@@ -1175,8 +1202,15 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	// Prepare bulk updates for columns and JSONB fields.
 	repoUpdates := AccountBulkUpdate{
-		Credentials: input.Credentials,
-		Extra:       input.Extra,
+		Credentials:  input.Credentials,
+		Extra:        input.Extra,
+		ProbeEnabled: input.ProbeEnabled,
+	}
+	if input.ProbeEnabled != nil {
+		if repoUpdates.Extra == nil {
+			repoUpdates.Extra = make(map[string]any)
+		}
+		repoUpdates.Extra[UpstreamBillingProbeEnabledExtraKey] = *input.ProbeEnabled
 	}
 	if updatesUpstreamBillingProbeIdentity(input.Credentials) || input.ProxyID != nil {
 		if repoUpdates.Extra == nil {
@@ -1217,37 +1251,35 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		repoUpdates.Schedulable = input.Schedulable
 	}
 
-	// Run bulk update for column/jsonb fields first.
-	if _, err := s.accountRepo.BulkUpdate(ctx, input.AccountIDs, repoUpdates); err != nil {
-		return nil, err
-	}
-
-	// 将 proxy 变更传播到每个目标账号的 spark 影子账号
-	if repoUpdates.ProxyID != nil {
-		var effectiveProxyID *int64
-		if *repoUpdates.ProxyID != 0 {
-			effectiveProxyID = repoUpdates.ProxyID
+	requiresPerAccountTransaction := input.GroupIDs != nil || repoUpdates.ProxyID != nil
+	if !requiresPerAccountTransaction {
+		if _, err := s.accountRepo.BulkUpdate(ctx, input.AccountIDs, repoUpdates); err != nil {
+			return nil, err
 		}
 		for _, accountID := range input.AccountIDs {
-			if err := s.propagateProxyToShadows(ctx, accountID, effectiveProxyID); err != nil {
-				return nil, err
-			}
+			result.Success++
+			result.SuccessIDs = append(result.SuccessIDs, accountID)
+			result.Results = append(result.Results, BulkUpdateAccountResult{AccountID: accountID, Success: true})
 		}
+		return result, nil
 	}
 
-	// Handle group bindings per account (requires individual operations).
+	hasRepositoryUpdates := accountBulkUpdateHasChanges(repoUpdates)
 	for _, accountID := range input.AccountIDs {
 		entry := BulkUpdateAccountResult{AccountID: accountID}
-
-		if input.GroupIDs != nil {
-			if err := s.accountRepo.BindGroups(ctx, accountID, *input.GroupIDs); err != nil {
-				entry.Success = false
-				entry.Error = err.Error()
-				result.Failed++
-				result.FailedIDs = append(result.FailedIDs, accountID)
-				result.Results = append(result.Results, entry)
-				continue
-			}
+		err := s.updateBulkAccountAtomically(
+			ctx,
+			accountID,
+			repoUpdates,
+			hasRepositoryUpdates,
+			input.GroupIDs,
+		)
+		if err != nil {
+			entry.Error = err.Error()
+			result.Failed++
+			result.FailedIDs = append(result.FailedIDs, accountID)
+			result.Results = append(result.Results, entry)
+			continue
 		}
 
 		entry.Success = true
@@ -1257,6 +1289,68 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 
 	return result, nil
+}
+
+func accountBulkUpdateHasChanges(updates AccountBulkUpdate) bool {
+	return updates.Name != nil ||
+		updates.ProxyID != nil ||
+		updates.Concurrency != nil ||
+		updates.Priority != nil ||
+		updates.RateMultiplier != nil ||
+		updates.LoadFactor != nil ||
+		updates.Status != nil ||
+		updates.Schedulable != nil ||
+		updates.ProbeEnabled != nil ||
+		len(updates.Credentials) > 0 ||
+		len(updates.Extra) > 0
+}
+
+func (s *adminServiceImpl) updateBulkAccountAtomically(
+	ctx context.Context,
+	accountID int64,
+	repoUpdates AccountBulkUpdate,
+	hasRepositoryUpdates bool,
+	groupIDs *[]int64,
+) error {
+	apply := func(opCtx context.Context) error {
+		if hasRepositoryUpdates {
+			rows, err := s.accountRepo.BulkUpdate(opCtx, []int64{accountID}, repoUpdates)
+			if err != nil {
+				return err
+			}
+			if rows != 1 {
+				return ErrAccountNotFound
+			}
+		}
+		if repoUpdates.ProxyID != nil {
+			var effectiveProxyID *int64
+			if *repoUpdates.ProxyID != 0 {
+				effectiveProxyID = repoUpdates.ProxyID
+			}
+			if err := s.propagateProxyToShadows(opCtx, accountID, effectiveProxyID); err != nil {
+				return err
+			}
+		}
+		if groupIDs != nil {
+			if err := s.accountRepo.BindGroups(opCtx, accountID, *groupIDs); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if s.entClient == nil || dbent.TxFromContext(ctx) != nil {
+		return apply(ctx)
+	}
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := apply(dbent.NewTxContext(ctx, tx)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func updatesUpstreamBillingProbeIdentity(credentials map[string]any) bool {

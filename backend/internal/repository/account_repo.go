@@ -894,6 +894,20 @@ func (r *accountRepository) ListOpsAccountsForStats(ctx context.Context, platfor
 func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selector) {
 	sortBy := strings.ToLower(strings.TrimSpace(params.SortBy))
 	sortOrder := params.NormalizedSortOrder(pagination.SortOrderAsc)
+	if sortBy == "upstream_billing_rate" {
+		direction := "ASC"
+		tieOrder := entsql.Asc
+		if sortOrder == pagination.SortOrderDesc {
+			direction = "DESC"
+			tieOrder = entsql.Desc
+		}
+		return []func(*entsql.Selector){func(s *entsql.Selector) {
+			extra := s.C(dbaccount.FieldExtra)
+			expression := upstreamBillingRateSortExpression(extra)
+			s.OrderExpr(entsql.Expr(expression + " " + direction + " NULLS LAST"))
+			s.OrderBy(tieOrder(s.C(dbaccount.FieldID)))
+		}}
+	}
 
 	field := dbaccount.FieldName
 	defaultOrder := true
@@ -933,6 +947,79 @@ func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selecto
 		return []func(*entsql.Selector){dbent.Asc(dbaccount.FieldName), dbent.Asc(dbaccount.FieldID)}
 	}
 	return []func(*entsql.Selector){dbent.Asc(field), dbent.Asc(dbaccount.FieldID)}
+}
+
+func upstreamBillingRateSortExpression(extra string) string {
+	status := extra + " #>> '{upstream_billing_probe,status}'"
+	effectiveJSON := extra + " #> '{upstream_billing_probe,data,effective_rate_multiplier}'"
+	effective := extra + " #>> '{upstream_billing_probe,data,effective_rate_multiplier}'"
+	resolvedJSON := extra + " #> '{upstream_billing_probe,data,resolved_rate_multiplier}'"
+	resolved := extra + " #>> '{upstream_billing_probe,data,resolved_rate_multiplier}'"
+	peakEnabledJSON := extra + " #> '{upstream_billing_probe,data,peak_rate_enabled}'"
+	peakEnabled := extra + " #>> '{upstream_billing_probe,data,peak_rate_enabled}'"
+	peakStart := extra + " #>> '{upstream_billing_probe,data,peak_start}'"
+	peakEnd := extra + " #>> '{upstream_billing_probe,data,peak_end}'"
+	peakMultiplierJSON := extra + " #> '{upstream_billing_probe,data,peak_rate_multiplier}'"
+	peakMultiplier := extra + " #>> '{upstream_billing_probe,data,peak_rate_multiplier}'"
+	billingScope := extra + " #>> '{upstream_billing_probe,data,billing_scope}'"
+	timezone := extra + " #>> '{upstream_billing_probe,data,timezone}'"
+	receivedAt := extra + " #>> '{upstream_billing_probe,received_at}'"
+	freshUntil := extra + " #>> '{upstream_billing_probe,fresh_until}'"
+	nextProbeAt := extra + " #>> '{upstream_billing_probe,next_probe_at}'"
+
+	validRFC3339 := "'^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$'"
+	parseTimestamp := func(value string) string {
+		year := "(substring(" + value + " from 1 for 4)::integer)"
+		month := "(substring(" + value + " from 6 for 2)::integer)"
+		day := "(substring(" + value + " from 9 for 2)::integer)"
+		hour := "(substring(" + value + " from 12 for 2)::integer)"
+		minute := "(substring(" + value + " from 15 for 2)::integer)"
+		second := "(substring(" + value + " from 18 for 2)::integer)"
+		timezoneSuffix := "substring(" + value + " from '(Z|[+-][0-9]{2}:[0-9]{2})$')"
+		timezoneValid := "(CASE WHEN " + timezoneSuffix + " = 'Z' THEN TRUE ELSE " +
+			"substring(" + timezoneSuffix + " from 2 for 2)::integer BETWEEN 0 AND 15 AND " +
+			"substring(" + timezoneSuffix + " from 5 for 2)::integer BETWEEN 0 AND 59 END)"
+		maxDay := "(CASE " + month +
+			" WHEN 2 THEN CASE WHEN " + year + " % 400 = 0 OR (" + year + " % 4 = 0 AND " + year + " % 100 <> 0) THEN 29 ELSE 28 END" +
+			" WHEN 4 THEN 30 WHEN 6 THEN 30 WHEN 9 THEN 30 WHEN 11 THEN 30 ELSE 31 END)"
+		componentsValid := year + " BETWEEN 1 AND 9999 AND " +
+			month + " BETWEEN 1 AND 12 AND " +
+			day + " BETWEEN 1 AND " + maxDay + " AND " +
+			hour + " BETWEEN 0 AND 23 AND " +
+			minute + " BETWEEN 0 AND 59 AND " +
+			second + " BETWEEN 0 AND 59 AND " + timezoneValid
+		validInput := "(CASE WHEN " + value + " ~ " + validRFC3339 + " THEN " + componentsValid + " ELSE FALSE END)"
+		return "(CASE WHEN " + validInput + " THEN (" + value + ")::timestamptz END)"
+	}
+	receivedTime := parseTimestamp(receivedAt)
+	explicitFreshTime := parseTimestamp(freshUntil)
+	nextProbeTime := parseTimestamp(nextProbeAt)
+	computedFreshTime := receivedTime + " + 2 * (" + nextProbeTime + " - " + receivedTime + ")"
+	freshTime := "(CASE WHEN " + freshUntil + " IS NOT NULL THEN " + explicitFreshTime +
+		" WHEN " + status + " = 'ok' AND " + nextProbeTime + " > " + receivedTime + " THEN " + computedFreshTime + " END)"
+	validFreshSnapshot := receivedTime + " IS NOT NULL AND " + receivedTime + " <= CURRENT_TIMESTAMP + INTERVAL '5 minutes' AND " +
+		freshTime + " IS NOT NULL AND " + freshTime + " > " + receivedTime + " AND CURRENT_TIMESTAMP <= " + freshTime
+
+	effectiveValue := "(CASE WHEN jsonb_typeof(" + effectiveJSON + ") = 'number' THEN (" + effective + ")::numeric END)"
+	resolvedValue := "(CASE WHEN jsonb_typeof(" + resolvedJSON + ") = 'number' THEN (" + resolved + ")::numeric END)"
+	peakMultiplierValue := "(CASE WHEN jsonb_typeof(" + peakMultiplierJSON + ") = 'number' THEN (" + peakMultiplier + ")::numeric END)"
+	validClock := "'^([01][0-9]|2[0-3]):[0-5][0-9]$'"
+	startMinute := "(CASE WHEN " + peakStart + " ~ " + validClock + " THEN split_part(" + peakStart + ", ':', 1)::numeric * 60 + split_part(" + peakStart + ", ':', 2)::numeric END)"
+	endMinute := "(CASE WHEN " + peakEnd + " ~ " + validClock + " THEN split_part(" + peakEnd + ", ':', 1)::numeric * 60 + split_part(" + peakEnd + ", ':', 2)::numeric END)"
+	localMinute := "(EXTRACT(HOUR FROM (CURRENT_TIMESTAMP AT TIME ZONE (" + timezone + "))) * 60 + EXTRACT(MINUTE FROM (CURRENT_TIMESTAMP AT TIME ZONE (" + timezone + "))))"
+	validPeakWindow := peakStart + " ~ " + validClock + " AND " +
+		peakEnd + " ~ " + validClock + " AND " +
+		startMinute + " < " + endMinute
+	validPeakConfig := validPeakWindow + " AND " + peakMultiplierValue + " >= 0 AND " +
+		"EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = " + timezone + ")"
+	dynamicRate := "CASE WHEN " + peakEnabled + " = 'false' THEN " + resolvedValue + " WHEN " + peakEnabled + " = 'true' AND " + validPeakConfig +
+		" THEN " + resolvedValue + " * CASE WHEN " + localMinute + " >= " + startMinute + " AND " + localMinute + " < " + endMinute +
+		" THEN " + peakMultiplierValue + " ELSE 1 END ELSE NULL END"
+	legacySnapshot := "jsonb_typeof(" + resolvedJSON + ") IS NULL AND jsonb_typeof(" + peakEnabledJSON + ") IS NULL"
+
+	return "CASE WHEN " + status + " IN ('ok', 'failed') AND " + validFreshSnapshot + " THEN CASE WHEN " +
+		resolvedValue + " >= 0 AND jsonb_typeof(" + peakEnabledJSON + ") = 'boolean' THEN CASE WHEN " + billingScope + " = 'token' THEN " + dynamicRate +
+		" ELSE NULL END WHEN " + legacySnapshot + " AND " + effectiveValue + " >= 0 THEN " + effectiveValue + " END END"
 }
 
 func (r *accountRepository) ListByGroup(ctx context.Context, groupID int64) ([]service.Account, error) {
@@ -1573,57 +1660,57 @@ func (r *accountRepository) GetGroups(ctx context.Context, accountID int64) ([]s
 }
 
 func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error {
-	existingGroupIDs, err := r.loadAccountGroupIDs(ctx, accountID)
+	contextTx := dbent.TxFromContext(ctx)
+	client := r.client
+	var tx *dbent.Tx
+	if contextTx != nil {
+		client = contextTx.Client()
+	} else {
+		var err error
+		tx, err = r.client.Tx(ctx)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback() }()
+		ctx = dbent.NewTxContext(ctx, tx)
+		client = tx.Client()
+	}
+
+	exists, err := client.Account.Query().Where(dbaccount.IDEQ(accountID)).Exist(ctx)
 	if err != nil {
 		return err
 	}
-	// 使用事务保证删除旧绑定与创建新绑定的原子性
-	tx, err := r.client.Tx(ctx)
-	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+	if !exists {
+		return service.ErrAccountNotFound
+	}
+	existingGroupIDs, err := r.loadAccountGroupIDsWithClient(ctx, client, accountID)
+	if err != nil {
+		return err
+	}
+	if _, err := client.AccountGroup.Delete().Where(dbaccountgroup.AccountIDEQ(accountID)).Exec(ctx); err != nil {
 		return err
 	}
 
-	var txClient *dbent.Client
-	if err == nil {
-		defer func() { _ = tx.Rollback() }()
-		txClient = tx.Client()
-	} else {
-		// 已处于外部事务中（ErrTxStarted），复用当前 client
-		txClient = r.client
-	}
-
-	if _, err := txClient.AccountGroup.Delete().Where(dbaccountgroup.AccountIDEQ(accountID)).Exec(ctx); err != nil {
-		return err
-	}
-
-	if len(groupIDs) == 0 {
-		if tx != nil {
-			return tx.Commit()
+	if len(groupIDs) > 0 {
+		builders := make([]*dbent.AccountGroupCreate, 0, len(groupIDs))
+		for i, groupID := range groupIDs {
+			builders = append(builders, client.AccountGroup.Create().
+				SetAccountID(accountID).
+				SetGroupID(groupID).
+				SetPriority(i+1),
+			)
 		}
-		return nil
-	}
-
-	builders := make([]*dbent.AccountGroupCreate, 0, len(groupIDs))
-	for i, groupID := range groupIDs {
-		builders = append(builders, txClient.AccountGroup.Create().
-			SetAccountID(accountID).
-			SetGroupID(groupID).
-			SetPriority(i+1),
-		)
-	}
-
-	if _, err := txClient.AccountGroup.CreateBulk(builders...).Save(ctx); err != nil {
-		return err
-	}
-
-	if tx != nil {
-		if err := tx.Commit(); err != nil {
+		if _, err := client.AccountGroup.CreateBulk(builders...).Save(ctx); err != nil {
 			return err
 		}
 	}
+
 	payload := buildSchedulerGroupPayload(mergeGroupIDs(existingGroupIDs, groupIDs))
-	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountGroupsChanged, &accountID, nil, payload); err != nil {
-		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue bind groups failed: account=%d err=%v", accountID, err)
+	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountGroupsChanged, &accountID, nil, payload); err != nil {
+		return err
+	}
+	if tx != nil {
+		return tx.Commit()
 	}
 	return nil
 }
@@ -1876,6 +1963,46 @@ func (r *accountRepository) ListSchedulableByGroupIDAndPlatforms(ctx context.Con
 		schedulable: true,
 		platforms:   platforms,
 	})
+}
+
+// ListModelAvailabilityCandidates returns the persistently configured account
+// pool used to decide whether a model is supported. Unlike scheduling queries,
+// it intentionally ignores transient runtime state (rate limits, overload,
+// temporary unschedulability, and expiry windows).
+func (r *accountRepository) ListModelAvailabilityCandidates(
+	ctx context.Context,
+	groupID *int64,
+	platforms []string,
+	includeGrouped bool,
+) ([]service.Account, error) {
+	if len(platforms) == 0 {
+		return []service.Account{}, nil
+	}
+	if groupID != nil {
+		return r.queryAccountsByGroup(ctx, *groupID, accountGroupQueryOptions{
+			status:               service.StatusActive,
+			schedulable:          true,
+			ignoreTransientState: true,
+			platforms:            platforms,
+		})
+	}
+
+	preds := []dbpredicate.Account{
+		dbaccount.StatusEQ(service.StatusActive),
+		dbaccount.SchedulableEQ(true),
+		dbaccount.PlatformIn(platforms...),
+	}
+	if !includeGrouped {
+		preds = append(preds, dbaccount.Not(dbaccount.HasAccountGroups()))
+	}
+	accounts, err := r.client.Account.Query().
+		Where(preds...).
+		Order(dbent.Asc(dbaccount.FieldPriority)).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return r.accountsToService(ctx, accounts)
 }
 
 func (r *accountRepository) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
@@ -2576,6 +2703,12 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		args = append(args, *updates.Schedulable)
 		idx++
 	}
+	if updates.ProbeEnabled != nil {
+		if updates.Extra == nil {
+			updates.Extra = make(map[string]any)
+		}
+		updates.Extra[service.UpstreamBillingProbeEnabledExtraKey] = *updates.ProbeEnabled
+	}
 	// JSONB 需要合并而非覆盖，使用 raw SQL 保持旧行为。
 	if len(updates.Credentials) > 0 {
 		payload, err := json.Marshal(updates.Credentials)
@@ -2606,8 +2739,14 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 
 	setClauses = append(setClauses, "updated_at = NOW()")
 
-	query := "UPDATE accounts SET " + joinClauses(setClauses, ", ") + " WHERE id = ANY($" + itoa(idx) + ") AND deleted_at IS NULL"
+	whereClause := " WHERE id = ANY($" + itoa(idx) + ") AND deleted_at IS NULL"
 	args = append(args, pq.Array(ids))
+	idx++
+	if updates.ProbeEnabled != nil {
+		whereClause += " AND platform = $" + itoa(idx) + " AND type = $" + itoa(idx+1)
+		args = append(args, service.PlatformOpenAI, service.AccountTypeAPIKey)
+	}
+	query := "UPDATE accounts SET " + joinClauses(setClauses, ", ") + whereClause
 
 	baseCtx := ctx
 	contextTx := dbent.TxFromContext(ctx)
@@ -2636,6 +2775,20 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	if err != nil {
 		return 0, err
 	}
+	if updates.ProbeEnabled != nil {
+		expectedRows := int64(0)
+		seenIDs := make(map[int64]struct{}, len(ids))
+		for _, id := range ids {
+			if _, seen := seenIDs[id]; seen {
+				continue
+			}
+			seenIDs[id] = struct{}{}
+			expectedRows++
+		}
+		if rows != expectedRows {
+			return 0, service.ErrUpstreamBillingProbeAccountInvalid
+		}
+	}
 	if rows > 0 {
 		payload := map[string]any{"account_ids": ids}
 		if err := enqueueSchedulerOutbox(ctx, exec, service.SchedulerOutboxEventAccountBulkChanged, nil, nil, payload); err != nil {
@@ -2663,9 +2816,10 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 }
 
 type accountGroupQueryOptions struct {
-	status      string
-	schedulable bool
-	platforms   []string // 允许的多个平台，空切片表示不进行平台过滤
+	status               string
+	schedulable          bool
+	ignoreTransientState bool
+	platforms            []string // 允许的多个平台，空切片表示不进行平台过滤
 }
 
 func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID int64, opts accountGroupQueryOptions) ([]service.Account, error) {
@@ -2682,14 +2836,16 @@ func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID in
 		preds = append(preds, dbaccount.PlatformIn(opts.platforms...))
 	}
 	if opts.schedulable {
-		now := time.Now()
-		preds = append(preds,
-			dbaccount.SchedulableEQ(true),
-			tempUnschedulablePredicate(),
-			notExpiredPredicate(now),
-			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
-			dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
-		)
+		preds = append(preds, dbaccount.SchedulableEQ(true))
+		if !opts.ignoreTransientState {
+			now := time.Now()
+			preds = append(preds,
+				tempUnschedulablePredicate(),
+				notExpiredPredicate(now),
+				dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
+				dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
+			)
+		}
 	}
 
 	if len(preds) > 0 {
@@ -2924,7 +3080,11 @@ func uniquePositiveInt64s(ids []int64) []int64 {
 }
 
 func (r *accountRepository) loadAccountGroupIDs(ctx context.Context, accountID int64) ([]int64, error) {
-	entries, err := r.client.AccountGroup.
+	return r.loadAccountGroupIDsWithClient(ctx, clientFromContext(ctx, r.client), accountID)
+}
+
+func (r *accountRepository) loadAccountGroupIDsWithClient(ctx context.Context, client *dbent.Client, accountID int64) ([]int64, error) {
+	entries, err := client.AccountGroup.
 		Query().
 		Where(dbaccountgroup.AccountIDEQ(accountID)).
 		All(ctx)
@@ -3413,7 +3573,7 @@ func (r *accountRepository) RevertProxyFallback(ctx context.Context, accountID i
 // ⚠️ 新增影子维度时：须更新此函数（或新增维度专用列举），并检查所有调用点（级联删除/一母一影校验/type 守卫），否则会静默漏掉新维度。
 // 软删除行由 SoftDeleteMixin 拦截器自动排除，无需手写 deleted_at IS NULL。
 func (r *accountRepository) ListShadowsByParent(ctx context.Context, parentID int64) ([]*service.Account, error) {
-	rows, err := r.client.Account.Query().
+	rows, err := clientFromContext(ctx, r.client).Account.Query().
 		Where(dbaccount.ParentAccountIDEQ(parentID), dbaccount.QuotaDimensionEQ(dbaccount.QuotaDimensionSpark)).
 		All(ctx)
 	if err != nil {

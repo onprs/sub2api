@@ -149,15 +149,16 @@ func (s *OpenAIGatewayService) failoverOpenAIStructuredUpstreamError(
 		Message:            upstreamMsg,
 		Detail:             upstreamDetail,
 	})
+	shouldDisable := false
 	if account.Platform != PlatformGrok {
-		s.handleOpenAIAccountUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, upstreamModel)
+		shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, upstreamModel)
 	}
 	return newOpenAIUpstreamFailoverError(
 		upstream.StatusCode,
 		upstream.Headers,
 		upstream.Body,
 		upstreamMsg,
-		account.IsPoolMode() && (account.IsPoolModeRetryableStatus(upstream.StatusCode) || isOpenAITransientProcessingError(upstream.StatusCode, upstreamMsg, upstream.Body)),
+		!shouldDisable && account.IsPoolMode() && (account.IsPoolModeRetryableStatus(upstream.StatusCode) || isOpenAITransientProcessingError(upstream.StatusCode, upstreamMsg, upstream.Body)),
 	)
 }
 

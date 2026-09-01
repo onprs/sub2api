@@ -339,23 +339,23 @@ func TestGetGrokBaseURLHonorsOAuthCustomRegardlessOfUnsafeOverrides(t *testing.T
 	require.Equal(t, "https://custom.example.com/v1", account.GetGrokBaseURL())
 }
 
-func TestGetGrokMediaBaseURLRedirectsCLIGatewayToOfficialAPI(t *testing.T) {
+func TestGetGrokMediaBaseURLPinsOAuthToCLIGateway(t *testing.T) {
 	tests := []struct {
 		name     string
 		account  Account
 		expected string
 	}{
 		{
-			name: "oauth without base_url uses official media API",
+			name: "oauth without base_url uses CLI media gateway",
 			account: Account{
 				Type:        AccountTypeOAuth,
 				Platform:    PlatformGrok,
 				Credentials: map[string]any{},
 			},
-			expected: xai.DefaultBaseURL,
+			expected: xai.DefaultCLIBaseURL,
 		},
 		{
-			name: "oauth stored CLI proxy is separated from the media API",
+			name: "oauth stored CLI proxy remains on the media gateway",
 			account: Account{
 				Type:     AccountTypeOAuth,
 				Platform: PlatformGrok,
@@ -363,10 +363,10 @@ func TestGetGrokMediaBaseURLRedirectsCLIGatewayToOfficialAPI(t *testing.T) {
 					"base_url": xai.DefaultCLIBaseURL,
 				},
 			},
-			expected: xai.DefaultBaseURL,
+			expected: xai.DefaultCLIBaseURL,
 		},
 		{
-			name: "oauth stored CLI proxy variant is canonicalized to the media API",
+			name: "oauth stored CLI proxy variant is pinned to the canonical media gateway",
 			account: Account{
 				Type:     AccountTypeOAuth,
 				Platform: PlatformGrok,
@@ -374,10 +374,10 @@ func TestGetGrokMediaBaseURLRedirectsCLIGatewayToOfficialAPI(t *testing.T) {
 					"base_url": "HTTPS://CLI-CHAT-PROXY.GROK.COM:443/%76%31/",
 				},
 			},
-			expected: xai.DefaultBaseURL,
+			expected: xai.DefaultCLIBaseURL,
 		},
 		{
-			name: "oauth unparseable base_url falls back to official media API",
+			name: "oauth unparseable text base_url still uses CLI media gateway",
 			account: Account{
 				Type:     AccountTypeOAuth,
 				Platform: PlatformGrok,
@@ -385,10 +385,10 @@ func TestGetGrokMediaBaseURLRedirectsCLIGatewayToOfficialAPI(t *testing.T) {
 					"base_url": "not a url",
 				},
 			},
-			expected: xai.DefaultBaseURL,
+			expected: xai.DefaultCLIBaseURL,
 		},
 		{
-			name: "oauth stored official API endpoint is honored (manual endpoint switch)",
+			name: "oauth official text API override does not change media gateway",
 			account: Account{
 				Type:     AccountTypeOAuth,
 				Platform: PlatformGrok,
@@ -396,10 +396,10 @@ func TestGetGrokMediaBaseURLRedirectsCLIGatewayToOfficialAPI(t *testing.T) {
 					"base_url": xai.DefaultBaseURL,
 				},
 			},
-			expected: xai.DefaultBaseURL,
+			expected: xai.DefaultCLIBaseURL,
 		},
 		{
-			name: "oauth stored regional API endpoint is honored for media",
+			name: "oauth regional text API override does not change media gateway",
 			account: Account{
 				Type:     AccountTypeOAuth,
 				Platform: PlatformGrok,
@@ -407,7 +407,7 @@ func TestGetGrokMediaBaseURLRedirectsCLIGatewayToOfficialAPI(t *testing.T) {
 					"base_url": "https://us-west-2.api.x.ai/v1",
 				},
 			},
-			expected: "https://us-west-2.api.x.ai/v1",
+			expected: xai.DefaultCLIBaseURL,
 		},
 		{
 			name: "oauth custom base_url remains pinned to CLI proxy",

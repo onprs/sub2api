@@ -1265,6 +1265,15 @@ func (s *AuthService) RefreshToken(ctx context.Context, oldTokenString string) (
 		return "", err
 	}
 
+	sessionBindingEnabled := false
+	if s.settingService != nil {
+		sessionBindingEnabled, err = s.settingService.GetSessionBindingEnabled(ctx)
+		if err != nil {
+			logger.LegacyPrintf("service.auth", "[Auth] Failed reading session binding setting during token refresh: %v", err)
+			return "", ErrServiceUnavailable
+		}
+	}
+
 	// 获取最新的用户信息
 	user, err := s.userRepo.GetByID(ctx, claims.UserID)
 	if err != nil {
@@ -1287,7 +1296,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, oldTokenString string) (
 	}
 
 	// 会话绑定检查：指纹变化的旧 token 不允许换发新 token。
-	if s.settingService != nil && s.settingService.IsSessionBindingEnabled(ctx) && claims.BindingHash != "" {
+	if sessionBindingEnabled && claims.BindingHash != "" {
 		if current := sessionBindingHashFromContext(ctx); current != "" && current != claims.BindingHash {
 			_ = s.RevokeSessionFamily(ctx, claims.SessionID)
 			return "", ErrSessionBindingMismatch
@@ -1568,6 +1577,16 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 		return nil, ErrRefreshTokenInvalid
 	}
 
+	sessionBindingEnabled := false
+	if s.settingService != nil {
+		enabled, settingErr := s.settingService.GetSessionBindingEnabled(ctx)
+		if settingErr != nil {
+			logger.LegacyPrintf("service.auth", "[Auth] Failed reading session binding setting before refresh-token consumption: %v", settingErr)
+			return nil, ErrServiceUnavailable
+		}
+		sessionBindingEnabled = enabled
+	}
+
 	tokenHash := hashToken(refreshToken)
 
 	// 原子消费Refresh Token（GET+DEL），避免 GET/DEL 分离导致的并发重放。
@@ -1622,7 +1641,7 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 
 	// 会话绑定检查：IP/UA 任一变化即撤销整个会话家族。
 	// data.BindingHash 为空表示功能开启前签发的旧会话，放行并在轮转时补齐绑定。
-	if s.settingService != nil && s.settingService.IsSessionBindingEnabled(ctx) && data.BindingHash != "" {
+	if sessionBindingEnabled && data.BindingHash != "" {
 		if current := sessionBindingHashFromContext(ctx); current != "" && current != data.BindingHash {
 			_ = s.refreshTokenCache.DeleteTokenFamily(ctx, data.FamilyID)
 			logger.LegacyPrintf("service.auth", "[Auth] Session binding mismatch on refresh for user %d, family revoked", data.UserID)

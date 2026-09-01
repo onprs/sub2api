@@ -640,7 +640,7 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 	logOpenAIInstructionsRequiredDebug(ctx, c, account, upstream.StatusCode, upstreamMsg, requestBody, body)
 	reqModel, _, _ := extractOpenAIRequestMetaFromBody(requestBody)
 	canonicalModel := canonicalOpenAIAccountSchedulingModel(account, reqModel)
-	_ = s.handleOpenAIAccountUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, body, canonicalModel)
+	shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, body, canonicalModel)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		Platform:             account.Platform,
 		AccountID:            account.ID,
@@ -658,7 +658,7 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 		upstream.Headers,
 		body,
 		upstreamMsg,
-		account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstream.StatusCode),
+		!shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstream.StatusCode),
 	)
 }
 

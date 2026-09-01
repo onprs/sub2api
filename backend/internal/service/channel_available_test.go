@@ -686,6 +686,22 @@ func TestBuildCatalogSupportedModel_OpenCodeGoUsageOfferPreservesOriginalPricing
 	confirmedAt := time.Now()
 	pricingSvc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{},
+		openCodeGoPricing: map[string]*LiteLLMModelPricing{
+			"deepseek-v4-flash": {
+				InputCostPerToken:                       0.22e-6,
+				OutputCostPerToken:                      0.66e-6,
+				CacheReadInputTokenCost:                 0.007e-6,
+				LiteLLMProvider:                         PlatformOpenCodeGo,
+				OpenCodeGoPricingAuthority:              openCodeGoPricingAuthorityOfficial,
+				OpenCodeGoMonthlyUsageUSD:               30,
+				OpenCodeGoPeakPricingKnown:              true,
+				OpenCodeGoPeakInputCostPerToken:         0.22e-6,
+				OpenCodeGoPeakOutputCostPerToken:        0.66e-6,
+				OpenCodeGoPeakCacheReadCostPerToken:     0.007e-6,
+				OpenCodeGoPeakCacheCreationCostPerToken: 0,
+			},
+		},
+		openCodeGoPricingConfirmedAt: confirmedAt,
 		openCodeGoUsageOffers: map[string]openCodeGoUsageOffer{
 			"deepseek-v4-flash": {usageMultiplier: 2, confirmedAt: confirmedAt},
 		},

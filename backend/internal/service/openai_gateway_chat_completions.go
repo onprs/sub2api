@@ -890,6 +890,14 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		return resultWithUsage(), nil
 	}
 
+	handleScanErr := func(err error) {
+		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			logger.FromContext(c.Request.Context()).Warn("openai chat_completions stream: read error",
+				zap.Error(err),
+				zap.String("upstream_request_id", requestID),
+			)
+		}
+	}
 	missingTerminalErr := func() (*OpenAIForwardResult, error) {
 		return resultWithUsage(), fmt.Errorf("stream usage incomplete: missing terminal event")
 	}
@@ -937,13 +945,11 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				if errors.Is(event.err, protocoltransport.ErrSSEDone) || errors.Is(event.err, io.EOF) {
 					return missingTerminalErr()
 				}
-				if !errors.Is(event.err, context.Canceled) && !errors.Is(event.err, context.DeadlineExceeded) {
-					logger.L().Warn("openai chat_completions stream: read error",
-						zap.Error(event.err),
-						zap.String("request_id", requestID),
-					)
+				handleScanErr(event.err)
+				if clientDisconnected || errors.Is(event.err, context.Canceled) || errors.Is(event.err, context.DeadlineExceeded) {
+					return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", event.err)
 				}
-				return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", event.err)
+				return resultWithUsage(), newOpenAIUpstreamStreamReadError(event.err)
 			}
 			lastDataAt = time.Now()
 			payload := openAICompatPayloadWithEventType(string(event.record.Data), event.record.Event)

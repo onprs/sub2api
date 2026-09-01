@@ -316,12 +316,11 @@ func (s *OpenAIGatewayService) readUpstreamErrorBody(resp *http.Response) []byte
 	return s.readUpstreamErrorReader(resp.Body)
 }
 
-func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, responseBody []byte, canonicalModel ...string) {
+func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, responseBody []byte, canonicalModel ...string) bool {
 	if len(canonicalModel) > 0 {
-		s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody, canonicalModel[0])
-		return
+		return s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody, canonicalModel[0])
 	}
-	s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody)
+	return s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody)
 }
 
 func (s *OpenAIGatewayService) handleErrorResponse(
@@ -503,7 +502,7 @@ func (s *OpenAIGatewayService) handleStructuredErrorResponse(
 			StatusCode:             upstream.StatusCode,
 			ResponseBody:           body,
 			ResponseHeaders:        protocoltransport.CloneHeaders(upstream.Headers),
-			RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstream.StatusCode),
+			RetryableOnSameAccount: false,
 		}
 	}
 
@@ -676,7 +675,7 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 			StatusCode:             upstream.StatusCode,
 			ResponseBody:           body,
 			ResponseHeaders:        protocoltransport.CloneHeaders(upstream.Headers),
-			RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstream.StatusCode),
+			RetryableOnSameAccount: false,
 		}
 	}
 

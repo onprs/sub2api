@@ -57,6 +57,18 @@ type GeminiMessagesCompatService struct {
 	providerMetadataStore     protocolconv.MetadataStore
 }
 
+func (s *GeminiMessagesCompatService) readUpstreamErrorBody(resp *http.Response) []byte {
+	if resp == nil || resp.Body == nil {
+		return nil
+	}
+	limit := gatewayUpstreamErrorBodyReadLimit
+	if s != nil && s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody && s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes > int(limit) {
+		limit = int64(s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, limit))
+	return body
+}
+
 func NewGeminiMessagesCompatService(
 	accountRepo AccountRepository,
 	groupRepo GroupRepository,
@@ -882,11 +894,11 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 						sleepGeminiBackoff(1)
 						continue
 					}
-				}
-				break
-			}
 
-			if s.checkStructuredErrorPolicyInLoop(ctx, account, upstream) {
+				}
+			}
+			// 可恢复的签名错误必须先完成降级重试；仅对未恢复错误应用账号策略。
+			if s.checkStructuredErrorPolicyInLoop(ctx, account, upstream, mappedModel) {
 				break
 			}
 			if s.shouldRetryGeminiUpstreamError(account, upstream.StatusCode) {
@@ -928,11 +940,14 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		respBody := lastError.Body
 		// 统一错误策略：自定义错误码 + 临时不可调度
 		if s.rateLimitService != nil {
-			switch s.rateLimitService.CheckErrorPolicy(ctx, account, lastError.StatusCode, respBody) {
+			policy := s.rateLimitService.CheckErrorPolicy(ctx, account, lastError.StatusCode, respBody, mappedModel)
+			switch policy {
 			case ErrorPolicySkipped:
 				return nil, s.writeGeminiMappedError(c, account, http.StatusInternalServerError, lastError.RequestID, respBody)
 			case ErrorPolicyMatched, ErrorPolicyTempUnscheduled:
-				s.handleGeminiUpstreamError(ctx, account, lastError.StatusCode, lastError.Headers, respBody)
+				if policy == ErrorPolicyMatched {
+					s.handleGeminiUpstreamError(ctx, account, lastError.StatusCode, lastError.Headers, respBody)
+				}
 				upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
 				upstreamDetail := ""
 				if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
@@ -1304,7 +1319,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				return nil, s.writeGoogleError(c, http.StatusBadGateway, "Failed to read upstream error")
 			}
 			lastError = &upstream
-			if s.checkStructuredErrorPolicyInLoop(ctx, account, upstream) {
+			if s.checkStructuredErrorPolicyInLoop(ctx, account, upstream, mappedModel) {
 				break
 			}
 			if s.shouldRetryGeminiUpstreamError(account, upstream.StatusCode) {
@@ -1381,7 +1396,8 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		}
 
 		if s.rateLimitService != nil {
-			switch s.rateLimitService.CheckErrorPolicy(ctx, account, statusCode, respBody) {
+			policy := s.rateLimitService.CheckErrorPolicy(ctx, account, statusCode, respBody, mappedModel)
+			switch policy {
 			case ErrorPolicySkipped:
 				respBody = unwrapIfNeeded(isOAuth, respBody)
 				contentType := headers.Get("Content-Type")
@@ -1392,7 +1408,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				c.Data(http.StatusInternalServerError, contentType, respBody)
 				return nil, fmt.Errorf("gemini upstream error: %d (skipped by error policy)", statusCode)
 			case ErrorPolicyMatched, ErrorPolicyTempUnscheduled:
-				s.handleGeminiUpstreamError(ctx, account, statusCode, headers, respBody)
+				if policy == ErrorPolicyMatched {
+					s.handleGeminiUpstreamError(ctx, account, statusCode, headers, respBody)
+				}
 				evBody := unwrapIfNeeded(isOAuth, respBody)
 				upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(evBody)))
 				upstreamDetail := ""
@@ -1633,11 +1651,34 @@ func (s *GeminiMessagesCompatService) checkStructuredErrorPolicyInLoop(
 	ctx context.Context,
 	account *Account,
 	upstream protocoltransport.Response,
+	mappedModel string,
 ) bool {
 	if !upstream.IsError() || s.rateLimitService == nil {
 		return false
 	}
-	return s.rateLimitService.CheckErrorPolicy(ctx, account, upstream.StatusCode, upstream.Body) != ErrorPolicyNone
+	return s.rateLimitService.CheckErrorPolicy(ctx, account, upstream.StatusCode, upstream.Body, mappedModel) != ErrorPolicyNone
+}
+
+// checkErrorPolicyInLoop 在重试循环内预检查错误策略。
+// 返回 true 表示策略已匹配（调用者应 break），resp 已重建可直接使用。
+// 返回 false 表示 ErrorPolicyNone，resp 已重建，调用者继续走重试逻辑。
+func (s *GeminiMessagesCompatService) checkErrorPolicyInLoop(
+	ctx context.Context, account *Account, resp *http.Response, mappedModel string,
+) (matched bool, rebuilt *http.Response) {
+	if resp == nil || resp.StatusCode < 400 || s.rateLimitService == nil {
+		return false, resp
+	}
+	body := s.readUpstreamErrorBody(resp)
+	if resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	rebuilt = &http.Response{
+		StatusCode: resp.StatusCode,
+		Header:     resp.Header.Clone(),
+		Body:       io.NopCloser(bytes.NewReader(body)),
+	}
+	policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, body, mappedModel)
+	return policy != ErrorPolicyNone, rebuilt
 }
 
 func (s *GeminiMessagesCompatService) shouldRetryGeminiUpstreamError(account *Account, statusCode int) bool {

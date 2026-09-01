@@ -3,7 +3,11 @@
 package middleware
 
 import (
+	"context"
+	"errors"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -13,9 +17,59 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 反代场景：RemoteAddr 为 127.0.0.1，真实客户端 IP 在 X-Real-IP 中。
-// 会话绑定注入与审计 IP 必须与 API Key IP 限制共用「信任反代传递的客户端 IP」开关语义。
-func TestSessionBindingContextHonorsTrustForwardedToggle(t *testing.T) {
+type sessionBindingSettingRepoStub struct {
+	value string
+	err   error
+}
+
+func (s sessionBindingSettingRepoStub) Get(context.Context, string) (*service.Setting, error) {
+	return nil, s.err
+}
+func (s sessionBindingSettingRepoStub) GetValue(context.Context, string) (string, error) {
+	return s.value, s.err
+}
+func (s sessionBindingSettingRepoStub) Set(context.Context, string, string) error { return nil }
+func (s sessionBindingSettingRepoStub) GetMultiple(context.Context, []string) (map[string]string, error) {
+	return nil, s.err
+}
+func (s sessionBindingSettingRepoStub) SetMultiple(context.Context, map[string]string) error {
+	return nil
+}
+func (s sessionBindingSettingRepoStub) GetAll(context.Context) (map[string]string, error) {
+	return nil, s.err
+}
+func (s sessionBindingSettingRepoStub) Delete(context.Context, string) error { return nil }
+
+func TestEnforceSessionBindingFailsClosedOnSettingReadError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/user/profile", nil)
+	settings := service.NewSettingService(
+		sessionBindingSettingRepoStub{err: errors.New("settings database unavailable")},
+		&config.Config{},
+	)
+
+	require.False(t, enforceSessionBinding(c, nil, settings, nil, &service.JWTClaims{}))
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "SESSION_BINDING_SETTING_UNAVAILABLE")
+}
+
+func TestEnforceSessionBindingTreatsMissingSettingAsDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/user/profile", nil)
+	settings := service.NewSettingService(
+		sessionBindingSettingRepoStub{err: service.ErrSettingNotFound},
+		&config.Config{},
+	)
+
+	require.True(t, enforceSessionBinding(c, nil, settings, nil, &service.JWTClaims{}))
+	require.False(t, c.IsAborted())
+}
+
+func TestSessionBindingContextDoesNotTrustHeadersWithoutTrustedProxy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	for _, tc := range []struct {
@@ -24,7 +78,7 @@ func TestSessionBindingContextHonorsTrustForwardedToggle(t *testing.T) {
 		wantIP         string
 	}{
 		{name: "trust disabled records proxy address", trustForwarded: false, wantIP: "127.0.0.1"},
-		{name: "trust enabled records forwarded client IP", trustForwarded: true, wantIP: "1.2.3.4"},
+		{name: "legacy trust toggle cannot bypass trusted proxies", trustForwarded: true, wantIP: "127.0.0.1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &config.Config{}
@@ -54,6 +108,23 @@ func TestSessionBindingContextHonorsTrustForwardedToggle(t *testing.T) {
 	}
 }
 
+func TestSessionBindingContextBoundsPersistedUserAgent(t *testing.T) {
+	cfg := &config.Config{}
+	r := gin.New()
+	r.Use(SessionBindingContext(cfg))
+	r.GET("/t", func(c *gin.Context) {
+		binding := service.SessionBindingFromContext(c.Request.Context())
+		require.Len(t, binding.UserAgent, maxPersistentUserAgentBytes)
+		require.Equal(t, binding.UserAgent, c.Request.UserAgent())
+		c.Status(200)
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/t", nil)
+	req.Header.Set("User-Agent", strings.Repeat("u", 2048))
+	r.ServeHTTP(w, req)
+	require.Equal(t, 200, w.Code)
+}
+
 // 未经过 SessionBindingContext 注入时（异常挂载顺序/单测直调），回退 trusted_proxies 链，
 // 等价于开关关闭时的历史行为。
 func TestSecurityClientIPFallsBackWithoutInjectedBinding(t *testing.T) {
@@ -75,8 +146,6 @@ func TestSecurityClientIPFallsBackWithoutInjectedBinding(t *testing.T) {
 	require.Equal(t, "9.9.9.9", w.Body.String())
 }
 
-// requestSessionBinding 优先取注入值：开关开启时校验哈希必须基于注入的转发 IP 计算，
-// 与 token 签发路径取值一致，否则同一客户端会被误判为指纹变化。
 func TestRequestSessionBindingPrefersInjectedBinding(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -84,7 +153,7 @@ func TestRequestSessionBindingPrefersInjectedBinding(t *testing.T) {
 	cfg.SetTrustForwardedIPForAPIKeyACL(true)
 
 	r := gin.New()
-	require.NoError(t, r.SetTrustedProxies(nil))
+	require.NoError(t, r.SetTrustedProxies([]string{"127.0.0.1"}))
 	r.Use(SessionBindingContext(cfg))
 	r.GET("/t", func(c *gin.Context) {
 		issued := &service.SessionBinding{IP: "1.2.3.4", UserAgent: "test-agent"}

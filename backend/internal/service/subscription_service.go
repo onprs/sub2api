@@ -270,8 +270,11 @@ func (s *SubscriptionService) assignOrExtendSubscription(ctx context.Context, in
 		validityDays = MaxValidityDays
 	}
 
-	// 已有订阅，执行续期（在事务中完成所有更新）
+	// 已有订阅，执行续期（在事务中完成所有更新）。暂停只能由明确的管理操作解除。
 	if existingSub != nil {
+		if existingSub.Status == SubscriptionStatusSuspended {
+			return nil, true, ErrSubscriptionSuspended
+		}
 		now := time.Now()
 		sub, err := s.updateExistingSubscriptionTerm(ctx, existingSub.ID, input, now, validityDays)
 		if err != nil {
@@ -612,6 +615,21 @@ func (s *SubscriptionService) assignSubscriptionWithReuse(ctx context.Context, i
 		sub, getErr := s.userSubRepo.GetByUserIDGroupIDAndPlanID(ctx, input.UserID, input.GroupID, input.PlanID)
 		if getErr != nil {
 			return nil, false, getErr
+		}
+		now := time.Now()
+		if sub.Status == SubscriptionStatusExpired ||
+			(sub.Status != SubscriptionStatusSuspended && !sub.ExpiresAt.After(now)) {
+			validityDays := normalizeAssignValidityDays(input.ValidityDays)
+			renewalInput := *input
+			if strings.TrimSpace(sub.Notes) == strings.TrimSpace(input.Notes) {
+				renewalInput.Notes = ""
+			}
+			renewed, renewErr := s.updateExistingSubscriptionTerm(ctx, sub.ID, &renewalInput, now, validityDays)
+			if renewErr != nil {
+				return nil, false, renewErr
+			}
+			s.maybeInvalidateAssignmentCaches(input.UserID, input.GroupID, false)
+			return renewed, true, nil
 		}
 		if conflictReason, conflict := detectAssignSemanticConflict(sub, input); conflict {
 			return nil, false, ErrSubscriptionAssignConflict.WithMetadata(map[string]string{

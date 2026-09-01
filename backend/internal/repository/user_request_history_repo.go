@@ -46,7 +46,7 @@ func buildUserRequestHistoryCTE(filter service.UserRequestHistoryFilter) (string
 	args := []any{filter.UserID}
 	successWhere := []string{"ul.user_id = $1", userRequestHistoryUsageFilterUL}
 	errorWhere := []string{
-		"(e.user_id = $1 OR e.deleted_key_owner_user_id = $1)",
+		"e.user_id = $1",
 		"(COALESCE(e.status_code, 0) >= 400 OR e.error_type = 'cyber_policy')",
 		"COALESCE(e.is_count_tokens, false) = false",
 	}
@@ -209,10 +209,10 @@ func buildUserRequestHistoryCTE(filter service.UserRequestHistoryFilter) (string
 			'platform', COALESCE(e.platform, ''),
 			'message', COALESCE(e.error_message, ''),
 			'api_key_id', e.api_key_id,
-			'api_key', CASE WHEN ak.id IS NULL AND COALESCE(e.deleted_key_name, '') = '' THEN NULL ELSE jsonb_build_object(
-				'id', COALESCE(ak.id, e.api_key_id, 0),
-				'name', COALESCE(NULLIF(ak.name, ''), e.deleted_key_name, ''),
-				'deleted', ak.deleted_at IS NOT NULL OR (ak.id IS NULL AND COALESCE(e.deleted_key_name, '') <> '')
+			'api_key', CASE WHEN ak.id IS NULL THEN NULL ELSE jsonb_build_object(
+				'id', ak.id,
+				'name', COALESCE(ak.name, ''),
+				'deleted', ak.deleted_at IS NOT NULL
 			) END,
 			'account_id', NULL,
 			'group_id', e.group_id,

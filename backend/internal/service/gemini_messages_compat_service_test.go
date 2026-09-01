@@ -34,10 +34,11 @@ func (r *nativeGeminiTrackingReadCloser) Close() error {
 }
 
 type geminiCompatHTTPUpstreamStub struct {
-	response *http.Response
-	err      error
-	calls    int
-	lastReq  *http.Request
+	response  *http.Response
+	responses []*http.Response
+	err       error
+	calls     int
+	lastReq   *http.Request
 }
 
 func (s *geminiCompatHTTPUpstreamStub) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
@@ -45,6 +46,11 @@ func (s *geminiCompatHTTPUpstreamStub) Do(req *http.Request, proxyURL string, ac
 	s.lastReq = req
 	if s.err != nil {
 		return nil, s.err
+	}
+	if len(s.responses) > 0 {
+		resp := *s.responses[0]
+		s.responses = s.responses[1:]
+		return &resp, nil
 	}
 	if s.response == nil {
 		return nil, fmt.Errorf("missing stub response")
@@ -55,6 +61,53 @@ func (s *geminiCompatHTTPUpstreamStub) Do(req *http.Request, proxyURL string, ac
 
 func (s *geminiCompatHTTPUpstreamStub) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
 	return s.Do(req, proxyURL, accountID, accountConcurrency)
+}
+
+func TestGeminiMessagesCompatSignatureRepairRunsBeforeSkippedErrorPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &geminiCompatHTTPUpstreamStub{responses: []*http.Response{
+		{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(
+				`{"error":{"code":400,"message":"Corrupted thought signature.","status":"INVALID_ARGUMENT"}}`,
+			)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(
+				`{"candidates":[{"content":{"role":"model","parts":[{"text":"repaired"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1}}`,
+			)),
+		},
+	}}
+	rateLimitService := NewRateLimitService(nil, nil, &config.Config{}, nil, nil)
+	svc := &GeminiMessagesCompatService{
+		httpUpstream:     upstream,
+		rateLimitService: rateLimitService,
+		cfg:              &config.Config{},
+	}
+	account := &Account{
+		ID:       107,
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":                    "test-key",
+			"custom_error_codes_enabled": true,
+			"custom_error_codes":         []any{float64(http.StatusTooManyRequests)},
+		},
+	}
+	body := []byte(`{"model":"claude-sonnet-4-5","max_tokens":64,"thinking":{"type":"enabled","budget_tokens":16},"messages":[{"role":"user","content":"hi"}]}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 2, upstream.calls)
+	require.Contains(t, recorder.Body.String(), "repaired")
 }
 
 func TestGeminiForwardAsChatCompletions_OAuthRoutesToGeminiAndReturnsChatFormat(t *testing.T) {

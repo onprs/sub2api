@@ -223,7 +223,7 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 				return nil, writeError(http.StatusBadGateway, "upstream_error", "Failed to read upstream error")
 			}
 			lastError = &upstream
-			if s.checkStructuredErrorPolicyInLoop(ctx, account, upstream) {
+			if s.checkStructuredErrorPolicyInLoop(ctx, account, upstream, mappedModel) {
 				break
 			}
 			if s.shouldRetryGeminiUpstreamError(account, upstream.StatusCode) {
@@ -276,7 +276,13 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, input.OriginalBody, mappedModel)
 
 	if lastError != nil {
-		s.handleGeminiUpstreamError(ctx, account, lastError.StatusCode, lastError.Headers, lastError.Body)
+		policy := ErrorPolicyNone
+		if s.rateLimitService != nil {
+			policy = s.rateLimitService.CheckErrorPolicy(ctx, account, lastError.StatusCode, lastError.Body, mappedModel)
+		}
+		if policy != ErrorPolicyTempUnscheduled {
+			s.handleGeminiUpstreamError(ctx, account, lastError.StatusCode, lastError.Headers, lastError.Body)
+		}
 		evBody := unwrapIfNeeded(account.Type == AccountTypeOAuth, lastError.Body)
 
 		if s.shouldFailoverGeminiUpstreamError(lastError.StatusCode) {

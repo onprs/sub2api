@@ -52,6 +52,25 @@ func (r openAIImagesFailoverAccountRepo) ListSchedulableUngroupedByPlatform(_ co
 	return r.accountsForPlatform(platform), nil
 }
 
+func (r openAIImagesFailoverAccountRepo) ListModelAvailabilityCandidates(
+	_ context.Context,
+	_ *int64,
+	platforms []string,
+	_ bool,
+) ([]service.Account, error) {
+	allowed := make(map[string]struct{}, len(platforms))
+	for _, platform := range platforms {
+		allowed[platform] = struct{}{}
+	}
+	out := make([]service.Account, 0, len(r.accounts))
+	for _, account := range r.accounts {
+		if _, ok := allowed[account.Platform]; ok && account.Status == service.StatusActive && account.Schedulable {
+			out = append(out, account)
+		}
+	}
+	return out, nil
+}
+
 func (r openAIImagesFailoverAccountRepo) accountsForPlatform(platform string) []service.Account {
 	out := make([]service.Account, 0, len(r.accounts))
 	for _, account := range r.accounts {
