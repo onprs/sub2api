@@ -107,9 +107,9 @@ func googleFunctionResponse(result json.RawMessage) json.RawMessage {
 
 func isGoogleSearchTool(tool ir.ToolDefinition) bool {
 	providerType := strings.ToLower(strings.TrimSpace(tool.ProviderType))
-	name := strings.ToLower(strings.TrimSpace(tool.Name))
+	toolType := strings.ToLower(strings.TrimSpace(tool.Type))
 	return strings.HasPrefix(providerType, "web_search") || providerType == "google_search" ||
-		name == "web_search" || name == "google_search" || name == "web_search_20250305"
+		strings.HasPrefix(toolType, "web_search") || toolType == "google_search"
 }
 
 func roleFromGoogle(role string) ir.Role {

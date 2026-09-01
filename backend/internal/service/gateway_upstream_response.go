@@ -388,6 +388,8 @@ func (s *GatewayService) handleGatewayStructuredErrorResponse(
 	account *Account,
 	requestedModel ...string,
 ) (*ForwardResult, error) {
+	// 该入口替代旧的 handleErrorResponse，必须保留非 2xx 的 Ollama Cloud 活动记录语义。
+	scheduleOllamaCloudUsageActivity(s.deferredService, account)
 	if err := upstream.Validate(); err != nil {
 		return nil, fmt.Errorf("validate gateway error policy input: %w", err)
 	}

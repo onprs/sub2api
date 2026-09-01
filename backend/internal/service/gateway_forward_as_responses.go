@@ -37,15 +37,21 @@ func (s *GatewayService) ForwardAsResponses(
 ) (*ForwardResult, error) {
 	startTime := time.Now()
 
-	// 1. Parse Responses request
+	// 1. Lower Codex client-side tools to function tools understood by Anthropic.
+	adaptedBody, clientToolMapping, err := adaptResponsesClientToolsForAnthropic(body)
+	if err != nil {
+		return nil, fmt.Errorf("adapt responses client tools: %w", err)
+	}
+
+	// 2. Parse Responses request
 	var responsesReq apicompat.ResponsesRequest
-	if err := json.Unmarshal(body, &responsesReq); err != nil {
+	if err := json.Unmarshal(adaptedBody, &responsesReq); err != nil {
 		return nil, fmt.Errorf("parse responses request: %w", err)
 	}
 	originalModel := responsesReq.Model
 	clientStream := responsesReq.Stream
 
-	// 2. Resolve the upstream model before creating the request-scoped route.
+	// 3. Resolve the upstream model before creating the request-scoped route.
 	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body)
 	mappedModel, err := resolveStandardAnthropicTargetModel(account, originalModel)
 	if err != nil {
@@ -70,7 +76,7 @@ func (s *GatewayService) ForwardAsResponses(
 	if err != nil {
 		return nil, fmt.Errorf("create responses anthropic pipeline: %w", err)
 	}
-	convertedRequest, err := pipeline.ConvertRequest(body)
+	convertedRequest, err := pipeline.ConvertRequest(adaptedBody)
 	if err != nil {
 		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
 	}
@@ -105,14 +111,71 @@ func (s *GatewayService) ForwardAsResponses(
 	var result *ForwardResult
 	var handleErr error
 	if clientStream {
-		result, handleErr = s.handleResponsesStreamingResponse(resp, c, pipeline, originalModel, mappedModel, reasoningEffort, startTime)
+		result, handleErr = s.handleResponsesStreamingResponse(resp, c, pipeline, originalModel, mappedModel, reasoningEffort, startTime, clientToolMapping)
 	} else {
-		result, handleErr = s.handleResponsesBufferedStreamingResponse(resp, c, pipeline, originalModel, mappedModel, reasoningEffort, startTime)
+		result, handleErr = s.handleResponsesBufferedStreamingResponse(resp, c, pipeline, originalModel, mappedModel, reasoningEffort, startTime, clientToolMapping)
 	}
 	if account.IsBedrock() {
 		return s.handleStandardBedrockStreamError(ctx, c, account, mappedModel, result, handleErr)
 	}
 	return result, handleErr
+}
+
+func adaptResponsesClientToolsForAnthropic(body []byte) ([]byte, apicompat.ResponsesClientToolMapping, error) {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	var requestBody map[string]any
+	if err := decoder.Decode(&requestBody); err != nil {
+		return body, apicompat.ResponsesClientToolMapping{}, err
+	}
+	additionalToolsChanged, err := liftResponsesAdditionalTools(requestBody)
+	if err != nil {
+		return body, apicompat.ResponsesClientToolMapping{}, err
+	}
+
+	mapping, changed, err := apicompat.AdaptResponsesClientTools(requestBody)
+	if err != nil {
+		return body, apicompat.ResponsesClientToolMapping{}, err
+	}
+	changed = changed || additionalToolsChanged
+	if !changed {
+		return body, mapping, nil
+	}
+	rebuilt, err := json.Marshal(requestBody)
+	if err != nil {
+		return body, apicompat.ResponsesClientToolMapping{}, err
+	}
+	return rebuilt, mapping, nil
+}
+
+func liftResponsesAdditionalTools(requestBody map[string]any) (bool, error) {
+	input, ok := requestBody["input"].([]any)
+	if !ok {
+		return false, nil
+	}
+
+	tools, _ := requestBody["tools"].([]any)
+	kept := make([]any, 0, len(input))
+	changed := false
+	for _, raw := range input {
+		item, ok := raw.(map[string]any)
+		if !ok || strings.TrimSpace(fmt.Sprint(item["type"])) != "additional_tools" {
+			kept = append(kept, raw)
+			continue
+		}
+		additional, ok := item["tools"].([]any)
+		if !ok {
+			return false, fmt.Errorf("additional_tools.tools must be an array")
+		}
+		tools = append(tools, additional...)
+		changed = true
+	}
+	if !changed {
+		return false, nil
+	}
+	requestBody["tools"] = tools
+	requestBody["input"] = kept
+	return true, nil
 }
 
 // ExtractResponsesReasoningEffortFromBody reads Responses API reasoning.effort
@@ -169,6 +232,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	mappedModel string,
 	reasoningEffort *string,
 	startTime time.Time,
+	clientToolMapping apicompat.ResponsesClientToolMapping,
 ) (*ForwardResult, error) {
 	stream, err := s.collectAnthropicProtocolStream(resp, startTime)
 	if err != nil {
@@ -224,6 +288,10 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 		return nil, fmt.Errorf("upstream stream ended without response")
 	}
 	finalBody = reverseToolNamesIfPresent(c, finalBody)
+	finalBody, _, err = apicompat.RestoreResponsesClientToolPayload(finalBody, clientToolMapping)
+	if err != nil {
+		return nil, fmt.Errorf("restore responses client tools: %w", err)
+	}
 	renderer, err := protocolconv.NewRenderer(protocolconv.ProtocolOpenAIResponses)
 	if err != nil {
 		return nil, err
@@ -254,6 +322,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	mappedModel string,
 	reasoningEffort *string,
 	startTime time.Time,
+	clientToolMapping apicompat.ResponsesClientToolMapping,
 ) (*ForwardResult, error) {
 	stream, err := s.collectAnthropicProtocolStream(resp, startTime)
 	if err != nil {
@@ -270,6 +339,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	if err != nil {
 		return nil, err
 	}
+	clientToolRestorer := apicompat.NewResponsesClientToolStreamRestorer(clientToolMapping)
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	headersWritten := false
@@ -301,14 +371,20 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		}
 		for _, body := range payloads {
 			body = reverseToolNamesIfPresent(c, body)
-			framed, err := renderer.FrameStreamEvent(body)
+			restoredBodies, _, err := clientToolRestorer.RestoreEvent(body)
 			if err != nil {
-				return err
+				return fmt.Errorf("restore responses client tool stream event: %w", err)
 			}
-			if _, err := c.Writer.Write(framed); err != nil {
-				clientDisconnected = true
-				logger.L().Info("forward_as_responses stream: client disconnected, continuing to drain upstream for billing", zap.String("request_id", requestID))
-				return nil
+			for _, restoredBody := range restoredBodies {
+				framed, err := renderer.FrameStreamEvent(restoredBody)
+				if err != nil {
+					return err
+				}
+				if _, err := c.Writer.Write(framed); err != nil {
+					clientDisconnected = true
+					logger.L().Info("forward_as_responses stream: client disconnected, continuing to drain upstream for billing", zap.String("request_id", requestID))
+					return nil
+				}
 			}
 		}
 		c.Writer.Flush()

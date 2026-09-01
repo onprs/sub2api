@@ -943,6 +943,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			policy := s.rateLimitService.CheckErrorPolicy(ctx, account, lastError.StatusCode, respBody, mappedModel)
 			switch policy {
 			case ErrorPolicySkipped:
+				if failoverErr := s.poolModeSkippedFailoverError(c, account, lastError.StatusCode, respBody, lastError.RequestID); failoverErr != nil {
+					failoverErr.ResponseHeaders = protocoltransport.CloneHeaders(lastError.Headers)
+					return nil, failoverErr
+				}
 				return nil, s.writeGeminiMappedError(c, account, http.StatusInternalServerError, lastError.RequestID, respBody)
 			case ErrorPolicyMatched, ErrorPolicyTempUnscheduled:
 				if policy == ErrorPolicyMatched {
@@ -1399,6 +1403,10 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			policy := s.rateLimitService.CheckErrorPolicy(ctx, account, statusCode, respBody, mappedModel)
 			switch policy {
 			case ErrorPolicySkipped:
+				if failoverErr := s.poolModeSkippedFailoverError(c, account, statusCode, respBody, requestID); failoverErr != nil {
+					failoverErr.ResponseHeaders = protocoltransport.CloneHeaders(headers)
+					return nil, failoverErr
+				}
 				respBody = unwrapIfNeeded(isOAuth, respBody)
 				contentType := headers.Get("Content-Type")
 				if contentType == "" {
@@ -1707,6 +1715,39 @@ func (s *GeminiMessagesCompatService) shouldFailoverGeminiUpstreamError(statusCo
 		return true
 	default:
 		return statusCode >= 500
+	}
+}
+
+// poolModeSkippedFailoverError 池模式账号命中 ErrorPolicySkipped 时构造 failover 错误：
+// 可 failover 的状态码返回 UpstreamFailoverError，交给 handler 层按 pool_mode_retry_count
+// 同账号重试后换号；返回 nil 表示不适用（非池模式或状态码不可 failover），由调用方透传。
+func (s *GeminiMessagesCompatService) poolModeSkippedFailoverError(c *gin.Context, account *Account, statusCode int, respBody []byte, upstreamRequestID string) *UpstreamFailoverError {
+	if !account.IsPoolMode() || !s.shouldFailoverGeminiUpstreamError(statusCode) {
+		return nil
+	}
+	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
+	upstreamDetail := ""
+	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+		maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
+		if maxBytes <= 0 {
+			maxBytes = 2048
+		}
+		upstreamDetail = truncateString(string(respBody), maxBytes)
+	}
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Platform:           account.Platform,
+		AccountID:          account.ID,
+		AccountName:        account.Name,
+		UpstreamStatusCode: statusCode,
+		UpstreamRequestID:  upstreamRequestID,
+		Kind:               "failover",
+		Message:            upstreamMsg,
+		Detail:             upstreamDetail,
+	})
+	return &UpstreamFailoverError{
+		StatusCode:             statusCode,
+		ResponseBody:           respBody,
+		RetryableOnSameAccount: account.IsPoolModeRetryableStatus(statusCode),
 	}
 }
 
@@ -2746,6 +2787,25 @@ func extractGeminiUsage(data []byte) *ClaudeUsage {
 	}
 }
 
+func asInt(v any) (int, bool) {
+	switch value := v.(type) {
+	case float64:
+		return int(value), true
+	case int:
+		return value, true
+	case int64:
+		return int(value), true
+	case json.Number:
+		parsed, err := value.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return int(parsed), true
+	default:
+		return 0, false
+	}
+}
+
 func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, body []byte) {
 	// 遵守自定义错误码策略：未命中则跳过所有限流处理
 	if !account.ShouldHandleErrorCode(statusCode) {
@@ -2910,6 +2970,16 @@ func ensureGeminiFunctionCallThoughtSignatures(body []byte) []byte {
 	return b
 }
 
+func extractGeminiFinishReason(geminiResp map[string]any) string {
+	candidates, _ := geminiResp["candidates"].([]any)
+	if len(candidates) == 0 {
+		return ""
+	}
+	candidate, _ := candidates[0].(map[string]any)
+	finishReason, _ := candidate["finishReason"].(string)
+	return finishReason
+}
+
 func extractGeminiParts(geminiResp map[string]any) []map[string]any {
 	if candidates, ok := geminiResp["candidates"].([]any); ok && len(candidates) > 0 {
 		if cand, ok := candidates[0].(map[string]any); ok {
@@ -3063,6 +3133,83 @@ func normalizeGeminiRequestForAIStudio(body []byte) []byte {
 		return body
 	}
 	return normalized
+}
+
+func isClaudeWebSearchToolMap(tool map[string]any) bool {
+	toolType, _ := tool["type"].(string)
+	// A function named web_search is still a client-side function. This is
+	// especially important for Chat Completions clients such as Hermes, whose
+	// built-in runtime tools are represented as ordinary function tools.
+	// Promote only explicitly typed server-side search tools to Gemini's
+	// built-in googleSearch tool.
+	return strings.HasPrefix(toolType, "web_search") || toolType == "google_search"
+}
+
+// cleanToolSchema 清理工具的 JSON Schema，移除 Gemini 不支持的字段
+func cleanToolSchema(schema any) any {
+	if schema == nil {
+		return nil
+	}
+
+	switch v := schema.(type) {
+	case map[string]any:
+		cleaned := make(map[string]any)
+		for key, value := range v {
+			// 跳过不支持的字段
+			if key == "$schema" || key == "$id" || key == "$ref" ||
+				key == "$defs" || key == "definitions" ||
+				key == "additionalProperties" || key == "patternProperties" || key == "minLength" ||
+				key == "maxLength" || key == "minItems" || key == "maxItems" {
+				continue
+			}
+			// 递归清理嵌套对象
+			cleaned[key] = cleanToolSchema(value)
+		}
+		// 规范化 type 字段为大写
+		if typeVal, ok := cleaned["type"].(string); ok {
+			cleaned["type"] = strings.ToUpper(typeVal)
+		} else if typeValues, ok := cleaned["type"].([]any); ok {
+			for _, typeValue := range typeValues {
+				typeName, ok := typeValue.(string)
+				if ok && !strings.EqualFold(typeName, "null") {
+					cleaned["type"] = strings.ToUpper(typeName)
+					break
+				}
+			}
+			if _, ok := cleaned["type"].([]any); ok {
+				delete(cleaned, "type")
+			}
+		}
+		return cleaned
+	case []any:
+		cleaned := make([]any, len(v))
+		for i, item := range v {
+			cleaned[i] = cleanToolSchema(item)
+		}
+		return cleaned
+	default:
+		return v
+	}
+}
+
+func convertClaudeGenerationConfig(req map[string]any) map[string]any {
+	out := make(map[string]any)
+	if mt, ok := asInt(req["max_tokens"]); ok && mt > 0 {
+		out["maxOutputTokens"] = mt
+	}
+	if temp, ok := req["temperature"].(float64); ok {
+		out["temperature"] = temp
+	}
+	if topP, ok := req["top_p"].(float64); ok {
+		out["topP"] = topP
+	}
+	if stopSeq, ok := req["stop_sequences"].([]any); ok && len(stopSeq) > 0 {
+		out["stopSequences"] = stopSeq
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (s *GeminiMessagesCompatService) extractImageInputSize(body []byte) string {

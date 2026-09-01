@@ -263,6 +263,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
 		var result *service.ForwardResult
+		setActualUpstreamEndpoint(c, "")
 		switch {
 		case account.Platform == service.PlatformGemini:
 			if h.geminiCompatService == nil {
@@ -281,7 +282,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				}
 				return
 			}
-			result, err = h.antigravityGatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, reqModel, false)
+			setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
+			result, err = h.antigravityGatewayService.ForwardStandardAsChatCompletions(c.Request.Context(), c, account, forwardBody, reqModel, false)
 		default:
 			result, err = h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
 		}

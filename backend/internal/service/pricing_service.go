@@ -1745,7 +1745,7 @@ func (s *PricingService) buildModelLookupCandidates(modelLower string) []string 
 	}
 	normalized := normalizeModelNameForPricing(modelLower)
 
-	// 平台计费 alias 的精确定价优先；其他规范化（例如 OpenAI 拼写）保持原有优先级。
+	// 平台计费 alias 的精确定价优先；规范化值只作为 alias 的 fallback。
 	candidates := rawCandidates
 	rawLastSegment := lastSegment(strings.TrimPrefix(modelLower, "models/"))
 	if canonicalBillingModelForPricing(rawLastSegment) != rawLastSegment {

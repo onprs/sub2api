@@ -35,9 +35,12 @@ const (
 	EndpointAntigravityStreamGenerateContent = "/v1internal:streamGenerateContent"
 )
 
+const EndpointAntigravityGenerateContent = "/v1internal:streamGenerateContent"
+
 // gin.Context keys used by the middleware and helpers below.
 const (
-	ctxKeyInboundEndpoint = "_gateway_inbound_endpoint"
+	ctxKeyInboundEndpoint        = "_gateway_inbound_endpoint"
+	ctxKeyActualUpstreamEndpoint = "_gateway_actual_upstream_endpoint"
 )
 
 // ──────────────────────────────────────────────────────────
@@ -321,6 +324,13 @@ func GetInboundEndpoint(c *gin.Context) string {
 // and the account platform. Handlers call this after scheduling an
 // account, passing account.Platform.
 func GetUpstreamEndpoint(c *gin.Context, platform string) string {
+	if c != nil {
+		if value, ok := c.Get(ctxKeyActualUpstreamEndpoint); ok {
+			if endpoint, ok := value.(string); ok && endpoint != "" {
+				return endpoint
+			}
+		}
+	}
 	inbound := GetInboundEndpoint(c)
 	rawPath := ""
 	if c != nil && c.Request != nil && c.Request.URL != nil {
@@ -361,4 +371,16 @@ func GetUpstreamEndpointForActualProtocol(c *gin.Context, platform string, actua
 	default:
 		return GetUpstreamEndpoint(c, platform)
 	}
+}
+
+func setActualUpstreamEndpoint(c *gin.Context, endpoint string) {
+	if c != nil {
+		c.Set(ctxKeyActualUpstreamEndpoint, strings.TrimSpace(endpoint))
+	}
+}
+
+func shouldUseAntigravityCompat(account *service.Account) bool {
+	return account != nil &&
+		account.Platform == service.PlatformAntigravity &&
+		account.Type == service.AccountTypeOAuth
 }

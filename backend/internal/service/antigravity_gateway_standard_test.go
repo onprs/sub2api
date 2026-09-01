@@ -46,7 +46,7 @@ func TestAntigravityForwardAsChatCompletionsUsesVendorWire(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}],"stream":false}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "claude-sonnet-4-6", false)
+	result, err := svc.ForwardStandardAsChatCompletions(context.Background(), c, account, body, "claude-sonnet-4-6", false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, protocolconv.ProtocolGoogleGenAI, result.ActualProtocol)
@@ -89,7 +89,7 @@ func TestAntigravityForwardAsChatCompletionsRetryBuildsFreshAttempt(t *testing.T
 	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, antigravityStandardTestAccount(), body, "claude-sonnet-4-6", false)
+	result, err := svc.ForwardStandardAsChatCompletions(context.Background(), c, antigravityStandardTestAccount(), body, "claude-sonnet-4-6", false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, "retry-ok", gjson.GetBytes(recorder.Body.Bytes(), "choices.0.message.content").String())
@@ -121,7 +121,7 @@ func TestAntigravityForwardAsResponsesStreamsToolCall(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-6","stream":true,"input":"hello","tools":[{"type":"function","name":"lookup","parameters":{"type":"object","properties":{"q":{"type":"string"}}}}]}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 
-	result, err := svc.ForwardAsResponses(context.Background(), c, account, body, "claude-sonnet-4-6", false)
+	result, err := svc.ForwardStandardAsResponses(context.Background(), c, account, body, "claude-sonnet-4-6", false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.True(t, result.Stream)
@@ -163,7 +163,7 @@ func TestAntigravityForwardAsResponsesStreamsCompleteTextLifecycle(t *testing.T)
 	body := []byte(`{"model":"gemini-3.1-pro-high","stream":true,"input":"hello"}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 
-	result, err := svc.ForwardAsResponses(context.Background(), c, antigravityStandardTestAccount(), body, "gemini-3.1-pro-high", false)
+	result, err := svc.ForwardStandardAsResponses(context.Background(), c, antigravityStandardTestAccount(), body, "gemini-3.1-pro-high", false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, protocolconv.ProtocolGoogleGenAI, result.ActualProtocol)
@@ -213,7 +213,7 @@ func TestAntigravityForwardAsResponsesBuffersText(t *testing.T) {
 	body := []byte(`{"model":"gemini-3.1-pro-high","stream":false,"input":"hello"}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 
-	result, err := svc.ForwardAsResponses(context.Background(), c, antigravityStandardTestAccount(), body, "gemini-3.1-pro-high", false)
+	result, err := svc.ForwardStandardAsResponses(context.Background(), c, antigravityStandardTestAccount(), body, "gemini-3.1-pro-high", false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, "buffered text", gjson.GetBytes(recorder.Body.Bytes(), "output.0.content.0.text").String())
@@ -244,7 +244,7 @@ func TestAntigravityForwardAsResponsesDrainsUsageAfterClientDisconnect(t *testin
 	body := []byte(`{"model":"claude-sonnet-4-6","stream":true,"input":"hello"}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 
-	result, err := svc.ForwardAsResponses(context.Background(), c, antigravityStandardTestAccount(), body, "claude-sonnet-4-6", false)
+	result, err := svc.ForwardStandardAsResponses(context.Background(), c, antigravityStandardTestAccount(), body, "claude-sonnet-4-6", false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.True(t, result.ClientDisconnect)
@@ -266,13 +266,41 @@ func TestAntigravityForwardAsResponsesUsesSourceErrorEnvelope(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-6","input":"hello"}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 
-	result, err := svc.ForwardAsResponses(context.Background(), c, account, body, "claude-sonnet-4-6", false)
+	result, err := svc.ForwardStandardAsResponses(context.Background(), c, account, body, "claude-sonnet-4-6", false)
 	require.Nil(t, result)
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
 	require.Equal(t, "invalid_request_error", gjson.GetBytes(recorder.Body.Bytes(), "error.type").String())
 	require.Equal(t, "invalid_request_error", gjson.GetBytes(recorder.Body.Bytes(), "error.code").String())
 	require.NotEmpty(t, gjson.GetBytes(recorder.Body.Bytes(), "error.message").String())
+}
+
+func TestAntigravityStandardUnauthorizedIsCredentialFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{{
+		StatusCode: http.StatusUnauthorized,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"auth-standard"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"Invalid bearer token"}}`)),
+	}}}
+	svc := newAntigravityStandardTestService(upstream)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"model":"claude-sonnet-4-6","input":"hello"}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+	result, err := svc.ForwardStandardAsResponses(context.Background(), c, antigravityStandardTestAccount(), body, "claude-sonnet-4-6", false)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, GatewayFailureStageAccountAuth, failoverErr.Stage)
+	require.Equal(t, GatewayFailureScopeAccount, failoverErr.Scope)
+	require.Equal(t, AntigravityCredentialRejectedReason, failoverErr.Reason)
+	require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+	require.Equal(t, http.StatusBadGateway, failoverErr.ClientStatusCode)
+	require.Equal(t, AntigravityCredentialRejectedClientMessage, failoverErr.ClientMessage)
+	require.Equal(t, "auth-standard", failoverErr.ResponseHeaders.Get("X-Request-Id"))
+	require.Empty(t, recorder.Body.String())
 }
 
 func TestAntigravityForwardAsChatCompletionsRejectsMalformedSuccessBeforeCommit(t *testing.T) {
@@ -288,7 +316,7 @@ func TestAntigravityForwardAsChatCompletionsRejectsMalformedSuccessBeforeCommit(
 	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}],"stream":true}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, antigravityStandardTestAccount(), body, "claude-sonnet-4-6", false)
+	result, err := svc.ForwardStandardAsChatCompletions(context.Background(), c, antigravityStandardTestAccount(), body, "claude-sonnet-4-6", false)
 	require.Nil(t, result)
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
@@ -318,14 +346,14 @@ func TestAntigravityStandardMetadataBridgeRestoresSignatureWithinScope(t *testin
 	firstRecorder := httptest.NewRecorder()
 	firstContext, _ := gin.CreateTestContext(firstRecorder)
 	firstContext.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(firstBody))
-	_, err := svc.ForwardAsChatCompletions(ctx, firstContext, account, firstBody, "claude-sonnet-4-6", false)
+	_, err := svc.ForwardStandardAsChatCompletions(ctx, firstContext, account, firstBody, "claude-sonnet-4-6", false)
 	require.NoError(t, err)
 
 	secondBody := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"x\"}"}}]},{"role":"tool","tool_call_id":"call-1","content":"found"}]}`)
 	secondRecorder := httptest.NewRecorder()
 	secondContext, _ := gin.CreateTestContext(secondRecorder)
 	secondContext.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(secondBody))
-	_, err = svc.ForwardAsChatCompletions(ctx, secondContext, account, secondBody, "claude-sonnet-4-6", false)
+	_, err = svc.ForwardStandardAsChatCompletions(ctx, secondContext, account, secondBody, "claude-sonnet-4-6", false)
 	require.NoError(t, err)
 	require.Contains(t, string(upstream.requestBodies[1]), "real-ag-signature")
 	require.Equal(t, "real-ag-signature", gjson.GetBytes(upstream.requestBodies[1], "request.contents.0.parts.0.thoughtSignature").String())

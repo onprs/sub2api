@@ -16,9 +16,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ForwardAsChatCompletions routes a Chat Completions request through the
+// ForwardStandardAsChatCompletions routes a Chat Completions request through the
 // Antigravity Google wire adapter while preserving the client protocol.
-func (s *AntigravityGatewayService) ForwardAsChatCompletions(
+func (s *AntigravityGatewayService) ForwardStandardAsChatCompletions(
 	ctx context.Context,
 	c *gin.Context,
 	account *Account,
@@ -29,9 +29,9 @@ func (s *AntigravityGatewayService) ForwardAsChatCompletions(
 	return s.forwardStandardProtocol(ctx, c, account, body, clientModel, protocolconv.ProtocolOpenAIChat, isStickySession)
 }
 
-// ForwardAsResponses routes a Responses request through the Antigravity Google
-// wire adapter while preserving the client protocol.
-func (s *AntigravityGatewayService) ForwardAsResponses(
+// ForwardStandardAsResponses routes a Responses request through the Antigravity
+// Google wire adapter while preserving the client protocol.
+func (s *AntigravityGatewayService) ForwardStandardAsResponses(
 	ctx context.Context,
 	c *gin.Context,
 	account *Account,

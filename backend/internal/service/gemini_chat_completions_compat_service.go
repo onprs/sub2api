@@ -297,8 +297,10 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 				Message:            upstreamMsg,
 			})
 			return nil, &UpstreamFailoverError{
-				StatusCode: lastError.StatusCode, ResponseBody: evBody,
-				ResponseHeaders: protocoltransport.CloneHeaders(lastError.Headers),
+				StatusCode:             lastError.StatusCode,
+				ResponseBody:           evBody,
+				ResponseHeaders:        protocoltransport.CloneHeaders(lastError.Headers),
+				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(lastError.StatusCode),
 			}
 		}
 

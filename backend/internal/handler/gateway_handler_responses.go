@@ -270,6 +270,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
 		var result *service.ForwardResult
+		setActualUpstreamEndpoint(c, "")
 		switch {
 		case account.Platform == service.PlatformGemini:
 			if h.geminiCompatService == nil {
@@ -288,7 +289,8 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				}
 				return
 			}
-			result, err = h.antigravityGatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, reqModel, false)
+			setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
+			result, err = h.antigravityGatewayService.ForwardStandardAsResponses(requestCtx, c, account, forwardBody, reqModel, false)
 		default:
 			result, err = h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
 		}

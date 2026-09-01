@@ -429,11 +429,16 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 				Message:            upstreamMsg,
 				Detail:             upstreamDetail,
 			})
-			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: unwrappedForOps, RetryableOnSameAccount: true}
+			return nil, &UpstreamFailoverError{
+				StatusCode:             resp.StatusCode,
+				ResponseBody:           unwrappedForOps,
+				ResponseHeaders:        resp.Header.Clone(),
+				RetryableOnSameAccount: true,
+			}
 		}
 
 		if s.shouldFailoverUpstreamError(resp.StatusCode) {
-			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			event := OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,
 				AccountName:        account.Name,
@@ -442,8 +447,20 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 				Kind:               "failover",
 				Message:            upstreamMsg,
 				Detail:             upstreamDetail,
-			})
-			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: unwrappedForOps}
+			}
+			if resp.StatusCode == http.StatusUnauthorized {
+				event.Stage = string(GatewayFailureStageAccountAuth)
+				event.Scope = string(GatewayFailureScopeAccount)
+				event.Reason = string(AntigravityCredentialRejectedReason)
+				appendOpsUpstreamError(c, event)
+				return nil, antigravityCredentialRejectedError(resp, unwrappedForOps)
+			}
+			appendOpsUpstreamError(c, event)
+			return nil, &UpstreamFailoverError{
+				StatusCode:      resp.StatusCode,
+				ResponseBody:    unwrappedForOps,
+				ResponseHeaders: resp.Header.Clone(),
+			}
 		}
 		if contentType == "" {
 			contentType = "application/json"

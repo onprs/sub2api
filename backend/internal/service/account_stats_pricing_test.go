@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -808,6 +809,25 @@ func TestResolveAccountStatsCost_OpenCodeGoFallbackAppliesQuotaCostMultiplier(t 
 	require.NotNil(t, result)
 	expected := (1.4 + 0.5*4.4) * 4
 	require.InDelta(t, expected, *result, 1e-12)
+}
+
+func TestResolveAccountStatsCost_Gemini36FlashTierUsesFallbackPricing(t *testing.T) {
+	channel := &Channel{
+		ID:                         1,
+		Status:                     StatusActive,
+		ApplyPricingToAccountStats: false,
+	}
+	cs := newTestChannelServiceForStats(t, channel, 10, "antigravity")
+	bs := NewBillingService(&config.Config{}, nil)
+
+	result := resolveAccountStatsCost(
+		context.Background(),
+		cs, bs,
+		1, 10, "gemini-3.6-flash-low",
+		UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}, 1, 0,
+	)
+	require.NotNil(t, result)
+	require.InDelta(t, 9.15, *result, 1e-12)
 }
 
 func TestResolveAccountStatsCost_AllMiss_ReturnsNil(t *testing.T) {

@@ -165,6 +165,23 @@ func TestEncodeRequestMapsServerSearchOutsideFunctionDeclarations(t *testing.T) 
 	require.False(t, gjson.GetBytes(body, "tools.1.functionDeclarations").Exists())
 }
 
+func TestEncodeRequestKeepsFunctionNamedWebSearchClientSide(t *testing.T) {
+	request := &ir.Request{
+		Model:    "gemini-test",
+		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.ContentPart{{Type: ir.ContentText, Text: "search"}}}},
+		Tools: []ir.ToolDefinition{{
+			Type: "function", ProviderType: "function", Name: "web_search", Parameters: []byte(`{"type":"object"}`),
+		}},
+	}
+
+	body, warnings, err := New().EncodeRequest(request, protocolconv.Options{})
+
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, "web_search", gjson.GetBytes(body, "tools.0.functionDeclarations.0.name").String())
+	require.False(t, gjson.GetBytes(body, "tools.0.googleSearch").Exists())
+}
+
 func TestEncodeRequestWrapsScalarFunctionResponseInStruct(t *testing.T) {
 	request := &ir.Request{
 		Model: "gemini-test",
