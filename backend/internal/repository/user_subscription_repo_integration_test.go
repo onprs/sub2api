@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -380,7 +381,7 @@ func TestUserSubscriptionRenewTermConcurrentExtensionsAccumulate(t *testing.T) {
 		Save(ctx)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_ = client.UserSubscription.DeleteOneID(sub.ID).Exec(context.Background())
+		_ = client.UserSubscription.DeleteOneID(sub.ID).Exec(mixins.SkipSoftDelete(context.Background()))
 		_ = client.Group.DeleteOneID(group.ID).Exec(context.Background())
 		_ = client.User.DeleteOneID(user.ID).Exec(context.Background())
 	})

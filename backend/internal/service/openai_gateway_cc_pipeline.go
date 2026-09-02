@@ -126,6 +126,11 @@ func (s *OpenAIGatewayService) failoverOpenAIStructuredUpstreamError(
 	upstreamModel string,
 ) *UpstreamFailoverError {
 	shouldFailover := s.shouldFailoverOpenAIUpstreamResponse(upstream.StatusCode, upstreamMsg, upstream.Body)
+	tempUnscheduled := false
+	if c != nil && account != nil && account.Platform != PlatformGrok && !shouldFailover && !IsResponseCommitted(c) && s.rateLimitService != nil {
+		tempUnscheduled = s.rateLimitService.CheckErrorPolicy(ctx, account, upstream.StatusCode, upstream.Body, upstreamModel) == ErrorPolicyTempUnscheduled
+		shouldFailover = tempUnscheduled
+	}
 	if account != nil && account.Platform == PlatformGrok {
 		shouldFailover = s.shouldFailoverGrokUpstreamError(upstream.StatusCode, upstream.Body)
 		s.handleGrokAccountUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body)
@@ -151,8 +156,8 @@ func (s *OpenAIGatewayService) failoverOpenAIStructuredUpstreamError(
 		Message:            upstreamMsg,
 		Detail:             upstreamDetail,
 	})
-	shouldDisable := false
-	if account.Platform != PlatformGrok {
+	shouldDisable := tempUnscheduled
+	if account.Platform != PlatformGrok && !tempUnscheduled {
 		shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, upstreamModel)
 	}
 	return newOpenAIUpstreamFailoverError(

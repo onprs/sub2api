@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -110,6 +111,9 @@ func (userSubRepoNoop) Create(context.Context, *UserSubscription) error {
 }
 func (userSubRepoNoop) GetByID(context.Context, int64) (*UserSubscription, error) {
 	panic("unexpected GetByID call")
+}
+func (userSubRepoNoop) GetByIDForUpdate(context.Context, int64) (*UserSubscription, error) {
+	panic("unexpected GetByIDForUpdate call")
 }
 func (userSubRepoNoop) GetByIDIncludeDeleted(context.Context, int64) (*UserSubscription, error) {
 	panic("unexpected GetByIDIncludeDeleted call")
@@ -330,6 +334,10 @@ func (s *subscriptionUserSubRepoStub) GetByID(_ context.Context, id int64) (*Use
 	return &cp, nil
 }
 
+func (s *subscriptionUserSubRepoStub) GetByIDForUpdate(ctx context.Context, id int64) (*UserSubscription, error) {
+	return s.GetByID(ctx, id)
+}
+
 func (s *subscriptionUserSubRepoStub) Update(_ context.Context, sub *UserSubscription) error {
 	if sub == nil {
 		return ErrSubscriptionNilInput
@@ -396,7 +404,11 @@ func (s *subscriptionUserSubRepoStub) RenewTerm(_ context.Context, input *RenewS
 		existing.SevenDayLimitUSD = input.SevenDayLimitUSD
 		existing.ThirtyDayLimitUSD = input.ThirtyDayLimitUSD
 	}
-	existing.Notes = appendSubscriptionNotes(existing.Notes, input.Notes)
+	notes := input.Notes
+	if input.SkipDuplicateNotes && strings.TrimSpace(existing.Notes) == strings.TrimSpace(notes) {
+		notes = ""
+	}
+	existing.Notes = appendSubscriptionNotes(existing.Notes, notes)
 	copy := *existing
 	return &copy, nil
 }

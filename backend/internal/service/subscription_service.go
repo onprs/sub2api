@@ -281,13 +281,9 @@ func (s *SubscriptionService) assignOrExtendSubscription(ctx context.Context, in
 
 	// 已有订阅，执行续期（在事务中完成所有更新）。暂停只能由明确的管理操作解除。
 	if existingSub != nil {
-		if existingSub.Status == SubscriptionStatusSuspended {
-			return nil, true, ErrSubscriptionSuspended
-		}
-		now := time.Now()
-		sub, err := s.updateExistingSubscriptionTerm(ctx, existingSub.ID, input, now, validityDays)
+		sub, err := s.updateExistingSubscriptionTerm(ctx, existingSub.ID, input, validityDays, false)
 		if err != nil {
-			return nil, false, err
+			return nil, errors.Is(err, ErrSubscriptionSuspended), err
 		}
 
 		// 失效订阅缓存
@@ -339,20 +335,20 @@ func (s *SubscriptionService) renewSubscriptionAfterCreateConflict(ctx context.C
 	if err != nil {
 		return nil, fmt.Errorf("load subscription after create conflict: %w", err)
 	}
-	now := time.Now()
-	return s.updateExistingSubscriptionTerm(ctx, existingSub.ID, input, now, validityDays)
+	return s.updateExistingSubscriptionTerm(ctx, existingSub.ID, input, validityDays, false)
 }
 
 func (s *SubscriptionService) updateExistingSubscriptionTerm(
 	ctx context.Context,
 	subscriptionID int64,
 	input *AssignSubscriptionInput,
-	startsAt time.Time,
 	validityDays int,
+	assignmentSemantics bool,
 ) (*UserSubscription, error) {
 	var renewed *UserSubscription
 	err := s.withSubscriptionUpdateTx(ctx, func(txCtx context.Context) error {
 		var err error
+		startsAt := s.currentTime()
 		renewed, err = s.userSubRepo.RenewTerm(txCtx, &RenewSubscriptionTermInput{
 			SubscriptionID:          subscriptionID,
 			ValidityDays:            validityDays,
@@ -364,11 +360,14 @@ func (s *SubscriptionService) updateExistingSubscriptionTerm(
 			ThirtyDayLimitUSD:       input.ThirtyDayLimitUSD,
 			HasRollingQuotaSnapshot: input.HasRollingQuotaSnapshot,
 			Notes:                   input.Notes,
+			SkipDuplicateNotes:      assignmentSemantics,
 		})
+		if errors.Is(err, ErrSubscriptionSuspended) && assignmentSemantics {
+			renewed, err = s.userSubRepo.GetByID(txCtx, subscriptionID)
+		}
 		if err != nil {
 			return fmt.Errorf("renew subscription term: %w", err)
 		}
-
 		return nil
 	})
 	if err != nil {
@@ -645,11 +644,7 @@ func (s *SubscriptionService) assignSubscriptionWithReuse(ctx context.Context, i
 		if sub.Status == SubscriptionStatusExpired ||
 			(sub.Status != SubscriptionStatusSuspended && !sub.ExpiresAt.After(now)) {
 			validityDays := normalizeAssignValidityDays(input.ValidityDays)
-			renewalInput := *input
-			if strings.TrimSpace(sub.Notes) == strings.TrimSpace(input.Notes) {
-				renewalInput.Notes = ""
-			}
-			renewed, renewErr := s.updateExistingSubscriptionTerm(ctx, sub.ID, &renewalInput, now, validityDays)
+			renewed, renewErr := s.updateExistingSubscriptionTerm(ctx, sub.ID, input, validityDays, true)
 			if renewErr != nil {
 				return nil, false, renewErr
 			}

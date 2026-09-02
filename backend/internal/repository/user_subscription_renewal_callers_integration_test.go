@@ -13,6 +13,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
+	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -96,7 +97,7 @@ func (f *concurrentRenewalFixture) cleanup(ctx context.Context) {
 	if f.redeemCode != nil {
 		_ = f.client.RedeemCode.DeleteOneID(f.redeemCode.ID).Exec(ctx)
 	}
-	_ = f.client.UserSubscription.DeleteOneID(f.sub.ID).Exec(ctx)
+	_ = f.client.UserSubscription.DeleteOneID(f.sub.ID).Exec(mixins.SkipSoftDelete(ctx))
 	_ = f.client.SubscriptionPlan.DeleteOneID(f.plan.ID).Exec(ctx)
 	_ = f.client.Group.DeleteOneID(f.group.ID).Exec(ctx)
 	_ = f.client.User.DeleteOneID(f.user.ID).Exec(ctx)

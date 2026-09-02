@@ -161,6 +161,44 @@ func TestOpenAIWSErrorEvent_ServerErrorRecordsModelTransient(t *testing.T) {
 	require.True(t, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.5"))
 }
 
+func TestOpenAIWSCapacityShedEventsDoNotRecordModelTransient(t *testing.T) {
+	tests := []struct {
+		name   string
+		invoke func(*OpenAIGatewayService, *Account, []byte)
+		body   string
+	}{
+		{
+			name: "response.failed",
+			invoke: func(svc *OpenAIGatewayService, account *Account, payload []byte) {
+				_ = svc.handleOpenAIWSTerminalTransientFailure(context.Background(), account, "gpt-5.5", http.Header{}, payload)
+			},
+			body: `{"type":"response.failed","response":{"error":{"code":"server_is_overloaded","message":"overloaded"}}}`,
+		},
+		{
+			name: "error",
+			invoke: func(svc *OpenAIGatewayService, account *Account, payload []byte) {
+				svc.handleOpenAIWSErrorEventTransientFailure(context.Background(), account, "gpt-5.5", http.Header{}, payload)
+			},
+			body: `{"type":"error","error":{"code":"slow_down","message":"retry later"}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &OpenAIGatewayService{}
+			svc.rateLimitService = NewRateLimitService(transientCooldownAccountRepo{}, nil, &config.Config{}, nil, nil)
+			account := &Account{ID: 5204, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+			payload := []byte(tt.body)
+
+			for range 2 {
+				tt.invoke(svc, account, payload)
+			}
+
+			require.False(t, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.5"))
+		})
+	}
+}
+
 func TestOpenAIWSPayloadTransientStatus_Explicit529IsNotModelTransient(t *testing.T) {
 	payload := []byte(`{"type":"response.failed","response":{"error":{"status_code":529,"code":"server_error","message":"overloaded"}}}`)
 

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -80,6 +81,18 @@ func (r *userSubscriptionRepository) GetByID(ctx context.Context, id int64) (*se
 		WithGroup().
 		WithPlan().
 		WithAssignedByUser().
+		Only(ctx)
+	if err != nil {
+		return nil, translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
+	}
+	return userSubscriptionEntityToService(m), nil
+}
+
+func (r *userSubscriptionRepository) GetByIDForUpdate(ctx context.Context, id int64) (*service.UserSubscription, error) {
+	client := clientFromContext(ctx, r.client)
+	m, err := client.UserSubscription.Query().
+		Where(usersubscription.IDEQ(id)).
+		ForUpdate().
 		Only(ctx)
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
@@ -556,11 +569,15 @@ func (r *userSubscriptionRepository) renewTermLocked(ctx context.Context, input 
 		expiresAt = input.MaxExpiresAt
 	}
 
+	notes := input.Notes
+	if input.SkipDuplicateNotes && strings.TrimSpace(existing.Notes) == strings.TrimSpace(notes) {
+		notes = ""
+	}
 	builder := client.UserSubscription.UpdateOneID(input.SubscriptionID).
 		SetStartsAt(startsAt).
 		SetExpiresAt(expiresAt).
 		SetStatus(service.SubscriptionStatusActive).
-		SetNotes(appendSubscriptionNotes(existing.Notes, input.Notes))
+		SetNotes(appendSubscriptionNotes(existing.Notes, notes))
 	if !activeTerm {
 		builder.
 			SetDailyUsageUsd(0).

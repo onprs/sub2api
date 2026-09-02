@@ -24,8 +24,8 @@ type APIKeyRepoSuite struct {
 }
 
 func (s *APIKeyRepoSuite) SetupTest() {
-	s.ctx = context.Background()
 	tx := testEntTx(s.T())
+	s.ctx = dbent.NewTxContext(context.Background(), tx)
 	s.client = tx.Client()
 	s.repo = newAPIKeyRepositoryWithSQL(s.client, tx)
 }
@@ -275,8 +275,8 @@ func (s *APIKeyRepoSuite) TestLegacyGroupIDWriteOverridesStaleRoutingBindings() 
 	s.Require().Len(got.RoutingGroups, 1)
 	s.Require().Equal(secondGroup.ID, got.RoutingGroups[0].GroupID)
 
-	// 新版本下一次写入会清掉旧候选关系，恢复数据库不变量。
-	s.Require().NoError(s.repo.Update(s.ctx, got))
+	// 新版本下一次路由写入会清掉旧候选关系，恢复数据库不变量。
+	s.Require().NoError(s.repo.Update(s.ctx, got, service.APIKeyUpdateFields{Routing: true}))
 	rows, err := s.client.QueryContext(s.ctx, `
 		SELECT group_id, priority
 		FROM api_key_groups
@@ -613,7 +613,11 @@ func (s *APIKeyRepoSuite) TestCRUD_Search_ClearGroupID() {
 	key.Name = "Renamed"
 	key.Status = service.StatusDisabled
 	key.GroupID = nil
-	s.Require().NoError(s.repo.Update(s.ctx, key, service.APIKeyUpdateFields{Name: true, Status: true, GroupID: true}), "Update")
+	key.Group = nil
+	key.RoutingPlatform = ""
+	key.RoutingStrategy = service.APIKeyRoutingStrategyManual
+	key.RoutingGroups = nil
+	s.Require().NoError(s.repo.Update(s.ctx, key, service.APIKeyUpdateFields{Name: true, Status: true, Routing: true}), "Update")
 
 	got2, err := s.repo.GetByID(s.ctx, key.ID)
 	s.Require().NoError(err, "GetByID")

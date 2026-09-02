@@ -270,6 +270,11 @@ func (s *OpenAIGatewayService) handleOpenAIWSTerminalTransientFailure(ctx contex
 	if terminalEvent != "response.failed" {
 		return terminalEvent
 	}
+	// 容量降载由客户端身份或模型级容量触发，与具体账号健康无关。
+	// WS 已向客户端交付终态，无法在当前 turn 内重试，但也不能因此冷却账号。
+	if isOpenAIUpstreamCapacityShedEvent(payload) {
+		return terminalEvent
+	}
 	status := openAIWSPayloadTransientStatus(payload)
 	if status != 0 {
 		s.handleOpenAIAccountUpstreamError(ctx, account, status, headers, payload, canonicalModel)
@@ -279,7 +284,7 @@ func (s *OpenAIGatewayService) handleOpenAIWSTerminalTransientFailure(ctx contex
 
 func (s *OpenAIGatewayService) handleOpenAIWSErrorEventTransientFailure(ctx context.Context, account *Account, canonicalModel string, headers http.Header, payload []byte) {
 	eventType, _, _ := parseOpenAIWSEventEnvelope(payload)
-	if eventType != "error" {
+	if eventType != "error" || isOpenAIUpstreamCapacityShedEvent(payload) {
 		return
 	}
 	status := openAIWSPayloadTransientStatus(payload)
