@@ -75,6 +75,8 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	turnState string,
 	turnMetadata string,
 	promptCacheKey string,
+	routingModel string,
+	routingServiceTier string,
 ) (http.Header, openAIWSSessionHeaderResolution, error) {
 	headers := make(http.Header)
 	if account == nil || !account.IsOpenAIAgentIdentity() {
@@ -158,6 +160,16 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	// 覆盖所有 WS 模式（ctx_pool/dedicated/passthrough）的握手头。
 	account.ApplyHeaderOverrides(headers)
 	applyOpenAICodexBetaFeatures(c, account, headers)
+	setOpenAICodexRoutingHint(headers, account, routingModel, routingServiceTier)
+	logOpenAIRoutingDiagnostics(
+		ctx,
+		account,
+		string(decision.Transport),
+		routingModel,
+		routingServiceTier,
+		strings.TrimSpace(headers.Get(openAICodexRoutingHintHeader)) != "",
+		"soft_routing_hint",
+	)
 
 	return headers, sessionResolution, nil
 }

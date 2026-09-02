@@ -630,6 +630,7 @@ func (s *GeminiMessagesCompatService) selectAccountForAIStudioEndpointsOnce(ctx 
 
 func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*ForwardResult, error) {
 	beginUpstreamResponseModelObservation(c)
+	beginGeminiImageOutputObservation(c)
 	startTime := time.Now()
 
 	var req struct {
@@ -1049,6 +1050,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			}
 			collectedBytes, _ := json.Marshal(collected)
 			upstreamResponseModelObserverFromContext(c).ObserveGemini(collectedBytes)
+			observeGeminiImageOutputs(c, collectedBytes)
 			usage, err = s.renderGoogleAnthropicResponse(c, resp, pipeline, collectedBytes, usageObj, startTime, rawStreamBody)
 			if err != nil {
 				return nil, err
@@ -1063,12 +1065,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	}
 
 	// 图片生成计费
-	imageCount := 0
 	imageInputSize := s.extractImageInputSize(body)
 	imageSize := normalizeOpenAIImageSizeTier(imageInputSize)
-	if isImageGenerationModel(originalModel) {
-		imageCount = 1
-	}
+	imageCount := resolveGeminiImageCount(c, originalModel, mappedModel)
 
 	return &ForwardResult{
 		RequestID:                     requestID,
@@ -1098,6 +1097,7 @@ func isGeminiSignatureRelatedError(respBody []byte) bool {
 
 func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte) (*ForwardResult, error) {
 	beginUpstreamResponseModelObservation(c)
+	beginGeminiImageOutputObservation(c)
 	startTime := time.Now()
 
 	if strings.TrimSpace(originalModel) == "" {
@@ -1563,6 +1563,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				return nil, s.writeGoogleError(c, http.StatusBadGateway, "Failed to aggregate upstream stream")
 			}
 			upstreamResponseModelObserverFromContext(c).ObserveGemini(b)
+			observeGeminiImageOutputs(c, b)
 			usage, err = s.renderNativeGoogleResponse(c, resp, requestPipeline, b, usageObj, startTime, rawStreamBody)
 			if err != nil {
 				return nil, err
@@ -1581,12 +1582,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	}
 
 	// 图片生成计费
-	imageCount := 0
 	imageInputSize := s.extractImageInputSize(body)
 	imageSize := normalizeOpenAIImageSizeTier(imageInputSize)
-	if isImageGenerationModel(originalModel) {
-		imageCount = 1
-	}
+	imageCount := resolveGeminiImageCount(c, originalModel, mappedModel)
 
 	return &ForwardResult{
 		RequestID:                     requestID,
@@ -2042,6 +2040,7 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 		observer = beginUpstreamResponseModelObservation(c)
 	}
 	observer.ObserveGemini(unwrappedBody)
+	observeGeminiImageOutputs(c, unwrappedBody)
 
 	return s.renderGoogleAnthropicResponse(c, resp, pipeline, unwrappedBody, nil, startTime, body)
 }
@@ -2164,6 +2163,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 			return nil, fmt.Errorf("stream read error: %w", err)
 		}
 		observer.ObserveGemini(record.Data)
+		observeGeminiImageOutputs(c, record.Data)
 		if current := extractGeminiUsage(record.Data); current != nil {
 			usage = *current
 		}
@@ -2506,6 +2506,7 @@ func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(
 		observer = beginUpstreamResponseModelObservation(c)
 	}
 	observer.ObserveGemini(googleBody)
+	observeGeminiImageOutputs(c, googleBody)
 	return s.renderNativeGoogleResponse(c, resp, pipeline, googleBody, nil, startTime, rawUpstreamBody)
 }
 
@@ -2669,6 +2670,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 			return result(), failBeforeOutput(fmt.Errorf("read native Google stream: %w", nextErr))
 		}
 		observer.ObserveGemini(record.Data)
+		observeGeminiImageOutputs(c, record.Data)
 		if firstTokenMs == nil {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
@@ -2844,6 +2846,11 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 		return
 	}
 	if statusCode != 429 {
+		return
+	}
+	// 池模式账号不写账号级限流：账号留在池内，由 failover / 同号重试消化 429。
+	// 自定义错误码优先级高于池模式，开启后仍按其命中结果标记。
+	if account.IsPoolMode() && !account.IsCustomErrorCodesEnabled() {
 		return
 	}
 

@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 20 // v20：动态分组路由快照加入利润控制字段
+const apiKeyAuthSnapshotVersion = 21 // v21：动态候选利润字段与 search/audio/video_model_prices 计费字段全集
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -485,7 +485,12 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		VideoPrice480P:                  group.VideoPrice480P,
 		VideoPrice720P:                  group.VideoPrice720P,
 		VideoPrice1080P:                 group.VideoPrice1080P,
+		VideoModelPrices:                NormalizeVideoModelPrices(group.VideoModelPrices),
 		WebSearchPricePerCall:           group.WebSearchPricePerCall,
+		SearchPricePer1k:                group.SearchPricePer1k,
+		AudioRealtimePricePerMin:        group.AudioRealtimePricePerMin,
+		AudioTTSPricePerMillionChars:    group.AudioTTSPricePerMillionChars,
+		AudioSTTPricePerHour:            group.AudioSTTPricePerHour,
 		ClaudeCodeOnly:                  group.ClaudeCodeOnly,
 		FallbackGroupID:                 group.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: group.FallbackGroupIDOnInvalidRequest,
@@ -545,7 +550,12 @@ func groupFromAPIKeyAuthSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		VideoPrice480P:                  snapshot.VideoPrice480P,
 		VideoPrice720P:                  snapshot.VideoPrice720P,
 		VideoPrice1080P:                 snapshot.VideoPrice1080P,
+		VideoModelPrices:                NormalizeVideoModelPrices(snapshot.VideoModelPrices),
 		WebSearchPricePerCall:           snapshot.WebSearchPricePerCall,
+		SearchPricePer1k:                snapshot.SearchPricePer1k,
+		AudioRealtimePricePerMin:        snapshot.AudioRealtimePricePerMin,
+		AudioTTSPricePerMillionChars:    snapshot.AudioTTSPricePerMillionChars,
+		AudioSTTPricePerHour:            snapshot.AudioSTTPricePerHour,
 		ClaudeCodeOnly:                  snapshot.ClaudeCodeOnly,
 		FallbackGroupID:                 snapshot.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: snapshot.FallbackGroupIDOnInvalidRequest,

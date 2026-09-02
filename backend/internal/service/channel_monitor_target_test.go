@@ -83,6 +83,12 @@ func (r *channelMonitorTargetRepoStub) ComputeAvailabilityForMonitors(context.Co
 	return r.availability, nil
 }
 
+type channelMonitorTargetRuntimeStub struct{}
+
+func (channelMonitorTargetRuntimeStub) GetChannelMonitorRuntime(context.Context) ChannelMonitorRuntime {
+	return ChannelMonitorRuntime{Enabled: true, Mode: ChannelMonitorModeV1}
+}
+
 type blockingChannelMonitorHealthRepo struct {
 	ChannelMonitorRepository
 	started chan struct{}
@@ -433,6 +439,7 @@ func TestChannelMonitorRunCheckRejectsDisabledLocalGroup(t *testing.T) {
 		IntervalSeconds: 60,
 	}}
 	svc := NewChannelMonitorService(repo, &channelMonitorTargetEncryptorStub{})
+	svc.SetRuntimeReader(channelMonitorTargetRuntimeStub{})
 
 	_, err := svc.RunCheck(context.Background(), 34)
 	require.ErrorIs(t, err, ErrChannelMonitorGroupUnavailable)

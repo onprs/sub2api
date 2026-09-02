@@ -329,7 +329,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	var upstreamReq *http.Request
 	if account.Platform == PlatformGrok {
-		upstreamReq, err = buildGrokResponsesRequest(upstreamCtx, c, account, responsesBody, token, grokCacheIdentity, s.cfg)
+		upstreamReq, err = buildGrokResponsesRequest(upstreamCtx, c, account, responsesBody, token, grokCacheIdentity, s.cfg, s.settingService)
 	} else {
 		upstreamReq, err = s.buildUpstreamRequest(upstreamCtx, c, account, responsesBody, token, isStream, promptCacheKey, false)
 	}
@@ -381,7 +381,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 				break
 			}
 			upstreamCtxRetry, releaseRetry := detachUpstreamContext(ctx)
-			upstreamReq, err = buildGrokResponsesRequest(upstreamCtxRetry, c, account, responsesBody, token, grokCacheIdentity, s.cfg)
+			upstreamReq, err = buildGrokResponsesRequest(upstreamCtxRetry, c, account, responsesBody, token, grokCacheIdentity, s.cfg, s.settingService)
 			releaseRetry()
 			if err != nil {
 				return nil, fmt.Errorf("build grok retry request: %w", err)
@@ -639,7 +639,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 		return nil, fmt.Errorf("render Anthropic response: %w", err)
 	}
 
-	return &OpenAIForwardResult{
+	result := &OpenAIForwardResult{
 		RequestID:                     requestID,
 		ResponseID:                    finalResponse.ID,
 		ActualProtocol:                terminal.Upstream.ActualProtocol,
@@ -651,7 +651,16 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		Stream:                        false,
 		Duration:                      time.Since(startTime),
-	}, nil
+	}
+	// Grok /v1/messages uses Responses upstream; count native search for surcharge.
+	if account != nil && account.IsGrok() && finalResponse != nil {
+		if body, err := json.Marshal(finalResponse); err == nil {
+			if n := countGrokNativeSearchCallsFromJSONBytes(body); n > 0 {
+				result.SearchCount = n
+			}
+		}
+	}
+	return result, nil
 }
 
 func isOpenAICompatResponsesTerminalEvent(eventType string) bool {
@@ -933,6 +942,9 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	clientOutputStarted := false
 	var streamFailoverErr error
 	var streamNonFailoverErr error
+	searchCount := 0
+	streamSearchSeen := make(map[string]struct{})
+	countSearch := account != nil && account.IsGrok()
 
 	streamInterval := time.Duration(0)
 	if s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
@@ -954,7 +966,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 
 	// resultWithUsage builds the final result snapshot.
 	resultWithUsage := func() *OpenAIForwardResult {
-		return &OpenAIForwardResult{
+		out := &OpenAIForwardResult{
 			RequestID:                     requestID,
 			ResponseID:                    responseID,
 			ActualProtocol:                stream.ActualProtocol,
@@ -969,6 +981,10 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			FirstTokenMs:                  firstTokenMs,
 			ClientDisconnect:              clientDisconnected,
 		}
+		if searchCount > 0 {
+			out.SearchCount = searchCount
+		}
+		return out
 	}
 
 	// processDataLine handles a single "data: ..." SSE line from upstream.
@@ -977,6 +993,9 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			firstChunk = false
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
+		}
+		if countSearch {
+			searchCount += countGrokNativeSearchCallsInSSEDataDedup([]byte(payload), streamSearchSeen)
 		}
 
 		var event apicompat.ResponsesStreamEvent

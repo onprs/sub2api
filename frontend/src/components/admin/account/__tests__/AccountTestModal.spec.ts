@@ -27,7 +27,17 @@ vi.mock('vue-i18n', async () => {
   const { translateLocaleMessage } = await import('@/i18n/__tests__/testTranslator')
   return {
     ...actual,
-    useI18n: () => ({ t: translateLocaleMessage })
+    useI18n: () => ({
+      t: (key: string, params?: Record<string, string | number>) => {
+        if (key === 'admin.accounts.imageReceived' && params?.count) {
+          return `received-${params.count}`
+        }
+        if (key === 'admin.accounts.imagePreviewAlt' && params?.index) {
+          return `test-image-${params.index}`
+        }
+        return translateLocaleMessage(key, params)
+      }
+    })
   }
 })
 
@@ -235,7 +245,8 @@ describe('AccountTestModal', () => {
     const [, request] = (global.fetch as any).mock.calls[0]
     expect(JSON.parse(request.body)).toEqual({
       model_id: 'grok-4.3',
-      prompt: ''
+      prompt: '',
+      mode: 'text'
     })
   })
 

@@ -269,7 +269,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 							resp = fallbackResp
 							billingModel = fallbackModel
 							successfulPipeline = fallbackResult.pipeline
-						} else {
+						} else if fallbackResp != nil {
 							_ = fallbackResp.Body.Close()
 						}
 					} else if switchErr, ok := IsAntigravityAccountSwitchError(fallbackErr); ok {

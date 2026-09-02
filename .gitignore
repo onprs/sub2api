@@ -157,3 +157,6 @@ tools/__pycache__/
 
 # Local Pi/agent guide is intentionally not versioned.
 AGENTS.md
+
+# Vitest / Vite cache at repo root
+.vite/

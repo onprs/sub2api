@@ -71,7 +71,7 @@ func TestBuildOpenAIWSHeaders_CarriesSessionBetaFeatures(t *testing.T) {
 		c := newOpenAICompactionHeaderContext(t, clientBeta)
 		headers, _, err := svc.buildOpenAIWSHeaders(
 			context.Background(), c, account, "test-token", decision,
-			true, "", "", "",
+			true, "", "", "", "", "",
 		)
 		require.NoError(t, err)
 		return headers

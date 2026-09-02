@@ -280,7 +280,8 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 		if s.rateLimitService != nil {
 			policy = s.rateLimitService.CheckErrorPolicy(ctx, account, lastError.StatusCode, lastError.Body, mappedModel)
 		}
-		if policy != ErrorPolicyTempUnscheduled {
+		// 只有未命中策略或已明确匹配的策略继续执行账号状态处理。
+		if policy == ErrorPolicyNone || policy == ErrorPolicyMatched {
 			s.handleGeminiUpstreamError(ctx, account, lastError.StatusCode, lastError.Headers, lastError.Body)
 		}
 		evBody := unwrapIfNeeded(account.Type == AccountTypeOAuth, lastError.Body)
