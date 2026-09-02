@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -81,8 +82,8 @@ func TestUserRepository_RemoveGroupFromAllowedGroups_RemovesAllOccurrences(t *te
 }
 
 func TestGroupRepository_DeleteCascade_PromotesRemainingAPIKeyCandidate(t *testing.T) {
-	ctx := context.Background()
 	tx := testEntTx(t)
+	ctx := dbent.NewTxContext(context.Background(), tx)
 	entClient := tx.Client()
 
 	targetGroup, err := entClient.Group.Create().

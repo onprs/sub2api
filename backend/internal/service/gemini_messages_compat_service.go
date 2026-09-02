@@ -629,6 +629,7 @@ func (s *GeminiMessagesCompatService) selectAccountForAIStudioEndpointsOnce(ctx 
 }
 
 func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*ForwardResult, error) {
+	beginUpstreamResponseModelObservation(c)
 	startTime := time.Now()
 
 	var req struct {
@@ -1047,6 +1048,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
 			}
 			collectedBytes, _ := json.Marshal(collected)
+			upstreamResponseModelObserverFromContext(c).ObserveGemini(collectedBytes)
 			usage, err = s.renderGoogleAnthropicResponse(c, resp, pipeline, collectedBytes, usageObj, startTime, rawStreamBody)
 			if err != nil {
 				return nil, err
@@ -1069,18 +1071,20 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	}
 
 	return &ForwardResult{
-		RequestID:        requestID,
-		ActualProtocol:   protocolconv.ProtocolGoogleGenAI,
-		Usage:            *usage,
-		Model:            originalModel,
-		UpstreamModel:    mappedModel,
-		Stream:           req.Stream,
-		Duration:         time.Since(startTime),
-		FirstTokenMs:     firstTokenMs,
-		ImageCount:       imageCount,
-		ImageSize:        imageSize,
-		ImageInputSize:   imageInputSize,
-		ClientDisconnect: clientDisconnected,
+		RequestID:                     requestID,
+		ActualProtocol:                protocolconv.ProtocolGoogleGenAI,
+		Usage:                         *usage,
+		Model:                         originalModel,
+		UpstreamModel:                 mappedModel,
+		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+		Stream:                        req.Stream,
+		Duration:                      time.Since(startTime),
+		FirstTokenMs:                  firstTokenMs,
+		ImageCount:                    imageCount,
+		ImageSize:                     imageSize,
+		ImageInputSize:                imageInputSize,
+		ClientDisconnect:              clientDisconnected,
 	}, nil
 }
 
@@ -1093,6 +1097,7 @@ func isGeminiSignatureRelatedError(respBody []byte) bool {
 }
 
 func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte) (*ForwardResult, error) {
+	beginUpstreamResponseModelObservation(c)
 	startTime := time.Now()
 
 	if strings.TrimSpace(originalModel) == "" {
@@ -1557,6 +1562,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			if marshalErr != nil {
 				return nil, s.writeGoogleError(c, http.StatusBadGateway, "Failed to aggregate upstream stream")
 			}
+			upstreamResponseModelObserverFromContext(c).ObserveGemini(b)
 			usage, err = s.renderNativeGoogleResponse(c, resp, requestPipeline, b, usageObj, startTime, rawStreamBody)
 			if err != nil {
 				return nil, err
@@ -1583,18 +1589,20 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	}
 
 	return &ForwardResult{
-		RequestID:        requestID,
-		ActualProtocol:   protocolconv.ProtocolGoogleGenAI,
-		Usage:            *usage,
-		Model:            originalModel,
-		UpstreamModel:    mappedModel,
-		Stream:           stream,
-		Duration:         time.Since(startTime),
-		FirstTokenMs:     firstTokenMs,
-		ImageCount:       imageCount,
-		ImageSize:        imageSize,
-		ImageInputSize:   imageInputSize,
-		ClientDisconnect: clientDisconnected,
+		RequestID:                     requestID,
+		ActualProtocol:                protocolconv.ProtocolGoogleGenAI,
+		Usage:                         *usage,
+		Model:                         originalModel,
+		UpstreamModel:                 mappedModel,
+		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+		Stream:                        stream,
+		Duration:                      time.Since(startTime),
+		FirstTokenMs:                  firstTokenMs,
+		ImageCount:                    imageCount,
+		ImageSize:                     imageSize,
+		ImageInputSize:                imageInputSize,
+		ClientDisconnect:              clientDisconnected,
 	}, nil
 }
 
@@ -2029,6 +2037,11 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 	if err != nil {
 		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 	}
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
+	observer.ObserveGemini(unwrappedBody)
 
 	return s.renderGoogleAnthropicResponse(c, resp, pipeline, unwrappedBody, nil, startTime, body)
 }
@@ -2138,6 +2151,10 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		return false, nil
 	}
 
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
 	for {
 		record, err := stream.Events.Next(context.Background())
 		if errors.Is(err, io.EOF) || errors.Is(err, protocoltransport.ErrSSEDone) {
@@ -2146,6 +2163,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		if err != nil {
 			return nil, fmt.Errorf("stream read error: %w", err)
 		}
+		observer.ObserveGemini(record.Data)
 		if current := extractGeminiUsage(record.Data); current != nil {
 			usage = *current
 		}
@@ -2483,6 +2501,11 @@ func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(
 			googleBody = unwrappedBody
 		}
 	}
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
+	observer.ObserveGemini(googleBody)
 	return s.renderNativeGoogleResponse(c, resp, pipeline, googleBody, nil, startTime, rawUpstreamBody)
 }
 
@@ -2586,6 +2609,10 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 	if err != nil {
 		return nil, err
 	}
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
 	headersWritten := false
@@ -2641,6 +2668,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 		if nextErr != nil {
 			return result(), failBeforeOutput(fmt.Errorf("read native Google stream: %w", nextErr))
 		}
+		observer.ObserveGemini(record.Data)
 		if firstTokenMs == nil {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms

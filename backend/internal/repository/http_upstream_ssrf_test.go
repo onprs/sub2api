@@ -81,10 +81,9 @@ func TestHTTPUpstreamProxyModeTrustsConfiguredProxyDialPath(t *testing.T) {
 	transport, ok := entry.client.Transport.(*http.Transport)
 	require.True(t, ok)
 
-	// In proxy mode the socket destination is the administrator-configured
-	// proxy, not the upstream host. Target DNS and private-IP enforcement move
-	// to that trusted proxy boundary, so the direct-upstream dial guard is not set.
-	require.Nil(t, transport.DialContext)
+	// 代理模式仍安装有界超时的普通 dialer；只有直连严格模式才会用
+	// SSRF-safe dialer 覆盖它。目标 DNS 与私网约束位于受信代理边界。
+	require.NotNil(t, transport.DialContext)
 	require.NotNil(t, transport.Proxy)
 }
 
@@ -110,7 +109,7 @@ func TestHTTPUpstreamAllowPrivateHostsExplicitlyDisablesDialGuard(t *testing.T) 
 	require.NoError(t, err)
 	transport, ok := entry.client.Transport.(*http.Transport)
 	require.True(t, ok)
-	require.Nil(t, transport.DialContext)
+	require.NotNil(t, transport.DialContext, "允许私网时仍应保留普通拨号超时")
 }
 
 func TestHTTPUpstreamRedirectCheckerRejectsPrivateTarget(t *testing.T) {

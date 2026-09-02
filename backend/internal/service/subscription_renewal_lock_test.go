@@ -67,12 +67,18 @@ func (r *lockingRenewalRepo) RenewTerm(_ context.Context, input *RenewSubscripti
 	if activeTerm {
 		renewed.ExpiresAt = renewed.ExpiresAt.AddDate(0, 0, input.ValidityDays)
 	} else {
-		windowStart := input.LegacyWindowStart
 		renewed.StartsAt = input.Now
 		renewed.ExpiresAt = input.Now.AddDate(0, 0, input.ValidityDays)
-		renewed.DailyWindowStart = &windowStart
-		renewed.WeeklyWindowStart = &windowStart
-		renewed.MonthlyWindowStart = &windowStart
+	}
+	if renewed.ExpiresAt.After(input.MaxExpiresAt) {
+		renewed.ExpiresAt = input.MaxExpiresAt
+	}
+	if !activeTerm {
+		dailyWindowStart := InitialSubscriptionDailyWindowStart(renewed.StartsAt, renewed.ExpiresAt)
+		periodicWindowStart := renewed.StartsAt
+		renewed.DailyWindowStart = &dailyWindowStart
+		renewed.WeeklyWindowStart = &periodicWindowStart
+		renewed.MonthlyWindowStart = &periodicWindowStart
 		renewed.FiveHourWindowStart = nil
 		renewed.SevenDayWindowStart = nil
 		renewed.ThirtyDayWindowStart = nil
@@ -82,9 +88,6 @@ func (r *lockingRenewalRepo) RenewTerm(_ context.Context, input *RenewSubscripti
 		renewed.FiveHourUsageUSD = 0
 		renewed.SevenDayUsageUSD = 0
 		renewed.ThirtyDayUsageUSD = 0
-	}
-	if renewed.ExpiresAt.After(input.MaxExpiresAt) {
-		renewed.ExpiresAt = input.MaxExpiresAt
 	}
 	if input.HasRollingQuotaSnapshot {
 		renewed.FiveHourLimitUSD = input.FiveHourLimitUSD

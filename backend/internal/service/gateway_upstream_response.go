@@ -739,9 +739,10 @@ func (u *ClaudeUsage) hasObservedTokens() bool {
 }
 
 // partialStreamUsageResult 在流式转发中途出错时，把已观测到 usage 的部分结果包装为
-// ForwardResult（与错误一起返回给 handler 记录）。failover 错误必须保持 result=nil，
-// 避免重试成功后重复计费。
-func partialStreamUsageResult(resp *http.Response, streamResult *streamingResult, model, upstreamModel string, startTime time.Time, err error) *ForwardResult {
+// ForwardResult（与错误一起返回给 handler 记录）。上游一旦下发过 message_start，
+// input/cache token 就已计量，直接丢弃会让请求完全漏记漏计费。
+// 无已观测 usage 时返回 nil；failover 错误必须保持 result=nil，避免重试成功后重复计费。
+func partialStreamUsageResult(c *gin.Context, resp *http.Response, streamResult *streamingResult, model, upstreamModel string, startTime time.Time, err error) *ForwardResult {
 	if streamResult == nil || !streamResult.usage.hasObservedTokens() {
 		return nil
 	}
@@ -750,15 +751,29 @@ func partialStreamUsageResult(resp *http.Response, streamResult *streamingResult
 		return nil
 	}
 	return &ForwardResult{
-		RequestID:        resp.Header.Get("x-request-id"),
-		Usage:            *streamResult.usage,
-		Model:            model,
-		UpstreamModel:    upstreamModel,
-		Stream:           true,
-		Duration:         time.Since(startTime),
-		FirstTokenMs:     streamResult.firstTokenMs,
-		ClientDisconnect: streamResult.clientDisconnect,
+		RequestID:                     resp.Header.Get("x-request-id"),
+		ActualProtocol:                protocolconv.ProtocolAnthropic,
+		Usage:                         *streamResult.usage,
+		Model:                         model,
+		UpstreamModel:                 upstreamModel,
+		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+		Stream:                        true,
+		Duration:                      time.Since(startTime),
+		FirstTokenMs:                  streamResult.firstTokenMs,
+		ClientDisconnect:              streamResult.clientDisconnect,
 	}
+}
+
+func extractAnthropicSSEDataLine(line string) (string, bool) {
+	if !strings.HasPrefix(line, "data:") {
+		return "", false
+	}
+	start := len("data:")
+	for start < len(line) && (line[start] == ' ' || line[start] == '\t') {
+		start++
+	}
+	return line[start:], true
 }
 
 func (s *GatewayService) parseSSEUsage(data string, usage *ClaudeUsage) {
@@ -1008,6 +1023,11 @@ func (s *GatewayService) handleNonStreamingResponse(
 	if err != nil {
 		return nil, err
 	}
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
+	observer.ObserveAnthropic(body)
 
 	// 解析usage
 	var response struct {

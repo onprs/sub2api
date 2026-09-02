@@ -112,6 +112,14 @@ func WithOpenAIImageGenerationIntent(ctx context.Context) context.Context {
 	return context.WithValue(ctx, ctxkey.OpenAIImageGenerationIntent, true)
 }
 
+func OpenAIImageGenerationIntentFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	enabled, ok := ctx.Value(ctxkey.OpenAIImageGenerationIntent).(bool)
+	return ok && enabled
+}
+
 // WithOpenAIImagesEndpoint 标记请求从 /v1/images/* 专用生图端点入站。
 func WithOpenAIImagesEndpoint(ctx context.Context) context.Context {
 	if ctx == nil {
@@ -126,14 +134,6 @@ func OpenAIImagesEndpointFromContext(ctx context.Context) bool {
 		return false
 	}
 	enabled, ok := ctx.Value(ctxkey.OpenAIImagesEndpoint).(bool)
-	return ok && enabled
-}
-
-func OpenAIImageGenerationIntentFromContext(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	enabled, ok := ctx.Value(ctxkey.OpenAIImageGenerationIntent).(bool)
 	return ok && enabled
 }
 

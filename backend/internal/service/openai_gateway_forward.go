@@ -23,6 +23,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 }
 
 func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c *gin.Context, account *Account, body []byte, output openAIProtocolOutput) (*OpenAIForwardResult, error) {
+	beginUpstreamResponseModelObservation(c)
 	clearGrokResponsesClientToolMapping(c)
 	clearOpenAIResponsesNamespaceNames(c)
 	startTime := time.Now()
@@ -49,6 +50,16 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 	}
 	if normalized {
 		body = normalizedBody
+	}
+	// 在分流到 passthrough / Codex transform / 原生 ChatCompletions 之前统一修正
+	// 显式为 null 的工具 Schema type，否则 upstream 的 400 会被归一成可重试的 502，
+	// 同一份坏定义在账号池里反复重放。
+	sanitizedToolBody, toolSchemaSanitized, toolSchemaErr := sanitizeOpenAIResponsesToolParameterTypes(body)
+	if toolSchemaErr != nil {
+		return nil, fmt.Errorf("sanitize OpenAI Responses tool parameters: %w", toolSchemaErr)
+	}
+	if toolSchemaSanitized {
+		body = sanitizedToolBody
 	}
 	if account.IsOpenAIOAuth() && isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) {
 		liteBody, changed, liteErr := normalizeOpenAIResponsesLiteToolsPayload(body)
@@ -982,19 +993,21 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 		}
 
 		forwardResult := &OpenAIForwardResult{
-			RequestID:       resp.Header.Get("x-request-id"),
-			ResponseID:      responseID,
-			ActualProtocol:  protocolconv.ProtocolOpenAIResponses,
-			Usage:           *usage,
-			Model:           originalModel,
-			BillingModel:    billingModel,
-			UpstreamModel:   upstreamModel,
-			ServiceTier:     serviceTier,
-			ReasoningEffort: reasoningEffort,
-			Stream:          reqStream,
-			OpenAIWSMode:    false,
-			Duration:        time.Since(startTime),
-			FirstTokenMs:    firstTokenMs,
+			RequestID:                     resp.Header.Get("x-request-id"),
+			ResponseID:                    responseID,
+			ActualProtocol:                protocolconv.ProtocolOpenAIResponses,
+			Usage:                         *usage,
+			Model:                         originalModel,
+			BillingModel:                  billingModel,
+			UpstreamModel:                 upstreamModel,
+			UpstreamResponseModel:         observedUpstreamResponseModel(c),
+			UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+			ServiceTier:                   serviceTier,
+			ReasoningEffort:               reasoningEffort,
+			Stream:                        reqStream,
+			OpenAIWSMode:                  false,
+			Duration:                      time.Since(startTime),
+			FirstTokenMs:                  firstTokenMs,
 		}
 		if attemptOutput != nil {
 			forwardResult.ClientDisconnect = attemptOutput.ClientDisconnected()

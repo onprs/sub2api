@@ -294,6 +294,10 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	startTime time.Time,
 	requestBodyLen int,
 ) (*OpenAIForwardResult, error) {
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
 	stream, err := s.collectCCUpstreamStream(resp, startTime)
 	if err != nil {
 		return nil, err
@@ -387,6 +391,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 
 		payload := record.Data
 		payloadText := string(payload)
+		eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
+		observer.ObserveOpenAI(payload, eventType)
 		usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payloadText)
 		if u := extractCCStreamUsage(payloadText); u != nil {
 			usage = *u
@@ -412,8 +418,10 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	result := &OpenAIForwardResult{
 		RequestID: requestID, ResponseID: responseID, ActualProtocol: stream.ActualProtocol,
 		Usage: usage, Model: originalModel,
-		BillingModel: billingModel, UpstreamModel: upstreamModel, ReasoningEffort: reasoningEffort,
-		ServiceTier: serviceTier, Stream: true, Duration: time.Since(startTime),
+		BillingModel: billingModel, UpstreamModel: upstreamModel,
+		UpstreamResponseModel: observedUpstreamResponseModel(c), UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+		ReasoningEffort: reasoningEffort,
+		ServiceTier:     serviceTier, Stream: true, Duration: time.Since(startTime),
 		FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected,
 	}
 	if !sawDone {
@@ -512,6 +520,11 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		}
 		return nil, fmt.Errorf("read upstream body: %w", err)
 	}
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
+	observer.ObserveOpenAI(respBody, strings.TrimSpace(gjson.GetBytes(respBody, "type").String()))
 
 	if len(respBody) == 0 {
 		if s.responseHeaderFilter != nil {
@@ -551,6 +564,8 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		writeChatCompletionsError(c, http.StatusBadGateway, "api_error", "Failed to parse upstream response")
 		return nil, err
 	}
+	result.UpstreamResponseModel = observedUpstreamResponseModel(c)
+	result.UpstreamResponseModelConflict = observedUpstreamResponseModelConflict(c)
 
 	converted, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
 	if err != nil {

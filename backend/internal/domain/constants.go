@@ -158,6 +158,7 @@ var antigravityCompatibilityModelMapping = map[string]string{
 	"gemini-3.5-flash-extra-low":     "gemini-3.5-flash-extra-low",
 	"gemini-3-pro-image":             "gemini-3.1-flash-image",
 	"gemini-3-pro-image-preview":     "gemini-3.1-flash-image",
+	"gpt-oss-120b-medium":            "gpt-oss-120b-medium",
 	"tab_flash_lite_preview":         "tab_flash_lite_preview",
 }
 
@@ -205,6 +206,7 @@ func ResolveDefaultAntigravityModelRoute(model string) (AntigravityModelRoute, b
 		}
 	}
 	return AntigravityModelRoute{ModelID: wireModel, WireModel: wireModel}, true
+
 }
 
 // DefaultBedrockModelMapping 是 AWS Bedrock 平台的默认模型映射

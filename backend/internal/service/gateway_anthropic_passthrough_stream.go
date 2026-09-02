@@ -67,6 +67,10 @@ func (s *GatewayService) handleStructuredStreamingResponseAnthropicAPIKeyPassthr
 		return nil, err
 	}
 
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
 	clientDisconnected := false
@@ -224,6 +228,7 @@ func (s *GatewayService) handleStructuredStreamingResponseAnthropicAPIKeyPassthr
 			}
 
 			payload := event.record.Data
+			observer.ObserveAnthropic(payload)
 			eventType := strings.TrimSpace(event.record.Event)
 			if anthropicStreamEventIsTerminal(eventType, string(payload)) {
 				sawTerminalEvent = true

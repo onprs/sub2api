@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,7 +38,8 @@ type resetQuotaUserSubRepoStub struct {
 	resetFiveHourErr     error
 	resetSevenDayErr     error
 	resetThirtyDayErr    error
-	windowStart          time.Time
+	dailyStart           time.Time
+	periodicStart        time.Time
 }
 
 func (r *resetQuotaUserSubRepoStub) GetByID(_ context.Context, id int64) (*UserSubscription, error) {
@@ -63,11 +65,12 @@ func (r *resetQuotaUserSubRepoStub) storedSub(id int64) *UserSubscription {
 	return r.sub
 }
 
-func (r *resetQuotaUserSubRepoStub) ResetUsageWindows(_ context.Context, id int64, resetDaily, resetWeekly, resetMonthly bool, windowStart time.Time) error {
+func (r *resetQuotaUserSubRepoStub) ResetUsageWindows(_ context.Context, id int64, resetDaily, resetWeekly, resetMonthly bool, dailyStart, periodicStart time.Time) error {
 	r.resetDailyCalled = resetDaily
 	r.resetWeeklyCalled = resetWeekly
 	r.resetMonthlyCalled = resetMonthly
-	r.windowStart = windowStart
+	r.dailyStart = dailyStart
+	r.periodicStart = periodicStart
 	if resetDaily && r.resetDailyErr != nil {
 		return r.resetDailyErr
 	}
@@ -83,15 +86,15 @@ func (r *resetQuotaUserSubRepoStub) ResetUsageWindows(_ context.Context, id int6
 	}
 	if resetDaily {
 		sub.DailyUsageUSD = 0
-		sub.DailyWindowStart = &windowStart
+		sub.DailyWindowStart = &dailyStart
 	}
 	if resetWeekly {
 		sub.WeeklyUsageUSD = 0
-		sub.WeeklyWindowStart = &windowStart
+		sub.WeeklyWindowStart = &periodicStart
 	}
 	if resetMonthly {
 		sub.MonthlyUsageUSD = 0
-		sub.MonthlyWindowStart = &windowStart
+		sub.MonthlyWindowStart = &periodicStart
 	}
 	return nil
 }
@@ -218,8 +221,10 @@ func TestAdminResetQuota_ResetBoth(t *testing.T) {
 	require.True(t, stub.resetDailyCalled, "应调用 ResetDailyUsage")
 	require.True(t, stub.resetWeeklyCalled, "应调用 ResetWeeklyUsage")
 	require.False(t, stub.resetMonthlyCalled, "不应调用 ResetMonthlyUsage")
-	require.Equal(t, resetAt, stub.windowStart)
-	require.Equal(t, resetAt, *result.DailyWindowStart)
+	// 手动重置后日窗口锚定当天 0 点（保持 0 点刷新节奏），周窗口锚定重置时刻。
+	require.Equal(t, timezone.StartOfDay(resetAt), stub.dailyStart)
+	require.Equal(t, resetAt, stub.periodicStart)
+	require.Equal(t, timezone.StartOfDay(resetAt), *result.DailyWindowStart)
 	require.Equal(t, resetAt, *result.WeeklyWindowStart)
 }
 

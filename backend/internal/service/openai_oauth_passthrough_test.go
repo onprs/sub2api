@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
@@ -1009,10 +1010,10 @@ func TestOpenAIGatewayService_OAuthLegacy_CompositeCodexUAUsesCodexOriginator(t 
 	_, err := svc.Forward(context.Background(), c, account, inputBody)
 	require.NoError(t, err)
 	require.NotNil(t, upstream.lastReq)
-	// 浏览器型复合 UA 被替换为默认 Codex UA（CLI 形态，避开上游降载桶），
+	// 浏览器型复合 UA 被替换为默认 Codex TUI UA，
 	// originator 随最终 UA 配套（issue #3901）。
 	require.Equal(t, DefaultOpenAICodexUserAgent, upstream.lastReq.Header.Get("User-Agent"))
-	require.Equal(t, "codex_cli_rs", upstream.lastReq.Header.Get("originator"))
+	require.Equal(t, openai.CodexDefaultOriginator, upstream.lastReq.Header.Get("originator"))
 	require.NotEqual(t, "opencode", upstream.lastReq.Header.Get("originator"))
 }
 
@@ -1924,7 +1925,7 @@ func TestOpenAIGatewayService_OAuthPassthrough_OfficialIdentityUnified(t *testin
 	require.NoError(t, err)
 	require.NotNil(t, upstream.lastReq)
 	require.Equal(t, codexCLIUserAgent, upstream.lastReq.Header.Get("User-Agent"))
-	require.Equal(t, "codex_cli_rs", upstream.lastReq.Header.Get("originator"))
+	require.Equal(t, openai.CodexDefaultOriginator, upstream.lastReq.Header.Get("originator"))
 	require.Equal(t, codexCLIVersion, upstream.lastReq.Header.Get("version"))
 }
 
@@ -1968,7 +1969,7 @@ func TestOpenAIGatewayService_OAuthPassthrough_CodexTuiIdentityUnified(t *testin
 	require.NoError(t, err)
 	require.NotNil(t, upstream.lastReq)
 	require.Equal(t, codexCLIUserAgent, upstream.lastReq.Header.Get("User-Agent"))
-	require.Equal(t, "codex_cli_rs", upstream.lastReq.Header.Get("originator"))
+	require.Equal(t, openai.CodexDefaultOriginator, upstream.lastReq.Header.Get("originator"))
 	require.Equal(t, codexCLIVersion, upstream.lastReq.Header.Get("version"))
 }
 

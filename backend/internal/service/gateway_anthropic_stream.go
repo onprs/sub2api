@@ -47,6 +47,10 @@ func (s *GatewayService) handleStructuredStreamingResponse(
 		return nil, errors.New("streaming not supported")
 	}
 
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
 	clientDisconnected := false
@@ -256,6 +260,7 @@ func (s *GatewayService) handleStructuredStreamingResponse(
 				continue
 			}
 
+			observer.ObserveAnthropic(event.record.Data)
 			payload, usagePatch, terminal, policyErr := s.applyNativeAnthropicStreamPolicy(
 				ctx, account, event.record.Data, originalModel, mappedModel,
 				useNoopDeltaKeepalive, &noopDeltaKeepaliveBlockIndex, &noopDeltaKeepaliveDeltaType,

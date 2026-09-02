@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/dgraph-io/ristretto"
 	"golang.org/x/sync/singleflight"
 )
@@ -354,7 +355,6 @@ func (s *SubscriptionService) updateExistingSubscriptionTerm(
 			ValidityDays:            validityDays,
 			Now:                     startsAt,
 			MaxExpiresAt:            MaxExpiresAt,
-			LegacyWindowStart:       startsAt,
 			FiveHourLimitUSD:        input.FiveHourLimitUSD,
 			SevenDayLimitUSD:        input.SevenDayLimitUSD,
 			ThirtyDayLimitUSD:       input.ThirtyDayLimitUSD,
@@ -412,13 +412,15 @@ func applyRollingQuotaSnapshot(sub *UserSubscription, input *AssignSubscriptionI
 
 func renewedSubscriptionTerm(existingSub *UserSubscription, notes string, startsAt, expiresAt time.Time) *UserSubscription {
 	renewed := *existingSub
-	windowStart := startsAt
+	// 多日订阅日窗口按日历日对齐；一日一次性额度必须覆盖精确续期周期。
+	dailyWindowStart := InitialSubscriptionDailyWindowStart(startsAt, expiresAt)
+	periodicWindowStart := startsAt
 	renewed.StartsAt = startsAt
 	renewed.ExpiresAt = expiresAt
 	renewed.Status = SubscriptionStatusActive
-	renewed.DailyWindowStart = &windowStart
-	renewed.WeeklyWindowStart = &windowStart
-	renewed.MonthlyWindowStart = &windowStart
+	renewed.DailyWindowStart = &dailyWindowStart
+	renewed.WeeklyWindowStart = &periodicWindowStart
+	renewed.MonthlyWindowStart = &periodicWindowStart
 	renewed.DailyUsageUSD = 0
 	renewed.WeeklyUsageUSD = 0
 	renewed.MonthlyUsageUSD = 0
@@ -1054,7 +1056,13 @@ func (s *SubscriptionService) checkAndActivateWindowAt(ctx context.Context, sub 
 		return nil
 	}
 
-	return s.userSubRepo.ActivateWindows(ctx, sub.ID, now)
+	// 多日订阅日窗口锚定当天 0 点；一日一次性额度覆盖完整订阅周期。
+	// 周/月窗口锚定首次使用时刻，避免最后一个不完整周期重复发放额度。
+	dailyStart := timezone.StartOfDay(now)
+	if sub.HasOneTimeDailyQuota() {
+		dailyStart = sub.StartsAt
+	}
+	return s.userSubRepo.ActivateWindows(ctx, sub.ID, dailyStart, now)
 }
 
 type BulkResetSubscriptionQuotaInput struct {
@@ -1088,8 +1096,9 @@ type BulkResetQuotaResult struct {
 	Statuses      map[int64]string
 }
 
-// AdminResetQuota manually restarts selected legacy and rolling usage windows
-// from the same instant, preserving subscription-term alignment.
+// AdminResetQuota manually resets selected legacy and rolling usage windows.
+// Daily windows stay aligned to midnight; weekly, monthly, and rolling windows
+// restart from the reset instant.
 func (s *SubscriptionService) AdminResetQuota(ctx context.Context, subscriptionID int64, resetDaily, resetWeekly, resetMonthly, resetFiveHour, resetSevenDay, resetThirtyDay bool) (*UserSubscription, error) {
 	if !resetDaily && !resetWeekly && !resetMonthly && !resetFiveHour && !resetSevenDay && !resetThirtyDay {
 		return nil, ErrInvalidInput
@@ -1098,8 +1107,8 @@ func (s *SubscriptionService) AdminResetQuota(ctx context.Context, subscriptionI
 	if err != nil {
 		return nil, err
 	}
-	windowStart := s.currentTime()
-	if err := s.resetQuotaWindows(ctx, sub.ID, resetDaily, resetWeekly, resetMonthly, resetFiveHour, resetSevenDay, resetThirtyDay, windowStart, windowStart); err != nil {
+	now := s.currentTime()
+	if err := s.resetQuotaWindows(ctx, sub.ID, resetDaily, resetWeekly, resetMonthly, resetFiveHour, resetSevenDay, resetThirtyDay, timezone.StartOfDay(now), now, now); err != nil {
 		return nil, err
 	}
 	if err := s.invalidateSubscriptionCaches(sub.UserID, sub.GroupID); err != nil {
@@ -1133,7 +1142,8 @@ func (s *SubscriptionService) BulkAdminResetQuota(ctx context.Context, input Bul
 		Warnings:      make([]string, 0),
 		Statuses:      make(map[int64]string, len(ids)),
 	}
-	windowStart := s.currentTime()
+	now := s.currentTime()
+	dailyWindowStart := timezone.StartOfDay(now)
 	for _, id := range ids {
 		sub, err := s.userSubRepo.GetByID(ctx, id)
 		if err != nil {
@@ -1142,7 +1152,7 @@ func (s *SubscriptionService) BulkAdminResetQuota(ctx context.Context, input Bul
 			result.Statuses[id] = "failed"
 			continue
 		}
-		if err := s.resetQuotaWindows(ctx, sub.ID, input.ResetDaily, input.ResetWeekly, input.ResetMonthly, input.ResetFiveHour, input.ResetSevenDay, input.ResetThirtyDay, windowStart, windowStart); err != nil {
+		if err := s.resetQuotaWindows(ctx, sub.ID, input.ResetDaily, input.ResetWeekly, input.ResetMonthly, input.ResetFiveHour, input.ResetSevenDay, input.ResetThirtyDay, dailyWindowStart, now, now); err != nil {
 			result.FailedCount++
 			result.Errors = append(result.Errors, fmt.Sprintf("subscription %d: %v", id, err))
 			result.Statuses[id] = "failed"
@@ -1175,10 +1185,10 @@ func (s *SubscriptionService) BulkAdminResetQuota(ctx context.Context, input Bul
 	return result, nil
 }
 
-func (s *SubscriptionService) resetQuotaWindows(ctx context.Context, subscriptionID int64, resetDaily, resetWeekly, resetMonthly, resetFiveHour, resetSevenDay, resetThirtyDay bool, legacyWindowStart, rollingWindowStart time.Time) error {
+func (s *SubscriptionService) resetQuotaWindows(ctx context.Context, subscriptionID int64, resetDaily, resetWeekly, resetMonthly, resetFiveHour, resetSevenDay, resetThirtyDay bool, dailyWindowStart, periodicWindowStart, rollingWindowStart time.Time) error {
 	return s.withSubscriptionUpdateTx(ctx, func(txCtx context.Context) error {
 		if resetDaily || resetWeekly || resetMonthly {
-			if err := s.userSubRepo.ResetUsageWindows(txCtx, subscriptionID, resetDaily, resetWeekly, resetMonthly, legacyWindowStart); err != nil {
+			if err := s.userSubRepo.ResetUsageWindows(txCtx, subscriptionID, resetDaily, resetWeekly, resetMonthly, dailyWindowStart, periodicWindowStart); err != nil {
 				return err
 			}
 		}
@@ -1247,8 +1257,8 @@ func (s *SubscriptionService) CheckAndResetWindows(ctx context.Context, sub *Use
 	now := s.currentTime()
 	needsInvalidateCache := false
 
-	// 日窗口重置（24小时）
-	if windowStart, ok := sub.automaticWindowStartAt(sub.DailyWindowStart, 24*time.Hour, now); !sub.HasOneTimeDailyQuota() && ok {
+	// 日窗口重置（每天 0 点刷新，按日历日对齐）
+	if windowStart, ok := sub.automaticDailyWindowStartAt(now); ok {
 		expectedWindowStart := sub.DailyWindowStart
 		if err := s.userSubRepo.ResetDailyUsage(ctx, sub.ID, expectedWindowStart, windowStart); err != nil {
 			return err

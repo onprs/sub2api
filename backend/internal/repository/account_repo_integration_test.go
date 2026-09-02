@@ -136,8 +136,8 @@ func (s *schedulerCacheRecorder) SetOutboxWatermark(ctx context.Context, id int6
 }
 
 func (s *AccountRepoSuite) SetupTest() {
-	s.ctx = context.Background()
 	tx := testEntTx(s.T())
+	s.ctx = dbent.NewTxContext(context.Background(), tx)
 	s.client = tx.Client()
 	s.repo = newAccountRepositoryWithSQL(s.client, tx, nil)
 }
