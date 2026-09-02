@@ -18,6 +18,7 @@ import (
 // upstreamModel 是最终发往上游的模型 ID。
 // accountBaseCost 是调用方预计算的账号基础成本，不包含用户组倍率；
 // OpenCode Go 调用方会在这里保留活动折算后的模型倍率。
+// serviceTier 是最终参与用户计费的 OpenAI 服务层级，用于优先级 3。
 func resolveAccountStatsCost(
 	ctx context.Context,
 	channelService *ChannelService,
@@ -28,6 +29,7 @@ func resolveAccountStatsCost(
 	tokens UsageTokens,
 	requestCount int,
 	accountBaseCost float64,
+	serviceTier string,
 ) *float64 {
 	if channelService == nil || upstreamModel == "" {
 		return nil
@@ -55,34 +57,20 @@ func resolveAccountStatsCost(
 
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricingForPlatform(billingService, platform, upstreamModel, tokens)
+		return tryModelFilePricingForPlatform(billingService, platform, upstreamModel, tokens, serviceTier)
 	}
 
 	return nil
 }
 
 // tryModelFilePricingForPlatform 使用平台限定的模型定价文件（LiteLLM/fallback）标准价计算费用。
-func tryModelFilePricingForPlatform(billingService *BillingService, platform, model string, tokens UsageTokens) *float64 {
-	pricing, err := billingService.GetModelPricingForPlatform(platform, model)
-	if err != nil || pricing == nil {
+func tryModelFilePricingForPlatform(billingService *BillingService, platform, model string, tokens UsageTokens, serviceTier string) *float64 {
+	normalizedTier := normalizeBillingServiceTier(serviceTier)
+	breakdown, err := billingService.calculateCostForPlatformWithServiceTier(platform, model, tokens, 1, normalizedTier)
+	if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
 		return nil
 	}
-	if billingService.shouldApplySessionLongContextPricing(tokens, pricing) {
-		breakdown, err := billingService.CalculateCost(model, tokens, 1)
-		if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
-			return nil
-		}
-		return &breakdown.TotalCost
-	}
-	cost := float64(tokens.InputTokens)*pricing.InputPricePerToken +
-		float64(tokens.OutputTokens)*pricing.OutputPricePerToken +
-		float64(tokens.CacheCreationTokens)*pricing.CacheCreationPricePerToken +
-		float64(tokens.CacheReadTokens)*pricing.CacheReadPricePerToken +
-		float64(tokens.ImageOutputTokens)*pricing.ImageOutputPricePerToken
-	if cost <= 0 {
-		return nil
-	}
-	return applyOpenCodeGoQuotaCostToAccountStats(billingService, platform, model, &cost)
+	return applyOpenCodeGoQuotaCostToAccountStats(billingService, platform, model, &breakdown.TotalCost)
 }
 
 func applyOpenCodeGoQuotaCostToAccountStats(billingService *BillingService, platform, model string, cost *float64) *float64 {
@@ -267,7 +255,11 @@ func applyAccountStatsCost(
 	if usageLog != nil && usageLog.ImageCount > 0 {
 		requestCount = usageLog.ImageCount
 	}
+	serviceTier := ""
+	if usageLog != nil && usageLog.ServiceTier != nil {
+		serviceTier = *usageLog.ServiceTier
+	}
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
-		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost,
+		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier,
 	)
 }

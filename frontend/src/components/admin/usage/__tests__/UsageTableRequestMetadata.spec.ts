@@ -17,6 +17,13 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
+vi.mock('@/stores/app', () => ({
+  useAppStore: () => ({
+    showSuccess: vi.fn(),
+    showError: vi.fn(),
+  }),
+}))
+
 describe('UsageTable request metadata', () => {
   it('renders the request ID, success category, and status code', () => {
     const row = {
@@ -58,11 +65,12 @@ describe('UsageTable request metadata', () => {
 
     expect(wrapper.text()).toContain('req-visible-to-user')
     expect(wrapper.text()).not.toContain('client:')
-    expect(wrapper.find('span').classes()).toEqual(expect.arrayContaining([
-      'max-w-[220px]',
+    const requestIdText = wrapper.find('span')
+    expect(requestIdText.classes()).toEqual(expect.arrayContaining([
       'whitespace-normal',
       'break-all',
     ]))
+    expect(requestIdText.element.parentElement?.classList.contains('max-w-[220px]')).toBe(true)
     expect(wrapper.text()).toContain('Success')
     expect(wrapper.text()).toContain('200')
   })
@@ -130,7 +138,7 @@ describe('UsageTable request metadata', () => {
     expect(wrapper.text()).not.toContain('client:')
     expect(wrapper.text()).not.toContain('0.000000')
 
-    await wrapper.get('button').trigger('click')
+    await wrapper.get('button[title="upstream failed"]').trigger('click')
     expect(wrapper.emitted('errorClick')).toEqual([[501]])
   })
 })

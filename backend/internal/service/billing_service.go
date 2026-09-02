@@ -1045,6 +1045,25 @@ func (s *BillingService) getModelPricingForPlatformAt(platform, model string, no
 	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
 }
 
+// HasIdentifiedTokenPricing 判断模型能否在价格表中被确定性识别出 token 价格。
+// 外部响应自报的模型不得依赖系列名称子串兜底，否则可能改变实际计费基准。
+func (s *BillingService) HasIdentifiedTokenPricing(model string) bool {
+	if s == nil {
+		return false
+	}
+	model = strings.ToLower(strings.TrimSpace(model))
+	if model == "" {
+		return false
+	}
+	if s.pricingService != nil {
+		if pricing := s.pricingService.GetIdentifiedModelPricing(model); pricing != nil && !pricing.TokenPricingAbsent {
+			return true
+		}
+	}
+	pricing, ok := s.fallbackPrices[model]
+	return ok && pricing != nil
+}
+
 // GetModelPricing 获取模型价格配置
 func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	model = strings.ToLower(strings.TrimSpace(model))
@@ -1472,6 +1491,16 @@ func (s *BillingService) CalculateCost(model string, tokens UsageTokens, rateMul
 
 // CalculateCostForPlatform 使用平台隔离的标准价计算费用。
 func (s *BillingService) CalculateCostForPlatform(platform, model string, tokens UsageTokens, rateMultiplier float64) (*CostBreakdown, error) {
+	return s.calculateCostForPlatformWithServiceTier(platform, model, tokens, rateMultiplier, "")
+}
+
+func (s *BillingService) calculateCostForPlatformWithServiceTier(
+	platform string,
+	model string,
+	tokens UsageTokens,
+	rateMultiplier float64,
+	serviceTier string,
+) (*CostBreakdown, error) {
 	pricing, err := s.GetModelPricingForPlatform(platform, model)
 	if err != nil {
 		return nil, err
@@ -1490,7 +1519,7 @@ func (s *BillingService) CalculateCostForPlatform(platform, model string, tokens
 	if !hasBillableTokenPricing(pricing) {
 		return nil, tokenPricingUnavailableError(model)
 	}
-	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, "", applyLongContextPricing), nil
+	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, applyLongContextPricing), nil
 }
 
 func (s *BillingService) CalculateCostWithServiceTier(model string, tokens UsageTokens, rateMultiplier float64, serviceTier string) (*CostBreakdown, error) {

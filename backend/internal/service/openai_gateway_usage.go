@@ -237,6 +237,37 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		).Warn("openai_usage.pricing_missing_record_zero_cost", zap.Error(err))
 		cost = &CostBreakdown{BillingMode: string(BillingModeToken)}
 	}
+	// response_model：按上游成功响应自报的模型计费（渠道显式开启才生效）。
+	// 采纳条件见 responseModelBillingDeclaration + hasIdentifiedOpenAIResponsePricing
+	// + responseModelBillingAdoptable。任一条件不满足都静默回落基线，即开启本模式前的
+	// 既有行为。响应模型与基线同名时直接跳过：重算必然同价，白跑一次定价解析。
+	baselineBillingModel := firstUsageBillingModel(billingModels)
+	if responseModel := responseModelBillingDeclaration(
+		input.BillingModelSource,
+		result.UpstreamResponseModel,
+		result.UpstreamResponseModelConflict,
+		result.ImageCount > 0 || result.VideoCount > 0 || result.WebSearchCalls > 0 ||
+			result.AudioUsage != nil || result.SearchCount > 0,
+	); responseModel != "" && !strings.EqualFold(responseModel, baselineBillingModel) {
+		if identified, responseChannelPriced := s.hasIdentifiedOpenAIResponsePricing(ctx, responseModel, apiKey); identified {
+			responseModels := usageBillingModelCandidates(responseModel)
+			responseCost, responseChargedModel, responseErr := s.calculateOpenAIRecordUsageCost(
+				ctx, result, apiKey, responseModels, multiplier, imageMultiplier,
+				videoMultiplier, baseMultiplier, tokens, serviceTier, longContextBillingEnabled,
+			)
+			// 基线定价源以 baselineBillingModel 为准：它正是 calculateOpenAIRecordUsageCost
+			// 内部做渠道定价判断时使用的模型，且"首候选有渠道价"必然意味着首候选就是实际
+			// 定价基准（有渠道价就一定能算出价，循环不会落到后续候选）。
+			baselineChannelPriced := s.resolveOpenAIChannelPricing(ctx, baselineBillingModel, apiKey) != nil
+			if responseErr == nil && responseModelBillingAdoptable(cost, responseCost, baselineChannelPriced, responseChannelPriced) {
+				logResponseModelBillingApplied("service.openai_gateway", account, result.RequestID,
+					baselineBillingModel, responseModel, cost, responseCost)
+				billingModels = responseModels
+				chargedBillingModel = responseChargedModel
+				cost = responseCost
+			}
+		}
+	}
 
 	// Determine billing type
 	isSubscriptionBilling := subscription != nil && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
@@ -392,7 +423,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if apiKey.GroupID != nil {
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
 			account.ID, *apiKey.GroupID, result.UpstreamModel, result.Model,
-			tokens, cost.TotalCost,
+			tokens, costBeforeGroupMultiplier(cost),
 		)
 	}
 
@@ -465,6 +496,21 @@ func inferMissingGPT56CacheWrite(result *OpenAIForwardResult, group *Group) bool
 	}
 	usage.CacheCreationInputTokens = uncachedInput
 	return true
+}
+
+// hasIdentifiedOpenAIResponsePricing 判断上游自报的响应模型是否可以作为计费基准。
+func (s *OpenAIGatewayService) hasIdentifiedOpenAIResponsePricing(ctx context.Context, model string, apiKey *APIKey) (identified bool, channelPriced bool) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return false, false
+	}
+	if s.resolveOpenAIChannelPricing(ctx, model, apiKey) != nil {
+		return true, true
+	}
+	if s.billingService == nil {
+		return false, false
+	}
+	return s.billingService.HasIdentifiedTokenPricing(model), false
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(

@@ -237,7 +237,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if clientStream {
 		result, forwardErr = s.streamRawChatCompletions(c, resp, account, pipeline, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime, len(body))
 	} else {
-		result, forwardErr = s.bufferRawChatCompletions(c, resp, pipeline, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		result, forwardErr = s.bufferRawChatCompletions(c, resp, account, pipeline, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
 	if result != nil {
 		addOpenAIUsage(&result.Usage, bridgeUsage)
@@ -509,6 +509,7 @@ func extractCCStreamUsage(payload string) *OpenAIUsage {
 func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	c *gin.Context,
 	resp *http.Response,
+	account *Account,
 	pipeline *protocolconv.Pipeline,
 	originalModel string,
 	billingModel string,
@@ -531,6 +532,10 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	observer.ObserveOpenAI(respBody, strings.TrimSpace(gjson.GetBytes(respBody, "type").String()))
 
 	if len(respBody) == 0 {
+		if requiresBillableGrokChatUsage(account, billingModel, upstreamModel) {
+			upstreamRequestID := firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id"))
+			return nil, newGrokMissingUsageFailoverError(c, account, upstreamRequestID)
+		}
 		if s.responseHeaderFilter != nil {
 			responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 		}
@@ -570,6 +575,11 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	}
 	result.UpstreamResponseModel = observedUpstreamResponseModel(c)
 	result.UpstreamResponseModelConflict = observedUpstreamResponseModelConflict(c)
+	responseModel := gjson.GetBytes(respBody, "model").String()
+	if requiresBillableGrokChatUsage(account, billingModel, upstreamModel, responseModel) && !hasBillableGrokChatUsage(result.Usage) {
+		upstreamRequestID := firstNonEmpty(result.RequestID, resp.Header.Get("xai-request-id"))
+		return nil, newGrokMissingUsageFailoverError(c, account, upstreamRequestID)
+	}
 
 	converted, err := pipeline.ConvertResponse(structured.Body, structured.ActualProtocol)
 	if err != nil {

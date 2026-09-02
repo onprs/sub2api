@@ -871,7 +871,9 @@ func (s *OpenAIGatewayService) handleStructuredResponsesPassthroughStream(
 					return resultWithUsage(), fmt.Errorf("upstream response failed: passthrough rule matched message=%s", errMsg)
 				}
 				if openAIStreamFailedEventShouldFailover(dataBytes, failedMessage) {
-					return resultWithUsage(), s.newOpenAIStreamFailoverError(c, account, true, upstreamRequestID, dataBytes, failedMessage)
+					return resultWithUsage(), s.newOpenAIStreamFailoverError(
+						c, account, true, upstreamRequestID, dataBytes, failedMessage, stream.Headers,
+					)
 				}
 			}
 			sawFailedEvent = true
