@@ -1480,8 +1480,19 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	hasOpenAIEmptyMappingAccount := false
 
 	for _, acc := range accounts {
+		// Passthrough routing accepts models independently of model_mapping. A stale
+		// mapping on any eligible passthrough account therefore cannot define the
+		// public whitelist; return nil so the handler uses its default model set.
+		if platform == PlatformOpenAI && acc.IsOpenAIPassthroughEnabled() {
+			if s.modelsListCache != nil {
+				s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
+				modelsListCacheStoreTotal.Add(1)
+			}
+			return nil
+		}
+
 		// OAuth/Setup Token 的默认 mapping 还包含 wire ID 和历史兼容 alias。
-		// 它们可继续参与路由，但用户模型目录和价格列表只能公开 agy 的 14 个请求 ID。
+		// 它们可继续参与路由，但用户模型目录和价格列表只能公开 agy 的请求 ID。
 		// 账号中遗留的旧显式 mapping 同样不能重新污染该公开目录。
 		if acc.Platform == PlatformAntigravity && acc.IsOAuth() {
 			hasResolvedModels = true

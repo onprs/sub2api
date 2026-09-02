@@ -11,17 +11,23 @@
  */
 
 import { useI18n } from 'vue-i18n'
-import type { MonitorStatus, Provider } from '@/api/admin/channelMonitor'
+import type { CheckMode, MonitorStatus, Provider } from '@/api/admin/channelMonitor'
 import {
   PROVIDER_OPENAI,
   PROVIDER_ANTHROPIC,
   PROVIDER_GEMINI,
   PROVIDER_GROK,
+  PROVIDER_ANTIGRAVITY,
   PROVIDER_ANTIGRAVITY_CLAUDE,
   PROVIDER_ANTIGRAVITY_GEMINI,
   PROVIDER_OPENCODE_GO,
   PROVIDER_CLINEPASS,
   PROVIDER_OPENROUTER,
+  PROVIDER_COMMANDCODE,
+  PROVIDER_KIMI,
+  PROVIDER_ZHIPU,
+  PROVIDER_DEEPSEEK,
+  PROVIDERS,
   STATUS_OPERATIONAL,
   STATUS_DEGRADED,
   STATUS_FAILED,
@@ -63,20 +69,17 @@ export function useChannelMonitorFormat() {
   }
 
   function providerLabel(p: Provider | string): string {
-    if (
-      p === PROVIDER_OPENAI ||
-      p === PROVIDER_ANTHROPIC ||
-      p === PROVIDER_GEMINI ||
-      p === PROVIDER_GROK ||
-      p === PROVIDER_ANTIGRAVITY_CLAUDE ||
-      p === PROVIDER_ANTIGRAVITY_GEMINI ||
-      p === PROVIDER_OPENCODE_GO ||
-      p === PROVIDER_CLINEPASS ||
-      p === PROVIDER_OPENROUTER
-    ) {
+    if (PROVIDERS.includes(p as Provider)) {
       return t(`monitorCommon.providers.${p}`)
     }
     return p || '-'
+  }
+
+  function checkModeLabel(m: CheckMode | string): string {
+    if (m === 'probe' || m === 'quota' || m === 'quota_probe') {
+      return t(`monitorCommon.checkMode.${m}`)
+    }
+    return m || '-'
   }
 
   function providerBadgeClass(p: Provider | string): string {
@@ -95,9 +98,18 @@ export function useChannelMonitorFormat() {
         return 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300'
       case PROVIDER_OPENROUTER:
         return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300'
+      case PROVIDER_COMMANDCODE:
+        return 'bg-lime-100 text-lime-700 dark:bg-lime-500/15 dark:text-lime-300'
+      case PROVIDER_ANTIGRAVITY:
       case PROVIDER_ANTIGRAVITY_CLAUDE:
       case PROVIDER_ANTIGRAVITY_GEMINI:
         return 'bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'
+      case PROVIDER_KIMI:
+        return 'bg-pink-100 text-pink-700 dark:bg-pink-500/15 dark:text-pink-300'
+      case PROVIDER_ZHIPU:
+        return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300'
+      case PROVIDER_DEEPSEEK:
+        return 'bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300'
       default:
         return NEUTRAL_BADGE
     }
@@ -138,11 +150,28 @@ export function useChannelMonitorFormat() {
         return active
           ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300 dark:border-indigo-400'
           : 'border-gray-200 bg-white text-gray-600 hover:border-indigo-300 hover:text-indigo-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-indigo-500/50'
+      case PROVIDER_COMMANDCODE:
+        return active
+          ? 'border-lime-500 bg-lime-50 text-lime-700 dark:bg-lime-500/15 dark:text-lime-300 dark:border-lime-400'
+          : 'border-gray-200 bg-white text-gray-600 hover:border-lime-300 hover:text-lime-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-lime-500/50'
+      case PROVIDER_ANTIGRAVITY:
       case PROVIDER_ANTIGRAVITY_CLAUDE:
       case PROVIDER_ANTIGRAVITY_GEMINI:
         return active
           ? 'border-purple-500 bg-purple-50 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300 dark:border-purple-400'
           : 'border-gray-200 bg-white text-gray-600 hover:border-purple-300 hover:text-purple-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-purple-500/50'
+      case PROVIDER_KIMI:
+        return active
+          ? 'border-pink-500 bg-pink-50 text-pink-700 dark:bg-pink-500/15 dark:text-pink-300 dark:border-pink-400'
+          : 'border-gray-200 bg-white text-gray-600 hover:border-pink-300 hover:text-pink-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-pink-500/50'
+      case PROVIDER_ZHIPU:
+        return active
+          ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300 dark:border-indigo-400'
+          : 'border-gray-200 bg-white text-gray-600 hover:border-indigo-300 hover:text-indigo-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-indigo-500/50'
+      case PROVIDER_DEEPSEEK:
+        return active
+          ? 'border-teal-500 bg-teal-50 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300 dark:border-teal-400'
+          : 'border-gray-200 bg-white text-gray-600 hover:border-teal-300 hover:text-teal-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-teal-500/50'
       default:
         return active
           ? 'border-gray-400 bg-gray-50 text-gray-700 dark:border-dark-500 dark:bg-dark-700 dark:text-gray-200'
@@ -183,6 +212,7 @@ export function useChannelMonitorFormat() {
     statusLabel,
     statusBadgeClass,
     providerLabel,
+    checkModeLabel,
     providerBadgeClass,
     providerPickerClass,
     formatLatency,
@@ -218,9 +248,16 @@ export function providerGradient(provider: string): string {
       return 'bg-gradient-to-br from-zinc-50 to-neutral-200 dark:from-zinc-500/10 dark:to-neutral-500/20'
     case PROVIDER_OPENCODE_GO:
       return 'bg-gradient-to-br from-cyan-50 to-teal-100 dark:from-cyan-500/10 dark:to-teal-500/20'
+    case PROVIDER_ANTIGRAVITY:
     case PROVIDER_ANTIGRAVITY_CLAUDE:
     case PROVIDER_ANTIGRAVITY_GEMINI:
       return 'bg-gradient-to-br from-purple-50 to-fuchsia-100 dark:from-purple-500/10 dark:to-fuchsia-500/20'
+    case PROVIDER_KIMI:
+      return 'bg-gradient-to-br from-pink-50 to-pink-100 dark:from-pink-500/10 dark:to-pink-500/20'
+    case PROVIDER_ZHIPU:
+      return 'bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-500/10 dark:to-indigo-500/20'
+    case PROVIDER_DEEPSEEK:
+      return 'bg-gradient-to-br from-teal-50 to-teal-100 dark:from-teal-500/10 dark:to-teal-500/20'
     default:
       return 'bg-gradient-to-br from-gray-100 to-gray-200 dark:from-dark-700 dark:to-dark-600'
   }

@@ -42,6 +42,20 @@ func TestAPIKeyService_RejectsV10AuthSnapshotWithoutModelsListConfig(t *testing.
 	}
 }
 
+func TestAPIKeyServiceRejectsV21SnapshotWithoutGroupPricing(t *testing.T) {
+	svc := &APIKeyService{}
+
+	apiKey, ok, err := svc.applyAuthCacheEntry("k-v21", &APIKeyAuthCacheEntry{
+		Snapshot: &APIKeyAuthSnapshot{Version: 21},
+	})
+	if err != nil {
+		t.Fatalf("expected stale snapshot to be ignored without error, got %v", err)
+	}
+	if ok || apiKey != nil {
+		t.Fatalf("expected v21 auth snapshot to be rejected, got ok=%v apiKey=%#v", ok, apiKey)
+	}
+}
+
 func TestAPIKeyServiceRejectsV17SnapshotWithoutReasoningEffortPolicy(t *testing.T) {
 	svc := &APIKeyService{}
 

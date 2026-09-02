@@ -100,7 +100,7 @@ func TestGeminiCompatibilityStreamingHTTPErrorBeforeSSECommit(t *testing.T) {
 			forward: func(s *GeminiMessagesCompatService, ctx context.Context, c *gin.Context, account *Account, body []byte) (*ForwardResult, error) {
 				return s.ForwardAsChatCompletions(ctx, c, account, body)
 			},
-			wantType: "invalid_request_error", wantMessage: "Invalid request",
+			wantType: "invalid_request_error", wantMessage: "bad Google request",
 		},
 		{
 			name: "responses", path: "/v1/responses",
@@ -118,7 +118,7 @@ func TestGeminiCompatibilityStreamingHTTPErrorBeforeSSECommit(t *testing.T) {
 			forward: func(s *GeminiMessagesCompatService, ctx context.Context, c *gin.Context, account *Account, body []byte) (*ForwardResult, error) {
 				return s.Forward(ctx, c, account, body)
 			},
-			wantType: "invalid_request_error", wantMessage: "Invalid request",
+			wantType: "invalid_request_error", wantMessage: "bad Google request",
 		},
 	}
 

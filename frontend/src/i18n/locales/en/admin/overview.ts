@@ -959,6 +959,9 @@ export default {
         clinepass: 'ClinePass',
         openrouter: 'OpenRouter',
         commandcode: 'Command Code',
+        kimi: 'Kimi',
+        zhipu: 'Zhipu GLM',
+        deepseek: 'DeepSeek',
         composite: 'Composite',
       },
       deleteConfirm:

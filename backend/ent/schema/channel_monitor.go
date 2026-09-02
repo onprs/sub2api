@@ -35,7 +35,23 @@ func (ChannelMonitor) Fields() []ent.Field {
 			NotEmpty().
 			MaxLen(100),
 		field.Enum("provider").
-			Values("openai", "anthropic", "gemini", "opencode_go", "clinepass", "openrouter", "commandcode", "antigravity_claude", "antigravity_gemini"),
+			Values("openai", "anthropic", "gemini", "grok", "opencode_go", "clinepass", "openrouter", "commandcode",
+				"antigravity", "antigravity_claude", "antigravity_gemini", "kimi", "zhipu", "deepseek"),
+		// check_mode: 'probe' | 'quota' | 'quota_probe'
+		//   probe       - LLM 探活（默认，原有行为）
+		//   quota       - 仅查关联账号的用量/余额（零 LLM 成本；endpoint/api_key 可空）
+		//   quota_probe - 探活 + 配额并存（配额快照挂到主模型历史行）
+		// antigravity 无探活 adapter，仅允许 quota。
+		field.String("check_mode").
+			Default("probe").
+			MaxLen(32).
+			Comment("probe = LLM probe (default); quota = account usage only; quota_probe = both"),
+		// account_id: 配额模式的数据源账号（复用账号侧用量服务，不直接对接上游）。
+		// 普通字段而非 edge（FK 由 SQL 迁移管理）；账号删除时数据库置空，
+		// 监控保留并报「账号未关联」。
+		field.Int64("account_id").
+			Optional().
+			Nillable(),
 		field.String("api_mode").
 			Default("chat_completions").
 			MaxLen(32).
@@ -51,7 +67,7 @@ func (ChannelMonitor) Fields() []ent.Field {
 		field.String("endpoint").
 			Default("").
 			MaxLen(500).
-			Comment("外站 provider base origin；本站监控为空"),
+			Comment("外部 provider base origin；本站或仅配额监控为空"),
 		field.String("api_key_encrypted").
 			Default("").
 			Sensitive().
@@ -134,5 +150,6 @@ func (ChannelMonitor) Indexes() []ent.Index {
 			Annotations(entsql.IndexWhere("target_type = 'local' AND group_id IS NOT NULL")),
 		index.Fields("group_name"),
 		index.Fields("template_id"),
+		index.Fields("account_id"),
 	}
 }

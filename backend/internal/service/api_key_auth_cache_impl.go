@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 21 // v21：动态候选利润字段与 search/audio/video_model_prices 计费字段全集
+const apiKeyAuthSnapshotVersion = 22 // v22：补齐分组长上下文与模型定价字段，并保留 v21 的动态利润/媒体计费字段全集
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -491,6 +491,8 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		AudioRealtimePricePerMin:        group.AudioRealtimePricePerMin,
 		AudioTTSPricePerMillionChars:    group.AudioTTSPricePerMillionChars,
 		AudioSTTPricePerHour:            group.AudioSTTPricePerHour,
+		LongContextPricingEnabled:       group.LongContextPricingEnabled,
+		ModelPricing:                    group.ModelPricing,
 		ClaudeCodeOnly:                  group.ClaudeCodeOnly,
 		FallbackGroupID:                 group.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: group.FallbackGroupIDOnInvalidRequest,
@@ -556,6 +558,8 @@ func groupFromAPIKeyAuthSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		AudioRealtimePricePerMin:        snapshot.AudioRealtimePricePerMin,
 		AudioTTSPricePerMillionChars:    snapshot.AudioTTSPricePerMillionChars,
 		AudioSTTPricePerHour:            snapshot.AudioSTTPricePerHour,
+		LongContextPricingEnabled:       snapshot.LongContextPricingEnabled,
+		ModelPricing:                    snapshot.ModelPricing,
 		ClaudeCodeOnly:                  snapshot.ClaudeCodeOnly,
 		FallbackGroupID:                 snapshot.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: snapshot.FallbackGroupIDOnInvalidRequest,

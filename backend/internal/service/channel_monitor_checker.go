@@ -188,6 +188,11 @@ type providerAdapter struct {
 var providerAdapters = map[string]providerAdapter{
 	MonitorProviderOpenAI: providerOpenAIChatAdapter,
 	MonitorProviderGrok:   providerGrokChatAdapter,
+	// 国产 3 家（配额模式引入）：均为 OpenAI 兼容 Chat Completions，
+	// 仅智谱路径前缀不同（/api/paas/v4/chat/completions）。
+	MonitorProviderKimi:     providerKimiChatAdapter,
+	MonitorProviderZhipu:    providerZhipuChatAdapter,
+	MonitorProviderDeepseek: providerDeepseekChatAdapter,
 	MonitorProviderAnthropic: {
 		buildPath: func(string) string { return providerAnthropicPath },
 		buildBody: func(model, prompt string) ([]byte, error) {
@@ -270,6 +275,15 @@ var providerOpenAIChatAdapter = newOpenAICompatibleChatAdapter(providerOpenAIPat
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
 var providerGrokChatAdapter = newOpenAICompatibleChatAdapter(providerGrokPath)
+
+//nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
+var providerKimiChatAdapter = newOpenAICompatibleChatAdapter(providerOpenAIPath)
+
+//nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
+var providerZhipuChatAdapter = newOpenAICompatibleChatAdapter(providerZhipuPath)
+
+//nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
+var providerDeepseekChatAdapter = newOpenAICompatibleChatAdapter(providerOpenAIPath)
 
 func newOpenAICompatibleChatAdapter(path string) providerAdapter {
 	return providerAdapter{
@@ -488,8 +502,7 @@ func providerAdapterFor(provider, apiMode string) (providerAdapter, string, bool
 	return adapter, MonitorAPIModeChatCompletions, ok
 }
 
-// isSupportedProvider 校验 provider 字符串是否在 adapter 表中。
-// 供 validate.go 的 validateProvider 复用，避免两份 switch 漂移。
+// isSupportedProvider 校验 provider 是否拥有探活 adapter。
 func isSupportedProvider(p string) bool {
 	_, ok := providerAdapters[p]
 	return ok
@@ -1067,8 +1080,12 @@ var bodyMergeKeyDenyList = map[string]map[string]bool{
 	MonitorProviderClinePass + ":" + MonitorAPIModeChatCompletions:   {"model": true, "messages": true, "stream": true},
 	MonitorProviderCommandCode + ":" + MonitorAPIModeChatCompletions: {"model": true, "messages": true, "stream": true},
 	MonitorProviderCommandCode + ":" + MonitorAPIModeMessages:        {"model": true, "messages": true},
+	MonitorProviderOpenRouter:                                        {"model": true, "messages": true, "stream": true},
 	MonitorProviderAntigravityClaude:                                 {"model": true, "messages": true},
 	MonitorProviderAntigravityGemini:                                 {"contents": true},
+	MonitorProviderKimi:                                              {"model": true, "messages": true, "stream": true},
+	MonitorProviderZhipu:                                             {"model": true, "messages": true, "stream": true},
+	MonitorProviderDeepseek:                                          {"model": true, "messages": true, "stream": true},
 }
 
 func checkAPIMode(opts *CheckOptions) string {
@@ -1085,8 +1102,21 @@ func bodyMergeDenyKey(provider, apiMode string) string {
 	return provider
 }
 
+// isOpenAICompatibleChatProvider 该 provider 的探活请求是否为 OpenAI Chat
+// Completions 同构（replace 模式的 body 校验按 messages 必填处理）。
+func isOpenAICompatibleChatProvider(provider string) bool {
+	switch provider {
+	case MonitorProviderOpenAI, MonitorProviderGrok, MonitorProviderOpenCodeGo,
+		MonitorProviderClinePass, MonitorProviderOpenRouter, MonitorProviderCommandCode,
+		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek:
+		return true
+	default:
+		return false
+	}
+}
+
 func validateReplaceRequestBody(provider, apiMode string, body map[string]any) error {
-	if provider != MonitorProviderOpenAI && provider != MonitorProviderGrok && provider != MonitorProviderOpenCodeGo && provider != MonitorProviderClinePass && provider != MonitorProviderCommandCode {
+	if !isOpenAICompatibleChatProvider(provider) {
 		return nil
 	}
 	switch defaultAPIMode(apiMode) {
@@ -1097,12 +1127,16 @@ func validateReplaceRequestBody(provider, apiMode string, body map[string]any) e
 		if strings.TrimSpace(stringFromAny(body["instructions"])) == "" || !hasNonEmptyBodyValue(body["input"]) {
 			return fmt.Errorf("replace mode responses body: instructions and input are required")
 		}
-	case MonitorAPIModeChatCompletions, MonitorAPIModeMessages:
-		if provider != MonitorProviderOpenAI && provider != MonitorProviderGrok && provider != MonitorProviderOpenCodeGo && provider != MonitorProviderClinePass && provider != MonitorProviderCommandCode {
+	case MonitorAPIModeChatCompletions:
+		if !hasNonEmptyBodyValue(body["messages"]) {
+			return fmt.Errorf("replace mode chat_completions body: messages are required")
+		}
+	case MonitorAPIModeMessages:
+		if provider != MonitorProviderOpenCodeGo && provider != MonitorProviderCommandCode {
 			return nil
 		}
 		if !hasNonEmptyBodyValue(body["messages"]) {
-			return fmt.Errorf("replace mode %s body: messages are required", defaultAPIMode(apiMode))
+			return fmt.Errorf("replace mode messages body: messages are required")
 		}
 	}
 	return nil

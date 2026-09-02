@@ -116,10 +116,17 @@ func TestUpdateUserPlatformQuotas_Success(t *testing.T) {
 	if len(repo.upsertCalls) != 1 {
 		t.Fatalf("UpsertForUser should be called once, got %d", len(repo.upsertCalls))
 	}
-	if repo.upsertCalls[0].userID != 42 || len(repo.upsertCalls[0].records) != len(service.AllowedQuotaPlatforms) {
+	var requestPayload struct {
+		Quotas []json.RawMessage `json:"quotas"`
+	}
+	if err := json.Unmarshal([]byte(body), &requestPayload); err != nil {
+		t.Fatalf("decode test request: %v", err)
+	}
+	// upsert 记录数 = 请求体中给出的平台数（未给出的平台不落库）。
+	if repo.upsertCalls[0].userID != 42 || len(repo.upsertCalls[0].records) != len(requestPayload.Quotas) {
 		t.Errorf("unexpected upsert call: %+v", repo.upsertCalls[0])
 	}
-	// 缓存失效：按全部允许平台统一失效。
+	// 缓存失效：按全部允许平台统一失效（含本地扩展与 kimi/zhipu/deepseek）。
 	if len(cache.deleteCalls) != len(service.AllowedQuotaPlatforms) {
 		t.Errorf("expected %d cache delete calls, got %d: %+v", len(service.AllowedQuotaPlatforms), len(cache.deleteCalls), cache.deleteCalls)
 	}

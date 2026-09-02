@@ -23,6 +23,10 @@ const (
 	FieldName = "name"
 	// FieldProvider holds the string denoting the provider field in the database.
 	FieldProvider = "provider"
+	// FieldCheckMode holds the string denoting the check_mode field in the database.
+	FieldCheckMode = "check_mode"
+	// FieldAccountID holds the string denoting the account_id field in the database.
+	FieldAccountID = "account_id"
 	// FieldAPIMode holds the string denoting the api_mode field in the database.
 	FieldAPIMode = "api_mode"
 	// FieldTargetType holds the string denoting the target_type field in the database.
@@ -104,6 +108,8 @@ var Columns = []string{
 	FieldUpdatedAt,
 	FieldName,
 	FieldProvider,
+	FieldCheckMode,
+	FieldAccountID,
 	FieldAPIMode,
 	FieldTargetType,
 	FieldGroupID,
@@ -142,6 +148,10 @@ var (
 	UpdateDefaultUpdatedAt func() time.Time
 	// NameValidator is a validator for the "name" field. It is called by the builders before save.
 	NameValidator func(string) error
+	// DefaultCheckMode holds the default value on creation for the "check_mode" field.
+	DefaultCheckMode string
+	// CheckModeValidator is a validator for the "check_mode" field. It is called by the builders before save.
+	CheckModeValidator func(string) error
 	// DefaultAPIMode holds the default value on creation for the "api_mode" field.
 	DefaultAPIMode string
 	// APIModeValidator is a validator for the "api_mode" field. It is called by the builders before save.
@@ -184,12 +194,17 @@ const (
 	ProviderOpenai            Provider = "openai"
 	ProviderAnthropic         Provider = "anthropic"
 	ProviderGemini            Provider = "gemini"
+	ProviderGrok              Provider = "grok"
 	ProviderOpencodeGo        Provider = "opencode_go"
 	ProviderClinepass         Provider = "clinepass"
 	ProviderOpenrouter        Provider = "openrouter"
 	ProviderCommandcode       Provider = "commandcode"
+	ProviderAntigravity       Provider = "antigravity"
 	ProviderAntigravityClaude Provider = "antigravity_claude"
 	ProviderAntigravityGemini Provider = "antigravity_gemini"
+	ProviderKimi              Provider = "kimi"
+	ProviderZhipu             Provider = "zhipu"
+	ProviderDeepseek          Provider = "deepseek"
 )
 
 func (pr Provider) String() string {
@@ -199,7 +214,7 @@ func (pr Provider) String() string {
 // ProviderValidator is a validator for the "provider" field enum values. It is called by the builders before save.
 func ProviderValidator(pr Provider) error {
 	switch pr {
-	case ProviderOpenai, ProviderAnthropic, ProviderGemini, ProviderOpencodeGo, ProviderClinepass, ProviderOpenrouter, ProviderCommandcode, ProviderAntigravityClaude, ProviderAntigravityGemini:
+	case ProviderOpenai, ProviderAnthropic, ProviderGemini, ProviderGrok, ProviderOpencodeGo, ProviderClinepass, ProviderOpenrouter, ProviderCommandcode, ProviderAntigravity, ProviderAntigravityClaude, ProviderAntigravityGemini, ProviderKimi, ProviderZhipu, ProviderDeepseek:
 		return nil
 	default:
 		return fmt.Errorf("channelmonitor: invalid enum value for provider field: %q", pr)
@@ -258,6 +273,16 @@ func ByName(opts ...sql.OrderTermOption) OrderOption {
 // ByProvider orders the results by the provider field.
 func ByProvider(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProvider, opts...).ToFunc()
+}
+
+// ByCheckMode orders the results by the check_mode field.
+func ByCheckMode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCheckMode, opts...).ToFunc()
+}
+
+// ByAccountID orders the results by the account_id field.
+func ByAccountID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccountID, opts...).ToFunc()
 }
 
 // ByAPIMode orders the results by the api_mode field.

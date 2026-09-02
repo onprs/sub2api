@@ -289,6 +289,7 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 	billingModels []string,
 	multiplier float64,
 	imageMultiplier float64,
+	pricingAt time.Time,
 	opts *recordUsageOpts,
 ) (*CostBreakdown, string, error) {
 	if len(billingModels) == 0 {
@@ -300,7 +301,7 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 		if candidate == "" {
 			continue
 		}
-		cost, err := s.calculateRecordUsageCost(ctx, result, apiKey, candidate, multiplier, imageMultiplier, opts)
+		cost, err := s.calculateRecordUsageCost(ctx, result, apiKey, candidate, multiplier, imageMultiplier, pricingAt, opts)
 		if err == nil && opts != nil {
 			switch opts.PricingPlatform {
 			case PlatformOpenCodeGo:
@@ -966,7 +967,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 
 	// 计算费用。OpenCode Go 活动折算后的模型倍率只进入 ActualCost；价格与 TotalCost 保持原价。
-	cost, chargedBillingModel, costErr := s.calculateRecordUsageCostFromCandidates(ctx, result, apiKey, billingModels, multiplier, imageMultiplier, opts)
+	cost, chargedBillingModel, costErr := s.calculateRecordUsageCostFromCandidates(
+		ctx, result, apiKey, billingModels, multiplier, imageMultiplier, pricingAt, opts,
+	)
 	if costErr != nil {
 		if account != nil && (account.IsOpenCodeGo() || account.IsClinePass() || account.IsOpenRouter() || account.IsCommandCode()) && isUsagePricingUnavailableError(costErr) {
 			return costErr
@@ -988,7 +991,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	); responseModel != "" && !strings.EqualFold(responseModel, strings.TrimSpace(baselineBillingModel)) {
 		if identified, responseChannelPriced := s.hasIdentifiedResponseModelPricing(ctx, responseModel, apiKey, opts.PricingPlatform); identified {
 			responseCost, _, responseErr := s.calculateRecordUsageCostFromCandidates(
-				ctx, result, apiKey, []string{responseModel}, multiplier, imageMultiplier, opts,
+				ctx, result, apiKey, []string{responseModel}, multiplier, imageMultiplier, pricingAt, opts,
 			)
 			baselineChannelPriced := s.resolveChannelPricing(ctx, baselineBillingModel, apiKey, opts.PricingPlatform) != nil
 			if responseErr == nil && responseModelBillingAdoptable(cost, responseCost, baselineChannelPriced, responseChannelPriced) {
@@ -1086,6 +1089,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 	billingModel string,
 	multiplier float64,
 	imageMultiplier float64,
+	pricingAt time.Time,
 	opts *recordUsageOpts,
 ) (*CostBreakdown, error) {
 	if opts == nil {
@@ -1094,7 +1098,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 	// 图片生成：渠道定价为 token 计费时走 token 路径，否则走图片计费
 	if result.ImageCount > 0 {
 		if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey, opts.PricingPlatform); resolved != nil && resolved.Mode == BillingModeToken {
-			return s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, opts)
+			return s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt, opts)
 		}
 		return s.calculateImageCost(ctx, result, apiKey, billingModel, imageMultiplier, opts.PricingPlatform), nil
 	}
@@ -1119,7 +1123,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 	}
 
 	// Token 计费；SearchCount 为叠加 surcharge（不替代 token）。
-	tokenCost, err := s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, opts)
+	tokenCost, err := s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -1297,6 +1301,7 @@ func (s *GatewayService) calculateTokenCost(
 	apiKey *APIKey,
 	billingModel string,
 	multiplier float64,
+	pricingAt time.Time,
 	opts *recordUsageOpts,
 ) (*CostBreakdown, error) {
 	tokens := UsageTokens{
@@ -1324,6 +1329,7 @@ func (s *GatewayService) calculateTokenCost(
 			Tokens:          tokens,
 			RequestCount:    1,
 			RateMultiplier:  multiplier,
+			PricingAt:       pricingAt,
 			Resolver:        s.resolver,
 			Resolved:        resolved,
 		})
@@ -1335,7 +1341,7 @@ func (s *GatewayService) calculateTokenCost(
 		cost, err = s.billingService.CalculateCostUnified(CostInput{
 			Ctx: ctx, Model: billingModel, PricingPlatform: opts.PricingPlatform,
 			GroupID: &gid, Group: apiKey.Group,
-			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier, Resolver: s.resolver,
+			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier, PricingAt: pricingAt, Resolver: s.resolver,
 		})
 	} else if opts.PricingPlatform != "" {
 		cost, err = s.billingService.CalculateCostForPlatform(opts.PricingPlatform, billingModel, tokens, multiplier)

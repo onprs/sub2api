@@ -45,10 +45,12 @@ const (
 	monitorChallengeMin = 1
 	monitorChallengeMax = 50
 
-	// providerOpenAIPath OpenAI Chat Completions 路径。
+	// providerOpenAIPath OpenAI Chat Completions 路径（Kimi / DeepSeek 同为 OpenAI 兼容）。
 	providerOpenAIPath = "/v1/chat/completions"
 	// providerGrokPath Grok OpenAI-compatible Chat Completions 路径。
 	providerGrokPath = "/v1/chat/completions"
+	// providerZhipuPath 智谱 OpenAI 兼容 Chat Completions 路径（前缀与官方不同）。
+	providerZhipuPath = "/api/paas/v4/chat/completions"
 	// providerOpenAIResponsesPath OpenAI Responses API 路径。
 	providerOpenAIResponsesPath = "/v1/responses"
 	// providerAnthropicPath Anthropic Messages 路径。
@@ -77,8 +79,32 @@ const (
 	MonitorProviderClinePass         = "clinepass"
 	MonitorProviderOpenRouter        = "openrouter"
 	MonitorProviderCommandCode       = "commandcode"
+	MonitorProviderAntigravity       = "antigravity"
 	MonitorProviderAntigravityClaude = "antigravity_claude"
 	MonitorProviderAntigravityGemini = "antigravity_gemini"
+	MonitorProviderKimi              = "kimi"
+	MonitorProviderZhipu             = "zhipu"
+	MonitorProviderDeepseek          = "deepseek"
+
+	// MonitorCheckMode 检测模式（channel_monitors.check_mode）。
+	//   probe       - LLM 探活（默认，原有行为）
+	//   quota       - 仅查关联账号用量/余额，零 LLM 成本
+	//   quota_probe - 探活 + 配额并存（配额快照挂到主模型历史行）
+	MonitorCheckModeProbe      = "probe"
+	MonitorCheckModeQuota      = "quota"
+	MonitorCheckModeQuotaProbe = "quota_probe"
+
+	// MonitorDefaultQuotaModel 是 quota 模式监控未显式指定模型时占位的虚拟模型名。
+	MonitorDefaultQuotaModel = "quota"
+
+	// monitorQuotaFetchCacheTTL 配额快照缓存时长。多个监控可能关联同一账号。
+	monitorQuotaFetchCacheTTL = 5 * time.Minute
+	// monitorQuotaErrorCacheTTL 失败快照的负缓存时长。
+	monitorQuotaErrorCacheTTL = 60 * time.Second
+	// monitorQuotaFetchTimeout singleflight 内单次配额抓取的总超时。
+	monitorQuotaFetchTimeout = 45 * time.Second
+	// monitorQuotaDegradedUsedPercent 任一窗口超过该使用率时记为 degraded。
+	monitorQuotaDegradedUsedPercent = 90.0
 
 	// MonitorDefaultGrokModel 是新增 Grok 监控未显式指定模型时使用的轻量测活模型。
 	MonitorDefaultGrokModel = "grok-4.5"
@@ -168,7 +194,16 @@ var (
 		"CHANNEL_MONITOR_GROUP_ALREADY_MONITORED", "the selected group already has a local monitor",
 	)
 	ErrChannelMonitorInvalidProvider = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/grok/opencode_go/clinepass/openrouter/commandcode/antigravity_claude/antigravity_gemini",
+		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/grok/opencode_go/clinepass/openrouter/commandcode/antigravity/antigravity_claude/antigravity_gemini/kimi/zhipu/deepseek",
+	)
+	ErrChannelMonitorInvalidCheckMode = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_INVALID_CHECK_MODE", "check_mode must be one of probe/quota/quota_probe; antigravity only supports quota",
+	)
+	ErrChannelMonitorAccountRequired = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_ACCOUNT_REQUIRED", "account_id is required for quota-based check_mode",
+	)
+	ErrChannelMonitorProviderIncompatible = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_PROVIDER_INCOMPATIBLE", "monitor provider must match the linked account platform",
 	)
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, messages, or responses; responses is supported for openai/opencode_go and messages is supported for opencode_go/commandcode",
