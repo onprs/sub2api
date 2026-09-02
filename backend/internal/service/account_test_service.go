@@ -2276,7 +2276,8 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	return s.processOpenAIChatCompletionsStream(c, resp.Body)
 }
 
-// testOpenAICompactConnection 使用原生 remote compaction v2 探测账号能力。
+// testOpenAICompactConnection 使用原生 remote compaction v2 探测账号能力，
+// 并将严格的 compaction item 能力结果写回账号；不再探测已下线的 legacy 端点。
 func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account *Account, testModelID string) error {
 	ctx := c.Request.Context()
 	credentialAccount := account
@@ -2326,6 +2327,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
+	// 原生 v2 走普通 /responses 线；OAuth 与真实转发一致做上游模型归一化。
 	if isOAuth {
 		testModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
@@ -2341,6 +2343,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
 
 	req.Header.Set("Content-Type", "application/json")
+	// v2 探测使用 SSE，并补注与真实 Codex 一致的协商头。
 	req.Header.Set("Accept", "text/event-stream")
 	ensureOpenAIRemoteCompactionV2BetaFeature(req.Header)
 	if credentialAccount.IsOpenAIAgentIdentity() {
@@ -2364,6 +2367,12 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	if isOAuth {
 		req.Host = "chatgpt.com"
 		setOpenAIChatGPTAccountHeaders(req.Header, credentialAccount)
+		// 指纹收敛：探测与真实转发走同一个 /responses 端点，身份也必须同构，
+		// 否则探测流量会以「缺 x-codex-installation-id + 非收敛 session」的
+		// 形态暴露在上游眼里。账号关闭收敛（off）时返回 nil，探测保持原样。
+		if fpIDs := resolveCodexFingerprintIDsFromRequest(account, req.Header); fpIDs != nil {
+			applyCodexFingerprintHeaders(req.Header, fpIDs)
+		}
 	}
 
 	// 账号级请求头覆写后再次补齐原生 v2 协商头，避免自定义配置覆盖。
@@ -2397,7 +2406,6 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 		return s.testOpenAICompactConnection(c, account, testModelID)
 	}
 	compactionFound := openAICompactProbeFoundCompactionItem(body)
-
 	if s.accountRepo != nil {
 		updates := buildOpenAICompactProbeExtraUpdates(resp, body, nil, compactionFound, time.Now())
 		if codexUpdates, err := extractOpenAICodexProbeUpdates(resp); err == nil && len(codexUpdates) > 0 {

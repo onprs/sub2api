@@ -1,19 +1,16 @@
 package service
 
 import (
-	"crypto/sha256"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
-	"github.com/tidwall/gjson"
 )
 
 const (
 	AccountTestModeDefault = "default"
-	// AccountTestModeCompact 使用原生 v2：流式 /responses 加 compaction_trigger。
+	// AccountTestModeCompact drives the remote-compaction probe test
+	// (native v2: streaming /responses with a compaction_trigger input item).
 	AccountTestModeCompact = "compact"
 )
 
@@ -26,7 +23,10 @@ func normalizeAccountTestMode(mode string) string {
 	}
 }
 
-// createOpenAICompactProbePayload 构造原生 remote compaction v2 探测载荷。
+// createOpenAICompactProbePayload 构造原生 remote compaction v2 探测载荷：
+// 流式 /responses + input 末尾 {"type":"compaction_trigger"}。上游已下线
+// legacy unary /responses/compact（v1 形态恒 404，#5598/#5624），现行 codex
+// 默认协议即 v2（RemoteCompactionV2 Stable + default_enabled）。
 func createOpenAICompactProbePayload(model string, isOAuth bool) map[string]any {
 	payload := map[string]any{
 		"model":        strings.TrimSpace(model),
@@ -41,15 +41,16 @@ func createOpenAICompactProbePayload(model string, isOAuth bool) map[string]any 
 		},
 		"stream": true,
 	}
+	// ChatGPT internal API 要求 store: false，与真实转发一致。
 	if isOAuth {
 		payload["store"] = false
 	}
 	return payload
 }
 
-// openAICompactProbeFoundCompactionItem 检查 SSE 或 JSON 响应是否真正返回了
-// compaction item；仅有 2xx 不能证明链路支持原生 v2。兼容官方测试契约：
-// 合法 Responses 响应（含 id 字段）即视为链路可用。
+// openAICompactProbeFoundCompactionItem 判定探测响应是否产出了 compaction
+// 输出 item，缺少该 item 时 Codex 会报 "got 0 items"。兼容 SSE item、
+// response.completed.response.output[] 与整体 JSON output[] 三种形态。
 func openAICompactProbeFoundCompactionItem(body []byte) bool {
 	if len(body) == 0 {
 		return false
@@ -58,14 +59,11 @@ func openAICompactProbeFoundCompactionItem(body []byte) bool {
 	if _, found := findRawCompactionItemFromSSE(bodyText); found {
 		return true
 	}
-	if finalResponse, ok := extractCodexFinalResponse(bodyText); ok && responsesOutputHasCompactionItem(finalResponse) {
+	if finalResponse, ok := extractCodexFinalResponse(bodyText); ok &&
+		responsesOutputHasCompactionItem(finalResponse) {
 		return true
 	}
-	if responsesOutputHasCompactionItem(body) {
-		return true
-	}
-	// 官方测试契约：合法 Responses 对象（含 id/status）即视为探测成功。
-	return gjson.GetBytes(body, "id").Exists() || gjson.GetBytes(body, "status").Exists()
+	return responsesOutputHasCompactionItem(body)
 }
 
 func shouldMarkOpenAICompactUnsupported(status int, body []byte) bool {
@@ -85,6 +83,8 @@ func shouldMarkOpenAICompactUnsupported(status int, body []byte) bool {
 	return false
 }
 
+// buildOpenAICompactProbeExtraUpdates 计算探测结果的账号 extra 更新。
+// 2xx 但无 compaction item 时同样记为不支持；账号级 force_on 仍可覆盖。
 func buildOpenAICompactProbeExtraUpdates(resp *http.Response, body []byte, probeErr error, compactionFound bool, now time.Time) map[string]any {
 	updates := map[string]any{
 		"openai_compact_checked_at":  now.Format(time.RFC3339),
@@ -139,16 +139,10 @@ func mergeExtraUpdates(base map[string]any, more map[string]any) map[string]any 
 	return out
 }
 
-// compactProbeSessionID 生成账号级稳定且不可直接识别为探测流量的 UUIDv4 形态标识。
+// compactProbeSessionID 返回账号级稳定、不可直接识别为探测流量的 UUIDv4 标识。
 func compactProbeSessionID(accountID int64) string {
-	seed := "sub2api:codex-compact-probe:v1:anonymous"
-	if accountID > 0 {
-		seed = "sub2api:codex-compact-probe:v1:" + strconv.FormatInt(accountID, 10)
+	if accountID <= 0 {
+		return deriveStableUUIDv4("sub2api:codex-compact-probe:v1:anonymous")
 	}
-	digest := sha256.Sum256([]byte(seed))
-	var id uuid.UUID
-	copy(id[:], digest[:16])
-	id[6] = (id[6] & 0x0f) | 0x40
-	id[8] = (id[8] & 0x3f) | 0x80
-	return id.String()
+	return deriveStableUUIDv4("sub2api:codex-compact-probe:v1:" + strconv.FormatInt(accountID, 10))
 }

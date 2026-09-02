@@ -271,6 +271,50 @@ func TestForwardResponses_ChatFallbackPipelineRestoresExtendedToolsStreaming(t *
 	require.Equal(t, 4, result.Usage.OutputTokens)
 }
 
+func TestForwardResponses_PassthroughFlagWithUnsupportedResponsesUsesAccountMapping(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, path := range []string{"/v1/responses", "/v1/responses/compact"} {
+		path := path
+		t.Run(path, func(t *testing.T) {
+			body := []byte(`{"model":"gpt-5.4-channel","input":"hello","stream":false}`)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(
+					`{"id":"chatcmpl_mapping","object":"chat.completion","model":"gpt-5.4-account","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
+				)),
+			}}
+			svc := &OpenAIGatewayService{
+				cfg:          rawChatCompletionsTestConfig(),
+				httpUpstream: upstream,
+			}
+			account := rawChatCompletionsTestAccount()
+			account.Credentials["model_mapping"] = map[string]any{
+				"gpt-5.4-channel": "gpt-5.4-account",
+			}
+			account.Credentials["compact_model_mapping"] = map[string]any{
+				"gpt-5.4-account": "gpt-5.4-compact",
+			}
+			account.Extra = map[string]any{
+				"openai_passthrough":                     true,
+				openai_compat.ExtraKeyResponsesSupported: false,
+			}
+
+			result, err := svc.Forward(context.Background(), c, account, body)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, "http://upstream.example/v1/chat/completions", upstream.lastReq.URL.String())
+			require.Equal(t, "gpt-5.4-account", gjson.GetBytes(upstream.lastBody, "model").String())
+		})
+	}
+}
+
 func TestForwardResponses_ForceChatCompletionsRoutesStreamingToChatCompletions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -340,9 +384,9 @@ func TestForwardResponses_ChatFallbackImmediateStream400BeforeSSECommit(t *testi
 	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
 	require.Error(t, err)
 	require.Nil(t, result)
-	require.Equal(t, http.StatusBadGateway, rec.Code)
-	require.Equal(t, "upstream_error", gjson.Get(rec.Body.String(), "error.type").String())
-	require.Equal(t, "Upstream request failed", gjson.Get(rec.Body.String(), "error.message").String())
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, "invalid_request_error", gjson.Get(rec.Body.String(), "error.type").String())
+	require.Equal(t, "invalid input", gjson.Get(rec.Body.String(), "error.message").String())
 	require.NotContains(t, rec.Body.String(), "event:")
 	require.NotContains(t, rec.Body.String(), "data:")
 	require.Equal(t, 1, upstreamBody.closeCount)

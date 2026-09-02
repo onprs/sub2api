@@ -59,6 +59,9 @@ func TestBuildOpenAICompactProbeExtraUpdates_502DoesNotMarkUnsupported(t *testin
 	if _, exists := updates["openai_compact_supported"]; exists {
 		t.Fatal("502 不应把 compact 能力永久标记为不支持")
 	}
+	if got := updates["openai_compact_last_status"]; got != http.StatusBadGateway {
+		t.Fatalf("openai_compact_last_status = %v, want %d", got, http.StatusBadGateway)
+	}
 }
 
 func TestBuildOpenAICompactProbeExtraUpdates_RequestErrorDoesNotMarkUnsupported(t *testing.T) {
@@ -70,11 +73,17 @@ func TestBuildOpenAICompactProbeExtraUpdates_RequestErrorDoesNotMarkUnsupported(
 	if got, exists := updates["openai_compact_last_status"]; !exists || got != nil {
 		t.Fatalf("openai_compact_last_status = %v, want nil", got)
 	}
+	if got := updates["openai_compact_last_error"]; got == "" {
+		t.Fatal("网络错误必须保留诊断信息")
+	}
 }
 
 func TestBuildOpenAICompactProbeExtraUpdates_NoResponseClearsLastStatus(t *testing.T) {
 	now := time.Date(2026, 4, 10, 10, 0, 0, 0, time.UTC)
 	updates := buildOpenAICompactProbeExtraUpdates(nil, nil, nil, false, now)
+	if got, exists := updates["openai_compact_last_status"]; !exists || got != nil {
+		t.Fatalf("openai_compact_last_status = %v, want nil key", got)
+	}
 	if got := updates["openai_compact_last_error"]; got != "compact probe failed" {
 		t.Fatalf("openai_compact_last_error = %v, want compact probe failed", got)
 	}
@@ -87,11 +96,17 @@ func TestBuildOpenAICompactProbeExtraUpdates_UnknownModelDoesNotMarkUnsupported(
 	if _, exists := updates["openai_compact_supported"]; exists {
 		t.Fatal("未知模型错误不应代表整个链路不支持 compact")
 	}
+	if got := updates["openai_compact_last_status"]; got != http.StatusBadRequest {
+		t.Fatalf("openai_compact_last_status = %v, want %d", got, http.StatusBadRequest)
+	}
 }
 
 func TestBuildOpenAICompactProbeExtraUpdates_EmptyFailureBodyFallsBackToHTTPStatus(t *testing.T) {
 	now := time.Date(2026, 4, 10, 10, 0, 0, 0, time.UTC)
 	updates := buildOpenAICompactProbeExtraUpdates(&http.Response{StatusCode: http.StatusServiceUnavailable}, nil, nil, false, now)
+	if got := updates["openai_compact_last_status"]; got != http.StatusServiceUnavailable {
+		t.Fatalf("openai_compact_last_status = %v, want %d", got, http.StatusServiceUnavailable)
+	}
 	if got := updates["openai_compact_last_error"]; got != "HTTP 503" {
 		t.Fatalf("openai_compact_last_error = %v, want HTTP 503", got)
 	}
@@ -144,11 +159,19 @@ func TestOpenAICompactProbeFoundCompactionItem(t *testing.T) {
 	if !openAICompactProbeFoundCompactionItem(jsonWithItem) {
 		t.Fatal("JSON output 中的 compaction item 应判定为支持")
 	}
+	if openAICompactProbeFoundCompactionItem(nil) {
+		t.Fatal("空响应不应判定为支持")
+	}
 }
 
 func TestOpenAICompactProbeFoundCompactionItem_TerminalResponseOutput(t *testing.T) {
-	terminalOnly := []byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_t\",\"output\":[{\"type\":\"compaction\",\"id\":\"cmp_t\"}]}}\n\n")
-	if !openAICompactProbeFoundCompactionItem(terminalOnly) {
+	sseTerminalOnly := []byte("data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"id\":\"msg_1\"}}\n\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_t\",\"output\":[{\"type\":\"compaction\",\"id\":\"cmp_t\"}]}}\n\n")
+	if !openAICompactProbeFoundCompactionItem(sseTerminalOnly) {
 		t.Fatal("终态 response.output 中的 compaction item 应判定为支持")
+	}
+	sseTerminalEmpty := []byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_e\",\"output\":[]}}\n\n")
+	if openAICompactProbeFoundCompactionItem(sseTerminalEmpty) {
+		t.Fatal("终态 output 为空且无 item 事件时不应判定为支持")
 	}
 }

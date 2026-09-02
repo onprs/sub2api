@@ -102,6 +102,37 @@ func TestNativeResponsesProtocolOutputStreamBuffersPreambleAndRendersTerminal(t 
 	require.Equal(t, "data: [DONE]\n\n", wire[len(wire)-len("data: [DONE]\n\n"):])
 }
 
+func TestHandleStructuredResponsesStreamEmptyCompletedFailsOverBeforeCommit(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	pipeline := nativeResponsesOutputTestPipeline(t, "gpt-5", "gpt-5", true)
+	output, err := newNativeResponsesProtocolOutput(c.Writer, pipeline, "gpt-5", "gpt-5", true)
+	require.NoError(t, err)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"req_empty"}},
+		Body: io.NopCloser(strings.NewReader(
+			`data: {"type":"response.created","response":{"id":"resp_empty","model":"gpt-5"}}` + "\n\n" +
+				`data: {"type":"response.completed","response":{"id":"resp_empty","model":"gpt-5","output":[]}}` + "\n\n",
+		)),
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 1024}}}
+
+	result, err := svc.handleStructuredResponsesStreamWithReasoning(
+		context.Background(), resp, c, &Account{ID: 42, Platform: PlatformOpenAI},
+		time.Now(), "gpt-5", output, "",
+	)
+
+	require.NotNil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.Equal(t, "req_empty", failoverErr.ResponseHeaders.Get("X-Request-Id"))
+	require.Empty(t, recorder.Body.String())
+	require.False(t, output.ClientOutputStarted())
+}
+
 func TestNativeResponsesProtocolOutputFirstOutputLimitIncludesSemanticEvent(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	pipeline := nativeResponsesOutputTestPipeline(t, "gpt-5", "gpt-5", true)

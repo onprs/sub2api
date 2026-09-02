@@ -246,7 +246,7 @@ func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.C
 }
 
 // noAvailableOpenAISelectionError builds the standard "no account available" error
-// while preserving the compact-specific error when applicable.
+// while preserving the legacy /responses/compact error when applicable.
 func normalizeOpenAICompatiblePlatform(platform string) string {
 	if platform == PlatformGrok {
 		return PlatformGrok
@@ -688,12 +688,15 @@ func prioritizeOpenAICompactAccounts(accounts []*Account) []*Account {
 
 // resolveOpenAIAccountUpstreamModelForRequest 解析实际出站模型；compact 映射
 // 仅属于旧式 /responses/compact，原生 v2 不得应用。
+// Raw Chat fallback 使用普通账号映射和上游归一化，不使用 compact 映射。
 func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedModel string, requireCompact bool) string {
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		upstreamModel := resolveOpenAIForwardModel(account, requestedModel, "")
 		return normalizeOpenAIModelForUpstream(account, upstreamModel)
 	}
 
+	// Passthrough 账号只替换鉴权，通常保持渠道映射后的模型；旧式 compact
+	// 是唯一会直接在该模型上应用 compact_model_mapping 的例外。
 	if account != nil && account.IsOpenAIPassthroughEnabled() {
 		upstreamModel := strings.TrimSpace(requestedModel)
 		if upstreamModel == "" {
@@ -836,7 +839,8 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 // selectBestAccount selects the best account from candidates (priority + LRU).
 // Returns nil if no available account. The second return reports whether at
 // least one candidate was filtered out solely because it lacks compact support
-// (only meaningful when requireCompact=true); the third contains deterministic
+// (only meaningful when the legacy /responses/compact requireCompact flag is
+// true); the third contains deterministic
 // exclusion diagnostics for the evaluated snapshot.
 func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *int64, platform string, accounts []Account, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, preferLowUpstreamRate bool) (*Account, bool, openAISelectionFilterStats) {
 	platform = normalizeOpenAICompatiblePlatform(platform)

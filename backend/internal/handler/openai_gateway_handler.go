@@ -185,6 +185,16 @@ func openAIResponsesRequiredCapability(imageIntent bool, platform string) servic
 	return service.OpenAIEndpointCapabilityChatCompletions
 }
 
+// openAIResponsesRequiredCapabilityForRequest returns the endpoint capability
+// required by an image or Responses request. needsResponses includes both the
+// legacy /responses/compact endpoint and native remote compaction v2.
+func openAIResponsesRequiredCapabilityForRequest(imageIntent bool, needsResponses bool, platform string) service.OpenAIEndpointCapability {
+	if needsResponses && platform == service.PlatformOpenAI {
+		return service.OpenAIEndpointCapabilityResponses
+	}
+	return openAIResponsesRequiredCapability(imageIntent, platform)
+}
+
 func allowOpenAICompatibleMessagesDispatch(apiKey *service.APIKey) bool {
 	if apiKey == nil || apiKey.Group == nil {
 		return true
@@ -193,15 +203,6 @@ func allowOpenAICompatibleMessagesDispatch(apiKey *service.APIKey) bool {
 		return true
 	}
 	return apiKey.Group.AllowMessagesDispatch
-}
-
-// openAIResponsesRequiredCapabilityForRequest 返回本次 Responses 请求要求的上游能力。
-// 原生 v2 和旧式 compact 都必须走 Responses，不能降级到 Chat Completions。
-func openAIResponsesRequiredCapabilityForRequest(imageIntent bool, needsResponses bool, platform string) service.OpenAIEndpointCapability {
-	if needsResponses && platform == service.PlatformOpenAI {
-		return service.OpenAIEndpointCapabilityResponses
-	}
-	return openAIResponsesRequiredCapability(imageIntent, platform)
 }
 
 func openAICompatibleTextTargetAllowed(c *gin.Context, apiKey *service.APIKey, model string) bool {
@@ -307,9 +308,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	legacyCompact := service.IsOpenAIResponsesCompactPath(c)
 	nativeV2 := isBareOpenAIResponsesPath(c) && isOpenAIRemoteCompactionV2Request(body)
 	if nativeV2 {
+		// 原生 v2 出站前补齐 remote_compaction_v2，与真实 Codex 会话线型一致。
 		service.MarkOpenAINativeCompactionV2(c)
 	}
-	// 仅旧式 body-signal compact 会启动 unary 等待心跳；原生 v2 保持上游 SSE。
+	// 旧式 body-signal compact 在 unary 等待期间可发送心跳；原生 v2 保持上游 SSE。
 	stopCompactKeepalive := service.StartOpenAICompactSSEKeepalive(c, h.openAICompactKeepaliveInterval())
 	defer stopCompactKeepalive()
 
@@ -405,7 +407,6 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		legacyCompact,
 	))
 	seedOpenAIForwardImageIntentHint(c, channelMapping.Mapped, imageIntent)
-
 	// 提前校验 function_call_output 是否具备可关联上下文，避免上游 400。
 	if !h.validateFunctionCallOutputRequest(c, body, reqLog) {
 		return
@@ -462,8 +463,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	var passthroughFailoverState openAIPassthroughFailoverState
 
-	// 分组利润控制：请求级固定定价时刻并安装选号与槽位终检共用的门。
-	// requiredCapability 已在上方同时覆盖 Responses/compact 与显式生图语义。
+	// 原生 v2、旧式 compact 与显式生图都必须调度到具备相应 Responses 能力的账号。
+	// 分组利润控制固定本请求的定价时刻，并让选号、槽位终检和 failover 共用同一门。
 	pricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
 	c.Request = c.Request.WithContext(pricingCtx)
 

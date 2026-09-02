@@ -289,12 +289,9 @@ func isOpenAIEncryptedReasoningInputItem(item any) bool {
 	return has
 }
 
-// IsOpenAIResponsesCompactPath 判断请求是否指向旧式 /responses/compact 端点。
+// IsOpenAIResponsesCompactPath 判断请求是否指向旧式 /responses/compact
+// 端点及其可转发子路径。
 func IsOpenAIResponsesCompactPath(c *gin.Context) bool {
-	return isOpenAIResponsesCompactPath(c)
-}
-
-func IsOpenAIResponsesCompactPathForTest(c *gin.Context) bool {
 	return isOpenAIResponsesCompactPath(c)
 }
 

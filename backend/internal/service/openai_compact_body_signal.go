@@ -27,7 +27,8 @@ func isOpenAINativeCompactionV2(c *gin.Context) bool {
 	return c.GetBool(openAINativeCompactionV2Key)
 }
 
-// ensureOpenAIRemoteCompactionV2BetaFeature 确保协商头包含 remote_compaction_v2。
+// ensureOpenAIRemoteCompactionV2BetaFeature 确保协商头包含 remote_compaction_v2，
+// 已存在时保持原样且不重复追加。
 func ensureOpenAIRemoteCompactionV2BetaFeature(h http.Header) {
 	if h == nil {
 		return
@@ -61,9 +62,9 @@ func hasOpenAICodexBetaFeaturesHeader(h http.Header) bool {
 	return false
 }
 
-// applyOpenAICodexBetaFeatures 对齐 Codex 的会话级能力协商：
-// 原生 v2 请求对所有账号补齐 remote_compaction_v2；普通 OAuth 请求在客户端
-// 未声明能力集时补默认值；普通 API Key 请求保持不变。
+// applyOpenAICodexBetaFeatures 对齐 Codex 的会话级能力协商：原生 v2 请求对
+// 所有账号补齐 remote_compaction_v2；其余 OAuth 请求仅在客户端未声明能力集
+// 时补默认值；API Key 与客户端显式声明保持不变。
 func applyOpenAICodexBetaFeatures(c *gin.Context, account *Account, h http.Header) {
 	if h == nil {
 		return
@@ -79,7 +80,7 @@ func applyOpenAICodexBetaFeatures(c *gin.Context, account *Account, h http.Heade
 }
 
 // HasCompactionTriggerInInput 检查 input 中是否存在 compaction_trigger。
-// handler 会结合请求路径、stream 标志和能力协商头区分原生 v2 与旧式 compact 桥接。
+// handler 会结合请求路径和 stream 标志区分原生 v2 与旧式 compact 桥接。
 func HasCompactionTriggerInInput(body []byte) bool {
 	if len(body) == 0 {
 		return false

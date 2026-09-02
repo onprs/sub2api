@@ -367,6 +367,9 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStreamWithReasoning(
 		return nil, err
 	}
 	defer func() { _ = stream.Close() }()
+	if isNativeResponsesProtocolOutput(output) {
+		stageOpenAICodexTurnState(&stream.Headers, resp.Header)
+	}
 	if err := output.WriteStreamHeaders(stream.StatusCode, stream.Headers, stream.ActualProtocol); err != nil {
 		return nil, err
 	}
@@ -388,6 +391,7 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStreamWithReasoning(
 	streamImageOutputs := make([]json.RawMessage, 0, 1)
 	streamSeenImages := make(map[string]struct{})
 	lastDownstreamWriteAt := time.Now()
+	semanticOutputSeen := false
 	resultWithUsage := func() *openaiStreamingResult {
 		return &openaiStreamingResult{
 			usage: usage, firstTokenMs: firstTokenMs, responseID: responseID,
@@ -396,6 +400,14 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStreamWithReasoning(
 	}
 	clientOutputStarted := func() bool {
 		return openAIStreamClientOutputStarted(c, output.ClientOutputStarted())
+	}
+	turnStateProvenanceNoted := false
+	noteTurnStateIfCommitted := func() {
+		if turnStateProvenanceNoted || !isNativeResponsesProtocolOutput(output) {
+			return
+		}
+		s.noteStagedOpenAICodexTurnStateCommitted(c, account, stream.Headers)
+		turnStateProvenanceNoted = extractOpenAICodexTurnState(stream.Headers) != ""
 	}
 	var firstOutputTimer *time.Timer
 	var firstOutputCh <-chan time.Time
@@ -441,6 +453,7 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStreamWithReasoning(
 		if err := output.FinalizeStream(stream.ActualProtocol); err != nil {
 			return resultWithUsage(), err
 		}
+		noteTurnStateIfCommitted()
 		return resultWithUsage(), nil
 	}
 	handleReadError := func(readErr error) (*openaiStreamingResult, error, bool) {
@@ -546,7 +559,20 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStreamWithReasoning(
 			dataBytes = sanitizedData
 		}
 		startsOutput := forceFailedOutput || openAIStreamDataStartsClientOutput(string(dataBytes), eventType)
+		terminalEvent := eventType == "response.completed" || eventType == "response.done"
+		if startsOutput && !terminalEvent {
+			semanticOutputSeen = true
+		}
 		s.parseSSEUsageBytes(dataBytes, usage)
+		if account != nil && account.Platform == PlatformOpenAI &&
+			terminalEvent && !sawFailedEvent && !semanticOutputSeen && !clientOutputStarted() &&
+			openAIResponsesCompletedEventIsEmpty(dataBytes, usage) {
+			failoverErr := newOpenAIResponsesEmptyCompletedFailoverError(c, account, upstreamRequestID)
+			if guardFirstOutput {
+				failoverErr.SafeToFailoverAfterWrite = true
+			}
+			return failoverErr
+		}
 		wasStarted := output.ClientOutputStarted()
 		if err := output.WriteStreamEvent(stream.ActualProtocol, dataBytes); err != nil {
 			if guardFirstOutput && errors.Is(err, errOpenAIFirstOutputStageLimit) {
@@ -558,6 +584,9 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStreamWithReasoning(
 				return failoverErr
 			}
 			return err
+		}
+		if output.ClientOutputStarted() {
+			noteTurnStateIfCommitted()
 		}
 		if firstTokenMs == nil && startsOutput {
 			ms := int(time.Since(startTime).Milliseconds())
@@ -755,6 +784,7 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStreamWithReasoning(
 			if err := output.WriteStreamKeepalive(); err != nil {
 				return resultWithUsage(), err
 			}
+			noteTurnStateIfCommitted()
 			if !output.ClientDisconnected() {
 				lastDownstreamWriteAt = time.Now()
 			}
@@ -788,6 +818,7 @@ func (s *OpenAIGatewayService) handleStructuredResponsesPassthroughStream(
 	sawFailedEvent := false
 	failedMessage := ""
 	upstreamRequestID := strings.TrimSpace(stream.RequestID)
+	semanticOutputSeen := false
 	resultWithUsage := func() *openaiStreamingResultPassthrough {
 		return &openaiStreamingResultPassthrough{
 			usage:            usage,
@@ -894,11 +925,20 @@ func (s *OpenAIGatewayService) handleStructuredResponsesPassthroughStream(
 			dataBytes = sanitizedData
 		}
 		startsOutput := eventType == "response.failed" || openAIStreamDataStartsClientOutput(string(dataBytes), eventType)
+		terminalEvent := eventType == "response.completed" || eventType == "response.done"
+		if startsOutput && !terminalEvent {
+			semanticOutputSeen = true
+		}
 		if firstTokenMs == nil && startsOutput {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
 		s.parseSSEUsageBytes(dataBytes, usage)
+		if terminalEvent && !sawFailedEvent && !semanticOutputSeen &&
+			!openAIStreamClientOutputStarted(c, output.ClientOutputStarted()) &&
+			openAIResponsesCompletedEventIsEmpty(dataBytes, usage) {
+			return resultWithUsage(), newOpenAIResponsesEmptyCompletedFailoverError(c, account, upstreamRequestID)
+		}
 		if err := output.WriteStreamEvent(stream.ActualProtocol, dataBytes); err != nil {
 			return resultWithUsage(), err
 		}

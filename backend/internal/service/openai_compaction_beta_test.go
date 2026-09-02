@@ -21,7 +21,7 @@ func newOpenAICompactionHeaderContext(t *testing.T, beta string) *gin.Context {
 	return c
 }
 
-func TestApplyOpenAICodexBetaFeatures(t *testing.T) {
+func TestApplyOpenAICodexBetaFeatures_CompactionHeaderContext(t *testing.T) {
 	oauthAccount := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 	apiKeyAccount := &Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 
@@ -55,7 +55,7 @@ func TestApplyOpenAICodexBetaFeatures(t *testing.T) {
 	})
 }
 
-func TestBuildOpenAIWSHeaders_CarriesSessionBetaFeatures(t *testing.T) {
+func TestBuildOpenAIWSHeaders_CarriesSessionBetaFeatures_MinimalContext(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	decision := OpenAIWSProtocolDecision{Transport: OpenAIUpstreamTransportResponsesWebsocketV2}
 	oauthAccount := &Account{

@@ -10,7 +10,8 @@ type openAIForwardModel struct {
 }
 
 // WithOpenAIForwardModel 记录渠道映射后的实际转发模型，以及是否应用仅属于
-// 旧式 /responses/compact 的模型映射。原生 v2 必须保持 false。
+// 旧式 /responses/compact 的模型映射。原生 v2 保持 false，渠道限制检查因此
+// 与 Forward 实际使用的模型链一致。
 func WithOpenAIForwardModel(ctx context.Context, forwardModel string, useCompactModelMapping bool) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
