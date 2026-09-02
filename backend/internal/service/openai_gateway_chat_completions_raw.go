@@ -210,7 +210,8 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 				Kind:               kind,
 				Message:            upstreamMsg,
 			})
-			s.handleGrokAccountUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body)
+			errCtx := withGrokTeamRateLimitModel(ctx, upstreamModel)
+			s.handleGrokAccountUpstreamError(errCtx, account, upstream.StatusCode, upstream.Headers, upstream.Body)
 			if shouldFailover {
 				return nil, &UpstreamFailoverError{
 					StatusCode:             upstream.StatusCode,
@@ -228,7 +229,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	}
 
 	if account.Platform == PlatformGrok {
-		s.updateGrokUsageFromResponse(ctx, account, resp.Header, resp.StatusCode)
+		s.updateGrokUsageFromResponse(withGrokTeamRateLimitModel(ctx, upstreamModel), account, resp.Header, resp.StatusCode)
 	}
 
 	// 8. Forward response
