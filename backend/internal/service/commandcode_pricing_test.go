@@ -20,6 +20,31 @@ func TestCommandCodeReferencePricingCoversOfficialGoatRates(t *testing.T) {
 	require.InDelta(t, 0.25e-6, pricing.CacheCreationPricePerToken, 1e-12)
 	require.Len(t, pricing.Intervals, 2)
 
+	pricing, ok = commandCodeReferencePricingAt("google/gemini-3.8-flash", offPeak)
+	require.True(t, ok)
+	require.InDelta(t, 1.5e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 7.5e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.15e-6, pricing.CacheReadPricePerToken, 1e-12)
+
+	pricing, ok = commandCodeReferencePricingAt("deepseek/deepseek-v4-flash-fast", offPeak)
+	require.True(t, ok)
+	require.InDelta(t, 0.28e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 0.56e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.07e-6, pricing.CacheReadPricePerToken, 1e-12)
+
+	pricing, ok = commandCodeReferencePricingAt("Qwen/Qwen3.8-Max-0902", offPeak)
+	require.True(t, ok)
+	require.InDelta(t, 2e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 6e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.25e-6, pricing.CacheReadPricePerToken, 1e-12)
+	require.Zero(t, pricing.CacheCreationPricePerToken)
+
+	pricing, ok = commandCodeReferencePricingAt("tencent/hy4-preview", offPeak)
+	require.True(t, ok)
+	require.InDelta(t, 0.834e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 2.501e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.042e-6, pricing.CacheReadPricePerToken, 1e-12)
+
 	pricing, ok = commandCodeReferencePricingAt("deepseek/deepseek-v4-flash", offPeak)
 	require.True(t, ok)
 	require.InDelta(t, 0.22e-6, pricing.InputPricePerToken, 1e-12)
@@ -51,6 +76,12 @@ func TestCommandCodeReferencePricingResolvesAliasesAndCase(t *testing.T) {
 		"qwen3.7-plus",
 		"grok-4.6",
 		"glm-5.3-flash",
+		"gemini-3.8-flash",
+		"qwen-3.8-max-0902",
+		"deepseek-v4-flash-fast",
+		"hy4-preview",
+		"longcat-2.0",
+		"muse-spark-1.3-contributor",
 		"laguna-s-2.1",
 	} {
 		_, ok := commandCodeReferencePricingAt(model, nowForTest())
@@ -77,6 +108,12 @@ func TestCommandCodeReferencePricingAppliesOfficialDeepSeekPeakWindows(t *testin
 	peak, ok = commandCodeReferencePricingAt("deepseek/deepseek-v4-flash-vision-exp", base.Add(6*time.Hour))
 	require.True(t, ok)
 	require.InDelta(t, 0.44e-6, peak.InputPricePerToken, 1e-12)
+
+	// Flash Fast 没有官方峰谷元数据，峰时仍使用自身固定价格。
+	fixed, ok := commandCodeReferencePricingAt("deepseek/deepseek-v4-flash-fast", base.Add(6*time.Hour))
+	require.True(t, ok)
+	require.InDelta(t, 0.28e-6, fixed.InputPricePerToken, 1e-12)
+	require.InDelta(t, 0.56e-6, fixed.OutputPricePerToken, 1e-12)
 
 	beforeEffective := time.Date(2026, 8, 1, 1, 30, 0, 0, time.UTC)
 	pricing, ok := commandCodeReferencePricingAt("deepseek/deepseek-v4-flash", beforeEffective)
@@ -107,26 +144,37 @@ func TestCommandCodeScheduledPriceChangeActivatesAtOfficialInstant(t *testing.T)
 	require.InDelta(t, 4e-6, after.OutputPricePerToken, 1e-12)
 }
 
-func TestCommandCodeReferencePricingUsesListRatesAfterPromotionExpiry(t *testing.T) {
-	before := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
-	pricing, ok := commandCodeReferencePricingAt("google/gemini-3.7-flash", before)
-	require.True(t, ok)
-	require.InDelta(t, 0.75e-6, pricing.InputPricePerToken, 1e-12)
-	require.InDelta(t, 3.75e-6, pricing.OutputPricePerToken, 1e-12)
+func TestCommandCodeCatalogPricingUsesListRatesAfterPromotionExpiry(t *testing.T) {
+	expiresAt := time.Date(2026, 12, 31, 23, 59, 59, 0, time.UTC)
+	listRates := commandCodeRates(1.5, 7.5, 0.15, 0.08334)
+	entry := commandCodeCatalogEntry{
+		ID:            "test/discounted-model",
+		ContextWindow: 1_000_000,
+		Tiers: []commandCodeCatalogTier{{
+			Rates:     commandCodeRates(0.75, 3.75, 0.075, 0.04167),
+			ListRates: &listRates,
+		}},
+		Deal: &commandCodeCatalogDeal{
+			Code: "limited-discount", Label: "50% off", DiscountPercent: 50, ExpiresAt: expiresAt,
+		},
+	}
 
-	after := time.Date(2027, 1, 15, 0, 0, 0, 0, time.UTC)
-	pricing, ok = commandCodeReferencePricingAt("google/gemini-3.7-flash", after)
+	before, ok := commandCodeCatalogPricingAt(entry, expiresAt.Add(-time.Second))
 	require.True(t, ok)
-	require.InDelta(t, 1.5e-6, pricing.InputPricePerToken, 1e-12)
-	require.InDelta(t, 7.5e-6, pricing.OutputPricePerToken, 1e-12)
-	require.InDelta(t, 0.08334e-6, pricing.CacheCreationPricePerToken, 1e-12)
+	require.InDelta(t, 0.75e-6, before.InputPricePerToken, 1e-12)
+	require.InDelta(t, 3.75e-6, before.OutputPricePerToken, 1e-12)
+
+	after, ok := commandCodeCatalogPricingAt(entry, expiresAt.Add(time.Second))
+	require.True(t, ok)
+	require.InDelta(t, 1.5e-6, after.InputPricePerToken, 1e-12)
+	require.InDelta(t, 7.5e-6, after.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.08334e-6, after.CacheCreationPricePerToken, 1e-12)
 }
 
-func TestCommandCodeFreeModelsFailClosedAfterDatedPromotionExpires(t *testing.T) {
+func TestCommandCodeCurrentFreeModelsAndRemovedDeals(t *testing.T) {
 	now := nowForTest()
 	for _, model := range []string{
-		"minimax/minimax-m3-free",
-		"minimax/minimax-m2.7-free",
+		"meituan/LongCat-2.0:free",
 		"poolside/laguna-s-2.1-free",
 	} {
 		free, ok := commandCodeReferencePricingAt(model, now)
@@ -134,16 +182,25 @@ func TestCommandCodeFreeModelsFailClosedAfterDatedPromotionExpires(t *testing.T)
 		require.True(t, free.AllowZeroRate, model)
 	}
 
-	afterExpiry := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)
-	_, ok := commandCodeReferencePricingAt("minimax/minimax-m3-free", afterExpiry)
-	require.False(t, ok)
-	_, ok = commandCodeReferencePricingAt("minimax/minimax-m2.7-free", afterExpiry)
-	require.False(t, ok)
+	for _, removed := range []string{
+		"minimax/minimax-m3-free",
+		"minimax/minimax-m2.7-free",
+	} {
+		_, ok := commandCodeReferencePricingAt(removed, now)
+		require.False(t, ok, removed)
+	}
 
-	// 未公布确定结束时间的 capacity deal 继续按官方免费快照处理。
-	free, ok := commandCodeReferencePricingAt("poolside/laguna-s-2.1-free", afterExpiry)
-	require.True(t, ok)
-	require.True(t, free.AllowZeroRate)
+	entry := commandCodeCatalogEntry{
+		ID:            "test/expired-free",
+		ContextWindow: 100_000,
+		Tiers:         []commandCodeCatalogTier{{Rates: commandCodeRates(0, 0, 0)}},
+		Deal: &commandCodeCatalogDeal{
+			Code: "free", Label: "Free", DiscountPercent: 100, Free: true,
+			ExpiresAt: now.Add(-time.Second),
+		},
+	}
+	_, ok := commandCodeCatalogPricingAt(entry, now)
+	require.False(t, ok)
 }
 
 func TestCommandCodeChannelFlatOverrideMergesIntoEveryOfficialTier(t *testing.T) {
@@ -204,25 +261,33 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.InDelta(t, 47, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 	require.InDelta(t, 70.0/47.0, quotaCost.Multiplier, 1e-9)
 
+	// Gemini 3.8 Flash：官方 credits $40 → 倍率 1.75x
+	quotaCost, ok = svc.GetCommandCodeQuotaCost("google/gemini-3.8-flash")
+	require.True(t, ok)
+	require.InDelta(t, 40, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 1.75, quotaCost.Multiplier, 1e-9)
+
+	// 免费模型无额度倍率，由 AllowZeroRate 路径按 $0 计费。
+	_, ok = svc.GetCommandCodeQuotaCost("meituan/LongCat-2.0:free")
+	require.False(t, ok)
+
 	// 未知模型闭合失败
 	_, ok = svc.GetCommandCodeQuotaCost("totally-unknown-model")
 	require.False(t, ok)
 }
 
-func TestCommandCodePricingMetadataIncludesContextAndActivePromotion(t *testing.T) {
-	contextWindow, promotion, ok := commandCodeReferenceMetadataAt("google/gemini-3.7-flash", nowForTest())
+func TestCommandCodePricingMetadataMatchesCurrentOfficialPromotions(t *testing.T) {
+	contextWindow, promotion, ok := commandCodeReferenceMetadataAt("xiaomi/mimo-v2.5", nowForTest())
+	require.True(t, ok)
+	require.Equal(t, 1_000_000, contextWindow)
+	require.NotNil(t, promotion)
+	require.Equal(t, "98% off", promotion.Label)
+	require.Equal(t, float64(98), promotion.DiscountPercent)
+	require.Nil(t, promotion.ExpiresAt)
+
+	contextWindow, promotion, ok = commandCodeReferenceMetadataAt("google/gemini-3.7-flash", nowForTest())
 	require.True(t, ok)
 	require.Equal(t, 1_048_576, contextWindow)
-	require.NotNil(t, promotion)
-	require.Equal(t, "50% off", promotion.Label)
-	require.Equal(t, float64(50), promotion.DiscountPercent)
-	require.Equal(t, commandCodeGemini37FlashDealExpiry, *promotion.ExpiresAt)
-
-	_, promotion, ok = commandCodeReferenceMetadataAt(
-		"google/gemini-3.7-flash",
-		time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
-	)
-	require.True(t, ok)
 	require.Nil(t, promotion)
 }
 

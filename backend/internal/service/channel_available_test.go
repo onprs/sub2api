@@ -578,18 +578,18 @@ func TestFillGlobalPricingFallbackCommandCodeAddsPromotionAfterCatalogResolution
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
 	models := []SupportedModel{{
-		Name:     "google/gemini-3.7-flash",
+		Name:     "xiaomi/mimo-v2.5",
 		Platform: PlatformCommandCode,
 	}}
 
 	svc.fillGlobalPricingFallback(models)
 
 	require.Equal(t, PricingSourceCatalog, models[0].PricingSource)
-	require.Equal(t, 1_048_576, models[0].ContextWindow)
+	require.Equal(t, 1_000_000, models[0].ContextWindow)
 	require.NotNil(t, models[0].Promotion)
-	require.Equal(t, "50% off", models[0].Promotion.Label)
+	require.Equal(t, "98% off", models[0].Promotion.Label)
 	require.NotNil(t, models[0].UsageOffer)
-	require.Equal(t, "50% off", models[0].UsageOffer.Label)
+	require.Equal(t, "98% off", models[0].UsageOffer.Label)
 	require.Equal(t, float64(1), models[0].UsageOffer.UsageMultiplier)
 }
 
@@ -643,10 +643,14 @@ func TestBuildCatalogSupportedModel_CommandCode(t *testing.T) {
 	require.InDelta(t, 0.0, *free.Pricing.OutputPrice, 1e-15)
 
 	// 4. 官方促销与上下文档位
+	mimo := svc.BuildCatalogSupportedModel("xiaomi/mimo-v2.5", PlatformCommandCode, nil)
+	require.Equal(t, 1_000_000, mimo.ContextWindow)
+	require.NotNil(t, mimo.Promotion)
+	require.Equal(t, "98% off", mimo.Promotion.Label)
+
 	gemini := svc.BuildCatalogSupportedModel("google/gemini-3.7-flash", PlatformCommandCode, nil)
 	require.Equal(t, 1_048_576, gemini.ContextWindow)
-	require.NotNil(t, gemini.Promotion)
-	require.Equal(t, "50% off", gemini.Promotion.Label)
+	require.Nil(t, gemini.Promotion)
 
 	qwenFlash := svc.BuildCatalogSupportedModel("Qwen/Qwen3.7-Flash", PlatformCommandCode, nil)
 	require.Len(t, qwenFlash.Pricing.Intervals, 3)

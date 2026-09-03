@@ -17,6 +17,24 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gpt-5.6')
   })
 
+  it('Command Code 模型列表与最新 GOAT 目录一致', () => {
+    const models = getModelsByPlatform('commandcode')
+
+    expect(models).toHaveLength(48)
+    expect(models).toEqual(expect.arrayContaining([
+      'google/gemini-3.8-flash',
+      'meta/muse-spark-1.3',
+      'meta/muse-spark-1.3-contributor',
+      'deepseek/deepseek-v4-flash-fast',
+      'Qwen/Qwen3.8-Max-0902',
+      'Qwen/Qwen3.8-Flash',
+      'tencent/hy4-preview',
+      'meituan/LongCat-2.0:free'
+    ]))
+    expect(models).not.toContain('minimax/minimax-m3-free')
+    expect(models).not.toContain('minimax/minimax-m2.7-free')
+  })
+
   it('openai 模型列表不再暴露已下线的 ChatGPT 登录 Codex 模型', () => {
     const models = getModelsByPlatform('openai')
 

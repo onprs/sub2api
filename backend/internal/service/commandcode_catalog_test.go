@@ -405,7 +405,11 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 	ids, err := catalog.ForceRefresh(context.Background())
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(ids), commandCodeCatalogMinModelCount)
-	require.Contains(t, ids, "deepseek/deepseek-v4-flash")
+	require.Contains(t, ids, "deepseek/deepseek-v4-flash-fast")
+	require.Contains(t, ids, "google/gemini-3.8-flash")
+	require.Contains(t, ids, "Qwen/Qwen3.8-Max-0902")
+	require.Contains(t, ids, "meituan/LongCat-2.0:free")
+	require.NotContains(t, ids, "minimax/minimax-m3-free")
 	entry, ok := catalog.entry("gpt-5.6-luna")
 	require.True(t, ok)
 	require.Greater(t, entry.ContextWindow, 0)
@@ -414,22 +418,59 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, deepSeek.ScheduledChange)
 	require.NotNil(t, deepSeek.TimeOfDay)
+	deepSeekFast, ok := catalog.entry("deepseek/deepseek-v4-flash-fast")
+	require.True(t, ok)
+	require.Nil(t, deepSeekFast.TimeOfDay)
 	miniMax, ok := catalog.entry("MiniMaxAI/MiniMax-M3")
 	require.True(t, ok)
 	require.Len(t, miniMax.Tiers, 2)
 	require.NotNil(t, miniMax.Tiers[0].ListRates)
 	require.NotNil(t, miniMax.Tiers[1].ListRates)
+
+	catalog.mu.RLock()
+	official := cloneCommandCodeCatalogEntries(catalog.entries)
+	catalog.mu.RUnlock()
+	fallback := commandCodeFallbackCatalogEntries()
+	require.Len(t, fallback, len(official))
+	for key, expected := range official {
+		actual, exists := fallback[key]
+		require.True(t, exists, "fallback catalog is missing official model %q", key)
+		expected.Name = ""
+		actual.Name = ""
+		require.Equal(t, expected, actual, "fallback metadata differs for %q", key)
+	}
 }
 
 func TestCommandCodeFallbackCatalogHasAllPricedModels(t *testing.T) {
 	entries := commandCodeFallbackCatalogEntries()
+	ids := CommandCodeFallbackModelIDs()
+	require.Len(t, entries, 48)
 	require.Len(t, entries, len(commandCodeFallbackModels))
-	for _, model := range CommandCodeFallbackModelIDs() {
+	for _, model := range []string{
+		"google/gemini-3.8-flash",
+		"meta/muse-spark-1.3",
+		"meta/muse-spark-1.3-contributor",
+		"deepseek/deepseek-v4-flash-fast",
+		"Qwen/Qwen3.8-Max-0902",
+		"Qwen/Qwen3.8-Flash",
+		"tencent/hy4-preview",
+		"meituan/LongCat-2.0:free",
+	} {
+		require.Contains(t, ids, model)
+	}
+	require.NotContains(t, ids, "minimax/minimax-m3-free")
+	require.NotContains(t, ids, "minimax/minimax-m2.7-free")
+
+	for _, model := range ids {
 		entry, ok := entries[strings.ToLower(model)]
 		require.True(t, ok, "fallback catalog model %q is missing", model)
-		_, ok = commandCodeCatalogPricingAt(entry, nowForTest())
+		pricing, ok := commandCodeCatalogPricingAt(entry, nowForTest())
 		require.True(t, ok, "fallback catalog model %q has no active pricing", model)
-		require.Positive(t, entry.MonthlyCreditsUSD, "fallback catalog model %q has no monthly credits", model)
+		if pricing.AllowZeroRate {
+			require.Zero(t, entry.MonthlyCreditsUSD, "free fallback model %q must not consume monthly credits", model)
+		} else {
+			require.Positive(t, entry.MonthlyCreditsUSD, "fallback catalog model %q has no monthly credits", model)
+		}
 	}
 }
 
@@ -441,7 +482,9 @@ func TestCommandCodeCatalogExposesFallbackWhenRefreshFails(t *testing.T) {
 	models := catalog.ModelIDs(context.Background())
 	require.NotEmpty(t, models)
 	require.Contains(t, models, "gpt-5.6-sol")
-	require.Contains(t, models, "deepseek/deepseek-v4-flash")
+	require.Contains(t, models, "google/gemini-3.8-flash")
+	require.Contains(t, models, "deepseek/deepseek-v4-flash-fast")
+	require.Contains(t, models, "meituan/LongCat-2.0:free")
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
