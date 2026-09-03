@@ -116,6 +116,31 @@ func TestOpenAI429RetryDelayHonorsBoundedRetryAfter(t *testing.T) {
 	require.Equal(t, openAIOAuth429MaxRetryDelay, openAIOAuth429SameAccountRetryDelay(http.Header{"Retry-After": []string{"90"}}, deadline))
 }
 
+func TestOpenCodeGo429FailureSideEffects_UseMessageResetDuration(t *testing.T) {
+	repo := &rateLimit429AccountRepoStub{}
+	rateLimitService := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc := NewOpenCodeGoGatewayService(nil, &config.Config{}, nil, rateLimitService)
+	account := &Account{ID: 44, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey}
+	body := []byte(`{"type":"error","error":{"type":"GoUsageLimitError","message":"5-hour usage limit reached. Resets in 4hr 59min. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_test/go"},"metadata":{"workspace":"wrk_test","limitName":"5 hour"}}`)
+
+	before := time.Now()
+	svc.applyOpenCodeGoFailureSideEffects(
+		context.Background(),
+		account,
+		"glm-5.2",
+		http.StatusTooManyRequests,
+		http.Header{},
+		body,
+	)
+	after := time.Now()
+
+	require.Equal(t, 1, repo.rateLimitCalls)
+	require.Equal(t, account.ID, repo.lastRateLimitID)
+	expectedResetAfter := 4*time.Hour + 59*time.Minute
+	require.False(t, repo.lastRateLimitReset.Before(before.Add(expectedResetAfter-time.Second)))
+	require.False(t, repo.lastRateLimitReset.After(after.Add(expectedResetAfter)))
+}
+
 // TestOpenAI429FastPath_SkipsSparkShadow 外审第8轮 P1:spark 影子被选中后若 /responses 返回 429,
 // 不得按 global x-codex-* 信号写内存运行时熔断(否则 spark 被冷却到 global reset、单影子场景无可用账号)。
 func TestOpenAI429FastPath_SkipsSparkShadow(t *testing.T) {
