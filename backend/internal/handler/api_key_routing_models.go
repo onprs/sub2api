@@ -51,10 +51,20 @@ func compositeAvailableModelsForGroup(ctx context.Context, gateway *service.Gate
 	seen := make(map[string]struct{})
 	models := make([]string, 0)
 	schedulablePlatforms := gateway.GetSchedulablePlatforms(ctx, groupID)
-	for _, platform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok} {
+	for _, platform := range []string{
+		service.PlatformAnthropic,
+		service.PlatformGemini,
+		service.PlatformOpenAI,
+		service.PlatformAntigravity,
+		service.PlatformGrok,
+		service.PlatformKimi,
+		service.PlatformZhipu,
+		service.PlatformDeepseek,
+	} {
 		platformModels := gateway.GetAvailableModels(ctx, groupID, platform)
 		if len(platformModels) == 0 {
-			if _, ok := schedulablePlatforms[platform]; ok {
+			// CN 供应商没有可靠的静态默认模型列表，只暴露账号映射键。
+			if _, ok := schedulablePlatforms[platform]; ok && !service.IsCNProvider(platform) {
 				platformModels = defaultModelIDsForPlatform(platform)
 			}
 		}

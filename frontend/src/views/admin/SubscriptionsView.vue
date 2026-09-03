@@ -848,6 +848,7 @@ import {
   windowEndsBySubscriptionExpiry,
   type RollingQuotaWindow,
 } from '@/utils/rollingQuota'
+import { GROUP_PLATFORM_OPTIONS } from '@/constants/platforms'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -1093,15 +1094,7 @@ const groupOptions = computed(() => [
 
 const platformFilterOptions = computed(() => [
   { value: '', label: t('admin.subscriptions.allPlatforms') },
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'gemini', label: 'Gemini' },
-  { value: 'antigravity', label: 'Antigravity' },
-  { value: 'grok', label: 'Grok' },
-  { value: 'opencode_go', label: 'OpenCode Go' },
-  { value: 'clinepass', label: 'ClinePass' },
-  { value: 'openrouter', label: 'OpenRouter' },
-  { value: 'commandcode', label: 'Command Code' }
+  ...GROUP_PLATFORM_OPTIONS
 ])
 
 const subscriptionPlanOptions = computed<SubscriptionPlanOption[]>(() =>

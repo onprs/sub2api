@@ -39,6 +39,7 @@
             v-for="option in targetTypeOptions"
             :key="option.value"
             type="button"
+            :data-testid="`monitor-target-${option.value}`"
             :aria-pressed="form.target_type === option.value"
             class="flex min-h-11 items-center justify-center gap-2 bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors dark:bg-dark-800 dark:text-gray-300"
             :class="form.target_type === option.value ? 'text-primary-700 ring-1 ring-inset ring-primary-500 dark:bg-primary-900/20 dark:text-primary-300' : 'hover:bg-gray-50 dark:hover:bg-dark-700'"
@@ -817,6 +818,14 @@ function selectProvider(provider: Provider) {
   if (provider === PROVIDER_ANTIGRAVITY && form.check_mode !== CHECK_MODE_QUOTA) {
     form.check_mode = CHECK_MODE_QUOTA
   }
+  // 对称还原：从 antigravity 切走时撤掉强制 quota，否则编辑存量 antigravity
+  // 监控换平台后仍停留在 quota（目标平台未必支持），update 会携带残留配置。
+  // 同步清掉 quota 占位模型（loadFromMonitor 回填的 'quota'），否则切回
+  // probe 后拿 'quota' 当探活模型（与离开 grok 清 DEFAULT_GROK_MODEL 同理）。
+  if (previousProvider === PROVIDER_ANTIGRAVITY && form.check_mode === CHECK_MODE_QUOTA) {
+    form.check_mode = CHECK_MODE_PROBE
+    if (form.primary_model.trim() === 'quota') form.primary_model = ''
+  }
   if (provider === PROVIDER_GROK) {
     if (!form.endpoint.trim()) form.endpoint = DEFAULT_GROK_ENDPOINT
     if (!form.primary_model.trim()) form.primary_model = DEFAULT_GROK_MODEL
@@ -996,6 +1005,9 @@ async function handleSubmit() {
         req.clear_template = true
         delete req.template_id
       }
+      // account_id 同理：probe 模式不带账号，update 发 0 显式解绑存量关联
+      // （后端 0=清空、null=不动）。仅 update——create 发 0 会落 &0 触发 FK 违约。
+      if (!usesQuotaMode.value) req.account_id = 0
       await adminAPI.channelMonitor.update(target.id, req)
       appStore.showSuccess(t('admin.channelMonitor.updateSuccess'))
     } else {
