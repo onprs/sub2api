@@ -148,7 +148,7 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 		opsNullString(input.UserAgent),
 		input.ErrorPhase,
 		input.ErrorType,
-		opsNullString(input.Severity),
+		opsSeverityOrDefault(input.Severity),
 		opsNullInt(input.StatusCode),
 		input.IsBusinessLimited,
 		input.IsCountTokens,
@@ -168,6 +168,14 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 		input.CreatedAt,
 		opsNullString(input.APIKeyPrefix),
 	}
+}
+
+func opsSeverityOrDefault(severity string) string {
+	severity = strings.TrimSpace(severity)
+	if severity == "" {
+		return "P2"
+	}
+	return severity
 }
 
 // opsErrorLogsOrderBy builds the ORDER BY clause from a whitelist, mirroring

@@ -57,18 +57,6 @@ type GeminiMessagesCompatService struct {
 	providerMetadataStore     protocolconv.MetadataStore
 }
 
-func (s *GeminiMessagesCompatService) readUpstreamErrorBody(resp *http.Response) []byte {
-	if resp == nil || resp.Body == nil {
-		return nil
-	}
-	limit := gatewayUpstreamErrorBodyReadLimit
-	if s != nil && s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody && s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes > int(limit) {
-		limit = int64(s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
-	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, limit))
-	return body
-}
-
 func NewGeminiMessagesCompatService(
 	accountRepo AccountRepository,
 	groupRepo GroupRepository,
@@ -1651,28 +1639,6 @@ func (s *GeminiMessagesCompatService) checkStructuredErrorPolicyInLoop(
 	return s.rateLimitService.CheckErrorPolicy(ctx, account, upstream.StatusCode, upstream.Body, mappedModel) != ErrorPolicyNone
 }
 
-// checkErrorPolicyInLoop 在重试循环内预检查错误策略。
-// 返回 true 表示策略已匹配（调用者应 break），resp 已重建可直接使用。
-// 返回 false 表示 ErrorPolicyNone，resp 已重建，调用者继续走重试逻辑。
-func (s *GeminiMessagesCompatService) checkErrorPolicyInLoop(
-	ctx context.Context, account *Account, resp *http.Response, mappedModel string,
-) (matched bool, rebuilt *http.Response) {
-	if resp == nil || resp.StatusCode < 400 || s.rateLimitService == nil {
-		return false, resp
-	}
-	body := s.readUpstreamErrorBody(resp)
-	if resp.Body != nil {
-		_ = resp.Body.Close()
-	}
-	rebuilt = &http.Response{
-		StatusCode: resp.StatusCode,
-		Header:     resp.Header.Clone(),
-		Body:       io.NopCloser(bytes.NewReader(body)),
-	}
-	policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, body, mappedModel)
-	return policy != ErrorPolicyNone, rebuilt
-}
-
 func (s *GeminiMessagesCompatService) shouldRetryGeminiUpstreamError(account *Account, statusCode int) bool {
 	switch statusCode {
 	case 429, 500, 502, 503, 504, 529:
@@ -2868,25 +2834,6 @@ func extractGeminiUsage(data []byte) *ClaudeUsage {
 	}
 }
 
-func asInt(v any) (int, bool) {
-	switch value := v.(type) {
-	case float64:
-		return int(value), true
-	case int:
-		return value, true
-	case int64:
-		return int(value), true
-	case json.Number:
-		parsed, err := value.Int64()
-		if err != nil {
-			return 0, false
-		}
-		return int(parsed), true
-	default:
-		return 0, false
-	}
-}
-
 func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, body []byte) {
 	// 遵守自定义错误码策略：未命中则跳过所有限流处理
 	if !account.ShouldHandleErrorCode(statusCode) {
@@ -3221,16 +3168,6 @@ func normalizeGeminiRequestForAIStudio(body []byte) []byte {
 	return normalized
 }
 
-func isClaudeWebSearchToolMap(tool map[string]any) bool {
-	toolType, _ := tool["type"].(string)
-	// A function named web_search is still a client-side function. This is
-	// especially important for Chat Completions clients such as Hermes, whose
-	// built-in runtime tools are represented as ordinary function tools.
-	// Promote only explicitly typed server-side search tools to Gemini's
-	// built-in googleSearch tool.
-	return strings.HasPrefix(toolType, "web_search") || toolType == "google_search"
-}
-
 // cleanToolSchema 清理工具的 JSON Schema，移除 Gemini 不支持的字段
 func cleanToolSchema(schema any) any {
 	if schema == nil {
@@ -3363,26 +3300,6 @@ func schemaNumberFloat64(value any) (float64, bool) {
 	default:
 		return 0, false
 	}
-}
-
-func convertClaudeGenerationConfig(req map[string]any) map[string]any {
-	out := make(map[string]any)
-	if mt, ok := asInt(req["max_tokens"]); ok && mt > 0 {
-		out["maxOutputTokens"] = mt
-	}
-	if temp, ok := req["temperature"].(float64); ok {
-		out["temperature"] = temp
-	}
-	if topP, ok := req["top_p"].(float64); ok {
-		out["topP"] = topP
-	}
-	if stopSeq, ok := req["stop_sequences"].([]any); ok && len(stopSeq) > 0 {
-		out["stopSequences"] = stopSeq
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }
 
 func (s *GeminiMessagesCompatService) extractImageInputSize(body []byte) string {

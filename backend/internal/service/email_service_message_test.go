@@ -15,19 +15,24 @@ import (
 )
 
 func TestBuildMessage_StandardHeadersAndMultipart(t *testing.T) {
-	svc := &EmailService{}
+	config := &SMTPConfig{
+		Host:     "smtp.qiye.aliyun.com",
+		From:     "onprs-server@onprs.top",
+		FromName: "Onprs",
+	}
 	htmlBody := `<html><body><p>Hello <b>World</b></p><p>Code: 123456</p></body></html>`
 
-	msg, err := svc.buildMessage("Onprs <onprs-server@onprs.top>", "user@example.com", "[Site] Verify", htmlBody, "smtp.qiye.aliyun.com")
+	message, err := buildSMTPMessage(config, "user@example.com", "[Site] Verify", htmlBody)
 	require.NoError(t, err)
+	msg := string(message.data)
 
 	// RFC 5322 必需头
-	assert.Contains(t, msg, "From: Onprs <onprs-server@onprs.top>\r\n")
-	assert.Contains(t, msg, "To: user@example.com\r\n")
+	assert.Contains(t, msg, "From: \"Onprs\" <onprs-server@onprs.top>\r\n")
+	assert.Contains(t, msg, "To: <user@example.com>\r\n")
 	assert.Contains(t, msg, "Subject: [Site] Verify\r\n")
 	assert.Contains(t, msg, "Date: ")
 	assert.Contains(t, msg, "Message-ID: <")
-	assert.Contains(t, msg, "@smtp.qiye.aliyun.com>")
+	assert.Contains(t, msg, "@onprs.top>")
 
 	// multipart/alternative 结构
 	assert.Contains(t, msg, "Content-Type: multipart/alternative")
@@ -40,12 +45,17 @@ func TestBuildMessage_StandardHeadersAndMultipart(t *testing.T) {
 }
 
 func TestBuildMessage_Base64DecodesToOriginalContent(t *testing.T) {
-	svc := &EmailService{}
+	config := &SMTPConfig{
+		Host:     "smtp.qiye.aliyun.com",
+		From:     "server@onprs.top",
+		FromName: "Server",
+	}
 	htmlBody := `<p>验证码：<strong>123456</strong></p><a href="https://example.com/reset?a=1&b=2">重置</a>`
 	plainWant := "验证码：123456\n重置"
 
-	msg, err := svc.buildMessage("Server <server@onprs.top>", "user@example.com", "[站点] 验证码", htmlBody, "smtp.qiye.aliyun.com")
+	message, err := buildSMTPMessage(config, "user@example.com", "[站点] 验证码", htmlBody)
 	require.NoError(t, err)
+	msg := string(message.data)
 
 	// 提取 text/plain 与 text/html 的 base64 内容并解码
 	plainPart := extractBase64Part(t, msg, "text/plain")

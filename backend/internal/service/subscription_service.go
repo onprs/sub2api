@@ -410,24 +410,6 @@ func applyRollingQuotaSnapshot(sub *UserSubscription, input *AssignSubscriptionI
 	sub.ThirtyDayLimitUSD = input.ThirtyDayLimitUSD
 }
 
-func renewedSubscriptionTerm(existingSub *UserSubscription, notes string, startsAt, expiresAt time.Time) *UserSubscription {
-	renewed := *existingSub
-	// 多日订阅日窗口按日历日对齐；一日一次性额度必须覆盖精确续期周期。
-	dailyWindowStart := InitialSubscriptionDailyWindowStart(startsAt, expiresAt)
-	periodicWindowStart := startsAt
-	renewed.StartsAt = startsAt
-	renewed.ExpiresAt = expiresAt
-	renewed.Status = SubscriptionStatusActive
-	renewed.DailyWindowStart = &dailyWindowStart
-	renewed.WeeklyWindowStart = &periodicWindowStart
-	renewed.MonthlyWindowStart = &periodicWindowStart
-	renewed.DailyUsageUSD = 0
-	renewed.WeeklyUsageUSD = 0
-	renewed.MonthlyUsageUSD = 0
-	renewed.Notes = appendSubscriptionNotes(existingSub.Notes, notes)
-	return &renewed
-}
-
 func appendSubscriptionNotes(existingNotes, newNotes string) string {
 	if newNotes == "" {
 		return existingNotes

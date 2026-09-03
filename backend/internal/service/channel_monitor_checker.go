@@ -502,12 +502,6 @@ func providerAdapterFor(provider, apiMode string) (providerAdapter, string, bool
 	return adapter, MonitorAPIModeChatCompletions, ok
 }
 
-// isSupportedProvider 校验 provider 是否拥有探活 adapter。
-func isSupportedProvider(p string) bool {
-	_, ok := providerAdapters[p]
-	return ok
-}
-
 func callProviderWithClient(
 	ctx context.Context,
 	provider, endpoint, apiKey, model, prompt string,

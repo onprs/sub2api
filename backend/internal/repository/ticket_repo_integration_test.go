@@ -271,7 +271,7 @@ func TestTicketRepository_AttachmentClaimAndDownloadVisibility(t *testing.T) {
 	now := time.Date(2026, 7, 21, 14, 45, 0, 0, time.UTC)
 
 	publicAttachment, err := attachmentRepo.CreatePending(ctx, service.CreatePendingTicketAttachmentParams{
-		UploadToken: uniqueTestValue(t, "public-upload-token"), UploadedBy: user.ID, UploaderRole: domain.TicketActorUser,
+		UploadToken: hashedTestValue(t, "public-upload-token"), UploadedBy: user.ID, UploaderRole: domain.TicketActorUser,
 		StorageProvider: "local", ObjectKey: uniqueTestValue(t, "public-object"), OriginalName: "evidence.txt",
 		ContentType: "text/plain; charset=utf-8", ByteSize: 8, SHA256: strings.Repeat("a", 64), ExpiresAt: now.Add(time.Hour), CreatedAt: now,
 	})
@@ -283,7 +283,7 @@ func TestTicketRepository_AttachmentClaimAndDownloadVisibility(t *testing.T) {
 	require.NoError(t, err)
 
 	internalAttachment, err := attachmentRepo.CreatePending(ctx, service.CreatePendingTicketAttachmentParams{
-		UploadToken: uniqueTestValue(t, "internal-upload-token"), UploadedBy: admin.ID, UploaderRole: domain.TicketActorAdmin,
+		UploadToken: hashedTestValue(t, "internal-upload-token"), UploadedBy: admin.ID, UploaderRole: domain.TicketActorAdmin,
 		StorageProvider: "s3", ObjectKey: uniqueTestValue(t, "internal-object"), OriginalName: "diagnosis.json",
 		ContentType: "application/json", ByteSize: 12, SHA256: strings.Repeat("b", 64), ExpiresAt: now.Add(time.Hour), CreatedAt: now,
 	})
@@ -321,7 +321,7 @@ func TestTicketAttachmentRepository_EnforcesRollingUserUploadLimit(t *testing.T)
 	now := time.Date(2026, 7, 21, 14, 50, 0, 0, time.UTC)
 
 	_, err := repo.CreatePending(ctx, service.CreatePendingTicketAttachmentParams{
-		UploadToken: uniqueTestValue(t, "upload-limit-first"), UploadedBy: user.ID, UploaderRole: domain.TicketActorUser,
+		UploadToken: hashedTestValue(t, "upload-limit-first"), UploadedBy: user.ID, UploaderRole: domain.TicketActorUser,
 		StorageProvider: "local", ObjectKey: uniqueTestValue(t, "upload-limit-object-first"), OriginalName: "first.txt",
 		ContentType: "text/plain; charset=utf-8", ByteSize: 6, DailyLimitBytes: 10, SHA256: strings.Repeat("c", 64),
 		ExpiresAt: now.Add(time.Hour), CreatedAt: now,
@@ -329,7 +329,7 @@ func TestTicketAttachmentRepository_EnforcesRollingUserUploadLimit(t *testing.T)
 	require.NoError(t, err)
 
 	_, err = repo.CreatePending(ctx, service.CreatePendingTicketAttachmentParams{
-		UploadToken: uniqueTestValue(t, "upload-limit-second"), UploadedBy: user.ID, UploaderRole: domain.TicketActorUser,
+		UploadToken: hashedTestValue(t, "upload-limit-second"), UploadedBy: user.ID, UploaderRole: domain.TicketActorUser,
 		StorageProvider: "local", ObjectKey: uniqueTestValue(t, "upload-limit-object-second"), OriginalName: "second.txt",
 		ContentType: "text/plain; charset=utf-8", ByteSize: 5, DailyLimitBytes: 10, SHA256: strings.Repeat("d", 64),
 		ExpiresAt: now.Add(time.Hour), CreatedAt: now.Add(time.Minute),

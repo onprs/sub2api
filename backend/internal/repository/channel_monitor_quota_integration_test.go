@@ -35,6 +35,7 @@ func TestChannelMonitorQuotaModeRoundTrip(t *testing.T) {
 	created := &service.ChannelMonitor{
 		Name:             "kimi-quota-roundtrip",
 		Provider:         service.MonitorProviderKimi,
+		TargetType:       service.ChannelMonitorTargetExternal,
 		APIMode:          service.MonitorAPIModeChatCompletions,
 		Endpoint:         "",
 		APIKey:           "encrypted-empty",
@@ -84,6 +85,7 @@ func TestChannelMonitorHistoryQuotaRoundTrip(t *testing.T) {
 	monitor := &service.ChannelMonitor{
 		Name:             "quota-history-roundtrip",
 		Provider:         service.MonitorProviderOpenAI,
+		TargetType:       service.ChannelMonitorTargetExternal,
 		APIMode:          service.MonitorAPIModeChatCompletions,
 		Endpoint:         "https://api.openai.com",
 		APIKey:           "encrypted",

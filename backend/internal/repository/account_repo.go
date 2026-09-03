@@ -1850,7 +1850,7 @@ func (r *accountRepository) GetGroups(ctx context.Context, accountID int64) ([]s
 
 func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error {
 	contextTx := dbent.TxFromContext(ctx)
-	client := r.client
+	var client *dbent.Client
 	var tx *dbent.Tx
 	if contextTx != nil {
 		client = contextTx.Client()

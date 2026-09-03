@@ -441,17 +441,6 @@ func (h *PaymentHandler) DeletePlan(c *gin.Context) {
 	response.Success(c, gin.H{"message": "deleted"})
 }
 
-func subscriptionPlanResponses(plans []*dbent.SubscriptionPlan) []subscriptionPlanResponse {
-	out := make([]subscriptionPlanResponse, 0, len(plans))
-	for _, plan := range plans {
-		if plan == nil {
-			continue
-		}
-		out = append(out, *subscriptionPlanResponseFromEnt(plan))
-	}
-	return out
-}
-
 func subscriptionPlanResponseFromEnt(plan *dbent.SubscriptionPlan) *subscriptionPlanResponse {
 	if plan == nil {
 		return nil

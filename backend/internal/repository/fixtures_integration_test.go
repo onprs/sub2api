@@ -369,6 +369,19 @@ func mustCreateRedeemCode(t *testing.T, client *dbent.Client, c *service.RedeemC
 	return c
 }
 
+func mustCreateSubscriptionPlanFixture(t *testing.T, client *dbent.Client, groupID int64, name string) *dbent.SubscriptionPlan {
+	t.Helper()
+	plan, err := client.SubscriptionPlan.Create().
+		SetGroupID(groupID).
+		SetName(name).
+		SetPrice(9.99).
+		SetValidityDays(30).
+		SetValidityUnit("day").
+		Save(context.Background())
+	require.NoError(t, err, "create subscription plan")
+	return plan
+}
+
 func mustCreateSubscription(t *testing.T, client *dbent.Client, s *service.UserSubscription) *service.UserSubscription {
 	t.Helper()
 	ctx := context.Background()

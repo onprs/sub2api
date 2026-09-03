@@ -146,6 +146,25 @@ func TestAccountRepoSuite(t *testing.T) {
 	suite.Run(t, new(AccountRepoSuite))
 }
 
+func committedAccountRepository(t *testing.T, accounts ...*service.Account) *accountRepository {
+	t.Helper()
+	for _, account := range accounts {
+		mustCreateAccount(t, integrationEntClient, account)
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		for _, account := range accounts {
+			_, _ = integrationDB.ExecContext(ctx, `
+				DELETE FROM scheduler_outbox
+				WHERE account_id = $1
+				   OR COALESCE(payload->'account_ids', '[]'::jsonb) @> jsonb_build_array($1::bigint)
+			`, account.ID)
+			_, _ = integrationDB.ExecContext(ctx, "DELETE FROM accounts WHERE id = $1", account.ID)
+		}
+	})
+	return newAccountRepositoryWithSQL(integrationEntClient, integrationDB, nil)
+}
+
 // --- Create / GetByID / Update / Delete ---
 
 func (s *AccountRepoSuite) TestCreate() {
@@ -188,12 +207,14 @@ func (s *AccountRepoSuite) TestUpdate() {
 }
 
 func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnDisabled() {
-	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "sync-update", Status: service.StatusActive, Schedulable: true})
+	ctx := context.Background()
+	account := &service.Account{Name: "sync-update", Status: service.StatusActive, Schedulable: true}
+	repo := committedAccountRepository(s.T(), account)
 	cacheRecorder := &schedulerCacheRecorder{}
-	s.repo.schedulerCache = cacheRecorder
+	repo.schedulerCache = cacheRecorder
 
 	account.Status = service.StatusDisabled
-	err := s.repo.Update(s.ctx, account)
+	err := repo.Update(ctx, account)
 	s.Require().NoError(err, "Update")
 
 	s.Require().Len(cacheRecorder.setAccounts, 1)
@@ -202,7 +223,8 @@ func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnDisabled() {
 }
 
 func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnCredentialsChange() {
-	account := mustCreateAccount(s.T(), s.client, &service.Account{
+	ctx := context.Background()
+	account := &service.Account{
 		Name:        "sync-credentials-update",
 		Status:      service.StatusActive,
 		Schedulable: true,
@@ -211,16 +233,17 @@ func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnCredentialsChange()
 				"gpt-5": "gpt-5.1",
 			},
 		},
-	})
+	}
+	repo := committedAccountRepository(s.T(), account)
 	cacheRecorder := &schedulerCacheRecorder{}
-	s.repo.schedulerCache = cacheRecorder
+	repo.schedulerCache = cacheRecorder
 
 	account.Credentials = map[string]any{
 		"model_mapping": map[string]any{
 			"gpt-5": "gpt-5.2",
 		},
 	}
-	err := s.repo.Update(s.ctx, account)
+	err := repo.Update(ctx, account)
 	s.Require().NoError(err, "Update")
 
 	s.Require().Len(cacheRecorder.setAccounts, 1)
@@ -231,25 +254,25 @@ func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnCredentialsChange()
 }
 
 func (s *AccountRepoSuite) TestUpdateCredentials_SyncsSnapshotAndDurableOutbox() {
-	account := mustCreateAccount(s.T(), s.client, &service.Account{
+	ctx := context.Background()
+	account := &service.Account{
 		Name:        "sync-refresh-credentials",
 		Status:      service.StatusActive,
 		Schedulable: true,
 		Credentials: map[string]any{"access_token": "old-token"},
-	})
+	}
+	repo := committedAccountRepository(s.T(), account)
 	cacheRecorder := &schedulerCacheRecorder{}
-	s.repo.schedulerCache = cacheRecorder
-	_, err := s.repo.sql.ExecContext(s.ctx, "TRUNCATE scheduler_outbox")
-	s.Require().NoError(err)
+	repo.schedulerCache = cacheRecorder
 
-	s.Require().NoError(s.repo.UpdateCredentials(s.ctx, account.ID, map[string]any{"access_token": "new-token"}))
+	s.Require().NoError(repo.UpdateCredentials(ctx, account.ID, map[string]any{"access_token": "new-token"}))
 
 	s.Require().Len(cacheRecorder.setAccounts, 1)
 	s.Require().Equal("new-token", cacheRecorder.setAccounts[0].GetCredential("access_token"))
 	var outboxCount int
-	err = scanSingleRow(
-		s.ctx,
-		s.repo.sql,
+	err := scanSingleRow(
+		ctx,
+		integrationDB,
 		"SELECT COUNT(*) FROM scheduler_outbox WHERE event_type = $1 AND account_id = $2",
 		[]any{service.SchedulerOutboxEventAccountChanged, account.ID},
 		&outboxCount,
@@ -818,13 +841,15 @@ func (s *AccountRepoSuite) TestSetSchedulable() {
 }
 
 func (s *AccountRepoSuite) TestBulkUpdate_SyncSchedulerSnapshotOnDisabled() {
-	account1 := mustCreateAccount(s.T(), s.client, &service.Account{Name: "bulk-1", Status: service.StatusActive, Schedulable: true})
-	account2 := mustCreateAccount(s.T(), s.client, &service.Account{Name: "bulk-2", Status: service.StatusActive, Schedulable: true})
+	ctx := context.Background()
+	account1 := &service.Account{Name: "bulk-1", Status: service.StatusActive, Schedulable: true}
+	account2 := &service.Account{Name: "bulk-2", Status: service.StatusActive, Schedulable: true}
+	repo := committedAccountRepository(s.T(), account1, account2)
 	cacheRecorder := &schedulerCacheRecorder{}
-	s.repo.schedulerCache = cacheRecorder
+	repo.schedulerCache = cacheRecorder
 
 	disabled := service.StatusDisabled
-	rows, err := s.repo.BulkUpdate(s.ctx, []int64{account1.ID, account2.ID}, service.AccountBulkUpdate{
+	rows, err := repo.BulkUpdate(ctx, []int64{account1.ID, account2.ID}, service.AccountBulkUpdate{
 		Status: &disabled,
 	})
 	s.Require().NoError(err)
@@ -1452,11 +1477,13 @@ func (s *AccountRepoSuite) TestUpdateExtra_NilExtra() {
 }
 
 func (s *AccountRepoSuite) TestUpdateExtra_SchedulerNeutralSkipsOutboxAndSyncsFreshSnapshot() {
-	account := mustCreateAccount(s.T(), s.client, &service.Account{
+	ctx := context.Background()
+	account := &service.Account{
 		Name:     "acc-extra-neutral",
 		Platform: service.PlatformOpenAI,
 		Extra:    map[string]any{"codex_usage_updated_at": "old"},
-	})
+	}
+	repo := committedAccountRepository(s.T(), account)
 	cacheRecorder := &schedulerCacheRecorder{
 		accounts: map[int64]*service.Account{
 			account.ID: {
@@ -1469,23 +1496,23 @@ func (s *AccountRepoSuite) TestUpdateExtra_SchedulerNeutralSkipsOutboxAndSyncsFr
 			},
 		},
 	}
-	s.repo.schedulerCache = cacheRecorder
+	repo.schedulerCache = cacheRecorder
 
 	updates := map[string]any{
 		"codex_usage_updated_at":     "2026-03-11T10:00:00Z",
 		"codex_5h_used_percent":      88.5,
 		"session_window_utilization": 0.42,
 	}
-	s.Require().NoError(s.repo.UpdateExtra(s.ctx, account.ID, updates))
+	s.Require().NoError(repo.UpdateExtra(ctx, account.ID, updates))
 
-	got, err := s.repo.GetByID(s.ctx, account.ID)
+	got, err := repo.GetByID(ctx, account.ID)
 	s.Require().NoError(err)
 	s.Require().Equal("2026-03-11T10:00:00Z", got.Extra["codex_usage_updated_at"])
 	s.Require().Equal(88.5, got.Extra["codex_5h_used_percent"])
 	s.Require().Equal(0.42, got.Extra["session_window_utilization"])
 
 	var outboxCount int
-	s.Require().NoError(scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox", nil, &outboxCount))
+	s.Require().NoError(scanSingleRow(ctx, integrationDB, "SELECT COUNT(*) FROM scheduler_outbox WHERE account_id = $1", []any{account.ID}, &outboxCount))
 	s.Require().Zero(outboxCount)
 	s.Require().Len(cacheRecorder.setAccounts, 1)
 	s.Require().NotNil(cacheRecorder.accounts[account.ID])
@@ -1494,25 +1521,25 @@ func (s *AccountRepoSuite) TestUpdateExtra_SchedulerNeutralSkipsOutboxAndSyncsFr
 }
 
 func (s *AccountRepoSuite) TestUpdateExtra_ExhaustedCodexSnapshotSyncsSchedulerCache() {
-	account := mustCreateAccount(s.T(), s.client, &service.Account{
+	ctx := context.Background()
+	account := &service.Account{
 		Name:     "acc-extra-codex-exhausted",
 		Platform: service.PlatformOpenAI,
 		Type:     service.AccountTypeOAuth,
 		Extra:    map[string]any{},
-	})
+	}
+	repo := committedAccountRepository(s.T(), account)
 	cacheRecorder := &schedulerCacheRecorder{}
-	s.repo.schedulerCache = cacheRecorder
-	_, err := s.repo.sql.ExecContext(s.ctx, "TRUNCATE scheduler_outbox")
-	s.Require().NoError(err)
+	repo.schedulerCache = cacheRecorder
 
-	s.Require().NoError(s.repo.UpdateExtra(s.ctx, account.ID, map[string]any{
+	s.Require().NoError(repo.UpdateExtra(ctx, account.ID, map[string]any{
 		"codex_7d_used_percent":        100.0,
 		"codex_7d_reset_at":            "2026-03-12T13:00:00Z",
 		"codex_7d_reset_after_seconds": 86400,
 	}))
 
 	var count int
-	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox", nil, &count)
+	err := scanSingleRow(ctx, integrationDB, "SELECT COUNT(*) FROM scheduler_outbox WHERE account_id = $1", []any{account.ID}, &count)
 	s.Require().NoError(err)
 	s.Require().Equal(0, count)
 	s.Require().Len(cacheRecorder.setAccounts, 1)

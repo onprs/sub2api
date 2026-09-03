@@ -2367,8 +2367,12 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	if s == nil || account == nil || s.accountRepo == nil {
 		return false
 	}
-	if !isUpstreamModelNotFoundErrorForAccount(account, statusCode, responseBody) &&
-		!(isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody)) {
+	planGated := isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody)
+	recognized := isUpstreamModelNotFoundErrorForAccount(account, statusCode, responseBody)
+	if planGated {
+		recognized = true
+	}
+	if !recognized {
 		return false
 	}
 	// 这是账号与模型组合的能力反馈，不是整账号错误策略。OpenAI、OpenCode Go 与
@@ -2386,7 +2390,7 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 		cooldown = openCodeGoModelUnsupportedCooldown
 		reason = upstreamModelUnsupportedReason
 	}
-	if isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody) {
+	if planGated {
 		cooldown = upstreamCodexPlanGatedModelCooldown
 		reason = upstreamCodexPlanGatedModelReason
 	}

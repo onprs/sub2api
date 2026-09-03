@@ -59,10 +59,6 @@ const (
 	DailyBaseURL      = "https://daily-cloudcode-pa.googleapis.com"
 	ProductionBaseURL = "https://cloudcode-pa.googleapis.com"
 	SandboxBaseURL    = "https://daily-cloudcode-pa.sandbox.googleapis.com"
-
-	// 保留包内旧名称，兼容已有调用和契约测试。
-	antigravityProdBaseURL  = ProductionBaseURL
-	antigravityDailyBaseURL = DailyBaseURL
 )
 
 var userAgentVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)

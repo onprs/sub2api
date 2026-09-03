@@ -21,6 +21,18 @@ func TestOpsInsertErrorLogArgsPreservesExplicitZeroUpstreamStatus(t *testing.T) 
 	require.Zero(t, encoded.Int64)
 }
 
+func TestOpsInsertErrorLogArgsDefaultsBlankSeverity(t *testing.T) {
+	for _, severity := range []string{"", "   "} {
+		args := opsInsertErrorLogArgs(&service.OpsInsertErrorLogInput{Severity: severity})
+
+		require.Len(t, args, 38)
+		require.Equal(t, "P2", args[19])
+	}
+
+	args := opsInsertErrorLogArgs(&service.OpsInsertErrorLogInput{Severity: " P1 "})
+	require.Equal(t, "P1", args[19])
+}
+
 func TestOpsNullableIntPointerDistinguishesNilZeroAndStatus(t *testing.T) {
 	missing := opsNullableIntPointer(nil).(sql.NullInt64)
 	require.False(t, missing.Valid)

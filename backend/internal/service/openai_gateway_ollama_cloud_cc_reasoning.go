@@ -2,7 +2,6 @@ package service
 
 import (
 	"strconv"
-	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/tidwall/gjson"
@@ -60,13 +59,6 @@ func applyOllamaCloudRawChatCompletionsResponse(account *Account, body []byte) [
 		return body
 	}
 	return normalizeOllamaCloudChatCompletionsResponseJSON(body)
-}
-
-func applyOllamaCloudRawChatCompletionsSSELine(account *Account, line string) string {
-	if !isOllamaCloudRawChatCompletionsAccount(account) || line == "" {
-		return line
-	}
-	return normalizeOllamaCloudChatCompletionsSSELine(line)
 }
 
 func normalizeOllamaCloudChatCompletionsRequest(body []byte) []byte {
@@ -144,26 +136,6 @@ func normalizeOllamaCloudChatCompletionsResponseJSON(body []byte) []byte {
 		return body
 	}
 	return updated
-}
-
-func normalizeOllamaCloudChatCompletionsSSELine(line string) string {
-	payload, ok := extractOpenAISSEDataLine(line)
-	if !ok {
-		return line
-	}
-	trimmed := strings.TrimSpace(payload)
-	if trimmed == "" || trimmed == "[DONE]" {
-		return line
-	}
-	rewritten := normalizeOllamaCloudChatCompletionsResponseJSON([]byte(payload))
-	if string(rewritten) == payload {
-		return line
-	}
-	prefixLen := len(line) - len(payload)
-	if prefixLen < 0 {
-		return line
-	}
-	return line[:prefixLen] + string(rewritten)
 }
 
 func jsonNonEmptyString(v gjson.Result) (string, bool) {

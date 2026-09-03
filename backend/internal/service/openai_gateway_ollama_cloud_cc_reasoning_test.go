@@ -157,7 +157,6 @@ func TestApplyOllamaCloudRawChatCompletionsLeavesForeignAccountsUnchanged(t *tes
 
 	reqBody := []byte(`{"messages":[{"role":"assistant","reasoning_content":"prev","content":""}]}`)
 	respBody := []byte(`{"choices":[{"delta":{"reasoning":"abc"}}]}`)
-	sseLine := `data: {"choices":[{"delta":{"reasoning":"abc"}}]}`
 
 	official := rawChatCompletionsTestAccount()
 	official.Name = "DeepSeek"
@@ -176,20 +175,7 @@ func TestApplyOllamaCloudRawChatCompletionsLeavesForeignAccountsUnchanged(t *tes
 	for _, account := range []*Account{official, opencode} {
 		require.Equal(t, reqBody, applyOllamaCloudRawChatCompletionsRequest(account, reqBody))
 		require.Equal(t, respBody, applyOllamaCloudRawChatCompletionsResponse(account, respBody))
-		require.Equal(t, sseLine, applyOllamaCloudRawChatCompletionsSSELine(account, sseLine))
 	}
-}
-
-func TestNormalizeOllamaCloudChatCompletionsSSELine(t *testing.T) {
-	t.Parallel()
-
-	before := `data: {"choices":[{"delta":{"reasoning":"abc"}}]}`
-	after := normalizeOllamaCloudChatCompletionsSSELine(before)
-	require.True(t, strings.HasPrefix(after, "data: "))
-	payload := strings.TrimPrefix(after, "data: ")
-	require.Equal(t, "abc", gjson.Get(payload, "choices.0.delta.reasoning").String())
-	require.Equal(t, "abc", gjson.Get(payload, "choices.0.delta.reasoning_content").String())
-	require.Equal(t, "data: [DONE]", normalizeOllamaCloudChatCompletionsSSELine("data: [DONE]"))
 }
 
 func TestForwardAsRawChatCompletions_OllamaCloudReasoningAliasStreaming(t *testing.T) {

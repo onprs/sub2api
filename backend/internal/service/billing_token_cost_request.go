@@ -38,11 +38,11 @@ type TokenCostRequest struct {
 	Model           string
 	PricingPlatform string
 	Group           *Group
-	Tokens         UsageTokens
-	RateMultiplier float64
-	PricingAt      time.Time
-	ServiceTier    string
-	Resolver       *ModelPricingResolver
+	Tokens          UsageTokens
+	RateMultiplier  float64
+	PricingAt       time.Time
+	ServiceTier     string
+	Resolver        *ModelPricingResolver
 	// Resolved 为调用方预先解析的定价（Resolver.Resolve 的结果），nil 表示未解析。
 	Resolved *ResolvedPricing
 	// LegacyLongContext 入口携带的旧长上下文规则，nil 表示该入口不使用。
@@ -92,13 +92,13 @@ func (s *BillingService) tokenCostInput(req TokenCostRequest, resolved *Resolved
 		Model:           req.Model,
 		PricingPlatform: req.PricingPlatform,
 		Group:           req.Group,
-		Tokens:         req.Tokens,
-		RequestCount:   1,
-		RateMultiplier: req.RateMultiplier,
-		PricingAt:      req.PricingAt,
-		ServiceTier:    req.ServiceTier,
-		Resolver:       req.Resolver,
-		Resolved:       resolved,
+		Tokens:          req.Tokens,
+		RequestCount:    1,
+		RateMultiplier:  req.RateMultiplier,
+		PricingAt:       req.PricingAt,
+		ServiceTier:     req.ServiceTier,
+		Resolver:        req.Resolver,
+		Resolved:        resolved,
 	}
 	if req.Group != nil {
 		gid := req.Group.ID

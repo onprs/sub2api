@@ -252,19 +252,6 @@ func (s *EmailService) sendSMTPMessage(config *SMTPConfig, message smtpMessage) 
 	return nil
 }
 
-// buildMessage 构造带标准头的 multipart/alternative 邮件消息。
-func (s *EmailService) buildMessage(from, to, subject, htmlBody, host string) (string, error) {
-	boundary, err := generateMailBoundary()
-	if err != nil {
-		return "", err
-	}
-	messageID, err := generateMessageID(host)
-	if err != nil {
-		return "", err
-	}
-	return buildMultipartAlternativeMessage(from, to, subject, htmlBody, boundary, messageID), nil
-}
-
 func buildMultipartAlternativeMessage(from, to, subject, htmlBody, boundary, messageID string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "From: %s\r\n", from)
@@ -292,19 +279,6 @@ func buildMultipartAlternativeMessage(from, to, subject, htmlBody, boundary, mes
 
 	fmt.Fprintf(&b, "--%s--\r\n", boundary)
 	return b.String()
-}
-
-// generateMessageID 生成 RFC 5322 要求的 Message-ID。
-func generateMessageID(host string) (string, error) {
-	buf := make([]byte, 16)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	domain := strings.TrimSpace(host)
-	if domain == "" {
-		domain = "localhost"
-	}
-	return fmt.Sprintf("<%s.%s@%s>", strconv.FormatInt(time.Now().UnixNano(), 36), hex.EncodeToString(buf), domain), nil
 }
 
 // generateMailBoundary 生成 multipart boundary。

@@ -3,7 +3,6 @@
 package service
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -112,55 +111,20 @@ func TestStripEmptyChatToolCallIdentity_Passthrough(t *testing.T) {
 	}
 }
 
-// TestStripEmptyChatToolCallIdentityFromSSELine_Passthrough SSE 行级：非
-// data 行、[DONE]、空行原样；data 行保留 `data: ` 前缀。
-func TestStripEmptyChatToolCallIdentityFromSSELine_Passthrough(t *testing.T) {
-	tests := []struct {
-		name string
-		line string
-	}{
-		{"done", "data: [DONE]"},
-		{"non-data line", ": keep-alive"},
-		{"empty line", ""},
-		{"comment line", ":"},
-		{"content chunk", `data: {"choices":[{"index":0,"delta":{"content":"hi"}}]}`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.line, stripEmptyChatToolCallIdentityFromSSELine(tt.line))
-		})
-	}
-}
-
-// TestStripEmptyChatToolCallIdentityFromSSELine_KeepsDataPrefix 改写后的
-// SSE 行必须保留 `data: ` 前缀。
-func TestStripEmptyChatToolCallIdentityFromSSELine_KeepsDataPrefix(t *testing.T) {
-	line := `data: {"id":"chatcmpl_tool","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"","type":"function","function":{"name":"","arguments":"{}"}}]}}]}`
-	got := stripEmptyChatToolCallIdentityFromSSELine(line)
-	require.True(t, strings.HasPrefix(got, "data: "))
-	payload, ok := extractOpenAISSEDataLine(got)
-	require.True(t, ok)
-	require.False(t, gjson.Get(payload, "choices.0.delta.tool_calls.0.id").Exists())
-	require.False(t, gjson.Get(payload, "choices.0.delta.tool_calls.0.function.name").Exists())
-	require.Equal(t, "{}", gjson.Get(payload, "choices.0.delta.tool_calls.0.function.arguments").String())
-}
-
 // TestStripEmptyChatToolCallIdentity_DshClientMerge 模拟 dsh rc.2 adapter 的
 // 合并逻辑（字段存在——含空串——才覆盖）：sanitize 后合并，最终 id/name 必须
 // 仍是首包合法值，arguments 为各碎片拼接。
 func TestStripEmptyChatToolCallIdentity_DshClientMerge(t *testing.T) {
-	lines := []string{
-		`data: {"id":"chatcmpl_tool","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_example","type":"function","function":{"name":"web_search","arguments":""}}]}}]}`,
-		`data: {"id":"chatcmpl_tool","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"","type":"function","function":{"name":"","arguments":"{\"query\":"}}]}}]}`,
-		`data: {"id":"chatcmpl_tool","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"","type":"function","function":{"name":"","arguments":"\"example\"}"}}]}}]}`,
+	payloads := []string{
+		`{"id":"chatcmpl_tool","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_example","type":"function","function":{"name":"web_search","arguments":""}}]}}]}`,
+		`{"id":"chatcmpl_tool","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"","type":"function","function":{"name":"","arguments":"{\"query\":"}}]}}]}`,
+		`{"id":"chatcmpl_tool","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"","type":"function","function":{"name":"","arguments":"\"example\"}"}}]}}]}`,
 	}
 
 	var mergedID, mergedName, mergedArgs string
-	for _, line := range lines {
-		sanitized := stripEmptyChatToolCallIdentityFromSSELine(line)
-		payload, ok := extractOpenAISSEDataLine(sanitized)
-		require.True(t, ok)
-		for _, tc := range gjson.Get(payload, "choices.0.delta.tool_calls").Array() {
+	for _, payload := range payloads {
+		sanitized, _ := stripEmptyChatToolCallIdentity([]byte(payload))
+		for _, tc := range gjson.GetBytes(sanitized, "choices.0.delta.tool_calls").Array() {
 			if v := tc.Get("id"); v.Exists() {
 				mergedID = v.String()
 			}

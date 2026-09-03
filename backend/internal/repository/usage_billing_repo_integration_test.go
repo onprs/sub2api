@@ -151,9 +151,12 @@ func TestUsageBillingRepositoryApply_SelectsEarliestAffordableSubscription(t *te
 	now := time.Now()
 	lowLimit := 1.0
 	highLimit := 20.0
+	earlyPlan := mustCreateSubscriptionPlanFixture(t, client, group.ID, "billing-early-"+uuid.NewString())
+	laterPlan := mustCreateSubscriptionPlanFixture(t, client, group.ID, "billing-later-"+uuid.NewString())
 	early := mustCreateSubscription(t, client, &service.UserSubscription{
 		UserID:              user.ID,
 		GroupID:             group.ID,
+		PlanID:              &earlyPlan.ID,
 		StartsAt:            now.Add(-time.Hour),
 		ExpiresAt:           now.Add(24 * time.Hour),
 		FiveHourLimitUSD:    &lowLimit,
@@ -163,6 +166,7 @@ func TestUsageBillingRepositoryApply_SelectsEarliestAffordableSubscription(t *te
 	later := mustCreateSubscription(t, client, &service.UserSubscription{
 		UserID:              user.ID,
 		GroupID:             group.ID,
+		PlanID:              &laterPlan.ID,
 		StartsAt:            now.Add(-time.Hour),
 		ExpiresAt:           now.Add(48 * time.Hour),
 		FiveHourLimitUSD:    &highLimit,
@@ -265,9 +269,12 @@ func TestUsageBillingRepositoryApply_OverrunExhaustsRemainingSubscriptionBeforeA
 	now := time.Now()
 	earlyLimit := 10.0
 	laterLimit := 20.0
+	earlyPlan := mustCreateSubscriptionPlanFixture(t, client, group.ID, "billing-overrun-early-"+uuid.NewString())
+	laterPlan := mustCreateSubscriptionPlanFixture(t, client, group.ID, "billing-overrun-later-"+uuid.NewString())
 	early := mustCreateSubscription(t, client, &service.UserSubscription{
 		UserID:              user.ID,
 		GroupID:             group.ID,
+		PlanID:              &earlyPlan.ID,
 		StartsAt:            now.Add(-time.Hour),
 		ExpiresAt:           now.Add(24 * time.Hour),
 		SevenDayLimitUSD:    &earlyLimit,
@@ -277,6 +284,7 @@ func TestUsageBillingRepositoryApply_OverrunExhaustsRemainingSubscriptionBeforeA
 	later := mustCreateSubscription(t, client, &service.UserSubscription{
 		UserID:              user.ID,
 		GroupID:             group.ID,
+		PlanID:              &laterPlan.ID,
 		StartsAt:            now.Add(-time.Hour),
 		ExpiresAt:           now.Add(48 * time.Hour),
 		SevenDayLimitUSD:    &laterLimit,
