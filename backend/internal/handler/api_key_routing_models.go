@@ -8,6 +8,14 @@ import (
 )
 
 func dynamicAPIKeyAvailableModels(ctx context.Context, gateway *service.GatewayService, apiKey *service.APIKey, platform string) []string {
+	return dynamicAPIKeyModels(ctx, gateway, apiKey, platform, false)
+}
+
+func dynamicAPIKeyCodexModels(ctx context.Context, gateway *service.GatewayService, apiKey *service.APIKey, platform string) []string {
+	return dynamicAPIKeyModels(ctx, gateway, apiKey, platform, true)
+}
+
+func dynamicAPIKeyModels(ctx context.Context, gateway *service.GatewayService, apiKey *service.APIKey, platform string, codex bool) []string {
 	if gateway == nil || apiKey == nil {
 		return nil
 	}
@@ -34,10 +42,16 @@ func dynamicAPIKeyAvailableModels(ctx context.Context, gateway *service.GatewayS
 			available = gateway.GetAvailableModels(ctx, &groupID, groupPlatform)
 		}
 		fallback := defaultModelIDsForPlatform(groupPlatform)
+		if codex {
+			fallback = defaultCodexModelIDsForPlatform(groupPlatform)
+		}
 		if group.CustomModelsListEnabled() {
 			available = filterModelsByCustomList(customModelsListSource(groupPlatform, available, fallback), fallback, group.ModelsListConfig.Models)
 		} else if len(available) == 0 {
 			available = fallback
+		}
+		if codex {
+			available = service.FilterCodexModelIDsForGroup(available, group)
 		}
 		merged = mergeModelIDs(merged, available)
 	}
@@ -61,7 +75,7 @@ func compositeAvailableModelsForGroup(ctx context.Context, gateway *service.Gate
 		service.PlatformZhipu,
 		service.PlatformDeepseek,
 	} {
-		platformModels := gateway.GetAvailableModels(ctx, groupID, platform)
+		platformModels := gateway.GetAvailableModelsForComposite(ctx, groupID, platform)
 		if len(platformModels) == 0 {
 			// CN 供应商没有可靠的静态默认模型列表，只暴露账号映射键。
 			if _, ok := schedulablePlatforms[platform]; ok && !service.IsCNProvider(platform) {

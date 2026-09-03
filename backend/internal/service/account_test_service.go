@@ -153,6 +153,9 @@ type AccountTestService struct {
 	clinePassClient           *ClinePassClient
 	openRouterClient          *OpenRouterClient
 	commandCodeClient         *CommandCodeClient
+	modelMetadataRegistryMu   sync.Mutex
+	modelMetadataRegistry     map[string]modelsDevProvider
+	modelMetadataRegistryAt   time.Time
 	pluginManager             *PluginManager
 	agentIdentityTaskMu       sync.Mutex
 	agentIdentityWS           agentIdentityWSConnectionInvalidator

@@ -1216,6 +1216,97 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	})
 }
 
+// CodexModels returns the effective group model list using the manifest shape
+// expected by Codex custom providers. Official OpenAI groups continue to use
+// OpenAIGatewayHandler.CodexModels so their live upstream metadata is preserved.
+func (h *GatewayHandler) CodexModels(c *gin.Context) {
+	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil {
+		h.errorResponse(c, http.StatusUnauthorized, "invalid_request_error", "API key is required")
+		return
+	}
+
+	forcedPlatform := ""
+	if value, exists := middleware2.GetForcePlatformFromContext(c); exists {
+		forcedPlatform = strings.TrimSpace(value)
+	}
+
+	var (
+		body []byte
+		err  error
+	)
+	if apiKey.UsesDynamicGroupRouting() {
+		platform := forcedPlatform
+		if platform == "" {
+			platform = apiKey.RoutingPlatformValue()
+		}
+		modelIDs := dynamicAPIKeyCodexModels(c.Request.Context(), h.gatewayService, apiKey, platform)
+		body, err = service.BuildCodexModelsManifest(modelIDs)
+	} else {
+		if apiKey.Group == nil {
+			h.errorResponse(c, http.StatusUnauthorized, "invalid_request_error", "API key group is required")
+			return
+		}
+		modelIDs := h.codexModelIDsForGroup(c.Request.Context(), apiKey.Group, forcedPlatform)
+		modelIDs = service.FilterCodexModelIDsForGroup(modelIDs, apiKey.Group)
+		body, err = h.gatewayService.BuildCodexModelsManifestForGroup(
+			c.Request.Context(),
+			apiKey.Group,
+			forcedPlatform,
+			modelIDs,
+		)
+	}
+	if err != nil {
+		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to build Codex models manifest")
+		return
+	}
+	etag := service.CodexModelsManifestETag(body)
+	c.Header("ETag", etag)
+	if service.CodexModelsManifestETagMatches(c.GetHeader("If-None-Match"), etag) {
+		c.Status(http.StatusNotModified)
+		c.Writer.WriteHeaderNow()
+		return
+	}
+	c.Data(http.StatusOK, "application/json", body)
+}
+
+func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *service.Group, platformOverride string) []string {
+	if h == nil || h.gatewayService == nil || group == nil {
+		return nil
+	}
+
+	groupID := &group.ID
+	platform := strings.TrimSpace(platformOverride)
+	if platform == "" {
+		platform = group.Platform
+	}
+	if platform == service.PlatformComposite {
+		availableModels := h.compositeAvailableModels(ctx, groupID)
+		fallbackModels := defaultCodexModelIDsForPlatform(service.PlatformComposite)
+		if group.CustomModelsListEnabled() {
+			return filterModelsByCustomList(availableModels, fallbackModels, group.ModelsListConfig.Models)
+		}
+		if len(availableModels) > 0 {
+			return availableModels
+		}
+		return fallbackModels
+	}
+
+	availableModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
+	fallbackModels := defaultCodexModelIDsForPlatform(platform)
+	if group.CustomModelsListEnabled() {
+		return filterModelsByCustomList(
+			customModelsListSource(platform, availableModels, fallbackModels),
+			fallbackModels,
+			group.ModelsListConfig.Models,
+		)
+	}
+	if len(availableModels) > 0 {
+		return availableModels
+	}
+	return fallbackModels
+}
+
 func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64) []string {
 	if h == nil {
 		return nil
@@ -1392,7 +1483,25 @@ func customModelsListAllowsModel(availablePatterns []string, model string) bool 
 			return true
 		}
 	}
+	baseClaudeModel := strings.TrimSuffix(model, "-thinking")
+	if baseClaudeModel != model {
+		canonicalClaudeModel := claude.NormalizeModelID(baseClaudeModel)
+		for _, pattern := range availablePatterns {
+			if pattern == baseClaudeModel || pattern == canonicalClaudeModel {
+				return true
+			}
+		}
+	}
 	return false
+}
+
+func defaultCodexModelIDsForPlatform(platform string) []string {
+	switch platform {
+	case service.PlatformDeepseek:
+		return []string{"deepseek-v4-pro", "deepseek-v4-flash"}
+	default:
+		return defaultModelIDsForPlatform(platform)
+	}
 }
 
 func defaultModelIDsForPlatform(platform string) []string {
@@ -1416,11 +1525,7 @@ func defaultModelIDsForPlatform(platform string) []string {
 	case service.PlatformAntigravity:
 		return service.DefaultAntigravityRouteModelIDs()
 	case service.PlatformAnthropic:
-		ids := make([]string, 0, len(claude.DefaultModels))
-		for _, model := range claude.DefaultModels {
-			ids = append(ids, model.ID)
-		}
-		return mergeModelIDs(ids, service.DefaultAntigravityRouteModelIDs())
+		return claude.DefaultModelIDs()
 	case service.PlatformGrok:
 		return xai.DefaultModelIDs()
 	case service.PlatformComposite:

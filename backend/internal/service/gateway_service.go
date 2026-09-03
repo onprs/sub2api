@@ -75,8 +75,10 @@ const (
 )
 
 const (
-	cacheTTLTarget5m = "5m"
-	cacheTTLTarget1h = "1h"
+	cacheTTLTarget5m                    = "5m"
+	cacheTTLTarget1h                    = "1h"
+	compositeAvailableModelsCacheSuffix = "#composite"
+	compositeModelOwnershipCachePrefix  = "composite-owner|"
 )
 
 const (
@@ -534,6 +536,10 @@ func modelsListCacheKey(groupID *int64, platform string) string {
 	return fmt.Sprintf("%d|%s", derefGroupID(groupID), strings.TrimSpace(platform))
 }
 
+func compositeModelOwnershipCacheKey(groupID int64, model string) string {
+	return fmt.Sprintf("%s%d|%s", compositeModelOwnershipCachePrefix, groupID, strings.TrimSpace(model))
+}
+
 func prefetchedStickyGroupIDFromContext(ctx context.Context) (int64, bool) {
 	return PrefetchedStickyGroupIDFromContext(ctx)
 }
@@ -865,6 +871,9 @@ func NewGatewayService(
 		compositeResolver:     compositeResolver,
 		balanceNotifyService:  balanceNotifyService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
+	}
+	if compositeResolver != nil {
+		compositeResolver.SetModelOwnershipResolver(svc.resolveCompositeModelOwnership)
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,
@@ -1464,7 +1473,21 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 // 通常聚合可调度账号的 model_mapping 键；无显式映射的 OpenAI 和 Gemini 账号按账户能力补充默认目录，
 // 官方 Antigravity OAuth/Setup Token 账号则只公开经过整理的 agy 用户目录。
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
-	cacheKey := modelsListCacheKey(groupID, platform)
+	return s.getAvailableModels(ctx, groupID, platform, true)
+}
+
+// GetAvailableModelsForComposite 返回 Composite 分组中单个平台的有效目录。
+// 当存在显式目录时，OpenAI/Gemini 空映射账号不能把整套默认模型混入该目录。
+func (s *GatewayService) GetAvailableModelsForComposite(ctx context.Context, groupID *int64, platform string) []string {
+	return s.getAvailableModels(ctx, groupID, platform, false)
+}
+
+func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64, platform string, includeEmptyAccountDefaults bool) []string {
+	cachePlatform := platform
+	if !includeEmptyAccountDefaults {
+		cachePlatform += compositeAvailableModelsCacheSuffix
+	}
+	cacheKey := modelsListCacheKey(groupID, cachePlatform)
 	if s.modelsListCache != nil {
 		if cached, found := s.modelsListCache.Get(cacheKey); found {
 			if models, ok := cached.([]string); ok {
@@ -1529,10 +1552,10 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 
 		mapping := acc.GetModelMapping()
 		if len(mapping) == 0 {
-			if platform == PlatformOpenAI && acc.Platform == PlatformOpenAI {
+			if includeEmptyAccountDefaults && platform == PlatformOpenAI && acc.Platform == PlatformOpenAI {
 				hasOpenAIEmptyMappingAccount = true
 			}
-			if platform == PlatformGemini && acc.Platform == PlatformGemini {
+			if includeEmptyAccountDefaults && platform == PlatformGemini && acc.Platform == PlatformGemini {
 				hasResolvedModels = true
 				catalog := geminicli.DefaultModels
 				if acc.Type == AccountTypeAPIKey {
@@ -1735,6 +1758,59 @@ func antigravityModelMatchesProtocol(model, protocol string) bool {
 	}
 }
 
+func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, groupID int64, model string) (CompositeModelOwnership, error) {
+	model = strings.TrimSpace(model)
+	if s == nil || s.accountRepo == nil || groupID <= 0 || model == "" {
+		return CompositeModelOwnership{}, nil
+	}
+
+	cacheKey := compositeModelOwnershipCacheKey(groupID, model)
+	if s.modelsListCache != nil {
+		if cached, found := s.modelsListCache.Get(cacheKey); found {
+			if ownership, ok := cached.(CompositeModelOwnership); ok {
+				return ownership, nil
+			}
+		}
+	}
+
+	accounts, err := s.accountRepo.ListSchedulableByGroupID(ctx, groupID)
+	if err != nil {
+		return CompositeModelOwnership{}, err
+	}
+
+	platforms := make(map[string]struct{})
+	for _, account := range accounts {
+		platform := strings.TrimSpace(account.Platform)
+		if !isConcreteRequestPlatform(platform) || !explicitModelMappingClaims(account, model) {
+			continue
+		}
+		platforms[platform] = struct{}{}
+	}
+
+	ownership := CompositeModelOwnership{}
+	if len(platforms) == 1 {
+		for platform := range platforms {
+			ownership.TargetPlatform = platform
+		}
+		ownership.Matched = true
+	} else if len(platforms) > 1 {
+		ownership.Ambiguous = true
+	}
+
+	if s.modelsListCache != nil {
+		s.modelsListCache.Set(cacheKey, ownership, s.modelsListCacheTTL)
+	}
+	return ownership, nil
+}
+
+func explicitModelMappingClaims(account Account, model string) bool {
+	if account.Credentials == nil || model == "" {
+		return false
+	}
+	mapped, ok := stringMappingFromRaw(account.Credentials["model_mapping"])[model]
+	return ok && strings.TrimSpace(mapped) != ""
+}
+
 // GetSchedulablePlatforms returns the concrete platforms that currently have
 // schedulable accounts in the target group.
 func (s *GatewayService) GetSchedulablePlatforms(ctx context.Context, groupID *int64) map[string]struct{} {
@@ -1767,11 +1843,13 @@ func (s *GatewayService) InvalidateAvailableModelsCache(groupID *int64, platform
 	if s == nil || s.modelsListCache == nil {
 		return
 	}
+	s.invalidateCompositeModelOwnershipCache(groupID)
 
 	normalizedPlatform := strings.TrimSpace(platform)
 	// 完整匹配时精准失效；否则按维度批量失效。
 	if groupID != nil && normalizedPlatform != "" {
 		s.modelsListCache.Delete(modelsListCacheKey(groupID, normalizedPlatform))
+		s.modelsListCache.Delete(modelsListCacheKey(groupID, normalizedPlatform+compositeAvailableModelsCacheSuffix))
 		return
 	}
 
@@ -1788,10 +1866,31 @@ func (s *GatewayService) InvalidateAvailableModelsCache(groupID *int64, platform
 		if groupID != nil && groupPart != targetGroup {
 			continue
 		}
-		if normalizedPlatform != "" && parts[1] != normalizedPlatform {
+		cachedPlatform := strings.TrimSuffix(parts[1], compositeAvailableModelsCacheSuffix)
+		if normalizedPlatform != "" && cachedPlatform != normalizedPlatform {
 			continue
 		}
 		s.modelsListCache.Delete(key)
+	}
+}
+
+func (s *GatewayService) invalidateCompositeModelOwnershipCache(groupID *int64) {
+	for key := range s.modelsListCache.Items() {
+		if !strings.HasPrefix(key, compositeModelOwnershipCachePrefix) {
+			continue
+		}
+		if groupID == nil {
+			s.modelsListCache.Delete(key)
+			continue
+		}
+		parts := strings.SplitN(strings.TrimPrefix(key, compositeModelOwnershipCachePrefix), "|", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		cachedGroupID, err := strconv.ParseInt(parts[0], 10, 64)
+		if err == nil && cachedGroupID == *groupID {
+			s.modelsListCache.Delete(key)
+		}
 	}
 }
 

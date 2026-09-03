@@ -82,17 +82,17 @@ func RegisterGatewayRoutes(
 			h.Gateway.CountTokens(c)
 		}
 	}
+	codexModelsHandler := func(c *gin.Context) {
+		dispatchCodexModelsGateway(c, h.OpenAIGateway.CodexModels, h.Gateway.CodexModels)
+	}
 	modelsHandler := func(c *gin.Context) {
+		if c.Query("client_version") != "" {
+			codexModelsHandler(c)
+			return
+		}
 		if isStandardProtocolGatewayPlatform(c) && h.OpenCodeGo != nil {
 			h.OpenCodeGo.Models(c)
 			return
-		}
-		if c.Query("client_version") != "" {
-			switch getGroupPlatform(c) {
-			case service.PlatformOpenAI, service.PlatformComposite:
-				h.OpenAIGateway.CodexModels(c)
-				return
-			}
 		}
 		h.Gateway.Models(c)
 	}
@@ -467,7 +467,7 @@ func RegisterGatewayRoutes(
 			}
 			h.OpenAIGateway.ResponsesWebSocket(c)
 		})
-		codexDirect.GET("/models", h.OpenAIGateway.CodexModels)
+		codexDirect.GET("/models", codexModelsHandler)
 	}
 	// OpenAI Chat Completions API（不带v1前缀的别名）— auto-route based on group platform
 	r.POST("/chat/completions", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), routeAPIKeyGroup, compositeTarget, requireGroupAnthropic, func(c *gin.Context) {
@@ -631,17 +631,20 @@ func RegisterGatewayRoutes(
 			}
 			h.Gateway.Messages(c)
 		})
-		providerV1.GET("/models", func(c *gin.Context) {
-			if isStandardProtocolGatewayPlatform(c) && h.OpenCodeGo != nil {
-				h.OpenCodeGo.Models(c)
-				return
-			}
-			h.Gateway.Models(c)
-		})
+		providerV1.GET("/models", modelsHandler)
 	}
 }
 
-// getGroupPlatform 返回 API Key 固定路由平台；实际分组会在请求模型解析后写入上下文。
+func dispatchCodexModelsGateway(c *gin.Context, openAIHandler, generatedHandler gin.HandlerFunc) {
+	apiKey, _ := middleware.GetAPIKeyFromContext(c)
+	if getGroupPlatform(c) == service.PlatformOpenAI && (apiKey == nil || !apiKey.UsesDynamicGroupRouting()) {
+		openAIHandler(c)
+		return
+	}
+	generatedHandler(c)
+}
+
+// getGroupPlatform 返回 API Key 固定路由平台；实际 Composite 分组会在请求模型解析后写入上下文。
 func getGroupPlatform(c *gin.Context) string {
 	apiKey, ok := middleware.GetAPIKeyFromContext(c)
 	if !ok || apiKey == nil {
