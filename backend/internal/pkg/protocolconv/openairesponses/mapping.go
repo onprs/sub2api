@@ -562,6 +562,22 @@ func toolResultString(raw json.RawMessage) string {
 	return string(raw)
 }
 
+const openAIResponsesServiceTierMetadataKey = "openai_responses.service_tier"
+
+func encodeResponseProviderMetadata(serviceTier string) map[string]json.RawMessage {
+	if serviceTier == "" {
+		return nil
+	}
+	body, _ := json.Marshal(serviceTier)
+	return map[string]json.RawMessage{openAIResponsesServiceTierMetadataKey: body}
+}
+
+func decodeResponseServiceTier(metadata map[string]json.RawMessage) string {
+	var serviceTier string
+	_ = json.Unmarshal(metadata[openAIResponsesServiceTierMetadataKey], &serviceTier)
+	return serviceTier
+}
+
 func encodeRequestExtensions(wire requestWire) map[string]json.RawMessage {
 	out := make(map[string]json.RawMessage)
 	put := func(key string, value any) {
@@ -570,7 +586,7 @@ func encodeRequestExtensions(wire requestWire) map[string]json.RawMessage {
 			out[key] = body
 		}
 	}
-	put("openai_responses.service_tier", wire.ServiceTier)
+	put(openAIResponsesServiceTierMetadataKey, wire.ServiceTier)
 	put("openai_responses.previous_response_id", wire.PreviousResponseID)
 	put("openai_responses.store", wire.Store)
 	put("openai_responses.include", wire.Include)
@@ -580,7 +596,7 @@ func encodeRequestExtensions(wire requestWire) map[string]json.RawMessage {
 	return out
 }
 func decodeRequestExtensions(ext map[string]json.RawMessage, wire *requestWire) {
-	_ = json.Unmarshal(ext["openai_responses.service_tier"], &wire.ServiceTier)
+	_ = json.Unmarshal(ext[openAIResponsesServiceTierMetadataKey], &wire.ServiceTier)
 	_ = json.Unmarshal(ext["openai_responses.previous_response_id"], &wire.PreviousResponseID)
 	_ = json.Unmarshal(ext["openai_responses.store"], &wire.Store)
 	_ = json.Unmarshal(ext["openai_responses.include"], &wire.Include)

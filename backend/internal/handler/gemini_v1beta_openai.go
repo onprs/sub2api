@@ -175,7 +175,7 @@ func (h *GatewayHandler) forwardGeminiIngressToStandardProvider(
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(forwardErr, &failoverErr) && c.Writer.Size() == writerSizeBefore {
 				if platform == service.PlatformOpenAI {
-					h.openAIGatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(routedModel), false, nil)
+					h.openAIGatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(routedModel), false, nil)
 				}
 				switch fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr) {
 				case FailoverContinue:
@@ -210,7 +210,7 @@ func (h *GatewayHandler) forwardGeminiIngressToStandardProvider(
 		}
 		upstreamEndpoint := GetUpstreamEndpointForActualProtocol(c, account.Platform, actualProtocol)
 		if openAIResult != nil {
-			h.openAIGatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(routedModel), true, openAIResult.FirstTokenMs)
+			h.openAIGatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(routedModel), true, openAIResult.FirstTokenMs)
 			cyberBlocked := service.GetOpsCyberPolicy(c) != nil
 			h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 				if err := h.openAIGatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{

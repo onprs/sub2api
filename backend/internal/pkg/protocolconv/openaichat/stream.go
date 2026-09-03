@@ -52,6 +52,14 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 }
 
 func (d *streamDecoder) Finalize() ([]ir.StreamEvent, []protocolconv.Warning, error) {
+	if err := d.bridge.ValidateToolCallArguments(); err != nil {
+		return nil, nil, &protocolconv.Error{
+			Code:     protocolconv.ErrorInvalidStream,
+			Protocol: protocolconv.ProtocolOpenAIChat,
+			Message:  "invalid tool call arguments",
+			Cause:    err,
+		}
+	}
 	events, warnings, err := d.decodeResponses(apicompat.FinalizeChatCompletionsResponsesStream(d.bridge))
 	if err != nil {
 		return nil, warnings, err

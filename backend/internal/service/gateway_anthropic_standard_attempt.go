@@ -121,9 +121,10 @@ func (s *GatewayService) forwardStandardProtocolToAnthropic(
 			s.rateLimitService.HandleUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, mappedModel)
 		}
 		return nil, &UpstreamFailoverError{
-			StatusCode:      upstream.StatusCode,
-			ResponseBody:    upstream.Body,
-			ResponseHeaders: protocoltransport.CloneHeaders(upstream.Headers),
+			StatusCode:             upstream.StatusCode,
+			ResponseBody:           upstream.Body,
+			ResponseHeaders:        protocoltransport.CloneHeaders(upstream.Headers),
+			RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstream.StatusCode),
 		}
 	}
 	if writeError != nil {

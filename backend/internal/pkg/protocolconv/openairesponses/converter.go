@@ -66,6 +66,7 @@ type responseWire struct {
 	ID                string                                `json:"id"`
 	Model             string                                `json:"model"`
 	Status            string                                `json:"status"`
+	ServiceTier       string                                `json:"service_tier,omitempty"`
 	Output            []responseOutputWire                  `json:"output"`
 	Usage             *apicompat.ResponsesUsage             `json:"usage,omitempty"`
 	IncompleteDetails *apicompat.ResponsesIncompleteDetails `json:"incomplete_details,omitempty"`
@@ -201,7 +202,13 @@ func (*Converter) DecodeResponse(body []byte, _ protocolconv.Options) (*ir.Respo
 	if err := decodeJSON(body, &wire); err != nil {
 		return nil, nil, err
 	}
-	out := &ir.Response{ID: wire.ID, Model: wire.Model, Status: wire.Status, Created: time.Now().Unix()}
+	out := &ir.Response{
+		ID:               wire.ID,
+		Model:            wire.Model,
+		Status:           wire.Status,
+		Created:          time.Now().Unix(),
+		ProviderMetadata: encodeResponseProviderMetadata(wire.ServiceTier),
+	}
 	message := ir.Message{Role: ir.RoleAssistant}
 	finish := ir.FinishReason{Reason: responseWireFinishReason(&wire)}
 	for _, item := range wire.Output {
@@ -246,7 +253,14 @@ func (c *Converter) EncodeResponse(response *ir.Response, options protocolconv.O
 	if err := ir.ValidateResponse(response); err != nil {
 		return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidIR, Protocol: c.Protocol(), Cause: err}
 	}
-	wire := apicompat.ResponsesResponse{ID: response.ID, Object: "response", Model: response.Model, Status: response.Status, Usage: encodeUsage(response.Usage)}
+	wire := apicompat.ResponsesResponse{
+		ID:          response.ID,
+		Object:      "response",
+		Model:       response.Model,
+		Status:      response.Status,
+		ServiceTier: decodeResponseServiceTier(response.ProviderMetadata),
+		Usage:       encodeUsage(response.Usage),
+	}
 	if wire.Status == "" {
 		wire.Status = "completed"
 	}

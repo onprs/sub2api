@@ -21,6 +21,28 @@ func TestStreamDecoderTreatsCancelledResponsesAsTerminal(t *testing.T) {
 	}
 }
 
+func TestStreamRoundTripPreservesTerminalServiceTier(t *testing.T) {
+	decoder := newStreamDecoder()
+	events, warnings, err := decoder.Decode([]byte(`{
+		"type":"response.completed",
+		"response":{"id":"resp-tier","model":"gpt-5.5","status":"completed","service_tier":"default","output":[]}
+	}`))
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, []ir.StreamEventType{ir.EventStreamStart, ir.EventFinish, ir.EventStreamEnd}, streamEventTypes(events))
+	require.JSONEq(t, `"default"`, string(events[1].ProviderMetadata[openAIResponsesServiceTierMetadataKey]))
+
+	encoder := newStreamEncoder()
+	var payloads [][]byte
+	for _, event := range events {
+		out, encodeWarnings, encodeErr := encoder.Encode(event)
+		require.NoError(t, encodeErr)
+		require.Empty(t, encodeWarnings)
+		payloads = append(payloads, out...)
+	}
+	require.Equal(t, "default", gjson.GetBytes(payloads[len(payloads)-1], "response.service_tier").String())
+}
+
 func TestStreamDecoderAllowsInProgressAfterCreated(t *testing.T) {
 	decoder := newStreamDecoder()
 	events, _, err := decoder.Decode([]byte(`{"type":"response.created","response":{"id":"resp-1","object":"response","model":"model","status":"in_progress","output":[]}}`))

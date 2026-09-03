@@ -2645,9 +2645,14 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 			catalog = geminicli.ModelsForAIStudioTier(account.GeminiTierID())
 		}
 
-		// OAuth 与 Vertex 不使用 AI Studio API Key Free Tier 的限制目录。
+		// Google One OAuth 仍走旧 Gemini CLI 渠道，只暴露其保守目录；
+		// 其他 OAuth 与 Vertex 不受 AI Studio API Key Free Tier 目录限制。
 		if account.IsOAuth() {
-			response.Success(c, catalog)
+			if account.IsGeminiGoogleOne() {
+				response.Success(c, geminicli.GoogleOneModels)
+				return
+			}
+			response.Success(c, geminicli.DefaultModels)
 			return
 		}
 

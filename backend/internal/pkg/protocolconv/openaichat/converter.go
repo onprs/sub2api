@@ -121,7 +121,7 @@ func (c *Converter) DecodeResponse(body []byte, options protocolconv.Options) (*
 	if err := decode(body, &wire); err != nil {
 		return nil, nil, err
 	}
-	responses := apicompat.ChatCompletionsResponseToResponses(&wire, wire.Model, nil, false, nil)
+	responses := apicompat.ChatCompletionsResponseToResponses(&wire, wire.Model, nil, nil, false, nil)
 	canonical, err := json.Marshal(responses)
 	if err != nil {
 		return nil, nil, err

@@ -616,7 +616,7 @@ func (s *OpenAIGatewayService) forwardGrokChatCompletionsViaResponses(
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}
@@ -645,14 +645,18 @@ func (s *OpenAIGatewayService) forwardGrokChatCompletionsViaResponses(
 			Kind:               kind,
 			Message:            upstreamMsg,
 		})
-		errCtx := withGrokTeamRateLimitModel(ctx, upstreamModel)
-		s.handleGrokAccountUpstreamError(errCtx, account, upstream.StatusCode, upstream.Headers, upstream.Body)
+		s.handleGrokAccountUpstreamError(withGrokTeamRateLimitModel(ctx, upstreamModel), account, upstream.StatusCode, upstream.Headers, upstream.Body)
 		if shouldFailover {
+			retryable, retryDelay, retryDeadline, retryMax := grokSameAccountRetryMetadata(account, upstream.StatusCode, upstream.Body)
 			return nil, &UpstreamFailoverError{
-				StatusCode:             upstream.StatusCode,
-				ResponseBody:           upstream.Body,
-				ResponseHeaders:        upstream.Headers.Clone(),
-				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstream.StatusCode),
+				StatusCode:               upstream.StatusCode,
+				ResponseBody:             upstream.Body,
+				ResponseHeaders:          upstream.Headers.Clone(),
+				RetryableOnSameAccount:   retryable,
+				RequestScopedTransient:   retryable && upstream.StatusCode == http.StatusTooManyRequests,
+				SameAccountRetryDelay:    retryDelay,
+				SameAccountRetryDeadline: retryDeadline,
+				SameAccountRetryMax:      retryMax,
 			}
 		}
 		return s.handleChatCompletionsErrorResponse(upstream, c, account, billingModel)

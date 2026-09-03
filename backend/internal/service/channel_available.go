@@ -142,6 +142,15 @@ func (s *ChannelService) fillGlobalPricingFallback(models []SupportedModel) {
 	}
 }
 
+// fillGlobalPricingFallback 供不持有 ChannelService 的聚合服务复用平台隔离目录回落。
+func fillGlobalPricingFallback(pricingService *PricingService, models []SupportedModel) {
+	if pricingService == nil {
+		return
+	}
+	service := &ChannelService{pricingService: pricingService}
+	service.fillGlobalPricingFallback(models)
+}
+
 // BuildCatalogSupportedModel builds a display-only SupportedModel from the global
 // pricing catalog. It never reads channel_model_pricing, so it is safe for the
 // user-facing model-pricing page where the model list comes from group accounts.

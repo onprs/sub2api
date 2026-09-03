@@ -79,6 +79,8 @@ func TestCollectCCUpstreamStreamParsesBoundedRecordsAndOwnsBody(t *testing.T) {
 }
 
 func TestCollectBufferedChatCompletionsResponseReturnsStructuredActualProtocol(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
 	svc := &OpenAIGatewayService{responseHeaderFilter: compileResponseHeaderFilter(rawChatCompletionsTestConfig())}
 	started := time.Now().Add(-time.Second)
 	serviceTier := "priority"
@@ -86,6 +88,7 @@ func TestCollectBufferedChatCompletionsResponseReturnsStructuredActualProtocol(t
 	upstreamBody := []byte(`{"id":"chatcmpl_structured","object":"chat.completion","model":"upstream-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5},"vendor_extension":{"trace":"preserved"}}`)
 
 	structured, result, err := svc.collectBufferedChatCompletionsResponse(
+		c,
 		http.StatusOK,
 		http.Header{
 			"Content-Type":      []string{"application/json"},
@@ -114,7 +117,7 @@ func TestCollectBufferedChatCompletionsResponseReturnsStructuredActualProtocol(t
 	require.Equal(t, upstreamBody, structured.Body)
 	var ccResp apicompat.ChatCompletionsResponse
 	require.NoError(t, json.Unmarshal(structured.Body, &ccResp))
-	downstream := apicompat.ChatCompletionsResponseToResponses(&ccResp, "client-model", nil, false, nil)
+	downstream := apicompat.ChatCompletionsResponseToResponses(&ccResp, "client-model", nil, nil, false, nil)
 	downstreamBody, err := json.Marshal(downstream)
 	require.NoError(t, err)
 	require.Equal(t, "client-model", gjson.GetBytes(downstreamBody, "model").String())
@@ -422,6 +425,43 @@ func TestForwardResponses_ChatFallbackMalformedStreamDoesNotFinalize(t *testing.
 	require.Equal(t, 1, result.Usage.OutputTokens)
 	require.Equal(t, "chatcmpl_malformed", result.ResponseID)
 	require.NotContains(t, rec.Body.String(), "response.completed")
+	require.NotContains(t, rec.Body.String(), "data: [DONE]")
+}
+
+func TestForwardResponses_ChatFallbackRejectsInvalidToolArgumentsAtOutputLimit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"deepseek-v4-flash","input":"run the command","stream":true}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstreamBody := strings.Join([]string{
+		`data: {"id":"chatcmpl_length_tool","object":"chat.completion.chunk","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_length","type":"function","function":{"name":"exec_command","arguments":"{\"cmd\":\"ssh root@HOST"}}]},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"chatcmpl_length_tool","object":"chat.completion.chunk","model":"deepseek-v4-flash","choices":[{"index":0,"delta":{},"finish_reason":"length"}],"usage":{"prompt_tokens":4,"completion_tokens":6492,"total_tokens":6496}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_length_tool"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.ErrorContains(t, err, "invalid JSON")
+	require.NotNil(t, result)
+	require.Equal(t, 4, result.Usage.InputTokens)
+	require.Equal(t, 6492, result.Usage.OutputTokens)
+	require.NotContains(t, rec.Body.String(), "response.function_call_arguments.done")
+	require.NotContains(t, rec.Body.String(), "response.output_item.done")
 	require.NotContains(t, rec.Body.String(), "data: [DONE]")
 }
 

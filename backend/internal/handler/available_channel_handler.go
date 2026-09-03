@@ -627,6 +627,27 @@ func toUserPricingTimeBands(src []service.ModelPricingTimeBand) []userPricingTim
 	return out
 }
 
+// toUserPricingIntervals 将定价区间转换为用户 DTO 白名单形态；nil 入参返回 nil。
+func toUserPricingIntervals(src []service.PricingInterval) []userPricingIntervalDTO {
+	if src == nil {
+		return nil
+	}
+	intervals := make([]userPricingIntervalDTO, 0, len(src))
+	for _, iv := range src {
+		intervals = append(intervals, userPricingIntervalDTO{
+			MinTokens:       iv.MinTokens,
+			MaxTokens:       iv.MaxTokens,
+			TierLabel:       iv.TierLabel,
+			InputPrice:      iv.InputPrice,
+			OutputPrice:     iv.OutputPrice,
+			CacheWritePrice: iv.CacheWritePrice,
+			CacheReadPrice:  iv.CacheReadPrice,
+			PerRequestPrice: iv.PerRequestPrice,
+		})
+	}
+	return intervals
+}
+
 // toUserPricing 将 service 层定价转换为用户 DTO；入参为 nil 时返回可检查的未配置对象。
 func toUserPricing(p *service.ChannelModelPricing, pricingSource string) *userSupportedModelPricing {
 	source, label, detail := userPricingSourceMeta(pricingSource)

@@ -54,11 +54,15 @@ const (
 	// URL 可用性 TTL（不可用 URL 的恢复时间）
 	URLAvailabilityTTL = 5 * time.Minute
 
-	// Antigravity API 端点。正式 daily 是当前官方 CLI 使用的入口；
+	// Antigravity 正式 API 端点。daily 是当前官方 CLI 使用的入口；
 	// production 仅作为兼容回退，sandbox 不进入默认请求链。
 	DailyBaseURL      = "https://daily-cloudcode-pa.googleapis.com"
 	ProductionBaseURL = "https://cloudcode-pa.googleapis.com"
 	SandboxBaseURL    = "https://daily-cloudcode-pa.sandbox.googleapis.com"
+
+	// 保留包内旧名称，兼容已有调用和契约测试。
+	antigravityProdBaseURL  = ProductionBaseURL
+	antigravityDailyBaseURL = DailyBaseURL
 )
 
 var userAgentVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)

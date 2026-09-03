@@ -133,6 +133,69 @@ func TestHandleStructuredResponsesStreamEmptyCompletedFailsOverBeforeCommit(t *t
 	require.False(t, output.ClientOutputStarted())
 }
 
+func TestHandleStructuredResponsesStreamBareErrorDefersToCompleted(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	pipeline := nativeResponsesOutputTestPipeline(t, "gpt-5", "gpt-5", true)
+	output, err := newNativeResponsesProtocolOutput(c.Writer, pipeline, "gpt-5", "gpt-5", true)
+	require.NoError(t, err)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(
+			`data: {"type":"error","error":{"code":"transient","message":"retrying"}}` + "\n\n" +
+				`data: {"type":"response.completed","response":{"id":"resp_recovered","model":"gpt-5","status":"completed","service_tier":"priority","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":7,"output_tokens":3}}}` + "\n\n",
+		)),
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 2048}}}
+
+	result, err := svc.handleStructuredResponsesStream(
+		context.Background(), resp, c, &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+		time.Now(), "gpt-5", output,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 7, result.usage.InputTokens)
+	require.Equal(t, 3, result.usage.OutputTokens)
+	wire := recorder.Body.String()
+	require.NotContains(t, wire, `"type":"error"`)
+	require.NotContains(t, wire, `"type":"response.failed"`)
+	require.Contains(t, wire, `"type":"response.completed"`)
+	tier := observedUpstreamResponseServiceTier(c)
+	require.Equal(t, "priority", tier)
+}
+
+func TestHandleStructuredResponsesStreamBareErrorSynthesizesFailedAtEOF(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	pipeline := nativeResponsesOutputTestPipeline(t, "gpt-5", "gpt-5", true)
+	output, err := newNativeResponsesProtocolOutput(c.Writer, pipeline, "gpt-5", "gpt-5", true)
+	require.NoError(t, err)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(
+			`data: {"type":"error","error":{"code":"invalid_request","message":"bad request"}}` + "\n\n",
+		)),
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 2048}}}
+
+	result, err := svc.handleStructuredResponsesStream(
+		context.Background(), resp, c, &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+		time.Now(), "gpt-5", output,
+	)
+
+	require.ErrorContains(t, err, "upstream response failed")
+	require.NotNil(t, result)
+	wire := recorder.Body.String()
+	require.NotContains(t, wire, `"type":"error"`)
+	require.Equal(t, 1, strings.Count(wire, `"type":"response.failed"`))
+	require.Contains(t, wire, `"message":"bad request"`)
+}
+
 func TestNativeResponsesProtocolOutputFirstOutputLimitIncludesSemanticEvent(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	pipeline := nativeResponsesOutputTestPipeline(t, "gpt-5", "gpt-5", true)
@@ -324,7 +387,7 @@ func TestHandleStructuredPassthroughSSEToJSONUsesIdentityPipelineAndRenderer(t *
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 2048}}}
 
 	result, err := svc.handleNonStreamingResponsePassthroughWithOutput(
-		context.Background(), resp, c, "client-model", "upstream-model", output,
+		context.Background(), resp, c, &Account{ID: 42, Platform: PlatformOpenAI}, "client-model", "upstream-model", output,
 	)
 
 	require.NoError(t, err)
@@ -354,7 +417,7 @@ func TestHandleStructuredPassthroughSSEToJSONRejectsMalformedBeforeCommit(t *tes
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: 1024}}}
 
 	result, err := svc.handleNonStreamingResponsePassthroughWithOutput(
-		context.Background(), resp, c, "client-model", "upstream-model", output,
+		context.Background(), resp, c, &Account{ID: 42, Platform: PlatformOpenAI}, "client-model", "upstream-model", output,
 	)
 
 	require.ErrorContains(t, err, "malformed SSE JSON payload")

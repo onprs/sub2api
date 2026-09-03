@@ -229,14 +229,16 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 		response := event.Response
 		reason := ir.FinishReason{Reason: "stop"}
 		var usage *ir.Usage
+		var providerMetadata map[string]json.RawMessage
 		if response != nil {
 			reason.Reason = responsesFinishReason(response)
 			usage = decodeUsage(response.Usage)
+			providerMetadata = encodeResponseProviderMetadata(response.ServiceTier)
 		}
 		if usage == nil {
 			usage = decodeUsage(event.Usage)
 		}
-		out = append(out, ir.StreamEvent{Type: ir.EventFinish, FinishReason: &reason})
+		out = append(out, ir.StreamEvent{Type: ir.EventFinish, FinishReason: &reason, ProviderMetadata: providerMetadata})
 		if usage != nil {
 			out = append(out, ir.StreamEvent{Type: ir.EventUsage, Usage: usage})
 		}
@@ -482,6 +484,9 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 			e.response = &apicompat.ResponsesResponse{ID: e.id, Object: "response", Model: e.model}
 		}
 		e.response.Status = "completed"
+		if serviceTier := decodeResponseServiceTier(event.ProviderMetadata); serviceTier != "" {
+			e.response.ServiceTier = serviceTier
+		}
 		if event.FinishReason != nil && event.FinishReason.Reason == "length" {
 			e.response.Status = "incomplete"
 			e.response.IncompleteDetails = &apicompat.ResponsesIncompleteDetails{Reason: "max_output_tokens"}

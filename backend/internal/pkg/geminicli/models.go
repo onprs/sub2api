@@ -59,5 +59,22 @@ func DefaultModelForAIStudioTier(tierID string) string {
 	return models[0].ID
 }
 
-// DefaultTestModel 是非 Free Tier 账户测试未指定模型时使用的原有默认模型。
+// GoogleOneModels 是旧 Google One OAuth 渠道可用的保守模型集合。
+// 新版订阅模型由 Antigravity OAuth 提供，不在该渠道暴露。
+var GoogleOneModels = []Model{
+	{ID: "gemini-2.5-flash", Type: "model", DisplayName: "Gemini 2.5 Flash", CreatedAt: ""},
+	{ID: "gemini-2.5-pro", Type: "model", DisplayName: "Gemini 2.5 Pro", CreatedAt: ""},
+	{ID: "gemini-2.0-flash", Type: "model", DisplayName: "Gemini 2.0 Flash", CreatedAt: ""},
+}
+
+// GoogleOneModelMapping 为每个账户返回独立白名单，避免调用方修改包级目录。
+func GoogleOneModelMapping() map[string]string {
+	mapping := make(map[string]string, len(GoogleOneModels))
+	for _, model := range GoogleOneModels {
+		mapping[model.ID] = model.ID
+	}
+	return mapping
+}
+
+// DefaultTestModel 是非 Free Tier 账户测试未指定模型时使用的默认模型。
 const DefaultTestModel = "gemini-2.0-flash"

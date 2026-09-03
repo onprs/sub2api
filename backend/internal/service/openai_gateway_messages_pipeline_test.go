@@ -65,7 +65,7 @@ func TestCollectOpenAICompatBufferedTerminalPreservesStructuredRawResponse(t *te
 		Body:       body,
 	}
 
-	terminal, err := (&OpenAIGatewayService{}).collectOpenAICompatBufferedTerminal(resp, "raw terminal test", time.Now())
+	terminal, err := (&OpenAIGatewayService{}).collectOpenAICompatBufferedTerminal(resp, nil, "raw terminal test", time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, terminal.Response)
 	require.Equal(t, "resp_raw", terminal.Response.ID)
@@ -95,7 +95,7 @@ func TestCollectOpenAICompatBufferedTerminalRejectsMalformedAndOversizedRecords(
 			svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: test.max}}}
 			resp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(test.body))}
 
-			terminal, err := svc.collectOpenAICompatBufferedTerminal(resp, "invalid terminal test", time.Now())
+			terminal, err := svc.collectOpenAICompatBufferedTerminal(resp, nil, "invalid terminal test", time.Now())
 
 			require.ErrorContains(t, err, test.want)
 			require.NotNil(t, terminal)
@@ -109,7 +109,7 @@ func TestCollectOpenAICompatBufferedTerminalTimeoutClosesBlockedBody(t *testing.
 	resp := &http.Response{StatusCode: http.StatusOK, Body: body}
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{StreamDataIntervalTimeout: 1}}}
 
-	terminal, err := svc.collectOpenAICompatBufferedTerminal(resp, "timeout terminal test", time.Now())
+	terminal, err := svc.collectOpenAICompatBufferedTerminal(resp, nil, "timeout terminal test", time.Now())
 
 	require.ErrorContains(t, err, "stream data interval timeout")
 	require.NotNil(t, terminal)

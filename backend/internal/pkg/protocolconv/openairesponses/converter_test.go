@@ -33,6 +33,21 @@ func TestEncodeRequestPreservesInstructionAndMessageCacheControl(t *testing.T) {
 	require.JSONEq(t, `{"type":"ephemeral","ttl":"1h"}`, string(restored.Messages[0].Content[0].CacheHint))
 }
 
+func TestResponseRoundTripPreservesServiceTier(t *testing.T) {
+	converter := New()
+	response, warnings, err := converter.DecodeResponse([]byte(`{
+		"id":"resp-tier","model":"gpt-5.5","status":"completed","service_tier":"default","output":[]
+	}`), protocolconv.Options{})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.JSONEq(t, `"default"`, string(response.ProviderMetadata[openAIResponsesServiceTierMetadataKey]))
+
+	body, warnings, err := converter.EncodeResponse(response, protocolconv.Options{})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, "default", gjson.GetBytes(body, "service_tier").String())
+}
+
 func TestDecodeRequestRejectsMultipleJSONValues(t *testing.T) {
 	_, _, err := New().DecodeRequest([]byte(`{"model":"model","input":"hello"}{}`), protocolconv.Options{})
 	require.ErrorContains(t, err, "multiple JSON values")
