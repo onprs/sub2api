@@ -4,6 +4,8 @@ umask 077
 
 SCRIPT_NAME="$(basename "$0")"
 RELEASE_ID="${SCRIPT_NAME%-cutover.sh}"
+SCRIPT_PATH="/tmp/$RELEASE_ID-cutover.sh"
+LOG_PATH="/tmp/$RELEASE_ID-cutover.log"
 ROOT="/opt/1panel/www/sites/doc.api.onprs.top"
 RELEASE_DIR="$ROOT/releases/$RELEASE_ID"
 CURRENT_LINK="$ROOT/index"
@@ -27,6 +29,51 @@ fi
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run this script as root." >&2
   exit 1
+fi
+
+if [[ "${DOCS_CUTOVER_LOG_WRAPPED:-0}" != "1" ]]; then
+  [[ -f "$SCRIPT_PATH" && ! -L "$SCRIPT_PATH" && "$(stat -c '%U:%G' "$SCRIPT_PATH")" == "root:root" ]] || {
+    printf 'error=release_script_missing_or_unsafe path=%s\n' "$SCRIPT_PATH" >&2
+    exit 1
+  }
+  if [[ -e "$LOG_PATH" || -L "$LOG_PATH" ]]; then
+    [[ -f "$LOG_PATH" && ! -L "$LOG_PATH" && "$(stat -c '%U:%G' "$LOG_PATH")" == "root:root" ]] || {
+      printf 'error=release_log_exists_but_is_unsafe path=%s\n' "$LOG_PATH" >&2
+      exit 1
+    }
+  else
+    (set -o noclobber; : >"$LOG_PATH") 2>/dev/null || {
+      printf 'error=release_log_create_failed path=%s\n' "$LOG_PATH" >&2
+      exit 1
+    }
+  fi
+  chmod 0600 "$LOG_PATH"
+  [[ "$(stat -c '%a' "$LOG_PATH")" == "600" ]] || {
+    printf 'error=release_log_mode_invalid path=%s\n' "$LOG_PATH" >&2
+    exit 1
+  }
+  command -v tee >/dev/null 2>&1 || {
+    printf 'error=required_command_missing command=tee\n' >&2
+    exit 1
+  }
+  printf 'log_session_started_at=%s action=cutover release_id=%s\n' "$(date -Is)" "$RELEASE_ID" >>"$LOG_PATH"
+  export DOCS_CUTOVER_LOG_WRAPPED=1
+  set +e
+  bash "$SCRIPT_PATH" "$@" 2>&1 | tee -a "$LOG_PATH"
+  pipeline_status=("${PIPESTATUS[@]}")
+  set -e
+  script_status="${pipeline_status[0]}"
+  tee_status="${pipeline_status[1]}"
+  status_line="exit_code=${script_status} tee_exit_code=${tee_status}"
+  if ! printf '%s\n' "$status_line" >>"$LOG_PATH"; then
+    tee_status=1
+    status_line="exit_code=${script_status} tee_exit_code=${tee_status}"
+  fi
+  printf '%s\n' "$status_line" || true
+  if ((script_status != 0)); then
+    exit "$script_status"
+  fi
+  exit "$tee_status"
 fi
 
 exec 9>"/tmp/doc-api-onprs-top-deploy.lock"
@@ -210,4 +257,5 @@ printf 'openresty_master_pid_after=%s\n' "$(openresty_master_pid)"
 printf 'sub2api_pid_before=%s\n' "$SERVICE_PID_BEFORE"
 printf 'sub2api_pid_after=%s\n' "$(systemctl show sub2api -p MainPID --value)"
 printf 'public_docs_http=200\npublic_docs_url=%s/\n' "$PUBLIC_DOCS_URL"
+printf 'cutover_done=true\n'
 printf 'rollback_command=bash /tmp/%s-rollback.sh\n' "$RELEASE_ID"

@@ -37,14 +37,12 @@ printf '%s  %s\n' "$SHA256" "$(basename "$ARCHIVE")" >"$ARCHIVE.sha256"
 
 cp docs-site/deploy/cutover.sh "$ARTIFACT_DIR/$RELEASE_ID-cutover.sh"
 cp docs-site/deploy/rollback.sh "$ARTIFACT_DIR/$RELEASE_ID-rollback.sh"
-cp docs-site/deploy/cleanup.sh "$ARTIFACT_DIR/$RELEASE_ID-cleanup.sh"
 
 tar -C "$ARTIFACT_DIR" -czf "$UPLOAD_BUNDLE" \
   "$RELEASE_ID.tar.gz" \
   "$RELEASE_ID.tar.gz.sha256" \
   "$RELEASE_ID-cutover.sh" \
-  "$RELEASE_ID-rollback.sh" \
-  "$RELEASE_ID-cleanup.sh"
+  "$RELEASE_ID-rollback.sh"
 UPLOAD_SHA256="$(sha256sum "$UPLOAD_BUNDLE" | awk '{print $1}')"
 
 stage_remote() {
@@ -65,8 +63,7 @@ stage_remote() {
       if [[ \"\$success\" -ne 1 ]]; then
         rm -f \
           \"/tmp/\$release_id-cutover.sh\" \
-          \"/tmp/\$release_id-rollback.sh\" \
-          \"/tmp/\$release_id-cleanup.sh\"
+          \"/tmp/\$release_id-rollback.sh\"
         if [[ \"\$release_preexisting\" -eq 0 ]]; then
           rm -rf \"\$release_dir\"
         fi
@@ -96,12 +93,10 @@ stage_remote() {
     test -f \"\$release_id.tar.gz.sha256\"
     test -f \"\$release_id-cutover.sh\"
     test -f \"\$release_id-rollback.sh\"
-    test -f \"\$release_id-cleanup.sh\"
     printf '%s  %s\n' '$SHA256' \"\$release_id.tar.gz\" | sha256sum -c -
 
     install -m 0755 \"\$release_id-cutover.sh\" \"/tmp/\$release_id-cutover.sh\"
     install -m 0755 \"\$release_id-rollback.sh\" \"/tmp/\$release_id-rollback.sh\"
-    install -m 0755 \"\$release_id-cleanup.sh\" \"/tmp/\$release_id-cleanup.sh\"
 
     if [[ \"\$release_preexisting\" -eq 0 ]]; then
       mkdir \"\$staging_dir\"
@@ -146,6 +141,5 @@ printf 'release_id=%s\n' "$RELEASE_ID"
 printf 'git_commit=%s\n' "$GIT_SHA"
 printf 'archive_sha256=%s\n' "$SHA256"
 printf 'upload_sha256=%s\n' "$UPLOAD_SHA256"
-printf 'cutover_command=bash /tmp/%s-cutover.sh 2>&1 | tee /tmp/%s-cutover.log\n' "$RELEASE_ID" "$RELEASE_ID"
-printf 'rollback_command=bash /tmp/%s-rollback.sh 2>&1 | tee /tmp/%s-rollback.log\n' "$RELEASE_ID" "$RELEASE_ID"
-printf 'cleanup_command=bash /tmp/%s-cleanup.sh 2>&1 | tee /tmp/%s-cleanup.log\n' "$RELEASE_ID" "$RELEASE_ID"
+printf 'cutover_command=bash /tmp/%s-cutover.sh\n' "$RELEASE_ID"
+printf 'rollback_command=bash /tmp/%s-rollback.sh\n' "$RELEASE_ID"

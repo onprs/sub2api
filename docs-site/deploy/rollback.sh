@@ -4,6 +4,8 @@ umask 077
 
 SCRIPT_NAME="$(basename "$0")"
 RELEASE_ID="${SCRIPT_NAME%-rollback.sh}"
+SCRIPT_PATH="/tmp/$RELEASE_ID-rollback.sh"
+LOG_PATH="/tmp/$RELEASE_ID-rollback.log"
 ROOT="/opt/1panel/www/sites/doc.api.onprs.top"
 CURRENT_LINK="$ROOT/index"
 CONF_PATH="/opt/1panel/www/conf.d/doc.api.onprs.top.conf"
@@ -26,6 +28,52 @@ if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run this script as root." >&2
   exit 1
 fi
+
+if [[ "${DOCS_ROLLBACK_LOG_WRAPPED:-0}" != "1" ]]; then
+  [[ -f "$SCRIPT_PATH" && ! -L "$SCRIPT_PATH" && "$(stat -c '%U:%G' "$SCRIPT_PATH")" == "root:root" ]] || {
+    printf 'error=release_script_missing_or_unsafe path=%s\n' "$SCRIPT_PATH" >&2
+    exit 1
+  }
+  if [[ -e "$LOG_PATH" || -L "$LOG_PATH" ]]; then
+    [[ -f "$LOG_PATH" && ! -L "$LOG_PATH" && "$(stat -c '%U:%G' "$LOG_PATH")" == "root:root" ]] || {
+      printf 'error=release_log_exists_but_is_unsafe path=%s\n' "$LOG_PATH" >&2
+      exit 1
+    }
+  else
+    (set -o noclobber; : >"$LOG_PATH") 2>/dev/null || {
+      printf 'error=release_log_create_failed path=%s\n' "$LOG_PATH" >&2
+      exit 1
+    }
+  fi
+  chmod 0600 "$LOG_PATH"
+  [[ "$(stat -c '%a' "$LOG_PATH")" == "600" ]] || {
+    printf 'error=release_log_mode_invalid path=%s\n' "$LOG_PATH" >&2
+    exit 1
+  }
+  command -v tee >/dev/null 2>&1 || {
+    printf 'error=required_command_missing command=tee\n' >&2
+    exit 1
+  }
+  printf 'log_session_started_at=%s action=rollback release_id=%s\n' "$(date -Is)" "$RELEASE_ID" >>"$LOG_PATH"
+  export DOCS_ROLLBACK_LOG_WRAPPED=1
+  set +e
+  bash "$SCRIPT_PATH" "$@" 2>&1 | tee -a "$LOG_PATH"
+  pipeline_status=("${PIPESTATUS[@]}")
+  set -e
+  script_status="${pipeline_status[0]}"
+  tee_status="${pipeline_status[1]}"
+  status_line="exit_code=${script_status} tee_exit_code=${tee_status}"
+  if ! printf '%s\n' "$status_line" >>"$LOG_PATH"; then
+    tee_status=1
+    status_line="exit_code=${script_status} tee_exit_code=${tee_status}"
+  fi
+  printf '%s\n' "$status_line" || true
+  if ((script_status != 0)); then
+    exit "$script_status"
+  fi
+  exit "$tee_status"
+fi
+
 [[ -f "$STATE_PATH" ]]
 
 exec 9>"/tmp/doc-api-onprs-top-deploy.lock"
@@ -112,7 +160,7 @@ validate_services
 [[ "$(docker inspect -f '{{.State.Pid}}' "$CONTAINER")" == "$OPENRESTY_MASTER_PID_BEFORE" ]]
 
 trap - ERR
-printf 'rollback_ok=true\n'
+printf 'rollback_done=true\n'
 printf 'release_id=%s\n' "$RELEASE_ID"
 printf 'restored_target=%s\n' "$OLD_TARGET"
 printf 'config_sha256=%s\n' "$EXPECTED_CONFIG_SHA256"
