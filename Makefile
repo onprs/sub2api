@@ -1,4 +1,7 @@
-.PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical secret-scan verify-release-binary
+.PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical secret-scan verify-release-binary check-python
+
+PNPM ?= corepack pnpm@9.15.9
+PYTHON ?= $(shell if command -v python >/dev/null 2>&1; then command -v python; elif command -v python3 >/dev/null 2>&1; then command -v python3; fi)
 
 FRONTEND_CRITICAL_VITEST := \
 	src/api/__tests__/client.spec.ts \
@@ -24,7 +27,7 @@ build-backend:
 
 # 编译前端（需要已安装依赖）
 build-frontend:
-	@pnpm --dir frontend run build
+	@$(PNPM) --dir frontend run build
 
 # 运行测试（后端 + 前端）
 test: test-backend test-frontend
@@ -33,16 +36,20 @@ test-backend:
 	@$(MAKE) -C backend test
 
 test-frontend:
-	@pnpm --dir frontend run lint:check
-	@pnpm --dir frontend run typecheck
+	@$(PNPM) --dir frontend run lint:check
+	@$(PNPM) --dir frontend run typecheck
 	@$(MAKE) test-frontend-critical
 
 test-frontend-critical:
-	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)
+	@$(PNPM) --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)
 
-secret-scan:
-	@python3 tools/secret_scan.py
+check-python:
+	@test -n "$(PYTHON)" || (echo "Python 3.10+ is required; set PYTHON=/path/to/python" >&2; exit 2)
+	@"$(PYTHON)" -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 2)" || (echo "Python 3.10+ is required" >&2; exit 2)
 
-verify-release-binary:
+secret-scan: check-python
+	@"$(PYTHON)" tools/secret_scan.py
+
+verify-release-binary: check-python
 	@test -n "$(BINARY)" || (echo "Usage: make verify-release-binary BINARY=/path/to/sub2api [EXPECTED_SHA256=...]" >&2; exit 2)
-	@python3 tools/verify_release_binary.py "$(BINARY)" --profile onprs-subquota $(if $(EXPECTED_SHA256),--expected-sha256 "$(EXPECTED_SHA256)")
+	@"$(PYTHON)" tools/verify_release_binary.py "$(BINARY)" --profile onprs-subquota $(if $(EXPECTED_SHA256),--expected-sha256 "$(EXPECTED_SHA256)")
