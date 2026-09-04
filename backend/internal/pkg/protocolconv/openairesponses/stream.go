@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
@@ -16,6 +17,7 @@ type streamDecoder struct {
 	ended         bool
 	model         string
 	id            string
+	created       int64
 	blocks        map[int]ir.ContentType
 	calls         map[int]struct{ id, name string }
 	signatures    map[int]string
@@ -28,6 +30,7 @@ type streamEncoder struct {
 	sequence int
 	id       string
 	model    string
+	created  int64
 	response *apicompat.ResponsesResponse
 	blocks   map[int]ir.ContentType
 	items    map[int]*apicompat.ResponsesOutput
@@ -80,8 +83,9 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 		if response != nil {
 			d.id = response.ID
 			d.model = response.Model
+			d.created = response.CreatedAt
 		}
-		out = append(out, ir.StreamEvent{Type: ir.EventStreamStart, ResponseID: d.id, Model: d.model})
+		out = append(out, ir.StreamEvent{Type: ir.EventStreamStart, ResponseID: d.id, Model: d.model, Created: d.created})
 	}
 	ensureBlock := func(index int, blockType ir.ContentType) {
 		if _, exists := d.blocks[index]; exists {
@@ -277,11 +281,15 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 	case ir.EventStreamStart:
 		e.id = event.ResponseID
 		e.model = event.Model
+		e.created = event.Created
+		if e.created <= 0 {
+			e.created = time.Now().Unix()
+		}
 		if e.options.ResponseModel != "" {
 			e.model = e.options.ResponseModel
 		}
 		e.response = &apicompat.ResponsesResponse{
-			ID: e.id, Object: "response", Model: e.model, Status: "in_progress",
+			ID: e.id, Object: "response", CreatedAt: e.created, Model: e.model, Status: "in_progress",
 			Output: []apicompat.ResponsesOutput{},
 		}
 		x := makeEvent("response.created")
@@ -480,8 +488,11 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 		delete(e.blocks, event.BlockIndex)
 		events = append(events, done)
 	case ir.EventFinish:
+		if e.created <= 0 {
+			e.created = time.Now().Unix()
+		}
 		if e.response == nil {
-			e.response = &apicompat.ResponsesResponse{ID: e.id, Object: "response", Model: e.model}
+			e.response = &apicompat.ResponsesResponse{ID: e.id, Object: "response", CreatedAt: e.created, Model: e.model}
 		}
 		e.response.Status = "completed"
 		if serviceTier := decodeResponseServiceTier(event.ProviderMetadata); serviceTier != "" {
@@ -504,8 +515,11 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 		}
 		events = append(events, x)
 	case ir.EventStreamEnd:
+		if e.created <= 0 {
+			e.created = time.Now().Unix()
+		}
 		if e.response == nil {
-			e.response = &apicompat.ResponsesResponse{ID: e.id, Object: "response", Model: e.model, Status: "completed"}
+			e.response = &apicompat.ResponsesResponse{ID: e.id, Object: "response", CreatedAt: e.created, Model: e.model, Status: "completed"}
 		}
 		x := makeEvent("response.completed")
 		x.Response = e.response

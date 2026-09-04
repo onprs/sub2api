@@ -85,16 +85,9 @@ func (s *GatewayService) forwardStandardProtocolToAnthropic(
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
 		}
-		safeErr := sanitizeUpstreamErrorMessage(err.Error())
-		setOpsUpstreamError(c, 0, safeErr, "")
-		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
-			UpstreamStatusCode: 0, Kind: "request_error", Message: safeErr,
+		return nil, s.handleUpstreamTransportError(ctx, c, account, err, OpsUpstreamErrorEvent{
+			UpstreamURL: safeUpstreamURL(upstreamReq.URL.String()),
 		})
-		if writeError != nil {
-			writeError(http.StatusBadGateway, "server_error", "Upstream request failed")
-		}
-		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 	}
 	if resp == nil {
 		if writeError != nil {
@@ -117,14 +110,15 @@ func (s *GatewayService) forwardStandardProtocolToAnthropic(
 			UpstreamStatusCode: upstream.StatusCode, UpstreamRequestID: upstream.RequestID,
 			Kind: "failover", Message: upstreamMsg,
 		})
+		shouldDisable := false
 		if s.rateLimitService != nil {
-			s.rateLimitService.HandleUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, mappedModel)
+			shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, mappedModel)
 		}
 		return nil, &UpstreamFailoverError{
 			StatusCode:             upstream.StatusCode,
 			ResponseBody:           upstream.Body,
 			ResponseHeaders:        protocoltransport.CloneHeaders(upstream.Headers),
-			RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstream.StatusCode),
+			RetryableOnSameAccount: !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstream.StatusCode),
 		}
 	}
 	if writeError != nil {

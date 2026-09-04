@@ -106,8 +106,8 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		return nil, policyErr
 	}
 	upstreamBody = updatedBody
-	// 计费兜底 tier = 最终出站 body（policy filter/force 后）里的 tier；
-	// 最终值由 resolvedOpenAIUpstreamServiceTier 决定（上游回显优先）。
+	// Keep the final outbound tier separate from the observed response tier so
+	// usage recording can apply the selected credential's response contract.
 	serviceTier := extractOpenAIServiceTierFromBody(upstreamBody)
 	if account.Platform == PlatformGrok {
 		strippedBody, stripErr := stripRedundantGrokChatViewImageTool(upstreamBody)
@@ -338,6 +338,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	clientOutputStarted := false
 	pendingPayloads := make([][]byte, 0, 4)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
+	var terminal openAIRawStreamTerminalState
 
 	writePayloads := func(payloads [][]byte, force bool) error {
 		if clientDisconnected || len(payloads) == 0 {
@@ -381,11 +382,11 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		return nil
 	}
 
-	sawDone := false
+	var streamReadErr error
 	for {
 		record, nextErr := stream.Events.Next(context.Background())
 		if errors.Is(nextErr, protocoltransport.ErrSSEDone) {
-			sawDone = true
+			terminal.ObserveDataLine("[DONE]")
 			break
 		}
 		if errors.Is(nextErr, io.EOF) {
@@ -398,15 +399,11 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 					zap.String("request_id", requestID),
 				)
 			}
-			return &OpenAIForwardResult{
-				RequestID: requestID, ResponseID: responseID, ActualProtocol: stream.ActualProtocol,
-				Usage: usage, Model: originalModel,
-				BillingModel: billingModel, UpstreamModel: upstreamModel, ReasoningEffort: reasoningEffort,
-				ServiceTier: serviceTier, Stream: true, Duration: time.Since(startTime),
-				FirstTokenMs: firstTokenMs, ClientDisconnect: clientDisconnected,
-			}, fmt.Errorf("stream usage incomplete: %w", nextErr)
+			streamReadErr = nextErr
+			break
 		}
 
+		terminal.ObserveDataLine(strings.TrimSpace(string(record.Data)))
 		payload := applyOllamaCloudRawChatCompletionsResponse(account, record.Data)
 		payload, _ = stripEmptyChatToolCallIdentity(payload)
 		payloadText := string(payload)
@@ -448,9 +445,36 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		FirstTokenMs:                  firstTokenMs,
 		ClientDisconnect:              clientDisconnected,
 	}
-	if !sawDone {
-		return result, fmt.Errorf("stream usage incomplete: missing [DONE] sentinel")
+
+	// 客户端取消/断开后上游读失败与上游截断不可区分，按已收到的用量正常收尾计费。
+	clientAborted := clientDisconnected ||
+		errors.Is(streamReadErr, context.Canceled) ||
+		errors.Is(streamReadErr, context.DeadlineExceeded)
+
+	// 上游在任何终止信号之前结束时，未提交响应可透明换号；已写出则返回类型化错误。
+	if !clientAborted && terminal.IsTruncated(clientOutputStarted) {
+		cause := streamReadErr
+		if cause == nil {
+			cause = ErrOpenAIUpstreamStreamTruncated
+		}
+		logger.L().Warn("openai chat_completions raw: upstream stream truncated before terminal chunk",
+			zap.Error(cause),
+			zap.String("request_id", requestID),
+			zap.Int64("account_id", account.ID),
+			zap.String("upstream_model", upstreamModel),
+			zap.Bool("saw_sse_data", terminal.sawDataLine),
+			zap.Bool("client_output_started", clientOutputStarted),
+		)
+		if !clientOutputStarted {
+			return nil, newOpenAIRawStreamTruncatedFailoverError(c, account, requestID, cause)
+		}
+		recordOpenAIRawStreamTruncation(c, account, requestID, cause, "http_error")
+		return result, newOpenAIUpstreamStreamReadError(cause)
 	}
+	if clientAborted {
+		return result, nil
+	}
+
 	finalPayloads, _, err := session.Finalize()
 	if err != nil {
 		return result, fmt.Errorf("finalize raw Chat Completions stream: %w", err)
@@ -479,7 +503,6 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		}
 		if _, err := c.Writer.Write(renderer.StreamTerminal()); err != nil {
 			clientDisconnected = true
-			result.ClientDisconnect = true
 		}
 		if !clientDisconnected {
 			c.Writer.Flush()

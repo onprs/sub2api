@@ -68,8 +68,19 @@ func isOpenAINativeCompactionV2(c *gin.Context) bool {
 	return c.GetBool(openAINativeCompactionV2Key)
 }
 
-// ensureOpenAIRemoteCompactionV2BetaFeature 确保协商头包含 remote_compaction_v2，
-// 已存在时保持原样且不重复追加。
+// IsOpenAINativeCompactionV2 reports whether the handler identified this
+// request as the native remote compaction v2 wire. It exposes only the
+// request-scoped boolean marker; no request payload is retained.
+func IsOpenAINativeCompactionV2(c *gin.Context) bool {
+	return isOpenAINativeCompactionV2(c)
+}
+
+// ensureOpenAIRemoteCompactionV2BetaFeature 确保出站 x-codex-beta-features
+// 头包含 remote_compaction_v2。真实 Codex 发送 compaction_trigger 时总会同时
+// 携带该协商头（codex-rs build_model_client_beta_features_header 对该 feature
+// 特判 advertise）；上游或下游网关链剥掉它后，请求会在依赖该头做门控的
+// 环节被降级（#5586）。这里在原生 v2 请求出站前补齐，使线型与真实 Codex
+// 一致。已存在时保持原样，不重复追加。
 func ensureOpenAIRemoteCompactionV2BetaFeature(h http.Header) {
 	if h == nil {
 		return

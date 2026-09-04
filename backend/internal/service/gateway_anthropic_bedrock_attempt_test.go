@@ -210,7 +210,7 @@ func TestStandardProtocolBedrockSigV4Authentication(t *testing.T) {
 	require.NotContains(t, upstream.lastReq.Header.Get("Authorization"), "Bearer ")
 }
 
-func TestStandardProtocolBedrockNetworkErrorUsesSourceEnvelope(t *testing.T) {
+func TestStandardProtocolBedrockNetworkErrorReturnsFailoverWithoutCommittingResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := &httpUpstreamRecorder{err: errors.New("dial failed")}
 	svc := &GatewayService{httpUpstream: upstream, cfg: &config.Config{}}
@@ -222,11 +222,11 @@ func TestStandardProtocolBedrockNetworkErrorUsesSourceEnvelope(t *testing.T) {
 	result, err := svc.ForwardAsChatCompletions(context.Background(), c, standardBedrockAPIKeyAccount(), requestBody, nil)
 	require.Error(t, err)
 	require.Nil(t, result)
-	require.Equal(t, http.StatusBadGateway, recorder.Code)
-	require.Equal(t, "upstream_error", gjson.GetBytes(recorder.Body.Bytes(), "error.type").String())
-	require.Equal(t, "Upstream request failed", gjson.GetBytes(recorder.Body.Bytes(), "error.message").String())
-	require.NotContains(t, recorder.Body.String(), `"type":"error","error"`)
-	require.NotContains(t, recorder.Body.String(), "data:")
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.JSONEq(t, string(gatewayTransportFailoverBody), string(failoverErr.ResponseBody))
+	require.False(t, c.Writer.Written())
 }
 
 func TestStandardProtocolBedrockImmediate400UsesSourceEnvelope(t *testing.T) {

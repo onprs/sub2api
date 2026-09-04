@@ -518,7 +518,12 @@ func responsesTerminalBody(payloads [][]byte) []byte {
 // appendRawJSON appends a JSON fragment string to existing raw JSON.
 func appendRawJSON(existing json.RawMessage, fragment string) json.RawMessage {
 	trimmed := bytes.TrimSpace(existing)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte(`{}`)) {
+	// Anthropic initializes tool_use.input to {} in content_block_start, then
+	// streams the actual input through input_json_delta events. Treat that empty
+	// object as a placeholder instead of prefixing it to the streamed JSON.
+	var existingObject map[string]json.RawMessage
+	isEmptyObject := json.Unmarshal(trimmed, &existingObject) == nil && existingObject != nil && len(existingObject) == 0
+	if len(trimmed) == 0 || isEmptyObject {
 		return json.RawMessage(fragment)
 	}
 	return json.RawMessage(string(existing) + fragment)

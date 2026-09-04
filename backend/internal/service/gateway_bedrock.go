@@ -114,9 +114,7 @@ func (s *GatewayService) forwardBedrock(
 	}
 
 	// 执行上游请求（含重试）
-	resp, err := s.executeBedrockUpstream(ctx, c, account, bedrockBody, mappedModel, region, reqStream, signer, bedrockAPIKey, proxyURL, func(statusCode int, errorType, message string) {
-		writeAnthropicError(c, statusCode, errorType, message)
-	})
+	resp, err := s.executeBedrockUpstream(ctx, c, account, bedrockBody, mappedModel, region, reqStream, signer, bedrockAPIKey, proxyURL)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +183,6 @@ func (s *GatewayService) executeBedrockUpstream(
 	signer *BedrockSigner,
 	apiKey string,
 	proxyURL string,
-	writeError standardProtocolErrorWriter,
 ) (*http.Response, error) {
 	var resp *http.Response
 	var err error
@@ -206,21 +203,9 @@ func (s *GatewayService) executeBedrockUpstream(
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
 			}
-			safeErr := sanitizeUpstreamErrorMessage(err.Error())
-			setOpsUpstreamError(c, 0, safeErr, "")
-			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-				Platform:           account.Platform,
-				AccountID:          account.ID,
-				AccountName:        account.Name,
-				UpstreamStatusCode: 0,
-				UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
-				Kind:               "request_error",
-				Message:            safeErr,
+			return nil, s.handleUpstreamTransportError(ctx, c, account, err, OpsUpstreamErrorEvent{
+				UpstreamURL: safeUpstreamURL(upstreamReq.URL.String()),
 			})
-			if writeError != nil {
-				writeError(http.StatusBadGateway, "upstream_error", "Upstream request failed")
-			}
-			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 		}
 
 		if resp.StatusCode >= 400 && resp.StatusCode != 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {

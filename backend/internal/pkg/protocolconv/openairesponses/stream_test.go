@@ -43,6 +43,29 @@ func TestStreamRoundTripPreservesTerminalServiceTier(t *testing.T) {
 	require.Equal(t, "default", gjson.GetBytes(payloads[len(payloads)-1], "response.service_tier").String())
 }
 
+func TestStreamRoundTripPreservesCreatedAt(t *testing.T) {
+	const createdAt = int64(1700000123)
+	decoder := newStreamDecoder()
+	events, warnings, err := decoder.Decode([]byte(`{
+		"type":"response.completed",
+		"response":{"id":"resp-created","created_at":1700000123,"model":"gpt-5.5","status":"completed","output":[]}
+	}`))
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, createdAt, events[0].Created)
+
+	encoder := newStreamEncoder()
+	var payloads [][]byte
+	for _, event := range events {
+		out, encodeWarnings, encodeErr := encoder.Encode(event)
+		require.NoError(t, encodeErr)
+		require.Empty(t, encodeWarnings)
+		payloads = append(payloads, out...)
+	}
+	require.Equal(t, createdAt, gjson.GetBytes(payloads[0], "response.created_at").Int())
+	require.Equal(t, createdAt, gjson.GetBytes(payloads[len(payloads)-1], "response.created_at").Int())
+}
+
 func TestStreamDecoderAllowsInProgressAfterCreated(t *testing.T) {
 	decoder := newStreamDecoder()
 	events, _, err := decoder.Decode([]byte(`{"type":"response.created","response":{"id":"resp-1","object":"response","model":"model","status":"in_progress","output":[]}}`))
@@ -139,6 +162,11 @@ func TestStreamEncoderEmitsCompleteTextLifecycle(t *testing.T) {
 
 	created := payloads[0]
 	require.Equal(t, "client-model", gjson.GetBytes(created, "response.model").String())
+	require.Greater(t, gjson.GetBytes(created, "response.created_at").Int(), int64(0))
+	require.Equal(t,
+		gjson.GetBytes(created, "response.created_at").Int(),
+		gjson.GetBytes(payloads[len(payloads)-1], "response.created_at").Int(),
+	)
 	require.True(t, gjson.GetBytes(created, "response.output").IsArray())
 	require.Equal(t, int64(0), gjson.GetBytes(payloads[1], "output_index").Int())
 	require.Equal(t, "item_0", gjson.GetBytes(payloads[2], "item_id").String())

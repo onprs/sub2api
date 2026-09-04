@@ -75,7 +75,7 @@ func (s *GatewayService) forwardStandardProtocolToBedrock(
 	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, true)
 	resp, err := s.executeBedrockUpstream(
 		upstreamCtx, c, account, bedrockBody, modelID, region, true,
-		signer, apiKey, proxyURL, writeError,
+		signer, apiKey, proxyURL,
 	)
 	releaseUpstreamCtx()
 	if err != nil {

@@ -120,6 +120,37 @@ func TestHandleResponsesBufferedStreamingResponse_RestoresNamespaceTool(t *testi
 	require.NotContains(t, rec.Body.String(), `"name":"codex_app__read_thread"`)
 }
 
+func TestHandleResponsesBufferedStreamingResponse_ToolArgumentsAreValidJSON(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	resp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(toolAnthropicSSEStream()))}
+
+	_, err := (&GatewayService{}).handleResponsesBufferedStreamingResponse(resp, c, responsesAnthropicTestPipeline(t, false), "claude-fable-5", "claude-fable-5", nil, time.Now(), apicompat.ResponsesClientToolMapping{})
+	require.NoError(t, err)
+
+	var body struct {
+		Output []struct {
+			Type      string `json:"type"`
+			Arguments string `json:"arguments"`
+		} `json:"output"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Output, 1)
+	require.Equal(t, "function_call", body.Output[0].Type)
+	require.JSONEq(t, `{"query":"status"}`, body.Output[0].Arguments)
+}
+
+func TestAppendRawJSON_EmptyObjectPlaceholder(t *testing.T) {
+	t.Parallel()
+
+	fragment := `{"query":"status"}`
+	require.JSONEq(t, fragment, string(appendRawJSON(json.RawMessage("{ \n\t }"), fragment)))
+	require.Equal(t, `{"existing":true}{"query":"status"}`, string(appendRawJSON(json.RawMessage(`{"existing":true}`), fragment)))
+}
+
 func TestHandleResponsesStreamingResponse_RestoresNamespaceTool(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
@@ -272,7 +303,15 @@ func TestHandleResponsesBufferedStreamingResponse_UsesRequestPipelineToolRoutes(
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.JSONEq(t, `{"id":"msg_tool","object":"response","model":"client-model","status":"completed","output":[{"type":"custom_tool_call","id":"item_0","call_id":"call-1","name":"exec","input":"dir /b","status":"completed"}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}`, rec.Body.String())
+	var response map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	createdAt, ok := response["created_at"].(float64)
+	require.True(t, ok)
+	require.Greater(t, int64(createdAt), int64(0))
+	delete(response, "created_at")
+	withoutCreatedAt, err := json.Marshal(response)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"id":"msg_tool","object":"response","model":"client-model","status":"completed","output":[{"type":"custom_tool_call","id":"item_0","call_id":"call-1","name":"exec","input":"dir /b","status":"completed"}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}`, string(withoutCreatedAt))
 }
 
 func TestHandleResponsesStreamingResponse_PreservesMessageStartCacheUsage(t *testing.T) {

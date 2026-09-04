@@ -84,4 +84,23 @@ describe('UsageStatsCards', () => {
     expect(text).toContain('Standard $0.0010')
     expect(text).not.toContain('Standard ¥0.0010')
   })
+
+  it('keeps the cache tooltip out of the layout while it is hidden', () => {
+    const wrapper = mount(UsageStatsCards, {
+      props: {
+        stats,
+      },
+      global: {
+        stubs: {
+          Icon: true,
+        },
+      },
+    })
+
+    const tooltip = wrapper.findAll('span').find((el) => el.classes().includes('group-hover:block'))
+
+    expect(tooltip).toBeDefined()
+    expect(tooltip?.classes()).toContain('hidden')
+    expect(tooltip?.classes()).not.toContain('opacity-0')
+  })
 })

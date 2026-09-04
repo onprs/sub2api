@@ -1109,4 +1109,66 @@ describe('BulkEditAccountModal', () => {
       }
     })
   })
+
+  // 批量更新使用 JSONB 顶层合并，关闭态必须显式写入 off，不能靠省略字段表达。
+  it('OpenAI OAuth 批量编辑选择关闭时显式提交 codex_fingerprint_mode=off', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth']
+    })
+
+    await wrapper.get('#bulk-edit-openai-codex-fingerprint-mode-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: {
+        codex_fingerprint_mode: 'off'
+      }
+    })
+
+    const payload = vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[0][1] as {
+      extra: Record<string, unknown>
+    }
+    expect(Object.keys(payload.extra).length).toBeGreaterThan(0)
+  })
+
+  it('OpenAI OAuth 批量编辑显式提交所选指纹收敛模式', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth']
+    })
+
+    await wrapper.get('#bulk-edit-openai-codex-fingerprint-mode-enabled').setValue(true)
+    await wrapper
+      .get('[data-testid="bulk-codex-fingerprint-mode-select"]')
+      .setValue('session')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: {
+        codex_fingerprint_mode: 'session'
+      }
+    })
+  })
+
+  it('未启用指纹收敛批量编辑时不提交 codex_fingerprint_mode', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth']
+    })
+
+    await wrapper.get('#bulk-edit-openai-codex-cli-only-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-openai-codex-cli-only-toggle').trigger('click')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: {
+        codex_cli_only: true
+      }
+    })
+  })
 })

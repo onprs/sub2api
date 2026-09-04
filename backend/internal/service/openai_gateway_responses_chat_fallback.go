@@ -90,9 +90,8 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletionsWithOutput(
 		}
 		return nil, err
 	}
-	// 计费兜底 tier = 最终出站 body（policy filter/force 后）里的 tier；最终值由
-	// resolvedOpenAIUpstreamServiceTier 决定（上游回显优先）。filter 删掉字段后
-	// 这里取到 nil，不再按原请求 Fast 计费。
+	// Keep the final outbound tier for usage-time reconciliation. A policy
+	// filter that removes the field therefore leaves this nil.
 	serviceTier := extractOpenAIServiceTierFromBody(chatBody)
 
 	logger.L().Debug("openai responses: forwarding via raw chat completions",
@@ -227,19 +226,21 @@ func (s *OpenAIGatewayService) collectBufferedChatCompletionsResponse(
 		return protocoltransport.Response{}, nil, fmt.Errorf("validate responses fallback result: %w", err)
 	}
 	result := &OpenAIForwardResult{
-		RequestID:       structured.RequestID,
-		ResponseID:      structured.ResponseID,
-		ActualProtocol:  structured.ActualProtocol,
-		Usage:           usage,
-		Model:           originalModel,
-		BillingModel:    billingModel,
-		UpstreamModel:   upstreamModel,
-		ReasoningEffort: reasoningEffort,
-		ServiceTier:     resolvedOpenAIUpstreamServiceTier(c, serviceTier),
-		Stream:          false,
-		Duration:        structured.Duration,
+		RequestID:                   structured.RequestID,
+		ResponseID:                  structured.ResponseID,
+		ActualProtocol:              structured.ActualProtocol,
+		Usage:                       usage,
+		Model:                       originalModel,
+		BillingModel:                billingModel,
+		UpstreamModel:               upstreamModel,
+		ReasoningEffort:             reasoningEffort,
+		UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
+		ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+		Stream:                      false,
+		Duration:                    structured.Duration,
 	}
 	return structured, result, nil
+
 }
 
 func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
@@ -326,18 +327,19 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		conversionErr = writePayloads(payloads)
 	})
 	result := &OpenAIForwardResult{
-		RequestID:       requestID,
-		ResponseID:      scan.ResponseID,
-		ActualProtocol:  stream.ActualProtocol,
-		Usage:           scan.Usage,
-		Model:           originalModel,
-		BillingModel:    billingModel,
-		UpstreamModel:   upstreamModel,
-		ReasoningEffort: reasoningEffort,
-		ServiceTier:     resolvedOpenAIUpstreamServiceTier(c, serviceTier),
-		Stream:          true,
-		Duration:        time.Since(startTime),
-		FirstTokenMs:    scan.FirstTokenMs,
+		RequestID:                   requestID,
+		ResponseID:                  scan.ResponseID,
+		ActualProtocol:              stream.ActualProtocol,
+		Usage:                       scan.Usage,
+		Model:                       originalModel,
+		BillingModel:                billingModel,
+		UpstreamModel:               upstreamModel,
+		ReasoningEffort:             reasoningEffort,
+		UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
+		ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+		Stream:                      true,
+		Duration:                    time.Since(startTime),
+		FirstTokenMs:                scan.FirstTokenMs,
 	}
 	if scan.Err != nil {
 		return result, fmt.Errorf("stream usage incomplete: %w", scan.Err)
@@ -367,6 +369,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 			if _, err := c.Writer.Write(terminal); err != nil {
 				clientDisconnected = true
 			}
+
 		}
 		if !clientDisconnected {
 			c.Writer.Flush()
@@ -375,6 +378,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	if !scan.SawDone {
 		logCCStreamMissingDoneSentinel("openai responses chat fallback", requestID)
 	}
+	result.ClientDisconnect = clientDisconnected
 	return result, nil
 }
 
@@ -413,18 +417,19 @@ func (s *OpenAIGatewayService) streamChatCompletionsWithProtocolOutput(
 		outputErr = output.WriteStreamEvent(stream.ActualProtocol, raw)
 	})
 	result := &OpenAIForwardResult{
-		RequestID:       stream.RequestID,
-		ResponseID:      scan.ResponseID,
-		ActualProtocol:  stream.ActualProtocol,
-		Usage:           scan.Usage,
-		Model:           originalModel,
-		BillingModel:    billingModel,
-		UpstreamModel:   upstreamModel,
-		ReasoningEffort: reasoningEffort,
-		ServiceTier:     resolvedOpenAIUpstreamServiceTier(c, serviceTier),
-		Stream:          true,
-		Duration:        time.Since(startTime),
-		FirstTokenMs:    scan.FirstTokenMs,
+		RequestID:                   stream.RequestID,
+		ResponseID:                  scan.ResponseID,
+		ActualProtocol:              stream.ActualProtocol,
+		Usage:                       scan.Usage,
+		Model:                       originalModel,
+		BillingModel:                billingModel,
+		UpstreamModel:               upstreamModel,
+		ReasoningEffort:             reasoningEffort,
+		UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
+		ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+		Stream:                      true,
+		Duration:                    time.Since(startTime),
+		FirstTokenMs:                scan.FirstTokenMs,
 	}
 	if scan.Err != nil {
 		return result, fmt.Errorf("stream usage incomplete: %w", scan.Err)
@@ -445,6 +450,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsWithProtocolOutput(
 		logCCStreamMissingDoneSentinel("openai structured chat fallback", stream.RequestID)
 	}
 	return result, nil
+
 }
 
 func chatChunkStartsResponsesOutput(chunk *apicompat.ChatCompletionsChunk) bool {

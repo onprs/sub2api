@@ -209,12 +209,24 @@ func (r *ModelPricingResolver) resolveBasePricing(platform, model string) (*Mode
 	return pricing, PricingSourceLiteLLM
 }
 
+// resolveChannelModelPricing 按字面模型名和平台别名优先查找渠道定价，
+// 全部未命中后再尝试 OpenAI/Codex 规范模型名。显式变体配置因此不会被基名覆盖。
 func (r *ModelPricingResolver) resolveChannelModelPricing(ctx context.Context, groupID int64, model string) *ChannelModelPricing {
 	if r.channelService == nil {
 		return nil
 	}
-	for _, candidate := range billingModelPricingCandidates(model) {
+	candidates := billingModelPricingCandidates(model)
+	for _, candidate := range candidates {
 		if chPricing := r.channelService.GetChannelModelPricing(ctx, groupID, candidate); chPricing != nil {
+			return chPricing
+		}
+	}
+	for _, candidate := range candidates {
+		normalized := normalizeKnownOpenAICodexModel(candidate)
+		if normalized == "" || strings.EqualFold(normalized, strings.TrimSpace(candidate)) {
+			continue
+		}
+		if chPricing := r.channelService.GetChannelModelPricing(ctx, groupID, normalized); chPricing != nil {
 			return chPricing
 		}
 	}
