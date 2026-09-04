@@ -136,6 +136,54 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toMatch(/9[.,]87/)
   })
 
+  it('OpenAI API Key 后台刷新期间保留上一笔余额，响应后再原位更新', async () => {
+    const refreshedUsage = deferred<any>()
+    getUsage
+      .mockResolvedValueOnce({
+        upstream_balance: {
+          status: 'available',
+          source: 'sub2api',
+          kind: 'wallet',
+          amount: 12.34,
+          unit: 'USD'
+        }
+      })
+      .mockImplementationOnce(() => refreshedUsage.promise)
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({ id: 8108, platform: 'openai', type: 'apikey' }),
+        liveBalanceRefreshToken: 0
+      },
+      global: { stubs: { UsageProgressBar: true, AccountQuotaInfo: true } }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toMatch(/12[.,]34/)
+
+    await wrapper.setProps({ liveBalanceRefreshToken: 1 })
+    await vi.waitFor(() => {
+      expect(getUsage).toHaveBeenCalledTimes(2)
+    })
+
+    expect(wrapper.text()).toMatch(/12[.,]34/)
+    expect(wrapper.find('.animate-pulse').exists()).toBe(false)
+
+    refreshedUsage.resolve({
+      upstream_balance: {
+        status: 'available',
+        source: 'sub2api',
+        kind: 'wallet',
+        amount: 9.87,
+        unit: 'USD'
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toMatch(/9[.,]87/)
+    expect(wrapper.text()).not.toMatch(/12[.,]34/)
+  })
+
   it('OpenAI API Key 会正确显示 0 余额和 Key 配额详情', async () => {
     getUsage.mockResolvedValue({
       upstream_balance: {
