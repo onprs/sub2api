@@ -453,6 +453,49 @@ func normalizeOpenAILongContextBillingExtra(platform string, extra map[string]an
 	return normalized, nil
 }
 
+var accountUsageSnapshotExtraKeyPrefixes = []string{
+	"codex_primary_",
+	"codex_secondary_",
+	"codex_5h_",
+	"codex_7d_",
+	"codex_reset_credit_",
+	"opencode_go_usage_",
+	"opencode_go_console_auth_",
+	"opencode_go_referral_",
+	"clinepass_usage_",
+	"openrouter_usage_",
+	"commandcode_usage_",
+	"passive_usage_",
+}
+
+func isAccountUsageSnapshotExtraKey(key string) bool {
+	switch key {
+	case "codex_usage_updated_at", "session_window_utilization", "grok_usage_snapshot":
+		return true
+	}
+	for _, prefix := range accountUsageSnapshotExtraKeyPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// mergeAccountUsageSnapshotExtra 保留服务生成的用量快照和相关状态，避免完整编辑
+// 请求用一个不含运行态字段的 Extra 覆盖现有快照。
+func mergeAccountUsageSnapshotExtra(requested, current map[string]any) map[string]any {
+	merged := maps.Clone(requested)
+	if merged == nil {
+		merged = make(map[string]any)
+	}
+	for key, value := range current {
+		if isAccountUsageSnapshotExtraKey(key) {
+			merged[key] = value
+		}
+	}
+	return merged
+}
+
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
@@ -656,6 +699,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if err != nil {
 			return nil, err
 		}
+		normalizedExtra = mergeAccountUsageSnapshotExtra(normalizedExtra, account.Extra)
 	}
 	previousProbeIdentity := upstreamBillingProbeIdentity(account)
 	previousOllamaUsageIdentity := ollamaCloudUsageIdentity(account)
