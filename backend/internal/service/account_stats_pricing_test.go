@@ -642,7 +642,7 @@ func TestTryModelFilePricing_WithImageOutput(t *testing.T) {
 	}
 	result := tryModelFilePricingForPlatform(bs, "", "claude-sonnet-4", tokens, "")
 	require.NotNil(t, result)
-	// OutputTokens 包含 ImageOutputTokens：100*0.001 + 40*0.002 + 10*0.01 = 0.28。
+	// ImageOutputTokens 是 OutputTokens 的子集：100*0.001 + 40*0.002 + 10*0.01 = 0.28。
 	require.InDelta(t, 0.28, *result, 1e-12)
 }
 

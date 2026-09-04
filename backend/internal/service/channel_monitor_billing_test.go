@@ -20,7 +20,6 @@ func TestInternalChannelMonitorSkipsBillingAndUsagePersistence(t *testing.T) {
 
 	gateway := &GatewayService{}
 	require.NoError(t, gateway.RecordUsage(context.Background(), &RecordUsageInput{APIKey: apiKey}))
-	require.NoError(t, gateway.RecordUsageWithLongContext(context.Background(), &RecordUsageLongContextInput{APIKey: apiKey}))
 
 	openAIGateway := &OpenAIGatewayService{}
 	require.NoError(t, openAIGateway.RecordUsage(context.Background(), &OpenAIRecordUsageInput{

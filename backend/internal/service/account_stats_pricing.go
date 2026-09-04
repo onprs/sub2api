@@ -64,6 +64,8 @@ func resolveAccountStatsCost(
 }
 
 // tryModelFilePricingForPlatform 使用平台限定的模型定价文件（LiteLLM/fallback）标准价计算费用。
+// 与用户计费共用同一条定价管线，避免新增定价特性时维护第二份计算实现。
+// 平台参数只限定模型目录，不引入渠道自定义定价。
 func tryModelFilePricingForPlatform(billingService *BillingService, platform, model string, tokens UsageTokens, serviceTier string) *float64 {
 	normalizedTier := normalizeBillingServiceTier(serviceTier)
 	breakdown, err := billingService.calculateCostForPlatformWithServiceTier(platform, model, tokens, 1, normalizedTier)

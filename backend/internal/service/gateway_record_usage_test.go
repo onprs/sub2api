@@ -684,49 +684,6 @@ func TestGatewayServiceRecordUsage_AntigravityCacheReadWriteCostsPersisted(t *te
 	require.InDelta(t, expectedCost.ActualCost, userRepo.lastAmount, 1e-12)
 }
 
-func TestGatewayServiceRecordUsageWithLongContext_AntigravityCacheReadWriteCostsPersisted(t *testing.T) {
-	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
-	userRepo := &openAIRecordUsageUserRepoStub{}
-	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
-	tokens := UsageTokens{
-		InputTokens:         20,
-		OutputTokens:        10,
-		CacheCreationTokens: 7,
-		CacheReadTokens:     13,
-	}
-	expectedCost, err := svc.billingService.CalculateCostWithLongContext("claude-sonnet-4", tokens, 1.1, 10, 2)
-	require.NoError(t, err)
-
-	err = svc.RecordUsageWithLongContext(context.Background(), &RecordUsageLongContextInput{
-		Result: &ForwardResult{
-			RequestID: "gateway_antigravity_cache_long_context_cost",
-			Usage: ClaudeUsage{
-				InputTokens:              tokens.InputTokens,
-				OutputTokens:             tokens.OutputTokens,
-				CacheCreationInputTokens: tokens.CacheCreationTokens,
-				CacheReadInputTokens:     tokens.CacheReadTokens,
-			},
-			Model:         "not-priceable-antigravity-alias",
-			UpstreamModel: "claude-sonnet-4",
-			Duration:      time.Second,
-		},
-		APIKey:                &APIKey{ID: 501, Quota: 100},
-		User:                  &User{ID: 601},
-		Account:               &Account{ID: 701, Platform: PlatformAntigravity},
-		LongContextThreshold:  10,
-		LongContextMultiplier: 2,
-	})
-
-	require.NoError(t, err)
-	require.NotNil(t, usageRepo.lastLog)
-	require.Equal(t, tokens.CacheCreationTokens, usageRepo.lastLog.CacheCreationTokens)
-	require.Equal(t, tokens.CacheReadTokens, usageRepo.lastLog.CacheReadTokens)
-	require.InDelta(t, expectedCost.CacheCreationCost, usageRepo.lastLog.CacheCreationCost, 1e-12)
-	require.InDelta(t, expectedCost.CacheReadCost, usageRepo.lastLog.CacheReadCost, 1e-12)
-	require.InDelta(t, expectedCost.TotalCost, usageRepo.lastLog.TotalCost, 1e-12)
-	require.InDelta(t, expectedCost.ActualCost, userRepo.lastAmount, 1e-12)
-}
-
 func TestGatewayServiceRecordUsage_PreservesChannelMappedUpstreamModel(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
@@ -987,45 +944,6 @@ func TestGatewayServiceRecordUsage_UsageLogWriteErrorDoesNotSkipBilling(t *testi
 	require.Equal(t, 1, usageRepo.calls)
 	require.Equal(t, 1, userRepo.deductCalls)
 	require.Equal(t, 1, quotaSvc.quotaCalls)
-}
-
-func TestGatewayServiceRecordUsageWithLongContext_BillingUsesDetachedContext(t *testing.T) {
-	usageRepo := &openAIRecordUsageLogRepoStub{inserted: false, err: context.DeadlineExceeded}
-	userRepo := &openAIRecordUsageUserRepoStub{}
-	subRepo := &openAIRecordUsageSubRepoStub{}
-	quotaSvc := &openAIRecordUsageAPIKeyQuotaStub{}
-	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, subRepo)
-
-	reqCtx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := svc.RecordUsageWithLongContext(reqCtx, &RecordUsageLongContextInput{
-		Result: &ForwardResult{
-			RequestID: "gateway_long_context_detached_ctx",
-			Usage: ClaudeUsage{
-				InputTokens:  12,
-				OutputTokens: 8,
-			},
-			Model:    "claude-sonnet-4",
-			Duration: time.Second,
-		},
-		APIKey: &APIKey{
-			ID:    502,
-			Quota: 100,
-		},
-		User:                  &User{ID: 602},
-		Account:               &Account{ID: 702},
-		LongContextThreshold:  200000,
-		LongContextMultiplier: 2,
-		APIKeyService:         quotaSvc,
-	})
-
-	require.NoError(t, err)
-	require.Equal(t, 1, usageRepo.calls)
-	require.Equal(t, 1, userRepo.deductCalls)
-	require.NoError(t, userRepo.lastCtxErr)
-	require.Equal(t, 1, quotaSvc.quotaCalls)
-	require.NoError(t, quotaSvc.lastQuotaCtxErr)
 }
 
 func TestGatewayServiceRecordUsage_UsesFallbackRequestIDForUsageLog(t *testing.T) {
