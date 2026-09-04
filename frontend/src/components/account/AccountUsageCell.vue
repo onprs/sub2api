@@ -712,7 +712,10 @@
         color="purple"
       />
 
-      <div v-if="isOpenAIUpstreamBalanceAccount && loading" class="space-y-1.5">
+      <div
+        v-if="isOpenAIUpstreamBalanceAccount && loading && !openAIUpstreamBalanceAvailable && !openAIUpstreamBalanceError"
+        class="space-y-1.5"
+      >
         <div class="flex items-center gap-1">
           <div class="h-3 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
           <div class="h-4 w-16 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>

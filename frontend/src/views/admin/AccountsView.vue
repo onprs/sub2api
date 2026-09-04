@@ -323,7 +323,7 @@
               :batched-usage="usageBatchByAccountId[String(row.id)] ?? null"
               :batched-usage-error="usageBatchErrorByAccountId[String(row.id)] ?? null"
               :batched-usage-loading="usageBatchLoadingByAccountId[String(row.id)] === true"
-              :request-batched-usage="isDesktopViewport ? queueBatchedUsage : null"
+              :request-batched-usage="isDesktopViewport && accountSupportsBatchUsage(row) ? queueBatchedUsage : null"
               @account-updated="handleAccountUpdated"
               @usage-loaded="handleAccountUsageLoaded(row.id, $event)"
             />
@@ -722,6 +722,8 @@ const usageBatchErrorByAccountId = ref<Record<string, string | null>>({})
 const usageBatchLoadingByAccountId = ref<Record<string, boolean>>({})
 const usageBatchRequestTokenByAccountId = ref<Record<string, number>>({})
 const usageBatchCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
+// 保留滚动窗口结果，避免列表重载或组件重挂载时反复显示骨架屏。
+// OpenAI API Key 上游余额要求实时探测，只参与批量传输，不进入此缓存。
 const USAGE_BATCH_CACHE_TTL = 5 * 60 * 1000
 const pendingUsageBatchIds = new Set<number>()
 let usageBatchFlushTimer: ReturnType<typeof setTimeout> | null = null
@@ -742,9 +744,21 @@ const accountSupportsBatchUsage = (account: Account) => {
   }
   if (account.platform === 'gemini') return true
   if (account.platform === 'antigravity') return account.type === 'oauth'
-  if (account.platform === 'openai') return account.type === 'oauth'
+  if (account.platform === 'openai') return account.type === 'oauth' || account.type === 'apikey'
   if (account.platform === 'grok') return account.type === 'oauth'
+  if (
+    account.platform === 'opencode_go' ||
+    account.platform === 'clinepass' ||
+    account.platform === 'openrouter' ||
+    account.platform === 'commandcode'
+  ) {
+    return account.type === 'apikey'
+  }
   return false
+}
+
+const accountRequiresLiveUsage = (account: Account | undefined) => {
+  return account?.platform === 'openai' && account.type === 'apikey'
 }
 
 const setUsageBatchLoading = (accountID: number, loadingState: boolean) => {
@@ -794,6 +808,7 @@ const flushQueuedUsageBatch = async () => {
     const nextUsage = { ...usageBatchByAccountId.value }
     const nextErrors = { ...usageBatchErrorByAccountId.value }
     const nextLoading = { ...usageBatchLoadingByAccountId.value }
+    const visibleAccountsByID = new Map(accounts.value.map(account => [account.id, account]))
 
     for (const accountID of accountIDs) {
       const key = String(accountID)
@@ -804,7 +819,8 @@ const flushQueuedUsageBatch = async () => {
       nextUsage[key] = usage
       nextErrors[key] = errorMap[key] ?? null
       nextLoading[key] = false
-      if (usage) {
+      const visibleAccount = visibleAccountsByID.get(accountID)
+      if (usage && visibleAccount && !accountRequiresLiveUsage(visibleAccount)) {
         usageBatchCache.set(accountID, { data: usage, ts: now })
       } else {
         usageBatchCache.delete(accountID)
@@ -839,7 +855,7 @@ const queueBatchedUsage = (account: Account, options?: { force?: boolean }) => {
   const cacheKey = account.id
   const key = String(cacheKey)
 
-  if (force) {
+  if (force || accountRequiresLiveUsage(account)) {
     usageBatchCache.delete(cacheKey)
   } else {
     const cached = usageBatchCache.get(cacheKey)
