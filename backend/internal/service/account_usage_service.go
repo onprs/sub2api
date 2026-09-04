@@ -324,6 +324,7 @@ type AccountUsageService struct {
 	cfg                             *config.Config
 	agentIdentityTaskMu             sync.Mutex
 	agentIdentityWS                 agentIdentityWSConnectionInvalidator
+	runtimeBlocker                  AccountRuntimeBlocker
 }
 
 // NewAccountUsageService 创建AccountUsageService实例
@@ -362,6 +363,13 @@ func NewAccountUsageService(
 		commandCodeClient:       commandCodeClient,
 		httpUpstream:            httpUpstream,
 		cfg:                     cfg,
+	}
+}
+
+// SetAccountRuntimeBlocker 设置官方额度恢复后的进程内调度解禁器。
+func (s *AccountUsageService) SetAccountRuntimeBlocker(blocker AccountRuntimeBlocker) {
+	if s != nil {
+		s.runtimeBlocker = blocker
 	}
 }
 
@@ -765,6 +773,25 @@ func (s *AccountUsageService) syncActiveToPassive(ctx context.Context, accountID
 	}
 }
 
+type openAIObservedRateLimitRecoveryRepository interface {
+	ClearOpenAIRateLimitIfObserved(ctx context.Context, id int64, observedLimitedAt, observedResetAt time.Time, observedOverloadUntil *time.Time) (bool, error)
+}
+
+func clearObservedOpenAIRateLimit(ctx context.Context, repo AccountRepository, account *Account) (bool, error) {
+	if repo == nil || account == nil {
+		return false, nil
+	}
+	if account.RateLimitedAt != nil && account.RateLimitResetAt != nil {
+		if recoveryRepo, ok := repo.(openAIObservedRateLimitRecoveryRepository); ok {
+			return recoveryRepo.ClearOpenAIRateLimitIfObserved(ctx, account.ID, *account.RateLimitedAt, *account.RateLimitResetAt, account.OverloadUntil)
+		}
+	}
+	if err := repo.ClearRateLimit(ctx, account.ID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Account, force bool) (*UsageInfo, error) {
 	now := time.Now()
 	usage := &UsageInfo{UpdatedAt: &now}
@@ -773,9 +800,15 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		return usage, nil
 	}
 
+	hadPersistentRateLimit := account.RateLimitedAt != nil || account.RateLimitResetAt != nil
+	blockObservation := accountRuntimeBlockObservation{}
+	if hadPersistentRateLimit {
+		blockObservation = observeAccountSchedulingBlock(s.runtimeBlocker, account.ID)
+	}
 	applyExtraToUsage(usage, account.Extra, now)
 
 	if (force || shouldRefreshOpenAICodexSnapshot(account, usage, now)) && s.shouldProbeOpenAICodexSnapshot(account.ID, now, force) {
+		quotaSnapshotRefreshed := false
 		if account.IsShadow() {
 			// Spark shadow accounts fetch usage from /wham/usage (bengalfox channel)
 			// via the shared OpenAIQuotaService, which resolves credentials from the
@@ -784,6 +817,7 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 			if s.openAIQuotaService != nil {
 				if quotaUsage, err := s.openAIQuotaService.QueryUsage(ctx, account.ID); err == nil {
 					if updates := buildCodexSparkWindowExtraUpdates(quotaUsage, now); len(updates) > 0 {
+						quotaSnapshotRefreshed = true
 						mergeAccountExtra(account, updates)
 						s.persistOpenAICodexProbeSnapshot(account.ID, updates)
 						if account.ParentAccountID != nil {
@@ -798,6 +832,7 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 			}
 		} else {
 			if updates, err := s.probeOpenAICodexSnapshot(ctx, account); err == nil && len(updates) > 0 {
+				quotaSnapshotRefreshed = true
 				mergeAccountExtra(account, updates)
 				if usage.UpdatedAt == nil {
 					usage.UpdatedAt = &now
@@ -806,16 +841,16 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 			}
 		}
 
-		if s.accountRepo != nil && (account.RateLimitedAt != nil || account.RateLimitResetAt != nil) {
-			if !isOpenAICodexUsageExhausted(usage) {
-				if err := s.accountRepo.ClearRateLimit(ctx, account.ID); err != nil {
-					slog.Warn("openai_codex_usage_rate_limit_clear_failed", "account_id", account.ID, "error", err)
-				} else {
-					account.RateLimitedAt = nil
-					account.RateLimitResetAt = nil
-					account.OverloadUntil = nil
-					slog.Info("openai_codex_usage_rate_limit_cleared", "account_id", account.ID)
-				}
+		if quotaSnapshotRefreshed && hadPersistentRateLimit && !isOpenAICodexUsageExhausted(usage) && s.accountRepo != nil {
+			cleared, err := clearObservedOpenAIRateLimit(ctx, s.accountRepo, account)
+			if err != nil {
+				slog.Warn("openai_codex_usage_rate_limit_clear_failed", "account_id", account.ID, "error", err)
+			} else if cleared {
+				account.RateLimitedAt = nil
+				account.RateLimitResetAt = nil
+				account.OverloadUntil = nil
+				clearObservedAccountSchedulingBlock(s.runtimeBlocker, account.ID, blockObservation)
+				slog.Info("openai_codex_usage_rate_limit_cleared", "account_id", account.ID)
 			}
 		}
 	}

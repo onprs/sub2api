@@ -13,8 +13,9 @@ import (
 
 type accountUsageCodexProbeRepo struct {
 	stubOpenAIAccountRepo
-	updateExtraCh chan map[string]any
-	rateLimitCh   chan time.Time
+	updateExtraCh      chan map[string]any
+	rateLimitCh        chan time.Time
+	observedClearCalls int
 }
 
 type stubOpenCodeGoConsoleSummaryFetcher struct {
@@ -53,6 +54,25 @@ func (r *accountUsageCodexProbeRepo) ClearRateLimit(_ context.Context, id int64)
 		}
 	}
 	return nil
+}
+
+func (r *accountUsageCodexProbeRepo) ClearOpenAIRateLimitIfObserved(ctx context.Context, id int64, observedLimitedAt, observedResetAt time.Time, observedOverloadUntil *time.Time) (bool, error) {
+	r.observedClearCalls++
+	for i := range r.accounts {
+		account := &r.accounts[i]
+		if account.ID != id || account.RateLimitedAt == nil || account.RateLimitResetAt == nil {
+			continue
+		}
+		overloadMatches := account.OverloadUntil == nil && observedOverloadUntil == nil
+		if account.OverloadUntil != nil && observedOverloadUntil != nil {
+			overloadMatches = account.OverloadUntil.Equal(*observedOverloadUntil)
+		}
+		if !account.RateLimitedAt.Equal(observedLimitedAt) || !account.RateLimitResetAt.Equal(observedResetAt) || !overloadMatches {
+			return false, nil
+		}
+		return true, r.ClearRateLimit(ctx, id)
+	}
+	return false, nil
 }
 
 func (r *accountUsageCodexProbeRepo) SetRateLimited(_ context.Context, _ int64, resetAt time.Time) error {
@@ -940,6 +960,12 @@ func TestAccountUsageService_GetUsage_OpenAIClearsRateLimitWhenUsageRecovers(t *
 			"codex_5h_used_percent": 100.0,
 		},
 	}
+	gateway := &OpenAIGatewayService{}
+	gateway.BlockAccountScheduling(&shadowAccount, time.Now().Add(time.Minute), "quota_exhausted")
+	if !gateway.isOpenAIAccountRuntimeBlocked(&shadowAccount) {
+		t.Fatal("expected precondition: account runtime block")
+	}
+	svc.SetAccountRuntimeBlocker(gateway)
 	repo.accounts = append(repo.accounts, shadowAccount)
 
 	usage, err := svc.GetUsage(context.Background(), 88, true)
@@ -950,6 +976,12 @@ func TestAccountUsageService_GetUsage_OpenAIClearsRateLimitWhenUsageRecovers(t *
 
 	if repo.accounts[1].RateLimitedAt != nil || repo.accounts[1].RateLimitResetAt != nil {
 		t.Fatalf("expected rate limit cleared on shadow account when codex usage recovered")
+	}
+	if repo.observedClearCalls != 1 {
+		t.Fatalf("expected one conditional OpenAI rate-limit clear, got %d", repo.observedClearCalls)
+	}
+	if gateway.isOpenAIAccountRuntimeBlocked(&shadowAccount) {
+		t.Fatal("expected official quota recovery to clear the matching runtime block")
 	}
 }
 

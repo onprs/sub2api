@@ -16,6 +16,7 @@ type rateLimitClearRepoStub struct {
 	mockAccountRepoForGemini
 	getByIDAccount            *Account
 	getByIDErr                error
+	getByIDHook               func()
 	getByIDCalls              int
 	clearErrorCalls           int
 	clearRateLimitCalls       int
@@ -31,6 +32,9 @@ type rateLimitClearRepoStub struct {
 
 func (r *rateLimitClearRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
 	r.getByIDCalls++
+	if r.getByIDHook != nil {
+		r.getByIDHook()
+	}
 	if r.getByIDErr != nil {
 		return nil, r.getByIDErr
 	}
@@ -70,6 +74,21 @@ type tempUnschedCacheRecorder struct {
 type recoverTokenInvalidatorStub struct {
 	accounts []*Account
 	err      error
+}
+
+type quotaResetPostProcessStub struct {
+	queryCalls int
+	cacheCalls int
+}
+
+func (s *quotaResetPostProcessStub) QueryUsage(context.Context, int64) (*OpenAIQuotaUsage, error) {
+	s.queryCalls++
+	return &OpenAIQuotaUsage{FetchedAt: time.Now().Unix()}, nil
+}
+
+func (s *quotaResetPostProcessStub) CachePostResetSnapshot(context.Context, int64, *OpenAIQuotaUsage) error {
+	s.cacheCalls++
+	return nil
 }
 
 func (c *tempUnschedCacheRecorder) SetTempUnsched(ctx context.Context, accountID int64, state *TempUnschedState) error {
@@ -264,6 +283,86 @@ func TestRateLimitService_RecoverAccountAfterSuccessfulTest_NoRecoverableStateIs
 	require.Equal(t, 0, repo.clearModelRateLimitCalls)
 	require.Equal(t, 0, repo.clearTempUnschedCalls)
 	require.Empty(t, cache.deletedIDs)
+}
+
+func TestOpenAIQuotaResetPostProcess_ClearsStaleRuntimeBlockWhenPersistentStateAlreadyClean(t *testing.T) {
+	account := &Account{
+		ID:          8,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Extra:       map[string]any{},
+	}
+	repo := &rateLimitClearRepoStub{getByIDAccount: account}
+	gateway := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: []Account{*account}},
+		cache:              &schedulerTestGatewayCache{},
+		cfg:                &config.Config{},
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+	gateway.BlockAccountScheduling(account, time.Now().Add(time.Minute), "quota_exhausted")
+	require.True(t, gateway.isOpenAIAccountRuntimeBlocked(account))
+	scheduler := &defaultOpenAIAccountScheduler{service: gateway}
+	selection, _, _, _, err := scheduler.selectByLoadBalance(context.Background(), OpenAIAccountScheduleRequest{
+		Platform:       PlatformOpenAI,
+		RequestedModel: "gpt-5.1",
+	})
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.Nil(t, selection)
+	require.Contains(t, err.Error(), "pool=1, filtered: runtime_blocked=1")
+
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc.SetAccountRuntimeBlocker(gateway)
+	quota := &quotaResetPostProcessStub{}
+	postResult := RunOpenAIQuotaResetPostProcess(
+		context.Background(),
+		account.ID,
+		quota,
+		svc,
+		func(context.Context, int64) (*Account, error) { return account, nil },
+	)
+
+	require.True(t, postResult.AccountStateRecovered)
+	require.True(t, postResult.CacheRefreshed)
+	require.Empty(t, postResult.WarningCode)
+	require.False(t, gateway.isOpenAIAccountRuntimeBlocked(account), "重置卡后处理必须清除数据库已先行清理后遗留的进程内阻断")
+	selection, _, _, _, err = scheduler.selectByLoadBalance(context.Background(), OpenAIAccountScheduleRequest{
+		Platform:       PlatformOpenAI,
+		RequestedModel: "gpt-5.1",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, account.ID, selection.Account.ID)
+	require.Equal(t, 1, quota.queryCalls)
+	require.Equal(t, 1, quota.cacheCalls)
+	require.Zero(t, repo.clearErrorCalls)
+	require.Zero(t, repo.clearRateLimitCalls)
+}
+
+func TestRateLimitService_RecoverAccountState_DoesNotClearConcurrentRuntimeBlock(t *testing.T) {
+	account := &Account{
+		ID:          18,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Extra:       map[string]any{},
+	}
+	gateway := &OpenAIGatewayService{}
+	gateway.BlockAccountScheduling(account, time.Now().Add(time.Minute), "quota_exhausted")
+	repo := &rateLimitClearRepoStub{getByIDAccount: account}
+	repo.getByIDHook = func() {
+		gateway.BlockAccountScheduling(account, time.Now().Add(2*time.Minute), "concurrent_upstream_error")
+	}
+
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc.SetAccountRuntimeBlocker(gateway)
+	_, err := svc.RecoverAccountState(context.Background(), account.ID, AccountRecoveryOptions{})
+
+	require.NoError(t, err)
+	require.True(t, gateway.isOpenAIAccountRuntimeBlocked(account), "恢复期间产生的新阻断必须保留")
 }
 
 func TestRateLimitService_RecoverAccountAfterSuccessfulTest_ClearErrorFailed(t *testing.T) {

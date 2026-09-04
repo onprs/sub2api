@@ -212,6 +212,16 @@ func newSchedulerSnapshotRetryConfig() *config.Config {
 	return cfg
 }
 
+type schedulerSnapshotQuotaResetStub struct{}
+
+func (schedulerSnapshotQuotaResetStub) QueryUsage(context.Context, int64) (*OpenAIQuotaUsage, error) {
+	return &OpenAIQuotaUsage{FetchedAt: time.Now().Unix()}, nil
+}
+
+func (schedulerSnapshotQuotaResetStub) CachePostResetSnapshot(context.Context, int64, *OpenAIQuotaUsage) error {
+	return nil
+}
+
 func newSchedulerSnapshotRetryAccount(id int64, platform, model string) Account {
 	account := Account{
 		ID:          id,
@@ -614,6 +624,62 @@ func TestOpenAIAdvancedSchedulingRetriesNonEmptyStaleSnapshot(t *testing.T) {
 	require.Equal(t, 1, repo.listCallCount())
 	require.Equal(t, 1, getSnapshotCalls)
 	require.Equal(t, 1, setSnapshotCalls)
+}
+
+func TestOpenAIQuotaResetRecoveryClearsRuntimeBlockAcrossStaleSchedulerSnapshot(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	groupID := int64(716)
+	model := "gpt-runtime-reset-retry"
+	fresh := newSchedulerSnapshotRetryAccount(71601, PlatformOpenAI, model)
+	fresh.Type = AccountTypeOAuth
+	stale := fresh
+	limitedAt := time.Now().Add(-time.Minute)
+	limitedUntil := time.Now().Add(time.Hour)
+	stale.RateLimitedAt = &limitedAt
+	stale.RateLimitResetAt = &limitedUntil
+
+	cache := newSchedulerSnapshotRetryCacheStub()
+	cache.seed(SchedulerBucket{GroupID: groupID, Platform: PlatformOpenAI, Mode: SchedulerModeSingle}, stale)
+	cache.setSnapshotErr = errors.New("cache write failed")
+	repo := &schedulerSnapshotRetryAccountRepoStub{byGroup: map[int64][]Account{groupID: {fresh}}}
+	cfg := newSchedulerSnapshotRetryConfig()
+	rateLimits := NewRateLimitService(repo, nil, cfg, nil, nil)
+	rateLimits.settingService = newOpenAIAdvancedSchedulerRateLimitService("true").settingService
+	snapshot := NewSchedulerSnapshotService(cache, nil, repo, nil, cfg)
+	gateway := &OpenAIGatewayService{
+		accountRepo:       repo,
+		schedulerSnapshot: snapshot,
+		cfg:               cfg,
+		rateLimitService:  rateLimits,
+	}
+	rateLimits.SetAccountRuntimeBlocker(gateway)
+	gateway.BlockAccountScheduling(&fresh, time.Now().Add(time.Minute), "quota_exhausted")
+
+	selection, _, err := gateway.SelectAccountWithScheduler(
+		context.Background(), &groupID, "", "", model, nil, OpenAIUpstreamTransportAny, false,
+	)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.Nil(t, selection)
+	require.Contains(t, err.Error(), "runtime_blocked=1")
+
+	postResult := RunOpenAIQuotaResetPostProcess(
+		context.Background(), fresh.ID, schedulerSnapshotQuotaResetStub{}, rateLimits, repo.GetByID,
+	)
+	require.True(t, postResult.AccountStateRecovered)
+	require.Empty(t, postResult.WarningCode)
+
+	// 保持原缓存及其写失败状态，强制再次走“旧快照 -> 数据库权威重读”。
+	gateway.schedulerSnapshot = NewSchedulerSnapshotService(cache, nil, repo, nil, cfg)
+	selection, _, err = gateway.SelectAccountWithScheduler(
+		context.Background(), &groupID, "", "", model, nil, OpenAIUpstreamTransportAny, false,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, fresh.ID, selection.Account.ID)
+	require.GreaterOrEqual(t, repo.listCallCount(), 2)
 }
 
 func TestOpenAIAdvancedSchedulingUsesAuthoritativeCandidateWhenProxyQuarantineFailsOpen(t *testing.T) {

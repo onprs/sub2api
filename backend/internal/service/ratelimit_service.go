@@ -44,6 +44,16 @@ type AccountRuntimeBlocker interface {
 	ClearAccountSchedulingBlock(accountID int64)
 }
 
+type accountRuntimeBlockGenerationGuard interface {
+	accountSchedulingBlockGeneration(accountID int64) uint64
+	clearAccountSchedulingBlockIfGeneration(accountID int64, generation uint64) bool
+}
+
+type accountRuntimeBlockObservation struct {
+	generation uint64
+	guarded    bool
+}
+
 // SuccessfulTestRecoveryResult 表示测试成功后恢复了哪些运行时状态。
 type SuccessfulTestRecoveryResult struct {
 	ClearedError     bool
@@ -151,6 +161,33 @@ func (s *RateLimitService) notifyAccountSchedulingBlockCleared(accountID int64) 
 		return
 	}
 	s.runtimeBlocker.ClearAccountSchedulingBlock(accountID)
+}
+
+func observeAccountSchedulingBlock(blocker AccountRuntimeBlocker, accountID int64) accountRuntimeBlockObservation {
+	if blocker == nil || accountID <= 0 {
+		return accountRuntimeBlockObservation{}
+	}
+	guard, ok := blocker.(accountRuntimeBlockGenerationGuard)
+	if !ok {
+		return accountRuntimeBlockObservation{}
+	}
+	return accountRuntimeBlockObservation{
+		generation: guard.accountSchedulingBlockGeneration(accountID),
+		guarded:    true,
+	}
+}
+
+func clearObservedAccountSchedulingBlock(blocker AccountRuntimeBlocker, accountID int64, observation accountRuntimeBlockObservation) {
+	if blocker == nil || accountID <= 0 {
+		return
+	}
+	if observation.guarded {
+		if guard, ok := blocker.(accountRuntimeBlockGenerationGuard); ok {
+			guard.clearAccountSchedulingBlockIfGeneration(accountID, observation.generation)
+			return
+		}
+	}
+	blocker.ClearAccountSchedulingBlock(accountID)
 }
 
 // ApplyAccountSchedulingThreshold evaluates admin-configured per-platform
@@ -2097,8 +2134,8 @@ func (s *RateLimitService) samplePassiveUsageFromHeaders(ctx context.Context, ac
 	}
 }
 
-// ClearRateLimit 清除账号的限流状态
-func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) error {
+// clearRateLimitPersistentState 清除持久化限流状态，但由调用方决定何时发布运行时解禁。
+func (s *RateLimitService) clearRateLimitPersistentState(ctx context.Context, accountID int64) error {
 	if err := s.accountRepo.ClearRateLimit(ctx, accountID); err != nil {
 		return err
 	}
@@ -2117,6 +2154,14 @@ func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) 
 			slog.Warn("temp_unsched_cache_delete_failed", "account_id", accountID, "error", err)
 		}
 	}
+	return nil
+}
+
+// ClearRateLimit 清除账号的限流状态
+func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) error {
+	if err := s.clearRateLimitPersistentState(ctx, accountID); err != nil {
+		return err
+	}
 	s.ResetOpenAI403Counter(ctx, accountID)
 	s.notifyAccountSchedulingBlockCleared(accountID)
 	return nil
@@ -2133,6 +2178,7 @@ func (s *RateLimitService) ResetOpenAI403Counter(ctx context.Context, accountID 
 
 // RecoverAccountState 按需恢复账号的可恢复运行时状态。
 func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID int64, options AccountRecoveryOptions) (*SuccessfulTestRecoveryResult, error) {
+	blockObservation := observeAccountSchedulingBlock(s.runtimeBlocker, accountID)
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -2152,17 +2198,17 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 	}
 
 	if hasRecoverableRuntimeState(account) {
-		if err := s.ClearRateLimit(ctx, accountID); err != nil {
+		if err := s.clearRateLimitPersistentState(ctx, accountID); err != nil {
 			return nil, err
 		}
 		result.ClearedRateLimit = true
 	}
 	if result.ClearedError || result.ClearedRateLimit {
 		s.ResetOpenAI403Counter(ctx, accountID)
-		if result.ClearedError && !result.ClearedRateLimit {
-			s.notifyAccountSchedulingBlockCleared(accountID)
-		}
 	}
+	// 显式恢复也必须处理“数据库已由上一步清理、进程内阻断仍残留”的状态。
+	// 代次保护确保恢复期间出现的新错误不会被旧恢复操作解除。
+	clearObservedAccountSchedulingBlock(s.runtimeBlocker, accountID, blockObservation)
 
 	return result, nil
 }

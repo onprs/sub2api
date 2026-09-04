@@ -382,6 +382,38 @@ func (s *OpenAIGatewayService) ClearAccountSchedulingBlock(accountID int64) {
 	mu := s.openAIAccountRuntimeBlockLock(accountID)
 	mu.Lock()
 	defer mu.Unlock()
+	s.clearAccountSchedulingBlockLocked(accountID)
+}
+
+func (s *OpenAIGatewayService) accountSchedulingBlockGeneration(accountID int64) uint64 {
+	if s == nil || accountID <= 0 {
+		return 0
+	}
+	mu := s.openAIAccountRuntimeBlockLock(accountID)
+	mu.Lock()
+	defer mu.Unlock()
+	raw, _ := s.openaiAccountRuntimeBlockGeneration.Load(accountID)
+	generation, _ := raw.(uint64)
+	return generation
+}
+
+func (s *OpenAIGatewayService) clearAccountSchedulingBlockIfGeneration(accountID int64, expected uint64) bool {
+	if s == nil || accountID <= 0 {
+		return false
+	}
+	mu := s.openAIAccountRuntimeBlockLock(accountID)
+	mu.Lock()
+	defer mu.Unlock()
+	raw, _ := s.openaiAccountRuntimeBlockGeneration.Load(accountID)
+	generation, _ := raw.(uint64)
+	if generation != expected {
+		return false
+	}
+	s.clearAccountSchedulingBlockLocked(accountID)
+	return true
+}
+
+func (s *OpenAIGatewayService) clearAccountSchedulingBlockLocked(accountID int64) {
 	s.openaiAccountRuntimeBlockUntil.Delete(accountID)
 	s.openaiOAuth429RetryStartedAt.Delete(accountID)
 	s.openaiAccountRuntimeBlockGeneration.Store(accountID, s.openaiAccountRuntimeBlockSequence.Add(1))

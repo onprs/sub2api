@@ -2272,6 +2272,41 @@ func (r *accountRepository) ClearRateLimitIfObserved(ctx context.Context, id int
 	return true, nil
 }
 
+// ClearOpenAIRateLimitIfObserved 清除官方额度探针所观察到的 OpenAI OAuth 限流代次。
+// 时间戳不匹配表示期间已有新 429，旧探针不能覆盖较新的持久化阻断。
+func (r *accountRepository) ClearOpenAIRateLimitIfObserved(ctx context.Context, id int64, observedLimitedAt, observedResetAt time.Time, observedOverloadUntil *time.Time) (bool, error) {
+	builder := r.client.Account.Update().
+		Where(
+			dbaccount.IDEQ(id),
+			dbaccount.PlatformEQ(service.PlatformOpenAI),
+			dbaccount.TypeEQ(service.AccountTypeOAuth),
+			dbaccount.RateLimitedAtEQ(observedLimitedAt),
+			dbaccount.RateLimitResetAtEQ(observedResetAt),
+		)
+	if observedOverloadUntil == nil {
+		builder.Where(dbaccount.OverloadUntilIsNil())
+	} else {
+		builder.Where(dbaccount.OverloadUntilEQ(*observedOverloadUntil))
+	}
+	updated, err := builder.
+		ClearRateLimitedAt().
+		ClearRateLimitResetAt().
+		ClearOverloadUntil().
+		Save(ctx)
+	if err != nil {
+		return false, err
+	}
+	if updated == 0 {
+		r.syncSchedulerAccountSnapshot(ctx, id)
+		return false, nil
+	}
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue observed OpenAI rate-limit clear failed: account=%d err=%v", id, err)
+	}
+	r.syncSchedulerAccountSnapshot(ctx, id)
+	return true, nil
+}
+
 func (r *accountRepository) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, reason ...string) error {
 	if scope == "" {
 		return nil

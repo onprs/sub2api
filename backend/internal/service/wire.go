@@ -250,6 +250,7 @@ func ProvideAccountUsageService(
 		cfg,
 	)
 	service.agentIdentityWS = openAIGatewayService
+	service.SetAccountRuntimeBlocker(openAIGatewayService)
 	return service
 }
 

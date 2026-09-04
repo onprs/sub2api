@@ -966,6 +966,57 @@ func (s *AccountRepoSuite) TestClearRateLimitIfObservedProtectsRearmed429Generat
 	s.Require().WithinDuration(rearmedReset, *retyped.RateLimitResetAt, time.Second)
 }
 
+func (s *AccountRepoSuite) TestClearOpenAIRateLimitIfObservedSupportsOAuthAndClearsOverload() {
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:     "acc-openai-rl-conditional-clear",
+		Platform: service.PlatformOpenAI,
+		Type:     service.AccountTypeOAuth,
+	})
+	resetAt := time.Now().Add(30 * time.Minute).UTC().Truncate(time.Second)
+	s.Require().NoError(s.repo.SetRateLimited(s.ctx, account.ID, resetAt))
+	s.Require().NoError(s.repo.SetOverloaded(s.ctx, account.ID, resetAt))
+
+	observed, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(observed.RateLimitedAt)
+	s.Require().NotNil(observed.RateLimitResetAt)
+
+	cleared, err := s.repo.ClearOpenAIRateLimitIfObserved(s.ctx, account.ID, *observed.RateLimitedAt, *observed.RateLimitResetAt, observed.OverloadUntil)
+	s.Require().NoError(err)
+	s.Require().True(cleared)
+
+	got, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Nil(got.RateLimitedAt)
+	s.Require().Nil(got.RateLimitResetAt)
+	s.Require().Nil(got.OverloadUntil)
+
+	rearmedResetAt := resetAt.Add(10 * time.Minute)
+	s.Require().NoError(s.repo.SetRateLimited(s.ctx, account.ID, rearmedResetAt))
+	cleared, err = s.repo.ClearOpenAIRateLimitIfObserved(s.ctx, account.ID, *observed.RateLimitedAt, *observed.RateLimitResetAt, observed.OverloadUntil)
+	s.Require().NoError(err)
+	s.Require().False(cleared)
+
+	rearmed, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(rearmed.RateLimitedAt)
+	s.Require().NotNil(rearmed.RateLimitResetAt)
+	s.Require().Nil(rearmed.OverloadUntil)
+	s.Require().WithinDuration(rearmedResetAt, *rearmed.RateLimitResetAt, time.Second)
+
+	concurrentOverloadUntil := rearmedResetAt.Add(5 * time.Minute)
+	s.Require().NoError(s.repo.SetOverloaded(s.ctx, account.ID, concurrentOverloadUntil))
+	cleared, err = s.repo.ClearOpenAIRateLimitIfObserved(s.ctx, account.ID, *rearmed.RateLimitedAt, *rearmed.RateLimitResetAt, rearmed.OverloadUntil)
+	s.Require().NoError(err)
+	s.Require().False(cleared)
+
+	preserved, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(preserved.RateLimitResetAt)
+	s.Require().NotNil(preserved.OverloadUntil)
+	s.Require().WithinDuration(concurrentOverloadUntil, *preserved.OverloadUntil, time.Second)
+}
+
 func (s *AccountRepoSuite) TestClearRateLimit() {
 	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-clear"})
 	until := time.Now().Add(1 * time.Hour)
