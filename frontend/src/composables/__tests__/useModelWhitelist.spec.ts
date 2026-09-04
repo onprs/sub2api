@@ -46,7 +46,7 @@ describe('useModelWhitelist', () => {
     expect(models).not.toContain('gpt-5.2-codex')
   })
 
-  it('antigravity 模型列表与 agy 的 14 项用户目录一致', () => {
+  it('antigravity 模型列表与 agy 的 15 项用户目录一致', () => {
     const models = getModelsByPlatform('antigravity')
 
     expect(models).toEqual([
@@ -61,6 +61,7 @@ describe('useModelWhitelist', () => {
       'gemini-3.5-flash-low',
       'gemini-3.1-pro-high',
       'gemini-3.1-pro-low',
+      'claude-fable-5-1',
       'claude-sonnet-4-6',
       'claude-opus-4-6-thinking',
       'gpt-oss-120b-medium'
@@ -68,6 +69,8 @@ describe('useModelWhitelist', () => {
   })
 
   it('Claude 模型列表包含新发布的 Claude 模型', () => {
+    expect(getModelsByPlatform('claude')).toContain('claude-fable-5-1')
+    expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5-1')
     expect(getModelsByPlatform('claude')).toContain('claude-fable-5')
     expect(getModelsByPlatform('claude')).toContain('claude-opus-4-8')
     expect(getModelsByPlatform('antigravity')).toContain('claude-sonnet-4-6')

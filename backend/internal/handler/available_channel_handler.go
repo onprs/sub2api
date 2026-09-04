@@ -91,6 +91,7 @@ type userSupportedModelPricing struct {
 	InputPrice          *float64                 `json:"input_price"`
 	OutputPrice         *float64                 `json:"output_price"`
 	CacheWritePrice     *float64                 `json:"cache_write_price"`
+	CacheWrite1hPrice   *float64                 `json:"cache_write_1h_price"`
 	CacheReadPrice      *float64                 `json:"cache_read_price"`
 	ImageInputPrice     *float64                 `json:"image_input_price"`
 	ImageOutputPrice    *float64                 `json:"image_output_price"`
@@ -112,14 +113,15 @@ type userPricingTimeBandDTO struct {
 
 // userPricingIntervalDTO 定价区间白名单（去掉内部 ID、SortOrder 等前端不渲染的字段）。
 type userPricingIntervalDTO struct {
-	MinTokens       int      `json:"min_tokens"`
-	MaxTokens       *int     `json:"max_tokens"`
-	TierLabel       string   `json:"tier_label,omitempty"`
-	InputPrice      *float64 `json:"input_price"`
-	OutputPrice     *float64 `json:"output_price"`
-	CacheWritePrice *float64 `json:"cache_write_price"`
-	CacheReadPrice  *float64 `json:"cache_read_price"`
-	PerRequestPrice *float64 `json:"per_request_price"`
+	MinTokens         int      `json:"min_tokens"`
+	MaxTokens         *int     `json:"max_tokens"`
+	TierLabel         string   `json:"tier_label,omitempty"`
+	InputPrice        *float64 `json:"input_price"`
+	OutputPrice       *float64 `json:"output_price"`
+	CacheWritePrice   *float64 `json:"cache_write_price"`
+	CacheWrite1hPrice *float64 `json:"cache_write_1h_price"`
+	CacheReadPrice    *float64 `json:"cache_read_price"`
+	PerRequestPrice   *float64 `json:"per_request_price"`
 }
 
 // userSupportedModelPromotion 用户可见的官方价格活动快照。
@@ -635,14 +637,15 @@ func toUserPricingIntervals(src []service.PricingInterval) []userPricingInterval
 	intervals := make([]userPricingIntervalDTO, 0, len(src))
 	for _, iv := range src {
 		intervals = append(intervals, userPricingIntervalDTO{
-			MinTokens:       iv.MinTokens,
-			MaxTokens:       iv.MaxTokens,
-			TierLabel:       iv.TierLabel,
-			InputPrice:      iv.InputPrice,
-			OutputPrice:     iv.OutputPrice,
-			CacheWritePrice: iv.CacheWritePrice,
-			CacheReadPrice:  iv.CacheReadPrice,
-			PerRequestPrice: iv.PerRequestPrice,
+			MinTokens:         iv.MinTokens,
+			MaxTokens:         iv.MaxTokens,
+			TierLabel:         iv.TierLabel,
+			InputPrice:        iv.InputPrice,
+			OutputPrice:       iv.OutputPrice,
+			CacheWritePrice:   iv.CacheWritePrice,
+			CacheWrite1hPrice: iv.CacheWrite1hPrice,
+			CacheReadPrice:    iv.CacheReadPrice,
+			PerRequestPrice:   iv.PerRequestPrice,
 		})
 	}
 	return intervals
@@ -664,14 +667,15 @@ func toUserPricing(p *service.ChannelModelPricing, pricingSource string) *userSu
 	intervals := make([]userPricingIntervalDTO, 0, len(p.Intervals))
 	for _, iv := range p.Intervals {
 		intervals = append(intervals, userPricingIntervalDTO{
-			MinTokens:       iv.MinTokens,
-			MaxTokens:       iv.MaxTokens,
-			TierLabel:       iv.TierLabel,
-			InputPrice:      iv.InputPrice,
-			OutputPrice:     iv.OutputPrice,
-			CacheWritePrice: iv.CacheWritePrice,
-			CacheReadPrice:  iv.CacheReadPrice,
-			PerRequestPrice: iv.PerRequestPrice,
+			MinTokens:         iv.MinTokens,
+			MaxTokens:         iv.MaxTokens,
+			TierLabel:         iv.TierLabel,
+			InputPrice:        iv.InputPrice,
+			OutputPrice:       iv.OutputPrice,
+			CacheWritePrice:   iv.CacheWritePrice,
+			CacheWrite1hPrice: iv.CacheWrite1hPrice,
+			CacheReadPrice:    iv.CacheReadPrice,
+			PerRequestPrice:   iv.PerRequestPrice,
 		})
 	}
 	billingMode := string(p.BillingMode)
@@ -686,6 +690,7 @@ func toUserPricing(p *service.ChannelModelPricing, pricingSource string) *userSu
 		InputPrice:          p.InputPrice,
 		OutputPrice:         p.OutputPrice,
 		CacheWritePrice:     p.CacheWritePrice,
+		CacheWrite1hPrice:   p.CacheWrite1hPrice,
 		CacheReadPrice:      p.CacheReadPrice,
 		ImageInputPrice:     p.ImageInputPrice,
 		ImageOutputPrice:    p.ImageOutputPrice,

@@ -20,6 +20,7 @@ func TestFallbackCatalogModels_MatchesAgyUserCatalog(t *testing.T) {
 		"gemini-3.5-flash-low",
 		"gemini-3.1-pro-high",
 		"gemini-3.1-pro-low",
+		"claude-fable-5-1",
 		"claude-sonnet-4-6",
 		"claude-opus-4-6-thinking",
 		"gpt-oss-120b-medium",
@@ -35,8 +36,10 @@ func TestFallbackCatalogModels_MatchesAgyUserCatalog(t *testing.T) {
 		require.Equal(t, CatalogSourceFallback, model.Source)
 		require.NotEmpty(t, model.CatalogID)
 		require.NotEmpty(t, model.WireModel)
-		require.NotEmpty(t, model.InternalModel)
-		require.NotNil(t, model.ThinkingBudget)
+		if model.ID != "claude-fable-5-1" {
+			require.NotEmpty(t, model.InternalModel)
+			require.NotNil(t, model.ThinkingBudget)
+		}
 	}
 	require.Equal(t, wantIDs, gotIDs)
 
@@ -50,7 +53,7 @@ func TestFallbackCatalogModels_MatchesAgyUserCatalog(t *testing.T) {
 	require.Equal(t, "gemini-3.5-flash-low", models[7].WireModel)
 	require.Equal(t, "gemini-3.5-flash-extra-low", models[8].WireModel)
 	require.Equal(t, "gemini-pro-agent", models[9].WireModel)
-	require.Equal(t, "openai/gpt-oss-120b-maas", models[13].BackendModel)
+	require.Equal(t, "openai/gpt-oss-120b-maas", models[14].BackendModel)
 }
 
 func TestFallbackCatalogModels_ReturnsIndependentSlice(t *testing.T) {

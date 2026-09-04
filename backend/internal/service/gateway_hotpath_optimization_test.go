@@ -593,7 +593,7 @@ func TestGetAvailableModels_AntigravityOAuthPublishesOnlyUserRequestIDs(t *testi
 
 			models := svc.GetAvailableModels(context.Background(), &groupID, PlatformAntigravity)
 
-			require.Len(t, models, 14)
+			require.Len(t, models, 15)
 			require.ElementsMatch(t, DefaultAntigravityRouteModelIDs(), models)
 			for _, hidden := range []string{
 				"claude-opus-4-6",

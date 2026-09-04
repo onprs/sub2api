@@ -30,7 +30,7 @@ type CatalogModel struct {
 	Metadata       map[string]any `json:"metadata,omitempty"`
 }
 
-// FallbackCatalogModels 返回当前 agy 的 14 项用户目录。内部指纹只作诊断，不能用作 wire model。
+// FallbackCatalogModels 返回当前 agy 的 15 项用户目录。内部指纹只作诊断，不能用作 wire model。
 func FallbackCatalogModels() []CatalogModel {
 	routes := domain.AntigravityUserModelRoutes()
 	models := make([]CatalogModel, 0, len(routes))
@@ -72,7 +72,7 @@ func CatalogModelsFromResponse(response *FetchAvailableModelsResponse, raw map[s
 }
 
 // RawCatalogModelsFromResponse 原样保留 fetchAvailableModels 的 raw 数据层。
-// opaque、辅助和未来 ID 不进入 14 项菜单，但也不会在解析阶段丢失。
+// opaque、辅助和未来 ID 不进入 15 项菜单，但也不会在解析阶段丢失。
 func RawCatalogModelsFromResponse(response *FetchAvailableModelsResponse, raw map[string]any) []CatalogModel {
 	if response == nil || len(response.Models) == 0 {
 		return nil

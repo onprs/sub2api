@@ -1011,6 +1011,7 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"openai_responses_mode",
 		"openai_responses_supported",
 		"privacy_mode",
+		// 透传开关必须进投影：候选过滤读取本投影，而模型支持判定依赖这两个键。
 		"openai_passthrough",
 		"openai_oauth_passthrough",
 		"openai_compact_mode",

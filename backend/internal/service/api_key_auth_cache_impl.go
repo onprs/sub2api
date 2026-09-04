@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 22 // v22：补齐分组长上下文与模型定价字段，并保留 v21 的动态利润/媒体计费字段全集
+const apiKeyAuthSnapshotVersion = 22 // v22：分组长上下文、模型定价、动态利润、媒体计费、Fast 与推理强度策略字段全集
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -506,6 +506,8 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		RequireOAuthOnly:                group.RequireOAuthOnly,
 		RequirePrivacySet:               group.RequirePrivacySet,
 		AllowLive:                       group.AllowLive,
+		ForceOpenAIFast:                 group.ForceOpenAIFast,
+		FreeOpenAIFast:                  group.FreeOpenAIFast,
 		DefaultMappedModel:              group.DefaultMappedModel,
 		MessagesDispatchModelConfig:     group.MessagesDispatchModelConfig,
 		ModelsListConfig:                group.ModelsListConfig,
@@ -513,6 +515,7 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		InferGPT56CacheWriteMinTokens:   group.GPT56CacheWriteInferenceMinTokens(),
 		RPMLimit:                        group.RPMLimit,
 		MaxReasoningEffort:              group.MaxReasoningEffort,
+		MaxReasoningEffortOverLimit:     group.MaxReasoningEffortOverLimit,
 		ReasoningEffortMappings:         group.ReasoningEffortMappings,
 		PeakRateEnabled:                 group.PeakRateEnabled,
 		PeakStart:                       group.PeakStart,
@@ -573,6 +576,8 @@ func groupFromAPIKeyAuthSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		RequireOAuthOnly:                snapshot.RequireOAuthOnly,
 		RequirePrivacySet:               snapshot.RequirePrivacySet,
 		AllowLive:                       snapshot.AllowLive,
+		ForceOpenAIFast:                 snapshot.ForceOpenAIFast,
+		FreeOpenAIFast:                  snapshot.FreeOpenAIFast,
 		DefaultMappedModel:              snapshot.DefaultMappedModel,
 		MessagesDispatchModelConfig:     snapshot.MessagesDispatchModelConfig,
 		ModelsListConfig:                snapshot.ModelsListConfig,
@@ -580,6 +585,7 @@ func groupFromAPIKeyAuthSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		InferGPT56CacheWriteMinTokens:   snapshot.InferGPT56CacheWriteMinTokens,
 		RPMLimit:                        snapshot.RPMLimit,
 		MaxReasoningEffort:              snapshot.MaxReasoningEffort,
+		MaxReasoningEffortOverLimit:     snapshot.MaxReasoningEffortOverLimit,
 		ReasoningEffortMappings:         snapshot.ReasoningEffortMappings,
 		PeakRateEnabled:                 snapshot.PeakRateEnabled,
 		PeakStart:                       snapshot.PeakStart,

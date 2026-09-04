@@ -49,7 +49,7 @@ const (
 const (
 	APIProtocolChatCompletions = "chat_completions" // OpenAI Chat Completions（默认）
 	APIProtocolAnthropic       = "anthropic"        // 原生 Anthropic /v1/messages（适配 Claude Code）
-	APIProtocolResponses       = "responses"        // OpenAI Responses（仅 deepseek，适配 Codex）
+	APIProtocolResponses       = "responses"        // OpenAI Responses（deepseek / kimi 原生端点，适配 Codex）
 	APIProtocolAdaptive        = "adaptive"         // 按入站协议优先选择供应商原生端点
 )
 
@@ -126,6 +126,7 @@ var antigravityUserModelRoutes = []AntigravityModelRoute{
 	{ModelID: "gemini-3.5-flash-low", DisplayName: "Gemini 3.5 Flash (Low)", CatalogIDs: []string{"gemini-3.5-flash-extra-low"}, WireModel: "gemini-3.5-flash-extra-low", InternalModel: "MODEL_PLACEHOLDER_M187", ThinkingBudget: 1000, HasThinkingBudget: true},
 	{ModelID: "gemini-3.1-pro-high", DisplayName: "Gemini 3.1 Pro (High)", CatalogIDs: []string{"gemini-pro-agent", "gemini-3.1-pro-high"}, WireModel: AntigravityGemini31ProAgentModel, InternalModel: "MODEL_PLACEHOLDER_M16", ResponseModel: "gemini-pro-default", ThinkingBudget: 10001, HasThinkingBudget: true},
 	{ModelID: "gemini-3.1-pro-low", DisplayName: "Gemini 3.1 Pro (Low)", CatalogIDs: []string{"gemini-3.1-pro-low"}, WireModel: "gemini-3.1-pro-low", InternalModel: "MODEL_PLACEHOLDER_M36", ThinkingBudget: 1001, HasThinkingBudget: true},
+	{ModelID: "claude-fable-5-1", DisplayName: "Claude Fable 5.1", CatalogIDs: []string{"claude-fable-5-1"}, WireModel: "claude-fable-5-1"},
 	{ModelID: "claude-sonnet-4-6", DisplayName: "Claude Sonnet 4.6 (Thinking)", CatalogIDs: []string{"claude-sonnet-4-6"}, WireModel: "claude-sonnet-4-6", InternalModel: "MODEL_PLACEHOLDER_M35", BackendModel: "claude-sonnet-4-6@default", ThinkingBudget: 1024, HasThinkingBudget: true},
 	{ModelID: "claude-opus-4-6-thinking", DisplayName: "Claude Opus 4.6 (Thinking)", CatalogIDs: []string{"claude-opus-4-6-thinking"}, WireModel: "claude-opus-4-6-thinking", InternalModel: "MODEL_PLACEHOLDER_M26", BackendModel: "claude-opus-4-6@default", ThinkingBudget: 1024, HasThinkingBudget: true},
 	{ModelID: "gpt-oss-120b-medium", DisplayName: "GPT-OSS 120B (Medium)", CatalogIDs: []string{"gpt-oss-120b-medium"}, WireModel: "gpt-oss-120b-medium", InternalModel: "MODEL_OPENAI_GPT_OSS_120B_MEDIUM", BackendModel: "openai/gpt-oss-120b-maas", ThinkingBudget: 8192, HasThinkingBudget: true},
@@ -184,7 +185,7 @@ var antigravityCompatibilityModelMapping = map[string]string{
 }
 
 // DefaultAntigravityModelMapping 是官方 Cloud Code OAuth/Setup Token 账号的内置路由表。
-// 14 个公开用户 ID 覆盖同名历史 raw key；例如 gemini-3.5-flash-low 现在明确表示 Low。
+// 15 个公开用户 ID 覆盖同名历史 raw key；例如 gemini-3.5-flash-low 现在明确表示 Low。
 var DefaultAntigravityModelMapping = buildDefaultAntigravityModelMapping()
 
 func buildDefaultAntigravityModelMapping() map[string]string {
@@ -236,7 +237,8 @@ func ResolveDefaultAntigravityModelRoute(model string) (AntigravityModelRoute, b
 // aws_region 自动调整为匹配的区域前缀（如 eu.、apac.、jp. 等）
 var DefaultBedrockModelMapping = map[string]string{
 	// Claude Fable
-	"claude-fable-5": "anthropic.claude-fable-5",
+	"claude-fable-5-1": "anthropic.claude-fable-5-1",
+	"claude-fable-5":   "anthropic.claude-fable-5",
 	// Claude Opus
 	"claude-opus-5":            "us.anthropic.claude-opus-5-v1",
 	"claude-opus-4-8":          "us.anthropic.claude-opus-4-8-v1",

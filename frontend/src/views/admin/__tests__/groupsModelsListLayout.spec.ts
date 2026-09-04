@@ -28,4 +28,11 @@ describe("groups models list layout", () => {
     expect(createRateInput).toContain('min="0"');
     expect(editRateInput).toContain('min="0"');
   });
+
+  it("uses a wide dialog and keeps model pricing controls responsive", () => {
+    expect(groupsViewSource).toContain('width="wide"');
+    expect(groupsViewSource).toContain(
+      "btn btn-secondary shrink-0 whitespace-nowrap",
+    );
+  });
 });

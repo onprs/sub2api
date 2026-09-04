@@ -515,12 +515,17 @@ func TestAccountHandlerGetAvailableModels_AntigravityOAuthFallsBackToAgyCatalog(
 		Data []antigravity.CatalogModel `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Len(t, resp.Data, 14)
+	require.Len(t, resp.Data, 15)
 
 	byID := make(map[string]antigravity.CatalogModel, len(resp.Data))
 	for _, model := range resp.Data {
 		byID[model.ID] = model
 		require.Equal(t, antigravity.CatalogSourceFallback, model.Source)
+		if model.ID == "claude-fable-5-1" {
+			require.Empty(t, model.InternalModel)
+			require.Nil(t, model.ThinkingBudget)
+			continue
+		}
 		require.NotEmpty(t, model.InternalModel)
 	}
 	require.Equal(t, "gemini-3.7-flash-tiered", byID["gemini-3.7-flash-high"].CatalogID)

@@ -29,8 +29,9 @@ func TestDefaultAntigravityModelMapping_ContainsNewClaudeModels(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]string{
-		"claude-fable-5":  "claude-fable-5",
-		"claude-opus-4-8": "claude-opus-4-8",
+		"claude-fable-5-1": "claude-fable-5-1",
+		"claude-fable-5":   "claude-fable-5",
+		"claude-opus-4-8":  "claude-opus-4-8",
 	}
 	for from, want := range cases {
 		got, ok := DefaultAntigravityModelMapping[from]
@@ -84,8 +85,8 @@ func TestAntigravityUserModelRoutes_SeparatesCatalogWireAndFingerprint(t *testin
 	t.Parallel()
 
 	routes := AntigravityUserModelRoutes()
-	if len(routes) != 14 {
-		t.Fatalf("unexpected agy route count: got %d want 14", len(routes))
+	if len(routes) != 15 {
+		t.Fatalf("unexpected agy route count: got %d want 15", len(routes))
 	}
 
 	byID := make(map[string]AntigravityModelRoute, len(routes))
@@ -125,8 +126,9 @@ func TestDefaultBedrockModelMapping_ContainsNewClaudeModels(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]string{
-		"claude-fable-5":  "anthropic.claude-fable-5",
-		"claude-opus-4-8": "us.anthropic.claude-opus-4-8-v1",
+		"claude-fable-5-1": "anthropic.claude-fable-5-1",
+		"claude-fable-5":   "anthropic.claude-fable-5",
+		"claude-opus-4-8":  "us.anthropic.claude-opus-4-8-v1",
 	}
 	for from, want := range cases {
 		got, ok := DefaultBedrockModelMapping[from]
