@@ -4,7 +4,7 @@ set -Eeuo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-REMOTE_HOST="${REMOTE_HOST:-sub2api_tokyo}"
+REMOTE_HOST="${REMOTE_HOST:-bytevirt-tokyo}"
 GIT_SHA="$(git rev-parse --short HEAD)"
 RELEASE_ID="${RELEASE_ID:-docs-${GIT_SHA}-$(date +%Y%m%d%H%M%S)}"
 ARTIFACT_DIR="$REPO_ROOT/artifacts/$RELEASE_ID"

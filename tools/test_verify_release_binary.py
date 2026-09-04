@@ -41,6 +41,9 @@ class VerifyReleaseBinaryTest(unittest.TestCase):
                 "openrouter",
                 "https://openrouter.ai/api/v1",
                 "channel_monitor_provider_openrouter",
+                "commandcode",
+                "https://api.commandcode.ai",
+                "channel_monitor_provider_commandcode",
             ]
         )
         binary = self.write_binary(payload)
