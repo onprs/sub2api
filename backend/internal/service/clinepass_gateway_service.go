@@ -170,7 +170,11 @@ func (s *ClinePassGatewayService) send(ctx context.Context, c *gin.Context, acco
 	}
 	safeErr := sanitizeUpstreamErrorMessage(err.Error())
 	setOpsUpstreamError(c, 0, safeErr, "")
-	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{Platform: account.Platform, AccountID: account.ID, AccountName: account.Name, Kind: "request_error", Message: safeErr})
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
+		Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+		Kind: "request_error", Message: safeErr,
+	})
 	return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte(safeErr)}
 }
 
@@ -195,7 +199,12 @@ func (s *ClinePassGatewayService) handleError(ctx context.Context, c *gin.Contex
 	if decoded.Retryable || decoded.AccountAffecting || shouldDisable {
 		kind = "failover"
 	}
-	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{Platform: account.Platform, AccountID: account.ID, AccountName: account.Name, UpstreamStatusCode: status, UpstreamRequestID: decoded.RequestID, Kind: kind, Message: decoded.Message})
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
+		Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+		UpstreamStatusCode: status, UpstreamRequestID: decoded.RequestID,
+		Kind: kind, Message: decoded.Message,
+	})
 
 	if decoded.Retryable || decoded.AccountAffecting || shouldDisable {
 		return &UpstreamFailoverError{StatusCode: status, ResponseBody: body, ResponseHeaders: protocoltransport.CloneHeaders(resp.Header)}
@@ -375,7 +384,11 @@ func (s *ClinePassGatewayService) preCommitFailure(c *gin.Context, account *Acco
 		message = sanitizeUpstreamErrorMessage(err.Error())
 	}
 	setOpsUpstreamError(c, http.StatusBadGateway, message, "")
-	event := OpsUpstreamErrorEvent{Platform: PlatformClinePass, Kind: kind, UpstreamStatusCode: http.StatusBadGateway, Message: message}
+	event := OpsUpstreamErrorEvent{
+		ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
+		Platform: PlatformClinePass, Kind: kind,
+		UpstreamStatusCode: http.StatusBadGateway, Message: message,
+	}
 	if account != nil {
 		event.AccountID = account.ID
 		event.AccountName = account.Name

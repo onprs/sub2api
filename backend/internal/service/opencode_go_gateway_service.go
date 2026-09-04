@@ -498,6 +498,8 @@ func (s *OpenCodeGoGatewayService) sendUpstream(
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
 		setOpsUpstreamError(c, 0, safeErr, "")
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			ProxyID:            opsUpstreamProxyID(account),
+			ProxyName:          opsUpstreamProxyName(account),
 			Platform:           account.Platform,
 			AccountID:          account.ID,
 			AccountName:        account.Name,
@@ -548,6 +550,8 @@ func (s *OpenCodeGoGatewayService) handleUpstreamError(
 	if shouldFailoverOpenCodeGoResponse(upstream.StatusCode, body) {
 		s.applyOpenCodeGoFailureSideEffects(ctx, account, requestedModel, upstream.StatusCode, upstream.Headers, body)
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			ProxyID:            opsUpstreamProxyID(account),
+			ProxyName:          opsUpstreamProxyName(account),
 			Platform:           account.Platform,
 			AccountID:          account.ID,
 			AccountName:        account.Name,
@@ -565,6 +569,8 @@ func (s *OpenCodeGoGatewayService) handleUpstreamError(
 	}
 
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		ProxyID:            opsUpstreamProxyID(account),
+		ProxyName:          opsUpstreamProxyName(account),
 		Platform:           account.Platform,
 		AccountID:          account.ID,
 		AccountName:        account.Name,
@@ -1589,6 +1595,8 @@ func recordOpenCodeGoResponsesPrematureEOF(c *gin.Context, resp *http.Response, 
 	}
 	setOpsUpstreamError(c, http.StatusBadGateway, message, "")
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		ProxyID:            opsUpstreamProxyID(account),
+		ProxyName:          opsUpstreamProxyName(account),
 		Platform:           PlatformOpenCodeGo,
 		AccountID:          accountID(account),
 		AccountName:        accountName(account),
@@ -1659,6 +1667,8 @@ func (s *OpenCodeGoGatewayService) openCodeGoResponsesFailure(
 	}
 	setOpsUpstreamError(c, status, message, detail)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		ProxyID:            opsUpstreamProxyID(account),
+		ProxyName:          opsUpstreamProxyName(account),
 		Platform:           PlatformOpenCodeGo,
 		AccountID:          accountID(account),
 		AccountName:        accountName(account),

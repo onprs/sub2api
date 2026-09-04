@@ -106,6 +106,7 @@ func (s *GatewayService) forwardStandardProtocolToAnthropic(
 	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(upstream.Body)))
 	if s.shouldFailoverUpstreamError(upstream.StatusCode) {
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
 			Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
 			UpstreamStatusCode: upstream.StatusCode, UpstreamRequestID: upstream.RequestID,
 			Kind: "failover", Message: upstreamMsg,

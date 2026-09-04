@@ -424,6 +424,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			respBody := lastError.Body
 			if s.shouldRectifySignatureError(ctx, account, respBody, reqModel) {
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+					ProxyID:            opsUpstreamProxyID(account),
+					ProxyName:          opsUpstreamProxyName(account),
 					Platform:           account.Platform,
 					AccountID:          account.ID,
 					AccountName:        account.Name,
@@ -503,6 +505,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						retryRespBody := retryStructured.Body
 						if retryStructured.StatusCode == 400 && s.isSignatureErrorPattern(ctx, account, retryRespBody) {
 							appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+								ProxyID:            opsUpstreamProxyID(account),
+								ProxyName:          opsUpstreamProxyName(account),
 								Platform:           account.Platform,
 								AccountID:          account.ID,
 								AccountName:        account.Name,
@@ -563,6 +567,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 										_ = retryResp2.Body.Close()
 									}
 									appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+										ProxyID:            opsUpstreamProxyID(account),
+										ProxyName:          opsUpstreamProxyName(account),
 										Platform:           account.Platform,
 										AccountID:          account.ID,
 										AccountName:        account.Name,
@@ -596,6 +602,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			errMsg := extractUpstreamErrorMessage(respBody)
 			if isThinkingBudgetConstraintError(errMsg) && s.settingService.IsBudgetRectifierEnabled(ctx) {
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+					ProxyID:            opsUpstreamProxyID(account),
+					ProxyName:          opsUpstreamProxyName(account),
 					Platform:           account.Platform,
 					AccountID:          account.ID,
 					AccountName:        account.Name,
@@ -681,6 +689,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				}
 
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+					ProxyID:            opsUpstreamProxyID(account),
+					ProxyName:          opsUpstreamProxyName(account),
 					Platform:           account.Platform,
 					AccountID:          account.ID,
 					AccountName:        account.Name,
@@ -734,6 +744,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 
 			s.handleRetryExhaustedStructuredSideEffects(ctx, *lastError, account)
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				ProxyID:            opsUpstreamProxyID(account),
+				ProxyName:          opsUpstreamProxyName(account),
 				Platform:           account.Platform,
 				AccountID:          account.ID,
 				AccountName:        account.Name,
@@ -766,6 +778,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 
 		s.handleStructuredFailoverSideEffects(ctx, *lastError, account, reqModel)
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			ProxyID:            opsUpstreamProxyID(account),
+			ProxyName:          opsUpstreamProxyName(account),
 			Platform:           account.Platform,
 			AccountID:          account.ID,
 			UpstreamStatusCode: lastError.StatusCode,
@@ -802,6 +816,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					upstreamDetail = truncateString(string(respBody), maxBytes)
 				}
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+					ProxyID:            opsUpstreamProxyID(account),
+					ProxyName:          opsUpstreamProxyName(account),
 					Platform:           account.Platform,
 					AccountID:          account.ID,
 					AccountName:        account.Name,
@@ -881,6 +897,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				}
 
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+					ProxyID:            opsUpstreamProxyID(account),
+					ProxyName:          opsUpstreamProxyName(account),
 					Platform:           account.Platform,
 					AccountID:          account.ID,
 					AccountName:        account.Name,

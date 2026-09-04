@@ -821,6 +821,8 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		if err != nil {
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				ProxyID:            opsUpstreamProxyID(account),
+				ProxyName:          opsUpstreamProxyName(account),
 				Platform:           account.Platform,
 				AccountID:          account.ID,
 				AccountName:        account.Name,
@@ -858,7 +860,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 						upstreamDetail = truncateString(string(upstream.Body), maxBytes)
 					}
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-						Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+						ProxyID:   opsUpstreamProxyID(account),
+						ProxyName: opsUpstreamProxyName(account),
+						Platform:  account.Platform, AccountID: account.ID, AccountName: account.Name,
 						UpstreamStatusCode: upstream.StatusCode, UpstreamRequestID: upstream.RequestID,
 						Kind: "signature_error", Message: upstreamMsg, Detail: upstreamDetail,
 					})
@@ -909,6 +913,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 						upstreamDetail = truncateString(string(upstream.Body), maxBytes)
 					}
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+						ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
 						Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
 						UpstreamStatusCode: upstream.StatusCode, UpstreamRequestID: upstream.RequestID,
 						Kind: "retry", Message: upstreamMsg, Detail: upstreamDetail,
@@ -958,7 +963,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 					upstreamDetail = truncateString(string(respBody), maxBytes)
 				}
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-					Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+					ProxyID:   opsUpstreamProxyID(account),
+					ProxyName: opsUpstreamProxyName(account),
+					Platform:  account.Platform, AccountID: account.ID, AccountName: account.Name,
 					UpstreamStatusCode: lastError.StatusCode, UpstreamRequestID: lastError.RequestID,
 					Kind: "failover", Message: upstreamMsg, Detail: upstreamDetail,
 				})
@@ -984,7 +991,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				}
 				log.Printf("[Gemini] status=400 google_config_error failover=true upstream_message=%q account=%d", upstreamMsg, account.ID)
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-					Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+					ProxyID:   opsUpstreamProxyID(account),
+					ProxyName: opsUpstreamProxyName(account),
+					Platform:  account.Platform, AccountID: account.ID, AccountName: account.Name,
 					UpstreamStatusCode: lastError.StatusCode, UpstreamRequestID: lastError.RequestID,
 					Kind: "failover", Message: upstreamMsg, Detail: upstreamDetail,
 				})
@@ -1005,7 +1014,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				upstreamDetail = truncateString(string(respBody), maxBytes)
 			}
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-				Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+				ProxyID:   opsUpstreamProxyID(account),
+				ProxyName: opsUpstreamProxyName(account),
+				Platform:  account.Platform, AccountID: account.ID, AccountName: account.Name,
 				UpstreamStatusCode: lastError.StatusCode, UpstreamRequestID: lastError.RequestID,
 				Kind: "failover", Message: upstreamMsg, Detail: upstreamDetail,
 			})
@@ -1299,8 +1310,11 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		if err != nil {
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-				Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
-				Kind: "request_error", Message: safeErr,
+				ProxyID:   opsUpstreamProxyID(account),
+				ProxyName: opsUpstreamProxyName(account),
+				Platform:  account.Platform, AccountID: account.ID, AccountName: account.Name,
+				UpstreamStatusCode: 0,
+				Kind:               "request_error", Message: safeErr,
 			})
 			if attempt < geminiMaxRetries {
 				logger.LegacyPrintf("service.gemini_messages_compat", "Gemini account %d: upstream request failed, retry %d/%d: %v", account.ID, attempt, geminiMaxRetries, err)
@@ -1343,6 +1357,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 						upstreamDetail = truncateString(string(upstream.Body), maxBytes)
 					}
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+						ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
 						Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
 						UpstreamStatusCode: upstream.StatusCode, UpstreamRequestID: upstream.RequestID,
 						Kind: "retry", Message: upstreamMsg, Detail: upstreamDetail,
@@ -1428,7 +1443,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 					upstreamDetail = truncateString(string(evBody), maxBytes)
 				}
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-					Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+					ProxyID:   opsUpstreamProxyID(account),
+					ProxyName: opsUpstreamProxyName(account),
+					Platform:  account.Platform, AccountID: account.ID, AccountName: account.Name,
 					UpstreamStatusCode: statusCode, UpstreamRequestID: requestID,
 					Kind: "failover", Message: upstreamMsg, Detail: upstreamDetail,
 				})
@@ -1455,7 +1472,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				}
 				log.Printf("[Gemini] status=400 google_config_error failover=true upstream_message=%q account=%d", upstreamMsg, account.ID)
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-					Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+					ProxyID:   opsUpstreamProxyID(account),
+					ProxyName: opsUpstreamProxyName(account),
+					Platform:  account.Platform, AccountID: account.ID, AccountName: account.Name,
 					UpstreamStatusCode: statusCode, UpstreamRequestID: requestID,
 					Kind: "failover", Message: upstreamMsg, Detail: upstreamDetail,
 				})
@@ -1477,7 +1496,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				upstreamDetail = truncateString(string(evBody), maxBytes)
 			}
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-				Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+				ProxyID:   opsUpstreamProxyID(account),
+				ProxyName: opsUpstreamProxyName(account),
+				Platform:  account.Platform, AccountID: account.ID, AccountName: account.Name,
 				UpstreamStatusCode: statusCode, UpstreamRequestID: requestID,
 				Kind: "failover", Message: upstreamMsg, Detail: upstreamDetail,
 			})
@@ -1679,6 +1700,8 @@ func (s *GeminiMessagesCompatService) skippedErrorPolicyFailoverError(c *gin.Con
 	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
 	upstreamDetail := s.upstreamErrorDetail(respBody)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		ProxyID:            opsUpstreamProxyID(account),
+		ProxyName:          opsUpstreamProxyName(account),
 		Platform:           account.Platform,
 		AccountID:          account.ID,
 		AccountName:        account.Name,
@@ -1720,6 +1743,8 @@ func (s *GeminiMessagesCompatService) writeGeminiCustomCodeSkippedError(c *gin.C
 	upstreamDetail := s.upstreamErrorDetail(body)
 	setOpsUpstreamError(c, upstreamStatus, upstreamMsg, upstreamDetail)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		ProxyID:            opsUpstreamProxyID(account),
+		ProxyName:          opsUpstreamProxyName(account),
 		Platform:           account.Platform,
 		AccountID:          account.ID,
 		AccountName:        account.Name,
@@ -1748,6 +1773,8 @@ func (s *GeminiMessagesCompatService) writeGeminiNativeUpstreamError(c *gin.Cont
 	}
 	setOpsUpstreamError(c, statusCode, upstreamMsg, upstreamDetail)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		ProxyID:            opsUpstreamProxyID(account),
+		ProxyName:          opsUpstreamProxyName(account),
 		Platform:           account.Platform,
 		AccountID:          account.ID,
 		AccountName:        account.Name,
@@ -1812,6 +1839,8 @@ func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, acc
 	}
 	setOpsUpstreamError(c, upstreamStatus, upstreamMsg, upstreamDetail)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		ProxyID:            opsUpstreamProxyID(account),
+		ProxyName:          opsUpstreamProxyName(account),
 		Platform:           account.Platform,
 		AccountID:          account.ID,
 		AccountName:        account.Name,

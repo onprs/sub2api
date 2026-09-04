@@ -271,6 +271,8 @@ func (s *CommandCodeGatewayService) sendUpstream(
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
 		setOpsUpstreamError(c, 0, safeErr, "")
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			ProxyID:            opsUpstreamProxyID(account),
+			ProxyName:          opsUpstreamProxyName(account),
 			Platform:           account.Platform,
 			AccountID:          account.ID,
 			AccountName:        account.Name,
@@ -323,6 +325,8 @@ func (s *CommandCodeGatewayService) handleUpstreamError(
 		kind = "failover"
 	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		ProxyID:            opsUpstreamProxyID(account),
+		ProxyName:          opsUpstreamProxyName(account),
 		Platform:           account.Platform,
 		AccountID:          account.ID,
 		AccountName:        account.Name,
@@ -553,7 +557,11 @@ func (s *CommandCodeGatewayService) preCommitFailure(c *gin.Context, account *Ac
 		message = sanitizeUpstreamErrorMessage(err.Error())
 	}
 	setOpsUpstreamError(c, http.StatusBadGateway, message, "")
-	event := OpsUpstreamErrorEvent{Platform: PlatformCommandCode, Kind: kind, UpstreamStatusCode: http.StatusBadGateway, Message: message}
+	event := OpsUpstreamErrorEvent{
+		ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
+		Platform: PlatformCommandCode, Kind: kind,
+		UpstreamStatusCode: http.StatusBadGateway, Message: message,
+	}
 	if account != nil {
 		event.AccountID = account.ID
 		event.AccountName = account.Name

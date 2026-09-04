@@ -131,6 +131,7 @@ func (s *GatewayService) handleStandardBedrockStreamError(
 	}
 	body := []byte(`{"type":"error","error":{"type":"upstream_disconnected","message":"Bedrock response stream failed before output"}}`)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
 		Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
 		UpstreamStatusCode: http.StatusBadGateway, UpstreamRequestID: responseHeaders.Get("x-request-id"),
 		Kind: "stream_read_error", Message: sanitizeStreamError(err),
@@ -157,6 +158,7 @@ func (s *GatewayService) handleStandardBedrockError(
 	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(upstream.Body)))
 	if s.shouldFailoverUpstreamError(upstream.StatusCode) {
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
 			Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
 			UpstreamStatusCode: upstream.StatusCode, UpstreamRequestID: upstream.RequestID,
 			Kind: "failover", Message: upstreamMsg,

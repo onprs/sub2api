@@ -105,6 +105,7 @@ func (s *GeminiMessagesCompatService) writeGeminiResponsesMappedError(
 	setOpsUpstreamError(c, upstreamStatus, upstreamMsg, "")
 	if account != nil {
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
 			Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
 			UpstreamStatusCode: upstreamStatus, UpstreamRequestID: upstreamRequestID,
 			Kind: "http_error", Message: upstreamMsg,
