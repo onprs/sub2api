@@ -2352,6 +2352,16 @@
     "supports_web_search": true,
     "web_search_billing_unit": "per_query"
   },
+  "gemini-3.8-flash": {
+    "cache_read_input_token_cost": 7.5e-08,
+    "input_cost_per_token": 7.5e-07,
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "output_cost_per_token": 3.75e-06,
+    "source": "https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing",
+    "supports_prompt_caching": true,
+    "supports_reasoning": true
+  },
   "gemini-3.7-flash": {
     "cache_read_input_token_cost": 7.5e-08,
     "input_cost_per_token": 7.5e-07,

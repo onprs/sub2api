@@ -9,61 +9,35 @@ import (
 
 func TestFallbackCatalogModels_MatchesAgyUserCatalog(t *testing.T) {
 	wantIDs := []string{
-		"gemini-3.7-flash-high",
-		"gemini-3.7-flash-medium",
-		"gemini-3.7-flash-low",
-		"gemini-3.6-flash-high",
-		"gemini-3.6-flash-medium",
-		"gemini-3.6-flash-low",
-		"gemini-3.5-flash-high",
-		"gemini-3.5-flash-medium",
-		"gemini-3.5-flash-low",
-		"gemini-3.1-pro-high",
-		"gemini-3.1-pro-low",
-		"claude-fable-5-1",
-		"claude-sonnet-4-6",
-		"claude-opus-4-6-thinking",
-		"gpt-oss-120b-medium",
+		"gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-pro",
+		"claude-fable-5-1", "claude-sonnet-4-6", "claude-opus-4-6-thinking", "gpt-oss-120b-medium",
 	}
-
 	models := FallbackCatalogModels()
-	require.Len(t, models, len(wantIDs))
-
-	gotIDs := make([]string, 0, len(models))
+	var gotIDs []string
 	for _, model := range models {
 		gotIDs = append(gotIDs, model.ID)
 		require.Equal(t, "model", model.Type)
 		require.Equal(t, CatalogSourceFallback, model.Source)
-		require.NotEmpty(t, model.CatalogID)
-		require.NotEmpty(t, model.WireModel)
-		if model.ID != "claude-fable-5-1" {
-			require.NotEmpty(t, model.InternalModel)
-			require.NotNil(t, model.ThinkingBudget)
+		if len(model.ReasoningEfforts) > 0 {
+			require.Empty(t, model.WireModel)
+			require.Empty(t, model.InternalModel)
+			require.Nil(t, model.ThinkingBudget)
+			require.Equal(t, model.ID, model.ResponseModel)
 		}
 	}
 	require.Equal(t, wantIDs, gotIDs)
-
-	require.Equal(t, "gemini-3.7-flash-tiered", models[0].CatalogID)
-	require.Equal(t, "gemini-3.7-flash-high", models[0].WireModel)
-	require.Equal(t, "MODEL_PLACEHOLDER_M298", models[0].InternalModel)
-	require.Equal(t, "gemini-3.7-flash", models[0].ResponseModel)
-	require.Equal(t, -1, *models[0].ThinkingBudget)
-
-	require.Equal(t, "gemini-3-flash-agent", models[6].WireModel)
-	require.Equal(t, "gemini-3.5-flash-low", models[7].WireModel)
-	require.Equal(t, "gemini-3.5-flash-extra-low", models[8].WireModel)
-	require.Equal(t, "gemini-pro-agent", models[9].WireModel)
-	require.Equal(t, "openai/gpt-oss-120b-maas", models[14].BackendModel)
+	require.Equal(t, []string{"high", "medium", "low"}, models[0].ReasoningEfforts)
+	require.Equal(t, []string{"high", "low"}, models[4].ReasoningEfforts)
 }
 
 func TestFallbackCatalogModels_ReturnsIndependentSlice(t *testing.T) {
 	first := FallbackCatalogModels()
 	first[0].ID = "changed"
-	first[0].ThinkingBudget = nil
+	first[0].ReasoningEfforts[0] = "changed"
 
 	second := FallbackCatalogModels()
-	require.Equal(t, "gemini-3.7-flash-high", second[0].ID)
-	require.NotNil(t, second[0].ThinkingBudget)
+	require.Equal(t, "gemini-3.8-flash", second[0].ID)
+	require.Equal(t, "high", second[0].ReasoningEfforts[0])
 }
 
 func TestCatalogModelsFromResponse_ExpandsTierAndNormalizesRawAliases(t *testing.T) {
@@ -96,12 +70,11 @@ func TestCatalogModelsFromResponse_ExpandsTierAndNormalizesRawAliases(t *testing
 	require.NoError(t, json.Unmarshal(body, &raw))
 
 	models := CatalogModelsFromResponse(&response, raw)
-	require.Len(t, models, 14)
-	require.Equal(t, []string{"gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-3.7-flash-low"}, []string{models[0].ID, models[1].ID, models[2].ID})
-	require.Equal(t, []string{"MODEL_PLACEHOLDER_M298", "MODEL_PLACEHOLDER_M299", "MODEL_PLACEHOLDER_M300"}, []string{models[0].InternalModel, models[1].InternalModel, models[2].InternalModel})
-	require.Equal(t, "MODEL_PLACEHOLDER_M20", models[7].InternalModel)
-	require.Equal(t, "gemini-3.5-flash-low", models[7].WireModel)
-	require.Equal(t, "gemini-3.5-flash-extra-low", models[8].WireModel)
+	require.Len(t, models, 7)
+	require.Equal(t, []string{"gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"}, []string{models[0].ID, models[1].ID, models[2].ID})
+	require.Equal(t, []string{"high", "medium", "low"}, models[0].ReasoningEfforts)
+	require.Empty(t, models[0].WireModel)
+	require.Empty(t, models[0].InternalModel)
 	require.NotNil(t, models[0].Metadata)
 
 	require.Equal(t, []string{"gemini-3.7-flash-tiered"}, response.TieredModelIDs["flash"])

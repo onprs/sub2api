@@ -192,7 +192,7 @@ func TestAntigravityForwardAsResponsesStreamsCompleteTextLifecycle(t *testing.T)
 	require.Contains(t, wire, `"delta":"hello "`)
 	require.Contains(t, wire, `"delta":"world"`)
 	require.Contains(t, wire, `"text":"hello world"`)
-	require.Contains(t, wire, `"model":"gemini-3.1-pro-high"`)
+	require.Contains(t, wire, `"model":"gemini-3.1-pro"`)
 	require.True(t, strings.HasSuffix(wire, "data: [DONE]\n\n"))
 }
 
@@ -217,7 +217,7 @@ func TestAntigravityForwardAsResponsesBuffersText(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, "buffered text", gjson.GetBytes(recorder.Body.Bytes(), "output.0.content.0.text").String())
-	require.Equal(t, "gemini-3.1-pro-high", gjson.GetBytes(recorder.Body.Bytes(), "model").String())
+	require.Equal(t, "gemini-3.1-pro", gjson.GetBytes(recorder.Body.Bytes(), "model").String())
 	require.Equal(t, int64(4), gjson.GetBytes(recorder.Body.Bytes(), "usage.input_tokens").Int())
 	require.Equal(t, int64(2), gjson.GetBytes(recorder.Body.Bytes(), "usage.output_tokens").Int())
 }

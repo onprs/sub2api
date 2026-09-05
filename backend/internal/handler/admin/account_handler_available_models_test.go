@@ -515,24 +515,24 @@ func TestAccountHandlerGetAvailableModels_AntigravityOAuthFallsBackToAgyCatalog(
 		Data []antigravity.CatalogModel `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Len(t, resp.Data, 15)
+	require.Len(t, resp.Data, 9)
 
 	byID := make(map[string]antigravity.CatalogModel, len(resp.Data))
 	for _, model := range resp.Data {
 		byID[model.ID] = model
 		require.Equal(t, antigravity.CatalogSourceFallback, model.Source)
-		if model.ID == "claude-fable-5-1" {
+		if model.ID == "claude-fable-5-1" || len(model.ReasoningEfforts) > 0 {
 			require.Empty(t, model.InternalModel)
 			require.Nil(t, model.ThinkingBudget)
 			continue
 		}
 		require.NotEmpty(t, model.InternalModel)
 	}
-	require.Equal(t, "gemini-3.7-flash-tiered", byID["gemini-3.7-flash-high"].CatalogID)
-	require.Equal(t, "gemini-3.7-flash-high", byID["gemini-3.7-flash-high"].WireModel)
-	require.Equal(t, "MODEL_PLACEHOLDER_M298", byID["gemini-3.7-flash-high"].InternalModel)
-	require.Equal(t, "gemini-pro-agent", byID["gemini-3.1-pro-high"].WireModel)
-	require.Equal(t, "gemini-3.5-flash-extra-low", byID["gemini-3.5-flash-low"].WireModel)
+	require.Equal(t, "gemini-3.7-flash-tiered", byID["gemini-3.7-flash"].CatalogID)
+	require.Empty(t, byID["gemini-3.7-flash"].WireModel)
+	require.Empty(t, byID["gemini-3.7-flash"].InternalModel)
+	require.Equal(t, []string{"high", "medium", "low"}, byID["gemini-3.8-flash"].ReasoningEfforts)
+	require.Equal(t, []string{"high", "low"}, byID["gemini-3.1-pro"].ReasoningEfforts)
 	require.NotContains(t, byID, "gemini-3-flash-agent")
 	require.NotContains(t, byID, "chat_20706")
 }
@@ -588,18 +588,13 @@ func TestAccountHandlerGetAvailableModels_AntigravitySetupTokenUsesResolvedLiveC
 		Data []antigravity.CatalogModel `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Len(t, resp.Data, 4)
-	require.Equal(t, []string{
-		"gemini-3.7-flash-high",
-		"gemini-3.7-flash-medium",
-		"gemini-3.7-flash-low",
-		"gemini-3.1-pro-high",
-	}, []string{resp.Data[0].ID, resp.Data[1].ID, resp.Data[2].ID, resp.Data[3].ID})
+	require.Len(t, resp.Data, 2)
+	require.Equal(t, []string{"gemini-3.7-flash", "gemini-3.1-pro"}, []string{resp.Data[0].ID, resp.Data[1].ID})
 	require.Equal(t, "gemini-3.7-flash-tiered", resp.Data[0].CatalogID)
-	require.Equal(t, "MODEL_PLACEHOLDER_M298", resp.Data[0].InternalModel)
-	require.Equal(t, "gemini-3.7-flash-high", resp.Data[0].WireModel)
-	require.Equal(t, "gemini-pro-agent", resp.Data[3].WireModel)
-	require.Equal(t, antigravity.CatalogSourceLive, resp.Data[3].Source)
+	require.Empty(t, resp.Data[0].InternalModel)
+	require.Empty(t, resp.Data[0].WireModel)
+	require.Equal(t, []string{"high", "medium", "low"}, resp.Data[0].ReasoningEfforts)
+	require.Equal(t, antigravity.CatalogSourceLive, resp.Data[1].Source)
 	for _, model := range resp.Data {
 		require.NotEqual(t, "future_opaque_42", model.ID)
 	}

@@ -64,7 +64,7 @@ func TestDefaultAntigravityModelMapping_Gemini31ProAliases(t *testing.T) {
 
 	cases := map[string]string{
 		AntigravityGemini31ProAgentModel: AntigravityGemini31ProAgentModel,
-		"gemini-3.1-pro":                 AntigravityGemini31ProAgentModel,
+		"gemini-3.1-pro":                 "gemini-3.1-pro",
 		"gemini-3.1-pro-high":            AntigravityGemini31ProAgentModel,
 		"gemini-3.1-pro-preview":         AntigravityGemini31ProAgentModel,
 		"gemini-3.1-pro-low":             "gemini-3.1-pro-low",
@@ -85,8 +85,8 @@ func TestAntigravityUserModelRoutes_SeparatesCatalogWireAndFingerprint(t *testin
 	t.Parallel()
 
 	routes := AntigravityUserModelRoutes()
-	if len(routes) != 15 {
-		t.Fatalf("unexpected agy route count: got %d want 15", len(routes))
+	if len(routes) != 18 {
+		t.Fatalf("unexpected agy route count: got %d want 18", len(routes))
 	}
 
 	byID := make(map[string]AntigravityModelRoute, len(routes))
@@ -117,8 +117,8 @@ func TestDefaultAntigravityModelMapping_Gemini36VerifiedModels(t *testing.T) {
 			t.Fatalf("expected %s to map to itself, got %q", model, got)
 		}
 	}
-	if _, ok := DefaultAntigravityModelMapping["gemini-3.6-flash"]; ok {
-		t.Fatal("unverified bare Gemini 3.6 route must not be inferred")
+	if got := DefaultAntigravityModelMapping["gemini-3.6-flash"]; got != "gemini-3.6-flash" {
+		t.Fatal("聚合模型必须保留公开身份，由请求思考程度选择档位")
 	}
 }
 

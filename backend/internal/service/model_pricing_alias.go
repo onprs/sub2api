@@ -15,6 +15,8 @@ func canonicalBillingModelForPricing(model string) string {
 		return "gemini-3.1-pro-high"
 	case "gemini-3-flash-agent":
 		return "gemini-3.5-flash"
+	case "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low", "gemini-3.8-flash-tiered":
+		return "gemini-3.8-flash"
 	case "gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-3.7-flash-low", "gemini-3.7-flash-tiered":
 		return "gemini-3.7-flash"
 	case "gemini-3.6-flash-high", "gemini-3.6-flash-medium", "gemini-3.6-flash-low", "gemini-3.6-flash-tiered":
@@ -63,6 +65,9 @@ func billingModelPricingCandidates(model string) []string {
 	}
 	lookupKey := billingModelAliasLookupKey(raw)
 	add(lookupKey)
+	if lookupKey == "gemini-3.1-pro" {
+		add("gemini-3.1-pro-high")
+	}
 	canonical := canonicalBillingModelForPricing(raw)
 	add(canonical)
 	if lookupKey != "" {
