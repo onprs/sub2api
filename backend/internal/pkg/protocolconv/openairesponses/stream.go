@@ -521,7 +521,11 @@ func (e *streamEncoder) Encode(event ir.StreamEvent) ([][]byte, []protocolconv.W
 		if e.response == nil {
 			e.response = &apicompat.ResponsesResponse{ID: e.id, Object: "response", CreatedAt: e.created, Model: e.model, Status: "completed"}
 		}
-		x := makeEvent("response.completed")
+		terminalType := "response.completed"
+		if e.response.Status == "incomplete" {
+			terminalType = "response.incomplete"
+		}
+		x := makeEvent(terminalType)
 		x.Response = e.response
 		events = append(events, x)
 	}

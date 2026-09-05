@@ -63,6 +63,12 @@ type ChatExtensions struct {
 type Options struct {
 	LossPolicy     LossPolicy
 	ChatExtensions ChatExtensions
+	// AllowChatRequestSignatureLoss 仅允许 Chat 请求丢弃无法表示的 reasoning
+	// 历史签名并产生警告，不放宽其他能力或响应转换的严格策略。
+	AllowChatRequestSignatureLoss bool
+	// GoogleToolParametersJSONSchema 为支持此字段的 Google API 使用完整
+	// JSON Schema 载体，默认保留旧 parameters 以兼容供应商适配器。
+	GoogleToolParametersJSONSchema bool
 	// PreserveInstructionMessages 仅在来源和目标都能表达对应角色时，
 	// 保留 system/developer 消息，不折叠到 SystemInstruction。
 	PreserveInstructionMessages bool

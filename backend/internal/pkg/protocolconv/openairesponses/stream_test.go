@@ -180,6 +180,27 @@ func TestStreamEncoderEmitsCompleteTextLifecycle(t *testing.T) {
 	require.Equal(t, int64(2), gjson.GetBytes(payloads[7], "response.usage.output_tokens").Int())
 }
 
+func TestStreamEncoderUsesIncompleteTerminalForLengthLimit(t *testing.T) {
+	encoder := newStreamEncoder()
+	var payloads [][]byte
+	for _, event := range []ir.StreamEvent{
+		{Type: ir.EventStreamStart, ResponseID: "resp-limited", Model: "model"},
+		{Type: ir.EventFinish, FinishReason: &ir.FinishReason{Reason: "length"}},
+		{Type: ir.EventUsage, Usage: &ir.Usage{InputTokens: 3, OutputTokens: 2}},
+		{Type: ir.EventStreamEnd},
+	} {
+		out, warnings, err := encoder.Encode(event)
+		require.NoError(t, err)
+		require.Empty(t, warnings)
+		payloads = append(payloads, out...)
+	}
+	terminal := payloads[len(payloads)-1]
+	require.Equal(t, "response.incomplete", gjson.GetBytes(terminal, "type").String())
+	require.Equal(t, "incomplete", gjson.GetBytes(terminal, "response.status").String())
+	require.Equal(t, "max_output_tokens", gjson.GetBytes(terminal, "response.incomplete_details.reason").String())
+	require.Equal(t, int64(2), gjson.GetBytes(terminal, "response.usage.output_tokens").Int())
+}
+
 func responseStreamPayloadTypes(payloads [][]byte) []string {
 	types := make([]string, 0, len(payloads))
 	for _, payload := range payloads {

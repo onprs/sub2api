@@ -146,7 +146,7 @@ func (s *CommandCodeGatewayService) forwardStandardRequest(
 		return nil, fmt.Errorf("unsupported Command Code model protocol %q", protocol)
 	}
 
-	pipeline, converted, err := newOpenCodeGoPipelineRequest(sourceBody, source, target, account, clientModel, upstreamModel)
+	pipeline, converted, err := newCommandCodePipelineRequest(sourceBody, source, target, account, clientModel, upstreamModel)
 	if err != nil {
 		writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", "Request cannot be represented for the selected Command Code model protocol")
 		return nil, err
@@ -166,6 +166,33 @@ func (s *CommandCodeGatewayService) forwardStandardRequest(
 		}
 	}
 	return s.forwardChatBody(ctx, c, account, converted, clientModel, upstreamModel, responseMode, pipeline)
+}
+
+func newCommandCodePipelineRequest(
+	body []byte,
+	source, target protocolconv.Protocol,
+	account *Account,
+	clientModel, upstreamModel string,
+) (*protocolconv.Pipeline, []byte, error) {
+	options := protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossError}
+	// Responses 历史中的不透明签名无法在 Chat 上游重放，只为此路径允许带警告丢弃。
+	options.AllowChatRequestSignatureLoss = source == protocolconv.ProtocolOpenAIResponses && target == protocolconv.ProtocolOpenAIChat
+	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
+		Route: protocolconv.Route{
+			Source: source, IntendedTarget: target, ClientModel: clientModel, UpstreamModel: upstreamModel,
+			Provider: account.Platform, AccountID: account.ID,
+		},
+		Options:         options,
+		ResponseOptions: &protocolconv.Options{SourceModel: upstreamModel, LossPolicy: protocolconv.LossWarn},
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	converted, err := pipeline.ConvertRequest(body)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pipeline, converted.Body, nil
 }
 
 func (s *CommandCodeGatewayService) forwardChatBody(

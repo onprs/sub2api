@@ -3095,6 +3095,14 @@ func newClaudeMessagesGooglePipeline(account *Account, body []byte, originalMode
 	return newClaudeMessagesGooglePipelineConfigured(account, body, originalModel, mappedModel, nil)
 }
 
+func geminiProtocolConversionOptions(account *Account, model string) protocolconv.Options {
+	options := protocolconv.Options{SourceModel: model, LossPolicy: protocolconv.LossError}
+	// AI Studio 和 Vertex 使用标准 JSON Schema 字段；Code Assist 保留原有载体。
+	options.GoogleToolParametersJSONSchema = account != nil && account.Platform == PlatformGemini &&
+		(account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount)
+	return options
+}
+
 func newClaudeMessagesGooglePipelineConfigured(
 	account *Account,
 	body []byte,
@@ -3110,7 +3118,7 @@ func newClaudeMessagesGooglePipelineConfigured(
 		route.AccountID = account.ID
 	}
 	pipelineConfig := protocolconv.PipelineConfig{
-		Route: route, Options: protocolconv.Options{SourceModel: mappedModel, LossPolicy: protocolconv.LossError},
+		Route: route, Options: geminiProtocolConversionOptions(account, mappedModel),
 	}
 	if configure != nil {
 		configure(&pipelineConfig)
