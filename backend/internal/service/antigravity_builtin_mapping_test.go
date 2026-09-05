@@ -104,10 +104,11 @@ func TestResolveAntigravityModel_OfficialRoutesAndAccountBoundaries(t *testing.T
 			wantMapped: true,
 		},
 		{
-			name:       "oauth does not invent unverified bare gemini 3.6 route",
+			name:       "oauth selects default reasoning tier for aggregated gemini 3.6",
 			account:    &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth},
 			requested:  "gemini-3.6-flash",
-			wantMapped: false,
+			want:       "gemini-3.6-flash-high",
+			wantMapped: true,
 		},
 		{
 			name:       "oauth does not infer opaque future catalog id",

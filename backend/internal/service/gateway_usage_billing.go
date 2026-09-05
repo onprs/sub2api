@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
@@ -900,6 +901,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 	// 通用兜底（与 OpenAI 路径的 usageBillingModelCandidates 语义对齐）：
 	// 选定模型查不到任何价格时回退到实际转发的具体模型。已定价流量不受影响。
+	if account != nil && account.Platform == PlatformAntigravity {
+		billingModel = antigravityPublicBillingModel(billingModel)
+	}
 	billingModel = s.billableModelWithFallback(ctx, apiKey, billingModel, opts.PricingPlatform, result.UpstreamModel, result.Model)
 	billingModels := billableUsageModelCandidates(
 		billingModel,
@@ -913,6 +917,14 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	requestedModel := result.Model
 	if input.OriginalModel != "" {
 		requestedModel = input.OriginalModel
+	}
+
+	if account != nil && account.Platform == PlatformAntigravity {
+		for i, model := range billingModels {
+			billingModels[i] = antigravityPublicBillingModel(model)
+		}
+		requestedModel = domain.AntigravityPublicModelID(requestedModel)
+		result.Model = domain.AntigravityPublicModelID(result.Model)
 	}
 
 	// 计算费用。OpenCode Go 活动折算后的模型倍率只进入 ActualCost；价格与 TotalCost 保持原价。
@@ -1364,6 +1376,24 @@ func (s *GatewayService) buildRecordUsageLog(
 		GroupID:                  apiKey.GroupID,
 		SubscriptionID:           optionalSubscriptionID(subscription),
 		CreatedAt:                time.Now(),
+	}
+	if account.Platform == PlatformAntigravity {
+		steps := strings.Split(input.ModelMappingChain, "→")
+		publicSteps := make([]string, 0, len(steps))
+		for _, step := range steps {
+			step = antigravityPublicBillingModel(strings.TrimSpace(step))
+			if step != "" && (len(publicSteps) == 0 || publicSteps[len(publicSteps)-1] != step) {
+				publicSteps = append(publicSteps, step)
+			}
+		}
+		usageLog.ModelMappingChain = nil
+		if len(publicSteps) > 1 {
+			usageLog.ModelMappingChain = optionalTrimmedStringPtr(strings.Join(publicSteps, "→"))
+		}
+		if result.UpstreamResponseModel != "" && antigravityPublicBillingModel(sentModel) == antigravityPublicBillingModel(result.UpstreamResponseModel) {
+			mismatch := false
+			usageLog.UpstreamModelMismatch = &mismatch
+		}
 	}
 	if result.ImageCount > 0 && (cost == nil || cost.BillingMode != string(BillingModeToken)) {
 		usageLog.RateMultiplier = imageMultiplier * modelSpecificMultiplier

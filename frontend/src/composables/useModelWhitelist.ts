@@ -60,17 +60,11 @@ const geminiModels = [
 
 // Antigravity 官方 agy 用户目录。raw wire 与历史 alias 由后端兼容路由处理，不在此展示。
 const antigravityModels = [
-  'gemini-3.7-flash-high',
-  'gemini-3.7-flash-medium',
-  'gemini-3.7-flash-low',
-  'gemini-3.6-flash-high',
-  'gemini-3.6-flash-medium',
-  'gemini-3.6-flash-low',
-  'gemini-3.5-flash-high',
-  'gemini-3.5-flash-medium',
-  'gemini-3.5-flash-low',
-  'gemini-3.1-pro-high',
-  'gemini-3.1-pro-low',
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.1-pro',
   'claude-fable-5-1',
   'claude-sonnet-4-6',
   'claude-opus-4-6-thinking',

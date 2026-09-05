@@ -111,6 +111,14 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
 		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusForbidden, fmt.Sprintf("model %s not in whitelist", originalModel))
 	}
+	source := forwardOpts.source
+	if source == "" {
+		source = protocolconv.ProtocolGoogleGenAI
+	}
+	route, reasoningEffort, reasoningErr := resolveAntigravityRequestReasoning(route, body, source)
+	if reasoningErr != nil {
+		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusBadRequest, reasoningErr.Error())
+	}
 	mappedModel := route.WireModel
 	billingModel := mappedModel
 
@@ -231,6 +239,11 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			isModelNotFoundError(resp.StatusCode, respBody) {
 			fallbackClientModel := strings.TrimSpace(s.settingService.GetFallbackModel(ctx, PlatformAntigravity))
 			fallbackRoute, fallbackSupported := account.ResolveAntigravityRoute(fallbackClientModel)
+			if fallbackSupported {
+				var fallbackReasoningErr error
+				fallbackRoute, _, fallbackReasoningErr = resolveAntigravityRequestReasoning(fallbackRoute, body, source)
+				fallbackSupported = fallbackReasoningErr == nil
+			}
 			fallbackModel := fallbackRoute.WireModel
 			if fallbackSupported && fallbackModel != mappedModel {
 				logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Model not found (%s), retrying with fallback model %s -> %s (account: %s)", mappedModel, fallbackClientModel, fallbackModel, account.Name)
@@ -268,6 +281,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 							_ = resp.Body.Close()
 							resp = fallbackResp
 							billingModel = fallbackModel
+							_, reasoningEffort, _ = resolveAntigravityRequestReasoning(fallbackRoute, body, source)
 							successfulPipeline = fallbackResult.pipeline
 						} else if fallbackResp != nil {
 							_ = fallbackResp.Body.Close()
@@ -557,7 +571,8 @@ handleSuccess:
 		RequestID:                     requestID,
 		ActualProtocol:                protocolconv.ProtocolGoogleGenAI,
 		Usage:                         *usage,
-		Model:                         originalModel,
+		Model:                         domain.AntigravityPublicModelID(originalModel),
+		ReasoningEffort:               reasoningEffort,
 		UpstreamModel:                 billingModel,
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),

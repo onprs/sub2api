@@ -484,8 +484,16 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown:     false,
 	}
 
+	// Gemini 3.8 Flash：Google 公布的 2026 年内推广价，按聚合模型计费。
+	// https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing
+	s.fallbackPrices["gemini-3.8-flash"] = &ModelPricing{
+		InputPricePerToken:     0.75e-6,
+		OutputPricePerToken:    3.75e-6,
+		CacheReadPricePerToken: 0.075e-6,
+	}
+
 	// Gemini 3.7 Flash 2026 年内发布价：$0.75 input / $3.75 output / $0.075 cached input per MTok。
-	// 三个公开档位只在计费层归一到基础价格，wire ID 保持独立。
+	// 对外按聚合模型计费，wire ID 保持独立。
 	s.fallbackPrices["gemini-3.7-flash"] = &ModelPricing{
 		InputPricePerToken:     0.75e-6,
 		OutputPricePerToken:    3.75e-6,
@@ -958,6 +966,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	}
 	if strings.Contains(modelLower, "gemini-3.1-pro") || strings.Contains(modelLower, "gemini-3-1-pro") {
 		return s.fallbackPrices["gemini-3.1-pro"]
+	}
+	if strings.Contains(modelLower, "gemini-3.8-flash") || strings.Contains(modelLower, "gemini-3-8-flash") {
+		return s.fallbackPrices["gemini-3.8-flash"]
 	}
 	if strings.Contains(modelLower, "gemini-3.7-flash") || strings.Contains(modelLower, "gemini-3-7-flash") {
 		return s.fallbackPrices["gemini-3.7-flash"]

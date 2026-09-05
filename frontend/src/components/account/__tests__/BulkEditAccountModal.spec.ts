@@ -133,8 +133,9 @@ describe('BulkEditAccountModal', () => {
 
     await selector.find('div.cursor-pointer').trigger('click')
 
-    expect(wrapper.text()).toContain('gemini-3.7-flash-high')
-    expect(wrapper.text()).toContain('gemini-3.5-flash-low')
+    expect(wrapper.text()).toContain('gemini-3.8-flash')
+    expect(wrapper.text()).not.toContain('gemini-3.7-flash-high')
+    expect(wrapper.text()).toContain('gemini-3.5-flash')
     expect(wrapper.text()).not.toContain('gemini-3.1-flash-image')
     expect(wrapper.text()).not.toContain('gemini-2.5-flash-image')
     expect(wrapper.text()).not.toContain('gpt-5.3-codex')

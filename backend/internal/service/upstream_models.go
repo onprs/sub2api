@@ -1078,6 +1078,9 @@ func (s *AccountTestService) FetchAntigravityAccountCatalog(ctx context.Context,
 		return nil, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", nil)
 	}
 	for i := range models {
+		if len(models[i].ReasoningEfforts) > 0 {
+			continue
+		}
 		route, ok := account.ResolveAntigravityRoute(models[i].ID)
 		if !ok {
 			models[i].WireModel = ""

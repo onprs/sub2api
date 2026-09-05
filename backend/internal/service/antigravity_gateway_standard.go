@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/antigravityadapter"
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
@@ -68,6 +69,7 @@ func (s *AntigravityGatewayService) forwardStandardProtocol(
 	if strings.TrimSpace(clientModel) == "" {
 		clientModel = request.Model
 	}
+	clientModel = domain.AntigravityPublicModelID(clientModel)
 	mappedModel := s.getMappedModel(account, request.Model)
 	if mappedModel == "" {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)

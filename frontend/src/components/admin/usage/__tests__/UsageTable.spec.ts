@@ -375,6 +375,22 @@ describe('admin UsageTable tooltip', () => {
     expect(text).toContain('claude-sonnet-4-20250514')
   })
 
+  it('思考档位不显示为模型映射，实际 wire 保留在悬浮详情', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{ model: 'gemini-3.8-flash', upstream_model: 'gemini-3.8-flash-medium', reasoning_effort: 'medium' }],
+        loading: false,
+        columns: [],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    expect(wrapper.text()).toContain('gemini-3.8-flash')
+    expect(wrapper.text()).toContain('Medium')
+    expect(wrapper.text()).not.toContain('gemini-3.8-flash-medium')
+    expect(wrapper.text()).not.toContain('↳')
+    expect(wrapper.find('[title*="gemini-3.8-flash-medium"]').exists()).toBe(true)
+  })
+
   it('shows requested and forwarded reasoning effort separately when they differ', () => {
     const wrapper = mount(UsageTable, {
       props: {

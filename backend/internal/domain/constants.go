@@ -115,6 +115,9 @@ type AntigravityModelRoute struct {
 }
 
 var antigravityUserModelRoutes = []AntigravityModelRoute{
+	{ModelID: "gemini-3.8-flash-high", DisplayName: "Gemini 3.8 Flash (High)", CatalogIDs: []string{"gemini-3.8-flash-high", "gemini-3.8-flash-tiered"}, WireModel: "gemini-3.8-flash-high", ResponseModel: "gemini-3.8-flash"},
+	{ModelID: "gemini-3.8-flash-medium", DisplayName: "Gemini 3.8 Flash (Medium)", CatalogIDs: []string{"gemini-3.8-flash-medium", "gemini-3.8-flash-tiered"}, WireModel: "gemini-3.8-flash-medium", ResponseModel: "gemini-3.8-flash"},
+	{ModelID: "gemini-3.8-flash-low", DisplayName: "Gemini 3.8 Flash (Low)", CatalogIDs: []string{"gemini-3.8-flash-low", "gemini-3.8-flash-tiered"}, WireModel: "gemini-3.8-flash-low", ResponseModel: "gemini-3.8-flash"},
 	{ModelID: "gemini-3.7-flash-high", DisplayName: "Gemini 3.7 Flash (High)", CatalogIDs: []string{"gemini-3.7-flash-tiered"}, WireModel: "gemini-3.7-flash-high", InternalModel: "MODEL_PLACEHOLDER_M298", ResponseModel: "gemini-3.7-flash", ThinkingBudget: -1, HasThinkingBudget: true, TierGroup: "flash"},
 	{ModelID: "gemini-3.7-flash-medium", DisplayName: "Gemini 3.7 Flash (Medium)", CatalogIDs: []string{"gemini-3.7-flash-tiered"}, WireModel: "gemini-3.7-flash-medium", InternalModel: "MODEL_PLACEHOLDER_M299", ResponseModel: "gemini-3.7-flash", ThinkingBudget: 4000, HasThinkingBudget: true, TierGroup: "flash"},
 	{ModelID: "gemini-3.7-flash-low", DisplayName: "Gemini 3.7 Flash (Low)", CatalogIDs: []string{"gemini-3.7-flash-tiered"}, WireModel: "gemini-3.7-flash-low", InternalModel: "MODEL_PLACEHOLDER_M300", ResponseModel: "gemini-3.7-flash", ThinkingBudget: 1000, HasThinkingBudget: true, TierGroup: "flash"},
@@ -185,7 +188,7 @@ var antigravityCompatibilityModelMapping = map[string]string{
 }
 
 // DefaultAntigravityModelMapping 是官方 Cloud Code OAuth/Setup Token 账号的内置路由表。
-// 15 个公开用户 ID 覆盖同名历史 raw key；例如 gemini-3.5-flash-low 现在明确表示 Low。
+// 档位 ID 覆盖同名历史 raw key；聚合身份保持不变，由请求选择物理档位。
 var DefaultAntigravityModelMapping = buildDefaultAntigravityModelMapping()
 
 func buildDefaultAntigravityModelMapping() map[string]string {
@@ -204,6 +207,9 @@ func buildDefaultAntigravityModelMapping() map[string]string {
 	for _, route := range antigravityUserModelRoutes {
 		mapping[route.ModelID] = route.WireModel
 	}
+	for _, route := range AntigravityPublicModelRoutes() {
+		mapping[route.ModelID] = route.ModelID
+	}
 	return mapping
 }
 
@@ -212,6 +218,9 @@ func ResolveDefaultAntigravityModelRoute(model string) (AntigravityModelRoute, b
 	model = strings.TrimPrefix(strings.TrimSpace(model), "models/")
 	if model == "" {
 		return AntigravityModelRoute{}, false
+	}
+	if route, ok := ResolveAntigravityReasoningRoute(model, ""); ok {
+		return route, true
 	}
 	for _, route := range antigravityUserModelRoutes {
 		if route.ModelID == model {

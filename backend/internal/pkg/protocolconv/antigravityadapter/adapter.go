@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	vendor "github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/standard"
@@ -42,6 +43,47 @@ type Options struct {
 // ConvertRequest converts a standard source request and wraps the Antigravity
 // v1internal request. It does not select accounts or perform transport.
 func ConvertRequest(body []byte, source protocolconv.Protocol, options Options) ([]byte, []protocolconv.Warning, error) {
+	converted, warnings, err := convertRequest(body, source, options)
+	if err != nil {
+		return converted, warnings, err
+	}
+	route, ok := domain.ResolveAntigravityReasoningRoute(options.SourceModel, "")
+	if !ok || route.WireModel != options.WireModel {
+		return converted, warnings, nil
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(converted, &envelope); err != nil {
+		return nil, warnings, err
+	}
+	// web_search 等厂商降级可能已更换实际模型，不能再附加原档位的配置。
+	if envelope["model"] != route.WireModel {
+		return converted, warnings, nil
+	}
+	request, _ := envelope["request"].(map[string]any)
+	config, _ := request["generationConfig"].(map[string]any)
+	if config == nil {
+		config = make(map[string]any)
+		request["generationConfig"] = config
+	}
+	thinking, _ := config["thinkingConfig"].(map[string]any)
+	if thinking == nil {
+		thinking = make(map[string]any)
+		config["thinkingConfig"] = thinking
+	}
+	// 档位选择是厂商策略，不让标准协议转换生成的预算与物理档位相互冲突。
+	delete(thinking, "thinkingBudget")
+	delete(thinking, "thinkingLevel")
+	if route.HasThinkingBudget {
+		thinking["thinkingBudget"] = route.ThinkingBudget
+	} else {
+		_, effort := domain.AntigravityReasoningModel(route.ModelID)
+		thinking["thinkingLevel"] = strings.ToUpper(effort)
+	}
+	converted, err = json.Marshal(envelope)
+	return converted, warnings, err
+}
+
+func convertRequest(body []byte, source protocolconv.Protocol, options Options) ([]byte, []protocolconv.Warning, error) {
 	if err := validateOptions(options); err != nil {
 		return nil, nil, err
 	}

@@ -16,21 +16,22 @@ const (
 
 // CatalogModel 表示 agy 用户目录项，并显式保留与 raw 目录和请求路由的边界。
 type CatalogModel struct {
-	ID             string         `json:"id"`
-	CatalogID      string         `json:"catalog_id,omitempty"`
-	Type           string         `json:"type"`
-	DisplayName    string         `json:"display_name"`
-	CreatedAt      string         `json:"created_at"`
-	WireModel      string         `json:"wire_model,omitempty"`
-	InternalModel  string         `json:"internal_model,omitempty"`
-	ResponseModel  string         `json:"response_model,omitempty"`
-	BackendModel   string         `json:"backend_model,omitempty"`
-	ThinkingBudget *int           `json:"thinking_budget,omitempty"`
-	Source         string         `json:"source,omitempty"`
-	Metadata       map[string]any `json:"metadata,omitempty"`
+	ID               string         `json:"id"`
+	CatalogID        string         `json:"catalog_id,omitempty"`
+	Type             string         `json:"type"`
+	DisplayName      string         `json:"display_name"`
+	CreatedAt        string         `json:"created_at"`
+	WireModel        string         `json:"wire_model,omitempty"`
+	InternalModel    string         `json:"internal_model,omitempty"`
+	ResponseModel    string         `json:"response_model,omitempty"`
+	BackendModel     string         `json:"backend_model,omitempty"`
+	ThinkingBudget   *int           `json:"thinking_budget,omitempty"`
+	Source           string         `json:"source,omitempty"`
+	ReasoningEfforts []string       `json:"reasoning_efforts,omitempty"`
+	Metadata         map[string]any `json:"metadata,omitempty"`
 }
 
-// FallbackCatalogModels 返回当前 agy 的 15 项用户目录。内部指纹只作诊断，不能用作 wire model。
+// FallbackCatalogModels 返回聚合思考程度后的用户目录。内部指纹不能用作 wire model。
 func FallbackCatalogModels() []CatalogModel {
 	routes := domain.AntigravityUserModelRoutes()
 	models := make([]CatalogModel, 0, len(routes))
@@ -41,11 +42,11 @@ func FallbackCatalogModels() []CatalogModel {
 		}
 		models = append(models, catalogModelFromRoute(route, catalogID, route.InternalModel, nil, CatalogSourceFallback))
 	}
-	return models
+	return aggregateCatalogReasoning(models)
 }
 
 // CatalogModelsFromResponse 使用 raw 目录的可用性证据生成 agy 用户目录。
-// raw models 和 agentModelSorts 都不是用户菜单；3.7 tiered 项会展开成三个独立公开路由。
+// raw models 和 agentModelSorts 都不是用户菜单；具体档位聚合成一个公开模型。
 func CatalogModelsFromResponse(response *FetchAvailableModelsResponse, raw map[string]any) []CatalogModel {
 	if response == nil || len(response.Models) == 0 {
 		return nil
@@ -68,11 +69,37 @@ func CatalogModelsFromResponse(response *FetchAvailableModelsResponse, raw map[s
 		metadata, _ := rawModels[catalogID].(map[string]any)
 		models = append(models, catalogModelFromRoute(route, catalogID, internalModel, metadata, CatalogSourceLive))
 	}
-	return models
+	return aggregateCatalogReasoning(models)
+}
+
+func aggregateCatalogReasoning(models []CatalogModel) []CatalogModel {
+	result := make([]CatalogModel, 0, len(models))
+	indices := make(map[string]int)
+	for _, model := range models {
+		base, effort := domain.AntigravityReasoningModel(model.ID)
+		if base == "" {
+			result = append(result, model)
+			continue
+		}
+		if index, exists := indices[base]; exists {
+			result[index].ReasoningEfforts = append(result[index].ReasoningEfforts, effort)
+			continue
+		}
+		indices[base] = len(result)
+		model.ID = base
+		model.DisplayName = strings.Split(model.DisplayName, " (")[0]
+		model.WireModel = ""
+		model.InternalModel = ""
+		model.ThinkingBudget = nil
+		model.ResponseModel = base
+		model.ReasoningEfforts = []string{effort}
+		result = append(result, model)
+	}
+	return result
 }
 
 // RawCatalogModelsFromResponse 原样保留 fetchAvailableModels 的 raw 数据层。
-// opaque、辅助和未来 ID 不进入 15 项菜单，但也不会在解析阶段丢失。
+// opaque、辅助和未来 ID 不进入公开菜单，但也不会在解析阶段丢失。
 func RawCatalogModelsFromResponse(response *FetchAvailableModelsResponse, raw map[string]any) []CatalogModel {
 	if response == nil || len(response.Models) == 0 {
 		return nil

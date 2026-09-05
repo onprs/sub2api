@@ -2871,6 +2871,9 @@ func (h *AccountHandler) antigravityAccountModels(ctx context.Context, account *
 
 func applyAntigravityCatalogRoutes(account *service.Account, models []antigravity.CatalogModel) []antigravity.CatalogModel {
 	for i := range models {
+		if len(models[i].ReasoningEfforts) > 0 {
+			continue
+		}
 		route, ok := account.ResolveAntigravityRoute(models[i].ID)
 		if !ok {
 			models[i].WireModel = ""

@@ -78,7 +78,7 @@
         </template>
 
         <template #cell-model="{ row }">
-          <div class="space-y-0.5 text-xs">
+          <div class="space-y-0.5 text-xs" :title="isReasoningVariant(row) ? modelAuditTitle(row) : undefined">
             <div v-if="row.model_mapping_chain && row.model_mapping_chain.includes('→')" class="space-y-0.5">
               <div v-for="(step, i) in row.model_mapping_chain.split('→')" :key="i"
                    class="break-all"
@@ -87,7 +87,7 @@
                 <span v-if="i > 0" class="mr-0.5">↳</span>{{ step }}
               </div>
             </div>
-            <div v-else-if="row.upstream_model && row.upstream_model !== row.model" class="space-y-0.5">
+            <div v-else-if="row.upstream_model && row.upstream_model !== row.model && !isReasoningVariant(row)" class="space-y-0.5">
               <div class="break-all font-medium text-gray-900 dark:text-white">
                 {{ row.model }}
               </div>
@@ -667,6 +667,15 @@ const hasReasoningEffortMapping = (row: AdminUsageLog): boolean => {
   const requested = row.reasoning_effort?.trim() || ''
   const forwarded = row.upstream_reasoning_effort?.trim() || ''
   return requested !== '' && forwarded !== '' && !reasoningEffortValuesEqual(requested, forwarded)
+}
+
+const isReasoningVariant = (row: AdminUsageLog): boolean => {
+  const model = row.model?.trim() || ''
+  const upstream = row.upstream_model?.trim() || ''
+  if (!/^gemini-(3\.[5678]-flash|3\.1-pro)$/.test(model)) return false
+  if (['high', 'medium', 'low'].some(effort => upstream === `${model}-${effort}`)) return true
+  return (model === 'gemini-3.1-pro' && upstream === 'gemini-pro-agent') ||
+    (model === 'gemini-3.5-flash' && ['gemini-3-flash-agent', 'gemini-3.5-flash-extra-low'].includes(upstream))
 }
 
 const sentUpstreamModel = (row: AdminUsageLog): string => row.upstream_model?.trim() || row.model?.trim() || ''

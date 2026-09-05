@@ -52,21 +52,15 @@ describe('useModelWhitelist', () => {
     expect(models).not.toContain('gpt-5.2-codex')
   })
 
-  it('antigravity 模型列表与 agy 的 15 项用户目录一致', () => {
+  it('antigravity 模型列表聚合思考程度并包含 Gemini 3.8', () => {
     const models = getModelsByPlatform('antigravity')
 
     expect(models).toEqual([
-      'gemini-3.7-flash-high',
-      'gemini-3.7-flash-medium',
-      'gemini-3.7-flash-low',
-      'gemini-3.6-flash-high',
-      'gemini-3.6-flash-medium',
-      'gemini-3.6-flash-low',
-      'gemini-3.5-flash-high',
-      'gemini-3.5-flash-medium',
-      'gemini-3.5-flash-low',
-      'gemini-3.1-pro-high',
-      'gemini-3.1-pro-low',
+      'gemini-3.8-flash',
+      'gemini-3.7-flash',
+      'gemini-3.6-flash',
+      'gemini-3.5-flash',
+      'gemini-3.1-pro',
       'claude-fable-5-1',
       'claude-sonnet-4-6',
       'claude-opus-4-6-thinking',
@@ -177,7 +171,7 @@ describe('useModelWhitelist', () => {
   it('antigravity 模型列表隐藏旧通用别名', () => {
     const models = getModelsByPlatform('antigravity')
 
-    expect(models).not.toContain('gemini-3.1-pro')
+    expect(models).toContain('gemini-3.1-pro')
     expect(models).not.toContain('gemini-3.5-flash-extra-low')
   })
 

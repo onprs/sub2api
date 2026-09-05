@@ -430,7 +430,7 @@ func TestDefaultModelIDsForCompositeIncludesAntigravityDefaults(t *testing.T) {
 
 // Scenario: Anthropic defaults contain only Claude while Antigravity keeps its own Gemini models.
 func TestDefaultModelIDsForAnthropicExcludeAntigravityGemini(t *testing.T) {
-	const antigravityGeminiModel = "gemini-3.7-flash-high"
+	const antigravityGeminiModel = "gemini-3.8-flash"
 
 	anthropicIDs := defaultModelIDsForPlatform(service.PlatformAnthropic)
 	require.Contains(t, anthropicIDs, "claude-opus-4-6")
