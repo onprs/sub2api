@@ -276,7 +276,9 @@ func TestGeminiForwardAsChatCompletions_StreamsOpenAIChunksFromGeminiSSE(t *test
 	require.Contains(t, out, `"object":"chat.completion.chunk"`)
 	require.Contains(t, out, `"role":"assistant"`)
 	require.Contains(t, out, `"content":"hel"`)
-	require.Contains(t, out, `"content":"lo"`)
+	// Google 分片是增量，第二段不能因为与第一段共享前缀而被裁剪。
+	require.Contains(t, out, `"content":"hello"`)
+	require.NotContains(t, out, `"content":"lo"`)
 	require.Contains(t, out, `"usage":{"prompt_tokens":2,"completion_tokens":2,"total_tokens":4}`)
 	require.Contains(t, out, "data: [DONE]")
 }

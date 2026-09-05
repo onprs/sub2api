@@ -20,6 +20,13 @@ Status values used below:
 - **missing**: no applicable Go implementation.
 - **excluded**: intentionally not part of this rewrite, with the reason recorded.
 
+## 请求转换兼容性修复（2026-09-05，本地验证）
+
+- Gemini 标准 API 的跨协议工具 schema 使用显式启用的 `parametersJsonSchema`，完整保留嵌套 `additionalProperties` 等 JSON Schema 约束，避免把完整 JSON Schema 填入受限的 `parameters` 字段。适用于 Gemini API-key 和服务账号的 Chat、Responses、Messages 请求；Code Assist、Antigravity 及转换核心默认路径保留旧载体。解码器支持两种字段并拒绝同时声明。
+- Command Code 的 Responses 到 Chat 请求仅对不可表示的历史 reasoning 签名启用 `AllowChatRequestSignatureLoss`，产生 `reasoning_signature` 类型化警告，保留已有明文 reasoning、消息及工具调用/结果。不透明内容无法解密或重放到 Chat，因此不会伪造替代值。其他能力仍使用严格策略；Anthropic 目标、其他来源及其他平台不自动继承此例外。
+- 验证包含嵌套 schema 往返、互斥字段、签名例外的请求/响应隔离、Command Code 流式/非流式历史请求及 Gemini 请求链路。此记录不代表已部署或完成真实上游验收。
+- 官方字段依据：[Google SDK FunctionDeclaration](https://googleapis.github.io/js-genai/release_docs/interfaces/types.FunctionDeclaration.html)、[Vertex AI FunctionDeclaration](https://docs.cloud.google.com/java/docs/reference/google-cloud-vertexai/latest/com.google.cloud.vertexai.api.FunctionDeclaration)。
+
 ## Responsibility ledger
 
 | Reference responsibility | Reference files and tests | Current Go implementation | Production entrypoints using it | Status | Known difference and required action | Verification |

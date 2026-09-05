@@ -136,8 +136,8 @@ func requireStreamSemantics(t *testing.T, events []ir.StreamEvent) {
 			endCount++
 		}
 	}
-	require.Equal(t, "done", text.String())
-	require.Equal(t, "inspect first", reasoning.String())
+	require.Equal(t, "dododone", text.String())
+	require.Equal(t, "inspect inspect inspect first", reasoning.String())
 	require.JSONEq(t, `{"path":"demo"}`, arguments.String())
 	require.Equal(t, 1, finishCount)
 	require.Equal(t, 1, endCount)
@@ -170,6 +170,8 @@ func streamFixture() []ir.StreamEvent {
 	return []ir.StreamEvent{
 		{Type: ir.EventStreamStart, ResponseID: "resp-1", Model: "test-model"},
 		{Type: ir.EventContentBlockStart, BlockIndex: 0, BlockType: ir.ContentReasoning},
+		{Type: ir.EventReasoningDelta, BlockIndex: 0, Reasoning: "inspect "},
+		{Type: ir.EventReasoningDelta, BlockIndex: 0, Reasoning: "inspect "},
 		{Type: ir.EventReasoningDelta, BlockIndex: 0, Reasoning: "inspect first", Signature: "sig-1"},
 		{Type: ir.EventContentBlockEnd, BlockIndex: 0},
 		{Type: ir.EventContentBlockStart, BlockIndex: 1, BlockType: ir.ContentToolCall},
@@ -180,7 +182,8 @@ func streamFixture() []ir.StreamEvent {
 		{Type: ir.EventContentBlockEnd, BlockIndex: 1},
 		{Type: ir.EventContentBlockStart, BlockIndex: 2, BlockType: ir.ContentText},
 		{Type: ir.EventTextDelta, BlockIndex: 2, Text: "do"},
-		{Type: ir.EventTextDelta, BlockIndex: 2, Text: "ne"},
+		{Type: ir.EventTextDelta, BlockIndex: 2, Text: "do"},
+		{Type: ir.EventTextDelta, BlockIndex: 2, Text: "done"},
 		{Type: ir.EventContentBlockEnd, BlockIndex: 2},
 		{Type: ir.EventFinish, FinishReason: &ir.FinishReason{Reason: "tool_calls"}},
 		{Type: ir.EventUsage, Usage: &ir.Usage{InputTokens: 100, OutputTokens: 30, TotalTokens: 130, CacheReadTokens: 60, ReasoningTokens: 10}},

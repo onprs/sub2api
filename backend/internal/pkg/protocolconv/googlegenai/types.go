@@ -56,9 +56,10 @@ type toolGroupWire struct {
 }
 
 type functionDeclarationWire struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Parameters  json.RawMessage `json:"parameters,omitempty"`
+	Name                 string          `json:"name"`
+	Description          string          `json:"description,omitempty"`
+	Parameters           json.RawMessage `json:"parameters,omitempty"`
+	ParametersJSONSchema json.RawMessage `json:"parametersJsonSchema,omitempty"`
 }
 
 type toolConfigWire struct {

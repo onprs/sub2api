@@ -14,6 +14,8 @@ type streamDecoder struct {
 	id          string
 	model       string
 	nextBlock   int
+	nextPart    map[int]int
+	usage       *ir.Usage
 	current     *googleBlock
 	sawToolCall bool
 }
@@ -39,7 +41,9 @@ type streamEncoder struct {
 	callSignatures map[string]string
 }
 
-func newStreamDecoder() *streamDecoder { return &streamDecoder{} }
+func newStreamDecoder() *streamDecoder {
+	return &streamDecoder{nextPart: make(map[int]int)}
+}
 func newStreamEncoder() *streamEncoder {
 	return newStreamEncoderWithOptions(protocolconv.Options{})
 }
@@ -69,12 +73,17 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 		out = append(out, ir.StreamEvent{Type: ir.EventStreamStart, ResponseID: d.id, Model: d.model})
 	}
 
+	if wire.UsageMetadata != nil {
+		d.usage = usageFromGoogle(wire.UsageMetadata)
+	}
 	finished := false
 	finishReason := ir.FinishReason{Reason: "stop"}
 	for candidatePosition, candidate := range wire.Candidates {
 		candidateIndex := googleCandidateIndex(candidatePosition, candidate)
 		for partIndex, part := range candidate.Content.Parts {
-			part = ensureGoogleFunctionCallID(part, candidateIndex, partIndex)
+			// 分片中的 parts 索引会重置，缺失 ID 必须使用请求内持续递增的索引。
+			part = ensureGoogleFunctionCallID(part, candidateIndex, d.nextPart[candidateIndex])
+			d.nextPart[candidateIndex]++
 			partType := googlePartType(part)
 			identity := googlePartIdentity(part)
 			if d.current == nil || d.current.choiceIndex != candidateIndex || d.current.partType != partType || (partType == ir.ContentToolCall && d.current.toolCallID != identity) {
@@ -106,16 +115,13 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 					d.current.seen = args
 				}
 			case part.Thought:
-				delta := cumulativeDelta(d.current.seen, part.Text)
-				if delta != "" || part.ThoughtSignature != "" {
-					out = append(out, ir.StreamEvent{Type: ir.EventReasoningDelta, BlockIndex: d.current.index, ChoiceIndex: candidateIndex, Reasoning: delta, Signature: part.ThoughtSignature})
-					d.current.seen = part.Text
+				if part.Text != "" || part.ThoughtSignature != "" {
+					out = append(out, ir.StreamEvent{Type: ir.EventReasoningDelta, BlockIndex: d.current.index, ChoiceIndex: candidateIndex, Reasoning: part.Text, Signature: part.ThoughtSignature})
 				}
 			default:
-				delta := cumulativeDelta(d.current.seen, part.Text)
-				if delta != "" {
-					out = append(out, ir.StreamEvent{Type: ir.EventTextDelta, BlockIndex: d.current.index, ChoiceIndex: candidateIndex, Text: delta})
-					d.current.seen = part.Text
+				// 标准 Google 文本分片是增量，重复内容和共同前缀都属于输出。
+				if part.Text != "" {
+					out = append(out, ir.StreamEvent{Type: ir.EventTextDelta, BlockIndex: d.current.index, ChoiceIndex: candidateIndex, Text: part.Text})
 				}
 			}
 		}
@@ -131,8 +137,8 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 		}
 		out = append(out, d.closeCurrent()...)
 		out = append(out, ir.StreamEvent{Type: ir.EventFinish, FinishReason: &finishReason})
-		if usage := usageFromGoogle(wire.UsageMetadata); usage != nil {
-			out = append(out, ir.StreamEvent{Type: ir.EventUsage, Usage: usage})
+		if d.usage != nil {
+			out = append(out, ir.StreamEvent{Type: ir.EventUsage, Usage: d.usage})
 		}
 		out = append(out, ir.StreamEvent{Type: ir.EventStreamEnd})
 		d.ended = true

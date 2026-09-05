@@ -107,7 +107,11 @@ func (c *Converter) EncodeRequest(request *ir.Request, options protocolconv.Opti
 	if err != nil {
 		return nil, warnings, err
 	}
-	signatureWarnings, err := checkSignatures(request.Messages, options)
+	signatureOptions := options
+	if options.AllowChatRequestSignatureLoss {
+		signatureOptions.LossPolicy = protocolconv.LossWarn
+	}
+	signatureWarnings, err := checkSignatures(request.Messages, signatureOptions)
 	warnings = append(warnings, signatureWarnings...)
 	if err != nil {
 		return nil, warnings, err

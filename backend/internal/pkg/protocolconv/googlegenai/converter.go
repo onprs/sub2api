@@ -70,7 +70,14 @@ func (c *Converter) DecodeRequest(body []byte, options protocolconv.Options) (*i
 	}
 	for _, group := range wire.Tools {
 		for _, tool := range group.FunctionDeclarations {
-			out.Tools = append(out.Tools, ir.ToolDefinition{Type: "function", Name: tool.Name, Description: tool.Description, Parameters: cloneRaw(tool.Parameters)})
+			parameters := tool.Parameters
+			if len(tool.ParametersJSONSchema) > 0 {
+				if len(parameters) > 0 {
+					return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidIR, Protocol: c.Protocol(), Path: "tools.functionDeclarations", Message: "parameters and parametersJsonSchema are mutually exclusive"}
+				}
+				parameters = tool.ParametersJSONSchema
+			}
+			out.Tools = append(out.Tools, ir.ToolDefinition{Type: "function", Name: tool.Name, Description: tool.Description, Parameters: cloneRaw(parameters)})
 		}
 		if len(group.GoogleSearch) > 0 {
 			out.Tools = append(out.Tools, ir.ToolDefinition{Type: "function", ProviderType: "google_search", Name: "google_search"})
@@ -155,7 +162,13 @@ func (c *Converter) EncodeRequest(request *ir.Request, options protocolconv.Opti
 				wire.Tools = append(wire.Tools, toolGroupWire{GoogleSearch: json.RawMessage(`{}`)})
 				continue
 			}
-			group.FunctionDeclarations = append(group.FunctionDeclarations, functionDeclarationWire{Name: tool.Name, Description: tool.Description, Parameters: cloneRaw(tool.Parameters)})
+			declaration := functionDeclarationWire{Name: tool.Name, Description: tool.Description}
+			if options.GoogleToolParametersJSONSchema {
+				declaration.ParametersJSONSchema = cloneRaw(tool.Parameters)
+			} else {
+				declaration.Parameters = cloneRaw(tool.Parameters)
+			}
+			group.FunctionDeclarations = append(group.FunctionDeclarations, declaration)
 		}
 		if len(group.FunctionDeclarations) > 0 {
 			wire.Tools = append(wire.Tools, group)

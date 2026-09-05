@@ -103,7 +103,7 @@ func (s *GeminiMessagesCompatService) forwardGeminiBodyAsChatCompletions(
 			Source: protocolconv.ProtocolOpenAIChat, IntendedTarget: protocolconv.ProtocolGoogleGenAI,
 			ClientModel: originalModel, UpstreamModel: mappedModel, Provider: account.Platform, AccountID: account.ID,
 		},
-		Options: protocolconv.Options{SourceModel: mappedModel, LossPolicy: protocolconv.LossError},
+		Options: geminiProtocolConversionOptions(account, mappedModel),
 	}
 	s.configureGoogleMetadataBridge(ctx, account, &pipelineConfig)
 	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, pipelineConfig)
