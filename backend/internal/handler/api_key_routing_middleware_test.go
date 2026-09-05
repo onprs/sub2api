@@ -178,7 +178,7 @@ func TestAPIKeyRoutingMiddleware_SelectsMediaCapableGroupAndRestoresBody(t *test
 		require.NoError(t, err)
 		require.Equal(t, body, restored)
 
-		// 客户端状态虽然是 200，只要存在上游失败标记就必须记录失败。
+		// 组内失败后成功不应降低分组成功率。
 		c.Set(service.OpsUpstreamStatusCodeKey, http.StatusBadGateway)
 		c.Set(service.OpsTimeToFirstTokenMsKey, int64(137))
 		c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -190,7 +190,7 @@ func TestAPIKeyRoutingMiddleware_SelectsMediaCapableGroupAndRestoresBody(t *test
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, []bool{false}, cache.routingOutcomes(mediaEnabled.ID))
+	require.Equal(t, []bool{true}, cache.routingOutcomes(mediaEnabled.ID))
 	require.Len(t, cache.routingLatencies(mediaEnabled.ID), 1)
 	require.Equal(t, int64(137), *cache.routingLatencies(mediaEnabled.ID)[0])
 	require.Equal(t, mediaDisabled.ID, *apiKey.GroupID, "中间件不能修改缓存中的原始 Key")

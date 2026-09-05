@@ -571,14 +571,14 @@ func TestResolveAPIKeyRoutingGroup_StabilityUsesRedisAndStickySession(t *testing
 	require.Equal(t, stable.ID, *got.GroupID)
 	require.Equal(t, stable.ID, cache.sticky["conversation-1"])
 
-	// 已有绑定优先于当前策略，但仍只能命中本次过滤后仍合格的候选。
+	// 稳定性策略每次重新排序，旧会话不能强制选择不稳定分组。
 	cache.sticky["conversation-2"] = unstable.ID
 	got, err = svc.ResolveAPIKeyRoutingGroup(context.Background(), key, APIKeyRoutingResolveInput{
 		Model:      "gpt-route",
 		SessionKey: "conversation-2",
 	})
 	require.NoError(t, err)
-	require.Equal(t, unstable.ID, *got.GroupID)
+	require.Equal(t, stable.ID, *got.GroupID)
 
 	unstable.Status = StatusDisabled
 	got, err = svc.ResolveAPIKeyRoutingGroup(context.Background(), key, APIKeyRoutingResolveInput{

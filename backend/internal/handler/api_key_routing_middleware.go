@@ -19,7 +19,7 @@ import (
 )
 
 // APIKeyRoutingMiddleware 在认证完成后、协议 Handler 执行前解析动态分组。
-func (h *GatewayHandler) APIKeyRoutingMiddleware(googleErrors bool) gin.HandlerFunc {
+func (h *GatewayHandler) APIKeyRoutingMiddleware(googleErrors bool, retryPreflight ...gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 		if !ok || apiKey == nil || !apiKey.UsesDynamicGroupRouting() || h == nil || h.gatewayService == nil {
@@ -46,19 +46,7 @@ func (h *GatewayHandler) APIKeyRoutingMiddleware(googleErrors bool) gin.HandlerF
 			return
 		}
 
-		setEffectiveAPIKeyRoutingGroup(c, effectiveKey)
-		outcomeStartedAt := time.Now()
-		c.Next()
-
-		status := c.Writer.Status()
-		success := status >= http.StatusOK && status < http.StatusMultipleChoices
-		failed := status >= http.StatusInternalServerError || hasRoutingUpstreamFailure(c)
-		if success || failed {
-			latencyMs := apiKeyRoutingObservedLatencyMs(c, time.Since(outcomeStartedAt))
-			recordCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-			h.gatewayService.RecordAPIKeyRoutingOutcome(recordCtx, effectiveKey.Group.ID, success && !failed, latencyMs)
-			cancel()
-		}
+		h.serveAPIKeyRoutingAttempts(c, apiKey, effectiveKey, input, retryPreflight)
 	}
 }
 
@@ -82,6 +70,7 @@ func apiKeyRoutingInputFromRequest(c *gin.Context) (service.APIKeyRoutingResolve
 			return input, false, nil
 		}
 		input.Capability = service.APIKeyRoutingCapabilityVideo
+		input.PreserveSession = true
 		if apiKey.RoutingPlatformValue() == service.PlatformComposite {
 			input.ForcePlatform = service.PlatformGrok
 		}
@@ -123,6 +112,9 @@ func apiKeyRoutingInputFromRequest(c *gin.Context) (service.APIKeyRoutingResolve
 		if err != nil {
 			return input, false, err
 		}
+		c.Request.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(body)), nil
+		}
 		c.Request.Body = io.NopCloser(bytes.NewReader(body))
 	}
 
@@ -137,6 +129,13 @@ func apiKeyRoutingInputFromRequest(c *gin.Context) (service.APIKeyRoutingResolve
 		}
 	}
 	input.SessionKey = firstNonEmptyRoutingSessionKey(c, body)
+	if previous := strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String()); previous != "" {
+		input.SessionKey = previous
+		input.PreserveSession = true
+	}
+	if conversation := strings.TrimSpace(gjson.GetBytes(body, "conversation").String()); conversation != "" {
+		input.PreserveSession = true
+	}
 	applyAPIKeyRoutingAccountRequirements(c, body, &input)
 	return input, true, nil
 }
@@ -260,24 +259,6 @@ func setEffectiveAPIKeyRoutingGroup(c *gin.Context, apiKey *service.APIKey) {
 	ctx := context.WithValue(c.Request.Context(), ctxkey.Group, apiKey.Group)
 	ctx = context.WithValue(ctx, ctxkey.APIKeyRoutingAPIKeyID, apiKey.ID)
 	c.Request = c.Request.WithContext(ctx)
-}
-
-func hasRoutingUpstreamFailure(c *gin.Context) bool {
-	if c == nil {
-		return false
-	}
-	if _, ok := c.Get(service.OpsUpstreamStatusCodeKey); ok {
-		return true
-	}
-	if _, ok := service.GetOpsStreamError(c); ok {
-		return true
-	}
-	if value, ok := c.Get(service.OpsUpstreamErrorsKey); ok {
-		if events, castOK := value.([]*service.OpsUpstreamErrorEvent); castOK && len(events) > 0 {
-			return true
-		}
-	}
-	return false
 }
 
 func apiKeyRoutingObservedLatencyMs(c *gin.Context, elapsed time.Duration) *int64 {

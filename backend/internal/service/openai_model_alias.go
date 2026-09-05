@@ -124,6 +124,10 @@ func isOpenAIGPT56Model(model string) bool {
 	return false
 }
 
+func isOpenAIGPT6AstraModel(model string) bool {
+	return canonicalizeOpenAIModelAliasSpelling(model) == "gpt-6-astra"
+}
+
 func appendUsageBillingModelCandidate(candidates []string, seen map[string]struct{}, model string) []string {
 	trimmed := strings.TrimSpace(model)
 	if trimmed == "" {

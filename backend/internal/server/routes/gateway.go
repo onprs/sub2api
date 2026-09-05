@@ -38,14 +38,14 @@ func RegisterGatewayRoutes(
 	clientRequestID := middleware.ClientRequestID()
 	opsErrorLogger := handler.OpsErrorLoggerMiddleware(opsService)
 	endpointNorm := handler.InboundEndpointMiddleware()
-	routeAPIKeyGroup := h.Gateway.APIKeyRoutingMiddleware(false)
-	routeAPIKeyGroupGoogle := h.Gateway.APIKeyRoutingMiddleware(true)
 	compositeTarget := compositeTargetPlatformMiddleware(compositeResolver)
 	compositeGeminiTarget := compositeGeminiTargetPlatformMiddleware(compositeResolver)
 
 	// 未分组 Key 拦截中间件（按协议格式区分错误响应）
 	requireGroupAnthropic := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
 	requireGroupGoogle := middleware.RequireGroupAssignment(settingService, middleware.GoogleErrorWriter)
+	routeAPIKeyGroup := h.Gateway.APIKeyRoutingMiddleware(false, compositeTarget, requireGroupAnthropic)
+	routeAPIKeyGroupGoogle := h.Gateway.APIKeyRoutingMiddleware(true, compositeGeminiTarget, requireGroupGoogle)
 
 	isOpenAIResponsesCompatibleGatewayPlatform := func(c *gin.Context) bool {
 		switch getGroupPlatform(c) {
