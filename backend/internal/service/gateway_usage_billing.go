@@ -1293,6 +1293,7 @@ func (s *GatewayService) calculateTokenCost(
 		RateMultiplier:  multiplier,
 		PricingAt:       pricingAt,
 		ServiceTier:     optionalStringValue(result.ServiceTier),
+		ReasoningEffort: optionalStringValue(result.ReasoningEffort),
 		Resolver:        s.resolver,
 		Resolved:        resolved,
 	})
@@ -1337,6 +1338,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		APIKeyID:                 apiKey.ID,
 		AccountID:                account.ID,
 		RequestID:                requestID,
+		UpstreamRequestID:        usageUpstreamRequestIDPtr(account, result.UpstreamHeaders, false),
 		Model:                    result.Model,
 		RequestedModel:           requestedModel,
 		UpstreamModel:            optionalTrimmedStringPtr(result.UpstreamModel),

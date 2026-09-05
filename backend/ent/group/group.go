@@ -132,6 +132,8 @@ const (
 	FieldMessagesDispatchModelConfig = "messages_dispatch_model_config"
 	// FieldModelsListConfig holds the string denoting the models_list_config field in the database.
 	FieldModelsListConfig = "models_list_config"
+	// FieldCodexModelsManifestConfig holds the string denoting the codex_models_manifest_config field in the database.
+	FieldCodexModelsManifestConfig = "codex_models_manifest_config"
 	// FieldInferGpt56CacheWrite holds the string denoting the infer_gpt56_cache_write field in the database.
 	FieldInferGpt56CacheWrite = "infer_gpt56_cache_write"
 	// FieldInferGpt56CacheWriteMinTokens holds the string denoting the infer_gpt56_cache_write_min_tokens field in the database.
@@ -308,6 +310,7 @@ var Columns = []string{
 	FieldDefaultMappedModel,
 	FieldMessagesDispatchModelConfig,
 	FieldModelsListConfig,
+	FieldCodexModelsManifestConfig,
 	FieldInferGpt56CacheWrite,
 	FieldInferGpt56CacheWriteMinTokens,
 	FieldRpmLimit,
@@ -445,6 +448,8 @@ var (
 	DefaultMessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig
 	// DefaultModelsListConfig holds the default value on creation for the "models_list_config" field.
 	DefaultModelsListConfig domain.GroupModelsListConfig
+	// DefaultCodexModelsManifestConfig holds the default value on creation for the "codex_models_manifest_config" field.
+	DefaultCodexModelsManifestConfig domain.GroupCodexModelsManifestConfig
 	// DefaultInferGpt56CacheWrite holds the default value on creation for the "infer_gpt56_cache_write" field.
 	DefaultInferGpt56CacheWrite bool
 	// DefaultInferGpt56CacheWriteMinTokens holds the default value on creation for the "infer_gpt56_cache_write_min_tokens" field.

@@ -600,8 +600,8 @@ func (h *OpenCodeGoGatewayHandler) gatewayForPlatform(platform string) standardP
 }
 
 func (h *OpenCodeGoGatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotType string, streamStarted bool, format openCodeGoHandlerErrorFormat) {
-	status, errType, message := concurrencyErrorResponse(err, slotType)
-	h.handleStreamingAwareError(c, status, format, errType, message, streamStarted)
+	status, errType, code, message := concurrencyErrorResponse(err, slotType)
+	h.handleStreamingAwareErrorWithCode(c, status, format, errType, code, message, streamStarted)
 }
 
 func (h *OpenCodeGoGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, format openCodeGoHandlerErrorFormat, streamStarted bool) {
@@ -656,15 +656,19 @@ func (h *OpenCodeGoGatewayHandler) ensureForwardErrorResponse(c *gin.Context, fo
 }
 
 func (h *OpenCodeGoGatewayHandler) handleStreamingAwareError(c *gin.Context, status int, format openCodeGoHandlerErrorFormat, errType string, message string, streamStarted bool) {
+	h.handleStreamingAwareErrorWithCode(c, status, format, errType, errType, message, streamStarted)
+}
+
+func (h *OpenCodeGoGatewayHandler) handleStreamingAwareErrorWithCode(c *gin.Context, status int, format openCodeGoHandlerErrorFormat, errType, code, message string, streamStarted bool) {
 	if streamStarted || (c != nil && c.Writer != nil && c.Writer.Written()) {
 		service.MarkOpsStreamError(c, errType, message, status)
-		if format == openCodeGoHandlerErrorResponses && writeResponsesFailedSSE(c, errType, message) {
+		if format == openCodeGoHandlerErrorResponses && writeResponsesFailedSSE(c, errType, code, message) {
 			return
 		}
-		writeProtocolStreamError(c, format.protocol(), status, errType, errType, message)
+		writeProtocolStreamError(c, format.protocol(), status, errType, code, message)
 		return
 	}
-	h.errorResponse(c, status, format, errType, message)
+	writeProtocolError(c, format.protocol(), status, errType, code, message)
 }
 
 func (h *OpenCodeGoGatewayHandler) errorResponse(c *gin.Context, status int, format openCodeGoHandlerErrorFormat, errType string, message string) {

@@ -351,6 +351,7 @@ func TestBufferRawChatCompletionsPreservesEmptySuccessResponse(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Empty(t, rec.Body.String())
 	require.Equal(t, "req-empty", result.RequestID)
+	require.Equal(t, resp.Header, result.UpstreamHeaders)
 	require.Zero(t, result.Usage.InputTokens)
 }
 

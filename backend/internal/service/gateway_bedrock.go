@@ -161,6 +161,7 @@ func (s *GatewayService) forwardBedrock(
 	return &ForwardResult{
 		RequestID:        resp.Header.Get("x-amzn-requestid"),
 		ActualProtocol:   protocolconv.ProtocolAnthropic,
+		UpstreamHeaders:  resp.Header,
 		Usage:            *usage,
 		Model:            reqModel,
 		UpstreamModel:    mappedModel,

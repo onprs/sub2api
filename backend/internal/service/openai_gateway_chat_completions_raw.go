@@ -436,7 +436,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 
 	result := &OpenAIForwardResult{
 		RequestID: requestID, ResponseID: responseID, ActualProtocol: stream.ActualProtocol,
-		Usage: usage, Model: originalModel,
+		UpstreamHeaders: resp.Header,
+		Usage:           usage, Model: originalModel,
 		BillingModel: billingModel, UpstreamModel: upstreamModel,
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
@@ -594,6 +595,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		c.Writer.WriteHeader(http.StatusOK)
 		return &OpenAIForwardResult{
 			RequestID:                   resp.Header.Get("x-request-id"),
+			UpstreamHeaders:             resp.Header,
 			ActualProtocol:              protocolconv.ProtocolOpenAIChat,
 			Model:                       originalModel,
 			BillingModel:                billingModel,
@@ -679,6 +681,7 @@ func (s *OpenAIGatewayService) collectRawChatCompletionsJSON(
 	}
 	result := &OpenAIForwardResult{
 		RequestID:       structured.RequestID,
+		UpstreamHeaders: headers,
 		ResponseID:      structured.ResponseID,
 		ActualProtocol:  structured.ActualProtocol,
 		Usage:           usage,

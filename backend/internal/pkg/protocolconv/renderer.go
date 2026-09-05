@@ -143,9 +143,13 @@ func (r *Renderer) ErrorBody(status int, errorType, code, message string) ([]byt
 			"error": map[string]any{"message": message, "type": errorType, "code": code},
 		}
 	case ProtocolAnthropic:
+		errorObject := map[string]any{"type": errorType, "message": message}
+		if code != errorType {
+			errorObject["code"] = code
+		}
 		envelope = map[string]any{
 			"type":  "error",
-			"error": map[string]any{"type": errorType, "message": message},
+			"error": errorObject,
 		}
 	case ProtocolGoogleGenAI:
 		envelope = map[string]any{

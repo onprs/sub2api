@@ -1077,6 +1077,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	return &ForwardResult{
 		RequestID:                     requestID,
 		ActualProtocol:                protocolconv.ProtocolGoogleGenAI,
+		UpstreamHeaders:               resp.Header,
 		Usage:                         *usage,
 		Model:                         originalModel,
 		UpstreamModel:                 mappedModel,
@@ -1410,7 +1411,16 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		if action == "countTokens" && isOAuth && isGeminiInsufficientScope(headers, respBody) {
 			estimated := estimateGeminiCountTokens(body)
 			c.JSON(http.StatusOK, map[string]any{"totalTokens": estimated})
-			return &ForwardResult{RequestID: requestID, Usage: ClaudeUsage{}, Model: originalModel, UpstreamModel: mappedModel, Duration: time.Since(startTime)}, nil
+			return &ForwardResult{
+				RequestID:       requestID,
+				UpstreamHeaders: resp.Header,
+				Usage:           ClaudeUsage{},
+				Model:           originalModel,
+				UpstreamModel:   mappedModel,
+				Stream:          false,
+				Duration:        time.Since(startTime),
+				FirstTokenMs:    nil,
+			}, nil
 		}
 
 		if s.rateLimitService != nil {
@@ -1576,6 +1586,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	return &ForwardResult{
 		RequestID:                     requestID,
 		ActualProtocol:                protocolconv.ProtocolGoogleGenAI,
+		UpstreamHeaders:               resp.Header,
 		Usage:                         *usage,
 		Model:                         originalModel,
 		UpstreamModel:                 mappedModel,

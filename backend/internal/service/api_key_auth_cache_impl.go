@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 22 // v22：分组长上下文、模型定价、动态利润、媒体计费、Fast 与推理强度策略字段全集
+const apiKeyAuthSnapshotVersion = 23 // v23: group codex_models_manifest_config field
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -511,6 +511,7 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		DefaultMappedModel:              group.DefaultMappedModel,
 		MessagesDispatchModelConfig:     group.MessagesDispatchModelConfig,
 		ModelsListConfig:                group.ModelsListConfig,
+		CodexModelsManifestConfig:       group.CodexModelsManifestConfig,
 		InferGPT56CacheWrite:            group.InferGPT56CacheWrite,
 		InferGPT56CacheWriteMinTokens:   group.GPT56CacheWriteInferenceMinTokens(),
 		RPMLimit:                        group.RPMLimit,
@@ -581,6 +582,7 @@ func groupFromAPIKeyAuthSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		DefaultMappedModel:              snapshot.DefaultMappedModel,
 		MessagesDispatchModelConfig:     snapshot.MessagesDispatchModelConfig,
 		ModelsListConfig:                snapshot.ModelsListConfig,
+		CodexModelsManifestConfig:       snapshot.CodexModelsManifestConfig,
 		InferGPT56CacheWrite:            snapshot.InferGPT56CacheWrite,
 		InferGPT56CacheWriteMinTokens:   snapshot.InferGPT56CacheWriteMinTokens,
 		RPMLimit:                        snapshot.RPMLimit,

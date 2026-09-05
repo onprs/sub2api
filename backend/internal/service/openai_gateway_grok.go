@@ -254,6 +254,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(patchedBody, originalModel)
 	result := &OpenAIForwardResult{
 		RequestID:       firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id")),
+		UpstreamHeaders: resp.Header,
 		ResponseID:      responseID,
 		ActualProtocol:  protocolconv.ProtocolOpenAIResponses,
 		Usage:           *usage,

@@ -79,7 +79,7 @@ func TestRendererBuildsSourceSpecificErrorEnvelopes(t *testing.T) {
 	}{
 		{ProtocolOpenAIChat, http.StatusBadRequest, `{"error":{"code":"invalid_request","message":"bad input","type":"invalid_request_error"}}`},
 		{ProtocolOpenAIResponses, http.StatusBadRequest, `{"error":{"code":"invalid_request","message":"bad input","type":"invalid_request_error"}}`},
-		{ProtocolAnthropic, http.StatusBadRequest, `{"type":"error","error":{"type":"invalid_request_error","message":"bad input"}}`},
+		{ProtocolAnthropic, http.StatusBadRequest, `{"type":"error","error":{"type":"invalid_request_error","code":"invalid_request","message":"bad input"}}`},
 		{ProtocolGoogleGenAI, http.StatusBadRequest, `{"error":{"code":400,"message":"bad input","status":"INVALID_ARGUMENT"}}`},
 	}
 	for _, test := range tests {

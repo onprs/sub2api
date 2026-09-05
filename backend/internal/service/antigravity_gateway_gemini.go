@@ -570,6 +570,7 @@ handleSuccess:
 	return &ForwardResult{
 		RequestID:                     requestID,
 		ActualProtocol:                protocolconv.ProtocolGoogleGenAI,
+		UpstreamHeaders:               resp.Header,
 		Usage:                         *usage,
 		Model:                         domain.AntigravityPublicModelID(originalModel),
 		ReasoningEffort:               reasoningEffort,

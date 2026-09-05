@@ -367,6 +367,7 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 	return &ForwardResult{
 		RequestID:        requestID,
 		ActualProtocol:   protocolconv.ProtocolGoogleGenAI,
+		UpstreamHeaders:  resp.Header,
 		Usage:            *usage,
 		Model:            originalModel,
 		UpstreamModel:    mappedModel,

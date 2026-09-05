@@ -227,6 +227,7 @@ func (s *OpenAIGatewayService) collectBufferedChatCompletionsResponse(
 	}
 	result := &OpenAIForwardResult{
 		RequestID:                   structured.RequestID,
+		UpstreamHeaders:             headers,
 		ResponseID:                  structured.ResponseID,
 		ActualProtocol:              structured.ActualProtocol,
 		Usage:                       usage,
@@ -262,7 +263,11 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	defer func() { _ = stream.Close() }()
 	requestID := stream.RequestID
 	if output != nil {
-		return s.streamChatCompletionsWithProtocolOutput(c, stream, output, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		result, err := s.streamChatCompletionsWithProtocolOutput(c, stream, output, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		if result != nil {
+			result.UpstreamHeaders = resp.Header
+		}
+		return result, err
 	}
 	session, err := pipeline.NewStreamProcessor(stream.ActualProtocol)
 	if err != nil {
@@ -328,6 +333,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	})
 	result := &OpenAIForwardResult{
 		RequestID:                   requestID,
+		UpstreamHeaders:             resp.Header,
 		ResponseID:                  scan.ResponseID,
 		ActualProtocol:              stream.ActualProtocol,
 		Usage:                       scan.Usage,

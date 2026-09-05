@@ -181,6 +181,35 @@ func TestOpenAIGatewayHandlerResponses_FailoverAbortsWhenClientDisconnected(t *t
 // TestOpenAIGatewayHandlerResponses_FailoverContinuesForConnectedClient 回归
 // 守卫：客户端在线时 failover 行为不变——切换到账号 2，两个账号都 520 后按
 // 耗尽返回 502。
+func TestOpenAIResponses_ChannelMappedTargetPassesRevalidation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &openAIResponsesFailoverCancelUpstream{}
+	h := newOpenAIResponsesFailoverTestHandler(t, upstream)
+	repo := &openAIWSUsageHandlerAccountRepoStub{account: service.Account{
+		ID: 1, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
+		Status: service.StatusActive, Schedulable: true,
+		Credentials: map[string]any{"access_token": "test-token", "model_mapping": map[string]any{"gpt-5.1": "gpt-5.1"}},
+	}}
+	channelSvc := service.NewChannelService(&openAIWSUsageHandlerChannelRepoStub{
+		channels: []service.Channel{{
+			ID: 1, Status: service.StatusActive, GroupIDs: []int64{3131},
+			ModelMapping: map[string]map[string]string{service.PlatformOpenAI: {"client-alias": "gpt-5.1"}},
+		}},
+		groupPlatforms: map[int64]string{3131: service.PlatformOpenAI},
+	}, nil, nil, nil, nil)
+	h.gatewayService = service.NewOpenAIGatewayService(
+		repo, nil, nil, nil, nil, nil, nil, &config.Config{RunMode: config.RunModeSimple},
+		nil, nil, nil, nil, nil, upstream, nil, nil, nil, nil, channelSvc, nil, nil, nil,
+	)
+	c, rec := newOpenAIResponsesFailoverTestContext(t, nil)
+	body := []byte(`{"model":"client-alias","stream":false,"input":"hello"}`)
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	c.Request.ContentLength = int64(len(body))
+	h.Responses(c)
+	require.Equal(t, []int64{1}, upstream.calls(), "映射模型应通过选号及抢槽后复核并触达上游")
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+}
+
 func TestOpenAIGatewayHandlerResponses_FailoverContinuesForConnectedClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -234,11 +234,12 @@ type OpenAIUsage struct {
 
 // OpenAIForwardResult represents the result of forwarding
 type OpenAIForwardResult struct {
-	RequestID      string
-	ResponseID     string
-	ActualProtocol protocolconv.Protocol
-	Usage          OpenAIUsage
-	Model          string // 原始模型（用于响应和日志显示）
+	RequestID       string
+	UpstreamHeaders http.Header
+	ResponseID      string
+	ActualProtocol  protocolconv.Protocol
+	Usage           OpenAIUsage
+	Model           string // 原始模型（用于响应和日志显示）
 	// BillingModel is the model used for cost calculation.
 	// When non-empty, CalculateCost uses this instead of Model.
 	// This is set by the Anthropic Messages conversion path where

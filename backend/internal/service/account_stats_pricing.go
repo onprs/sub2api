@@ -19,6 +19,7 @@ import (
 // accountBaseCost 是调用方预计算的账号基础成本，不包含用户组倍率；
 // OpenCode Go 调用方会在这里保留活动折算后的模型倍率。
 // serviceTier 是最终参与用户计费的 OpenAI 服务层级，用于优先级 3。
+// reasoningEffort 是最终转发等级；Fable 5.1 max 默认按 3 倍额度消耗。
 func resolveAccountStatsCost(
 	ctx context.Context,
 	channelService *ChannelService,
@@ -30,7 +31,12 @@ func resolveAccountStatsCost(
 	requestCount int,
 	accountBaseCost float64,
 	serviceTier string,
+	reasoningEfforts ...string,
 ) *float64 {
+	reasoningEffort := ""
+	if len(reasoningEfforts) > 0 {
+		reasoningEffort = reasoningEfforts[0]
+	}
 	if channelService == nil || upstreamModel == "" {
 		return nil
 	}
@@ -42,7 +48,7 @@ func resolveAccountStatsCost(
 	platform := channelService.GetGroupPlatform(ctx, groupID)
 
 	// 优先级 1：自定义规则（始终尝试）
-	if cost := tryCustomRules(channel, accountID, groupID, platform, upstreamModel, tokens, requestCount); cost != nil {
+	if cost := tryCustomRules(channel, accountID, groupID, platform, upstreamModel, tokens, requestCount, reasoningEffort); cost != nil {
 		return applyOpenCodeGoQuotaCostToAccountStats(billingService, platform, upstreamModel, cost)
 	}
 
@@ -57,7 +63,7 @@ func resolveAccountStatsCost(
 
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricingForPlatform(billingService, platform, upstreamModel, tokens, serviceTier)
+		return tryModelFilePricingForPlatform(billingService, platform, upstreamModel, tokens, serviceTier, reasoningEffort)
 	}
 
 	return nil
@@ -66,12 +72,17 @@ func resolveAccountStatsCost(
 // tryModelFilePricingForPlatform 使用平台限定的模型定价文件（LiteLLM/fallback）标准价计算费用。
 // 与用户计费共用同一条定价管线，避免新增定价特性时维护第二份计算实现。
 // 平台参数只限定模型目录，不引入渠道自定义定价。
-func tryModelFilePricingForPlatform(billingService *BillingService, platform, model string, tokens UsageTokens, serviceTier string) *float64 {
+func tryModelFilePricingForPlatform(billingService *BillingService, platform, model string, tokens UsageTokens, serviceTier string, reasoningEfforts ...string) *float64 {
+	reasoningEffort := ""
+	if len(reasoningEfforts) > 0 {
+		reasoningEffort = reasoningEfforts[0]
+	}
 	normalizedTier := normalizeBillingServiceTier(serviceTier)
 	breakdown, err := billingService.calculateCostForPlatformWithServiceTier(platform, model, tokens, 1, normalizedTier)
 	if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
 		return nil
 	}
+	applyCostBreakdownMultiplier(breakdown, maxReasoningEffortBillingMultiplier(model, reasoningEffort, nil))
 	return applyOpenCodeGoQuotaCostToAccountStats(billingService, platform, model, &breakdown.TotalCost)
 }
 
@@ -94,7 +105,12 @@ func applyOpenCodeGoQuotaCostToAccountStats(billingService *BillingService, plat
 func tryCustomRules(
 	channel *Channel, accountID, groupID int64,
 	platform, model string, tokens UsageTokens, requestCount int,
+	reasoningEfforts ...string,
 ) *float64 {
+	reasoningEffort := ""
+	if len(reasoningEfforts) > 0 {
+		reasoningEffort = reasoningEfforts[0]
+	}
 	modelLower := strings.ToLower(model)
 	for _, rule := range channel.AccountStatsPricingRules {
 		if !matchAccountStatsRule(&rule, accountID, groupID) {
@@ -104,7 +120,11 @@ func tryCustomRules(
 		if pricing == nil {
 			continue // 规则匹配但模型不在规则定价中，继续下一条
 		}
-		return calculateStatsCost(pricing, tokens, requestCount)
+		cost := calculateStatsCost(pricing, tokens, requestCount)
+		if cost != nil {
+			*cost *= maxReasoningEffortBillingMultiplier(model, reasoningEffort, nil)
+		}
+		return cost
 	}
 	return nil
 }
@@ -267,10 +287,14 @@ func applyAccountStatsCost(
 		requestCount = usageLog.ImageCount
 	}
 	serviceTier := ""
+	reasoningEffort := ""
 	if usageLog != nil && usageLog.ServiceTier != nil {
 		serviceTier = *usageLog.ServiceTier
 	}
+	if usageLog != nil && usageLog.ReasoningEffort != nil {
+		reasoningEffort = *usageLog.ReasoningEffort
+	}
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
-		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier,
+		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier, reasoningEffort,
 	)
 }
