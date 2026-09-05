@@ -50,6 +50,8 @@ type APIKeyRoutingResolveInput struct {
 	RequiredEndpointCapability OpenAIEndpointCapability
 	RequiredImageCapability    OpenAIImagesCapability
 	RequiredTransport          OpenAIUpstreamTransport
+	ExcludedGroupIDs           map[int64]struct{}
+	PreserveSession            bool
 }
 
 type APIKeyRoutingHealth struct {
@@ -93,7 +95,6 @@ type apiKeyRoutingCandidate struct {
 	cost          float64
 	stability     float64
 	capacity      float64
-	modelDirect   bool
 	manualOrder   int
 	balancedScore float64
 }
@@ -139,6 +140,9 @@ func (s *GatewayService) resolveAPIKeyRoutingGroupOnce(ctx context.Context, apiK
 	}
 	candidates := make([]apiKeyRoutingCandidate, 0, len(bindings))
 	for index, binding := range bindings {
+		if _, excluded := input.ExcludedGroupIDs[binding.GroupID]; excluded {
+			continue
+		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -154,25 +158,13 @@ func (s *GatewayService) resolveAPIKeyRoutingGroupOnce(ctx context.Context, apiK
 		return nil, ErrNoAvailableRoutingGroup
 	}
 
-	// 只要至少一个分组直接支持请求模型，就不让未知模型能力的候选抢占请求。
-	hasDirectModel := false
-	for i := range candidates {
-		hasDirectModel = hasDirectModel || candidates[i].modelDirect
-	}
-	if hasDirectModel {
-		filtered := candidates[:0]
-		for _, candidate := range candidates {
-			if candidate.modelDirect {
-				filtered = append(filtered, candidate)
-			}
-		}
-		candidates = filtered
-	}
-
-	if stickyID := s.cachedAPIKeyRoutingGroupID(ctx, apiKey.ID, input.SessionKey); stickyID > 0 {
-		for _, candidate := range candidates {
-			if candidate.binding.GroupID == stickyID {
-				return apiKey.CloneWithEffectiveGroup(candidate.binding.Group), nil
+	// 只有均衡策略或依赖上游会话状态的续接请求允许绑定覆盖本次排序。
+	if strategy == APIKeyRoutingStrategyBalanced || input.PreserveSession {
+		if stickyID := s.cachedAPIKeyRoutingGroupID(ctx, apiKey.ID, input.SessionKey); stickyID > 0 {
+			for _, candidate := range candidates {
+				if candidate.binding.GroupID == stickyID {
+					return apiKey.CloneWithEffectiveGroup(candidate.binding.Group), nil
+				}
 			}
 		}
 	}
@@ -241,7 +233,7 @@ func (s *GatewayService) buildAPIKeyRoutingCandidate(
 			model = mapped
 		}
 	}
-	eligibleAccounts := accounts[:0]
+	eligibleAccounts := make([]Account, 0, len(accounts))
 	for i := range accounts {
 		account := accounts[i]
 		if platform == PlatformOpenAI || platform == PlatformGrok {
@@ -255,7 +247,8 @@ func (s *GatewayService) buildAPIKeyRoutingCandidate(
 			) {
 				continue
 			}
-		} else if !account.IsSchedulableForModelWithContext(ctx, model) {
+		} else if !account.IsSchedulableForModelWithContext(ctx, model) ||
+			(model != "" && !s.isModelSupportedByAccountWithContext(ctx, &account, model)) {
 			continue
 		}
 		if group.RequireOAuthOnly && account.Type == AccountTypeAPIKey {
@@ -276,14 +269,10 @@ func (s *GatewayService) buildAPIKeyRoutingCandidate(
 		return apiKeyRoutingCandidate{}, false
 	}
 
-	modelDirect := model == ""
 	accountIDs := make([]int64, 0, len(accounts))
 	maxConcurrency := 0
 	for i := range accounts {
 		account := &accounts[i]
-		if model == "" || account.IsModelSupported(model) {
-			modelDirect = true
-		}
 		accountIDs = append(accountIDs, account.ID)
 		limit := account.Concurrency
 		if limit <= 0 {
@@ -343,7 +332,6 @@ func (s *GatewayService) buildAPIKeyRoutingCandidate(
 		cost:        cost,
 		stability:   stability,
 		capacity:    capacity,
-		modelDirect: modelDirect,
 		manualOrder: manualOrder,
 	}, true
 }
@@ -423,12 +411,7 @@ func selectAPIKeyRoutingCandidate(candidates []apiKeyRoutingCandidate, strategy 
 			}
 			return candidates[i].stability > candidates[j].stability
 		})
-		return weightedRoutingCandidate(candidates, func(candidate apiKeyRoutingCandidate) float64 {
-			if candidates[0].stability-candidate.stability > 0.05 {
-				return 0
-			}
-			return math.Max(0.01, candidate.stability)
-		})
+		return candidates[0]
 	case APIKeyRoutingStrategyBalanced:
 		minCost, maxCost := candidates[0].cost, candidates[0].cost
 		minStability, maxStability := candidates[0].stability, candidates[0].stability

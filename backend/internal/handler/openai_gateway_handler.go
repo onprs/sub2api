@@ -2330,6 +2330,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			RequiredEndpointCapability: service.OpenAIEndpointCapabilityChatCompletions,
 			RequiredTransport:          service.OpenAIUpstreamTransportHTTPSSE,
 		}
+		if previousResponseID != "" {
+			routingInput.SessionKey = previousResponseID
+			routingInput.PreserveSession = true
+		}
 		if apiKey.RoutingPlatformValue() == service.PlatformOpenAI {
 			routingInput.RequiredTransport = service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
 		}

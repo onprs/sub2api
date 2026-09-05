@@ -15,6 +15,12 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gpt-5.4-2026-03-05')
     expect(models).toContain('codex-auto-review')
     expect(models).toContain('gpt-5.6')
+    expect(models).toContain('gpt-6-astra')
+    expect(models).not.toContain('gpt-5.6-cyber')
+    expect(models).not.toContain('gpt-5.5-pro')
+    expect(models).not.toContain('gpt-5.4-nano')
+    expect(models).not.toContain('gpt-5.4-pro')
+    expect(new Set(models).size).toBe(models.length)
   })
 
   it('Command Code 模型列表与最新 GOAT 目录一致', () => {
