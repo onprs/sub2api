@@ -271,6 +271,23 @@ func TestAccountCommandCodeOfficialUsageRateLimitRequiresExhaustedBalance(t *tes
 	require.Nil(t, other.CommandCodeOfficialUsageRateLimitResetAt(now))
 }
 
+func TestCommandCodeInsufficientCreditsClassificationAndPause(t *testing.T) {
+	body := []byte(`{"error":{"message":"You have insufficient credits to make this request. Please purchase more credits to continue using the service.","type":"invalid_request_error","code":"BAD_REQUEST"}}`)
+	for _, statusCode := range []int{http.StatusBadRequest, http.StatusPaymentRequired, http.StatusTooManyRequests} {
+		require.True(t, commandCodeResponseIndicatesInsufficientCredits(statusCode, body))
+	}
+	require.False(t, commandCodeResponseIndicatesInsufficientCredits(http.StatusForbidden, body))
+	require.False(t, commandCodeResponseIndicatesInsufficientCredits(http.StatusBadRequest, []byte(`{"error":{"message":"Invalid option","code":"BAD_REQUEST"}}`)))
+
+	now := time.Date(2026, time.September, 7, 5, 0, 0, 0, time.UTC)
+	periodEnd := now.Add(19 * 24 * time.Hour)
+	account := &Account{Extra: map[string]any{
+		"commandcode_usage_period_end": periodEnd.Format(time.RFC3339Nano),
+	}}
+	require.Equal(t, periodEnd, commandCodeInsufficientCreditsPauseUntil(account, now))
+	require.Equal(t, now.Add(commandCodeInsufficientCreditsFallbackPause), commandCodeInsufficientCreditsPauseUntil(nil, now))
+}
+
 func TestParseCommandCodeRateLimitResetTime(t *testing.T) {
 	reset := time.Now().Add(2 * time.Hour).Unix()
 	ts := parseCommandCodeRateLimitResetTime([]byte(fmt.Sprintf(

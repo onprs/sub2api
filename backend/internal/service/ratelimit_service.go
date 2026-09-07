@@ -407,6 +407,13 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		return true
 	}
 
+	// Command Code 把余额不足包装为 BAD_REQUEST，不能按普通参数错误透传。
+	// 这是可恢复的账号级状态：立即切换账号并临时停调到订阅周期结束。
+	if account.Platform == PlatformCommandCode && commandCodeResponseIndicatesInsufficientCredits(statusCode, responseBody) {
+		s.handleCommandCodeInsufficientCredits(ctx, account, extractUpstreamErrorMessage(responseBody))
+		return true
+	}
+
 	// Anthropic official 5h / 7d window exhaustion is a hard account limit.
 	// It must take precedence over user-configured 429 temp-unsched rules,
 	// otherwise a broad "rate limit" keyword rule can shorten a multi-hour
