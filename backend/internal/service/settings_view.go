@@ -351,6 +351,7 @@ type PublicSettings struct {
 	ContactInfo                         string
 	DocURL                              string
 	HomeContent                         string
+	HomeUptimeStartAt                   string
 	CompactHomeEnabled                  bool
 	HideCcsImportButton                 bool
 

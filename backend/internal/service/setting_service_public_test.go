@@ -102,6 +102,20 @@ func TestSettingService_GetPublicSettings_ExposesCompactHomeEnabled(t *testing.T
 	require.False(t, missingSettings.CompactHomeEnabled)
 }
 
+func TestSettingService_GetPublicSettings_ExposesHomeUptimeStartAt(t *testing.T) {
+	const startAt = "2026-05-01T00:00:00Z"
+	repo := &settingPublicRepoStub{
+		values: map[string]string{
+			SettingKeyHomeUptimeStartAt: startAt,
+		},
+	}
+
+	settings, err := NewSettingService(repo, &config.Config{}).GetPublicSettings(context.Background())
+
+	require.NoError(t, err)
+	require.Equal(t, startAt, settings.HomeUptimeStartAt)
+}
+
 func TestSettingService_ChannelMonitorHideThroughputDefaultsToPrivate(t *testing.T) {
 	missing := NewSettingService(&settingPublicRepoStub{values: map[string]string{}}, &config.Config{}).GetChannelMonitorRuntime(context.Background())
 	require.True(t, missing.HideThroughput)

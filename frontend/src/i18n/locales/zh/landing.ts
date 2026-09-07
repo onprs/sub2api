@@ -12,6 +12,127 @@ export default {
     switchToDark: '切换到深色模式',
     dashboard: '控制台',
     login: '登录',
+    uptime: {
+      label: '累计运行时间',
+      startDate: '自今年 5 月 1 日起',
+      value: '{days} 天 {hours} 小时 {minutes} 分钟'
+    },
+    prototype: {
+      navigation: '首页导航',
+      gatewayOnline: '网关在线',
+      routeTo: '路由至',
+      allOperational: '所有服务正常',
+      endpoints: '端点',
+      providers: '服务商',
+      ready: '可以发送',
+      liveRoute: '实时路由',
+      routingEdition: '统一路由层',
+      oneEndpoint: '统一 API 根地址',
+      manyModels: '多种模型',
+      routeLayer: '模型路由',
+      editorialCoverTitle: '多源模型。\n一个入口。',
+      editorialRouteTitle: '四种协议。\n同一条路。',
+      editorialDescription: '一个 API 根地址承载四类生成协议，按模型接入多来源 AI 能力',
+      editorialModels: '多源模型。\n统一接入。',
+      editorialEndingTitle: '让下一条请求，\n抵达更多可能。',
+      editorialCatalogCount: '模型精选',
+      editorialCatalogDescription: '六大来源的精选模型目录。实际可调用模型取决于账号分组与模型映射。',
+      editorialNavigation: {
+        sections: '页面章节',
+        protocols: '协议接入',
+        models: '模型目录',
+        architecture: '请求架构'
+      },
+      editorialSemantics: {
+        tag: '协议语义',
+        title: '不只连接。\n更保留语义。',
+        description: '在目标协议支持的范围内对齐响应、工具与推理信息，让应用关注模型能力，让网关处理协议差异。'
+      },
+      editorialProtocols: '已支持生成入口',
+      editorialCatalogLead: '精选真实模型 ID · {count} 项',
+      editorialCatalogSummary: '模型目录摘要',
+      editorialSelectedModels: '精选模型 ID',
+      editorialSummaryCatalog: '个精选模型',
+      editorialSummaryProviders: '模型来源',
+      editorialSummaryProtocols: '个生成入口',
+      editorialCoverIndex: {
+        surfaces: '标准生成入口',
+        models: '精选模型 ID',
+        semantic: '流式传输与工具调用对齐',
+        routing: '模型感知健康调度与故障切换'
+      },
+      editorialAssurance: {
+        stream: 'SSE 增量流式交付与连接生命周期管理',
+        tools: '结构化工具调用与参数语义保持',
+        reasoning: '在支持的目标协议中保留推理内容与必要元数据',
+        usage: '提取上游 Token、缓存用量与请求计费数据'
+      },
+      editorialPipeline: {
+        tag: '核心请求链路',
+        title: '一条请求。\n四层处理。',
+        subtitle: '从客户端接入到多模型执行，保持协议语义、调度可用性与用量可追溯',
+        step1: {
+          code: '01',
+          name: '协议接入',
+          action: 'RECEIVE',
+          desc: '接收 Responses、Chat、Messages 与 GenAI 四类标准入口请求，校验 API Key 与配额。'
+        },
+        step2: {
+          code: '02',
+          name: '语义转换',
+          action: 'NORMALIZE',
+          desc: '在目标协议可表达范围内规范化消息、系统提示词、工具调用及推理内容。'
+        },
+        step3: {
+          code: '03',
+          name: '模型调度',
+          action: 'ORCHESTRATE',
+          desc: '根据模型与账号可调度状态选择上游，并在首个语义输出前执行失败切换。'
+        },
+        step4: {
+          code: '04',
+          name: '交付计费',
+          action: 'DELIVER',
+          desc: '以 SSE 增量交付响应，并记录单次请求 Token、缓存用量、费用与审计信息。'
+        }
+      },
+      editorialControl: {
+        tag: '用户控制面',
+        title: '每一次调用，都有清晰上下文',
+        subtitle: '围绕密钥、请求、价格与身份安全，提供可追踪的开发者控制面',
+        keys: {
+          title: 'API 密钥与配额',
+          desc: '创建独立 API Key，并按使用场景设置限额与路由范围。',
+          summary: '独立密钥 / 限额 / 路由'
+        },
+        usage: {
+          title: '用量与请求审计',
+          desc: '按请求查看 Token、耗时、费用与 Request ID。',
+          descWithErrors: '按请求查看 Token、耗时、费用与 Request ID，并定位错误请求详情。',
+          summary: 'TOKEN / REQUEST ID / 用量',
+          summaryWithErrors: 'TOKEN / REQUEST ID / 错误详情'
+        },
+        pricing: {
+          title: '模型价格与余额',
+          desc: '查看模型单位价格与请求计费结果。',
+          descWithPayment: '查看模型单位价格与请求计费结果，并通过在线支付补充余额。',
+          descPayment: '通过在线支付补充余额，并持续查看余额变化。',
+          summary: '模型单价 / 计费记录',
+          summaryWithPayment: '模型单价 / 在线充值 / 余额',
+          summaryPayment: '在线充值 / 余额'
+        },
+        security: {
+          title: '身份验证与安全',
+          desc: '邮箱验证与 TOTP 双因素认证共同保护账号。',
+          descEmail: '通过邮箱验证保护账号身份。',
+          descTotp: '通过 TOTP 双因素认证保护账号。',
+          summary: '邮箱验证 / TOTP 2FA',
+          summaryEmail: '邮箱验证',
+          summaryTotp: 'TOTP 2FA'
+        }
+      },
+      state: '状态'
+    },
     getStarted: '立即开始',
     goToDashboard: '进入控制台',
     // 新增：面向用户的价值主张

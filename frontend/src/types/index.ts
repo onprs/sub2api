@@ -216,6 +216,8 @@ export interface PublicSettings {
   promo_code_enabled: boolean
   password_reset_enabled: boolean
   invitation_code_enabled: boolean
+  /** 可选：旧版注入的公开配置可能缺少 TOTP 开关。 */
+  totp_enabled?: boolean
   login_agreement_enabled?: boolean
   login_agreement_mode?: 'modal' | 'checkbox' | string
   login_agreement_updated_at?: string
@@ -238,6 +240,7 @@ export interface PublicSettings {
   contact_info: string
   doc_url: string
   home_content: string
+  home_uptime_start_at?: string
   compact_home_enabled: boolean
   hide_ccs_import_button: boolean
   payment_enabled: boolean

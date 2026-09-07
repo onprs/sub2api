@@ -10,13 +10,62 @@ import (
 	"time"
 )
 
-const commandCodeUsageCacheTTL = 5 * time.Minute
+const (
+	commandCodeUsageCacheTTL                    = 5 * time.Minute
+	commandCodeInsufficientCreditsFallbackPause = 2 * time.Hour
+	commandCodeInsufficientCreditsReasonPrefix  = "commandcode_insufficient_credits"
+)
 
 // commandCodeOfficialUsageQuotaWindows 是官方用量快照覆盖的窗口前缀。
 var commandCodeOfficialUsageQuotaWindows = []string{"5h", "7d", "30d"}
 
 // commandCodeBalanceExhaustedEpsilon 判断余额耗尽时允许的浮点误差（美元）。
 const commandCodeBalanceExhaustedEpsilon = 0.005
+
+// commandCodeResponseIndicatesInsufficientCredits 只识别 Command Code 已验证的
+// 余额不足文案。BAD_REQUEST 本身也用于普通参数错误，不能单独作为停调整据。
+func commandCodeResponseIndicatesInsufficientCredits(statusCode int, responseBody []byte) bool {
+	if statusCode != http.StatusBadRequest && statusCode != http.StatusPaymentRequired && statusCode != http.StatusTooManyRequests {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(responseBody)))
+	return strings.Contains(message, "insufficient credits") && strings.Contains(message, "purchase more credits")
+}
+
+// commandCodeInsufficientCreditsPauseUntil 优先停调到订阅周期结束；旧快照或
+// 不完整快照缺少周期时间时采用有限冷却，避免把可充值账号永久禁用。
+func commandCodeInsufficientCreditsPauseUntil(account *Account, now time.Time) time.Time {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if account != nil {
+		for _, key := range []string{"commandcode_usage_period_end", "commandcode_usage_30d_resets_at"} {
+			if resetAt := account.getExtraTime(key); resetAt.After(now) {
+				return resetAt
+			}
+		}
+	}
+	return now.Add(commandCodeInsufficientCreditsFallbackPause)
+}
+
+func (s *RateLimitService) handleCommandCodeInsufficientCredits(ctx context.Context, account *Account, upstreamMsg string) {
+	if s == nil || s.accountRepo == nil || account == nil {
+		return
+	}
+	until := commandCodeInsufficientCreditsPauseUntil(account, time.Now())
+	reason := commandCodeInsufficientCreditsReasonPrefix
+	upstreamMsg = sanitizeUpstreamErrorMessage(strings.TrimSpace(upstreamMsg))
+	if upstreamMsg != "" {
+		reason += ": " + truncateForLog([]byte(upstreamMsg), 512)
+	}
+
+	s.notifyAccountSchedulingBlocked(account, until, commandCodeInsufficientCreditsReasonPrefix)
+	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
+		slog.Warn("commandcode_insufficient_credits_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
+		return
+	}
+	slog.Info("commandcode_insufficient_credits_paused", "account_id", account.ID, "until", until.UTC())
+}
 
 func (s *AccountUsageService) getCommandCodeUsage(ctx context.Context, account *Account, force ...bool) (*UsageInfo, error) {
 	forceRefresh := len(force) > 0 && force[0]

@@ -12,6 +12,127 @@ export default {
     switchToDark: 'Switch to Dark Mode',
     dashboard: 'Dashboard',
     login: 'Login',
+    uptime: {
+      label: 'Uptime',
+      startDate: 'Since May 1 this year',
+      value: '{days}d {hours}h {minutes}m'
+    },
+    prototype: {
+      navigation: 'Home navigation',
+      gatewayOnline: 'Gateway online',
+      routeTo: 'Route to',
+      allOperational: 'All systems operational',
+      endpoints: 'Endpoints',
+      providers: 'Providers',
+      ready: 'Ready to send',
+      liveRoute: 'Live route',
+      routingEdition: 'Unified routing layer',
+      oneEndpoint: 'One API root',
+      manyModels: 'Many models',
+      routeLayer: 'Model routing',
+      editorialCoverTitle: 'Many models.\nOne gateway.',
+      editorialRouteTitle: 'Four protocols.\nOne way in.',
+      editorialDescription: 'One API root carries four generation protocols and routes each model to the right upstream',
+      editorialModels: 'Many models.\nOne connection.',
+      editorialEndingTitle: 'Your next request.\nMore possibilities.',
+      editorialCatalogCount: 'Model Selection',
+      editorialCatalogDescription: 'A curated selection from six model sources. Models available to each request depend on your account group and model mapping.',
+      editorialNavigation: {
+        sections: 'Page sections',
+        protocols: 'Connectivity',
+        models: 'Models',
+        architecture: 'Architecture'
+      },
+      editorialSemantics: {
+        tag: 'Protocol Semantics',
+        title: 'Beyond connection.\nPreserving meaning.',
+        description: 'Align responses, tools, and reasoning within the target protocol’s capabilities. Your application focuses on models; the gateway handles protocol differences.'
+      },
+      editorialProtocols: 'Standard generation surfaces',
+      editorialCatalogLead: '{count} Selected Model IDs',
+      editorialCatalogSummary: 'Model catalog summary',
+      editorialSelectedModels: 'Selected Model IDs',
+      editorialSummaryCatalog: 'Selected Models',
+      editorialSummaryProviders: 'Model Sources',
+      editorialSummaryProtocols: 'Generation Surfaces',
+      editorialCoverIndex: {
+        surfaces: 'Standard API Surfaces',
+        models: 'Selected Model IDs',
+        semantic: 'Streaming & Tool Calling Alignment',
+        routing: 'Model-Aware Health Routing & Failover'
+      },
+      editorialAssurance: {
+        stream: 'Incremental SSE delivery and connection lifecycle management',
+        tools: 'Structured tool calls with argument fidelity',
+        reasoning: 'Reasoning and required metadata preserved where the target supports them',
+        usage: 'Upstream token, cached usage, and request cost extraction'
+      },
+      editorialPipeline: {
+        tag: 'Request Lifecycle',
+        title: 'One request.\nFour layers.',
+        subtitle: 'From client ingress to multi-model execution, preserving protocol semantics, routing health, and usage traceability',
+        step1: {
+          code: '01',
+          name: 'Ingest',
+          action: 'RECEIVE',
+          desc: 'Accepts Responses, Chat, Messages, and GenAI requests with instant API key validation.'
+        },
+        step2: {
+          code: '02',
+          name: 'Transform',
+          action: 'NORMALIZE',
+          desc: 'Normalizes messages, system prompts, tool calls, and reasoning within the target protocol’s capabilities.'
+        },
+        step3: {
+          code: '03',
+          name: 'Route',
+          action: 'ORCHESTRATE',
+          desc: 'Selects an upstream by model and account schedulability, with failover before the first semantic output.'
+        },
+        step4: {
+          code: '04',
+          name: 'Deliver',
+          action: 'DELIVER',
+          desc: 'Delivers incremental SSE while recording per-request tokens, cached usage, cost, and audit context.'
+        }
+      },
+      editorialControl: {
+        tag: 'Control Plane',
+        title: 'Every Request, In Context',
+        subtitle: 'A traceable developer control plane for keys, requests, pricing, and account security',
+        keys: {
+          title: 'API Keys & Quotas',
+          desc: 'Create dedicated API keys and scope quotas and routing for each workload.',
+          summary: 'ISOLATED KEYS / QUOTAS / ROUTING'
+        },
+        usage: {
+          title: 'Usage & Request Audit',
+          desc: 'Inspect tokens, duration, cost, and Request ID for each request.',
+          descWithErrors: 'Inspect tokens, duration, cost, and Request ID, with details for failed requests.',
+          summary: 'TOKENS / REQUEST ID / USAGE',
+          summaryWithErrors: 'TOKENS / REQUEST ID / ERROR DETAIL'
+        },
+        pricing: {
+          title: 'Model Rates & Balance',
+          desc: 'Review model unit rates and per-request billing results.',
+          descWithPayment: 'Review model unit rates and billing results, then add balance through online payment.',
+          descPayment: 'Add balance through online payment and track balance changes.',
+          summary: 'MODEL RATES / BILLING RECORDS',
+          summaryWithPayment: 'MODEL RATES / ONLINE TOP-UP / BALANCE',
+          summaryPayment: 'ONLINE TOP-UP / BALANCE'
+        },
+        security: {
+          title: 'Identity & Security',
+          desc: 'Email verification and TOTP two-factor authentication protect the account together.',
+          descEmail: 'Email verification protects account identity.',
+          descTotp: 'TOTP two-factor authentication protects the account.',
+          summary: 'EMAIL VERIFICATION / TOTP 2FA',
+          summaryEmail: 'EMAIL VERIFICATION',
+          summaryTotp: 'TOTP 2FA'
+        }
+      },
+      state: 'State'
+    },
     getStarted: 'Get Started',
     goToDashboard: 'Go to Dashboard',
     // User-focused value proposition
