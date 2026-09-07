@@ -12,9 +12,11 @@ package service
 //   - D（用户售价倍率）固定在请求开始的 pricingAt：同一请求的全部 failover 与
 //     最终扣费共用同一 D（RecordUsage 的高峰因子同样取 pricingAt），一个请求
 //     不会中途变价。D 与计费完全同源：按请求真实计费分组（ctxkey.Group，即
-//     apiKey 自身分组；composite 请求为父分组）做 ResolveUserGroupRateMultiplier
-//     （用户-分组覆盖 ?? 分组默认）× Group.PeakMultiplierAt(pricingAt)，绝不在
-//     用户有覆盖时退回分组默认；开关与 margin/buffer 则始终取被调度
+//     apiKey 自身分组；composite 请求为父分组）解析用户专属倍率；无专属倍率时，
+//     动态分组使用最低倍率作为保守下限，静态分组使用默认倍率，最后乘以
+//     Group.PeakMultiplierAt(pricingAt)。动态请求的实际倍率要等上游 Token 返回后
+//     才能在账务事务内确定，因此利润门不能使用最高倍率或未完成的窗口快照；用户有
+//     覆盖时绝不退回动态/分组默认。开关与 margin/buffer 则始终取被调度
 //     openai/grok 分组。
 //   - U（上游成本倍率）取 accounts.rate_multiplier。倍率可以由运营者手工维护，
 //     也可以由上游倍率探测同步写回；利润门不再耦合探测协议、新鲜度或账号类型。
@@ -253,9 +255,9 @@ func (s *OpenAIGatewayService) resolveOpenAIProfitControlGate(ctx context.Contex
 	if ctxGroup, ok := ctx.Value(ctxkey.Group).(*Group); ok && IsGroupContextValid(ctxGroup) {
 		billingGroup = ctxGroup
 	}
-	downstream := billingGroup.RateMultiplier
+	downstream := resolveMinimumGroupBillingRate(ctx, s.userGroupRateResolver, billingGroup, 0)
 	if userID, _ := ctx.Value(ctxkey.UserID).(int64); userID > 0 {
-		downstream = s.ResolveUserGroupRateMultiplier(ctx, userID, billingGroup.ID, billingGroup.RateMultiplier)
+		downstream = resolveMinimumGroupBillingRate(ctx, s.userGroupRateResolver, billingGroup, userID)
 	}
 	downstream *= billingGroup.PeakMultiplierAt(pricingAt)
 

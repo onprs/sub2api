@@ -476,6 +476,8 @@ func TestUsageBillingRepositoryApply_EnqueuesSchedulerOutboxOnQuotaCrossing(t *t
 func TestDashboardAggregationRepositoryCleanupUsageBillingDedup_BatchDeletesOldRows(t *testing.T) {
 	ctx := context.Background()
 	repo := newDashboardAggregationRepositoryWithSQL(integrationDB)
+	current := time.Now().UTC()
+	repo.clock = func() time.Time { return current }
 
 	oldRequestID := "dedup-old-" + uuid.NewString()
 	newRequestID := "dedup-new-" + uuid.NewString()
@@ -504,6 +506,25 @@ func TestDashboardAggregationRepositoryCleanupUsageBillingDedup_BatchDeletesOldR
 	var archivedCount int
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_billing_dedup_archive WHERE request_id = $1", oldRequestID).Scan(&archivedCount))
 	require.Equal(t, 1, archivedCount)
+
+	oldDynamicRequestID := "dynamic-old-" + uuid.NewString()
+	newDynamicRequestID := "dynamic-new-" + uuid.NewString()
+	_, err = integrationDB.ExecContext(ctx, `
+		INSERT INTO dynamic_rate_usage_events (
+			request_id, api_key_id, user_id, group_id, total_tokens, resolved_multiplier, occurred_at
+		) VALUES
+			($1, 1, 1, 1, 10, 1, $2),
+			($3, 1, 1, 1, 10, 1, $4)
+	`, oldDynamicRequestID, current.Add(-32*24*time.Hour), newDynamicRequestID, current.Add(-30*24*time.Hour))
+	require.NoError(t, err)
+
+	require.NoError(t, repo.CleanupUsageBillingDedup(ctx, current.AddDate(0, 0, -365)))
+
+	var oldDynamicCount, newDynamicCount int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM dynamic_rate_usage_events WHERE request_id = $1", oldDynamicRequestID).Scan(&oldDynamicCount))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM dynamic_rate_usage_events WHERE request_id = $1", newDynamicRequestID).Scan(&newDynamicCount))
+	require.Zero(t, oldDynamicCount)
+	require.Equal(t, 1, newDynamicCount)
 }
 
 func TestUsageBillingRepositoryApply_DeduplicatesAgainstArchivedKey(t *testing.T) {

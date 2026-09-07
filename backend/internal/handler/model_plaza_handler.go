@@ -76,18 +76,21 @@ type modelPlazaModel struct {
 
 // modelPlazaGroup 广场分组条目（白名单字段）。
 type modelPlazaGroup struct {
-	ID                 int64    `json:"id"`
-	Name               string   `json:"name"`
-	Description        string   `json:"description"`
-	Platform           string   `json:"platform"`
-	SubscriptionType   string   `json:"subscription_type"`
-	RateMultiplier     float64  `json:"rate_multiplier"`
-	UserRateMultiplier *float64 `json:"user_rate_multiplier,omitempty"`
-	PeakRateEnabled    bool     `json:"peak_rate_enabled"`
-	PeakStart          string   `json:"peak_start"`
-	PeakEnd            string   `json:"peak_end"`
-	PeakRateMultiplier float64  `json:"peak_rate_multiplier"`
-	IsExclusive        bool     `json:"is_exclusive"`
+	ID                       int64    `json:"id"`
+	Name                     string   `json:"name"`
+	Description              string   `json:"description"`
+	Platform                 string   `json:"platform"`
+	SubscriptionType         string   `json:"subscription_type"`
+	RateMultiplier           float64  `json:"rate_multiplier"`
+	UserRateMultiplier       *float64 `json:"user_rate_multiplier,omitempty"`
+	DynamicRateEnabled       bool     `json:"dynamic_rate_enabled"`
+	DynamicRateMaxMultiplier float64  `json:"dynamic_rate_max_multiplier"`
+	DynamicRateMinMultiplier float64  `json:"dynamic_rate_min_multiplier"`
+	PeakRateEnabled          bool     `json:"peak_rate_enabled"`
+	PeakStart                string   `json:"peak_start"`
+	PeakEnd                  string   `json:"peak_end"`
+	PeakRateMultiplier       float64  `json:"peak_rate_multiplier"`
+	IsExclusive              bool     `json:"is_exclusive"`
 	// 生图独立倍率：为 true 时图片计费模型的实付倍率取 ImageRateMultiplier，
 	// 不取分组/用户专属倍率。
 	ImageRateIndependent bool    `json:"image_rate_independent"`
@@ -204,6 +207,9 @@ func toModelPlazaGroupDTO(g *service.PlazaGroup, userRates map[int64]float64) mo
 		Platform:                  g.Platform,
 		SubscriptionType:          g.SubscriptionType,
 		RateMultiplier:            g.RateMultiplier,
+		DynamicRateEnabled:        g.DynamicRateEnabled,
+		DynamicRateMaxMultiplier:  g.DynamicRateMaxMultiplier,
+		DynamicRateMinMultiplier:  g.DynamicRateMinMultiplier,
 		PeakRateEnabled:           g.PeakRateEnabled,
 		PeakStart:                 g.PeakStart,
 		PeakEnd:                   g.PeakEnd,

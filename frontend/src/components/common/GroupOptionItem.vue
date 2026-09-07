@@ -28,11 +28,11 @@
         <!-- Rate pill (platform color) -->
         <span v-if="rateMultiplier !== undefined" :class="['inline-flex items-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold', ratePillClass]">
           <template v-if="hasCustomRate">
-            <span class="mr-1 line-through opacity-50">{{ rateMultiplier }}x</span>
+            <span class="mr-1 line-through opacity-50">{{ defaultRateLabel }}</span>
             <span class="font-bold">{{ userRateMultiplier }}x</span>
           </template>
           <template v-else>
-            {{ rateMultiplier }}x {{ t('admin.groups.rateLabel') }}
+            {{ defaultRateLabel }} {{ t('admin.groups.rateLabel') }}
           </template>
         </span>
         <span
@@ -73,6 +73,9 @@ interface Props {
   platform: GroupPlatform
   subscriptionType?: SubscriptionType
   rateMultiplier?: number
+  dynamicRateEnabled?: boolean
+  dynamicRateMinMultiplier?: number
+  dynamicRateMaxMultiplier?: number
   userRateMultiplier?: number | null
   peakRateEnabled?: boolean
   peakStart?: string
@@ -88,16 +91,29 @@ const props = withDefaults(defineProps<Props>(), {
   selected: false,
   showCheckmark: true,
   userRateMultiplier: null,
+  dynamicRateEnabled: false,
   peakRateEnabled: false
 })
 
-// Whether user has a custom rate different from default
+const defaultRateLabel = computed(() => {
+  if (
+    props.dynamicRateEnabled &&
+    props.dynamicRateMinMultiplier !== undefined &&
+    props.dynamicRateMaxMultiplier !== undefined
+  ) {
+    return `${props.dynamicRateMinMultiplier}x-${props.dynamicRateMaxMultiplier}x`
+  }
+  return props.rateMultiplier !== undefined ? `${props.rateMultiplier}x` : ''
+})
+
+// 动态分组只要存在专属倍率就显示覆盖；静态分组维持相同倍率不重复展示。
 const hasCustomRate = computed(() => {
   return (
     props.userRateMultiplier !== null &&
     props.userRateMultiplier !== undefined &&
-    props.rateMultiplier !== undefined &&
-    props.userRateMultiplier !== props.rateMultiplier
+    (props.dynamicRateEnabled ||
+      props.rateMultiplier === undefined ||
+      props.userRateMultiplier !== props.rateMultiplier)
   )
 })
 

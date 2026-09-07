@@ -100,6 +100,9 @@
                     :platform="g.platform as GroupPlatform"
                     :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                     :rate-multiplier="g.rate_multiplier"
+                    :dynamic-rate-enabled="g.dynamic_rate_enabled"
+                    :dynamic-rate-min-multiplier="g.dynamic_rate_min_multiplier"
+                    :dynamic-rate-max-multiplier="g.dynamic_rate_max_multiplier"
                     :user-rate-multiplier="userGroupRates[g.id] ?? null"
                     always-show-rate
                   />
@@ -134,6 +137,9 @@
                     :platform="g.platform as GroupPlatform"
                     :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                     :rate-multiplier="g.rate_multiplier"
+                    :dynamic-rate-enabled="g.dynamic_rate_enabled"
+                    :dynamic-rate-min-multiplier="g.dynamic_rate_min_multiplier"
+                    :dynamic-rate-max-multiplier="g.dynamic_rate_max_multiplier"
                     :user-rate-multiplier="userGroupRates[g.id] ?? null"
                     always-show-rate
                   />
@@ -239,6 +245,9 @@
                         :platform="g.platform as GroupPlatform"
                         :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                         :rate-multiplier="g.rate_multiplier"
+                        :dynamic-rate-enabled="g.dynamic_rate_enabled"
+                        :dynamic-rate-min-multiplier="g.dynamic_rate_min_multiplier"
+                        :dynamic-rate-max-multiplier="g.dynamic_rate_max_multiplier"
                         :user-rate-multiplier="userGroupRates[g.id] ?? null"
                         always-show-rate
                       />
@@ -274,6 +283,9 @@
                         :platform="g.platform as GroupPlatform"
                         :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                         :rate-multiplier="g.rate_multiplier"
+                        :dynamic-rate-enabled="g.dynamic_rate_enabled"
+                        :dynamic-rate-min-multiplier="g.dynamic_rate_min_multiplier"
+                        :dynamic-rate-max-multiplier="g.dynamic_rate_max_multiplier"
                         :user-rate-multiplier="userGroupRates[g.id] ?? null"
                         always-show-rate
                       />

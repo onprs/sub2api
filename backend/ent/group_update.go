@@ -119,6 +119,104 @@ func (_u *GroupUpdate) AddRateMultiplier(v float64) *GroupUpdate {
 	return _u
 }
 
+// SetDynamicRateEnabled sets the "dynamic_rate_enabled" field.
+func (_u *GroupUpdate) SetDynamicRateEnabled(v bool) *GroupUpdate {
+	_u.mutation.SetDynamicRateEnabled(v)
+	return _u
+}
+
+// SetNillableDynamicRateEnabled sets the "dynamic_rate_enabled" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableDynamicRateEnabled(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetDynamicRateEnabled(*v)
+	}
+	return _u
+}
+
+// SetDynamicRateMaxMultiplier sets the "dynamic_rate_max_multiplier" field.
+func (_u *GroupUpdate) SetDynamicRateMaxMultiplier(v float64) *GroupUpdate {
+	_u.mutation.ResetDynamicRateMaxMultiplier()
+	_u.mutation.SetDynamicRateMaxMultiplier(v)
+	return _u
+}
+
+// SetNillableDynamicRateMaxMultiplier sets the "dynamic_rate_max_multiplier" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableDynamicRateMaxMultiplier(v *float64) *GroupUpdate {
+	if v != nil {
+		_u.SetDynamicRateMaxMultiplier(*v)
+	}
+	return _u
+}
+
+// AddDynamicRateMaxMultiplier adds value to the "dynamic_rate_max_multiplier" field.
+func (_u *GroupUpdate) AddDynamicRateMaxMultiplier(v float64) *GroupUpdate {
+	_u.mutation.AddDynamicRateMaxMultiplier(v)
+	return _u
+}
+
+// SetDynamicRateMinMultiplier sets the "dynamic_rate_min_multiplier" field.
+func (_u *GroupUpdate) SetDynamicRateMinMultiplier(v float64) *GroupUpdate {
+	_u.mutation.ResetDynamicRateMinMultiplier()
+	_u.mutation.SetDynamicRateMinMultiplier(v)
+	return _u
+}
+
+// SetNillableDynamicRateMinMultiplier sets the "dynamic_rate_min_multiplier" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableDynamicRateMinMultiplier(v *float64) *GroupUpdate {
+	if v != nil {
+		_u.SetDynamicRateMinMultiplier(*v)
+	}
+	return _u
+}
+
+// AddDynamicRateMinMultiplier adds value to the "dynamic_rate_min_multiplier" field.
+func (_u *GroupUpdate) AddDynamicRateMinMultiplier(v float64) *GroupUpdate {
+	_u.mutation.AddDynamicRateMinMultiplier(v)
+	return _u
+}
+
+// SetDynamicRateTargetTokens sets the "dynamic_rate_target_tokens" field.
+func (_u *GroupUpdate) SetDynamicRateTargetTokens(v int64) *GroupUpdate {
+	_u.mutation.ResetDynamicRateTargetTokens()
+	_u.mutation.SetDynamicRateTargetTokens(v)
+	return _u
+}
+
+// SetNillableDynamicRateTargetTokens sets the "dynamic_rate_target_tokens" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableDynamicRateTargetTokens(v *int64) *GroupUpdate {
+	if v != nil {
+		_u.SetDynamicRateTargetTokens(*v)
+	}
+	return _u
+}
+
+// AddDynamicRateTargetTokens adds value to the "dynamic_rate_target_tokens" field.
+func (_u *GroupUpdate) AddDynamicRateTargetTokens(v int64) *GroupUpdate {
+	_u.mutation.AddDynamicRateTargetTokens(v)
+	return _u
+}
+
+// SetDynamicRateWindowMinutes sets the "dynamic_rate_window_minutes" field.
+func (_u *GroupUpdate) SetDynamicRateWindowMinutes(v int) *GroupUpdate {
+	_u.mutation.ResetDynamicRateWindowMinutes()
+	_u.mutation.SetDynamicRateWindowMinutes(v)
+	return _u
+}
+
+// SetNillableDynamicRateWindowMinutes sets the "dynamic_rate_window_minutes" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableDynamicRateWindowMinutes(v *int) *GroupUpdate {
+	if v != nil {
+		_u.SetDynamicRateWindowMinutes(*v)
+	}
+	return _u
+}
+
+// AddDynamicRateWindowMinutes adds value to the "dynamic_rate_window_minutes" field.
+func (_u *GroupUpdate) AddDynamicRateWindowMinutes(v int) *GroupUpdate {
+	_u.mutation.AddDynamicRateWindowMinutes(v)
+	return _u
+}
+
 // SetPeakRateEnabled sets the "peak_rate_enabled" field.
 func (_u *GroupUpdate) SetPeakRateEnabled(v bool) *GroupUpdate {
 	_u.mutation.SetPeakRateEnabled(v)
@@ -1695,6 +1793,33 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(group.FieldRateMultiplier, field.TypeFloat64, value)
 	}
+	if value, ok := _u.mutation.DynamicRateEnabled(); ok {
+		_spec.SetField(group.FieldDynamicRateEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.DynamicRateMaxMultiplier(); ok {
+		_spec.SetField(group.FieldDynamicRateMaxMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedDynamicRateMaxMultiplier(); ok {
+		_spec.AddField(group.FieldDynamicRateMaxMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.DynamicRateMinMultiplier(); ok {
+		_spec.SetField(group.FieldDynamicRateMinMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedDynamicRateMinMultiplier(); ok {
+		_spec.AddField(group.FieldDynamicRateMinMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.DynamicRateTargetTokens(); ok {
+		_spec.SetField(group.FieldDynamicRateTargetTokens, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedDynamicRateTargetTokens(); ok {
+		_spec.AddField(group.FieldDynamicRateTargetTokens, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.DynamicRateWindowMinutes(); ok {
+		_spec.SetField(group.FieldDynamicRateWindowMinutes, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedDynamicRateWindowMinutes(); ok {
+		_spec.AddField(group.FieldDynamicRateWindowMinutes, field.TypeInt, value)
+	}
 	if value, ok := _u.mutation.PeakRateEnabled(); ok {
 		_spec.SetField(group.FieldPeakRateEnabled, field.TypeBool, value)
 	}
@@ -2528,6 +2653,104 @@ func (_u *GroupUpdateOne) SetNillableRateMultiplier(v *float64) *GroupUpdateOne 
 // AddRateMultiplier adds value to the "rate_multiplier" field.
 func (_u *GroupUpdateOne) AddRateMultiplier(v float64) *GroupUpdateOne {
 	_u.mutation.AddRateMultiplier(v)
+	return _u
+}
+
+// SetDynamicRateEnabled sets the "dynamic_rate_enabled" field.
+func (_u *GroupUpdateOne) SetDynamicRateEnabled(v bool) *GroupUpdateOne {
+	_u.mutation.SetDynamicRateEnabled(v)
+	return _u
+}
+
+// SetNillableDynamicRateEnabled sets the "dynamic_rate_enabled" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableDynamicRateEnabled(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetDynamicRateEnabled(*v)
+	}
+	return _u
+}
+
+// SetDynamicRateMaxMultiplier sets the "dynamic_rate_max_multiplier" field.
+func (_u *GroupUpdateOne) SetDynamicRateMaxMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.ResetDynamicRateMaxMultiplier()
+	_u.mutation.SetDynamicRateMaxMultiplier(v)
+	return _u
+}
+
+// SetNillableDynamicRateMaxMultiplier sets the "dynamic_rate_max_multiplier" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableDynamicRateMaxMultiplier(v *float64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetDynamicRateMaxMultiplier(*v)
+	}
+	return _u
+}
+
+// AddDynamicRateMaxMultiplier adds value to the "dynamic_rate_max_multiplier" field.
+func (_u *GroupUpdateOne) AddDynamicRateMaxMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.AddDynamicRateMaxMultiplier(v)
+	return _u
+}
+
+// SetDynamicRateMinMultiplier sets the "dynamic_rate_min_multiplier" field.
+func (_u *GroupUpdateOne) SetDynamicRateMinMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.ResetDynamicRateMinMultiplier()
+	_u.mutation.SetDynamicRateMinMultiplier(v)
+	return _u
+}
+
+// SetNillableDynamicRateMinMultiplier sets the "dynamic_rate_min_multiplier" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableDynamicRateMinMultiplier(v *float64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetDynamicRateMinMultiplier(*v)
+	}
+	return _u
+}
+
+// AddDynamicRateMinMultiplier adds value to the "dynamic_rate_min_multiplier" field.
+func (_u *GroupUpdateOne) AddDynamicRateMinMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.AddDynamicRateMinMultiplier(v)
+	return _u
+}
+
+// SetDynamicRateTargetTokens sets the "dynamic_rate_target_tokens" field.
+func (_u *GroupUpdateOne) SetDynamicRateTargetTokens(v int64) *GroupUpdateOne {
+	_u.mutation.ResetDynamicRateTargetTokens()
+	_u.mutation.SetDynamicRateTargetTokens(v)
+	return _u
+}
+
+// SetNillableDynamicRateTargetTokens sets the "dynamic_rate_target_tokens" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableDynamicRateTargetTokens(v *int64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetDynamicRateTargetTokens(*v)
+	}
+	return _u
+}
+
+// AddDynamicRateTargetTokens adds value to the "dynamic_rate_target_tokens" field.
+func (_u *GroupUpdateOne) AddDynamicRateTargetTokens(v int64) *GroupUpdateOne {
+	_u.mutation.AddDynamicRateTargetTokens(v)
+	return _u
+}
+
+// SetDynamicRateWindowMinutes sets the "dynamic_rate_window_minutes" field.
+func (_u *GroupUpdateOne) SetDynamicRateWindowMinutes(v int) *GroupUpdateOne {
+	_u.mutation.ResetDynamicRateWindowMinutes()
+	_u.mutation.SetDynamicRateWindowMinutes(v)
+	return _u
+}
+
+// SetNillableDynamicRateWindowMinutes sets the "dynamic_rate_window_minutes" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableDynamicRateWindowMinutes(v *int) *GroupUpdateOne {
+	if v != nil {
+		_u.SetDynamicRateWindowMinutes(*v)
+	}
+	return _u
+}
+
+// AddDynamicRateWindowMinutes adds value to the "dynamic_rate_window_minutes" field.
+func (_u *GroupUpdateOne) AddDynamicRateWindowMinutes(v int) *GroupUpdateOne {
+	_u.mutation.AddDynamicRateWindowMinutes(v)
 	return _u
 }
 
@@ -4136,6 +4359,33 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(group.FieldRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.DynamicRateEnabled(); ok {
+		_spec.SetField(group.FieldDynamicRateEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.DynamicRateMaxMultiplier(); ok {
+		_spec.SetField(group.FieldDynamicRateMaxMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedDynamicRateMaxMultiplier(); ok {
+		_spec.AddField(group.FieldDynamicRateMaxMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.DynamicRateMinMultiplier(); ok {
+		_spec.SetField(group.FieldDynamicRateMinMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedDynamicRateMinMultiplier(); ok {
+		_spec.AddField(group.FieldDynamicRateMinMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.DynamicRateTargetTokens(); ok {
+		_spec.SetField(group.FieldDynamicRateTargetTokens, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedDynamicRateTargetTokens(); ok {
+		_spec.AddField(group.FieldDynamicRateTargetTokens, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.DynamicRateWindowMinutes(); ok {
+		_spec.SetField(group.FieldDynamicRateWindowMinutes, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedDynamicRateWindowMinutes(); ok {
+		_spec.AddField(group.FieldDynamicRateWindowMinutes, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.PeakRateEnabled(); ok {
 		_spec.SetField(group.FieldPeakRateEnabled, field.TypeBool, value)

@@ -14,26 +14,50 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
-func (s *GatewayService) getUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
+func (s *GatewayService) getUserGroupRateResolver() *userGroupRateResolver {
 	if s == nil {
-		return groupDefaultMultiplier
+		return nil
 	}
-	resolver := s.userGroupRateResolver
+	if s.userGroupRateResolver != nil {
+		return s.userGroupRateResolver
+	}
+	return newUserGroupRateResolver(
+		s.userGroupRateRepo,
+		s.userGroupRateCache,
+		resolveUserGroupRateCacheTTL(s.cfg),
+		&s.userGroupRateSF,
+		"service.gateway",
+	)
+}
+
+func (s *GatewayService) getUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
+	resolver := s.getUserGroupRateResolver()
 	if resolver == nil {
-		resolver = newUserGroupRateResolver(
-			s.userGroupRateRepo,
-			s.userGroupRateCache,
-			resolveUserGroupRateCacheTTL(s.cfg),
-			&s.userGroupRateSF,
-			"service.gateway",
-		)
+		return groupDefaultMultiplier
 	}
 	return resolver.Resolve(ctx, userID, groupID, groupDefaultMultiplier)
 }
 
+// ResolveUserGroupRateMultiplierDetail 返回倍率及显式用户覆盖状态。
+func (s *GatewayService) ResolveUserGroupRateMultiplierDetail(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) (float64, bool) {
+	multiplier, hasOverride, _ := s.ResolveUserGroupRateMultiplierState(ctx, userID, groupID, groupDefaultMultiplier)
+	return multiplier, hasOverride
+}
+
+// ResolveUserGroupRateMultiplierState 额外返回专属倍率查询是否失败，供动态倍率调用方避免把未知状态当作无覆盖。
+func (s *GatewayService) ResolveUserGroupRateMultiplierState(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) (float64, bool, bool) {
+	resolver := s.getUserGroupRateResolver()
+	if resolver == nil {
+		return groupDefaultMultiplier, false, false
+	}
+	resolved := resolver.ResolveDetail(ctx, userID, groupID, groupDefaultMultiplier)
+	return resolved.Multiplier, resolved.HasOverride, resolved.LookupFailed
+}
+
 // ResolveUserGroupRateMultiplier resolves the same cached multiplier used by usage billing.
 func (s *GatewayService) ResolveUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
-	return s.getUserGroupRateMultiplier(ctx, userID, groupID, groupDefaultMultiplier)
+	multiplier, _ := s.ResolveUserGroupRateMultiplierDetail(ctx, userID, groupID, groupDefaultMultiplier)
+	return multiplier
 }
 
 // RecordUsageInput 记录使用量的输入参数。
@@ -82,6 +106,8 @@ type postUsageBillingParams struct {
 	RequestPayloadHash    string
 	IsSubscriptionBill    bool
 	AccountRateMultiplier float64
+	DynamicRate           *DynamicRateUsageCommand
+	DynamicRateBasis      float64
 	APIKeyService         APIKeyQuotaUpdater
 	Platform              string // 来自 APIKey 关联 Group 的平台标识
 }
@@ -290,6 +316,7 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 	billingModels []string,
 	multiplier float64,
 	imageMultiplier float64,
+	independentMultiplier float64,
 	pricingAt time.Time,
 	opts *recordUsageOpts,
 ) (*CostBreakdown, string, error) {
@@ -302,7 +329,7 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 		if candidate == "" {
 			continue
 		}
-		cost, err := s.calculateRecordUsageCost(ctx, result, apiKey, candidate, multiplier, imageMultiplier, pricingAt, opts)
+		cost, err := s.calculateRecordUsageCost(ctx, result, apiKey, candidate, multiplier, imageMultiplier, independentMultiplier, pricingAt, opts)
 		if err == nil && opts != nil {
 			switch opts.PricingPlatform {
 			case PlatformOpenCodeGo:
@@ -365,6 +392,7 @@ func applyModelSpecificMultiplierToCost(cost *CostBreakdown, multiplier float64)
 	}
 	cost.ModelSpecificMultiplier = multiplier
 	cost.ActualCost *= multiplier
+	cost.DynamicRateExcludedCost *= multiplier
 }
 
 func recordUsageCostIsZeroTokenFallback(cost *CostBreakdown, result *ForwardResult) bool {
@@ -392,6 +420,10 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		AccountID:          p.Account.ID,
 		AccountType:        p.Account.Type,
 		RequestPayloadHash: strings.TrimSpace(p.RequestPayloadHash),
+	}
+	if p.DynamicRate != nil {
+		cmd.DynamicRateBasisMultiplier = p.DynamicRateBasis
+		cmd.DynamicRateExcludedCost = p.Cost.DynamicRateExcludedCost
 	}
 	if usageLog != nil {
 		cmd.Model = usageLog.Model
@@ -455,10 +487,21 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	billingCtx, cancel := detachedBillingContext(ctx)
 	defer cancel()
 
-	result, err := repo.Apply(billingCtx, cmd)
+	var result *UsageBillingApplyResult
+	var err error
+	if p.DynamicRate != nil {
+		if dynamicRepo, ok := repo.(DynamicUsageBillingRepository); ok {
+			result, err = dynamicRepo.ApplyWithDynamicRate(billingCtx, cmd, p.DynamicRate)
+		} else {
+			result, err = repo.Apply(billingCtx, cmd)
+		}
+	} else {
+		result, err = repo.Apply(billingCtx, cmd)
+	}
 	if err != nil {
 		return false, nil, err
 	}
+	applyDynamicRateBillingResult(usageLog, p, result)
 
 	if result == nil || !result.Applied {
 		deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)
@@ -473,6 +516,33 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 
 	finalizePostUsageBilling(billingCtx, p, deps, result)
 	return true, result, nil
+}
+
+func applyDynamicRateBillingResult(usageLog *UsageLog, p *postUsageBillingParams, result *UsageBillingApplyResult) {
+	if p == nil || p.Cost == nil || result == nil || result.DynamicRateMultiplier == nil || p.DynamicRateBasis <= 0 {
+		return
+	}
+	ratio := *result.DynamicRateMultiplier / p.DynamicRateBasis
+	p.Cost.ActualCost = QuantizeUsageBillingAmount(scaleDynamicRateCost(
+		p.Cost.ActualCost,
+		p.Cost.DynamicRateExcludedCost,
+		ratio,
+	))
+	if usageLog != nil {
+		usageLog.ActualCost = p.Cost.ActualCost
+		usageLog.RateMultiplier = quantizeRateMultiplier(usageLog.RateMultiplier * ratio)
+	}
+}
+
+func scaleDynamicRateCost(value, excluded, ratio float64) float64 {
+	if value <= 0 {
+		return value
+	}
+	adjustable := value - excluded
+	if adjustable < 0 {
+		adjustable = 0
+	}
+	return excluded + adjustable*ratio
 }
 
 func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *billingDeps, result *UsageBillingApplyResult) {
@@ -863,22 +933,35 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		cacheTTLOverridden = (result.Usage.CacheCreation5mTokens + result.Usage.CacheCreation1hTokens) > 0
 	}
 
-	// 获取费率倍数（优先级：用户专属 > 分组默认 > 系统默认）
+	// 获取费率倍数（优先级：用户专属 > 动态分组 > 分组默认 > 系统默认）。
 	multiplier := 1.0
 	if s.cfg != nil {
 		multiplier = s.cfg.Default.RateMultiplier
 	}
-	if apiKey.GroupID != nil && apiKey.Group != nil {
-		groupDefault := apiKey.Group.RateMultiplier
-		multiplier = s.ResolveUserGroupRateMultiplier(ctx, user.ID, *apiKey.GroupID, groupDefault)
-	}
-	// token 倍率叠加高峰因子（token 计费含图片 token，图片按次倍率不受影响）。高峰因子按请求时刻现算，
-	// 不并入上面的 getUserGroupRateMultiplier，以免污染 user:group 倍率缓存。
 	pricingAt := input.PricingAt
 	if pricingAt.IsZero() {
 		pricingAt = timezone.Now()
 	}
-	multiplier, imageMultiplier := computePeakAwareMultipliers(apiKey, multiplier, pricingAt)
+	ratePlan := groupBillingRatePlan{Multiplier: multiplier, StaticMultiplier: multiplier}
+	if apiKey.GroupID != nil && apiKey.Group != nil {
+		dynamicRequestID := resolveUsageBillingRequestID(ctx, result.RequestID)
+		totalTokens := int64(result.Usage.InputTokens) + int64(result.Usage.OutputTokens) +
+			int64(result.Usage.CacheCreationInputTokens) + int64(result.Usage.CacheReadInputTokens)
+		ratePlan = resolveGroupBillingRatePlan(
+			ctx,
+			s.getUserGroupRateResolver(),
+			apiKey.Group,
+			user.ID,
+			apiKey.ID,
+			dynamicRequestID,
+			totalTokens,
+			time.Now(),
+		)
+		multiplier = ratePlan.Multiplier
+	}
+	// 动态倍率仅进入 token 计费；图片按次倍率仍基于静态/用户专属倍率且不受高峰影响。
+	multiplier, _ = computePeakAwareMultipliers(apiKey, multiplier, pricingAt)
+	imageMultiplier := resolveImageRateMultiplier(apiKey, ratePlan.StaticMultiplier)
 
 	// 确定计费模型
 	concreteBillingModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
@@ -929,7 +1012,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 
 	// 计算费用。OpenCode Go 活动折算后的模型倍率只进入 ActualCost；价格与 TotalCost 保持原价。
 	cost, chargedBillingModel, costErr := s.calculateRecordUsageCostFromCandidates(
-		ctx, result, apiKey, billingModels, multiplier, imageMultiplier, pricingAt, opts,
+		ctx, result, apiKey, billingModels, multiplier, imageMultiplier, ratePlan.StaticMultiplier, pricingAt, opts,
 	)
 	if costErr != nil {
 		if account != nil && (account.IsOpenCodeGo() || account.IsClinePass() || account.IsOpenRouter() || account.IsCommandCode()) && isUsagePricingUnavailableError(costErr) {
@@ -952,7 +1035,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	); responseModel != "" && !strings.EqualFold(responseModel, strings.TrimSpace(baselineBillingModel)) {
 		if identified, responseChannelPriced := s.hasIdentifiedResponseModelPricing(ctx, responseModel, apiKey, opts.PricingPlatform); identified {
 			responseCost, _, responseErr := s.calculateRecordUsageCostFromCandidates(
-				ctx, result, apiKey, []string{responseModel}, multiplier, imageMultiplier, pricingAt, opts,
+				ctx, result, apiKey, []string{responseModel}, multiplier, imageMultiplier, ratePlan.StaticMultiplier, pricingAt, opts,
 			)
 			baselineChannelPriced := s.resolveChannelPricing(ctx, baselineBillingModel, apiKey, opts.PricingPlatform) != nil
 			if responseErr == nil && responseModelBillingAdoptable(cost, responseCost, baselineChannelPriced, responseChannelPriced) {
@@ -960,6 +1043,10 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 				cost = responseCost
 			}
 		}
+	}
+
+	if ratePlan.Dynamic != nil && cost != nil && cost.BillingMode != "" && cost.BillingMode != string(BillingModeToken) {
+		multiplier = ratePlan.StaticMultiplier
 	}
 
 	// 判断计费方式：订阅模式 vs 余额模式
@@ -1016,6 +1103,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		}
 	}
 	requestID := usageLog.RequestID
+	dynamicRate := dynamicRateForTokenUsage(usageLog, ratePlan)
 	_, billingResult, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
 		Cost:                  cost,
 		User:                  user,
@@ -1025,6 +1113,8 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		RequestPayloadHash:    resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
 		IsSubscriptionBill:    isSubscriptionBilling,
 		AccountRateMultiplier: accountRateMultiplier,
+		DynamicRate:           dynamicRate,
+		DynamicRateBasis:      ratePlan.Multiplier,
 		APIKeyService:         input.APIKeyService,
 		Platform:              quotaPlatform,
 	}, s.billingDeps(), s.usageBillingRepo)
@@ -1050,6 +1140,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 	billingModel string,
 	multiplier float64,
 	imageMultiplier float64,
+	independentMultiplier float64,
 	pricingAt time.Time,
 	opts *recordUsageOpts,
 ) (*CostBreakdown, error) {
@@ -1059,7 +1150,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 	// 图片生成：渠道定价为 token 计费时走 token 路径，否则走图片计费
 	if result.ImageCount > 0 {
 		if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey, opts.PricingPlatform); resolved != nil && resolved.Mode == BillingModeToken {
-			return s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt, opts)
+			return s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, independentMultiplier, pricingAt, opts)
 		}
 		return s.calculateImageCost(ctx, result, apiKey, billingModel, imageMultiplier, opts.PricingPlatform), nil
 	}
@@ -1073,18 +1164,18 @@ func (s *GatewayService) calculateRecordUsageCost(
 				Ctx: ctx, Model: billingModel, PricingPlatform: opts.PricingPlatform,
 				GroupID: &gid, Group: apiKey.Group,
 				UsageUnits: result.AudioUsage.DurationOrUnits, SizeTier: result.AudioUsage.Mode,
-				RateMultiplier: multiplier, Resolver: s.resolver, Resolved: resolved,
+				RateMultiplier: independentMultiplier, Resolver: s.resolver, Resolved: resolved,
 			})
 			if err == nil {
 				return cost, nil
 			}
 		}
 		cfg := groupAudioPriceConfigFromAPIKey(apiKey)
-		return s.billingService.CalculateAudioCost(result.AudioUsage.Mode, result.AudioUsage.DurationOrUnits, cfg, multiplier), nil
+		return s.billingService.CalculateAudioCost(result.AudioUsage.Mode, result.AudioUsage.DurationOrUnits, cfg, independentMultiplier), nil
 	}
 
 	// Token 计费；SearchCount 为叠加 surcharge（不替代 token）。
-	tokenCost, err := s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt, opts)
+	tokenCost, err := s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, independentMultiplier, pricingAt, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -1093,13 +1184,14 @@ func (s *GatewayService) calculateRecordUsageCost(
 		if price != nil && *price == 0 {
 			logger.LegacyPrintf("service.gateway", "[Billing] search_price_per_1k explicit 0; search free group_model=%s count=%d", billingModel, result.SearchCount)
 		}
-		searchCost := s.billingService.CalculateSearchCost(result.SearchCount, price, multiplier)
+		searchCost := s.billingService.CalculateSearchCost(result.SearchCount, price, independentMultiplier)
 		if searchCost != nil && (searchCost.TotalCost > 0 || searchCost.ActualCost > 0) {
 			if tokenCost == nil {
 				return searchCost, nil
 			}
 			tokenCost.TotalCost += searchCost.TotalCost
 			tokenCost.ActualCost += searchCost.ActualCost
+			tokenCost.DynamicRateExcludedCost += searchCost.ActualCost
 		}
 	}
 	return tokenCost, nil
@@ -1263,6 +1355,7 @@ func (s *GatewayService) calculateTokenCost(
 	apiKey *APIKey,
 	billingModel string,
 	multiplier float64,
+	independentMultiplier float64,
 	pricingAt time.Time,
 	opts *recordUsageOpts,
 ) (*CostBreakdown, error) {
@@ -1284,6 +1377,9 @@ func (s *GatewayService) calculateTokenCost(
 		})
 	}
 
+	if resolved != nil && resolved.Mode != BillingModeToken {
+		multiplier = independentMultiplier
+	}
 	cost, err := s.billingService.CalculateTokenCostForRequest(TokenCostRequest{
 		Ctx:             ctx,
 		Model:           billingModel,

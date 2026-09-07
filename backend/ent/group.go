@@ -32,6 +32,16 @@ type Group struct {
 	Description *string `json:"description,omitempty"`
 	// RateMultiplier holds the value of the "rate_multiplier" field.
 	RateMultiplier float64 `json:"rate_multiplier,omitempty"`
+	// 是否按用户在滚动窗口内的累计 Token 动态降低倍率
+	DynamicRateEnabled bool `json:"dynamic_rate_enabled,omitempty"`
+	// 动态倍率起始值；窗口累计 Token 为 0 时使用
+	DynamicRateMaxMultiplier float64 `json:"dynamic_rate_max_multiplier,omitempty"`
+	// 动态倍率下限；窗口累计 Token 达到目标后使用
+	DynamicRateMinMultiplier float64 `json:"dynamic_rate_min_multiplier,omitempty"`
+	// 动态倍率达到下限所需的窗口累计 Token
+	DynamicRateTargetTokens int64 `json:"dynamic_rate_target_tokens,omitempty"`
+	// 动态倍率 Token 统计滚动窗口，单位为分钟
+	DynamicRateWindowMinutes int `json:"dynamic_rate_window_minutes,omitempty"`
 	// 是否启用高峰时段倍率
 	PeakRateEnabled bool `json:"peak_rate_enabled,omitempty"`
 	// 高峰开始时间 HH:MM（含），如 14:00；空表示未配置；不支持跨天
@@ -297,11 +307,11 @@ func (*Group) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case group.FieldVideoModelPrices, group.FieldModelPricing, group.FieldModelRouting, group.FieldSupportedModelScopes, group.FieldMessagesDispatchModelConfig, group.FieldModelsListConfig, group.FieldCodexModelsManifestConfig, group.FieldReasoningEffortMappings:
 			values[i] = new([]byte)
-		case group.FieldPeakRateEnabled, group.FieldIsExclusive, group.FieldAllowImageGeneration, group.FieldAllowBatchImageGeneration, group.FieldImageRateIndependent, group.FieldVideoRateIndependent, group.FieldLongContextPricingEnabled, group.FieldClaudeCodeOnly, group.FieldModelRoutingEnabled, group.FieldMcpXMLInject, group.FieldAllowMessagesDispatch, group.FieldAllowLive, group.FieldForceOpenaiFast, group.FieldFreeOpenaiFast, group.FieldRequireOauthOnly, group.FieldRequirePrivacySet, group.FieldInferGpt56CacheWrite, group.FieldProfitControlEnabled:
+		case group.FieldDynamicRateEnabled, group.FieldPeakRateEnabled, group.FieldIsExclusive, group.FieldAllowImageGeneration, group.FieldAllowBatchImageGeneration, group.FieldImageRateIndependent, group.FieldVideoRateIndependent, group.FieldLongContextPricingEnabled, group.FieldClaudeCodeOnly, group.FieldModelRoutingEnabled, group.FieldMcpXMLInject, group.FieldAllowMessagesDispatch, group.FieldAllowLive, group.FieldForceOpenaiFast, group.FieldFreeOpenaiFast, group.FieldRequireOauthOnly, group.FieldRequirePrivacySet, group.FieldInferGpt56CacheWrite, group.FieldProfitControlEnabled:
 			values[i] = new(sql.NullBool)
-		case group.FieldRateMultiplier, group.FieldPeakRateMultiplier, group.FieldDailyLimitUsd, group.FieldWeeklyLimitUsd, group.FieldMonthlyLimitUsd, group.FieldImageRateMultiplier, group.FieldImagePrice1k, group.FieldImagePrice2k, group.FieldImagePrice4k, group.FieldBatchImageDiscountMultiplier, group.FieldBatchImageHoldMultiplier, group.FieldVideoRateMultiplier, group.FieldVideoPrice480p, group.FieldVideoPrice720p, group.FieldVideoPrice1080p, group.FieldWebSearchPricePerCall, group.FieldSearchPricePer1k, group.FieldAudioRealtimePricePerMin, group.FieldAudioTtsPricePerMillionChars, group.FieldAudioSttPricePerHour, group.FieldProfitMinMargin, group.FieldProfitSafetyBuffer:
+		case group.FieldRateMultiplier, group.FieldDynamicRateMaxMultiplier, group.FieldDynamicRateMinMultiplier, group.FieldPeakRateMultiplier, group.FieldDailyLimitUsd, group.FieldWeeklyLimitUsd, group.FieldMonthlyLimitUsd, group.FieldImageRateMultiplier, group.FieldImagePrice1k, group.FieldImagePrice2k, group.FieldImagePrice4k, group.FieldBatchImageDiscountMultiplier, group.FieldBatchImageHoldMultiplier, group.FieldVideoRateMultiplier, group.FieldVideoPrice480p, group.FieldVideoPrice720p, group.FieldVideoPrice1080p, group.FieldWebSearchPricePerCall, group.FieldSearchPricePer1k, group.FieldAudioRealtimePricePerMin, group.FieldAudioTtsPricePerMillionChars, group.FieldAudioSttPricePerHour, group.FieldProfitMinMargin, group.FieldProfitSafetyBuffer:
 			values[i] = new(sql.NullFloat64)
-		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldInferGpt56CacheWriteMinTokens, group.FieldRpmLimit:
+		case group.FieldID, group.FieldDynamicRateTargetTokens, group.FieldDynamicRateWindowMinutes, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldInferGpt56CacheWriteMinTokens, group.FieldRpmLimit:
 			values[i] = new(sql.NullInt64)
 		case group.FieldName, group.FieldDescription, group.FieldPeakStart, group.FieldPeakEnd, group.FieldStatus, group.FieldDuplicateOperationID, group.FieldPlatform, group.FieldSubscriptionType, group.FieldDefaultMappedModel, group.FieldMaxReasoningEffort, group.FieldMaxReasoningEffortOverLimit:
 			values[i] = new(sql.NullString)
@@ -365,6 +375,36 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field rate_multiplier", values[i])
 			} else if value.Valid {
 				_m.RateMultiplier = value.Float64
+			}
+		case group.FieldDynamicRateEnabled:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field dynamic_rate_enabled", values[i])
+			} else if value.Valid {
+				_m.DynamicRateEnabled = value.Bool
+			}
+		case group.FieldDynamicRateMaxMultiplier:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field dynamic_rate_max_multiplier", values[i])
+			} else if value.Valid {
+				_m.DynamicRateMaxMultiplier = value.Float64
+			}
+		case group.FieldDynamicRateMinMultiplier:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field dynamic_rate_min_multiplier", values[i])
+			} else if value.Valid {
+				_m.DynamicRateMinMultiplier = value.Float64
+			}
+		case group.FieldDynamicRateTargetTokens:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field dynamic_rate_target_tokens", values[i])
+			} else if value.Valid {
+				_m.DynamicRateTargetTokens = value.Int64
+			}
+		case group.FieldDynamicRateWindowMinutes:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field dynamic_rate_window_minutes", values[i])
+			} else if value.Valid {
+				_m.DynamicRateWindowMinutes = int(value.Int64)
 			}
 		case group.FieldPeakRateEnabled:
 			if value, ok := values[i].(*sql.NullBool); !ok {
@@ -883,6 +923,21 @@ func (_m *Group) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("rate_multiplier=")
 	builder.WriteString(fmt.Sprintf("%v", _m.RateMultiplier))
+	builder.WriteString(", ")
+	builder.WriteString("dynamic_rate_enabled=")
+	builder.WriteString(fmt.Sprintf("%v", _m.DynamicRateEnabled))
+	builder.WriteString(", ")
+	builder.WriteString("dynamic_rate_max_multiplier=")
+	builder.WriteString(fmt.Sprintf("%v", _m.DynamicRateMaxMultiplier))
+	builder.WriteString(", ")
+	builder.WriteString("dynamic_rate_min_multiplier=")
+	builder.WriteString(fmt.Sprintf("%v", _m.DynamicRateMinMultiplier))
+	builder.WriteString(", ")
+	builder.WriteString("dynamic_rate_target_tokens=")
+	builder.WriteString(fmt.Sprintf("%v", _m.DynamicRateTargetTokens))
+	builder.WriteString(", ")
+	builder.WriteString("dynamic_rate_window_minutes=")
+	builder.WriteString(fmt.Sprintf("%v", _m.DynamicRateWindowMinutes))
 	builder.WriteString(", ")
 	builder.WriteString("peak_rate_enabled=")
 	builder.WriteString(fmt.Sprintf("%v", _m.PeakRateEnabled))

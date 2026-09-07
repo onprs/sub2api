@@ -61,11 +61,22 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
 	}
+	if groupIn.DynamicRateTargetTokens <= 0 {
+		groupIn.DynamicRateTargetTokens = service.DefaultDynamicRateTargetTokens
+	}
+	if groupIn.DynamicRateWindowMinutes <= 0 {
+		groupIn.DynamicRateWindowMinutes = service.DefaultDynamicRateWindowMinutes
+	}
 	builder := client.Group.Create().
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetRateMultiplier(groupIn.RateMultiplier).
+		SetDynamicRateEnabled(groupIn.DynamicRateEnabled).
+		SetDynamicRateMaxMultiplier(groupIn.DynamicRateMaxMultiplier).
+		SetDynamicRateMinMultiplier(groupIn.DynamicRateMinMultiplier).
+		SetDynamicRateTargetTokens(groupIn.DynamicRateTargetTokens).
+		SetDynamicRateWindowMinutes(groupIn.DynamicRateWindowMinutes).
 		SetSortOrder(groupIn.SortOrder).
 		SetIsExclusive(groupIn.IsExclusive).
 		SetStatus(groupIn.Status).
@@ -256,6 +267,11 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetRateMultiplier(groupIn.RateMultiplier).
+		SetDynamicRateEnabled(groupIn.DynamicRateEnabled).
+		SetDynamicRateMaxMultiplier(groupIn.DynamicRateMaxMultiplier).
+		SetDynamicRateMinMultiplier(groupIn.DynamicRateMinMultiplier).
+		SetDynamicRateTargetTokens(groupIn.DynamicRateTargetTokens).
+		SetDynamicRateWindowMinutes(groupIn.DynamicRateWindowMinutes).
 		SetIsExclusive(groupIn.IsExclusive).
 		SetStatus(groupIn.Status).
 		SetSubscriptionType(groupIn.SubscriptionType).

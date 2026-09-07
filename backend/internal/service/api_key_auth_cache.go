@@ -74,6 +74,11 @@ type APIKeyAuthGroupSnapshot struct {
 	Status                          string                        `json:"status"`
 	SubscriptionType                string                        `json:"subscription_type"`
 	RateMultiplier                  float64                       `json:"rate_multiplier"`
+	DynamicRateEnabled              bool                          `json:"dynamic_rate_enabled"`
+	DynamicRateMaxMultiplier        float64                       `json:"dynamic_rate_max_multiplier"`
+	DynamicRateMinMultiplier        float64                       `json:"dynamic_rate_min_multiplier"`
+	DynamicRateTargetTokens         int64                         `json:"dynamic_rate_target_tokens"`
+	DynamicRateWindowMinutes        int                           `json:"dynamic_rate_window_minutes"`
 	DailyLimitUSD                   *float64                      `json:"daily_limit_usd,omitempty"`
 	WeeklyLimitUSD                  *float64                      `json:"weekly_limit_usd,omitempty"`
 	MonthlyLimitUSD                 *float64                      `json:"monthly_limit_usd,omitempty"`

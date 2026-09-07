@@ -390,6 +390,9 @@
                       :platform="(option as unknown as GroupOption).platform"
                       :subscription-type="(option as unknown as GroupOption).subscriptionType"
                       :rate-multiplier="(option as unknown as GroupOption).rate"
+                      :dynamic-rate-enabled="(option as unknown as GroupOption).dynamicRateEnabled"
+                      :dynamic-rate-min-multiplier="(option as unknown as GroupOption).dynamicRateMinMultiplier"
+                      :dynamic-rate-max-multiplier="(option as unknown as GroupOption).dynamicRateMaxMultiplier"
                     />
                     <span v-else class="text-gray-400">{{
                       t('admin.redeem.selectGroupPlaceholder')
@@ -401,6 +404,9 @@
                       :platform="(option as unknown as GroupOption).platform"
                       :subscription-type="(option as unknown as GroupOption).subscriptionType"
                       :rate-multiplier="(option as unknown as GroupOption).rate"
+                      :dynamic-rate-enabled="(option as unknown as GroupOption).dynamicRateEnabled"
+                      :dynamic-rate-min-multiplier="(option as unknown as GroupOption).dynamicRateMinMultiplier"
+                      :dynamic-rate-max-multiplier="(option as unknown as GroupOption).dynamicRateMaxMultiplier"
                       :description="(option as unknown as GroupOption).description"
                       :selected="selected"
                     />
@@ -720,6 +726,9 @@ interface GroupOption {
   platform: GroupPlatform
   subscriptionType: SubscriptionType
   rate: number
+  dynamicRateEnabled: boolean
+  dynamicRateMinMultiplier: number
+  dynamicRateMaxMultiplier: number
 }
 
 interface SubscriptionPlanOption {
@@ -746,7 +755,10 @@ const subscriptionGroupOptions = computed(() => {
       description: g.description,
       platform: g.platform,
       subscriptionType: g.subscription_type,
-      rate: g.rate_multiplier
+      rate: g.rate_multiplier,
+      dynamicRateEnabled: g.dynamic_rate_enabled,
+      dynamicRateMinMultiplier: g.dynamic_rate_min_multiplier,
+      dynamicRateMaxMultiplier: g.dynamic_rate_max_multiplier
     }))
 })
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -19,7 +20,15 @@ func NewUsageBillingRepository(_ *dbent.Client, sqlDB *sql.DB) service.UsageBill
 	return &usageBillingRepository{db: sqlDB}
 }
 
-func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBillingCommand) (_ *service.UsageBillingApplyResult, err error) {
+func (r *usageBillingRepository) ApplyWithDynamicRate(ctx context.Context, billing *service.UsageBillingCommand, dynamic *service.DynamicRateUsageCommand) (*service.UsageBillingApplyResult, error) {
+	return r.apply(ctx, billing, dynamic)
+}
+
+func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBillingCommand) (*service.UsageBillingApplyResult, error) {
+	return r.apply(ctx, cmd, nil)
+}
+
+func (r *usageBillingRepository) apply(ctx context.Context, cmd *service.UsageBillingCommand, dynamic *service.DynamicRateUsageCommand) (_ *service.UsageBillingApplyResult, err error) {
 	if cmd == nil {
 		return &service.UsageBillingApplyResult{}, nil
 	}
@@ -30,6 +39,12 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 	cmd.Normalize()
 	if cmd.RequestID == "" {
 		return nil, service.ErrUsageBillingRequestIDRequired
+	}
+	if dynamic != nil {
+		dynamic.Normalize()
+		if err := validateDynamicUsageBillingCommand(cmd, dynamic); err != nil {
+			return nil, err
+		}
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -47,10 +62,29 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 		return nil, err
 	}
 	if !applied {
-		return &service.UsageBillingApplyResult{Applied: false}, nil
+		result := &service.UsageBillingApplyResult{Applied: false}
+		if dynamic != nil {
+			multiplier, lookupErr := selectExistingDynamicRate(ctx, tx, dynamic)
+			if lookupErr != nil && !errors.Is(lookupErr, sql.ErrNoRows) {
+				return nil, lookupErr
+			}
+			if errors.Is(lookupErr, sql.ErrNoRows) {
+				multiplier = dynamic.MaxMultiplier
+			}
+			result.DynamicRateMultiplier = &multiplier
+		}
+		return result, nil
 	}
 
 	result := &service.UsageBillingApplyResult{Applied: true}
+	if dynamic != nil {
+		multiplier, resolveErr := r.resolveDynamicRateWithFallback(ctx, tx, dynamic)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		result.DynamicRateMultiplier = &multiplier
+		scaleDynamicUsageBillingCommand(cmd, multiplier)
+	}
 	if err := r.applyUsageBillingEffects(ctx, tx, cmd, result); err != nil {
 		return nil, err
 	}
@@ -60,6 +94,197 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 	}
 	tx = nil
 	return result, nil
+}
+
+func validateDynamicUsageBillingCommand(billing *service.UsageBillingCommand, dynamic *service.DynamicRateUsageCommand) error {
+	if billing == nil || dynamic == nil {
+		return errors.New("dynamic usage billing command is nil")
+	}
+	if dynamic.RequestID == "" {
+		return service.ErrUsageBillingRequestIDRequired
+	}
+	if dynamic.RequestID != billing.RequestID || dynamic.APIKeyID != billing.APIKeyID || dynamic.UserID != billing.UserID {
+		return service.ErrUsageBillingRequestConflict
+	}
+	if billing.GroupID == nil || dynamic.GroupID != *billing.GroupID || dynamic.APIKeyID <= 0 || dynamic.UserID <= 0 || dynamic.GroupID <= 0 {
+		return service.ErrUsageBillingRequestConflict
+	}
+	totalTokens := int64(billing.InputTokens) + int64(billing.OutputTokens) +
+		int64(billing.CacheCreationTokens) + int64(billing.CacheReadTokens)
+	if dynamic.TotalTokens <= 0 || dynamic.TotalTokens != totalTokens {
+		return service.ErrUsageBillingRequestConflict
+	}
+	return service.ValidateDynamicRateConfig(
+		dynamic.MaxMultiplier,
+		dynamic.MinMultiplier,
+		dynamic.TargetTokens,
+		dynamic.WindowMinutes,
+	)
+}
+
+func (r *usageBillingRepository) resolveDynamicRateWithFallback(ctx context.Context, tx *sql.Tx, cmd *service.DynamicRateUsageCommand) (float64, error) {
+	const savepoint = "dynamic_rate_resolution"
+	if _, err := tx.ExecContext(ctx, "SAVEPOINT "+savepoint); err != nil {
+		return 0, err
+	}
+	multiplier, err := resolveDynamicRateInTransaction(ctx, tx, cmd)
+	if err == nil {
+		if _, releaseErr := tx.ExecContext(ctx, "RELEASE SAVEPOINT "+savepoint); releaseErr != nil {
+			return 0, releaseErr
+		}
+		return multiplier, nil
+	}
+	if _, rollbackErr := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+savepoint); rollbackErr != nil {
+		return 0, rollbackErr
+	}
+	if _, releaseErr := tx.ExecContext(ctx, "RELEASE SAVEPOINT "+savepoint); releaseErr != nil {
+		return 0, releaseErr
+	}
+	if errors.Is(err, service.ErrUsageBillingRequestConflict) {
+		return 0, err
+	}
+	logger.LegacyPrintf(
+		"repository.usage_billing",
+		"resolve dynamic group rate failed, fallback to maximum: user=%d group=%d request_id=%s err=%v",
+		cmd.UserID,
+		cmd.GroupID,
+		cmd.RequestID,
+		err,
+	)
+	return cmd.MaxMultiplier, nil
+}
+
+func resolveDynamicRateInTransaction(ctx context.Context, tx *sql.Tx, cmd *service.DynamicRateUsageCommand) (float64, error) {
+	// 两参数 advisory lock 使用独立命名空间，并按用户与分组串行化动态倍率结算。
+	// 这样同一窗口的并发请求不会都基于旧累计值降价，不同分组仍可并行，且不会与其它单键锁冲突。
+	if _, err := tx.ExecContext(ctx, `
+		SELECT pg_advisory_xact_lock(
+			hashtext('dynamic_rate_usage'),
+			hashtext($1::text || ':' || $2::text)
+		)
+	`, cmd.UserID, cmd.GroupID); err != nil {
+		return 0, err
+	}
+
+	existingMultiplier, err := selectExistingDynamicRate(ctx, tx, cmd)
+	if err == nil {
+		return existingMultiplier, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, err
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO dynamic_rate_usage_events (
+			request_id, api_key_id, user_id, group_id, total_tokens,
+			resolved_multiplier, occurred_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, cmd.RequestID, cmd.APIKeyID, cmd.UserID, cmd.GroupID, cmd.TotalTokens, cmd.MaxMultiplier, cmd.OccurredAt); err != nil {
+		return 0, err
+	}
+
+	windowStart := cmd.OccurredAt.Add(-time.Duration(cmd.WindowMinutes) * time.Minute)
+	var accumulatedTokens int64
+	// 不设时间上界：advisory lock 规定结算顺序，已先提交的并发事件即使采集时间略晚也必须计入。
+	if err := tx.QueryRowContext(ctx, `
+		SELECT
+			COALESCE((
+				SELECT SUM(event.total_tokens)
+				FROM dynamic_rate_usage_events event
+				WHERE event.user_id = $1
+				  AND event.group_id = $2
+				  AND event.occurred_at >= $3
+			), 0)
+			+
+			COALESCE((
+				SELECT SUM(
+					log.input_tokens::BIGINT + log.output_tokens::BIGINT +
+					log.cache_creation_tokens::BIGINT + log.cache_read_tokens::BIGINT
+				)
+				FROM usage_logs log
+				WHERE log.user_id = $1
+				  AND log.group_id = $2
+				  AND log.created_at >= $3
+				  AND (log.billing_mode IS NULL OR log.billing_mode = 'token')
+				  AND log.created_at < (
+					SELECT metadata.ledger_started_at
+					FROM dynamic_rate_usage_metadata metadata
+					WHERE metadata.singleton = TRUE
+				  )
+				  AND (
+					EXISTS (
+						SELECT 1
+						FROM usage_billing_dedup dedup
+						WHERE dedup.request_id = log.request_id
+						  AND dedup.api_key_id = log.api_key_id
+					)
+					OR EXISTS (
+						SELECT 1
+						FROM usage_billing_dedup_archive archive
+						WHERE archive.request_id = log.request_id
+						  AND archive.api_key_id = log.api_key_id
+					)
+				  )
+				  AND NOT EXISTS (
+					SELECT 1
+					FROM dynamic_rate_usage_events event
+					WHERE event.request_id = log.request_id
+					  AND event.api_key_id = log.api_key_id
+				  )
+			), 0)
+	`, cmd.UserID, cmd.GroupID, windowStart).Scan(&accumulatedTokens); err != nil {
+		return 0, err
+	}
+
+	multiplier := cmd.Multiplier(accumulatedTokens)
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE dynamic_rate_usage_events
+		SET resolved_multiplier = $3
+		WHERE request_id = $1 AND api_key_id = $2
+	`, cmd.RequestID, cmd.APIKeyID, multiplier); err != nil {
+		return 0, err
+	}
+	return multiplier, nil
+}
+
+func selectExistingDynamicRate(ctx context.Context, tx *sql.Tx, cmd *service.DynamicRateUsageCommand) (float64, error) {
+	var existingUserID, existingGroupID, existingTokens int64
+	var multiplier float64
+	err := tx.QueryRowContext(ctx, `
+		SELECT user_id, group_id, total_tokens, resolved_multiplier
+		FROM dynamic_rate_usage_events
+		WHERE request_id = $1 AND api_key_id = $2
+	`, cmd.RequestID, cmd.APIKeyID).Scan(&existingUserID, &existingGroupID, &existingTokens, &multiplier)
+	if err != nil {
+		return 0, err
+	}
+	if existingUserID != cmd.UserID || existingGroupID != cmd.GroupID || existingTokens != cmd.TotalTokens {
+		return 0, service.ErrUsageBillingRequestConflict
+	}
+	return multiplier, nil
+}
+
+func scaleDynamicUsageBillingCommand(cmd *service.UsageBillingCommand, multiplier float64) {
+	if cmd == nil || cmd.DynamicRateBasisMultiplier <= 0 || multiplier == cmd.DynamicRateBasisMultiplier {
+		return
+	}
+	ratio := multiplier / cmd.DynamicRateBasisMultiplier
+	cmd.BalanceCost = scaleDynamicRateBillingCost(cmd.BalanceCost, cmd.DynamicRateExcludedCost, ratio)
+	cmd.SubscriptionCost = scaleDynamicRateBillingCost(cmd.SubscriptionCost, cmd.DynamicRateExcludedCost, ratio)
+	cmd.APIKeyQuotaCost = scaleDynamicRateBillingCost(cmd.APIKeyQuotaCost, cmd.DynamicRateExcludedCost, ratio)
+	cmd.APIKeyRateLimitCost = scaleDynamicRateBillingCost(cmd.APIKeyRateLimitCost, cmd.DynamicRateExcludedCost, ratio)
+	cmd.Normalize()
+}
+
+func scaleDynamicRateBillingCost(value, excluded, ratio float64) float64 {
+	if value <= 0 {
+		return value
+	}
+	adjustable := value - excluded
+	if adjustable < 0 {
+		adjustable = 0
+	}
+	return excluded + adjustable*ratio
 }
 
 func (r *usageBillingRepository) claimUsageBillingKey(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) (bool, error) {

@@ -64,6 +64,25 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "groups", "allow_live", "boolean", 0, false)
 	requireColumn(t, tx, "groups", "force_openai_fast", "boolean", 0, false)
 	requireColumn(t, tx, "groups", "free_openai_fast", "boolean", 0, false)
+	requireColumn(t, tx, "groups", "dynamic_rate_enabled", "boolean", 0, false)
+	requireColumnDefaultContains(t, tx, "groups", "dynamic_rate_enabled", "false")
+	requireColumn(t, tx, "groups", "dynamic_rate_max_multiplier", "numeric", 0, false)
+	requireColumn(t, tx, "groups", "dynamic_rate_min_multiplier", "numeric", 0, false)
+	requireColumn(t, tx, "groups", "dynamic_rate_target_tokens", "bigint", 0, false)
+	requireColumn(t, tx, "groups", "dynamic_rate_window_minutes", "integer", 0, false)
+
+	var dynamicRateMetadataRegclass sql.NullString
+	require.NoError(t, tx.QueryRowContext(context.Background(), "SELECT to_regclass('public.dynamic_rate_usage_metadata')").Scan(&dynamicRateMetadataRegclass))
+	require.True(t, dynamicRateMetadataRegclass.Valid, "expected dynamic_rate_usage_metadata table to exist")
+	requireColumn(t, tx, "dynamic_rate_usage_metadata", "ledger_started_at", "timestamp with time zone", 0, false)
+
+	var dynamicRateEventsRegclass sql.NullString
+	require.NoError(t, tx.QueryRowContext(context.Background(), "SELECT to_regclass('public.dynamic_rate_usage_events')").Scan(&dynamicRateEventsRegclass))
+	require.True(t, dynamicRateEventsRegclass.Valid, "expected dynamic_rate_usage_events table to exist")
+	requireColumn(t, tx, "dynamic_rate_usage_events", "resolved_multiplier", "numeric", 0, false)
+	requireIndex(t, tx, "dynamic_rate_usage_events", "dynamic_rate_usage_events_request_key")
+	requireIndex(t, tx, "dynamic_rate_usage_events", "idx_dynamic_rate_usage_user_group_time")
+	requireIndex(t, tx, "dynamic_rate_usage_events", "idx_dynamic_rate_usage_occurred_at_brin")
 
 	// api_keys: key length should be 128
 	requireColumn(t, tx, "api_keys", "key", "character varying", 128, false)

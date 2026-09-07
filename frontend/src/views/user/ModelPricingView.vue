@@ -69,6 +69,9 @@
                       :platform="(option as unknown as ModelPricingGroupOption).platform"
                       :subscription-type="(option as unknown as ModelPricingGroupOption).subscriptionType"
                       :rate-multiplier="(option as unknown as ModelPricingGroupOption).defaultMultiplier"
+                      :dynamic-rate-enabled="(option as unknown as ModelPricingGroupOption).dynamicRateEnabled"
+                      :dynamic-rate-min-multiplier="(option as unknown as ModelPricingGroupOption).dynamicRateMinMultiplier"
+                      :dynamic-rate-max-multiplier="(option as unknown as ModelPricingGroupOption).dynamicRateMaxMultiplier"
                       :user-rate-multiplier="(option as unknown as ModelPricingGroupOption).userMultiplier"
                       :peak-rate-enabled="(option as unknown as ModelPricingGroupOption).peakRateEnabled"
                       :peak-start="(option as unknown as ModelPricingGroupOption).peakStart"
@@ -89,6 +92,9 @@
                           :platform="(option as unknown as ModelPricingGroupOption).platform"
                           :subscription-type="(option as unknown as ModelPricingGroupOption).subscriptionType"
                           :rate-multiplier="(option as unknown as ModelPricingGroupOption).defaultMultiplier"
+                          :dynamic-rate-enabled="(option as unknown as ModelPricingGroupOption).dynamicRateEnabled"
+                          :dynamic-rate-min-multiplier="(option as unknown as ModelPricingGroupOption).dynamicRateMinMultiplier"
+                          :dynamic-rate-max-multiplier="(option as unknown as ModelPricingGroupOption).dynamicRateMaxMultiplier"
                           :user-rate-multiplier="(option as unknown as ModelPricingGroupOption).userMultiplier"
                           :peak-rate-enabled="(option as unknown as ModelPricingGroupOption).peakRateEnabled"
                           :peak-start="(option as unknown as ModelPricingGroupOption).peakStart"
@@ -284,13 +290,13 @@
                 <td class="px-4 py-3 align-top">
                   <div class="inline-flex items-center gap-1 font-mono text-[12px]">
                     <span
-                      v-if="row.userMultiplier !== null && row.userMultiplier !== row.defaultMultiplier"
+                      v-if="row.userMultiplier !== null && (row.dynamicRateApplied || row.userMultiplier !== row.defaultMultiplier)"
                       class="text-gray-400 line-through"
                     >
-                      {{ formatMultiplier(row.defaultMultiplier) }}
+                      {{ formatGroupDefaultMultiplier(row) }}
                     </span>
                     <span class="font-semibold text-gray-900 dark:text-white">
-                      {{ formatMultiplier(row.groupMultiplier) }}
+                      {{ formatMultiplierRange(row.groupMultiplierMin, row.groupMultiplierMax) }}
                     </span>
                   </div>
                 </td>
@@ -307,7 +313,7 @@
 
                 <td class="px-4 py-3 align-top">
                   <span class="font-mono text-[12px] font-semibold text-gray-900 dark:text-white">
-                    {{ formatMultiplier(row.effectiveMultiplier) }}
+                    {{ formatMultiplierRange(row.effectiveMultiplierMin, row.effectiveMultiplierMax) }}
                   </span>
                 </td>
 
@@ -453,6 +459,9 @@ interface ModelPricingGroupOption extends Record<string, unknown> {
   subscriptionType: SubscriptionType
   defaultMultiplier: number
   userMultiplier: number | null
+  dynamicRateEnabled: boolean
+  dynamicRateMinMultiplier: number
+  dynamicRateMaxMultiplier: number
   peakRateEnabled: boolean
   peakStart: string
   peakEnd: string
@@ -553,6 +562,9 @@ const groupOptions = computed<ModelPricingGroupOption[]>(() => {
       subscriptionType: row.subscriptionType as SubscriptionType,
       defaultMultiplier: row.defaultMultiplier,
       userMultiplier: row.userMultiplier,
+      dynamicRateEnabled: row.dynamicRateEnabled,
+      dynamicRateMinMultiplier: row.dynamicRateMinMultiplier,
+      dynamicRateMaxMultiplier: row.dynamicRateMaxMultiplier,
       peakRateEnabled: row.peakRateEnabled,
       peakStart: row.peakStart,
       peakEnd: row.peakEnd,
@@ -707,11 +719,15 @@ function tokenPrice(
   pricing: ModelPricingValues,
   key: TokenPriceKey,
 ): string {
-  const price =
-    pricingMode.value === 'actual'
-      ? calculateActualTokenPrice(pricing[key], row.effectiveMultiplier)
-      : pricing[key]
-  return formatScaled(price, perMillionScale, pricingCurrencySymbol.value)
+  if (pricingMode.value !== 'actual') {
+    return formatScaled(pricing[key], perMillionScale, pricingCurrencySymbol.value)
+  }
+
+  const minPrice = calculateActualTokenPrice(pricing[key], row.effectiveMultiplierMin)
+  const maxPrice = calculateActualTokenPrice(pricing[key], row.effectiveMultiplierMax)
+  const formattedMin = formatScaled(minPrice, perMillionScale, pricingCurrencySymbol.value)
+  const formattedMax = formatScaled(maxPrice, perMillionScale, pricingCurrencySymbol.value)
+  return formattedMin === formattedMax ? formattedMin : `${formattedMin}-${formattedMax}`
 }
 
 function unitPrice(pricing: ModelPricingValues): string {
@@ -750,6 +766,18 @@ function sourceLabel(row: ModelPricingRow): string {
 
 function formatMultiplier(value: number): string {
   return `${Number(value.toFixed(6))}x`
+}
+
+function formatMultiplierRange(minValue: number, maxValue: number): string {
+  const minLabel = formatMultiplier(minValue)
+  const maxLabel = formatMultiplier(maxValue)
+  return minLabel === maxLabel ? minLabel : `${minLabel}-${maxLabel}`
+}
+
+function formatGroupDefaultMultiplier(row: ModelPricingRow): string {
+  return row.dynamicRateApplied
+    ? formatMultiplierRange(row.dynamicRateMinMultiplier, row.dynamicRateMaxMultiplier)
+    : formatMultiplier(row.defaultMultiplier)
 }
 
 function rowKey(row: ModelPricingRow): string {

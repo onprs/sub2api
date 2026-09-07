@@ -44,6 +44,9 @@ function mountTable(
   rateMultiplier: number,
   userRateMultiplier?: number | null,
   extraProps?: {
+    dynamicRateEnabled?: boolean
+    dynamicRateMinMultiplier?: number | null
+    dynamicRateMaxMultiplier?: number | null
     imageRateIndependent?: boolean
     imageRateMultiplier?: number | null
     peakWindow?: string
@@ -87,6 +90,34 @@ describe('PlazaModelPricingTable', () => {
     expect(text).toContain('$3.00')
     expect(text).toContain('$15.00')
     expect(text).toContain('0.5x')
+  })
+
+  it('动态倍率只把 token 实付价与倍率显示为区间', () => {
+    const perRequest = tokenModel({
+      name: 'flat-tool',
+      pricing: {
+        billing_mode: 'per_request',
+        input_price: null,
+        output_price: null,
+        cache_write_price: null,
+        cache_read_price: null,
+        image_input_price: null,
+        image_output_price: null,
+        per_request_price: 2,
+        intervals: []
+      }
+    })
+    const wrapper = mountTable([tokenModel(), perRequest], 0.9, null, {
+      dynamicRateEnabled: true,
+      dynamicRateMinMultiplier: 0.13,
+      dynamicRateMaxMultiplier: 0.15
+    })
+    const text = wrapper.text()
+    expect(text).toContain('$0.39-$0.45')
+    expect(text).toContain('$1.95-$2.25')
+    expect(text).toContain('0.13x-0.15x')
+    expect(text).toContain('$1.80')
+    expect(text).toContain('0.9x')
   })
 
   it('用户专属倍率覆盖分组倍率,并划线展示原倍率', () => {

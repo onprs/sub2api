@@ -111,16 +111,29 @@ func (s *OpenAIGatewayService) RecordCyberPolicyUsageLog(ctx context.Context, in
 	}
 }
 
-// ResolveUserGroupRateMultiplier resolves the same cached multiplier used by OpenAI usage billing.
-func (s *OpenAIGatewayService) ResolveUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
+// ResolveUserGroupRateMultiplierDetail 返回倍率及显式用户覆盖状态。
+func (s *OpenAIGatewayService) ResolveUserGroupRateMultiplierDetail(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) (float64, bool) {
+	multiplier, hasOverride, _ := s.ResolveUserGroupRateMultiplierState(ctx, userID, groupID, groupDefaultMultiplier)
+	return multiplier, hasOverride
+}
+
+// ResolveUserGroupRateMultiplierState 额外返回专属倍率查询是否失败，供动态倍率调用方避免把未知状态当作无覆盖。
+func (s *OpenAIGatewayService) ResolveUserGroupRateMultiplierState(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) (float64, bool, bool) {
 	if s == nil {
-		return groupDefaultMultiplier
+		return groupDefaultMultiplier, false, false
 	}
 	resolver := s.userGroupRateResolver
 	if resolver == nil {
 		resolver = newUserGroupRateResolver(nil, nil, resolveUserGroupRateCacheTTL(s.cfg), nil, "service.openai_gateway")
 	}
-	return resolver.Resolve(ctx, userID, groupID, groupDefaultMultiplier)
+	resolved := resolver.ResolveDetail(ctx, userID, groupID, groupDefaultMultiplier)
+	return resolved.Multiplier, resolved.HasOverride, resolved.LookupFailed
+}
+
+// ResolveUserGroupRateMultiplier resolves the same cached multiplier used by OpenAI usage billing.
+func (s *OpenAIGatewayService) ResolveUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
+	multiplier, _ := s.ResolveUserGroupRateMultiplierDetail(ctx, userID, groupID, groupDefaultMultiplier)
+	return multiplier
 }
 
 // openAIUsagePricingAt 返回本次用量记录使用的定价时刻：优先请求级 PricingAt
@@ -130,6 +143,29 @@ func openAIUsagePricingAt(input *OpenAIRecordUsageInput) time.Time {
 		return input.PricingAt
 	}
 	return timezone.Now()
+}
+
+// openAIUsageBillingRequestID 返回 OpenAI/Grok 路径写入用量日志与动态倍率账本的同一个幂等键。
+func openAIUsageBillingRequestID(ctx context.Context, result *OpenAIForwardResult) string {
+	if result == nil {
+		return resolveUsageBillingRequestID(ctx, "")
+	}
+	requestID := resolveUsageBillingRequestID(ctx, result.RequestID)
+	if result.OpenAIWSMode {
+		if upstreamRequestID := strings.TrimSpace(result.RequestID); upstreamRequestID != "" {
+			requestID = upstreamRequestID
+		}
+	}
+	if result.VideoCount > 0 {
+		if stable := StableGrokVideoBillingRequestID(firstNonEmpty(
+			strings.TrimPrefix(strings.TrimSpace(result.RequestID), "grok-video:"),
+			strings.TrimSpace(result.ResponseID),
+			strings.TrimPrefix(strings.TrimSpace(requestID), "grok-video:"),
+		)); stable != "" {
+			requestID = stable
+		}
+	}
+	return requestID
 }
 
 func groupBillsOpenAIFastAtStandard(apiKey *APIKey, account *Account, serviceTier string) bool {
@@ -200,22 +236,35 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageOutputTokens:     result.Usage.ImageOutputTokens,
 	}
 
-	// Get rate multiplier
+	// 获取费率倍数（优先级：用户专属 > 动态分组 > 分组默认 > 系统默认）。
 	multiplier := 1.0
 	if s.cfg != nil {
 		multiplier = s.cfg.Default.RateMultiplier
 	}
-	if apiKey.GroupID != nil && apiKey.Group != nil {
-		multiplier = s.ResolveUserGroupRateMultiplier(ctx, user.ID, *apiKey.GroupID, apiKey.Group.RateMultiplier)
-	}
-	// token 倍率叠加高峰因子（token 计费含图片 token，图片按次倍率不受影响）。
-	// 高峰因子按请求级 PricingAt 现算（与利润门 D 同源同刻，跨峰谷请求不中途
-	// 变价）；未装配 PricingAt 的路径回退记录时刻，保持既有行为。不并入上面的
-	// Resolve，以免污染 user:group 倍率缓存。
-	baseMultiplier := multiplier
 	pricingAt := openAIUsagePricingAt(input)
-	multiplier, imageMultiplier := computePeakAwareMultipliers(apiKey, baseMultiplier, pricingAt)
-	videoMultiplier := resolveVideoRateMultiplier(apiKey, baseMultiplier)
+	requestID := openAIUsageBillingRequestID(ctx, result)
+	ratePlan := groupBillingRatePlan{Multiplier: multiplier, StaticMultiplier: multiplier}
+	if apiKey.GroupID != nil && apiKey.Group != nil {
+		totalTokens := int64(actualInputTokens) + int64(result.Usage.OutputTokens) +
+			int64(result.Usage.CacheCreationInputTokens) + int64(result.Usage.CacheReadInputTokens)
+		ratePlan = resolveGroupBillingRatePlan(
+			ctx,
+			s.userGroupRateResolver,
+			apiKey.Group,
+			user.ID,
+			apiKey.ID,
+			requestID,
+			totalTokens,
+			time.Now(),
+		)
+		multiplier = ratePlan.Multiplier
+	}
+	// 动态倍率仅进入 token 计费；搜索、音频、图片和视频独立路径继续使用静态/专属倍率。
+	baseMultiplier := multiplier
+	multiplier, _ = computePeakAwareMultipliers(apiKey, baseMultiplier, pricingAt)
+	imageMultiplier := resolveImageRateMultiplier(apiKey, ratePlan.StaticMultiplier)
+	videoMultiplier := resolveVideoRateMultiplier(apiKey, ratePlan.StaticMultiplier)
+	independentMultiplier := ratePlan.StaticMultiplier
 
 	var cost *CostBreakdown
 	billingModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
@@ -251,7 +300,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		multiplier,
 		imageMultiplier,
 		videoMultiplier,
-		baseMultiplier,
+		independentMultiplier,
 		tokens,
 		serviceTier,
 		longContextBillingGate,
@@ -333,6 +382,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		}
 	}
 
+	if ratePlan.Dynamic != nil && cost != nil && cost.BillingMode != "" && cost.BillingMode != string(BillingModeToken) {
+		multiplier = ratePlan.StaticMultiplier
+	}
+
 	// Determine billing type
 	isSubscriptionBilling := subscription != nil && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 	billingType := BillingTypeBalance
@@ -343,24 +396,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	// Create usage log
 	durationMs := int(result.Duration.Milliseconds())
 	accountRateMultiplier := account.BillingRateMultiplier()
-	requestID := resolveUsageBillingRequestID(ctx, result.RequestID)
-	if result.OpenAIWSMode {
-		if upstreamRequestID := strings.TrimSpace(result.RequestID); upstreamRequestID != "" {
-			requestID = upstreamRequestID
-		}
-	}
-	// Async Grok video: always use the stable task id for dedup (status + content polls
-	// share one bill). Context-local client/local IDs would otherwise create a new row
-	// per poll if Redis claim is lost.
-	if result.VideoCount > 0 {
-		if stable := StableGrokVideoBillingRequestID(firstNonEmpty(
-			strings.TrimPrefix(strings.TrimSpace(result.RequestID), "grok-video:"),
-			strings.TrimSpace(result.ResponseID),
-			strings.TrimPrefix(strings.TrimSpace(requestID), "grok-video:"),
-		)); stable != "" {
-			requestID = stable
-		}
-	}
 
 	// 确定 RequestedModel（渠道映射前的原始模型）
 	requestedModel := result.Model
@@ -509,6 +544,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 
 	var billingResult *UsageBillingApplyResult
+	dynamicRate := dynamicRateForTokenUsage(usageLog, ratePlan)
 	billingErr := func() error {
 		_, result, err := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
 			Cost:                  cost,
@@ -519,6 +555,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			RequestPayloadHash:    resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
 			IsSubscriptionBill:    isSubscriptionBilling,
 			AccountRateMultiplier: accountRateMultiplier,
+			DynamicRate:           dynamicRate,
+			DynamicRateBasis:      ratePlan.Multiplier,
 			APIKeyService:         input.APIKeyService,
 			Platform:              quotaPlatform,
 		}, s.billingDeps(), s.usageBillingRepo)
@@ -653,11 +691,15 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 			if candidate == "" {
 				continue
 			}
+			billingMultiplier := multiplier
+			if resolved := s.resolveOpenAIChannelPricing(ctx, candidate, apiKey); resolved != nil && resolved.Mode != BillingModeToken {
+				billingMultiplier = webSearchMultiplier
+			}
 			cost, err := s.calculateOpenAIRecordUsageTokenCost(
 				ctx,
 				apiKey,
 				candidate,
-				multiplier,
+				billingMultiplier,
 				pricingAt,
 				tokens,
 				serviceTier,
@@ -710,6 +752,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	if searchCost != nil {
 		tokenCost.TotalCost += searchCost.TotalCost
 		tokenCost.ActualCost += searchCost.ActualCost
+		tokenCost.DynamicRateExcludedCost += searchCost.ActualCost
 	}
 	return tokenCost, resolvedBillingModel, nil
 }

@@ -80,6 +80,48 @@ func (s *openAIRecordUsageBestEffortLogRepoStub) Create(ctx context.Context, log
 	return false, s.createErr
 }
 
+func TestGatewayServiceRecordUsage_WritesResolvedDynamicRateToUsageLog(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	dynamicRepo := &dynamicRateUsageRepoStub{multiplier: 0.14}
+	svc := newGatewayRecordUsageServiceWithBillingRepoForTest(
+		usageRepo,
+		dynamicRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+	)
+	groupID := int64(41)
+	group := testDynamicRateGroup()
+	group.ID = groupID
+
+	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "gateway_dynamic_rate",
+			Usage: ClaudeUsage{
+				InputTokens:              300,
+				OutputTokens:             100,
+				CacheCreationInputTokens: 50,
+				CacheReadInputTokens:     50,
+			},
+			Model:    "claude-sonnet-4",
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{
+			ID:      501,
+			GroupID: &groupID,
+			Group:   group,
+		},
+		User:    &User{ID: 601},
+		Account: &Account{ID: 701},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, dynamicRepo.command)
+	require.Equal(t, int64(500), dynamicRepo.command.TotalTokens)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Equal(t, 0.14, usageRepo.lastLog.RateMultiplier)
+	require.InDelta(t, usageRepo.lastLog.TotalCost*0.14, usageRepo.lastLog.ActualCost, 1e-12)
+}
+
 func TestGatewayServiceRecordUsage_BillingUsesDetachedContext(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: false, err: context.DeadlineExceeded}
 	userRepo := &openAIRecordUsageUserRepoStub{}

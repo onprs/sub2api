@@ -316,7 +316,7 @@ func TestCommandCodeRecordUsageAppliesOfficialMonthlyCreditsMultiplier(t *testin
 	opts := &recordUsageOpts{PricingPlatform: PlatformCommandCode}
 
 	cost, model, err := gateway.calculateRecordUsageCostFromCandidates(
-		context.Background(), result, apiKey, []string{"gpt-5.6-luna"}, 1, 1, time.Time{}, opts,
+		context.Background(), result, apiKey, []string{"gpt-5.6-luna"}, 1, 1, 1, time.Time{}, opts,
 	)
 	require.NoError(t, err)
 	require.Equal(t, "gpt-5.6-luna", model)
@@ -339,7 +339,7 @@ func TestCommandCodeRecordUsageFailsClosedWhenCreditsMissing(t *testing.T) {
 	opts := &recordUsageOpts{PricingPlatform: PlatformCommandCode}
 
 	_, _, err := gateway.calculateRecordUsageCostFromCandidates(
-		context.Background(), result, apiKey, []string{"totally-unknown-model"}, 1, 1, time.Time{}, opts,
+		context.Background(), result, apiKey, []string{"totally-unknown-model"}, 1, 1, 1, time.Time{}, opts,
 	)
 	require.Error(t, err)
 }

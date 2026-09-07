@@ -17,6 +17,7 @@ func TestUpstreamBillingProbeIdentityCoversAllAPIKeyPlatforms(t *testing.T) {
 	for _, platform := range []string{
 		PlatformOpenAI, PlatformGrok, PlatformAnthropic, PlatformGemini, PlatformAntigravity,
 		PlatformKimi, PlatformZhipu, PlatformDeepseek,
+		PlatformOpenCodeGo, PlatformClinePass, PlatformOpenRouter, PlatformCommandCode,
 	} {
 		require.True(t, IsUpstreamBillingProbeIdentity(platform, AccountTypeAPIKey), platform)
 		require.True(t, isUpstreamBillingProbeAccount(&Account{Platform: platform, Type: AccountTypeAPIKey}), platform)
@@ -172,6 +173,11 @@ func TestUpstreamBillingProbeOfficialAPIBaseURLIsUnsupportedWithoutRequest(t *te
 		{PlatformZhipu, "https://open.bigmodel.cn/api/anthropic"},
 		{PlatformDeepseek, "https://api.deepseek.com"},
 		{PlatformDeepseek, "https://api.deepseek.com/anthropic"},
+		// 专用 API Key 平台的官方默认域同样不能接收 sub2api 探测请求。
+		{PlatformOpenCodeGo, DefaultOpenCodeGoBaseURL},
+		{PlatformClinePass, DefaultClinePassBaseURL},
+		{PlatformOpenRouter, DefaultOpenRouterBaseURL},
+		{PlatformCommandCode, DefaultCommandCodeBaseURL},
 	}
 	for i, tc := range cases {
 		account := &Account{
@@ -213,6 +219,11 @@ func TestUpstreamBillingProbeOfficialAPIHostMatchingIsNormalized(t *testing.T) {
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://api.kimi.com/coding/v1"))
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://open.bigmodel.cn/api/anthropic"))
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://api.deepseek.com/anthropic"))
+	// 专用 API Key 平台官方域及子域。
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI(DefaultOpenCodeGoBaseURL))
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI(DefaultClinePassBaseURL))
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI(DefaultOpenRouterBaseURL))
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI(DefaultCommandCodeBaseURL))
 	// 相似但不同的注册域不拦：中转完全可能叫 *-x.ai 之外的任何名字。
 	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://relay.example/v1"))
 	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://notx.ai"))

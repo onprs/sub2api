@@ -14,6 +14,12 @@ export interface UserAvailableGroup {
   subscription_type: string
   /** 分组默认倍率。用户专属倍率（若有）通过 /groups/rates 获取后在前端 join。 */
   rate_multiplier: number
+  /** 无用户专属倍率时，按滚动窗口累计 Token 在线性区间内动态计费。 */
+  dynamic_rate_enabled: boolean
+  dynamic_rate_max_multiplier: number
+  dynamic_rate_min_multiplier: number
+  dynamic_rate_target_tokens: number
+  dynamic_rate_window_minutes: number
   peak_rate_enabled: boolean
   peak_start: string
   peak_end: string

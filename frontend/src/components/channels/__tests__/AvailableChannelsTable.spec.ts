@@ -45,6 +45,11 @@ const rows: UserAvailableChannel[] = [
             platform: 'anthropic',
             subscription_type: 'standard',
             rate_multiplier: 1.2,
+            dynamic_rate_enabled: true,
+            dynamic_rate_max_multiplier: 0.15,
+            dynamic_rate_min_multiplier: 0.13,
+            dynamic_rate_target_tokens: 1_000_000,
+            dynamic_rate_window_minutes: 1440,
             peak_rate_enabled: true,
             peak_start: '08:00',
             peak_end: '10:00',
@@ -57,6 +62,11 @@ const rows: UserAvailableChannel[] = [
             platform: 'anthropic',
             subscription_type: 'standard',
             rate_multiplier: 1,
+            dynamic_rate_enabled: false,
+            dynamic_rate_max_multiplier: 1,
+            dynamic_rate_min_multiplier: 1,
+            dynamic_rate_target_tokens: 1_000_000,
+            dynamic_rate_window_minutes: 1440,
             peak_rate_enabled: false,
             peak_start: '',
             peak_end: '',
@@ -96,9 +106,16 @@ function mountTable(props = {}) {
         Icon: { props: ['name'], template: '<i :data-icon="name" />' },
         PlatformIcon: { template: '<i data-platform-icon />' },
         GroupBadge: {
-          props: ['name', 'rateMultiplier', 'userRateMultiplier'],
+          props: [
+            'name',
+            'rateMultiplier',
+            'dynamicRateEnabled',
+            'dynamicRateMinMultiplier',
+            'dynamicRateMaxMultiplier',
+            'userRateMultiplier',
+          ],
           template:
-            '<span data-group-badge>{{ name }}:{{ rateMultiplier }}:{{ userRateMultiplier }}</span>',
+            '<span data-group-badge>{{ name }}:{{ rateMultiplier }}:{{ dynamicRateEnabled }}:{{ dynamicRateMinMultiplier }}:{{ dynamicRateMaxMultiplier }}:{{ userRateMultiplier }}</span>',
         },
         SupportedModelChip: {
           props: ['model', 'noPricingLabel'],
@@ -137,7 +154,9 @@ describe('AvailableChannelsTable responsive surfaces', () => {
     expect(mobile.text()).toContain('Models and pricing')
     expect(mobile.text()).toContain('availableChannels.exclusive')
     expect(mobile.text()).toContain('availableChannels.public')
-    expect(mobile.get('[data-group-badge]').text()).toBe('Exclusive Pro:1.2:0.8')
+    expect(mobile.get('[data-group-badge]').text()).toBe(
+      'Exclusive Pro:1.2:true:0.13:0.15:0.8',
+    )
     expect(mobile.findAll('[data-group-badge]')).toHaveLength(2)
     expect(mobile.get('[data-icon="clock"]')).toBeTruthy()
     expect(mobile.text()).toContain('08:00')

@@ -24,7 +24,14 @@
       <!-- Group Info Preview -->
       <div v-if="selectedGroupInfo" class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-800">
         <div class="mb-2 flex items-center gap-2">
-          <GroupBadge :name="selectedGroupInfo.name" :platform="selectedGroupInfo.platform" :rate-multiplier="selectedGroupInfo.rate_multiplier" />
+          <GroupBadge
+            :name="selectedGroupInfo.name"
+            :platform="selectedGroupInfo.platform"
+            :rate-multiplier="selectedGroupInfo.rate_multiplier"
+            :dynamic-rate-enabled="selectedGroupInfo.dynamic_rate_enabled"
+            :dynamic-rate-min-multiplier="selectedGroupInfo.dynamic_rate_min_multiplier"
+            :dynamic-rate-max-multiplier="selectedGroupInfo.dynamic_rate_max_multiplier"
+          />
         </div>
         <div class="grid grid-cols-2 gap-2 text-xs">
           <div v-for="window in rollingQuotaWindows" :key="window.key">

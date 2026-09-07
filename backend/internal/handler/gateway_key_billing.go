@@ -11,23 +11,38 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const keyBillingInfoSchemaVersion = 1
+const keyBillingInfoSchemaVersion = 2
 
 type keyBillingInfoResponse struct {
-	Object                  string    `json:"object"`
-	SchemaVersion           int       `json:"schema_version"`
-	BillingScope            string    `json:"billing_scope"`
-	GroupRateMultiplier     float64   `json:"group_rate_multiplier"`
-	UserRateMultiplier      *float64  `json:"user_rate_multiplier,omitempty"`
-	ResolvedRateMultiplier  float64   `json:"resolved_rate_multiplier"`
-	PeakRateEnabled         bool      `json:"peak_rate_enabled"`
-	PeakStart               *string   `json:"peak_start,omitempty"`
-	PeakEnd                 *string   `json:"peak_end,omitempty"`
-	PeakRateMultiplier      *float64  `json:"peak_rate_multiplier,omitempty"`
-	AppliedPeakMultiplier   *float64  `json:"applied_peak_multiplier,omitempty"`
-	EffectiveRateMultiplier float64   `json:"effective_rate_multiplier"`
-	Timezone                *string   `json:"timezone,omitempty"`
-	ObservedAt              time.Time `json:"observed_at"`
+	Object                     string    `json:"object"`
+	SchemaVersion              int       `json:"schema_version"`
+	BillingScope               string    `json:"billing_scope"`
+	GroupRateMultiplier        float64   `json:"group_rate_multiplier"`
+	UserRateMultiplier         *float64  `json:"user_rate_multiplier,omitempty"`
+	DynamicRateEnabled         bool      `json:"dynamic_rate_enabled"`
+	DynamicRateMinMultiplier   float64   `json:"dynamic_rate_min_multiplier"`
+	DynamicRateMaxMultiplier   float64   `json:"dynamic_rate_max_multiplier"`
+	DynamicRateTargetTokens    int64     `json:"dynamic_rate_target_tokens,omitempty"`
+	DynamicRateWindowMinutes   int       `json:"dynamic_rate_window_minutes,omitempty"`
+	ResolvedRateMultiplier     float64   `json:"resolved_rate_multiplier"`
+	ResolvedRateMultiplierMin  float64   `json:"resolved_rate_multiplier_min"`
+	ResolvedRateMultiplierMax  float64   `json:"resolved_rate_multiplier_max"`
+	PeakRateEnabled            bool      `json:"peak_rate_enabled"`
+	PeakStart                  *string   `json:"peak_start,omitempty"`
+	PeakEnd                    *string   `json:"peak_end,omitempty"`
+	PeakRateMultiplier         *float64  `json:"peak_rate_multiplier,omitempty"`
+	AppliedPeakMultiplier      *float64  `json:"applied_peak_multiplier,omitempty"`
+	EffectiveRateMultiplier    float64   `json:"effective_rate_multiplier"`
+	EffectiveRateMultiplierMin float64   `json:"effective_rate_multiplier_min"`
+	EffectiveRateMultiplierMax float64   `json:"effective_rate_multiplier_max"`
+	Timezone                   *string   `json:"timezone,omitempty"`
+	ObservedAt                 time.Time `json:"observed_at"`
+}
+
+type resolvedKeyBillingRate struct {
+	Multiplier   float64
+	HasOverride  bool
+	LookupFailed bool
 }
 
 // KeyBillingInfo returns the token billing multiplier effective for the authenticated API key.
@@ -61,45 +76,67 @@ func (h *GatewayHandler) KeyBillingInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, buildKeyBillingInfo(apiKey, resolvedRate, timezone.Now()))
 }
 
-func (h *GatewayHandler) resolveKeyBillingRate(c *gin.Context, apiKey *service.APIKey) (float64, bool) {
+func (h *GatewayHandler) resolveKeyBillingRate(c *gin.Context, apiKey *service.APIKey) (resolvedKeyBillingRate, bool) {
 	groupRate := apiKey.Group.RateMultiplier
+	var multiplier float64
+	var hasOverride, lookupFailed bool
 	switch apiKey.Group.Platform {
 	case service.PlatformOpenAI, service.PlatformGrok:
 		if h.openAIGatewayService == nil {
-			return 0, false
+			return resolvedKeyBillingRate{}, false
 		}
-		return h.openAIGatewayService.ResolveUserGroupRateMultiplier(c.Request.Context(), apiKey.UserID, *apiKey.GroupID, groupRate), true
+		multiplier, hasOverride, lookupFailed = h.openAIGatewayService.ResolveUserGroupRateMultiplierState(
+			c.Request.Context(), apiKey.UserID, *apiKey.GroupID, groupRate,
+		)
 	default:
 		if h.gatewayService == nil {
-			return 0, false
+			return resolvedKeyBillingRate{}, false
 		}
-		return h.gatewayService.ResolveUserGroupRateMultiplier(c.Request.Context(), apiKey.UserID, *apiKey.GroupID, groupRate), true
+		multiplier, hasOverride, lookupFailed = h.gatewayService.ResolveUserGroupRateMultiplierState(
+			c.Request.Context(), apiKey.UserID, *apiKey.GroupID, groupRate,
+		)
 	}
+	return resolvedKeyBillingRate{Multiplier: multiplier, HasOverride: hasOverride, LookupFailed: lookupFailed}, true
 }
 
-func buildKeyBillingInfo(apiKey *service.APIKey, resolvedRate float64, now time.Time) keyBillingInfoResponse {
-	groupRate := apiKey.Group.RateMultiplier
+func buildKeyBillingInfo(apiKey *service.APIKey, resolved resolvedKeyBillingRate, now time.Time) keyBillingInfoResponse {
+	group := apiKey.Group
+	groupRate := group.RateMultiplier
+	minRate := resolved.Multiplier
+	maxRate := resolved.Multiplier
 	var userRate *float64
-	if resolvedRate != groupRate {
-		userRate = &resolvedRate
+	if resolved.HasOverride {
+		userRate = &resolved.Multiplier
+	} else if group.DynamicRateEnabled && !resolved.LookupFailed {
+		minRate = group.DynamicRateMinMultiplier
+		maxRate = group.DynamicRateMaxMultiplier
 	}
-	appliedPeak := apiKey.Group.PeakMultiplierAt(now)
+	appliedPeak := group.PeakMultiplierAt(now)
 
 	response := keyBillingInfoResponse{
-		Object:                  "sub2api.key_billing",
-		SchemaVersion:           keyBillingInfoSchemaVersion,
-		BillingScope:            "token",
-		GroupRateMultiplier:     groupRate,
-		UserRateMultiplier:      userRate,
-		ResolvedRateMultiplier:  resolvedRate,
-		PeakRateEnabled:         apiKey.Group.PeakRateEnabled,
-		EffectiveRateMultiplier: resolvedRate * appliedPeak,
-		ObservedAt:              now.UTC(),
+		Object:                     "sub2api.key_billing",
+		SchemaVersion:              keyBillingInfoSchemaVersion,
+		BillingScope:               "token",
+		GroupRateMultiplier:        groupRate,
+		UserRateMultiplier:         userRate,
+		DynamicRateEnabled:         group.DynamicRateEnabled,
+		DynamicRateMinMultiplier:   group.DynamicRateMinMultiplier,
+		DynamicRateMaxMultiplier:   group.DynamicRateMaxMultiplier,
+		DynamicRateTargetTokens:    group.DynamicRateTargetTokens,
+		DynamicRateWindowMinutes:   group.DynamicRateWindowMinutes,
+		ResolvedRateMultiplier:     maxRate,
+		ResolvedRateMultiplierMin:  minRate,
+		ResolvedRateMultiplierMax:  maxRate,
+		PeakRateEnabled:            group.PeakRateEnabled,
+		EffectiveRateMultiplier:    maxRate * appliedPeak,
+		EffectiveRateMultiplierMin: minRate * appliedPeak,
+		EffectiveRateMultiplierMax: maxRate * appliedPeak,
+		ObservedAt:                 now.UTC(),
 	}
-	if apiKey.Group.PeakRateEnabled {
-		response.PeakStart = &apiKey.Group.PeakStart
-		response.PeakEnd = &apiKey.Group.PeakEnd
-		response.PeakRateMultiplier = &apiKey.Group.PeakRateMultiplier
+	if group.PeakRateEnabled {
+		response.PeakStart = &group.PeakStart
+		response.PeakEnd = &group.PeakEnd
+		response.PeakRateMultiplier = &group.PeakRateMultiplier
 		response.AppliedPeakMultiplier = &appliedPeak
 		tz := timezone.Location().String()
 		response.Timezone = &tz

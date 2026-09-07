@@ -6,7 +6,7 @@ import type {
   UserSupportedModel,
   UserSupportedModelPricing,
 } from '@/api/channels'
-import type { BillingMode } from '@/constants/channel'
+import { BILLING_MODE_TOKEN, type BillingMode } from '@/constants/channel'
 
 export interface ModelPricingValues {
   inputPrice: number | null
@@ -47,7 +47,13 @@ export interface ModelPricingRow {
   isExclusive: boolean
   defaultMultiplier: number
   userMultiplier: number | null
+  dynamicRateEnabled: boolean
+  dynamicRateApplied: boolean
+  dynamicRateMinMultiplier: number
+  dynamicRateMaxMultiplier: number
   groupMultiplier: number
+  groupMultiplierMin: number
+  groupMultiplierMax: number
   peakRateEnabled: boolean
   peakStart: string
   peakEnd: string
@@ -55,6 +61,8 @@ export interface ModelPricingRow {
   currentPeakMultiplier: number
   modelSpecificMultiplier: number | null
   effectiveMultiplier: number
+  effectiveMultiplierMin: number
+  effectiveMultiplierMax: number
   usageOfferCode: string
   usageOfferLabel: string
   usageMultiplier: number
@@ -158,13 +166,39 @@ function clampMultiplier(value: number | null | undefined): number {
 function groupMultiplierForGroup(
   group: UserAvailableGroup,
   userGroupRates: Record<number, number>,
-): Pick<ModelPricingRow, 'defaultMultiplier' | 'userMultiplier' | 'groupMultiplier'> {
+): Pick<
+  ModelPricingRow,
+  | 'defaultMultiplier'
+  | 'userMultiplier'
+  | 'dynamicRateEnabled'
+  | 'dynamicRateMinMultiplier'
+  | 'dynamicRateMaxMultiplier'
+  | 'groupMultiplier'
+  | 'groupMultiplierMin'
+  | 'groupMultiplierMax'
+> {
   const defaultMultiplier = clampMultiplier(group.rate_multiplier)
+  const configuredMin =
+    group.dynamic_rate_min_multiplier == null
+      ? defaultMultiplier
+      : clampMultiplier(group.dynamic_rate_min_multiplier)
+  const configuredMax =
+    group.dynamic_rate_max_multiplier == null
+      ? defaultMultiplier
+      : clampMultiplier(group.dynamic_rate_max_multiplier)
+  const dynamicRateEnabled = Boolean(group.dynamic_rate_enabled)
   if (!hasUserMultiplier(userGroupRates, group.id)) {
+    const minMultiplier = dynamicRateEnabled ? Math.min(configuredMin, configuredMax) : defaultMultiplier
+    const maxMultiplier = dynamicRateEnabled ? Math.max(configuredMin, configuredMax) : defaultMultiplier
     return {
       defaultMultiplier,
       userMultiplier: null,
-      groupMultiplier: defaultMultiplier,
+      dynamicRateEnabled,
+      dynamicRateMinMultiplier: minMultiplier,
+      dynamicRateMaxMultiplier: maxMultiplier,
+      groupMultiplier: maxMultiplier,
+      groupMultiplierMin: minMultiplier,
+      groupMultiplierMax: maxMultiplier,
     }
   }
 
@@ -172,7 +206,12 @@ function groupMultiplierForGroup(
   return {
     defaultMultiplier,
     userMultiplier,
+    dynamicRateEnabled,
+    dynamicRateMinMultiplier: configuredMin,
+    dynamicRateMaxMultiplier: configuredMax,
     groupMultiplier: userMultiplier,
+    groupMultiplierMin: userMultiplier,
+    groupMultiplierMax: userMultiplier,
   }
 }
 
@@ -280,10 +319,28 @@ function rowForModelGroup(
   const groupMultiplier = groupMultiplierForGroup(group, userGroupRates)
   const peakRate = peakRateFields(group)
   const modelSpecificMultiplier = modelSpecificMultiplierForModel(model)
-  const effectiveMultiplier =
-    groupMultiplier.groupMultiplier *
-    peakRate.currentPeakMultiplier *
-    (modelSpecificMultiplier ?? 1)
+  const tokenBilling = model.pricing == null || model.pricing.billing_mode === BILLING_MODE_TOKEN
+  const staticGroupMultiplier = groupMultiplier.userMultiplier ?? groupMultiplier.defaultMultiplier
+  const appliedGroupMultiplierMin = tokenBilling
+    ? groupMultiplier.groupMultiplierMin
+    : staticGroupMultiplier
+  const appliedGroupMultiplierMax = tokenBilling
+    ? groupMultiplier.groupMultiplierMax
+    : staticGroupMultiplier
+  const appliedGroupMultiplier = appliedGroupMultiplierMax
+  const dynamicRateApplied = tokenBilling && groupMultiplier.dynamicRateEnabled && groupMultiplier.userMultiplier == null
+  const effectiveFactor =
+    (tokenBilling ? peakRate.currentPeakMultiplier : 1) * (modelSpecificMultiplier ?? 1)
+  const effectiveMultiplier = appliedGroupMultiplier * effectiveFactor
+  const effectiveMultiplierMin = appliedGroupMultiplierMin * effectiveFactor
+  const effectiveMultiplierMax = appliedGroupMultiplierMax * effectiveFactor
+  const appliedMultiplierFields = {
+    ...groupMultiplier,
+    dynamicRateApplied,
+    groupMultiplier: appliedGroupMultiplier,
+    groupMultiplierMin: appliedGroupMultiplierMin,
+    groupMultiplierMax: appliedGroupMultiplierMax,
+  }
   const usageOffer = usageOfferFields(model)
   const metadata = commandCodeMetadataFields(model)
   const source = pricingSourceFields(model.pricing)
@@ -300,10 +357,12 @@ function rowForModelGroup(
       groupName: group.name,
       subscriptionType: group.subscription_type || 'standard',
       isExclusive: group.is_exclusive,
-      ...groupMultiplier,
+      ...appliedMultiplierFields,
       ...peakRate,
       modelSpecificMultiplier,
       effectiveMultiplier,
+      effectiveMultiplierMin,
+      effectiveMultiplierMax,
       ...usageOffer,
       ...source,
       billingMode: null,
@@ -323,10 +382,12 @@ function rowForModelGroup(
     groupName: group.name,
     subscriptionType: group.subscription_type || 'standard',
     isExclusive: group.is_exclusive,
-    ...groupMultiplier,
+    ...appliedMultiplierFields,
     ...peakRate,
     modelSpecificMultiplier,
     effectiveMultiplier,
+    effectiveMultiplierMin,
+    effectiveMultiplierMax,
     ...usageOffer,
     ...source,
     billingMode: model.pricing.billing_mode,

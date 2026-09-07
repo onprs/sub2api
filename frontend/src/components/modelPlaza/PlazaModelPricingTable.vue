@@ -284,18 +284,18 @@
               v-if="period"
               class="font-bold text-primary-600 dark:text-primary-400"
               :title="t('modelPlaza.table.timePricingRateHint', { rate: effectiveRate, multiplier: period.multiplier })"
-              >{{ periodRate(period) }}x</span
+              >{{ periodRate(m, period) }}</span
             >
             <span
               v-else-if="usesIndependentImageRate(m)"
               class="font-bold text-gray-700 dark:text-gray-300"
-              >{{ requestRate(m) }}x</span
+              >{{ formatRate(requestRate(m)) }}</span
             >
             <template v-else-if="hasCustomRate">
-              <span class="mr-1 text-gray-400 line-through dark:text-dark-500">{{ rateMultiplier }}x</span>
-              <span class="font-bold text-primary-600 dark:text-primary-400">{{ effectiveRate }}x</span>
+              <span class="mr-1 text-gray-400 line-through dark:text-dark-500">{{ defaultRateLabel(m) }}</span>
+              <span class="font-bold text-primary-600 dark:text-primary-400">{{ formatRate(effectiveRate) }}</span>
             </template>
-            <span v-else class="font-bold text-gray-700 dark:text-gray-300">{{ effectiveRate }}x</span>
+            <span v-else class="font-bold text-gray-700 dark:text-gray-300">{{ modelRateLabel(m) }}</span>
           </td>
         </tr>
       </tbody>
@@ -322,7 +322,11 @@ const props = defineProps<{
   platform?: string
   /** 分组默认倍率。 */
   rateMultiplier: number
-  /** 用户专属倍率;与默认不同,实付价按此计算并划线展示原倍率。 */
+  /** token 模式且无用户专属倍率时展示并应用动态范围。 */
+  dynamicRateEnabled?: boolean
+  dynamicRateMinMultiplier?: number | null
+  dynamicRateMaxMultiplier?: number | null
+  /** 用户专属倍率;优先于完整动态范围。 */
   userRateMultiplier?: number | null
   /** 生图独立倍率:true 时图片计费模型的实付倍率取 imageRateMultiplier,不取分组/专属倍率。 */
   imageRateIndependent?: boolean
@@ -363,10 +367,39 @@ const sortedModels = computed(() => {
   })
 })
 
-const effectiveRate = computed(() => props.userRateMultiplier ?? props.rateMultiplier)
-const hasCustomRate = computed(
-  () => props.userRateMultiplier != null && props.userRateMultiplier !== props.rateMultiplier
+const staticEffectiveRate = computed(() => props.userRateMultiplier ?? props.rateMultiplier)
+const usesDynamicRate = computed(() => props.dynamicRateEnabled === true && props.userRateMultiplier == null)
+const effectiveRateMin = computed(() =>
+  usesDynamicRate.value ? (props.dynamicRateMinMultiplier ?? props.rateMultiplier) : staticEffectiveRate.value
 )
+const effectiveRateMax = computed(() =>
+  usesDynamicRate.value ? (props.dynamicRateMaxMultiplier ?? props.rateMultiplier) : staticEffectiveRate.value
+)
+const effectiveRate = computed(() => effectiveRateMax.value)
+const hasCustomRate = computed(
+  () =>
+    props.userRateMultiplier != null &&
+    (props.dynamicRateEnabled === true || props.userRateMultiplier !== props.rateMultiplier)
+)
+
+function formatRate(value: number): string {
+  return `${Number(value.toFixed(6))}x`
+}
+
+function formatRateRange(minValue: number, maxValue: number): string {
+  const minLabel = formatRate(minValue)
+  const maxLabel = formatRate(maxValue)
+  return minLabel === maxLabel ? minLabel : `${minLabel}-${maxLabel}`
+}
+
+function defaultRateLabel(m: PlazaModel): string {
+  return billingMode(m) === BILLING_MODE_TOKEN && props.dynamicRateEnabled
+    ? formatRateRange(
+        props.dynamicRateMinMultiplier ?? props.rateMultiplier,
+        props.dynamicRateMaxMultiplier ?? props.rateMultiplier
+      )
+    : formatRate(props.rateMultiplier)
+}
 
 function billingMode(m: PlazaModel): BillingMode {
   return (m.pricing?.billing_mode || BILLING_MODE_TOKEN) as BillingMode
@@ -401,15 +434,23 @@ const rows = computed<PlazaRow[]>(() =>
 )
 
 /** 时段行的生效倍率 = 生效倍率 × 时段倍率(去掉浮点噪声)。 */
-function periodRate(period: PlazaTimePricingPeriod): number {
-  return Math.round(effectiveRate.value * period.multiplier * 1000) / 1000
+function periodRate(m: PlazaModel, period: PlazaTimePricingPeriod): string {
+  if (billingMode(m) !== BILLING_MODE_TOKEN) {
+    return formatRate(requestRate(m) * period.multiplier)
+  }
+  return formatRateRange(
+    effectiveRateMin.value * period.multiplier,
+    effectiveRateMax.value * period.multiplier
+  )
 }
 
 /** 实付价 = 渠道单价 × 生效倍率(时段行再乘时段倍率),按 $/1M token 展示。 */
 function paidPerMillion(value: number | null | undefined, period: PlazaTimePricingPeriod | null = null): string {
   if (value == null) return '-'
-  const rate = period ? periodRate(period) : effectiveRate.value
-  return formatScaled(value * rate, PER_MILLION, MIN_DECIMALS)
+  const periodMultiplier = period?.multiplier ?? 1
+  const formattedMin = formatScaled(value * effectiveRateMin.value * periodMultiplier, PER_MILLION, MIN_DECIMALS)
+  const formattedMax = formatScaled(value * effectiveRateMax.value * periodMultiplier, PER_MILLION, MIN_DECIMALS)
+  return formattedMin === formattedMax ? formattedMin : `${formattedMin}-${formattedMax}`
 }
 
 /** 图片计费模型且分组开启生图独立倍率:实付倍率取独立倍率,与计费口径一致。 */
@@ -419,7 +460,13 @@ function usesIndependentImageRate(m: PlazaModel): boolean {
 
 /** 按次/按图片行的生效倍率。 */
 function requestRate(m: PlazaModel): number {
-  return usesIndependentImageRate(m) ? (props.imageRateMultiplier ?? 1) : effectiveRate.value
+  return usesIndependentImageRate(m) ? (props.imageRateMultiplier ?? 1) : staticEffectiveRate.value
+}
+
+function modelRateLabel(m: PlazaModel): string {
+  return billingMode(m) === BILLING_MODE_TOKEN
+    ? formatRateRange(effectiveRateMin.value, effectiveRateMax.value)
+    : formatRate(requestRate(m))
 }
 
 /** 按次 / 按图片单价(乘该行生效倍率,不换算 1M)。 */

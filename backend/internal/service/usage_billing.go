@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 )
@@ -43,6 +44,11 @@ type UsageBillingCommand struct {
 	APIKeyQuotaCost     float64
 	APIKeyRateLimitCost float64
 	AccountQuotaCost    float64
+
+	// DynamicRateBasisMultiplier 是调用方计算 ActualCost 时使用的动态倍率基准。
+	// 仓库用它把请求指纹归一化，并在事务内按最终动态倍率缩放用户侧扣费金额。
+	DynamicRateBasisMultiplier float64
+	DynamicRateExcludedCost    float64
 }
 
 func (c *UsageBillingCommand) Normalize() {
@@ -107,6 +113,17 @@ func buildUsageBillingFingerprint(c *UsageBillingCommand) string {
 	if c == nil {
 		return ""
 	}
+	accountQuotaCost := c.AccountQuotaCost
+	balanceCost := c.BalanceCost
+	subscriptionCost := c.SubscriptionCost
+	apiKeyQuotaCost := c.APIKeyQuotaCost
+	apiKeyRateLimitCost := c.APIKeyRateLimitCost
+	if c.DynamicRateBasisMultiplier > 0 {
+		balanceCost = normalizeDynamicRateFingerprintCost(balanceCost, c.DynamicRateExcludedCost, c.DynamicRateBasisMultiplier)
+		subscriptionCost = normalizeDynamicRateFingerprintCost(subscriptionCost, c.DynamicRateExcludedCost, c.DynamicRateBasisMultiplier)
+		apiKeyQuotaCost = normalizeDynamicRateFingerprintCost(apiKeyQuotaCost, c.DynamicRateExcludedCost, c.DynamicRateBasisMultiplier)
+		apiKeyRateLimitCost = normalizeDynamicRateFingerprintCost(apiKeyRateLimitCost, c.DynamicRateExcludedCost, c.DynamicRateBasisMultiplier)
+	}
 	raw := fmt.Sprintf(
 		"%d|%d|%d|%d|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|%s|%d|%0.10f|%0.10f|%0.10f|%0.10f|%0.10f",
 		c.UserID,
@@ -125,17 +142,28 @@ func buildUsageBillingFingerprint(c *UsageBillingCommand) string {
 		c.ImageCount,
 		strings.TrimSpace(c.MediaType),
 		valueOrZero(c.SubscriptionID),
-		c.BalanceCost,
-		c.SubscriptionCost,
-		c.APIKeyQuotaCost,
-		c.APIKeyRateLimitCost,
-		c.AccountQuotaCost,
+		balanceCost,
+		subscriptionCost,
+		apiKeyQuotaCost,
+		apiKeyRateLimitCost,
+		accountQuotaCost,
 	)
 	if payloadHash := strings.TrimSpace(c.RequestPayloadHash); payloadHash != "" {
 		raw += "|" + payloadHash
 	}
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
+}
+
+func normalizeDynamicRateFingerprintCost(value, excluded, basis float64) float64 {
+	if value <= 0 || basis <= 0 {
+		return value
+	}
+	adjustable := value - excluded
+	if adjustable < 0 {
+		adjustable = 0
+	}
+	return excluded + adjustable/basis
 }
 
 func HashUsageRequestPayload(payload []byte) string {
@@ -165,12 +193,13 @@ type AccountQuotaState struct {
 }
 
 type UsageBillingApplyResult struct {
-	Applied              bool
-	APIKeyQuotaExhausted bool
-	NewBalance           *float64           // post-deduction balance (nil = no balance deduction)
-	BalanceOverdrafted   bool               // true when the sufficient-balance guard missed and debt was still recorded
-	QuotaState           *AccountQuotaState // post-increment quota state (nil = no quota increment)
-	SubscriptionID       *int64             // subscription entitlement actually charged
+	Applied               bool
+	DynamicRateMultiplier *float64 // 本次事务最终采用的分组动态倍率；nil 表示静态计费
+	APIKeyQuotaExhausted  bool
+	NewBalance            *float64           // post-deduction balance (nil = no balance deduction)
+	BalanceOverdrafted    bool               // true when the sufficient-balance guard missed and debt was still recorded
+	QuotaState            *AccountQuotaState // post-increment quota state (nil = no quota increment)
+	SubscriptionID        *int64             // subscription entitlement actually charged
 }
 
 // BatchImageBalanceHoldCommand describes an idempotent balance hold operation.
@@ -219,6 +248,47 @@ type BatchImageBalanceHoldResult struct {
 	Applied       bool
 	NewBalance    *float64
 	FrozenBalance *float64
+}
+
+type DynamicRateUsageCommand struct {
+	RequestID     string
+	APIKeyID      int64
+	UserID        int64
+	GroupID       int64
+	TotalTokens   int64
+	OccurredAt    time.Time
+	WindowMinutes int
+	TargetTokens  int64
+	MaxMultiplier float64
+	MinMultiplier float64
+}
+
+func (c *DynamicRateUsageCommand) Normalize() {
+	if c == nil {
+		return
+	}
+	c.RequestID = strings.TrimSpace(c.RequestID)
+	if c.TotalTokens < 0 {
+		c.TotalTokens = 0
+	}
+	c.OccurredAt = c.OccurredAt.UTC()
+}
+
+func (c *DynamicRateUsageCommand) Multiplier(accumulatedTokens int64) float64 {
+	if c == nil {
+		return 1
+	}
+	group := &Group{
+		DynamicRateEnabled:       true,
+		DynamicRateMaxMultiplier: c.MaxMultiplier,
+		DynamicRateMinMultiplier: c.MinMultiplier,
+		DynamicRateTargetTokens:  c.TargetTokens,
+	}
+	return group.DynamicRateMultiplier(accumulatedTokens)
+}
+
+type DynamicUsageBillingRepository interface {
+	ApplyWithDynamicRate(ctx context.Context, billing *UsageBillingCommand, dynamic *DynamicRateUsageCommand) (*UsageBillingApplyResult, error)
 }
 
 type UsageBillingRepository interface {

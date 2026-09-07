@@ -28,6 +28,16 @@ const (
 	FieldDescription = "description"
 	// FieldRateMultiplier holds the string denoting the rate_multiplier field in the database.
 	FieldRateMultiplier = "rate_multiplier"
+	// FieldDynamicRateEnabled holds the string denoting the dynamic_rate_enabled field in the database.
+	FieldDynamicRateEnabled = "dynamic_rate_enabled"
+	// FieldDynamicRateMaxMultiplier holds the string denoting the dynamic_rate_max_multiplier field in the database.
+	FieldDynamicRateMaxMultiplier = "dynamic_rate_max_multiplier"
+	// FieldDynamicRateMinMultiplier holds the string denoting the dynamic_rate_min_multiplier field in the database.
+	FieldDynamicRateMinMultiplier = "dynamic_rate_min_multiplier"
+	// FieldDynamicRateTargetTokens holds the string denoting the dynamic_rate_target_tokens field in the database.
+	FieldDynamicRateTargetTokens = "dynamic_rate_target_tokens"
+	// FieldDynamicRateWindowMinutes holds the string denoting the dynamic_rate_window_minutes field in the database.
+	FieldDynamicRateWindowMinutes = "dynamic_rate_window_minutes"
 	// FieldPeakRateEnabled holds the string denoting the peak_rate_enabled field in the database.
 	FieldPeakRateEnabled = "peak_rate_enabled"
 	// FieldPeakStart holds the string denoting the peak_start field in the database.
@@ -258,6 +268,11 @@ var Columns = []string{
 	FieldName,
 	FieldDescription,
 	FieldRateMultiplier,
+	FieldDynamicRateEnabled,
+	FieldDynamicRateMaxMultiplier,
+	FieldDynamicRateMinMultiplier,
+	FieldDynamicRateTargetTokens,
+	FieldDynamicRateWindowMinutes,
 	FieldPeakRateEnabled,
 	FieldPeakStart,
 	FieldPeakEnd,
@@ -362,6 +377,16 @@ var (
 	NameValidator func(string) error
 	// DefaultRateMultiplier holds the default value on creation for the "rate_multiplier" field.
 	DefaultRateMultiplier float64
+	// DefaultDynamicRateEnabled holds the default value on creation for the "dynamic_rate_enabled" field.
+	DefaultDynamicRateEnabled bool
+	// DefaultDynamicRateMaxMultiplier holds the default value on creation for the "dynamic_rate_max_multiplier" field.
+	DefaultDynamicRateMaxMultiplier float64
+	// DefaultDynamicRateMinMultiplier holds the default value on creation for the "dynamic_rate_min_multiplier" field.
+	DefaultDynamicRateMinMultiplier float64
+	// DefaultDynamicRateTargetTokens holds the default value on creation for the "dynamic_rate_target_tokens" field.
+	DefaultDynamicRateTargetTokens int64
+	// DefaultDynamicRateWindowMinutes holds the default value on creation for the "dynamic_rate_window_minutes" field.
+	DefaultDynamicRateWindowMinutes int
 	// DefaultPeakRateEnabled holds the default value on creation for the "peak_rate_enabled" field.
 	DefaultPeakRateEnabled bool
 	// DefaultPeakStart holds the default value on creation for the "peak_start" field.
@@ -510,6 +535,31 @@ func ByDescription(opts ...sql.OrderTermOption) OrderOption {
 // ByRateMultiplier orders the results by the rate_multiplier field.
 func ByRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRateMultiplier, opts...).ToFunc()
+}
+
+// ByDynamicRateEnabled orders the results by the dynamic_rate_enabled field.
+func ByDynamicRateEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDynamicRateEnabled, opts...).ToFunc()
+}
+
+// ByDynamicRateMaxMultiplier orders the results by the dynamic_rate_max_multiplier field.
+func ByDynamicRateMaxMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDynamicRateMaxMultiplier, opts...).ToFunc()
+}
+
+// ByDynamicRateMinMultiplier orders the results by the dynamic_rate_min_multiplier field.
+func ByDynamicRateMinMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDynamicRateMinMultiplier, opts...).ToFunc()
+}
+
+// ByDynamicRateTargetTokens orders the results by the dynamic_rate_target_tokens field.
+func ByDynamicRateTargetTokens(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDynamicRateTargetTokens, opts...).ToFunc()
+}
+
+// ByDynamicRateWindowMinutes orders the results by the dynamic_rate_window_minutes field.
+func ByDynamicRateWindowMinutes(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDynamicRateWindowMinutes, opts...).ToFunc()
 }
 
 // ByPeakRateEnabled orders the results by the peak_rate_enabled field.

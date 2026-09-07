@@ -61,6 +61,9 @@ function group(overrides: Partial<ModelPlazaGroup> = {}): ModelPlazaGroup {
     platform: 'openai',
     subscription_type: 'standard',
     rate_multiplier: 1,
+    dynamic_rate_enabled: false,
+    dynamic_rate_max_multiplier: 1,
+    dynamic_rate_min_multiplier: 1,
     peak_rate_enabled: false,
     peak_start: '',
     peak_end: '',
@@ -112,6 +115,22 @@ describe('PlazaGroupSection 长上下文说明', () => {
     delete (g as Partial<ModelPlazaGroup>).long_context_pricing_enabled
     const wrapper = mountSection(g)
     expect(wrapper.text()).not.toContain(NOTE)
+  })
+})
+
+describe('PlazaGroupSection 动态倍率配置传递', () => {
+  it('把动态区间同时传给徽标和价格表', () => {
+    const wrapper = mountSection(
+      group({
+        dynamic_rate_enabled: true,
+        dynamic_rate_min_multiplier: 0.13,
+        dynamic_rate_max_multiplier: 0.15
+      })
+    )
+    const table = wrapper.findComponent(PlazaModelPricingTable)
+    expect(table.props('dynamicRateEnabled')).toBe(true)
+    expect(table.props('dynamicRateMinMultiplier')).toBe(0.13)
+    expect(table.props('dynamicRateMaxMultiplier')).toBe(0.15)
   })
 })
 

@@ -295,7 +295,15 @@ func (s *GatewayService) buildAPIKeyRoutingCandidate(
 
 	baseCost := group.RateMultiplier
 	if s.userGroupRateResolver != nil && apiKey.UserID > 0 {
-		baseCost = s.userGroupRateResolver.Resolve(ctx, apiKey.UserID, group.ID, baseCost)
+		resolved := s.userGroupRateResolver.ResolveDetail(ctx, apiKey.UserID, group.ID, baseCost)
+		baseCost = resolved.Multiplier
+		if !resolved.HasOverride && !resolved.LookupFailed && group.DynamicRateEnabled &&
+			(input.Capability == APIKeyRoutingCapabilityText || input.Capability == APIKeyRoutingCapabilityMessages) {
+			baseCost = group.DynamicRateMultiplier(0)
+		}
+	} else if group.DynamicRateEnabled &&
+		(input.Capability == APIKeyRoutingCapabilityText || input.Capability == APIKeyRoutingCapabilityMessages) {
+		baseCost = group.DynamicRateMultiplier(0)
 	}
 	effectiveKey := apiKey.CloneWithEffectiveGroup(&groupCopy)
 	cost := baseCost * groupCopy.PeakMultiplierAt(timezone.Now())

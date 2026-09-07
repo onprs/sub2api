@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 23 // v23: group codex_models_manifest_config field
+const apiKeyAuthSnapshotVersion = 24 // v24: group dynamic rate fields
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -470,6 +470,11 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		Status:                          group.Status,
 		SubscriptionType:                group.SubscriptionType,
 		RateMultiplier:                  group.RateMultiplier,
+		DynamicRateEnabled:              group.DynamicRateEnabled,
+		DynamicRateMaxMultiplier:        group.DynamicRateMaxMultiplier,
+		DynamicRateMinMultiplier:        group.DynamicRateMinMultiplier,
+		DynamicRateTargetTokens:         group.DynamicRateTargetTokens,
+		DynamicRateWindowMinutes:        group.DynamicRateWindowMinutes,
 		DailyLimitUSD:                   group.DailyLimitUSD,
 		WeeklyLimitUSD:                  group.WeeklyLimitUSD,
 		MonthlyLimitUSD:                 group.MonthlyLimitUSD,
@@ -541,6 +546,11 @@ func groupFromAPIKeyAuthSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		Hydrated:                        true,
 		SubscriptionType:                snapshot.SubscriptionType,
 		RateMultiplier:                  snapshot.RateMultiplier,
+		DynamicRateEnabled:              snapshot.DynamicRateEnabled,
+		DynamicRateMaxMultiplier:        snapshot.DynamicRateMaxMultiplier,
+		DynamicRateMinMultiplier:        snapshot.DynamicRateMinMultiplier,
+		DynamicRateTargetTokens:         snapshot.DynamicRateTargetTokens,
+		DynamicRateWindowMinutes:        snapshot.DynamicRateWindowMinutes,
 		DailyLimitUSD:                   snapshot.DailyLimitUSD,
 		WeeklyLimitUSD:                  snapshot.WeeklyLimitUSD,
 		MonthlyLimitUSD:                 snapshot.MonthlyLimitUSD,
