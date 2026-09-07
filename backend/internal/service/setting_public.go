@@ -187,6 +187,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyContactInfo,
 		SettingKeyDocURL,
 		SettingKeyHomeContent,
+		SettingKeyHomeUptimeStartAt,
 		SettingKeyCompactHomeEnabled,
 		SettingKeyHideCcsImportButton,
 		SettingKeyPurchaseSubscriptionEnabled,
@@ -329,6 +330,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		ContactInfo:                         settings[SettingKeyContactInfo],
 		DocURL:                              settings[SettingKeyDocURL],
 		HomeContent:                         settings[SettingKeyHomeContent],
+		HomeUptimeStartAt:                   settings[SettingKeyHomeUptimeStartAt],
 		CompactHomeEnabled:                  settings[SettingKeyCompactHomeEnabled] == "true",
 		HideCcsImportButton:                 settings[SettingKeyHideCcsImportButton] == "true",
 		PurchaseSubscriptionEnabled:         settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
@@ -593,6 +595,7 @@ type PublicSettingsInjectionPayload struct {
 	ContactInfo                         string                   `json:"contact_info"`
 	DocURL                              string                   `json:"doc_url"`
 	HomeContent                         string                   `json:"home_content"`
+	HomeUptimeStartAt                   string                   `json:"home_uptime_start_at"`
 	CompactHomeEnabled                  bool                     `json:"compact_home_enabled"`
 	HideCcsImportButton                 bool                     `json:"hide_ccs_import_button"`
 	PurchaseSubscriptionEnabled         bool                     `json:"purchase_subscription_enabled"`
@@ -683,6 +686,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		ContactInfo:                         settings.ContactInfo,
 		DocURL:                              settings.DocURL,
 		HomeContent:                         settings.HomeContent,
+		HomeUptimeStartAt:                   settings.HomeUptimeStartAt,
 		CompactHomeEnabled:                  settings.CompactHomeEnabled,
 		HideCcsImportButton:                 settings.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:         settings.PurchaseSubscriptionEnabled,
