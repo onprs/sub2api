@@ -76,6 +76,32 @@ func TestGatewayProfitControlInstallsForFivePlatformsOnlyOnTokenRequests(t *test
 	}
 }
 
+func TestGatewayProfitControlUsesDynamicFloorUnlessUserRateOverridesIt(t *testing.T) {
+	group := gatewayProfitTestGroup(151, PlatformAnthropic)
+	group.DynamicRateEnabled = true
+	group.DynamicRateMaxMultiplier = 0.5
+	group.DynamicRateMinMultiplier = 0.2
+	group.DynamicRateTargetTokens = 1_000
+	group.DynamicRateWindowMinutes = 60
+	group.ProfitMinMargin = 0.1
+
+	svc := &GatewayService{}
+	ctx := svc.withGatewayProfitControlGate(gatewayProfitTestContext(group), &group.ID)
+	gate, _ := ctx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate)
+	require.NotNil(t, gate)
+	require.InDelta(t, 0.2*(1-0.1), gate.threshold, 1e-12)
+
+	userRate := 0.7
+	svc.userGroupRateResolver = newUserGroupRateResolver(
+		&userGroupRateResolverRepoStub{rate: &userRate}, nil, 0, nil, "service.test",
+	)
+	userCtx := context.WithValue(gatewayProfitTestContext(group), ctxkey.UserID, int64(42))
+	userCtx = svc.withGatewayProfitControlGate(userCtx, &group.ID)
+	userGate, _ := userCtx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate)
+	require.NotNil(t, userGate)
+	require.InDelta(t, userRate*(1-0.1), userGate.threshold, 1e-12)
+}
+
 func TestGatewayProfitControlCompositeBillingUsesScheduledMemberConfig(t *testing.T) {
 	billingGroup := &Group{
 		ID:               201,

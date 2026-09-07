@@ -161,6 +161,24 @@ func TestCreateAccountAcceptsDedicatedUpstreamBillingProbeSetting(t *testing.T) 
 	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
 }
 
+func TestCreateCommandCodeAccountAcceptsDefaultUpstreamBillingProbeSetting(t *testing.T) {
+	enabled := true
+	repo := &upstreamBillingProbeAccountRepo{}
+
+	created, err := (&adminServiceImpl{accountRepo: repo}).CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                 "command-code-account",
+		Platform:             PlatformCommandCode,
+		Type:                 AccountTypeAPIKey,
+		Credentials:          map[string]any{"api_key": "cc-test-key", "base_url": DefaultCommandCodeBaseURL},
+		ProbeEnabled:         &enabled,
+		SkipDefaultGroupBind: true,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, PlatformCommandCode, created.Platform)
+	require.Equal(t, true, created.Extra[UpstreamBillingProbeEnabledExtraKey])
+}
+
 func TestUpdateAccountPreservesManagedUpstreamBillingProbeStateForUnrelatedEdit(t *testing.T) {
 	accountID := int64(110)
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{

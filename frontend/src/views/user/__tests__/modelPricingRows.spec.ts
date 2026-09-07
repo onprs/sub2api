@@ -189,6 +189,70 @@ describe('buildModelPricingRows', () => {
     })
   })
 
+  it('builds dynamic multiplier and actual-price ranges without a user override', () => {
+    const channels = makeChannels()
+    const group = channels[0].platforms[0].groups[0]
+    group.dynamic_rate_enabled = true
+    group.dynamic_rate_min_multiplier = 0.13
+    group.dynamic_rate_max_multiplier = 0.15
+    group.dynamic_rate_target_tokens = 1_000_000
+    group.dynamic_rate_window_minutes = 1440
+
+    const row = buildModelPricingRows(channels, {})[0]
+    expect(row).toMatchObject({
+      dynamicRateEnabled: true,
+      dynamicRateApplied: true,
+      dynamicRateMinMultiplier: 0.13,
+      dynamicRateMaxMultiplier: 0.15,
+      groupMultiplierMin: 0.13,
+      groupMultiplierMax: 0.15,
+      effectiveMultiplierMin: 0.13,
+      effectiveMultiplierMax: 0.15,
+    })
+  })
+
+  it('lets a user-specific multiplier override the complete dynamic range', () => {
+    const channels = makeChannels()
+    const group = channels[0].platforms[0].groups[0]
+    group.dynamic_rate_enabled = true
+    group.dynamic_rate_min_multiplier = 0.13
+    group.dynamic_rate_max_multiplier = 0.15
+    group.dynamic_rate_target_tokens = 1_000_000
+    group.dynamic_rate_window_minutes = 1440
+
+    const row = buildModelPricingRows(channels, { 10: 0.14 })[0]
+    expect(row.dynamicRateEnabled).toBe(true)
+    expect(row.dynamicRateApplied).toBe(false)
+    expect(row.userMultiplier).toBe(0.14)
+    expect(row.groupMultiplierMin).toBe(0.14)
+    expect(row.groupMultiplierMax).toBe(0.14)
+    expect(row.effectiveMultiplierMin).toBe(0.14)
+    expect(row.effectiveMultiplierMax).toBe(0.14)
+  })
+
+  it('does not apply a dynamic or peak multiplier to independent per-request pricing', () => {
+    const channels = makeChannels()
+    const group = channels[0].platforms[0].groups[0]
+    const model = channels[0].platforms[0].supported_models[0]
+    group.rate_multiplier = 0.9
+    group.dynamic_rate_enabled = true
+    group.dynamic_rate_min_multiplier = 0.13
+    group.dynamic_rate_max_multiplier = 0.15
+    group.peak_rate_enabled = true
+    group.current_peak_multiplier = 2
+    if (!model.pricing) throw new Error('test pricing is required')
+    model.pricing.billing_mode = BILLING_MODE_PER_REQUEST
+    model.pricing.per_request_price = 0.01
+
+    const row = buildModelPricingRows(channels, {})[0]
+    expect(row.dynamicRateEnabled).toBe(true)
+    expect(row.dynamicRateApplied).toBe(false)
+    expect(row.groupMultiplierMin).toBe(0.9)
+    expect(row.groupMultiplierMax).toBe(0.9)
+    expect(row.effectiveMultiplierMin).toBe(0.9)
+    expect(row.effectiveMultiplierMax).toBe(0.9)
+  })
+
   it('uses user-specific multipliers without changing prices', () => {
     const rows = buildModelPricingRows(makeChannels(), { 20: 0.5 })
     const enterprise = rows.find((row) => row.groupId === 20 && row.modelName === 'gpt-4o-mini')

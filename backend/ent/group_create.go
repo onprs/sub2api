@@ -107,6 +107,76 @@ func (_c *GroupCreate) SetNillableRateMultiplier(v *float64) *GroupCreate {
 	return _c
 }
 
+// SetDynamicRateEnabled sets the "dynamic_rate_enabled" field.
+func (_c *GroupCreate) SetDynamicRateEnabled(v bool) *GroupCreate {
+	_c.mutation.SetDynamicRateEnabled(v)
+	return _c
+}
+
+// SetNillableDynamicRateEnabled sets the "dynamic_rate_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableDynamicRateEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetDynamicRateEnabled(*v)
+	}
+	return _c
+}
+
+// SetDynamicRateMaxMultiplier sets the "dynamic_rate_max_multiplier" field.
+func (_c *GroupCreate) SetDynamicRateMaxMultiplier(v float64) *GroupCreate {
+	_c.mutation.SetDynamicRateMaxMultiplier(v)
+	return _c
+}
+
+// SetNillableDynamicRateMaxMultiplier sets the "dynamic_rate_max_multiplier" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableDynamicRateMaxMultiplier(v *float64) *GroupCreate {
+	if v != nil {
+		_c.SetDynamicRateMaxMultiplier(*v)
+	}
+	return _c
+}
+
+// SetDynamicRateMinMultiplier sets the "dynamic_rate_min_multiplier" field.
+func (_c *GroupCreate) SetDynamicRateMinMultiplier(v float64) *GroupCreate {
+	_c.mutation.SetDynamicRateMinMultiplier(v)
+	return _c
+}
+
+// SetNillableDynamicRateMinMultiplier sets the "dynamic_rate_min_multiplier" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableDynamicRateMinMultiplier(v *float64) *GroupCreate {
+	if v != nil {
+		_c.SetDynamicRateMinMultiplier(*v)
+	}
+	return _c
+}
+
+// SetDynamicRateTargetTokens sets the "dynamic_rate_target_tokens" field.
+func (_c *GroupCreate) SetDynamicRateTargetTokens(v int64) *GroupCreate {
+	_c.mutation.SetDynamicRateTargetTokens(v)
+	return _c
+}
+
+// SetNillableDynamicRateTargetTokens sets the "dynamic_rate_target_tokens" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableDynamicRateTargetTokens(v *int64) *GroupCreate {
+	if v != nil {
+		_c.SetDynamicRateTargetTokens(*v)
+	}
+	return _c
+}
+
+// SetDynamicRateWindowMinutes sets the "dynamic_rate_window_minutes" field.
+func (_c *GroupCreate) SetDynamicRateWindowMinutes(v int) *GroupCreate {
+	_c.mutation.SetDynamicRateWindowMinutes(v)
+	return _c
+}
+
+// SetNillableDynamicRateWindowMinutes sets the "dynamic_rate_window_minutes" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableDynamicRateWindowMinutes(v *int) *GroupCreate {
+	if v != nil {
+		_c.SetDynamicRateWindowMinutes(*v)
+	}
+	return _c
+}
+
 // SetPeakRateEnabled sets the "peak_rate_enabled" field.
 func (_c *GroupCreate) SetPeakRateEnabled(v bool) *GroupCreate {
 	_c.mutation.SetPeakRateEnabled(v)
@@ -1110,6 +1180,26 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultRateMultiplier
 		_c.mutation.SetRateMultiplier(v)
 	}
+	if _, ok := _c.mutation.DynamicRateEnabled(); !ok {
+		v := group.DefaultDynamicRateEnabled
+		_c.mutation.SetDynamicRateEnabled(v)
+	}
+	if _, ok := _c.mutation.DynamicRateMaxMultiplier(); !ok {
+		v := group.DefaultDynamicRateMaxMultiplier
+		_c.mutation.SetDynamicRateMaxMultiplier(v)
+	}
+	if _, ok := _c.mutation.DynamicRateMinMultiplier(); !ok {
+		v := group.DefaultDynamicRateMinMultiplier
+		_c.mutation.SetDynamicRateMinMultiplier(v)
+	}
+	if _, ok := _c.mutation.DynamicRateTargetTokens(); !ok {
+		v := group.DefaultDynamicRateTargetTokens
+		_c.mutation.SetDynamicRateTargetTokens(v)
+	}
+	if _, ok := _c.mutation.DynamicRateWindowMinutes(); !ok {
+		v := group.DefaultDynamicRateWindowMinutes
+		_c.mutation.SetDynamicRateWindowMinutes(v)
+	}
 	if _, ok := _c.mutation.PeakRateEnabled(); !ok {
 		v := group.DefaultPeakRateEnabled
 		_c.mutation.SetPeakRateEnabled(v)
@@ -1299,6 +1389,21 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.RateMultiplier(); !ok {
 		return &ValidationError{Name: "rate_multiplier", err: errors.New(`ent: missing required field "Group.rate_multiplier"`)}
+	}
+	if _, ok := _c.mutation.DynamicRateEnabled(); !ok {
+		return &ValidationError{Name: "dynamic_rate_enabled", err: errors.New(`ent: missing required field "Group.dynamic_rate_enabled"`)}
+	}
+	if _, ok := _c.mutation.DynamicRateMaxMultiplier(); !ok {
+		return &ValidationError{Name: "dynamic_rate_max_multiplier", err: errors.New(`ent: missing required field "Group.dynamic_rate_max_multiplier"`)}
+	}
+	if _, ok := _c.mutation.DynamicRateMinMultiplier(); !ok {
+		return &ValidationError{Name: "dynamic_rate_min_multiplier", err: errors.New(`ent: missing required field "Group.dynamic_rate_min_multiplier"`)}
+	}
+	if _, ok := _c.mutation.DynamicRateTargetTokens(); !ok {
+		return &ValidationError{Name: "dynamic_rate_target_tokens", err: errors.New(`ent: missing required field "Group.dynamic_rate_target_tokens"`)}
+	}
+	if _, ok := _c.mutation.DynamicRateWindowMinutes(); !ok {
+		return &ValidationError{Name: "dynamic_rate_window_minutes", err: errors.New(`ent: missing required field "Group.dynamic_rate_window_minutes"`)}
 	}
 	if _, ok := _c.mutation.PeakRateEnabled(); !ok {
 		return &ValidationError{Name: "peak_rate_enabled", err: errors.New(`ent: missing required field "Group.peak_rate_enabled"`)}
@@ -1541,6 +1646,26 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.RateMultiplier(); ok {
 		_spec.SetField(group.FieldRateMultiplier, field.TypeFloat64, value)
 		_node.RateMultiplier = value
+	}
+	if value, ok := _c.mutation.DynamicRateEnabled(); ok {
+		_spec.SetField(group.FieldDynamicRateEnabled, field.TypeBool, value)
+		_node.DynamicRateEnabled = value
+	}
+	if value, ok := _c.mutation.DynamicRateMaxMultiplier(); ok {
+		_spec.SetField(group.FieldDynamicRateMaxMultiplier, field.TypeFloat64, value)
+		_node.DynamicRateMaxMultiplier = value
+	}
+	if value, ok := _c.mutation.DynamicRateMinMultiplier(); ok {
+		_spec.SetField(group.FieldDynamicRateMinMultiplier, field.TypeFloat64, value)
+		_node.DynamicRateMinMultiplier = value
+	}
+	if value, ok := _c.mutation.DynamicRateTargetTokens(); ok {
+		_spec.SetField(group.FieldDynamicRateTargetTokens, field.TypeInt64, value)
+		_node.DynamicRateTargetTokens = value
+	}
+	if value, ok := _c.mutation.DynamicRateWindowMinutes(); ok {
+		_spec.SetField(group.FieldDynamicRateWindowMinutes, field.TypeInt, value)
+		_node.DynamicRateWindowMinutes = value
 	}
 	if value, ok := _c.mutation.PeakRateEnabled(); ok {
 		_spec.SetField(group.FieldPeakRateEnabled, field.TypeBool, value)
@@ -2057,6 +2182,90 @@ func (u *GroupUpsert) UpdateRateMultiplier() *GroupUpsert {
 // AddRateMultiplier adds v to the "rate_multiplier" field.
 func (u *GroupUpsert) AddRateMultiplier(v float64) *GroupUpsert {
 	u.Add(group.FieldRateMultiplier, v)
+	return u
+}
+
+// SetDynamicRateEnabled sets the "dynamic_rate_enabled" field.
+func (u *GroupUpsert) SetDynamicRateEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldDynamicRateEnabled, v)
+	return u
+}
+
+// UpdateDynamicRateEnabled sets the "dynamic_rate_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateDynamicRateEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldDynamicRateEnabled)
+	return u
+}
+
+// SetDynamicRateMaxMultiplier sets the "dynamic_rate_max_multiplier" field.
+func (u *GroupUpsert) SetDynamicRateMaxMultiplier(v float64) *GroupUpsert {
+	u.Set(group.FieldDynamicRateMaxMultiplier, v)
+	return u
+}
+
+// UpdateDynamicRateMaxMultiplier sets the "dynamic_rate_max_multiplier" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateDynamicRateMaxMultiplier() *GroupUpsert {
+	u.SetExcluded(group.FieldDynamicRateMaxMultiplier)
+	return u
+}
+
+// AddDynamicRateMaxMultiplier adds v to the "dynamic_rate_max_multiplier" field.
+func (u *GroupUpsert) AddDynamicRateMaxMultiplier(v float64) *GroupUpsert {
+	u.Add(group.FieldDynamicRateMaxMultiplier, v)
+	return u
+}
+
+// SetDynamicRateMinMultiplier sets the "dynamic_rate_min_multiplier" field.
+func (u *GroupUpsert) SetDynamicRateMinMultiplier(v float64) *GroupUpsert {
+	u.Set(group.FieldDynamicRateMinMultiplier, v)
+	return u
+}
+
+// UpdateDynamicRateMinMultiplier sets the "dynamic_rate_min_multiplier" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateDynamicRateMinMultiplier() *GroupUpsert {
+	u.SetExcluded(group.FieldDynamicRateMinMultiplier)
+	return u
+}
+
+// AddDynamicRateMinMultiplier adds v to the "dynamic_rate_min_multiplier" field.
+func (u *GroupUpsert) AddDynamicRateMinMultiplier(v float64) *GroupUpsert {
+	u.Add(group.FieldDynamicRateMinMultiplier, v)
+	return u
+}
+
+// SetDynamicRateTargetTokens sets the "dynamic_rate_target_tokens" field.
+func (u *GroupUpsert) SetDynamicRateTargetTokens(v int64) *GroupUpsert {
+	u.Set(group.FieldDynamicRateTargetTokens, v)
+	return u
+}
+
+// UpdateDynamicRateTargetTokens sets the "dynamic_rate_target_tokens" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateDynamicRateTargetTokens() *GroupUpsert {
+	u.SetExcluded(group.FieldDynamicRateTargetTokens)
+	return u
+}
+
+// AddDynamicRateTargetTokens adds v to the "dynamic_rate_target_tokens" field.
+func (u *GroupUpsert) AddDynamicRateTargetTokens(v int64) *GroupUpsert {
+	u.Add(group.FieldDynamicRateTargetTokens, v)
+	return u
+}
+
+// SetDynamicRateWindowMinutes sets the "dynamic_rate_window_minutes" field.
+func (u *GroupUpsert) SetDynamicRateWindowMinutes(v int) *GroupUpsert {
+	u.Set(group.FieldDynamicRateWindowMinutes, v)
+	return u
+}
+
+// UpdateDynamicRateWindowMinutes sets the "dynamic_rate_window_minutes" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateDynamicRateWindowMinutes() *GroupUpsert {
+	u.SetExcluded(group.FieldDynamicRateWindowMinutes)
+	return u
+}
+
+// AddDynamicRateWindowMinutes adds v to the "dynamic_rate_window_minutes" field.
+func (u *GroupUpsert) AddDynamicRateWindowMinutes(v int) *GroupUpsert {
+	u.Add(group.FieldDynamicRateWindowMinutes, v)
 	return u
 }
 
@@ -3204,6 +3413,104 @@ func (u *GroupUpsertOne) AddRateMultiplier(v float64) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateRateMultiplier() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateRateMultiplier()
+	})
+}
+
+// SetDynamicRateEnabled sets the "dynamic_rate_enabled" field.
+func (u *GroupUpsertOne) SetDynamicRateEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDynamicRateEnabled(v)
+	})
+}
+
+// UpdateDynamicRateEnabled sets the "dynamic_rate_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateDynamicRateEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDynamicRateEnabled()
+	})
+}
+
+// SetDynamicRateMaxMultiplier sets the "dynamic_rate_max_multiplier" field.
+func (u *GroupUpsertOne) SetDynamicRateMaxMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDynamicRateMaxMultiplier(v)
+	})
+}
+
+// AddDynamicRateMaxMultiplier adds v to the "dynamic_rate_max_multiplier" field.
+func (u *GroupUpsertOne) AddDynamicRateMaxMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddDynamicRateMaxMultiplier(v)
+	})
+}
+
+// UpdateDynamicRateMaxMultiplier sets the "dynamic_rate_max_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateDynamicRateMaxMultiplier() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDynamicRateMaxMultiplier()
+	})
+}
+
+// SetDynamicRateMinMultiplier sets the "dynamic_rate_min_multiplier" field.
+func (u *GroupUpsertOne) SetDynamicRateMinMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDynamicRateMinMultiplier(v)
+	})
+}
+
+// AddDynamicRateMinMultiplier adds v to the "dynamic_rate_min_multiplier" field.
+func (u *GroupUpsertOne) AddDynamicRateMinMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddDynamicRateMinMultiplier(v)
+	})
+}
+
+// UpdateDynamicRateMinMultiplier sets the "dynamic_rate_min_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateDynamicRateMinMultiplier() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDynamicRateMinMultiplier()
+	})
+}
+
+// SetDynamicRateTargetTokens sets the "dynamic_rate_target_tokens" field.
+func (u *GroupUpsertOne) SetDynamicRateTargetTokens(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDynamicRateTargetTokens(v)
+	})
+}
+
+// AddDynamicRateTargetTokens adds v to the "dynamic_rate_target_tokens" field.
+func (u *GroupUpsertOne) AddDynamicRateTargetTokens(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddDynamicRateTargetTokens(v)
+	})
+}
+
+// UpdateDynamicRateTargetTokens sets the "dynamic_rate_target_tokens" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateDynamicRateTargetTokens() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDynamicRateTargetTokens()
+	})
+}
+
+// SetDynamicRateWindowMinutes sets the "dynamic_rate_window_minutes" field.
+func (u *GroupUpsertOne) SetDynamicRateWindowMinutes(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDynamicRateWindowMinutes(v)
+	})
+}
+
+// AddDynamicRateWindowMinutes adds v to the "dynamic_rate_window_minutes" field.
+func (u *GroupUpsertOne) AddDynamicRateWindowMinutes(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddDynamicRateWindowMinutes(v)
+	})
+}
+
+// UpdateDynamicRateWindowMinutes sets the "dynamic_rate_window_minutes" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateDynamicRateWindowMinutes() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDynamicRateWindowMinutes()
 	})
 }
 
@@ -4685,6 +4992,104 @@ func (u *GroupUpsertBulk) AddRateMultiplier(v float64) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateRateMultiplier() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateRateMultiplier()
+	})
+}
+
+// SetDynamicRateEnabled sets the "dynamic_rate_enabled" field.
+func (u *GroupUpsertBulk) SetDynamicRateEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDynamicRateEnabled(v)
+	})
+}
+
+// UpdateDynamicRateEnabled sets the "dynamic_rate_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateDynamicRateEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDynamicRateEnabled()
+	})
+}
+
+// SetDynamicRateMaxMultiplier sets the "dynamic_rate_max_multiplier" field.
+func (u *GroupUpsertBulk) SetDynamicRateMaxMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDynamicRateMaxMultiplier(v)
+	})
+}
+
+// AddDynamicRateMaxMultiplier adds v to the "dynamic_rate_max_multiplier" field.
+func (u *GroupUpsertBulk) AddDynamicRateMaxMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddDynamicRateMaxMultiplier(v)
+	})
+}
+
+// UpdateDynamicRateMaxMultiplier sets the "dynamic_rate_max_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateDynamicRateMaxMultiplier() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDynamicRateMaxMultiplier()
+	})
+}
+
+// SetDynamicRateMinMultiplier sets the "dynamic_rate_min_multiplier" field.
+func (u *GroupUpsertBulk) SetDynamicRateMinMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDynamicRateMinMultiplier(v)
+	})
+}
+
+// AddDynamicRateMinMultiplier adds v to the "dynamic_rate_min_multiplier" field.
+func (u *GroupUpsertBulk) AddDynamicRateMinMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddDynamicRateMinMultiplier(v)
+	})
+}
+
+// UpdateDynamicRateMinMultiplier sets the "dynamic_rate_min_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateDynamicRateMinMultiplier() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDynamicRateMinMultiplier()
+	})
+}
+
+// SetDynamicRateTargetTokens sets the "dynamic_rate_target_tokens" field.
+func (u *GroupUpsertBulk) SetDynamicRateTargetTokens(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDynamicRateTargetTokens(v)
+	})
+}
+
+// AddDynamicRateTargetTokens adds v to the "dynamic_rate_target_tokens" field.
+func (u *GroupUpsertBulk) AddDynamicRateTargetTokens(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddDynamicRateTargetTokens(v)
+	})
+}
+
+// UpdateDynamicRateTargetTokens sets the "dynamic_rate_target_tokens" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateDynamicRateTargetTokens() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDynamicRateTargetTokens()
+	})
+}
+
+// SetDynamicRateWindowMinutes sets the "dynamic_rate_window_minutes" field.
+func (u *GroupUpsertBulk) SetDynamicRateWindowMinutes(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDynamicRateWindowMinutes(v)
+	})
+}
+
+// AddDynamicRateWindowMinutes adds v to the "dynamic_rate_window_minutes" field.
+func (u *GroupUpsertBulk) AddDynamicRateWindowMinutes(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddDynamicRateWindowMinutes(v)
+	})
+}
+
+// UpdateDynamicRateWindowMinutes sets the "dynamic_rate_window_minutes" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateDynamicRateWindowMinutes() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDynamicRateWindowMinutes()
 	})
 }
 

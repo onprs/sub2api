@@ -85,6 +85,31 @@ func RateMultiplier(v float64) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRateMultiplier, v))
 }
 
+// DynamicRateEnabled applies equality check predicate on the "dynamic_rate_enabled" field. It's identical to DynamicRateEnabledEQ.
+func DynamicRateEnabled(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldDynamicRateEnabled, v))
+}
+
+// DynamicRateMaxMultiplier applies equality check predicate on the "dynamic_rate_max_multiplier" field. It's identical to DynamicRateMaxMultiplierEQ.
+func DynamicRateMaxMultiplier(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldDynamicRateMaxMultiplier, v))
+}
+
+// DynamicRateMinMultiplier applies equality check predicate on the "dynamic_rate_min_multiplier" field. It's identical to DynamicRateMinMultiplierEQ.
+func DynamicRateMinMultiplier(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldDynamicRateMinMultiplier, v))
+}
+
+// DynamicRateTargetTokens applies equality check predicate on the "dynamic_rate_target_tokens" field. It's identical to DynamicRateTargetTokensEQ.
+func DynamicRateTargetTokens(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldDynamicRateTargetTokens, v))
+}
+
+// DynamicRateWindowMinutes applies equality check predicate on the "dynamic_rate_window_minutes" field. It's identical to DynamicRateWindowMinutesEQ.
+func DynamicRateWindowMinutes(v int) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldDynamicRateWindowMinutes, v))
+}
+
 // PeakRateEnabled applies equality check predicate on the "peak_rate_enabled" field. It's identical to PeakRateEnabledEQ.
 func PeakRateEnabled(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldPeakRateEnabled, v))
@@ -663,6 +688,176 @@ func RateMultiplierLT(v float64) predicate.Group {
 // RateMultiplierLTE applies the LTE predicate on the "rate_multiplier" field.
 func RateMultiplierLTE(v float64) predicate.Group {
 	return predicate.Group(sql.FieldLTE(FieldRateMultiplier, v))
+}
+
+// DynamicRateEnabledEQ applies the EQ predicate on the "dynamic_rate_enabled" field.
+func DynamicRateEnabledEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldDynamicRateEnabled, v))
+}
+
+// DynamicRateEnabledNEQ applies the NEQ predicate on the "dynamic_rate_enabled" field.
+func DynamicRateEnabledNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldDynamicRateEnabled, v))
+}
+
+// DynamicRateMaxMultiplierEQ applies the EQ predicate on the "dynamic_rate_max_multiplier" field.
+func DynamicRateMaxMultiplierEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldDynamicRateMaxMultiplier, v))
+}
+
+// DynamicRateMaxMultiplierNEQ applies the NEQ predicate on the "dynamic_rate_max_multiplier" field.
+func DynamicRateMaxMultiplierNEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldDynamicRateMaxMultiplier, v))
+}
+
+// DynamicRateMaxMultiplierIn applies the In predicate on the "dynamic_rate_max_multiplier" field.
+func DynamicRateMaxMultiplierIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldDynamicRateMaxMultiplier, vs...))
+}
+
+// DynamicRateMaxMultiplierNotIn applies the NotIn predicate on the "dynamic_rate_max_multiplier" field.
+func DynamicRateMaxMultiplierNotIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldDynamicRateMaxMultiplier, vs...))
+}
+
+// DynamicRateMaxMultiplierGT applies the GT predicate on the "dynamic_rate_max_multiplier" field.
+func DynamicRateMaxMultiplierGT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldDynamicRateMaxMultiplier, v))
+}
+
+// DynamicRateMaxMultiplierGTE applies the GTE predicate on the "dynamic_rate_max_multiplier" field.
+func DynamicRateMaxMultiplierGTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldDynamicRateMaxMultiplier, v))
+}
+
+// DynamicRateMaxMultiplierLT applies the LT predicate on the "dynamic_rate_max_multiplier" field.
+func DynamicRateMaxMultiplierLT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldDynamicRateMaxMultiplier, v))
+}
+
+// DynamicRateMaxMultiplierLTE applies the LTE predicate on the "dynamic_rate_max_multiplier" field.
+func DynamicRateMaxMultiplierLTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldDynamicRateMaxMultiplier, v))
+}
+
+// DynamicRateMinMultiplierEQ applies the EQ predicate on the "dynamic_rate_min_multiplier" field.
+func DynamicRateMinMultiplierEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldDynamicRateMinMultiplier, v))
+}
+
+// DynamicRateMinMultiplierNEQ applies the NEQ predicate on the "dynamic_rate_min_multiplier" field.
+func DynamicRateMinMultiplierNEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldDynamicRateMinMultiplier, v))
+}
+
+// DynamicRateMinMultiplierIn applies the In predicate on the "dynamic_rate_min_multiplier" field.
+func DynamicRateMinMultiplierIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldDynamicRateMinMultiplier, vs...))
+}
+
+// DynamicRateMinMultiplierNotIn applies the NotIn predicate on the "dynamic_rate_min_multiplier" field.
+func DynamicRateMinMultiplierNotIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldDynamicRateMinMultiplier, vs...))
+}
+
+// DynamicRateMinMultiplierGT applies the GT predicate on the "dynamic_rate_min_multiplier" field.
+func DynamicRateMinMultiplierGT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldDynamicRateMinMultiplier, v))
+}
+
+// DynamicRateMinMultiplierGTE applies the GTE predicate on the "dynamic_rate_min_multiplier" field.
+func DynamicRateMinMultiplierGTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldDynamicRateMinMultiplier, v))
+}
+
+// DynamicRateMinMultiplierLT applies the LT predicate on the "dynamic_rate_min_multiplier" field.
+func DynamicRateMinMultiplierLT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldDynamicRateMinMultiplier, v))
+}
+
+// DynamicRateMinMultiplierLTE applies the LTE predicate on the "dynamic_rate_min_multiplier" field.
+func DynamicRateMinMultiplierLTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldDynamicRateMinMultiplier, v))
+}
+
+// DynamicRateTargetTokensEQ applies the EQ predicate on the "dynamic_rate_target_tokens" field.
+func DynamicRateTargetTokensEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldDynamicRateTargetTokens, v))
+}
+
+// DynamicRateTargetTokensNEQ applies the NEQ predicate on the "dynamic_rate_target_tokens" field.
+func DynamicRateTargetTokensNEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldDynamicRateTargetTokens, v))
+}
+
+// DynamicRateTargetTokensIn applies the In predicate on the "dynamic_rate_target_tokens" field.
+func DynamicRateTargetTokensIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldDynamicRateTargetTokens, vs...))
+}
+
+// DynamicRateTargetTokensNotIn applies the NotIn predicate on the "dynamic_rate_target_tokens" field.
+func DynamicRateTargetTokensNotIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldDynamicRateTargetTokens, vs...))
+}
+
+// DynamicRateTargetTokensGT applies the GT predicate on the "dynamic_rate_target_tokens" field.
+func DynamicRateTargetTokensGT(v int64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldDynamicRateTargetTokens, v))
+}
+
+// DynamicRateTargetTokensGTE applies the GTE predicate on the "dynamic_rate_target_tokens" field.
+func DynamicRateTargetTokensGTE(v int64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldDynamicRateTargetTokens, v))
+}
+
+// DynamicRateTargetTokensLT applies the LT predicate on the "dynamic_rate_target_tokens" field.
+func DynamicRateTargetTokensLT(v int64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldDynamicRateTargetTokens, v))
+}
+
+// DynamicRateTargetTokensLTE applies the LTE predicate on the "dynamic_rate_target_tokens" field.
+func DynamicRateTargetTokensLTE(v int64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldDynamicRateTargetTokens, v))
+}
+
+// DynamicRateWindowMinutesEQ applies the EQ predicate on the "dynamic_rate_window_minutes" field.
+func DynamicRateWindowMinutesEQ(v int) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldDynamicRateWindowMinutes, v))
+}
+
+// DynamicRateWindowMinutesNEQ applies the NEQ predicate on the "dynamic_rate_window_minutes" field.
+func DynamicRateWindowMinutesNEQ(v int) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldDynamicRateWindowMinutes, v))
+}
+
+// DynamicRateWindowMinutesIn applies the In predicate on the "dynamic_rate_window_minutes" field.
+func DynamicRateWindowMinutesIn(vs ...int) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldDynamicRateWindowMinutes, vs...))
+}
+
+// DynamicRateWindowMinutesNotIn applies the NotIn predicate on the "dynamic_rate_window_minutes" field.
+func DynamicRateWindowMinutesNotIn(vs ...int) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldDynamicRateWindowMinutes, vs...))
+}
+
+// DynamicRateWindowMinutesGT applies the GT predicate on the "dynamic_rate_window_minutes" field.
+func DynamicRateWindowMinutesGT(v int) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldDynamicRateWindowMinutes, v))
+}
+
+// DynamicRateWindowMinutesGTE applies the GTE predicate on the "dynamic_rate_window_minutes" field.
+func DynamicRateWindowMinutesGTE(v int) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldDynamicRateWindowMinutes, v))
+}
+
+// DynamicRateWindowMinutesLT applies the LT predicate on the "dynamic_rate_window_minutes" field.
+func DynamicRateWindowMinutesLT(v int) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldDynamicRateWindowMinutes, v))
+}
+
+// DynamicRateWindowMinutesLTE applies the LTE predicate on the "dynamic_rate_window_minutes" field.
+func DynamicRateWindowMinutesLTE(v int) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldDynamicRateWindowMinutes, v))
 }
 
 // PeakRateEnabledEQ applies the EQ predicate on the "peak_rate_enabled" field.

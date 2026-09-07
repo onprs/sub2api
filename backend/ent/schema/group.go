@@ -47,6 +47,23 @@ func (Group) Fields() []ent.Field {
 		field.Float("rate_multiplier").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
 			Default(1.0),
+		field.Bool("dynamic_rate_enabled").
+			Default(false).
+			Comment("是否按用户在滚动窗口内的累计 Token 动态降低倍率"),
+		field.Float("dynamic_rate_max_multiplier").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(1.0).
+			Comment("动态倍率起始值；窗口累计 Token 为 0 时使用"),
+		field.Float("dynamic_rate_min_multiplier").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(1.0).
+			Comment("动态倍率下限；窗口累计 Token 达到目标后使用"),
+		field.Int64("dynamic_rate_target_tokens").
+			Default(1000000).
+			Comment("动态倍率达到下限所需的窗口累计 Token"),
+		field.Int("dynamic_rate_window_minutes").
+			Default(1440).
+			Comment("动态倍率 Token 统计滚动窗口，单位为分钟"),
 		// 高峰时段倍率（added by migration 158）
 		field.Bool("peak_rate_enabled").
 			Default(false).

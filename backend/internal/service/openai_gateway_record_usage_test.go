@@ -394,6 +394,176 @@ func TestOpenAIGatewayServiceRecordUsage_MissingPricingRecordsZeroCostUsageLog(t
 	require.Zero(t, billingRepo.lastCmd.AccountQuotaCost)
 }
 
+func TestOpenAIGatewayServiceRecordUsage_WritesResolvedDynamicRateToUsageLog(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	dynamicRepo := &dynamicRateUsageRepoStub{multiplier: 0.14}
+	svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(
+		usageRepo,
+		dynamicRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+		nil,
+	)
+	groupID := int64(42)
+	group := testDynamicRateGroup()
+	group.ID = groupID
+	usage := OpenAIUsage{
+		InputTokens:              400,
+		OutputTokens:             100,
+		CacheReadInputTokens:     50,
+		CacheCreationInputTokens: 50,
+	}
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID: "openai_dynamic_rate",
+			Usage:     usage,
+			Model:     "gpt-5.1",
+			Duration:  time.Second,
+		},
+		APIKey: &APIKey{
+			ID:      1001,
+			GroupID: &groupID,
+			Group:   group,
+		},
+		User:    &User{ID: 2001},
+		Account: &Account{ID: 3001},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, dynamicRepo.command)
+	require.Equal(t, int64(500), dynamicRepo.command.TotalTokens)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Equal(t, 0.14, usageRepo.lastLog.RateMultiplier)
+	require.InDelta(t, usageRepo.lastLog.TotalCost*0.14, usageRepo.lastLog.ActualCost, 1e-12)
+}
+
+func TestOpenAIGatewayServiceRecordUsage_DynamicRateDoesNotAffectIndependentImageBilling(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	dynamicRepo := &dynamicRateUsageRepoStub{multiplier: 0.13}
+	svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(
+		usageRepo,
+		dynamicRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+		nil,
+	)
+	groupID := int64(43)
+	imagePrice := 0.2
+	group := testDynamicRateGroup()
+	group.ID = groupID
+	group.ImageRateIndependent = true
+	group.ImageRateMultiplier = 0.4
+	group.ImagePrice1K = &imagePrice
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID:  "openai_dynamic_rate_independent_image",
+			Model:      "gpt-image-2",
+			ImageCount: 1,
+			ImageSize:  "1K",
+			Usage:      OpenAIUsage{InputTokens: 500},
+			Duration:   time.Second,
+		},
+		APIKey: &APIKey{ID: 1002, GroupID: &groupID, Group: group},
+		User:   &User{ID: 2002},
+		Account: &Account{
+			ID: 3002,
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, dynamicRepo.applyCalls)
+	require.Nil(t, dynamicRepo.command)
+	require.NotNil(t, usageRepo.lastLog)
+	require.NotNil(t, usageRepo.lastLog.BillingMode)
+	require.Equal(t, string(BillingModeImage), *usageRepo.lastLog.BillingMode)
+	require.Equal(t, group.ImageRateMultiplier, usageRepo.lastLog.RateMultiplier)
+	require.InDelta(t, imagePrice*group.ImageRateMultiplier, usageRepo.lastLog.ActualCost, 1e-12)
+}
+
+func TestOpenAIGatewayServiceRecordUsage_DynamicRateDoesNotAffectPerRequestPricing(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	dynamicRepo := &dynamicRateUsageRepoStub{multiplier: 0.13}
+	svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(
+		usageRepo,
+		dynamicRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+		nil,
+	)
+	groupID := int64(44)
+	price := 2.0
+	group := testDynamicRateGroup()
+	group.ID = groupID
+	svc.resolver = newOpenAIPerRequestChannelPricingResolverForTest(t, groupID, "gpt-flat", price)
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID: "openai_dynamic_rate_per_request",
+			Model:     "gpt-flat",
+			Usage:     OpenAIUsage{InputTokens: 500},
+			Duration:  time.Second,
+		},
+		APIKey: &APIKey{ID: 1003, GroupID: &groupID, Group: group},
+		User:   &User{ID: 2003},
+		Account: &Account{
+			ID: 3003,
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, dynamicRepo.applyCalls)
+	require.Nil(t, dynamicRepo.command)
+	require.NotNil(t, usageRepo.lastLog)
+	require.NotNil(t, usageRepo.lastLog.BillingMode)
+	require.Equal(t, string(BillingModePerRequest), *usageRepo.lastLog.BillingMode)
+	require.Equal(t, group.RateMultiplier, usageRepo.lastLog.RateMultiplier)
+	require.InDelta(t, price*group.RateMultiplier, usageRepo.lastLog.ActualCost, 1e-12)
+}
+
+func TestOpenAIGatewayServiceRecordUsage_DynamicRateExcludesSearchSurcharge(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	dynamicRepo := &dynamicRateUsageRepoStub{multiplier: 0.14}
+	svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(
+		usageRepo,
+		dynamicRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+		nil,
+	)
+	groupID := int64(45)
+	searchPricePer1K := 10.0
+	group := testDynamicRateGroup()
+	group.ID = groupID
+	group.SearchPricePer1k = &searchPricePer1K
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID:   "openai_dynamic_rate_search_surcharge",
+			Model:       "gpt-5.1",
+			Usage:       OpenAIUsage{InputTokens: 1_000},
+			SearchCount: 1,
+			Duration:    time.Second,
+		},
+		APIKey: &APIKey{ID: 1004, GroupID: &groupID, Group: group},
+		User:   &User{ID: 2004},
+		Account: &Account{
+			ID: 3004,
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, dynamicRepo.command)
+	require.NotNil(t, dynamicRepo.billing)
+	searchCost := svc.billingService.CalculateSearchCost(1, &searchPricePer1K, group.RateMultiplier)
+	require.InDelta(t, searchCost.ActualCost, dynamicRepo.billing.DynamicRateExcludedCost, 1e-12)
+	require.NotNil(t, usageRepo.lastLog)
+	tokenBaseCost := usageRepo.lastLog.TotalCost - searchCost.TotalCost
+	require.InDelta(t, tokenBaseCost*0.14+searchCost.ActualCost, usageRepo.lastLog.ActualCost, 1e-8)
+	require.Equal(t, 0.14, usageRepo.lastLog.RateMultiplier)
+}
+
 func TestOpenAIGatewayServiceRecordUsage_UsesUserSpecificGroupRate(t *testing.T) {
 	groupID := int64(11)
 	groupRate := 1.4
@@ -2907,6 +3077,21 @@ func newOpenAIImageChannelPricingResolverForTest(t *testing.T, groupID int64, mo
 	return NewModelPricingResolver(cs, NewBillingService(&config.Config{}, nil))
 }
 
+func newOpenAIPerRequestChannelPricingResolverForTest(t *testing.T, groupID int64, model string, price float64) *ModelPricingResolver {
+	t.Helper()
+	cache := newEmptyChannelCache()
+	cache.pricingByGroupModel[channelModelKey{groupID: groupID, model: model}] = &ChannelModelPricing{
+		BillingMode:     BillingModePerRequest,
+		PerRequestPrice: &price,
+	}
+	cache.channelByGroupID[groupID] = &Channel{ID: groupID, Status: StatusActive}
+	cache.groupPlatform[groupID] = ""
+	cache.loadedAt = time.Now()
+	cs := &ChannelService{}
+	cs.cache.Store(cache)
+	return NewModelPricingResolver(cs, NewBillingService(&config.Config{}, nil))
+}
+
 func newOpenAITokenImageChannelPricingResolverForTest(t *testing.T, groupID int64, model string) *ModelPricingResolver {
 	t.Helper()
 	inputPrice := 3e-6
@@ -2969,6 +3154,7 @@ func TestGatewayServiceCalculateRecordUsageCost_ChannelImageBillingUsesImageCoun
 		"gemini-image",
 		0.15,
 		1.0,
+		1.0,
 		time.Time{},
 		nil,
 	)
@@ -3010,6 +3196,7 @@ func TestGatewayServiceCalculateRecordUsageCost_ChannelImageBillingUsesSizeTier(
 		"gemini-image",
 		1.0,
 		1.0,
+		1.0,
 		time.Time{},
 		nil,
 	)
@@ -3042,6 +3229,7 @@ func TestGatewayServiceCalculateRecordUsageCost_GroupImagePriceOverridesChannelI
 			},
 		},
 		"gemini-image",
+		1.0,
 		1.0,
 		1.0,
 		time.Time{},
@@ -3133,6 +3321,7 @@ func TestGatewayServiceCalculateRecordUsageCost_ChannelImageBillingNormalizesMis
 		&ForwardResult{Model: "gemini-image", ImageCount: 2, ImageSize: ""},
 		&APIKey{GroupID: i64p(groupID), Group: &Group{ID: groupID}},
 		"gemini-image",
+		1.0,
 		1.0,
 		1.0,
 		time.Time{},

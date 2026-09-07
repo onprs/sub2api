@@ -22,6 +22,13 @@ type Group struct {
 	Description    string
 	Platform       string
 	RateMultiplier float64
+	// 动态倍率按用户在滚动窗口内的累计 Token，从最高倍率线性下降到最低倍率。
+	// 用户专属分组倍率存在时不启用动态倍率。
+	DynamicRateEnabled       bool
+	DynamicRateMaxMultiplier float64
+	DynamicRateMinMultiplier float64
+	DynamicRateTargetTokens  int64
+	DynamicRateWindowMinutes int
 	// 高峰时段倍率：peak_rate_enabled 为 true 且当前时刻处于 [PeakStart, PeakEnd) 时，
 	// token 计费倍率额外乘以 PeakRateMultiplier。详见 PeakMultiplierAt。
 	PeakRateEnabled    bool
@@ -131,7 +138,8 @@ type Group struct {
 
 	// 分组利润控制（五个 token 计费平台可启用）。
 	// 调度准入条件：账号倍率 U 满足 U <= D*(1-margin-buffer)，
-	// D 为请求用户当刻有效下游倍率（用户覆盖 ?? 分组默认，再乘高峰因子）。
+	// D 为请求用户的保守下游倍率（用户覆盖 ?? 动态最低倍率 ?? 分组默认，再乘高峰因子）。
+	// 动态倍率要等上游返回 Token 后才能在账务事务内确定，因此准入阶段使用最低倍率保证利润下限。
 	// 只过滤候选账号，不改变既有排序/评分/粘性/熔断。
 	ProfitControlEnabled bool
 	ProfitMinMargin      float64 // 最低毛利率，小数存储（0.30=30%）
@@ -154,7 +162,58 @@ func (g *Group) IsSubscriptionType() bool {
 	return g.SubscriptionType == SubscriptionTypeSubscription
 }
 
-const defaultOpenAIGPT56CacheWriteInferenceMinTokens = 1024
+const (
+	defaultOpenAIGPT56CacheWriteInferenceMinTokens = 1024
+	DefaultDynamicRateMaxMultiplier                = 1.0
+	DefaultDynamicRateMinMultiplier                = 1.0
+	DefaultDynamicRateTargetTokens                 = int64(1_000_000)
+	DefaultDynamicRateWindowMinutes                = 24 * 60
+	MaxDynamicRateWindowMinutes                    = 30 * 24 * 60
+	MaxDynamicRateMultiplier                       = 999999.9999
+)
+
+// ValidateDynamicRateConfig 校验动态倍率的持久化不变式。
+func ValidateDynamicRateConfig(maxMultiplier, minMultiplier float64, targetTokens int64, windowMinutes int) error {
+	if math.IsNaN(maxMultiplier) || math.IsInf(maxMultiplier, 0) || maxMultiplier < 0 || maxMultiplier > MaxDynamicRateMultiplier {
+		return fmt.Errorf("dynamic_rate_max_multiplier must be a finite number between 0 and %.4f", MaxDynamicRateMultiplier)
+	}
+	if math.IsNaN(minMultiplier) || math.IsInf(minMultiplier, 0) || minMultiplier < 0 || minMultiplier > MaxDynamicRateMultiplier {
+		return fmt.Errorf("dynamic_rate_min_multiplier must be a finite number between 0 and %.4f", MaxDynamicRateMultiplier)
+	}
+	if maxMultiplier < minMultiplier {
+		return errors.New("dynamic_rate_max_multiplier must be >= dynamic_rate_min_multiplier")
+	}
+	if targetTokens <= 0 {
+		return errors.New("dynamic_rate_target_tokens must be > 0")
+	}
+	if windowMinutes <= 0 || windowMinutes > MaxDynamicRateWindowMinutes {
+		return fmt.Errorf("dynamic_rate_window_minutes must be between 1 and %d", MaxDynamicRateWindowMinutes)
+	}
+	return nil
+}
+
+// DynamicRateMultiplier 返回包含当前请求 Token 后的动态倍率，并量化到 usage_logs 的四位小数刻度。
+func (g *Group) DynamicRateMultiplier(accumulatedTokens int64) float64 {
+	if g == nil || !g.DynamicRateEnabled {
+		if g == nil {
+			return 1
+		}
+		return g.RateMultiplier
+	}
+	if accumulatedTokens <= 0 {
+		return quantizeRateMultiplier(g.DynamicRateMaxMultiplier)
+	}
+	if accumulatedTokens >= g.DynamicRateTargetTokens {
+		return quantizeRateMultiplier(g.DynamicRateMinMultiplier)
+	}
+	ratio := float64(accumulatedTokens) / float64(g.DynamicRateTargetTokens)
+	rate := g.DynamicRateMaxMultiplier - ratio*(g.DynamicRateMaxMultiplier-g.DynamicRateMinMultiplier)
+	return quantizeRateMultiplier(rate)
+}
+
+func quantizeRateMultiplier(value float64) float64 {
+	return math.Round(value*10_000) / 10_000
+}
 
 // ShouldInferGPT56CacheWrite 表示当前 OpenAI 分组是否启用缺失缓存写入量推断。
 func (g *Group) ShouldInferGPT56CacheWrite() bool {

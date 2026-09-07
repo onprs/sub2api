@@ -318,6 +318,26 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		return nil, errors.New("rate_multiplier must be >= 0")
 	}
 
+	dynamicRateMaxMultiplier := DefaultDynamicRateMaxMultiplier
+	if input.DynamicRateMaxMultiplier != nil {
+		dynamicRateMaxMultiplier = *input.DynamicRateMaxMultiplier
+	}
+	dynamicRateMinMultiplier := DefaultDynamicRateMinMultiplier
+	if input.DynamicRateMinMultiplier != nil {
+		dynamicRateMinMultiplier = *input.DynamicRateMinMultiplier
+	}
+	dynamicRateTargetTokens := DefaultDynamicRateTargetTokens
+	if input.DynamicRateTargetTokens != nil {
+		dynamicRateTargetTokens = *input.DynamicRateTargetTokens
+	}
+	dynamicRateWindowMinutes := DefaultDynamicRateWindowMinutes
+	if input.DynamicRateWindowMinutes != nil {
+		dynamicRateWindowMinutes = *input.DynamicRateWindowMinutes
+	}
+	if err := ValidateDynamicRateConfig(dynamicRateMaxMultiplier, dynamicRateMinMultiplier, dynamicRateTargetTokens, dynamicRateWindowMinutes); err != nil {
+		return nil, err
+	}
+
 	platform := NormalizeGroupPlatform(input.Platform)
 	// 固定账号 manifest 配置：账号绑定发生在创建之后，创建时无法校验成员关系，
 	// 拒绝开启并在创建后的编辑里配置。
@@ -489,6 +509,11 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		Description:                     input.Description,
 		Platform:                        platform,
 		RateMultiplier:                  input.RateMultiplier,
+		DynamicRateEnabled:              input.DynamicRateEnabled,
+		DynamicRateMaxMultiplier:        dynamicRateMaxMultiplier,
+		DynamicRateMinMultiplier:        dynamicRateMinMultiplier,
+		DynamicRateTargetTokens:         dynamicRateTargetTokens,
+		DynamicRateWindowMinutes:        dynamicRateWindowMinutes,
 		IsExclusive:                     input.IsExclusive,
 		Status:                          StatusActive,
 		SubscriptionType:                subscriptionType,
@@ -697,6 +722,31 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 			return nil, errors.New("rate_multiplier must be >= 0")
 		}
 		group.RateMultiplier = *input.RateMultiplier
+	}
+	if input.DynamicRateEnabled != nil {
+		group.DynamicRateEnabled = *input.DynamicRateEnabled
+	}
+	if input.DynamicRateMaxMultiplier != nil {
+		group.DynamicRateMaxMultiplier = *input.DynamicRateMaxMultiplier
+	}
+	if input.DynamicRateMinMultiplier != nil {
+		group.DynamicRateMinMultiplier = *input.DynamicRateMinMultiplier
+	}
+	if input.DynamicRateTargetTokens != nil {
+		group.DynamicRateTargetTokens = *input.DynamicRateTargetTokens
+	}
+	if input.DynamicRateWindowMinutes != nil {
+		group.DynamicRateWindowMinutes = *input.DynamicRateWindowMinutes
+	}
+	dynamicRateTouched := input.DynamicRateEnabled != nil ||
+		input.DynamicRateMaxMultiplier != nil ||
+		input.DynamicRateMinMultiplier != nil ||
+		input.DynamicRateTargetTokens != nil ||
+		input.DynamicRateWindowMinutes != nil
+	if group.DynamicRateEnabled || dynamicRateTouched {
+		if err := ValidateDynamicRateConfig(group.DynamicRateMaxMultiplier, group.DynamicRateMinMultiplier, group.DynamicRateTargetTokens, group.DynamicRateWindowMinutes); err != nil {
+			return nil, err
+		}
 	}
 	if input.IsExclusive != nil {
 		group.IsExclusive = *input.IsExclusive

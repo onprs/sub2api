@@ -13,7 +13,7 @@
     <span v-if="showLabel" :class="labelClass">
       <template v-if="hasCustomRate">
         <!-- 原倍率删除线 + 专属倍率高亮 -->
-        <span class="line-through opacity-50 mr-0.5">{{ rateMultiplier }}x</span>
+        <span class="line-through opacity-50 mr-0.5">{{ defaultRateLabel }}</span>
         <span class="font-bold">{{ userRateMultiplier }}x</span>
       </template>
       <template v-else>
@@ -39,6 +39,9 @@ interface Props {
   platform?: GroupPlatform
   subscriptionType?: SubscriptionType
   rateMultiplier?: number
+  dynamicRateEnabled?: boolean
+  dynamicRateMaxMultiplier?: number
+  dynamicRateMinMultiplier?: number
   userRateMultiplier?: number | null // 用户专属倍率
   peakRateEnabled?: boolean
   peakStart?: string
@@ -60,6 +63,7 @@ const props = withDefaults(defineProps<Props>(), {
   daysRemaining: null,
   userRateMultiplier: null,
   peakRateEnabled: false,
+  dynamicRateEnabled: false,
   alwaysShowRate: false
 })
 
@@ -67,13 +71,25 @@ const { t } = useI18n()
 
 const isSubscription = computed(() => props.subscriptionType === 'subscription')
 
-// 是否有专属倍率（且与默认倍率不同）
+const defaultRateLabel = computed(() => {
+  if (
+    props.dynamicRateEnabled &&
+    props.dynamicRateMinMultiplier !== undefined &&
+    props.dynamicRateMaxMultiplier !== undefined
+  ) {
+    return `${props.dynamicRateMinMultiplier}x-${props.dynamicRateMaxMultiplier}x`
+  }
+  return props.rateMultiplier !== undefined ? `${props.rateMultiplier}x` : ''
+})
+
+// 动态分组只要存在专属倍率就显示覆盖；静态分组维持相同倍率不重复展示。
 const hasCustomRate = computed(() => {
   return (
     props.userRateMultiplier !== null &&
     props.userRateMultiplier !== undefined &&
-    props.rateMultiplier !== undefined &&
-    props.userRateMultiplier !== props.rateMultiplier
+    (props.dynamicRateEnabled ||
+      props.rateMultiplier === undefined ||
+      props.userRateMultiplier !== props.rateMultiplier)
   )
 })
 
@@ -110,7 +126,7 @@ const showLabel = computed(() => {
 
 // Label text
 const labelText = computed(() => {
-  const rateLabel = props.rateMultiplier !== undefined ? `${props.rateMultiplier}x` : ''
+  const rateLabel = defaultRateLabel.value
   if (isSubscription.value && !props.alwaysShowRate) {
     // 如果有剩余天数，显示天数
     if (props.daysRemaining !== null && props.daysRemaining !== undefined) {

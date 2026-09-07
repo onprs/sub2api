@@ -69,17 +69,22 @@ func (h *AvailableChannelHandler) featureEnabled(c *gin.Context) bool {
 // 订阅视觉加深），并展示默认倍率与高峰倍率规则；用户专属倍率前端走
 // /groups/rates，和 API 密钥页面保持一致。
 type userAvailableGroup struct {
-	ID                    int64   `json:"id"`
-	Name                  string  `json:"name"`
-	Platform              string  `json:"platform"`
-	SubscriptionType      string  `json:"subscription_type"`
-	RateMultiplier        float64 `json:"rate_multiplier"`
-	PeakRateEnabled       bool    `json:"peak_rate_enabled"`
-	PeakStart             string  `json:"peak_start"`
-	PeakEnd               string  `json:"peak_end"`
-	PeakRateMultiplier    float64 `json:"peak_rate_multiplier"`
-	CurrentPeakMultiplier float64 `json:"current_peak_multiplier"`
-	IsExclusive           bool    `json:"is_exclusive"`
+	ID                       int64   `json:"id"`
+	Name                     string  `json:"name"`
+	Platform                 string  `json:"platform"`
+	SubscriptionType         string  `json:"subscription_type"`
+	RateMultiplier           float64 `json:"rate_multiplier"`
+	DynamicRateEnabled       bool    `json:"dynamic_rate_enabled"`
+	DynamicRateMaxMultiplier float64 `json:"dynamic_rate_max_multiplier"`
+	DynamicRateMinMultiplier float64 `json:"dynamic_rate_min_multiplier"`
+	DynamicRateTargetTokens  int64   `json:"dynamic_rate_target_tokens"`
+	DynamicRateWindowMinutes int     `json:"dynamic_rate_window_minutes"`
+	PeakRateEnabled          bool    `json:"peak_rate_enabled"`
+	PeakStart                string  `json:"peak_start"`
+	PeakEnd                  string  `json:"peak_end"`
+	PeakRateMultiplier       float64 `json:"peak_rate_multiplier"`
+	CurrentPeakMultiplier    float64 `json:"current_peak_multiplier"`
+	IsExclusive              bool    `json:"is_exclusive"`
 }
 
 // userSupportedModelPricing 用户可见的定价字段白名单。
@@ -497,17 +502,22 @@ func filterUserVisibleGroups(
 			continue
 		}
 		visible = append(visible, userAvailableGroup{
-			ID:                    g.ID,
-			Name:                  g.Name,
-			Platform:              g.Platform,
-			SubscriptionType:      g.SubscriptionType,
-			RateMultiplier:        g.RateMultiplier,
-			PeakRateEnabled:       g.PeakRateEnabled,
-			PeakStart:             g.PeakStart,
-			PeakEnd:               g.PeakEnd,
-			PeakRateMultiplier:    g.PeakRateMultiplier,
-			CurrentPeakMultiplier: currentPeakMultiplierAt(g.SubscriptionType, g.PeakRateEnabled, g.PeakStart, g.PeakEnd, g.PeakRateMultiplier, pricingAt),
-			IsExclusive:           g.IsExclusive,
+			ID:                       g.ID,
+			Name:                     g.Name,
+			Platform:                 g.Platform,
+			SubscriptionType:         g.SubscriptionType,
+			RateMultiplier:           g.RateMultiplier,
+			DynamicRateEnabled:       g.DynamicRateEnabled,
+			DynamicRateMaxMultiplier: g.DynamicRateMaxMultiplier,
+			DynamicRateMinMultiplier: g.DynamicRateMinMultiplier,
+			DynamicRateTargetTokens:  g.DynamicRateTargetTokens,
+			DynamicRateWindowMinutes: g.DynamicRateWindowMinutes,
+			PeakRateEnabled:          g.PeakRateEnabled,
+			PeakStart:                g.PeakStart,
+			PeakEnd:                  g.PeakEnd,
+			PeakRateMultiplier:       g.PeakRateMultiplier,
+			CurrentPeakMultiplier:    currentPeakMultiplierAt(g.SubscriptionType, g.PeakRateEnabled, g.PeakStart, g.PeakEnd, g.PeakRateMultiplier, pricingAt),
+			IsExclusive:              g.IsExclusive,
 		})
 	}
 	return visible
@@ -515,17 +525,22 @@ func filterUserVisibleGroups(
 
 func userAvailableGroupFromServiceAt(g service.Group, pricingAt time.Time) userAvailableGroup {
 	return userAvailableGroup{
-		ID:                    g.ID,
-		Name:                  g.Name,
-		Platform:              g.Platform,
-		SubscriptionType:      g.SubscriptionType,
-		RateMultiplier:        g.RateMultiplier,
-		PeakRateEnabled:       g.PeakRateEnabled,
-		PeakStart:             g.PeakStart,
-		PeakEnd:               g.PeakEnd,
-		PeakRateMultiplier:    g.PeakRateMultiplier,
-		CurrentPeakMultiplier: g.PeakMultiplierAt(pricingAt),
-		IsExclusive:           g.IsExclusive,
+		ID:                       g.ID,
+		Name:                     g.Name,
+		Platform:                 g.Platform,
+		SubscriptionType:         g.SubscriptionType,
+		RateMultiplier:           g.RateMultiplier,
+		DynamicRateEnabled:       g.DynamicRateEnabled,
+		DynamicRateMaxMultiplier: g.DynamicRateMaxMultiplier,
+		DynamicRateMinMultiplier: g.DynamicRateMinMultiplier,
+		DynamicRateTargetTokens:  g.DynamicRateTargetTokens,
+		DynamicRateWindowMinutes: g.DynamicRateWindowMinutes,
+		PeakRateEnabled:          g.PeakRateEnabled,
+		PeakStart:                g.PeakStart,
+		PeakEnd:                  g.PeakEnd,
+		PeakRateMultiplier:       g.PeakRateMultiplier,
+		CurrentPeakMultiplier:    g.PeakMultiplierAt(pricingAt),
+		IsExclusive:              g.IsExclusive,
 	}
 }
 

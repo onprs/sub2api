@@ -613,6 +613,40 @@
           />
           <p class="input-hint">{{ t("admin.groups.rateMultiplierHint") }}</p>
         </div>
+        <div class="border-t pt-4">
+          <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input
+              v-model="createForm.dynamic_rate_enabled"
+              type="checkbox"
+              class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span>{{ t("admin.groups.dynamicRate.enable") }}</span>
+          </label>
+          <p class="mb-3 mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.groups.dynamicRate.hint") }}
+          </p>
+          <div
+            v-if="createForm.dynamic_rate_enabled"
+            class="grid grid-cols-1 gap-3 sm:grid-cols-2"
+          >
+            <div>
+              <label class="input-label">{{ t("admin.groups.dynamicRate.maxMultiplier") }}</label>
+              <input v-model.number="createForm.dynamic_rate_max_multiplier" type="number" min="0" max="999999.9999" step="0.0001" class="input" />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.dynamicRate.minMultiplier") }}</label>
+              <input v-model.number="createForm.dynamic_rate_min_multiplier" type="number" min="0" max="999999.9999" step="0.0001" class="input" />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.dynamicRate.targetTokens") }}</label>
+              <input v-model.number="createForm.dynamic_rate_target_tokens" type="number" min="1" step="1" class="input" />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.dynamicRate.windowMinutes") }}</label>
+              <input v-model.number="createForm.dynamic_rate_window_minutes" type="number" min="1" max="43200" step="1" class="input" />
+            </div>
+          </div>
+        </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
           <input
@@ -2384,6 +2418,40 @@
             class="input"
             data-tour="group-form-multiplier"
           />
+        </div>
+        <div class="border-t pt-4">
+          <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input
+              v-model="editForm.dynamic_rate_enabled"
+              type="checkbox"
+              class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span>{{ t("admin.groups.dynamicRate.enable") }}</span>
+          </label>
+          <p class="mb-3 mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.groups.dynamicRate.hint") }}
+          </p>
+          <div
+            v-if="editForm.dynamic_rate_enabled"
+            class="grid grid-cols-1 gap-3 sm:grid-cols-2"
+          >
+            <div>
+              <label class="input-label">{{ t("admin.groups.dynamicRate.maxMultiplier") }}</label>
+              <input v-model.number="editForm.dynamic_rate_max_multiplier" type="number" min="0" max="999999.9999" step="0.0001" class="input" />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.dynamicRate.minMultiplier") }}</label>
+              <input v-model.number="editForm.dynamic_rate_min_multiplier" type="number" min="0" max="999999.9999" step="0.0001" class="input" />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.dynamicRate.targetTokens") }}</label>
+              <input v-model.number="editForm.dynamic_rate_target_tokens" type="number" min="1" step="1" class="input" />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.dynamicRate.windowMinutes") }}</label>
+              <input v-model.number="editForm.dynamic_rate_window_minutes" type="number" min="1" max="43200" step="1" class="input" />
+            </div>
+          </div>
         </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
@@ -5163,6 +5231,11 @@ const createForm = reactive({
   description: "",
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
+  dynamic_rate_enabled: false,
+  dynamic_rate_max_multiplier: 1.0,
+  dynamic_rate_min_multiplier: 1.0,
+  dynamic_rate_target_tokens: 1_000_000,
+  dynamic_rate_window_minutes: 1440,
   is_exclusive: false,
   subscription_type: "standard" as SubscriptionType,
   daily_limit_usd: null as number | null,
@@ -5529,6 +5602,11 @@ const editForm = reactive({
   description: "",
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
+  dynamic_rate_enabled: false,
+  dynamic_rate_max_multiplier: 1.0,
+  dynamic_rate_min_multiplier: 1.0,
+  dynamic_rate_target_tokens: 1_000_000,
+  dynamic_rate_window_minutes: 1440,
   is_exclusive: false,
   status: "active" as "active" | "inactive",
   subscription_type: "standard" as SubscriptionType,
@@ -5995,6 +6073,11 @@ const closeCreateModal = () => {
   createForm.description = "";
   createForm.platform = "anthropic";
   createForm.rate_multiplier = 1.0;
+  createForm.dynamic_rate_enabled = false;
+  createForm.dynamic_rate_max_multiplier = 1.0;
+  createForm.dynamic_rate_min_multiplier = 1.0;
+  createForm.dynamic_rate_target_tokens = 1_000_000;
+  createForm.dynamic_rate_window_minutes = 1440;
   createForm.is_exclusive = false;
   createForm.subscription_type = "standard";
   createForm.daily_limit_usd = null;
@@ -6094,6 +6177,38 @@ const validateProfitControlForm = (form: ProfitControlFormState): boolean => {
   return true;
 };
 
+type DynamicRateFormState = {
+  dynamic_rate_enabled: boolean;
+  dynamic_rate_max_multiplier: number;
+  dynamic_rate_min_multiplier: number;
+  dynamic_rate_target_tokens: number;
+  dynamic_rate_window_minutes: number;
+};
+
+const validateDynamicRateForm = (form: DynamicRateFormState): boolean => {
+  const maxMultiplier = Number(form.dynamic_rate_max_multiplier);
+  const minMultiplier = Number(form.dynamic_rate_min_multiplier);
+  const targetTokens = Number(form.dynamic_rate_target_tokens);
+  const windowMinutes = Number(form.dynamic_rate_window_minutes);
+  const valid =
+    Number.isFinite(maxMultiplier) &&
+    maxMultiplier >= 0 &&
+    maxMultiplier <= 999_999.9999 &&
+    Number.isFinite(minMultiplier) &&
+    minMultiplier >= 0 &&
+    minMultiplier <= 999_999.9999 &&
+    maxMultiplier >= minMultiplier &&
+    Number.isSafeInteger(targetTokens) &&
+    targetTokens > 0 &&
+    Number.isInteger(windowMinutes) &&
+    windowMinutes >= 1 &&
+    windowMinutes <= 43_200;
+  if (!valid) {
+    appStore.showError(t("admin.groups.dynamicRate.invalidConfig"));
+  }
+  return valid;
+};
+
 const handleCreateGroup = async () => {
   if (!createForm.name.trim()) {
     appStore.showError(t("admin.groups.nameRequired"));
@@ -6104,6 +6219,9 @@ const handleCreateGroup = async () => {
     createReasoningEffortPolicyRef.value &&
     !createReasoningEffortPolicyRef.value.validate()
   ) {
+    return;
+  }
+  if (!validateDynamicRateForm(createForm)) {
     return;
   }
   if (!validateProfitControlForm(createForm)) {
@@ -6251,6 +6369,11 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.description = group.description || "";
   editForm.platform = group.platform;
   editForm.rate_multiplier = group.rate_multiplier;
+  editForm.dynamic_rate_enabled = group.dynamic_rate_enabled ?? false;
+  editForm.dynamic_rate_max_multiplier = group.dynamic_rate_max_multiplier ?? 1.0;
+  editForm.dynamic_rate_min_multiplier = group.dynamic_rate_min_multiplier ?? 1.0;
+  editForm.dynamic_rate_target_tokens = group.dynamic_rate_target_tokens ?? 1_000_000;
+  editForm.dynamic_rate_window_minutes = group.dynamic_rate_window_minutes ?? 1440;
   editForm.is_exclusive = group.is_exclusive;
   editForm.status = group.status;
   editForm.subscription_type = group.subscription_type || "standard";
@@ -6376,6 +6499,11 @@ const closeEditModal = () => {
   clearAllAccountSearchState();
   showEditModal.value = false;
   editingGroup.value = null;
+  editForm.dynamic_rate_enabled = false;
+  editForm.dynamic_rate_max_multiplier = 1.0;
+  editForm.dynamic_rate_min_multiplier = 1.0;
+  editForm.dynamic_rate_target_tokens = 1_000_000;
+  editForm.dynamic_rate_window_minutes = 1440;
   editForm.max_reasoning_effort = "";
   editForm.max_reasoning_effort_over_limit = reasoningEffortOverLimitDowngrade;
   editForm.reasoning_effort_mappings = [];
@@ -6425,6 +6553,9 @@ const handleUpdateGroup = async () => {
     editReasoningEffortPolicyRef.value &&
     !editReasoningEffortPolicyRef.value.validate()
   ) {
+    return;
+  }
+  if (!validateDynamicRateForm(editForm)) {
     return;
   }
   if (!validateProfitControlForm(editForm)) {

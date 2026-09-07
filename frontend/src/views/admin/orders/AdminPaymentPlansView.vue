@@ -24,6 +24,9 @@
             :name="getGroup(value)!.name"
             :platform="getGroup(value)!.platform"
             :rate-multiplier="getGroup(value)!.rate_multiplier"
+            :dynamic-rate-enabled="getGroup(value)!.dynamic_rate_enabled"
+            :dynamic-rate-min-multiplier="getGroup(value)!.dynamic_rate_min_multiplier"
+            :dynamic-rate-max-multiplier="getGroup(value)!.dynamic_rate_max_multiplier"
           />
           <span v-else class="text-sm text-gray-400">-</span>
         </template>

@@ -408,6 +408,9 @@
                 :platform="sub.group?.platform"
                 :subscription-type="sub.group?.subscription_type"
                 :rate-multiplier="sub.group?.rate_multiplier"
+                :dynamic-rate-enabled="sub.group?.dynamic_rate_enabled"
+                :dynamic-rate-min-multiplier="sub.group?.dynamic_rate_min_multiplier"
+                :dynamic-rate-max-multiplier="sub.group?.dynamic_rate_max_multiplier"
                 :days-remaining="sub.expires_at ? getDaysRemaining(sub.expires_at) : null"
                 :title="sub.expires_at ? formatDateTime(sub.expires_at) : ''"
               />

@@ -42,6 +42,9 @@
           :platform="group.platform"
           :subscription-type="group.subscription_type"
           :rate-multiplier="group.rate_multiplier"
+          :dynamic-rate-enabled="group.dynamic_rate_enabled"
+          :dynamic-rate-min-multiplier="group.dynamic_rate_min_multiplier"
+          :dynamic-rate-max-multiplier="group.dynamic_rate_max_multiplier"
           class="min-w-0 flex-1"
         />
         <span class="shrink-0 text-xs text-gray-400">{{ group.account_count || 0 }}</span>

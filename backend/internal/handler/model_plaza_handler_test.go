@@ -89,6 +89,7 @@ func TestToModelPlazaGroupDTO_UserRateAndFieldWhitelist(t *testing.T) {
 	g := service.PlazaGroup{
 		ID: 2, Name: "vip", Description: "d", Platform: "anthropic",
 		SubscriptionType: "standard", RateMultiplier: 1, IsExclusive: true,
+		DynamicRateEnabled: true, DynamicRateMaxMultiplier: 0.15, DynamicRateMinMultiplier: 0.13,
 		Models: []service.PlazaModel{{
 			Name:          "claude-sonnet",
 			Platform:      "anthropic",
@@ -114,6 +115,7 @@ func TestToModelPlazaGroupDTO_UserRateAndFieldWhitelist(t *testing.T) {
 	for _, key := range []string{
 		"id", "name", "description", "platform", "subscription_type",
 		"rate_multiplier", "user_rate_multiplier", "is_exclusive", "models",
+		"dynamic_rate_enabled", "dynamic_rate_max_multiplier", "dynamic_rate_min_multiplier",
 		"peak_rate_enabled", "peak_start", "peak_end", "peak_rate_multiplier",
 		"image_rate_independent", "image_rate_multiplier", "long_context_pricing_enabled",
 	} {
@@ -121,6 +123,9 @@ func TestToModelPlazaGroupDTO_UserRateAndFieldWhitelist(t *testing.T) {
 		require.Truef(t, exists, "plaza group DTO must expose %q", key)
 	}
 	require.InDelta(t, 0.5, decoded["user_rate_multiplier"].(float64), 1e-9)
+	require.Equal(t, true, decoded["dynamic_rate_enabled"])
+	require.InDelta(t, 0.15, decoded["dynamic_rate_max_multiplier"].(float64), 1e-9)
+	require.InDelta(t, 0.13, decoded["dynamic_rate_min_multiplier"].(float64), 1e-9)
 
 	// 模型条目:pricing + official_pricing 并存;official 缺失字段输出 null 而非省略
 	models := decoded["models"].([]any)

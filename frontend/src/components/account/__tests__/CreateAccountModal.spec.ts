@@ -365,6 +365,36 @@ describe('CreateAccountModal', () => {
     expect(wrapper.text()).toContain('powershell -NoProfile')
   })
 
+  it('creates Command Code with the default billing probe setting', async () => {
+    const wrapper = mountModal()
+
+    const platformButton = wrapper.findAll('button').find((button) => button.text().includes('Command Code'))
+    expect(platformButton).toBeDefined()
+    await platformButton!.trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-tour="account-form-name"]').setValue('Command Code Key')
+    const keyInput = wrapper.findAll('input[type="password"]').find((input) =>
+      (input.attributes('placeholder') || '').includes('sk-')
+    )
+    expect(keyInput).toBeDefined()
+    await keyInput!.setValue('cc-test-key')
+
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      platform: 'commandcode',
+      type: 'apikey',
+      credentials: {
+        base_url: 'https://api.commandcode.ai',
+        api_key: 'cc-test-key',
+      },
+      upstream_billing_probe_enabled: true,
+    })
+  })
+
   it('creates OpenRouter account with API key and temporary unschedulable rules', async () => {
     const wrapper = mountModal()
 

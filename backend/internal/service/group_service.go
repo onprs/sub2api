@@ -116,16 +116,20 @@ func (s *GroupService) Create(ctx context.Context, req CreateGroupRequest) (*Gro
 
 	// 创建分组
 	group := &Group{
-		Name:                 req.Name,
-		Description:          req.Description,
-		Platform:             PlatformAnthropic,
-		RateMultiplier:       req.RateMultiplier,
-		IsExclusive:          req.IsExclusive,
-		Status:               StatusActive,
-		SubscriptionType:     SubscriptionTypeStandard,
-		AllowImageGeneration: req.AllowImageGeneration,
-		ImageRateIndependent: req.ImageRateIndependent,
-		ImageRateMultiplier:  imageRateMultiplier,
+		Name:                     req.Name,
+		Description:              req.Description,
+		Platform:                 PlatformAnthropic,
+		RateMultiplier:           req.RateMultiplier,
+		DynamicRateMaxMultiplier: DefaultDynamicRateMaxMultiplier,
+		DynamicRateMinMultiplier: DefaultDynamicRateMinMultiplier,
+		DynamicRateTargetTokens:  DefaultDynamicRateTargetTokens,
+		DynamicRateWindowMinutes: DefaultDynamicRateWindowMinutes,
+		IsExclusive:              req.IsExclusive,
+		Status:                   StatusActive,
+		SubscriptionType:         SubscriptionTypeStandard,
+		AllowImageGeneration:     req.AllowImageGeneration,
+		ImageRateIndependent:     req.ImageRateIndependent,
+		ImageRateMultiplier:      imageRateMultiplier,
 	}
 
 	if err := s.groupRepo.Create(ctx, group); err != nil {

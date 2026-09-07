@@ -294,6 +294,7 @@ type CostBreakdown struct {
 	AllowZeroRate             bool    // 内部标记：价格源明确允许零费率，避免被静默零成本保护误判
 	ModelSpecificMultiplier   float64 // 活动折算后的模型额度倍率快照；0 表示未单独配置，按 1 处理
 	LongContextBillingApplied bool
+	DynamicRateExcludedCost   float64 // 不参与动态倍率缩放的按次/工具实际成本，仅供账务结算
 }
 
 func applyCostBreakdownMultiplier(cost *CostBreakdown, multiplier float64) {

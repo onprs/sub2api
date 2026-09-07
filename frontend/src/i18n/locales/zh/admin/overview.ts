@@ -1056,6 +1056,15 @@ export default {
           '留空使用默认价 $0.01/次（官方定价 $10/1000 次）；填 0 表示免费。实际扣费会叠加分组费率倍数。',
         finalPricePreview: '应用当前倍率后的单次价格：{price}'
       },
+      dynamicRate: {
+        enable: '启用动态倍率',
+        hint: '按每位用户在滚动窗口内的累计 Token，将倍率从最高值线性降低到最低值；用户专属分组倍率仍优先生效。',
+        maxMultiplier: '最高倍率',
+        minMultiplier: '最低倍率',
+        targetTokens: '达到最低倍率的 Token',
+        windowMinutes: '统计窗口（分钟）',
+        invalidConfig: '动态倍率配置无效：最高倍率应不低于最低倍率，目标 Token 和窗口必须为正整数，窗口最长 43200 分钟'
+      },
       peakRate: {
         enable: '启用高峰倍率',
         peakStart: '高峰开始',

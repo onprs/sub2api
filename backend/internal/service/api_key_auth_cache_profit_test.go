@@ -47,16 +47,21 @@ func profitAuthTestAPIKey() *APIKey {
 				GroupID:  51,
 				Priority: 10,
 				Group: &Group{
-					ID:                   51,
-					Name:                 "dynamic-profit-roundtrip",
-					Platform:             PlatformOpenAI,
-					Status:               StatusActive,
-					Hydrated:             true,
-					RateMultiplier:       0.08,
-					SubscriptionType:     SubscriptionTypeStandard,
-					ProfitControlEnabled: true,
-					ProfitMinMargin:      0.3,
-					ProfitSafetyBuffer:   0.04,
+					ID:                       51,
+					Name:                     "dynamic-profit-roundtrip",
+					Platform:                 PlatformOpenAI,
+					Status:                   StatusActive,
+					Hydrated:                 true,
+					RateMultiplier:           0.08,
+					DynamicRateEnabled:       true,
+					DynamicRateMaxMultiplier: 0.08,
+					DynamicRateMinMultiplier: 0.05,
+					DynamicRateTargetTokens:  2_000_000,
+					DynamicRateWindowMinutes: 720,
+					SubscriptionType:         SubscriptionTypeStandard,
+					ProfitControlEnabled:     true,
+					ProfitMinMargin:          0.3,
+					ProfitSafetyBuffer:       0.04,
 				},
 			},
 		},
@@ -95,6 +100,11 @@ func TestAPIKeyAuthSnapshotProfitControlRoundtrip(t *testing.T) {
 	require.True(t, dynamicGroup.ProfitControlEnabled)
 	require.InDelta(t, 0.3, dynamicGroup.ProfitMinMargin, 1e-12)
 	require.InDelta(t, 0.04, dynamicGroup.ProfitSafetyBuffer, 1e-12)
+	require.True(t, dynamicGroup.DynamicRateEnabled)
+	require.InDelta(t, 0.08, dynamicGroup.DynamicRateMaxMultiplier, 1e-12)
+	require.InDelta(t, 0.05, dynamicGroup.DynamicRateMinMultiplier, 1e-12)
+	require.Equal(t, int64(2_000_000), dynamicGroup.DynamicRateTargetTokens)
+	require.Equal(t, 720, dynamicGroup.DynamicRateWindowMinutes)
 
 	// 中间件语义：materialized.Group 进请求 ctx → 门必须按快照配置装上。
 	ctx := context.WithValue(context.Background(), ctxkey.Group, materialized.Group)
@@ -104,7 +114,7 @@ func TestAPIKeyAuthSnapshotProfitControlRoundtrip(t *testing.T) {
 	require.InDelta(t, 0.06*(1-0.25), gate.threshold, 1e-12)
 }
 
-// 旧版本快照（v19 及更早，动态候选分组无利润字段保真保证）必须被淘汰回源，不得复用。
+// 旧版本快照（v23 及更早，动态倍率字段无保真保证）必须被淘汰回源，不得复用。
 func TestAPIKeyAuthSnapshotOldVersionEvicted(t *testing.T) {
 	svc := &APIKeyService{}
 	snapshot := svc.snapshotFromAPIKey(context.Background(), profitAuthTestAPIKey())

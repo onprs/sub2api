@@ -343,6 +343,8 @@ func cleanupUsageLogsBatchWithRollupInvalidation(ctx context.Context, db *sql.DB
 	return affected, nil
 }
 
+const maxDynamicRateEventAge = 31 * 24 * time.Hour
+
 func (r *dashboardAggregationRepository) CleanupUsageBillingDedup(ctx context.Context, cutoff time.Time) error {
 	for {
 		res, err := r.sql.ExecContext(ctx, `
@@ -360,6 +362,30 @@ func (r *dashboardAggregationRepository) CleanupUsageBillingDedup(ctx context.Co
 			DELETE FROM usage_billing_dedup
 			WHERE ctid IN (SELECT ctid FROM victims)
 		`, cutoff.UTC(), usageBillingDedupCleanupBatchSize)
+		if err != nil {
+			return err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if affected < usageBillingDedupCleanupBatchSize {
+			break
+		}
+	}
+
+	// 动态倍率窗口最长 30 天；额外保留一天处理长请求和时钟边界。
+	dynamicCutoff := r.now().UTC().Add(-maxDynamicRateEventAge)
+	for {
+		res, err := r.sql.ExecContext(ctx, `
+			DELETE FROM dynamic_rate_usage_events
+			WHERE ctid IN (
+				SELECT ctid
+				FROM dynamic_rate_usage_events
+				WHERE occurred_at < $1
+				LIMIT $2
+			)
+		`, dynamicCutoff, usageBillingDedupCleanupBatchSize)
 		if err != nil {
 			return err
 		}

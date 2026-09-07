@@ -3983,6 +3983,9 @@
                                 option as unknown as DefaultSubscriptionGroupOption
                               ).rate
                             "
+                            :dynamic-rate-enabled="(option as unknown as DefaultSubscriptionGroupOption).dynamicRateEnabled"
+                            :dynamic-rate-min-multiplier="(option as unknown as DefaultSubscriptionGroupOption).dynamicRateMinMultiplier"
+                            :dynamic-rate-max-multiplier="(option as unknown as DefaultSubscriptionGroupOption).dynamicRateMaxMultiplier"
                           />
                           <span v-else class="text-gray-400">
                             {{ t("admin.settings.defaults.subscriptionGroup") }}
@@ -4010,6 +4013,9 @@
                                 option as unknown as DefaultSubscriptionGroupOption
                               ).rate
                             "
+                            :dynamic-rate-enabled="(option as unknown as DefaultSubscriptionGroupOption).dynamicRateEnabled"
+                            :dynamic-rate-min-multiplier="(option as unknown as DefaultSubscriptionGroupOption).dynamicRateMinMultiplier"
+                            :dynamic-rate-max-multiplier="(option as unknown as DefaultSubscriptionGroupOption).dynamicRateMaxMultiplier"
                             :description="
                               (
                                 option as unknown as DefaultSubscriptionGroupOption
@@ -4313,6 +4319,9 @@
                                     option as unknown as DefaultSubscriptionGroupOption
                                   ).rate
                                 "
+                                :dynamic-rate-enabled="(option as unknown as DefaultSubscriptionGroupOption).dynamicRateEnabled"
+                                :dynamic-rate-min-multiplier="(option as unknown as DefaultSubscriptionGroupOption).dynamicRateMinMultiplier"
+                                :dynamic-rate-max-multiplier="(option as unknown as DefaultSubscriptionGroupOption).dynamicRateMaxMultiplier"
                               />
                               <span v-else class="text-gray-400">
                                 {{
@@ -4342,6 +4351,9 @@
                                     option as unknown as DefaultSubscriptionGroupOption
                                   ).rate
                                 "
+                                :dynamic-rate-enabled="(option as unknown as DefaultSubscriptionGroupOption).dynamicRateEnabled"
+                                :dynamic-rate-min-multiplier="(option as unknown as DefaultSubscriptionGroupOption).dynamicRateMinMultiplier"
+                                :dynamic-rate-max-multiplier="(option as unknown as DefaultSubscriptionGroupOption).dynamicRateMaxMultiplier"
                                 :description="
                                   (
                                     option as unknown as DefaultSubscriptionGroupOption
@@ -9535,6 +9547,9 @@ interface DefaultSubscriptionGroupOption {
   platform: AdminGroup["platform"];
   subscriptionType: AdminGroup["subscription_type"];
   rate: number;
+  dynamicRateEnabled: boolean;
+  dynamicRateMinMultiplier: number;
+  dynamicRateMaxMultiplier: number;
   [key: string]: unknown;
 }
 
@@ -10279,6 +10294,9 @@ const defaultSubscriptionGroupOptions = computed<
     platform: group.platform,
     subscriptionType: group.subscription_type,
     rate: group.rate_multiplier,
+    dynamicRateEnabled: group.dynamic_rate_enabled,
+    dynamicRateMinMultiplier: group.dynamic_rate_min_multiplier,
+    dynamicRateMaxMultiplier: group.dynamic_rate_max_multiplier,
   })),
 );
 

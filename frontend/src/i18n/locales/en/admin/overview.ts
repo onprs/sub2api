@@ -1059,6 +1059,15 @@ export default {
           'Leave empty to use the default $0.01 per call (official pricing: $10 per 1,000 calls); 0 means free. The group rate multiplier is applied on top.',
         finalPricePreview: 'Per-call price after current multiplier: {price}'
       },
+      dynamicRate: {
+        enable: 'Enable dynamic rate',
+        hint: 'Linearly lowers each user’s rate from the maximum to the minimum based on tokens accumulated in a rolling window. User-specific group rates still take precedence.',
+        maxMultiplier: 'Maximum multiplier',
+        minMultiplier: 'Minimum multiplier',
+        targetTokens: 'Tokens to reach minimum',
+        windowMinutes: 'Window (minutes)',
+        invalidConfig: 'Invalid dynamic rate: maximum must be at least minimum, target tokens and window must be positive integers, and the window cannot exceed 43200 minutes'
+      },
       peakRate: {
         enable: 'Enable peak rate multiplier',
         peakStart: 'Peak start',

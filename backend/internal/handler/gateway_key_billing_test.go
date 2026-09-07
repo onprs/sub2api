@@ -85,17 +85,21 @@ func TestGatewayHandlerKeyBillingInfoUsesGroupRate(t *testing.T) {
 	var got keyBillingInfoResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	require.Equal(t, "sub2api.key_billing", got.Object)
-	require.Equal(t, 1, got.SchemaVersion)
+	require.Equal(t, 2, got.SchemaVersion)
 	require.Equal(t, "token", got.BillingScope)
 	require.Equal(t, 0.75, got.GroupRateMultiplier)
 	require.Nil(t, got.UserRateMultiplier)
 	require.Equal(t, 0.75, got.ResolvedRateMultiplier)
+	require.Equal(t, 0.75, got.ResolvedRateMultiplierMin)
+	require.Equal(t, 0.75, got.ResolvedRateMultiplierMax)
 	require.False(t, got.PeakRateEnabled)
 	require.Nil(t, got.PeakStart)
 	require.Nil(t, got.PeakEnd)
 	require.Nil(t, got.PeakRateMultiplier)
 	require.Nil(t, got.AppliedPeakMultiplier)
 	require.Equal(t, 0.75, got.EffectiveRateMultiplier)
+	require.Equal(t, 0.75, got.EffectiveRateMultiplierMin)
+	require.Equal(t, 0.75, got.EffectiveRateMultiplierMax)
 	require.Nil(t, got.Timezone)
 	require.False(t, got.ObservedAt.IsZero())
 	var fields map[string]json.RawMessage
@@ -135,6 +139,66 @@ func TestGatewayHandlerKeyBillingInfoUsesUserOverride(t *testing.T) {
 	require.Equal(t, 0.5, got.EffectiveRateMultiplier)
 }
 
+func TestGatewayHandlerKeyBillingInfoUsesEqualValuedUserOverride(t *testing.T) {
+	groupID := int64(8)
+	userRate := 0.75
+	apiKey := &service.APIKey{
+		UserID:  12,
+		GroupID: &groupID,
+		Group: &service.Group{
+			ID:                       groupID,
+			RateMultiplier:           0.75,
+			DynamicRateEnabled:       true,
+			DynamicRateMaxMultiplier: 0.9,
+			DynamicRateMinMultiplier: 0.5,
+			DynamicRateTargetTokens:  1_000,
+			DynamicRateWindowMinutes: 60,
+		},
+	}
+	c, w := newKeyBillingContext(apiKey)
+
+	newKeyBillingHandler(&keyBillingUserGroupRateRepo{rate: &userRate}).KeyBillingInfo(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var got keyBillingInfoResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	require.NotNil(t, got.UserRateMultiplier)
+	require.Equal(t, userRate, *got.UserRateMultiplier)
+	require.Equal(t, userRate, got.ResolvedRateMultiplierMin)
+	require.Equal(t, userRate, got.ResolvedRateMultiplierMax)
+}
+
+func TestGatewayHandlerKeyBillingInfoReportsDynamicRange(t *testing.T) {
+	groupID := int64(9)
+	apiKey := &service.APIKey{
+		UserID:  13,
+		GroupID: &groupID,
+		Group: &service.Group{
+			ID:                       groupID,
+			RateMultiplier:           0.75,
+			DynamicRateEnabled:       true,
+			DynamicRateMaxMultiplier: 0.15,
+			DynamicRateMinMultiplier: 0.13,
+			DynamicRateTargetTokens:  1_000_000,
+			DynamicRateWindowMinutes: 1440,
+		},
+	}
+	c, w := newKeyBillingContext(apiKey)
+
+	newKeyBillingHandler(nil).KeyBillingInfo(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var got keyBillingInfoResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	require.True(t, got.DynamicRateEnabled)
+	require.Nil(t, got.UserRateMultiplier)
+	require.Equal(t, 0.15, got.ResolvedRateMultiplier)
+	require.Equal(t, 0.13, got.ResolvedRateMultiplierMin)
+	require.Equal(t, 0.15, got.ResolvedRateMultiplierMax)
+	require.Equal(t, 0.13, got.EffectiveRateMultiplierMin)
+	require.Equal(t, 0.15, got.EffectiveRateMultiplierMax)
+}
+
 func TestBuildKeyBillingInfoAppliesPeakMultiplier(t *testing.T) {
 	groupID := int64(7)
 	apiKey := &service.APIKey{
@@ -152,7 +216,7 @@ func TestBuildKeyBillingInfoAppliesPeakMultiplier(t *testing.T) {
 	now := time.Date(2026, time.July, 12, 10, 0, 0, 0, timezone.Location())
 	userRate := 0.8
 
-	got := buildKeyBillingInfo(apiKey, userRate, now)
+	got := buildKeyBillingInfo(apiKey, resolvedKeyBillingRate{Multiplier: userRate, HasOverride: true}, now)
 
 	require.Equal(t, 1.2, got.GroupRateMultiplier)
 	require.NotNil(t, got.UserRateMultiplier)
@@ -202,7 +266,11 @@ func TestKeyBillingInfoJSONKeepsZeroPeakMultiplierWhenEnabled(t *testing.T) {
 		},
 	}
 	now := time.Date(2026, time.July, 12, 12, 0, 0, 0, timezone.Location())
-	encoded, err := json.Marshal(buildKeyBillingInfo(apiKey, apiKey.Group.RateMultiplier, now))
+	encoded, err := json.Marshal(buildKeyBillingInfo(
+		apiKey,
+		resolvedKeyBillingRate{Multiplier: apiKey.Group.RateMultiplier},
+		now,
+	))
 	require.NoError(t, err)
 
 	var fields map[string]json.RawMessage
@@ -248,6 +316,27 @@ func TestGatewayHandlerKeyBillingInfoErrorsAreSafe(t *testing.T) {
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 		require.Equal(t, 1.0, got.ResolvedRateMultiplier)
 		require.NotContains(t, w.Body.String(), "database password leaked")
+	})
+
+	t.Run("dynamic rate lookup failure keeps the static billing fallback", func(t *testing.T) {
+		groupID := int64(8)
+		c, w := newKeyBillingContext(&service.APIKey{
+			UserID:  12,
+			GroupID: &groupID,
+			Group: &service.Group{
+				ID:                       groupID,
+				RateMultiplier:           0.9,
+				DynamicRateEnabled:       true,
+				DynamicRateMaxMultiplier: 0.15,
+				DynamicRateMinMultiplier: 0.13,
+			},
+		})
+		newKeyBillingHandler(&keyBillingUserGroupRateRepo{err: errors.New("lookup failed")}).KeyBillingInfo(c)
+		require.Equal(t, http.StatusOK, w.Code)
+		var got keyBillingInfoResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+		require.Equal(t, 0.9, got.ResolvedRateMultiplierMin)
+		require.Equal(t, 0.9, got.ResolvedRateMultiplierMax)
 	})
 }
 
