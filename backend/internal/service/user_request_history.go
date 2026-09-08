@@ -87,15 +87,16 @@ type UserRequestRecord struct {
 	CacheCreation1hTokens int  `json:"cache_creation_1h_tokens"`
 	CacheWriteInferred    bool `json:"cache_write_inferred"`
 
-	InputCost         float64 `json:"input_cost"`
-	OutputCost        float64 `json:"output_cost"`
-	CacheCreationCost float64 `json:"cache_creation_cost"`
-	CacheReadCost     float64 `json:"cache_read_cost"`
-	TotalCost         float64 `json:"total_cost"`
-	ActualCost        float64 `json:"actual_cost"`
-	RateMultiplier    float64 `json:"rate_multiplier"`
-	BillingType       int8    `json:"billing_type"`
-	BillingMode       *string `json:"billing_mode,omitempty"`
+	InputCost             float64  `json:"input_cost"`
+	OutputCost            float64  `json:"output_cost"`
+	CacheCreationCost     float64  `json:"cache_creation_cost"`
+	CacheReadCost         float64  `json:"cache_read_cost"`
+	TotalCost             float64  `json:"total_cost"`
+	ActualCost            float64  `json:"actual_cost"`
+	RateMultiplier        float64  `json:"rate_multiplier"`
+	DynamicRateMultiplier *float64 `json:"dynamic_rate_multiplier,omitempty"`
+	BillingType           int8     `json:"billing_type"`
+	BillingMode           *string  `json:"billing_mode,omitempty"`
 
 	DurationMs   *int `json:"duration_ms,omitempty"`
 	FirstTokenMs *int `json:"first_token_ms,omitempty"`

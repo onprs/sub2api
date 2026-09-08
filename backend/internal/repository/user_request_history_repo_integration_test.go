@@ -45,11 +45,13 @@ func TestUserRequestHistoryCombinesOwnedSuccessAndErrors(t *testing.T) {
 	})
 	require.NoError(t, err)
 	durationMs := 100
+	dynamicMultiplier := 0.14
 	_, err = usageRepo.Create(ctx, &service.UsageLog{
 		UserID: user.ID, APIKeyID: apiKey.ID, AccountID: account.ID,
 		RequestID: requestZeroCost, Model: "gpt-free", RequestedModel: "gpt-visible",
 		InputTokens: 10, OutputTokens: 5, TotalCost: 0.1, ActualCost: 0, RateMultiplier: 0,
-		RequestType: service.RequestTypeSync, DurationMs: &durationMs,
+		DynamicRateMultiplier: &dynamicMultiplier,
+		RequestType:           service.RequestTypeSync, DurationMs: &durationMs,
 		CreatedAt: base.Add(time.Second),
 	})
 	require.NoError(t, err)
@@ -92,6 +94,8 @@ func TestUserRequestHistoryCombinesOwnedSuccessAndErrors(t *testing.T) {
 	require.Equal(t, service.UserRequestRecordSuccess, firstPage[1].RecordType)
 	require.Equal(t, requestZeroCost, firstPage[1].RequestID)
 	require.Zero(t, firstPage[1].ActualCost)
+	require.NotNil(t, firstPage[1].DynamicRateMultiplier)
+	require.Equal(t, dynamicMultiplier, *firstPage[1].DynamicRateMultiplier)
 	require.Equal(t, 10, firstPage[1].InputTokens)
 
 	secondPage, total, err := opsRepo.ListUserRequestHistory(ctx, pagination.PaginationParams{Page: 2, PageSize: 2, SortBy: "created_at", SortOrder: "desc"}, filter)

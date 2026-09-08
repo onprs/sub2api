@@ -113,6 +113,11 @@ func (UsageLog) Fields() []ent.Field {
 		field.Float("rate_multiplier").
 			Default(1).
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}),
+		field.Float("dynamic_rate_multiplier").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Comment("本次 Token 请求实际采用的动态分组倍率；未采用时为空"),
 
 		field.Bool("long_context_billing_applied").
 			Default(false).

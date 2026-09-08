@@ -28,3 +28,15 @@ func TestMigration236AddsDynamicGroupRateAndUsageLedger(t *testing.T) {
 	require.Contains(t, sql, "idx_dynamic_rate_usage_user_group_time")
 	require.Contains(t, sql, "idx_dynamic_rate_usage_occurred_at_brin")
 }
+
+func TestMigration237SnapshotsResolvedDynamicRateOnUsageLogs(t *testing.T) {
+	content, err := FS.ReadFile("237_usage_log_dynamic_rate_multiplier.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS dynamic_rate_multiplier DECIMAL(10,4)")
+	require.Contains(t, sql, "SET dynamic_rate_multiplier = event.resolved_multiplier")
+	require.Contains(t, sql, "log.request_id = event.request_id")
+	require.Contains(t, sql, "log.api_key_id = event.api_key_id")
+	require.Contains(t, sql, "log.dynamic_rate_multiplier IS NULL")
+}

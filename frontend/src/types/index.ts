@@ -1811,6 +1811,7 @@ export interface UsageLog {
   total_cost: number
   actual_cost: number
   rate_multiplier: number
+  dynamic_rate_multiplier?: number | null
   long_context_billing_applied: boolean
   billing_type: number
 

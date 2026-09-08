@@ -122,6 +122,7 @@ const usageLog = {
   actual_cost: 0.092883,
   total_cost: 0.092883,
   rate_multiplier: 1,
+  dynamic_rate_multiplier: 0.1437,
   service_tier: 'priority',
   input_cost: 0.020285,
   output_cost: 0.00303,
@@ -392,6 +393,8 @@ describe('user UsageView', () => {
     expect(csvContent).toContain('Category,Status Code')
     expect(csvContent).toContain('IP Address')
     expect(csvContent).toContain('203.0.113.10')
+    expect(csvContent).toContain('Dynamic Rate Multiplier')
+    expect(csvContent).toContain('0.1437,1,0.09288300,0.09288300')
     expect(csvContent).toContain('Billed Cost')
     expect(csvContent).toContain('Original Cost')
     expect(csvContent).not.toContain('Upstream Endpoint')

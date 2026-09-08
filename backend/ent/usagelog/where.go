@@ -200,6 +200,11 @@ func RateMultiplier(v float64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldRateMultiplier, v))
 }
 
+// DynamicRateMultiplier applies equality check predicate on the "dynamic_rate_multiplier" field. It's identical to DynamicRateMultiplierEQ.
+func DynamicRateMultiplier(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldDynamicRateMultiplier, v))
+}
+
 // LongContextBillingApplied applies equality check predicate on the "long_context_billing_applied" field. It's identical to LongContextBillingAppliedEQ.
 func LongContextBillingApplied(v bool) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldLongContextBillingApplied, v))
@@ -1588,6 +1593,56 @@ func RateMultiplierLT(v float64) predicate.UsageLog {
 // RateMultiplierLTE applies the LTE predicate on the "rate_multiplier" field.
 func RateMultiplierLTE(v float64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldLTE(FieldRateMultiplier, v))
+}
+
+// DynamicRateMultiplierEQ applies the EQ predicate on the "dynamic_rate_multiplier" field.
+func DynamicRateMultiplierEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldDynamicRateMultiplier, v))
+}
+
+// DynamicRateMultiplierNEQ applies the NEQ predicate on the "dynamic_rate_multiplier" field.
+func DynamicRateMultiplierNEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldDynamicRateMultiplier, v))
+}
+
+// DynamicRateMultiplierIn applies the In predicate on the "dynamic_rate_multiplier" field.
+func DynamicRateMultiplierIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldDynamicRateMultiplier, vs...))
+}
+
+// DynamicRateMultiplierNotIn applies the NotIn predicate on the "dynamic_rate_multiplier" field.
+func DynamicRateMultiplierNotIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldDynamicRateMultiplier, vs...))
+}
+
+// DynamicRateMultiplierGT applies the GT predicate on the "dynamic_rate_multiplier" field.
+func DynamicRateMultiplierGT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldDynamicRateMultiplier, v))
+}
+
+// DynamicRateMultiplierGTE applies the GTE predicate on the "dynamic_rate_multiplier" field.
+func DynamicRateMultiplierGTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldDynamicRateMultiplier, v))
+}
+
+// DynamicRateMultiplierLT applies the LT predicate on the "dynamic_rate_multiplier" field.
+func DynamicRateMultiplierLT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldDynamicRateMultiplier, v))
+}
+
+// DynamicRateMultiplierLTE applies the LTE predicate on the "dynamic_rate_multiplier" field.
+func DynamicRateMultiplierLTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldDynamicRateMultiplier, v))
+}
+
+// DynamicRateMultiplierIsNil applies the IsNil predicate on the "dynamic_rate_multiplier" field.
+func DynamicRateMultiplierIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldDynamicRateMultiplier))
+}
+
+// DynamicRateMultiplierNotNil applies the NotNil predicate on the "dynamic_rate_multiplier" field.
+func DynamicRateMultiplierNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldDynamicRateMultiplier))
 }
 
 // LongContextBillingAppliedEQ applies the EQ predicate on the "long_context_billing_applied" field.

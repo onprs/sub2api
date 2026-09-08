@@ -170,6 +170,8 @@ type UsageLog struct {
 	TotalCost float64
 	// RateMultiplier 是完整实际计费倍率，包含分组/用户专属、分组可选时段及适用的活动折算后模型倍率。
 	RateMultiplier float64
+	// DynamicRateMultiplier 是本次 Token 请求实际采用的动态分组倍率；未采用动态倍率时为 nil。
+	DynamicRateMultiplier *float64
 	// ActualCost 是真实扣费，满足 actual_cost = total_cost * rate_multiplier。
 	ActualCost float64
 	// LongContextBillingApplied 表示本次请求按长上下文档位计价。

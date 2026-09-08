@@ -98,6 +98,11 @@ const createGroup = (overrides: Partial<AdminGroup> = {}): AdminGroup => ({
   description: null,
   platform: 'anthropic',
   rate_multiplier: 1,
+  dynamic_rate_enabled: false,
+  dynamic_rate_max_multiplier: 1,
+  dynamic_rate_min_multiplier: 1,
+  dynamic_rate_target_tokens: 1_000_000,
+  dynamic_rate_window_minutes: 1440,
   rpm_limit: 0,
   is_exclusive: false,
   status: 'active',
@@ -154,6 +159,12 @@ const DataTableStub = {
     <div>
       <div data-test="columns">{{ columns.map((col) => col.key).join(',') }}</div>
       <div data-test="rows">{{ data.map((row) => row.name).join(',') }}</div>
+      <div v-if="data.length" data-test="rate-cell">
+        <slot name="cell-rate_multiplier" :row="data[0]" :value="data[0].rate_multiplier" />
+      </div>
+      <div v-if="data.length" data-test="actions-cell">
+        <slot name="cell-actions" :row="data[0]" />
+      </div>
       <div v-if="data.length" data-test="usage-cell">
         <slot name="cell-usage" :row="data[0]" />
       </div>
@@ -391,6 +402,53 @@ describe('admin GroupsView column settings', () => {
     await clickColumnToggle(wrapper, 'Capacity')
     expect(getUsageSummary).toHaveBeenCalledTimes(1)
     expect(getCapacitySummary).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the dynamic rate range instead of the static multiplier', async () => {
+    listGroups.mockResolvedValue({
+      items: [createGroup({
+        rate_multiplier: 1,
+        dynamic_rate_enabled: true,
+        dynamic_rate_min_multiplier: 1.3,
+        dynamic_rate_max_multiplier: 1.5,
+      })],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-testid="group-rate-multiplier"]').text()).toBe('1.30x-1.50x')
+  })
+
+  it('hides the static rate field when dynamic rate is enabled in create and edit forms', async () => {
+    const dynamicGroup = createGroup({
+      dynamic_rate_enabled: true,
+      dynamic_rate_min_multiplier: 1.3,
+      dynamic_rate_max_multiplier: 1.5,
+    })
+    listGroups.mockResolvedValue({
+      items: [dynamicGroup],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-tour="groups-create-btn"]').trigger('click')
+    expect(wrapper.get('[data-testid="create-static-rate-field"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="create-dynamic-rate-toggle"]').setValue(true)
+    expect(wrapper.find('[data-testid="create-static-rate-field"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="group-edit"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="edit-static-rate-field"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="edit-dynamic-rate-toggle"]').setValue(false)
+    expect(wrapper.get('[data-testid="edit-static-rate-field"]').exists()).toBe(true)
   })
 
   it('renders yesterday usage between today and total', async () => {

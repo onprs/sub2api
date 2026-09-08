@@ -505,12 +505,13 @@ func (s *UsageLogRepoSuite) TestGetByID_NotFound() {
 	s.Require().Error(err, "expected error for non-existent ID")
 }
 
-func (s *UsageLogRepoSuite) TestGetByID_ReturnsAccountRateMultiplier() {
+func (s *UsageLogRepoSuite) TestGetByID_ReturnsBillingRateSnapshots() {
 	user := mustCreateUser(s.T(), s.client, &service.User{Email: "getbyid-mult@test.com"})
 	apiKey := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-getbyid-mult", Name: "k"})
 	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-getbyid-mult"})
 
-	m := 0.5
+	accountMultiplier := 0.5
+	dynamicMultiplier := 0.14
 	log := &service.UsageLog{
 		UserID:                user.ID,
 		APIKeyID:              apiKey.ID,
@@ -521,7 +522,8 @@ func (s *UsageLogRepoSuite) TestGetByID_ReturnsAccountRateMultiplier() {
 		OutputTokens:          20,
 		TotalCost:             1.0,
 		ActualCost:            2.0,
-		AccountRateMultiplier: &m,
+		AccountRateMultiplier: &accountMultiplier,
+		DynamicRateMultiplier: &dynamicMultiplier,
 		CreatedAt:             timezone.Today().Add(2 * time.Hour),
 	}
 	_, err := s.repo.Create(s.ctx, log)
@@ -530,7 +532,9 @@ func (s *UsageLogRepoSuite) TestGetByID_ReturnsAccountRateMultiplier() {
 	got, err := s.repo.GetByID(s.ctx, log.ID)
 	s.Require().NoError(err)
 	s.Require().NotNil(got.AccountRateMultiplier)
-	s.Require().InEpsilon(0.5, *got.AccountRateMultiplier, 0.0001)
+	s.Require().InEpsilon(accountMultiplier, *got.AccountRateMultiplier, 0.0001)
+	s.Require().NotNil(got.DynamicRateMultiplier)
+	s.Require().InEpsilon(dynamicMultiplier, *got.DynamicRateMultiplier, 0.0001)
 }
 
 func (s *UsageLogRepoSuite) TestGetByID_ReturnsOpenAIWSMode() {
