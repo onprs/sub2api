@@ -11,7 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const groupModelAllowlistRepairMigration = "236_group_model_allowlist_repair.sql"
+const (
+	groupModelAllowlistRepairMigration    = "236_group_model_allowlist_repair.sql"
+	legacyGroupAuthCacheMigration         = "193a_fix_group_auth_cache_profit_dynamic_routing.sql"
+	groupAuthCacheModelAllowlistMigration = "238b_fix_group_auth_cache_model_allowlist.sql"
+)
 
 // 236 是可重放的修复迁移：235 的重命名一旦被记账就不会重跑，数据库若回到旧结构
 // （手工改回列名、按旧结构部分恢复）应用仍能启动，但所有关联 groups 的查询都会
@@ -22,6 +26,7 @@ func TestMigration236RenamesLegacyModelsListConfigColumn(t *testing.T) {
 
 	_, err := tx.ExecContext(ctx, "ALTER TABLE groups RENAME COLUMN model_allowlist TO models_list_config")
 	require.NoError(t, err)
+	applyEmbeddedMigration(ctx, t, tx, legacyGroupAuthCacheMigration)
 
 	var groupID int64
 	require.NoError(t, tx.QueryRowContext(ctx, `
@@ -31,6 +36,11 @@ RETURNING id
 `).Scan(&groupID))
 
 	applyGroupModelAllowlistRepair(ctx, t, tx)
+	applyEmbeddedMigration(ctx, t, tx, groupAuthCacheModelAllowlistMigration)
+
+	// PL/pgSQL 不会自动改写 OLD/NEW 的列引用；前向修复后更新分组必须能触发失效函数。
+	_, err = tx.ExecContext(ctx, "UPDATE groups SET model_allowlist = model_allowlist WHERE id = $1", groupID)
+	require.NoError(t, err)
 
 	// 重命名保留原数据，且新列恢复 NOT NULL DEFAULT '{}' 的形状。
 	var allowlist string

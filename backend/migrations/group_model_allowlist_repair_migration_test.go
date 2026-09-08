@@ -25,3 +25,15 @@ func TestGroupModelAllowlistRepairMigration(t *testing.T) {
 	require.NotContains(t, sql, "table_schema = 'public'")
 	require.Contains(t, sql, "attrelid = 'groups'::regclass")
 }
+
+func TestGroupAuthCacheModelAllowlistMigration(t *testing.T) {
+	content, err := FS.ReadFile("238b_fix_group_auth_cache_model_allowlist.sql")
+	require.NoError(t, err)
+
+	sql := strings.Join(strings.Fields(string(content)), " ")
+	require.Contains(t, sql, "CREATE OR REPLACE FUNCTION enqueue_group_auth_cache_invalidation()")
+	require.Contains(t, sql, "OLD.model_allowlist IS NOT DISTINCT FROM NEW.model_allowlist")
+	require.Contains(t, sql, "FROM api_key_groups AS akg")
+	require.NotContains(t, sql, "OLD.models_list_config")
+	require.NotContains(t, sql, "NEW.models_list_config")
+}
