@@ -531,6 +531,8 @@ func applyDynamicRateBillingResult(usageLog *UsageLog, p *postUsageBillingParams
 	if usageLog != nil {
 		usageLog.ActualCost = p.Cost.ActualCost
 		usageLog.RateMultiplier = quantizeRateMultiplier(usageLog.RateMultiplier * ratio)
+		dynamicRateMultiplier := quantizeRateMultiplier(*result.DynamicRateMultiplier)
+		usageLog.DynamicRateMultiplier = &dynamicRateMultiplier
 	}
 }
 

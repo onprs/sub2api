@@ -378,6 +378,8 @@ export default {
     resetNow: '现在',
     resetPending: '待刷新',
     accountMultiplier: '账号倍率',
+    dynamicRateMultiplier: '动态分组倍率',
+    effectiveRateMultiplier: '完整计费倍率',
     avgDuration: '平均耗时',
     inSelectedRange: '所选范围内',
     perRequest: '每次请求',

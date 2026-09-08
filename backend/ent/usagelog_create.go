@@ -393,6 +393,20 @@ func (_c *UsageLogCreate) SetNillableRateMultiplier(v *float64) *UsageLogCreate 
 	return _c
 }
 
+// SetDynamicRateMultiplier sets the "dynamic_rate_multiplier" field.
+func (_c *UsageLogCreate) SetDynamicRateMultiplier(v float64) *UsageLogCreate {
+	_c.mutation.SetDynamicRateMultiplier(v)
+	return _c
+}
+
+// SetNillableDynamicRateMultiplier sets the "dynamic_rate_multiplier" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableDynamicRateMultiplier(v *float64) *UsageLogCreate {
+	if v != nil {
+		_c.SetDynamicRateMultiplier(*v)
+	}
+	return _c
+}
+
 // SetLongContextBillingApplied sets the "long_context_billing_applied" field.
 func (_c *UsageLogCreate) SetLongContextBillingApplied(v bool) *UsageLogCreate {
 	_c.mutation.SetLongContextBillingApplied(v)
@@ -1083,6 +1097,10 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.RateMultiplier(); ok {
 		_spec.SetField(usagelog.FieldRateMultiplier, field.TypeFloat64, value)
 		_node.RateMultiplier = value
+	}
+	if value, ok := _c.mutation.DynamicRateMultiplier(); ok {
+		_spec.SetField(usagelog.FieldDynamicRateMultiplier, field.TypeFloat64, value)
+		_node.DynamicRateMultiplier = &value
 	}
 	if value, ok := _c.mutation.LongContextBillingApplied(); ok {
 		_spec.SetField(usagelog.FieldLongContextBillingApplied, field.TypeBool, value)
@@ -1786,6 +1804,30 @@ func (u *UsageLogUpsert) UpdateRateMultiplier() *UsageLogUpsert {
 // AddRateMultiplier adds v to the "rate_multiplier" field.
 func (u *UsageLogUpsert) AddRateMultiplier(v float64) *UsageLogUpsert {
 	u.Add(usagelog.FieldRateMultiplier, v)
+	return u
+}
+
+// SetDynamicRateMultiplier sets the "dynamic_rate_multiplier" field.
+func (u *UsageLogUpsert) SetDynamicRateMultiplier(v float64) *UsageLogUpsert {
+	u.Set(usagelog.FieldDynamicRateMultiplier, v)
+	return u
+}
+
+// UpdateDynamicRateMultiplier sets the "dynamic_rate_multiplier" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateDynamicRateMultiplier() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldDynamicRateMultiplier)
+	return u
+}
+
+// AddDynamicRateMultiplier adds v to the "dynamic_rate_multiplier" field.
+func (u *UsageLogUpsert) AddDynamicRateMultiplier(v float64) *UsageLogUpsert {
+	u.Add(usagelog.FieldDynamicRateMultiplier, v)
+	return u
+}
+
+// ClearDynamicRateMultiplier clears the value of the "dynamic_rate_multiplier" field.
+func (u *UsageLogUpsert) ClearDynamicRateMultiplier() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldDynamicRateMultiplier)
 	return u
 }
 
@@ -2735,6 +2777,34 @@ func (u *UsageLogUpsertOne) AddRateMultiplier(v float64) *UsageLogUpsertOne {
 func (u *UsageLogUpsertOne) UpdateRateMultiplier() *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.UpdateRateMultiplier()
+	})
+}
+
+// SetDynamicRateMultiplier sets the "dynamic_rate_multiplier" field.
+func (u *UsageLogUpsertOne) SetDynamicRateMultiplier(v float64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetDynamicRateMultiplier(v)
+	})
+}
+
+// AddDynamicRateMultiplier adds v to the "dynamic_rate_multiplier" field.
+func (u *UsageLogUpsertOne) AddDynamicRateMultiplier(v float64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddDynamicRateMultiplier(v)
+	})
+}
+
+// UpdateDynamicRateMultiplier sets the "dynamic_rate_multiplier" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateDynamicRateMultiplier() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateDynamicRateMultiplier()
+	})
+}
+
+// ClearDynamicRateMultiplier clears the value of the "dynamic_rate_multiplier" field.
+func (u *UsageLogUpsertOne) ClearDynamicRateMultiplier() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearDynamicRateMultiplier()
 	})
 }
 
@@ -3905,6 +3975,34 @@ func (u *UsageLogUpsertBulk) AddRateMultiplier(v float64) *UsageLogUpsertBulk {
 func (u *UsageLogUpsertBulk) UpdateRateMultiplier() *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.UpdateRateMultiplier()
+	})
+}
+
+// SetDynamicRateMultiplier sets the "dynamic_rate_multiplier" field.
+func (u *UsageLogUpsertBulk) SetDynamicRateMultiplier(v float64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetDynamicRateMultiplier(v)
+	})
+}
+
+// AddDynamicRateMultiplier adds v to the "dynamic_rate_multiplier" field.
+func (u *UsageLogUpsertBulk) AddDynamicRateMultiplier(v float64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddDynamicRateMultiplier(v)
+	})
+}
+
+// UpdateDynamicRateMultiplier sets the "dynamic_rate_multiplier" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateDynamicRateMultiplier() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateDynamicRateMultiplier()
+	})
+}
+
+// ClearDynamicRateMultiplier clears the value of the "dynamic_rate_multiplier" field.
+func (u *UsageLogUpsertBulk) ClearDynamicRateMultiplier() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearDynamicRateMultiplier()
 	})
 }
 

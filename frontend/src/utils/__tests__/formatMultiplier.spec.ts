@@ -10,6 +10,7 @@ describe('formatMultiplier', () => {
   })
 
   it('pads to at least 2 decimals for round values', () => {
+    expect(formatMultiplier(0)).toBe('0.00')
     expect(formatMultiplier(0.3)).toBe('0.30')
     expect(formatMultiplier(1)).toBe('1.00')
     expect(formatMultiplier(1.5)).toBe('1.50')

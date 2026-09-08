@@ -35,6 +35,8 @@ const messages: Record<string, string> = {
   'usage.serviceTierFlex': 'Flex',
   'usage.serviceTierStandard': 'Standard',
   'usage.rate': 'Rate',
+  'usage.dynamicRateMultiplier': 'Dynamic group rate',
+  'usage.effectiveRateMultiplier': 'Effective billing rate',
   'usage.accountMultiplier': 'Account rate',
   'usage.original': 'Original',
   'usage.userBilled': 'User billed',
@@ -224,6 +226,40 @@ describe('admin UsageTable tooltip', () => {
     expect(requestBadges[1].text()).toBe('Sync')
     expect(wrapper.findAll('[data-testid="native-compaction-badge"]')).toHaveLength(1)
     expect(wrapper.get('[data-testid="native-compaction-badge"]').text()).toBe('Compaction')
+  })
+
+  it('shows the resolved dynamic group rate separately from the complete billing rate', async () => {
+    const row = {
+      ...baseImageRow,
+      request_id: 'req-admin-dynamic-rate',
+      billing_mode: 'token',
+      dynamic_rate_multiplier: 0.1437,
+      rate_multiplier: 2.1555,
+    }
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [row],
+        loading: false,
+        columns: [],
+        showAccountBilling: false,
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    const tooltipTriggers = wrapper.findAll('.group.relative')
+    await tooltipTriggers[tooltipTriggers.length - 1].trigger('mouseenter')
+    await nextTick()
+
+    const text = wrapper.text()
+    expect(text).toContain('Dynamic group rate0.1437x')
+    expect(text).toContain('Effective billing rate2.1555x')
   })
 
   it('shows service tier and billing breakdown in cost tooltip', async () => {

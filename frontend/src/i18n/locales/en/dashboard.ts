@@ -373,6 +373,8 @@ export default {
     resetNow: 'Now',
     resetPending: 'Pending refresh',
     accountMultiplier: 'Account rate',
+    dynamicRateMultiplier: 'Dynamic group rate',
+    effectiveRateMultiplier: 'Effective billing rate',
     avgDuration: 'Avg Duration',
     inSelectedRange: 'in selected range',
     perRequest: 'per request',

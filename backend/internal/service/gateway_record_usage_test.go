@@ -119,6 +119,8 @@ func TestGatewayServiceRecordUsage_WritesResolvedDynamicRateToUsageLog(t *testin
 	require.Equal(t, int64(500), dynamicRepo.command.TotalTokens)
 	require.NotNil(t, usageRepo.lastLog)
 	require.Equal(t, 0.14, usageRepo.lastLog.RateMultiplier)
+	require.NotNil(t, usageRepo.lastLog.DynamicRateMultiplier)
+	require.Equal(t, 0.14, *usageRepo.lastLog.DynamicRateMultiplier)
 	require.InDelta(t, usageRepo.lastLog.TotalCost*0.14, usageRepo.lastLog.ActualCost, 1e-12)
 }
 

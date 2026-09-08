@@ -53736,6 +53736,8 @@ type UsageLogMutation struct {
 	addactual_cost               *float64
 	rate_multiplier              *float64
 	addrate_multiplier           *float64
+	dynamic_rate_multiplier      *float64
+	adddynamic_rate_multiplier   *float64
 	long_context_billing_applied *bool
 	account_rate_multiplier      *float64
 	addaccount_rate_multiplier   *float64
@@ -55331,6 +55333,76 @@ func (m *UsageLogMutation) ResetRateMultiplier() {
 	m.addrate_multiplier = nil
 }
 
+// SetDynamicRateMultiplier sets the "dynamic_rate_multiplier" field.
+func (m *UsageLogMutation) SetDynamicRateMultiplier(f float64) {
+	m.dynamic_rate_multiplier = &f
+	m.adddynamic_rate_multiplier = nil
+}
+
+// DynamicRateMultiplier returns the value of the "dynamic_rate_multiplier" field in the mutation.
+func (m *UsageLogMutation) DynamicRateMultiplier() (r float64, exists bool) {
+	v := m.dynamic_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDynamicRateMultiplier returns the old "dynamic_rate_multiplier" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldDynamicRateMultiplier(ctx context.Context) (v *float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDynamicRateMultiplier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDynamicRateMultiplier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDynamicRateMultiplier: %w", err)
+	}
+	return oldValue.DynamicRateMultiplier, nil
+}
+
+// AddDynamicRateMultiplier adds f to the "dynamic_rate_multiplier" field.
+func (m *UsageLogMutation) AddDynamicRateMultiplier(f float64) {
+	if m.adddynamic_rate_multiplier != nil {
+		*m.adddynamic_rate_multiplier += f
+	} else {
+		m.adddynamic_rate_multiplier = &f
+	}
+}
+
+// AddedDynamicRateMultiplier returns the value that was added to the "dynamic_rate_multiplier" field in this mutation.
+func (m *UsageLogMutation) AddedDynamicRateMultiplier() (r float64, exists bool) {
+	v := m.adddynamic_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearDynamicRateMultiplier clears the value of the "dynamic_rate_multiplier" field.
+func (m *UsageLogMutation) ClearDynamicRateMultiplier() {
+	m.dynamic_rate_multiplier = nil
+	m.adddynamic_rate_multiplier = nil
+	m.clearedFields[usagelog.FieldDynamicRateMultiplier] = struct{}{}
+}
+
+// DynamicRateMultiplierCleared returns if the "dynamic_rate_multiplier" field was cleared in this mutation.
+func (m *UsageLogMutation) DynamicRateMultiplierCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldDynamicRateMultiplier]
+	return ok
+}
+
+// ResetDynamicRateMultiplier resets all changes to the "dynamic_rate_multiplier" field.
+func (m *UsageLogMutation) ResetDynamicRateMultiplier() {
+	m.dynamic_rate_multiplier = nil
+	m.adddynamic_rate_multiplier = nil
+	delete(m.clearedFields, usagelog.FieldDynamicRateMultiplier)
+}
+
 // SetLongContextBillingApplied sets the "long_context_billing_applied" field.
 func (m *UsageLogMutation) SetLongContextBillingApplied(b bool) {
 	m.long_context_billing_applied = &b
@@ -56484,7 +56556,7 @@ func (m *UsageLogMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UsageLogMutation) Fields() []string {
-	fields := make([]string, 0, 48)
+	fields := make([]string, 0, 49)
 	if m.user != nil {
 		fields = append(fields, usagelog.FieldUserID)
 	}
@@ -56571,6 +56643,9 @@ func (m *UsageLogMutation) Fields() []string {
 	}
 	if m.rate_multiplier != nil {
 		fields = append(fields, usagelog.FieldRateMultiplier)
+	}
+	if m.dynamic_rate_multiplier != nil {
+		fields = append(fields, usagelog.FieldDynamicRateMultiplier)
 	}
 	if m.long_context_billing_applied != nil {
 		fields = append(fields, usagelog.FieldLongContextBillingApplied)
@@ -56695,6 +56770,8 @@ func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 		return m.ActualCost()
 	case usagelog.FieldRateMultiplier:
 		return m.RateMultiplier()
+	case usagelog.FieldDynamicRateMultiplier:
+		return m.DynamicRateMultiplier()
 	case usagelog.FieldLongContextBillingApplied:
 		return m.LongContextBillingApplied()
 	case usagelog.FieldAccountRateMultiplier:
@@ -56800,6 +56877,8 @@ func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldActualCost(ctx)
 	case usagelog.FieldRateMultiplier:
 		return m.OldRateMultiplier(ctx)
+	case usagelog.FieldDynamicRateMultiplier:
+		return m.OldDynamicRateMultiplier(ctx)
 	case usagelog.FieldLongContextBillingApplied:
 		return m.OldLongContextBillingApplied(ctx)
 	case usagelog.FieldAccountRateMultiplier:
@@ -57050,6 +57129,13 @@ func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetRateMultiplier(v)
 		return nil
+	case usagelog.FieldDynamicRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDynamicRateMultiplier(v)
+		return nil
 	case usagelog.FieldLongContextBillingApplied:
 		v, ok := value.(bool)
 		if !ok {
@@ -57233,6 +57319,9 @@ func (m *UsageLogMutation) AddedFields() []string {
 	if m.addrate_multiplier != nil {
 		fields = append(fields, usagelog.FieldRateMultiplier)
 	}
+	if m.adddynamic_rate_multiplier != nil {
+		fields = append(fields, usagelog.FieldDynamicRateMultiplier)
+	}
 	if m.addaccount_rate_multiplier != nil {
 		fields = append(fields, usagelog.FieldAccountRateMultiplier)
 	}
@@ -57290,6 +57379,8 @@ func (m *UsageLogMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedActualCost()
 	case usagelog.FieldRateMultiplier:
 		return m.AddedRateMultiplier()
+	case usagelog.FieldDynamicRateMultiplier:
+		return m.AddedDynamicRateMultiplier()
 	case usagelog.FieldAccountRateMultiplier:
 		return m.AddedAccountRateMultiplier()
 	case usagelog.FieldBillingType:
@@ -57411,6 +57502,13 @@ func (m *UsageLogMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddRateMultiplier(v)
 		return nil
+	case usagelog.FieldDynamicRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddDynamicRateMultiplier(v)
+		return nil
 	case usagelog.FieldAccountRateMultiplier:
 		v, ok := value.(float64)
 		if !ok {
@@ -57498,6 +57596,9 @@ func (m *UsageLogMutation) ClearedFields() []string {
 	if m.FieldCleared(usagelog.FieldSubscriptionID) {
 		fields = append(fields, usagelog.FieldSubscriptionID)
 	}
+	if m.FieldCleared(usagelog.FieldDynamicRateMultiplier) {
+		fields = append(fields, usagelog.FieldDynamicRateMultiplier)
+	}
 	if m.FieldCleared(usagelog.FieldAccountRateMultiplier) {
 		fields = append(fields, usagelog.FieldAccountRateMultiplier)
 	}
@@ -57577,6 +57678,9 @@ func (m *UsageLogMutation) ClearField(name string) error {
 		return nil
 	case usagelog.FieldSubscriptionID:
 		m.ClearSubscriptionID()
+		return nil
+	case usagelog.FieldDynamicRateMultiplier:
+		m.ClearDynamicRateMultiplier()
 		return nil
 	case usagelog.FieldAccountRateMultiplier:
 		m.ClearAccountRateMultiplier()
@@ -57708,6 +57812,9 @@ func (m *UsageLogMutation) ResetField(name string) error {
 		return nil
 	case usagelog.FieldRateMultiplier:
 		m.ResetRateMultiplier()
+		return nil
+	case usagelog.FieldDynamicRateMultiplier:
+		m.ResetDynamicRateMultiplier()
 		return nil
 	case usagelog.FieldLongContextBillingApplied:
 		m.ResetLongContextBillingApplied()

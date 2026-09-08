@@ -596,6 +596,33 @@ func (_u *UsageLogUpdate) AddRateMultiplier(v float64) *UsageLogUpdate {
 	return _u
 }
 
+// SetDynamicRateMultiplier sets the "dynamic_rate_multiplier" field.
+func (_u *UsageLogUpdate) SetDynamicRateMultiplier(v float64) *UsageLogUpdate {
+	_u.mutation.ResetDynamicRateMultiplier()
+	_u.mutation.SetDynamicRateMultiplier(v)
+	return _u
+}
+
+// SetNillableDynamicRateMultiplier sets the "dynamic_rate_multiplier" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableDynamicRateMultiplier(v *float64) *UsageLogUpdate {
+	if v != nil {
+		_u.SetDynamicRateMultiplier(*v)
+	}
+	return _u
+}
+
+// AddDynamicRateMultiplier adds value to the "dynamic_rate_multiplier" field.
+func (_u *UsageLogUpdate) AddDynamicRateMultiplier(v float64) *UsageLogUpdate {
+	_u.mutation.AddDynamicRateMultiplier(v)
+	return _u
+}
+
+// ClearDynamicRateMultiplier clears the value of the "dynamic_rate_multiplier" field.
+func (_u *UsageLogUpdate) ClearDynamicRateMultiplier() *UsageLogUpdate {
+	_u.mutation.ClearDynamicRateMultiplier()
+	return _u
+}
+
 // SetLongContextBillingApplied sets the "long_context_billing_applied" field.
 func (_u *UsageLogUpdate) SetLongContextBillingApplied(v bool) *UsageLogUpdate {
 	_u.mutation.SetLongContextBillingApplied(v)
@@ -1286,6 +1313,15 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(usagelog.FieldRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.DynamicRateMultiplier(); ok {
+		_spec.SetField(usagelog.FieldDynamicRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedDynamicRateMultiplier(); ok {
+		_spec.AddField(usagelog.FieldDynamicRateMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.DynamicRateMultiplierCleared() {
+		_spec.ClearField(usagelog.FieldDynamicRateMultiplier, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.LongContextBillingApplied(); ok {
 		_spec.SetField(usagelog.FieldLongContextBillingApplied, field.TypeBool, value)
@@ -2127,6 +2163,33 @@ func (_u *UsageLogUpdateOne) AddRateMultiplier(v float64) *UsageLogUpdateOne {
 	return _u
 }
 
+// SetDynamicRateMultiplier sets the "dynamic_rate_multiplier" field.
+func (_u *UsageLogUpdateOne) SetDynamicRateMultiplier(v float64) *UsageLogUpdateOne {
+	_u.mutation.ResetDynamicRateMultiplier()
+	_u.mutation.SetDynamicRateMultiplier(v)
+	return _u
+}
+
+// SetNillableDynamicRateMultiplier sets the "dynamic_rate_multiplier" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableDynamicRateMultiplier(v *float64) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetDynamicRateMultiplier(*v)
+	}
+	return _u
+}
+
+// AddDynamicRateMultiplier adds value to the "dynamic_rate_multiplier" field.
+func (_u *UsageLogUpdateOne) AddDynamicRateMultiplier(v float64) *UsageLogUpdateOne {
+	_u.mutation.AddDynamicRateMultiplier(v)
+	return _u
+}
+
+// ClearDynamicRateMultiplier clears the value of the "dynamic_rate_multiplier" field.
+func (_u *UsageLogUpdateOne) ClearDynamicRateMultiplier() *UsageLogUpdateOne {
+	_u.mutation.ClearDynamicRateMultiplier()
+	return _u
+}
+
 // SetLongContextBillingApplied sets the "long_context_billing_applied" field.
 func (_u *UsageLogUpdateOne) SetLongContextBillingApplied(v bool) *UsageLogUpdateOne {
 	_u.mutation.SetLongContextBillingApplied(v)
@@ -2847,6 +2910,15 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(usagelog.FieldRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.DynamicRateMultiplier(); ok {
+		_spec.SetField(usagelog.FieldDynamicRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedDynamicRateMultiplier(); ok {
+		_spec.AddField(usagelog.FieldDynamicRateMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.DynamicRateMultiplierCleared() {
+		_spec.ClearField(usagelog.FieldDynamicRateMultiplier, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.LongContextBillingApplied(); ok {
 		_spec.SetField(usagelog.FieldLongContextBillingApplied, field.TypeBool, value)

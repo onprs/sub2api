@@ -38,6 +38,7 @@ const messages: Record<string, string> = {
 	'usage.sentUpstreamModel': 'Sent upstream model',
 	'usage.upstreamResponseModel': 'Upstream response model',
 	'usage.upstreamModelMismatch': 'Upstream model mismatch',
+	'usage.dynamicRateMultiplier': 'Dynamic group rate',
 	'common.yes': 'Yes',
 	'common.no': 'No',
 }
@@ -754,6 +755,8 @@ describe('admin UsageView model audit export', () => {
 				cache_read_tokens: 0,
 				cache_creation_tokens: 0,
 				duration_ms: 10,
+				dynamic_rate_multiplier: 0.1437,
+				rate_multiplier: 2.1555,
 			}],
 			total: 1,
 			pages: 1,
@@ -789,6 +792,7 @@ describe('admin UsageView model audit export', () => {
 		)
 
 		const headers = aoaToSheet.mock.calls[0][0][0]
+		expect(headers).toContain('Dynamic group rate')
 		expect(headers.slice(4, 8)).toEqual([
 			'Requested model',
 			'Sent upstream model',
@@ -796,6 +800,7 @@ describe('admin UsageView model audit export', () => {
 			'Upstream model mismatch',
 		])
 		const row = sheetAddAoa.mock.calls[0][1][0]
+		expect(row).toContain('0.1437')
 		expect(row.slice(4, 8)).toEqual(['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4', 'Yes'])
 		expect(saveAs).toHaveBeenCalledTimes(1)
 	})

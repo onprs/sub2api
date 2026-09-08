@@ -255,10 +255,13 @@
             </div>
           </template>
 
-          <template #cell-rate_multiplier="{ value }">
-            <span class="text-sm text-gray-700 dark:text-gray-300"
-              >{{ value }}x</span
-            >
+          <template #cell-rate_multiplier="{ row, value }">
+            <span data-testid="group-rate-multiplier" class="text-sm text-gray-700 dark:text-gray-300">
+              <template v-if="row.dynamic_rate_enabled">
+                {{ formatMultiplier(row.dynamic_rate_min_multiplier) }}x-{{ formatMultiplier(row.dynamic_rate_max_multiplier) }}x
+              </template>
+              <template v-else>{{ formatMultiplier(value) }}x</template>
+            </span>
           </template>
 
           <template #cell-is_exclusive="{ value }">
@@ -376,6 +379,7 @@
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-1">
               <button
+                data-testid="group-edit"
                 @click="handleEdit(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
               >
@@ -598,7 +602,7 @@
           </select>
           <p class="input-hint">{{ t("admin.groups.copyAccounts.hint") }}</p>
         </div>
-        <div>
+        <div v-if="!createForm.dynamic_rate_enabled" data-testid="create-static-rate-field">
           <label class="input-label">{{
             t("admin.groups.form.rateMultiplier")
           }}</label>
@@ -617,6 +621,7 @@
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <input
               v-model="createForm.dynamic_rate_enabled"
+              data-testid="create-dynamic-rate-toggle"
               type="checkbox"
               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
@@ -2405,7 +2410,7 @@
             {{ t("admin.groups.copyAccounts.hintEdit") }}
           </p>
         </div>
-        <div>
+        <div v-if="!editForm.dynamic_rate_enabled" data-testid="edit-static-rate-field">
           <label class="input-label">{{
             t("admin.groups.form.rateMultiplier")
           }}</label>
@@ -2423,6 +2428,7 @@
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <input
               v-model="editForm.dynamic_rate_enabled"
+              data-testid="edit-dynamic-rate-toggle"
               type="checkbox"
               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
@@ -4631,6 +4637,7 @@ import type { ChannelModelPricing } from "@/api/admin/channels";
 import { VueDraggable } from "vue-draggable-plus";
 import { createStableObjectKeyResolver } from "@/utils/stableObjectKey";
 import { extractApiErrorMessage } from "@/utils/apiError";
+import { formatMultiplier } from "@/utils/formatters";
 import { useKeyedDebouncedSearch } from "@/composables/useKeyedDebouncedSearch";
 import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
 import {
