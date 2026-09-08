@@ -75,6 +75,7 @@ func compositeAvailableModelsForGroup(ctx context.Context, gateway *service.Gate
 		service.PlatformKimi,
 		service.PlatformZhipu,
 		service.PlatformDeepseek,
+		service.PlatformMiniMax,
 	} {
 		platformModels := gateway.GetAvailableModelsForComposite(ctx, groupID, platform)
 		if len(platformModels) == 0 {

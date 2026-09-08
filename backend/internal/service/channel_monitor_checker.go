@@ -193,6 +193,7 @@ var providerAdapters = map[string]providerAdapter{
 	MonitorProviderKimi:     providerKimiChatAdapter,
 	MonitorProviderZhipu:    providerZhipuChatAdapter,
 	MonitorProviderDeepseek: providerDeepseekChatAdapter,
+	MonitorProviderMiniMax:  providerMiniMaxChatAdapter,
 	MonitorProviderAnthropic: {
 		buildPath: func(string) string { return providerAnthropicPath },
 		buildBody: func(model, prompt string) ([]byte, error) {
@@ -284,6 +285,9 @@ var providerZhipuChatAdapter = newOpenAICompatibleChatAdapter(providerZhipuPath)
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
 var providerDeepseekChatAdapter = newOpenAICompatibleChatAdapter(providerOpenAIPath)
+
+//nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
+var providerMiniMaxChatAdapter = newOpenAICompatibleChatAdapter(providerOpenAIPath)
 
 func newOpenAICompatibleChatAdapter(path string) providerAdapter {
 	return providerAdapter{
@@ -1080,6 +1084,7 @@ var bodyMergeKeyDenyList = map[string]map[string]bool{
 	MonitorProviderKimi:                                              {"model": true, "messages": true, "stream": true},
 	MonitorProviderZhipu:                                             {"model": true, "messages": true, "stream": true},
 	MonitorProviderDeepseek:                                          {"model": true, "messages": true, "stream": true},
+	MonitorProviderMiniMax:                                           {"model": true, "messages": true, "stream": true},
 }
 
 func checkAPIMode(opts *CheckOptions) string {
@@ -1102,7 +1107,7 @@ func isOpenAICompatibleChatProvider(provider string) bool {
 	switch provider {
 	case MonitorProviderOpenAI, MonitorProviderGrok, MonitorProviderOpenCodeGo,
 		MonitorProviderClinePass, MonitorProviderOpenRouter, MonitorProviderCommandCode,
-		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek:
+		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek, MonitorProviderMiniMax:
 		return true
 	default:
 		return false

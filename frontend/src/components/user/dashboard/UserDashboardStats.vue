@@ -257,7 +257,11 @@ const PLATFORM_LABELS: Record<string, string> = {
   opencode_go: 'OpenCode Go',
   clinepass: 'ClinePass',
   openrouter: 'OpenRouter',
-  commandcode: 'Command Code'
+  commandcode: 'Command Code',
+  kimi: 'Kimi',
+  zhipu: 'Zhipu GLM',
+  deepseek: 'DeepSeek',
+  minimax: 'MiniMax',
 }
 
 const platformLabel = (p: string) => PLATFORM_LABELS[p] ?? p

@@ -17,7 +17,8 @@ const concretePlatforms = [
   'commandcode',
   'kimi',
   'zhipu',
-  'deepseek'
+  'deepseek',
+  'minimax'
 ]
 
 describe('platform option catalogs', () => {
@@ -34,7 +35,8 @@ describe('platform option catalogs', () => {
       'grok',
       'kimi',
       'zhipu',
-      'deepseek'
+      'deepseek',
+      'minimax'
     ])
   })
 

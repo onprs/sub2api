@@ -11,7 +11,8 @@ describe('GroupsView Composite route options', () => {
       'grok',
       'kimi',
       'zhipu',
-      'deepseek'
+      'deepseek',
+      'minimax'
     ])
   })
 })
