@@ -307,7 +307,7 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesDynamicRoutingCandidates(t *te
 		PeakStart:                     "09:00",
 		PeakEnd:                       "18:00",
 		PeakRateMultiplier:            1.5,
-		ModelsListConfig:              GroupModelsListConfig{Enabled: true, Models: []string{"gpt-routed"}},
+		ModelAllowlist:                GroupModelAllowlist{Enabled: true, Models: []string{"gpt-routed"}},
 		InferGPT56CacheWrite:          true,
 		InferGPT56CacheWriteMinTokens: 4096,
 		MaxReasoningEffort:            "medium",
@@ -349,7 +349,7 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesDynamicRoutingCandidates(t *te
 	require.Equal(t, first.ID, roundTrip.RoutingGroups[0].GroupID)
 	require.Equal(t, second.ID, roundTrip.RoutingGroups[1].GroupID)
 	require.Equal(t, first.FallbackGroupID, roundTrip.RoutingGroups[0].Group.FallbackGroupID)
-	require.Equal(t, second.ModelsListConfig, roundTrip.RoutingGroups[1].Group.ModelsListConfig)
+	require.Equal(t, second.ModelAllowlist, roundTrip.RoutingGroups[1].Group.ModelAllowlist)
 	require.Equal(t, second.PeakRateMultiplier, roundTrip.RoutingGroups[1].Group.PeakRateMultiplier)
 	require.Equal(t, second.InferGPT56CacheWriteMinTokens, roundTrip.RoutingGroups[1].Group.InferGPT56CacheWriteMinTokens)
 	require.Equal(t, second.MaxReasoningEffort, roundTrip.RoutingGroups[1].Group.MaxReasoningEffort)

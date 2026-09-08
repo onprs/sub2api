@@ -355,32 +355,39 @@ func TestOpenAITransientAndCapacityClassificationIgnoresEchoedJSON(t *testing.T)
 func TestShouldFailoverOpenAIUpstreamResponse(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 
+	account := newOpenAIUpstreamErrorTestAccount()
 	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		account,
 		http.StatusBadGateway,
 		"",
 		[]byte(`{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again.","type":"upstream_error","code":null}}`),
 	))
 	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		account,
 		http.StatusBadGateway,
 		"temporary upstream outage",
 		[]byte(`{"error":{"message":"temporary upstream outage"}}`),
 	))
 	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		account,
 		http.StatusBadRequest,
 		"Model gpt-5.6-sol is not supported when using Codex with a ChatGPT account.",
 		[]byte(`{"error":{"message":"Model \"gpt-5.6-sol\" is not supported when using Codex with a ChatGPT account."}}`),
 	))
 	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		account,
 		http.StatusNotFound,
 		"model not found",
 		[]byte(`{"error":{"code":"model_not_found","message":"model not found"}}`),
 	))
 	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		account,
 		http.StatusBadRequest,
 		"temperature is not supported",
 		[]byte(`{"error":{"message":"Parameter temperature is not supported by this model"}}`),
 	))
 	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		account,
 		http.StatusBadGateway,
 		"temporary upstream outage",
 		[]byte(`{"error":{"message":"temporary upstream outage"},"echo":"context_length_exceeded"}`),

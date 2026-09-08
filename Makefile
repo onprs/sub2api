@@ -4,6 +4,7 @@ PNPM ?= corepack pnpm@9.15.9
 PYTHON ?= $(shell if command -v python >/dev/null 2>&1; then command -v python; elif command -v python3 >/dev/null 2>&1; then command -v python3; fi)
 
 FRONTEND_CRITICAL_VITEST := \
+	src/i18n/__tests__/localeKeyCompleteness.spec.ts \
 	src/api/__tests__/client.spec.ts \
 	src/api/__tests__/tokenRefresh.spec.ts \
 	src/api/__tests__/channelMonitorV2.spec.ts \

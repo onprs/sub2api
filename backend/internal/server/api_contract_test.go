@@ -1548,7 +1548,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminService := service.NewAdminService(nil, userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService, nil, nil, nil)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)
@@ -1860,6 +1860,10 @@ func (stubGroupRepo) Delete(ctx context.Context, id int64) error {
 }
 
 func (stubGroupRepo) DeleteCascade(ctx context.Context, id int64) ([]int64, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (stubGroupRepo) DeleteCascadeIfEmpty(ctx context.Context, id int64) ([]int64, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -3095,7 +3099,7 @@ var (
 	_ service.UserRepository             = (*stubUserRepo)(nil)
 	_ service.APIKeyRepository           = (*stubApiKeyRepo)(nil)
 	_ service.APIKeyCache                = (*stubApiKeyCache)(nil)
-	_ service.GroupRepository            = (*stubGroupRepo)(nil)
+	_ service.AdminGroupRepository       = (*stubGroupRepo)(nil)
 	_ service.UserSubscriptionRepository = (*stubUserSubscriptionRepo)(nil)
 	_ service.UsageLogRepository         = (*stubUsageLogRepo)(nil)
 	_ service.SettingRepository          = (*stubSettingRepo)(nil)

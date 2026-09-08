@@ -141,6 +141,9 @@ func (h *BatchImageHandler) Models(c *gin.Context) {
 			batchImageError(c, err)
 			return
 		}
+		if apiKey != nil && apiKey.Group != nil {
+			got.Data = filterBatchImageModelsByAllowlist(got.Data, apiKey.Group.ModelAllowlist)
+		}
 		c.JSON(http.StatusOK, got)
 		return
 	}
@@ -161,6 +164,7 @@ func (h *BatchImageHandler) Models(c *gin.Context) {
 			lastErr = err
 			continue
 		}
+		got.Data = filterBatchImageModelsByAllowlist(got.Data, group.ModelAllowlist)
 		for _, model := range got.Data {
 			key := model.Provider + "\x00" + model.ID
 			if _, exists := seen[key]; exists {
@@ -175,6 +179,21 @@ func (h *BatchImageHandler) Models(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, merged)
+}
+
+// filterBatchImageModelsByAllowlist 按分组模型白名单过滤批量生图模型列表。
+// 白名单未开启时原样返回。
+func filterBatchImageModelsByAllowlist(models []service.BatchImagePublicModel, allowlist service.GroupModelAllowlist) []service.BatchImagePublicModel {
+	if !allowlist.Enabled {
+		return models
+	}
+	filtered := make([]service.BatchImagePublicModel, 0, len(models))
+	for _, model := range models {
+		if allowlist.Allows(model.ID) {
+			filtered = append(filtered, model)
+		}
+	}
+	return filtered
 }
 
 func (h *BatchImageHandler) Items(c *gin.Context) {

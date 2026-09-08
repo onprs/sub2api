@@ -15,7 +15,7 @@ func TestCodexAstraCatalogAndForwardingMetadata(t *testing.T) {
 			require.Equal(t, "max", normalizeOpenAIReasoningEffortForModel("max", model))
 			descriptor := newConfiguredCodexModelDescriptor(model)
 			require.Equal(t, "GPT-6 Astra", descriptor.DisplayName)
-			require.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, effortsFromConfiguredCodexLevels(descriptor.SupportedReasoningLevels))
+			require.Equal(t, []string{"low", "medium", "high", "xhigh", "max", "ultra"}, effortsFromConfiguredCodexLevels(descriptor.SupportedReasoningLevels))
 			require.Equal(t, int64(1_050_000), descriptor.MaxContextWindow)
 			require.Equal(t, model, descriptor.Slug)
 		})
@@ -23,7 +23,7 @@ func TestCodexAstraCatalogAndForwardingMetadata(t *testing.T) {
 
 	body, err := buildCodexModelsManifestForAccounts(PlatformOpenAI, []string{"gpt-6-astra"}, []Account{{
 		ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
-	}}, nil, true)
+	}}, nil, nil, true)
 	require.NoError(t, err)
 	models := decodeCodexManifestModels(t, body)
 	require.Len(t, models, 1)

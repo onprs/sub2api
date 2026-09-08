@@ -216,7 +216,7 @@ var providerAdapters = map[string]providerAdapter{
 		buildBody: func(model, prompt string) ([]byte, error) {
 			return json.Marshal(map[string]any{
 				"contents": []map[string]any{
-					{"parts": []map[string]any{{"text": prompt}}},
+					{"role": "user", "parts": []map[string]any{{"text": prompt}}},
 				},
 				"generationConfig": geminiMonitorGenerationConfig(model),
 			})

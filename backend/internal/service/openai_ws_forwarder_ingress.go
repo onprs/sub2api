@@ -138,9 +138,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				forceHTTPBridge = true
 				break
 			}
-			// 透传 relay 为每个已接受 turn 记录开始时刻，并在终态到达后执行
-			// TurnStarted、AfterTurn 与 SettleTurn；handler 据此按 turn 复核利润、
-			// 冻结计费时刻并完成结算。
+			// 首轮准入由握手路径完成；后续 response.create 在写入上游前
+			// 依次执行 BeforeRequest、BeforeTurn 和模型映射，并在终态到达后
+			// 执行 TurnStarted、AfterTurn 与 SettleTurn，完成逐 turn 的利润复核、
+			// 定价冻结、并发释放和结算。
 			return s.proxyResponsesWebSocketV2Passthrough(
 				ctx,
 				c,
@@ -522,6 +523,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		return err
 	}
 
+	useHTTPBridge := forceHTTPBridge || s.shouldBridgeOpenAIWSHTTP(account, firstPayload.payloadBytes, firstPayload.previousResponseID)
 	turnState := strings.TrimSpace(c.GetHeader(openAIWSTurnStateHeader))
 	stateStore := s.getOpenAIWSStateStore()
 	groupID := getOpenAIGroupIDFromContext(c)
@@ -531,20 +533,25 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	storeDisabled := false
 	refreshIngressRouteState := func(payload openAIWSClientPayload) {
 		sessionHash = s.GenerateSessionHash(c, payload.rawForHash)
+		preferredConnID = ""
+		storeDisabled = s.isOpenAIWSStoreDisabledInRequestRaw(payload.payloadRaw, account)
+		if useHTTPBridge {
+			// Sticky account affinity may be shared, but an HTTP bridge must not
+			// inherit another connection's native WS turn state or socket binding.
+			return
+		}
 		if turnState == "" && stateStore != nil && sessionHash != "" {
 			if savedTurnState, ok := stateStore.GetSessionTurnState(groupID, sessionHash); ok {
 				turnState = savedTurnState
 			}
 		}
 
-		preferredConnID = ""
 		if stateStore != nil && payload.previousResponseID != "" {
 			if connID, ok := stateStore.GetResponseConn(payload.previousResponseID); ok {
 				preferredConnID = connID
 			}
 		}
 
-		storeDisabled = s.isOpenAIWSStoreDisabledInRequestRaw(payload.payloadRaw, account)
 		if stateStore != nil && storeDisabled && payload.previousResponseID == "" && sessionHash != "" {
 			if connID, ok := stateStore.GetSessionConn(groupID, sessionHash); ok {
 				preferredConnID = connID
@@ -553,7 +560,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 	refreshIngressRouteState(firstPayload)
 
-	if forceHTTPBridge || s.shouldBridgeOpenAIWSHTTP(account, firstPayload.payloadBytes, firstPayload.previousResponseID) {
+	if useHTTPBridge {
 		logOpenAIWSModeInfo(
 			"ingress_ws_http_bridge_start account_id=%d account_type=%s payload_bytes=%d threshold_bytes=%d has_session_hash=%v store_disabled=%v",
 			account.ID,
@@ -731,10 +738,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				bridgeAccountFailoverInputExists = true
 			}
 			if bridgeTurnState := strings.TrimSpace(result.ResponseHeaders.Get(openAIWSTurnStateHeader)); bridgeTurnState != "" {
+				// Follow-up turns on this bridge retain their own upstream state;
+				// publishing it by session hash would leak it to independent bridges.
 				turnState = bridgeTurnState
-				if stateStore != nil && sessionHash != "" {
-					stateStore.BindSessionTurnState(groupID, sessionHash, bridgeTurnState, s.openAIWSSessionStickyTTL())
-				}
 			}
 			responseID := strings.TrimSpace(result.RequestID)
 			if responseID != "" && stateStore != nil {

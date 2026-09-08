@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 )
 
 // resolveAccountStatsCost 计算账号统计定价费用。
@@ -19,6 +20,7 @@ import (
 // accountBaseCost 是调用方预计算的账号基础成本，不包含用户组倍率；
 // OpenCode Go 调用方会在这里保留活动折算后的模型倍率。
 // serviceTier 是最终参与用户计费的 OpenAI 服务层级，用于优先级 3。
+// pricingAt 与本次客户计费使用同一时刻，避免跨峰谷请求的成本与售价错位。
 // reasoningEffort 是最终转发等级；Fable 5.1 max 默认按 3 倍额度消耗。
 func resolveAccountStatsCost(
 	ctx context.Context,
@@ -31,6 +33,7 @@ func resolveAccountStatsCost(
 	requestCount int,
 	accountBaseCost float64,
 	serviceTier string,
+	pricingAt time.Time,
 	reasoningEfforts ...string,
 ) *float64 {
 	reasoningEffort := ""
@@ -63,26 +66,33 @@ func resolveAccountStatsCost(
 
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricingForPlatform(billingService, platform, upstreamModel, tokens, serviceTier, reasoningEffort)
+		return tryModelFilePricingForPlatform(billingService, platform, upstreamModel, tokens, serviceTier, pricingAt, reasoningEffort)
 	}
 
 	return nil
 }
 
 // tryModelFilePricingForPlatform 使用平台限定的模型定价文件（LiteLLM/fallback）标准价计算费用。
-// 与用户计费共用同一条定价管线，避免新增定价特性时维护第二份计算实现。
-// 平台参数只限定模型目录，不引入渠道自定义定价。
-func tryModelFilePricingForPlatform(billingService *BillingService, platform, model string, tokens UsageTokens, serviceTier string, reasoningEfforts ...string) *float64 {
+// 与用户计费共用统一定价管线，并沿用本次请求的计费时刻。
+func tryModelFilePricingForPlatform(billingService *BillingService, platform, model string, tokens UsageTokens, serviceTier string, pricingAt time.Time, reasoningEfforts ...string) *float64 {
 	reasoningEffort := ""
 	if len(reasoningEfforts) > 0 {
 		reasoningEffort = reasoningEfforts[0]
 	}
-	normalizedTier := normalizeBillingServiceTier(serviceTier)
-	breakdown, err := billingService.calculateCostForPlatformWithServiceTier(platform, model, tokens, 1, normalizedTier)
+	breakdown, err := billingService.CalculateCostUnified(CostInput{
+		Ctx:             context.Background(),
+		Model:           model,
+		PricingPlatform: platform,
+		Tokens:          tokens,
+		RateMultiplier:  1,
+		ServiceTier:     normalizeBillingServiceTier(serviceTier),
+		ReasoningEffort: reasoningEffort,
+		PricingAt:       pricingAt,
+		Resolver:        NewModelPricingResolver(nil, billingService),
+	})
 	if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
 		return nil
 	}
-	applyCostBreakdownMultiplier(breakdown, maxReasoningEffortBillingMultiplier(model, reasoningEffort, nil))
 	return applyOpenCodeGoQuotaCostToAccountStats(billingService, platform, model, &breakdown.TotalCost)
 }
 
@@ -277,6 +287,7 @@ func applyAccountStatsCost(
 	upstreamModel, requestedModel string,
 	tokens UsageTokens,
 	accountBaseCost float64,
+	pricingAt time.Time,
 ) {
 	model := upstreamModel
 	if model == "" {
@@ -295,6 +306,6 @@ func applyAccountStatsCost(
 		reasoningEffort = *usageLog.ReasoningEffort
 	}
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
-		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier, reasoningEffort,
+		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, reasoningEffort,
 	)
 }

@@ -127,8 +127,9 @@ func (h *OpenCodeGoGatewayHandler) Models(c *gin.Context) {
 		}
 	}
 
-	if apiKey != nil && !apiKey.UsesDynamicGroupRouting() && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
-		modelIDs = filterModelsByCustomList(modelIDs, defaultModelIDsForPlatform(platform), apiKey.Group.ModelsListConfig.Models)
+	if apiKey != nil && !apiKey.UsesDynamicGroupRouting() && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
+		source := modelListingSource(platform, modelIDs, defaultModelIDsForPlatform(platform))
+		modelIDs = apiKey.Group.ModelAllowlist.FilterForListing(source)
 		writeModelsList(c, platform, modelIDs)
 		return
 	}

@@ -967,7 +967,9 @@ func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Con
 	if authHeaderName != "" {
 		req.Header.Set(authHeaderName, authHeaderValue)
 	} else {
-		setAnthropicAPIKeyAuthHeader(req.Header, account, apiKeyAuthToken)
+		// Ollama Cloud Anthropic 兼容端点按实际 base_url 强制 Bearer，其余保持
+		// extra/default 行为。
+		setAnthropicAPIKeyAuthHeader(req.Header, account, apiKeyAuthToken, normalizedBaseURL)
 	}
 	// 账号级请求头覆写：模型列表探测与真实转发保持一致的最终头
 	account.ApplyHeaderOverrides(req.Header)
@@ -1018,6 +1020,12 @@ func (s *AccountTestService) buildOpenAIUpstreamModelsRequest(ctx context.Contex
 	if account.IsOpenAIOAuthLike() {
 		return s.buildOpenAIOAuthUpstreamModelsRequest(ctx, account)
 	}
+	return buildOpenAIAPIKeyModelsRequest(ctx, account, s.validateOpenAIAPIKeyBaseURL)
+}
+
+// buildOpenAIAPIKeyModelsRequest is shared by admin discovery and public model
+// listing. Codex content negotiation is intentionally absent from this request.
+func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, validateBaseURL func(string) (string, error)) (*http.Request, error) {
 	if account.Type != AccountTypeAPIKey {
 		return nil, newUpstreamModelSyncUnsupportedError(
 			fmt.Sprintf("Unsupported OpenAI account type for upstream model sync: %s", account.Type), nil,
@@ -1034,7 +1042,7 @@ func (s *AccountTestService) buildOpenAIUpstreamModelsRequest(ctx context.Contex
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = "https://api.openai.com"
 	}
-	normalizedBaseURL, err := s.validateOpenAIAPIKeyBaseURL(baseURL)
+	normalizedBaseURL, err := validateBaseURL(baseURL)
 	if err != nil {
 		return nil, newUpstreamModelSyncConfigError("Invalid OpenAI base URL", err)
 	}

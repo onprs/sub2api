@@ -810,6 +810,8 @@ export default {
       modelRestriction: 'Model Restriction (Optional)',
       modelWhitelist: 'Model Whitelist',
       modelMapping: 'Model Mapping',
+      fromModel: 'Request model',
+      toModel: 'Target model',
       selectAllowedModels: 'Select allowed models. Leave empty to support all models.',
       mapRequestModels:
         'Map request models to actual models. Left is the requested model, right is the actual model sent to API.',
@@ -817,8 +819,6 @@ export default {
       supportsAllModels: '(supports all models)',
       requestModel: 'Request model',
       actualModel: 'Actual model',
-      fromModel: 'From Model',
-      toModel: 'To Model',
       addMapping: 'Add Mapping',
       mappingExists: 'Mapping for {model} already exists',
       wildcardOnlyAtEnd: 'Wildcard * can only be at the end',

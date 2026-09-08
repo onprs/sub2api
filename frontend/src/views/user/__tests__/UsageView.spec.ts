@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import UsageView from '../UsageView.vue'
+import Select, { type SelectOption } from '@/components/common/Select.vue'
 
 const {
   queryRequests,
   getStats,
   getDashboardModels,
   getDashboardSnapshotV2,
+  listMyErrorRequests,
   list,
   getAvailable,
   showError,
@@ -19,6 +21,7 @@ const {
   getStats: vi.fn(),
   getDashboardModels: vi.fn(),
   getDashboardSnapshotV2: vi.fn(),
+  listMyErrorRequests: vi.fn(),
   list: vi.fn(),
   getAvailable: vi.fn(),
   showError: vi.fn(),
@@ -47,6 +50,9 @@ const messages: Record<string, string> = {
   'admin.usage.allGroups': 'All groups',
   'admin.usage.allModels': 'All models',
   'usage.allApiKeys': 'All API Keys',
+  'usage.errors.allKeys': 'All API Keys',
+  'usage.tabs.usage': 'Usage records',
+  'usage.tabs.errors': 'Error records',
   'usage.apiKeyFilter': 'API Key',
   'usage.model': 'Model',
   'usage.requestId': 'Request ID',
@@ -78,6 +84,7 @@ vi.mock('@/api', () => ({
     getStats,
     getDashboardModels,
     getDashboardSnapshotV2,
+    listMyErrorRequests,
   },
   keysAPI: {
     list,
@@ -189,6 +196,7 @@ function mountUsageView() {
           emits: ['errorClick'],
           template: '<div class="usage-table-stub" :data-actual-cost-symbol="actualCostSymbol"><span v-for="row in data" :key="`${row.record_type}:${row.id}`">{{ row.record_type }}:{{ row.request_id }}:{{ row.category }}:{{ row.status_code }}</span></div>',
         },
+        UserErrorRequestsTable: chartStub,
         ModelDistributionChart: chartStub,
         GroupDistributionChart: chartStub,
         EndpointDistributionChart: chartStub,
@@ -209,6 +217,7 @@ describe('user UsageView', () => {
     getStats.mockReset()
     getDashboardModels.mockReset()
     getDashboardSnapshotV2.mockReset()
+    listMyErrorRequests.mockReset()
     list.mockReset()
     getAvailable.mockReset()
     showError.mockReset()
@@ -243,7 +252,8 @@ describe('user UsageView', () => {
       trend: [],
       groups: [],
     })
-    list.mockResolvedValue({ items: [{ id: 1, name: 'demo-key' }] })
+    listMyErrorRequests.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
+    list.mockResolvedValue({ items: [{ id: 1, name: 'demo-key' }], total: 1, page: 1, page_size: 100, pages: 1 })
     getAvailable.mockResolvedValue([{ id: 1, name: 'default' }])
   })
 
@@ -259,6 +269,7 @@ describe('user UsageView', () => {
       include_model_stats: false,
       include_group_stats: true,
     }))
+    expect(list).toHaveBeenCalledTimes(1)
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
   })
@@ -301,6 +312,76 @@ describe('user UsageView', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.find('.error-detail-stub').text()).toBe('true:501')
+  })
+
+  it('includes API keys after the first page in the record filter and queries by the selected key', async () => {
+    const firstPageKeys = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      name: `key-${index + 1}`,
+    }))
+    const laterKey = { id: 101, name: 'key-from-second-page' }
+    list
+      .mockResolvedValueOnce({ items: firstPageKeys, total: 101, page: 1, page_size: 100, pages: 2 })
+      .mockResolvedValueOnce({ items: [laterKey], total: 101, page: 2, page_size: 100, pages: 2 })
+
+    const wrapper = mountUsageView()
+    await flushPromises()
+
+    expect(list.mock.calls).toEqual([[1, 100], [2, 100]])
+    const usageKeySelect = wrapper.findAllComponents(Select).find((select) =>
+      select.props('options').some((option: SelectOption) => option.label === 'All API Keys')
+    )!
+    expect(usageKeySelect.props('options')).toHaveLength(102)
+    expect(usageKeySelect.props('options')).toContainEqual({ value: laterKey.id, label: laterKey.name })
+
+    queryRequests.mockClear()
+    usageKeySelect.vm.$emit('update:modelValue', laterKey.id)
+    usageKeySelect.vm.$emit('change', laterKey.id)
+    await flushPromises()
+
+    expect(queryRequests).toHaveBeenCalledWith(
+      expect.objectContaining({ api_key_id: laterKey.id, page: 1 }),
+      expect.anything()
+    )
+
+    expect(list).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('does not request another API key page when the user has no keys', async () => {
+    list.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 100, pages: 0 })
+
+    const wrapper = mountUsageView()
+    await flushPromises()
+
+    expect(list.mock.calls).toEqual([[1, 100]])
+    const keySelect = wrapper.findAllComponents(Select).find((select) =>
+      select.props('options').some((option: SelectOption) => option.label === 'All API Keys')
+    )!
+    expect(keySelect.props('options')).toEqual([{ value: null, label: 'All API Keys' }])
+    expect(getAvailable).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('stops loading API keys when a later page is empty despite an outdated page count', async () => {
+    const firstPageKeys = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      name: `key-${index + 1}`,
+    }))
+    list
+      .mockResolvedValueOnce({ items: firstPageKeys, total: 201, page: 1, page_size: 100, pages: 3 })
+      .mockResolvedValueOnce({ items: [], total: 201, page: 2, page_size: 100, pages: 3 })
+
+    const wrapper = mountUsageView()
+    await flushPromises()
+
+    expect(list.mock.calls).toEqual([[1, 100], [2, 100]])
+    const keySelect = wrapper.findAllComponents(Select).find((select) =>
+      select.props('options').some((option: SelectOption) => option.label === 'All API Keys')
+    )!
+    expect(keySelect.props('options')).toHaveLength(101)
+    expect(keySelect.props('options')).toContainEqual({ value: 100, label: 'key-100' })
+    wrapper.unmount()
   })
 
   it('propagates and resets the native compaction filter across page requests', async () => {

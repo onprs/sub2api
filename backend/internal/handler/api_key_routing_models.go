@@ -45,8 +45,9 @@ func dynamicAPIKeyModels(ctx context.Context, gateway *service.GatewayService, a
 		if codex {
 			fallback = defaultCodexModelIDsForPlatform(groupPlatform)
 		}
-		if group.CustomModelsListEnabled() {
-			available = filterModelsByCustomList(customModelsListSource(groupPlatform, available, fallback), fallback, group.ModelsListConfig.Models)
+		if group.ModelAllowlistEnabled() {
+			source := modelListingSource(groupPlatform, available, fallback)
+			available = group.ModelAllowlist.FilterForListing(source)
 		} else if len(available) == 0 {
 			available = fallback
 		}
@@ -107,7 +108,11 @@ func dynamicAPIKeyAntigravityMappedModels(ctx context.Context, gateway *service.
 			continue
 		}
 		groupID := binding.GroupID
-		merged = mergeModelIDs(merged, gateway.GetAntigravityMappedModels(ctx, &groupID, protocol))
+		groupModels := gateway.GetAntigravityMappedModels(ctx, &groupID, protocol)
+		if binding.Group.ModelAllowlistEnabled() {
+			groupModels = binding.Group.ModelAllowlist.FilterForListing(groupModels)
+		}
+		merged = mergeModelIDs(merged, groupModels)
 	}
 	return merged
 }

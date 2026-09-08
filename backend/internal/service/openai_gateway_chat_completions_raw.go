@@ -162,6 +162,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		}
 	}
 	upstreamBody = applyOllamaCloudRawChatCompletionsRequest(account, upstreamBody)
+	upstreamBody = clampOllamaCloudUpstreamMaxTokens(account, upstreamBody)
 
 	pipeline, err := newRawChatCompletionsPipeline(account, originalModel, upstreamModel)
 	if err != nil {

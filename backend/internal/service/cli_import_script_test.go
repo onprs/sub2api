@@ -725,7 +725,7 @@ func TestResolveCLIImportModelListUsesCustomThenProviderThenDefault(t *testing.T
 	group := &Group{
 		ID:       groupID,
 		Platform: PlatformOpenAI,
-		ModelsListConfig: GroupModelsListConfig{
+		ModelAllowlist: GroupModelAllowlist{
 			Enabled: true,
 			Models:  []string{" gpt-5.1-codex ", "gpt-5.1-codex", "claude-sonnet-4-20250514"},
 		},
@@ -733,7 +733,7 @@ func TestResolveCLIImportModelListUsesCustomThenProviderThenDefault(t *testing.T
 	models := resolveCLIImportModelList(nil, group)
 	require.Equal(t, []string{"gpt-5.1-codex", "claude-sonnet-4-20250514"}, models)
 
-	group.ModelsListConfig = GroupModelsListConfig{}
+	group.ModelAllowlist = GroupModelAllowlist{}
 	models = resolveCLIImportModelList([]string{"z-model", "a-model", "a-model"}, group)
 	require.Equal(t, []string{"z-model", "a-model"}, models)
 

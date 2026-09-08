@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 24 // v24: group dynamic rate fields
+const apiKeyAuthSnapshotVersion = 25 // v25: group model allowlist and dynamic rate fields
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -515,7 +515,7 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		FreeOpenAIFast:                  group.FreeOpenAIFast,
 		DefaultMappedModel:              group.DefaultMappedModel,
 		MessagesDispatchModelConfig:     group.MessagesDispatchModelConfig,
-		ModelsListConfig:                group.ModelsListConfig,
+		ModelAllowlist:                  group.ModelAllowlist,
 		CodexModelsManifestConfig:       group.CodexModelsManifestConfig,
 		InferGPT56CacheWrite:            group.InferGPT56CacheWrite,
 		InferGPT56CacheWriteMinTokens:   group.GPT56CacheWriteInferenceMinTokens(),
@@ -591,7 +591,7 @@ func groupFromAPIKeyAuthSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		FreeOpenAIFast:                  snapshot.FreeOpenAIFast,
 		DefaultMappedModel:              snapshot.DefaultMappedModel,
 		MessagesDispatchModelConfig:     snapshot.MessagesDispatchModelConfig,
-		ModelsListConfig:                snapshot.ModelsListConfig,
+		ModelAllowlist:                  snapshot.ModelAllowlist,
 		CodexModelsManifestConfig:       snapshot.CodexModelsManifestConfig,
 		InferGPT56CacheWrite:            snapshot.InferGPT56CacheWrite,
 		InferGPT56CacheWriteMinTokens:   snapshot.InferGPT56CacheWriteMinTokens,

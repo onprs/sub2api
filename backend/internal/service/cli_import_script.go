@@ -348,8 +348,8 @@ func normalizeCLIImportAPIBaseURL(baseURL string) string {
 }
 
 func resolveCLIImportModelList(available []string, group *Group) []string {
-	if group != nil && group.CustomModelsListEnabled() {
-		return cleanCLIImportModelList(group.ModelsListConfig.Models)
+	if group != nil && group.ModelAllowlistEnabled() {
+		return cleanCLIImportModelList(group.ModelAllowlist.Models)
 	}
 	if cleaned := cleanCLIImportModelList(available); len(cleaned) > 0 {
 		return cleaned

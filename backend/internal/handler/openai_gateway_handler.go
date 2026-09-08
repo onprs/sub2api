@@ -21,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -2073,9 +2074,9 @@ const (
 // 由 BeforeTurn 在每个 turn 开始时冻结，AfterTurn 的用量提交读取它；turn 在
 // 连接内串行推进，互斥锁只为跨用量提交 goroutine 的读取安全。
 //
-// 零值仅表示首个 turn 尚未成功冻结；正常 ingress（包括 ws_v2 passthrough）
-// 都会逐 turn 复核并冻结定价。TurnStarted 仍记录所属 turn 的开始时刻，供异常
-// 回退路径使用，避免长连接跨峰谷后沿用建连时刻。
+// 零值表示首轮尚未由 BeforeTurn 冻结；首轮沿用握手准入并回退到 TurnStarted
+// 记录的首轮开始时刻。后续 turn 在写入上游前重新复核利润门并冻结定价，避免
+// 长连接跨峰谷后沿用建连时刻。
 type openAIWSTurnPricing struct {
 	mu sync.Mutex
 	at time.Time
@@ -2384,6 +2385,16 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	reqModel := strings.TrimSpace(gjson.GetBytes(firstMessage, "model").String())
 	if reqModel == "" {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model is required in first response.create payload")
+		return
+	}
+	// 分组级模型白名单：首帧校验客户端模型，不通过则关闭连接并标记运维原因。
+	// 必须在 ensureCompositeTargetPlatform（合成路由改写）之前执行。
+	// 与 HTTP 准入一致：帧内重复 model 键/大小写变体可能被上游按末值绑定，
+	// 全部候选值逐一校验，任一未命中即拒绝。
+	if blocked := blockedModelAllowlistCandidate(apiKey.Group, requestmodel.FromBodyCandidates("", "application/json", firstMessage)); blocked != "" {
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+		middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available for this group", blocked))
 		return
 	}
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
@@ -2899,8 +2910,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		var turnChannelMapping atomic.Pointer[openAIWSTurnChannelMappingSnapshot]
 		turnChannelMapping.Store(&openAIWSTurnChannelMappingSnapshot{turn: 1, mapping: channelMappingWS})
 		settlementUsageFields := channelMappingWS.ToUsageFields(reqModel, "")
-		// 每个 turn 重新冻结 pricingAt 并按最新门复核当前账号；SettleTurn
-		// 同步计费，定价尚未冻结时回退到 TurnStarted 记录的该 turn 开始时刻。
+		// turn 级定价：首轮回退到 TurnStarted 的所属 turn 时刻；后续 turn 由
+		// BeforeTurn 重新冻结 pricingAt 并按最新门复核当前账号。
 		var turnPricing openAIWSTurnPricing
 		hooks := &service.OpenAIWSIngressHooks{
 			ClientLifecycleContext:      clientLifecycleCtx,
@@ -2914,10 +2925,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				c.Set(securityAuditWSTurnContextKey, turn)
 				service.BeginOpsStreamTurn(c, turn)
 				setCyberTurnBody(turn, payload)
-				// Passthrough ingress intentionally skips BeforeTurn, so enforce only
-				// the connection-level cyber session gate here as well. Native ingress
-				// visits this hook first and gets the same side-effect-free close error;
-				// its original BeforeTurn guard remains as defense in depth.
+				// 连接级 cyber session gate 也在 BeforeRequest 先执行，使 native 与
+				// passthrough ingress 都能在 BeforeTurn 及上游写入前无副作用地拒绝。
+				// BeforeTurn 中保留同一检查作为防御式兜底。
 				if cyberBlockedThisConn {
 					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, cyberSessionBlockedClientMsg, nil)
 				}
@@ -2936,6 +2946,17 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				}
 				currentTurnModel = model
 				requestPayloadHash = service.HashUsageRequestPayload(payload)
+				// 分组级模型白名单：后续 turn 同样校验客户端模型（省略 model 时
+				// 沿用会话实际生效模型，含 session.update 轮换后的模型），不通过
+				// 则关闭整条连接，与推理强度 deny 一致。实际生效模型始终参与校验；
+				// 帧内重复 model 键/大小写变体/嵌套 session.model 额外逐一校验，
+				// 防止候选集非空时掩盖被轮换掉的禁用模型。
+				candidates := append([]string{model}, requestmodel.FromBodyCandidates("", "application/json", payload)...)
+				if blocked := blockedModelAllowlistCandidate(apiKey.Group, candidates); blocked != "" {
+					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+					middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
+					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available for this group", blocked), nil)
+				}
 				if decision := h.checkSecurityAuditStage(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, model, payload, "subsequent_turn"); decision != nil && !decision.AllowNextStage {
 					writeSecurityAuditWSError(ctx, wsConn, decision)
 					return service.NewOpenAIWSClientCloseError(securityAuditWSCloseStatus(decision), securityAuditWSCloseReason(decision), nil)
@@ -3542,6 +3563,12 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 	}
 	statusCode := failoverErr.StatusCode
 	responseBody := failoverErr.ResponseBody
+	if statusCode == http.StatusBadRequest && service.IsOpenAICompatibleModelNotFound400(responseBody) && !streamStarted {
+		upstreamMsg := service.SanitizeUpstreamErrorMessage(service.ExtractUpstreamErrorMessage(responseBody))
+		service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
+		service.WriteOpenAIUpstreamClientError(c, statusCode, responseBody, upstreamMsg)
+		return
+	}
 	if service.IsOpenAISilentRefusalErrorBody(responseBody) {
 		service.SetOpsUpstreamError(c, statusCode, service.OpenAISilentRefusalClientMessage(), "")
 		h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage(), streamStarted)
@@ -3887,6 +3914,21 @@ func isOpenAIWSUpgradeRequest(r *http.Request) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(strings.TrimSpace(r.Header.Get("Connection"))), "upgrade")
+}
+
+// blockedModelAllowlistCandidate 对全部候选模型逐一校验分组白名单，返回第一个
+// 未命中的值（全部命中或白名单未开启返回空串）。WS 帧与 HTTP 请求体共用该
+// 规则：重复 model 键/大小写变体可能被上游按末值绑定，任一未命中即拒绝。
+func blockedModelAllowlistCandidate(group *service.Group, candidates []string) string {
+	if group == nil || !group.ModelAllowlistEnabled() {
+		return ""
+	}
+	for _, candidate := range candidates {
+		if !group.ModelAllowlist.Allows(candidate) {
+			return candidate
+		}
+	}
+	return ""
 }
 
 func closeOpenAIClientWS(conn *coderws.Conn, status coderws.StatusCode, reason string) {

@@ -1078,7 +1078,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 				CacheReadTokens:     result.Usage.CacheReadInputTokens,
 				ImageOutputTokens:   result.Usage.ImageOutputTokens,
 			},
-			accountStatsBaseCost,
+			accountStatsBaseCost, pricingAt,
 		)
 	}
 	// 没有关联渠道时 resolver 会返回 nil；显式写入模型倍率后的成本，避免账号 A $ 回退到原价。

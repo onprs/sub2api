@@ -119,15 +119,19 @@ type userPricingTimeBandDTO struct {
 
 // userPricingIntervalDTO 定价区间白名单（去掉内部 ID、SortOrder 等前端不渲染的字段）。
 type userPricingIntervalDTO struct {
-	MinTokens         int      `json:"min_tokens"`
-	MaxTokens         *int     `json:"max_tokens"`
-	TierLabel         string   `json:"tier_label,omitempty"`
-	InputPrice        *float64 `json:"input_price"`
-	OutputPrice       *float64 `json:"output_price"`
-	CacheWritePrice   *float64 `json:"cache_write_price"`
-	CacheWrite1hPrice *float64 `json:"cache_write_1h_price"`
-	CacheReadPrice    *float64 `json:"cache_read_price"`
-	PerRequestPrice   *float64 `json:"per_request_price"`
+	MinTokens            int      `json:"min_tokens"`
+	MaxTokens            *int     `json:"max_tokens"`
+	TierLabel            string   `json:"tier_label,omitempty"`
+	InputPrice           *float64 `json:"input_price"`
+	OutputPrice          *float64 `json:"output_price"`
+	CacheWritePrice      *float64 `json:"cache_write_price"`
+	CacheWrite1hPrice    *float64 `json:"cache_write_1h_price"`
+	CacheReadPrice       *float64 `json:"cache_read_price"`
+	InputMultiplier      *float64 `json:"input_multiplier"`
+	OutputMultiplier     *float64 `json:"output_multiplier"`
+	CacheWriteMultiplier *float64 `json:"cache_write_multiplier"`
+	CacheReadMultiplier  *float64 `json:"cache_read_multiplier"`
+	PerRequestPrice      *float64 `json:"per_request_price"`
 }
 
 // userSupportedModelPromotion 用户可见的官方价格活动快照。
@@ -369,8 +373,8 @@ func (h *AvailableChannelHandler) modelIDsForPricingGroup(ctx context.Context, g
 		available = h.modelPricingModels.GetAvailableModels(ctx, groupID, group.Platform)
 	}
 	fallback := defaultModelIDsForPlatform(group.Platform)
-	if group.CustomModelsListEnabled() {
-		return filterModelsByCustomList(available, fallback, group.ModelsListConfig.Models)
+	if group.ModelAllowlistEnabled() {
+		return group.ModelAllowlist.FilterForListing(modelListingSource(group.Platform, available, fallback))
 	}
 	if len(available) > 0 {
 		return available
@@ -653,15 +657,19 @@ func toUserPricingIntervals(src []service.PricingInterval) []userPricingInterval
 	intervals := make([]userPricingIntervalDTO, 0, len(src))
 	for _, iv := range src {
 		intervals = append(intervals, userPricingIntervalDTO{
-			MinTokens:         iv.MinTokens,
-			MaxTokens:         iv.MaxTokens,
-			TierLabel:         iv.TierLabel,
-			InputPrice:        iv.InputPrice,
-			OutputPrice:       iv.OutputPrice,
-			CacheWritePrice:   iv.CacheWritePrice,
-			CacheWrite1hPrice: iv.CacheWrite1hPrice,
-			CacheReadPrice:    iv.CacheReadPrice,
-			PerRequestPrice:   iv.PerRequestPrice,
+			MinTokens:            iv.MinTokens,
+			MaxTokens:            iv.MaxTokens,
+			TierLabel:            iv.TierLabel,
+			InputPrice:           iv.InputPrice,
+			OutputPrice:          iv.OutputPrice,
+			CacheWritePrice:      iv.CacheWritePrice,
+			CacheWrite1hPrice:    iv.CacheWrite1hPrice,
+			CacheReadPrice:       iv.CacheReadPrice,
+			InputMultiplier:      iv.InputMultiplier,
+			OutputMultiplier:     iv.OutputMultiplier,
+			CacheWriteMultiplier: iv.CacheWriteMultiplier,
+			CacheReadMultiplier:  iv.CacheReadMultiplier,
+			PerRequestPrice:      iv.PerRequestPrice,
 		})
 	}
 	return intervals
@@ -680,20 +688,7 @@ func toUserPricing(p *service.ChannelModelPricing, pricingSource string) *userSu
 			TimeBands:           []userPricingTimeBandDTO{},
 		}
 	}
-	intervals := make([]userPricingIntervalDTO, 0, len(p.Intervals))
-	for _, iv := range p.Intervals {
-		intervals = append(intervals, userPricingIntervalDTO{
-			MinTokens:         iv.MinTokens,
-			MaxTokens:         iv.MaxTokens,
-			TierLabel:         iv.TierLabel,
-			InputPrice:        iv.InputPrice,
-			OutputPrice:       iv.OutputPrice,
-			CacheWritePrice:   iv.CacheWritePrice,
-			CacheWrite1hPrice: iv.CacheWrite1hPrice,
-			CacheReadPrice:    iv.CacheReadPrice,
-			PerRequestPrice:   iv.PerRequestPrice,
-		})
-	}
+	intervals := toUserPricingIntervals(p.Intervals)
 	billingMode := string(p.BillingMode)
 	if billingMode == "" {
 		billingMode = string(service.BillingModeToken)
