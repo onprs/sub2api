@@ -143,6 +143,7 @@ func TestLatestGroupAuthCacheInvalidationMigrationPreservesDynamicRoutingAndGrou
 		declaration,
 		"OLD.allow_image_generation IS NOT DISTINCT FROM NEW.allow_image_generation",
 		"OLD.allow_live IS NOT DISTINCT FROM NEW.allow_live",
+		"OLD.model_allowlist IS NOT DISTINCT FROM NEW.model_allowlist",
 		"k.group_id = target_group_id",
 		"FROM api_key_groups AS akg",
 		"akg.api_key_id = k.id",
@@ -150,4 +151,6 @@ func TestLatestGroupAuthCacheInvalidationMigrationPreservesDynamicRoutingAndGrou
 	} {
 		require.Containsf(t, latestSQL, required, "最终函数定义迁移 %s 必须保留组合语义", latestName)
 	}
+	require.NotContains(t, latestSQL, "OLD.models_list_config")
+	require.NotContains(t, latestSQL, "NEW.models_list_config")
 }
