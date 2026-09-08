@@ -43,6 +43,24 @@ func TestIsMigrationChecksumCompatible(t *testing.T) {
 		require.True(t, ok)
 	})
 
+	t.Run("237旧版checksum可兼容修复后的MiniMax平台迁移", func(t *testing.T) {
+		ok := isMigrationChecksumCompatible(
+			"237_add_minimax_platform.sql",
+			"f4c73d2dbce114ca7ade1aac51998c3465490f4f3c9b3e868e53590f3fa8601b",
+			"96e8d454bfa5d675d2ff0ff1a4fd3d8226e53445580801d40c3ef2ae6b5f9e85",
+		)
+		require.True(t, ok)
+	})
+
+	t.Run("237未知checksum不兼容", func(t *testing.T) {
+		ok := isMigrationChecksumCompatible(
+			"237_add_minimax_platform.sql",
+			"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"96e8d454bfa5d675d2ff0ff1a4fd3d8226e53445580801d40c3ef2ae6b5f9e85",
+		)
+		require.False(t, ok)
+	})
+
 	t.Run("非白名单迁移不兼容", func(t *testing.T) {
 		ok := isMigrationChecksumCompatible(
 			"001_init.sql",
