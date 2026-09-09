@@ -634,11 +634,11 @@ func TestOpenAIQuotaResetRecoveryClearsRuntimeBlockAcrossStaleSchedulerSnapshot(
 	model := "gpt-runtime-reset-retry"
 	fresh := newSchedulerSnapshotRetryAccount(71601, PlatformOpenAI, model)
 	fresh.Type = AccountTypeOAuth
-	stale := fresh
 	limitedAt := time.Now().Add(-time.Minute)
 	limitedUntil := time.Now().Add(time.Hour)
-	stale.RateLimitedAt = &limitedAt
-	stale.RateLimitResetAt = &limitedUntil
+	fresh.RateLimitedAt = &limitedAt
+	fresh.RateLimitResetAt = &limitedUntil
+	stale := fresh
 
 	cache := newSchedulerSnapshotRetryCacheStub()
 	cache.seed(SchedulerBucket{GroupID: groupID, Platform: PlatformOpenAI, Mode: SchedulerModeSingle}, stale)
@@ -662,7 +662,11 @@ func TestOpenAIQuotaResetRecoveryClearsRuntimeBlockAcrossStaleSchedulerSnapshot(
 	)
 	require.ErrorIs(t, err, ErrNoAvailableAccounts)
 	require.Nil(t, selection)
-	require.Contains(t, err.Error(), "runtime_blocked=1")
+	require.True(t, gateway.isOpenAIAccountRuntimeBlocked(&fresh))
+
+	// 模拟权威数据库在重置卡前已清掉冷却；缓存仍保留旧快照且写入失败。
+	repo.byGroup[groupID][0].RateLimitedAt = nil
+	repo.byGroup[groupID][0].RateLimitResetAt = nil
 
 	postResult := RunOpenAIQuotaResetPostProcess(
 		context.Background(), fresh.ID, schedulerSnapshotQuotaResetStub{}, rateLimits, repo.GetByID,

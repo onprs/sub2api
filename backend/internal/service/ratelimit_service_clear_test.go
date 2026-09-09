@@ -295,6 +295,8 @@ func TestOpenAIQuotaResetPostProcess_ClearsStaleRuntimeBlockWhenPersistentStateA
 		Concurrency: 1,
 		Extra:       map[string]any{},
 	}
+	persistedUntil := time.Now().Add(time.Minute)
+	account.RateLimitResetAt = &persistedUntil
 	repo := &rateLimitClearRepoStub{getByIDAccount: account}
 	gateway := &OpenAIGatewayService{
 		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: []Account{*account}},
@@ -311,7 +313,10 @@ func TestOpenAIQuotaResetPostProcess_ClearsStaleRuntimeBlockWhenPersistentStateA
 	})
 	require.ErrorIs(t, err, ErrNoAvailableAccounts)
 	require.Nil(t, selection)
-	require.Contains(t, err.Error(), "pool=1, filtered: runtime_blocked=1")
+
+	// 模拟数据库在重置卡流程前已清掉持久化冷却，调度快照随后也读到干净账号。
+	account.RateLimitResetAt = nil
+	gateway.accountRepo = schedulerTestOpenAIAccountRepo{accounts: []Account{*account}}
 
 	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 	svc.SetAccountRuntimeBlocker(gateway)

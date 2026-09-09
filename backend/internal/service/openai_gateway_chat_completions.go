@@ -39,6 +39,25 @@ var cursorResponsesUnsupportedFields = []string{
 	"stream_options",
 }
 
+type cancelBeforeCloseReadCloser struct {
+	cancel context.CancelFunc
+	body   io.ReadCloser
+}
+
+func (r *cancelBeforeCloseReadCloser) Read(p []byte) (int, error) {
+	return r.body.Read(p)
+}
+
+func (r *cancelBeforeCloseReadCloser) Close() error {
+	if r.cancel != nil {
+		r.cancel()
+	}
+	if r.body == nil {
+		return nil
+	}
+	return r.body.Close()
+}
+
 // newOpenAIChatResponsesPipeline 保持请求转换严格，同时允许 OpenAI API Key
 // 的 Responses 响应丢弃标准 Chat Completions 无法表达的 provider 专属字段。
 // Codex OAuth 保留 instruction 消息供后续无损提升；Grok 则保留带标签的
@@ -374,6 +393,11 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 
 	// 6. Build upstream request
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	cancelUpstream := func() {}
+	if clientStream {
+		upstreamCtx, cancelUpstream = context.WithCancel(upstreamCtx)
+	}
+	defer cancelUpstream()
 	upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, responsesBody, token, true, promptCacheKey, false)
 	releaseUpstreamCtx()
 	if err != nil {
@@ -398,7 +422,13 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	if clientStream && resp.Body != nil {
+		resp.Body = &cancelBeforeCloseReadCloser{cancel: cancelUpstream, body: resp.Body}
+	}
+	defer func() {
+		cancelUpstream()
+		_ = resp.Body.Close()
+	}()
 
 	// 8. Handle error response with failover
 	if resp.StatusCode >= 400 {
