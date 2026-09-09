@@ -26,27 +26,70 @@ type dynamicBillingFixture struct {
 
 func createDynamicBillingFixture(t *testing.T) dynamicBillingFixture {
 	t.Helper()
+	fixture := dynamicBillingFixture{}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		tx, err := integrationDB.BeginTx(ctx, nil)
+		require.NoError(t, err, "begin dynamic billing fixture cleanup")
+		defer func() { _ = tx.Rollback() }()
+
+		if fixture.apiKey != nil {
+			for _, query := range []string{
+				"DELETE FROM dynamic_rate_usage_events WHERE api_key_id = $1",
+				"DELETE FROM usage_billing_dedup WHERE api_key_id = $1",
+				"DELETE FROM usage_billing_dedup_archive WHERE api_key_id = $1",
+				"DELETE FROM usage_logs WHERE api_key_id = $1",
+				"DELETE FROM api_keys WHERE id = $1",
+			} {
+				_, err = tx.ExecContext(ctx, query, fixture.apiKey.ID)
+				require.NoError(t, err, "clean dynamic billing API key data")
+			}
+		}
+		if fixture.account != nil {
+			_, err = tx.ExecContext(ctx, "DELETE FROM accounts WHERE id = $1", fixture.account.ID)
+			require.NoError(t, err, "clean dynamic billing account")
+		}
+		if fixture.user != nil {
+			_, err = tx.ExecContext(ctx, "DELETE FROM users WHERE id = $1", fixture.user.ID)
+			require.NoError(t, err, "clean dynamic billing user")
+		}
+		if fixture.group != nil {
+			_, err = tx.ExecContext(ctx, "DELETE FROM scheduler_outbox WHERE group_id = $1", fixture.group.ID)
+			require.NoError(t, err, "clean dynamic billing scheduler outbox")
+			_, err = tx.ExecContext(ctx, "DELETE FROM groups WHERE id = $1", fixture.group.ID)
+			require.NoError(t, err, "clean dynamic billing group")
+		}
+		if fixture.apiKey != nil {
+			_, err = tx.ExecContext(ctx, `
+				DELETE FROM auth_cache_invalidation_outbox
+				WHERE cache_key = encode(sha256(convert_to($1, 'UTF8')), 'hex')
+			`, fixture.apiKey.Key)
+			require.NoError(t, err, "clean dynamic billing auth cache outbox")
+		}
+		require.NoError(t, tx.Commit(), "commit dynamic billing fixture cleanup")
+	})
+
 	client := testEntClient(t)
-	user := mustCreateUser(t, client, &service.User{
+	fixture.user = mustCreateUser(t, client, &service.User{
 		Email:        fmt.Sprintf("dynamic-rate-user-%d@example.com", time.Now().UnixNano()),
 		PasswordHash: "hash",
 		Balance:      100,
 	})
-	group := mustCreateGroup(t, client, &service.Group{
+	fixture.group = mustCreateGroup(t, client, &service.Group{
 		Name:     "dynamic-rate-group-" + uuid.NewString(),
 		Platform: service.PlatformAnthropic,
 	})
-	apiKey := mustCreateApiKey(t, client, &service.APIKey{
-		UserID:  user.ID,
-		GroupID: &group.ID,
+	fixture.apiKey = mustCreateApiKey(t, client, &service.APIKey{
+		UserID:  fixture.user.ID,
+		GroupID: &fixture.group.ID,
 		Key:     "sk-dynamic-rate-" + uuid.NewString(),
 		Name:    "dynamic-rate",
 	})
-	account := mustCreateAccount(t, client, &service.Account{
+	fixture.account = mustCreateAccount(t, client, &service.Account{
 		Name:     "dynamic-rate-account-" + uuid.NewString(),
 		Platform: service.PlatformAnthropic,
 	})
-	return dynamicBillingFixture{user: user, group: group, apiKey: apiKey, account: account}
+	return fixture
 }
 
 func dynamicBillingCommands(fixture dynamicBillingFixture, requestID string, totalTokens int, occurredAt time.Time, targetTokens int64) (*service.UsageBillingCommand, *service.DynamicRateUsageCommand) {

@@ -15,21 +15,22 @@ import (
 
 func TestMigration237BackfillsResolvedDynamicRateByRequestKey(t *testing.T) {
 	ctx := context.Background()
-	user := mustCreateUser(t, integrationEntClient, &service.User{})
-	group := mustCreateGroup(t, integrationEntClient, &service.Group{
+	tx := testEntTx(t)
+	client := tx.Client()
+	user := mustCreateUser(t, client, &service.User{})
+	group := mustCreateGroup(t, client, &service.Group{
 		Name:           fmt.Sprintf("dynamic-snapshot-%d", time.Now().UnixNano()),
 		RateMultiplier: 1,
 	})
 	groupID := group.ID
-	apiKey := mustCreateApiKey(t, integrationEntClient, &service.APIKey{
+	apiKey := mustCreateApiKey(t, client, &service.APIKey{
 		UserID:  user.ID,
 		GroupID: &groupID,
 	})
-	account := mustCreateAccount(t, integrationEntClient, &service.Account{
+	account := mustCreateAccount(t, client, &service.Account{
 		Name: fmt.Sprintf("dynamic-snapshot-%d", time.Now().UnixNano()),
 	})
 
-	tx := testTx(t)
 	requestID := fmt.Sprintf("dynamic-snapshot:%d", time.Now().UnixNano())
 	unmatchedRequestID := requestID + ":unmatched"
 	createdAt := time.Now().UTC()
@@ -59,21 +60,21 @@ INSERT INTO dynamic_rate_usage_events (
 	require.NoError(t, err, "migration must remain idempotent")
 
 	var resolved *float64
-	err = tx.QueryRowContext(ctx, `
+	err = scanSingleRow(ctx, tx, `
 SELECT dynamic_rate_multiplier
 FROM usage_logs
 WHERE request_id = $1 AND api_key_id = $2
-`, requestID, apiKey.ID).Scan(&resolved)
+`, []any{requestID, apiKey.ID}, &resolved)
 	require.NoError(t, err)
 	require.NotNil(t, resolved)
 	require.InDelta(t, 0.1437, *resolved, 0.000001)
 
 	var unmatched *float64
-	err = tx.QueryRowContext(ctx, `
+	err = scanSingleRow(ctx, tx, `
 SELECT dynamic_rate_multiplier
 FROM usage_logs
 WHERE request_id = $1 AND api_key_id = $2
-`, unmatchedRequestID, apiKey.ID).Scan(&unmatched)
+`, []any{unmatchedRequestID, apiKey.ID}, &unmatched)
 	require.NoError(t, err)
 	require.Nil(t, unmatched)
 }
