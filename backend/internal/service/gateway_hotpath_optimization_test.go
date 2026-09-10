@@ -973,6 +973,35 @@ func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
 	}
 }
 
+func TestGetAvailableModels_CommandCodeUsesOfficialCatalogInsteadOfAccountMapping(t *testing.T) {
+	groupID := int64(60)
+	repo := &modelsListAccountRepoStub{
+		byGroup: map[int64][]Account{
+			groupID: {
+				{
+					ID:       1,
+					Platform: PlatformCommandCode,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"custom-command-model": "gpt-5.6-sol",
+						},
+					},
+				},
+			},
+		},
+	}
+	svc := &GatewayService{
+		accountRepo:        repo,
+		modelsListCache:    gocache.New(time.Minute, time.Minute),
+		modelsListCacheTTL: time.Minute,
+	}
+
+	models := svc.GetAvailableModels(context.Background(), &groupID, PlatformCommandCode)
+	require.NotContains(t, models, "custom-command-model")
+	require.Contains(t, models, "deepseek/deepseek-v4-flash")
+	require.Contains(t, models, "deepseek/deepseek-v4.1-flash")
+}
+
 func TestGetAvailableModels_GlobalListPreservesMappedModelsWithOpenAIPassthrough(t *testing.T) {
 	groupID := int64(11)
 	repo := &modelsListAccountRepoStub{

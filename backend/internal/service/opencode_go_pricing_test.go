@@ -12,7 +12,7 @@ import (
 
 func TestOpenCodeGoReferencePricingCoversSeedCatalog(t *testing.T) {
 	catalog := openCodeGoSeedCatalog()
-	require.Len(t, catalog, 28)
+	require.Len(t, catalog, 36)
 	require.Len(t, openCodeGoReferencePrices, len(catalog))
 
 	for modelID := range catalog {
@@ -63,7 +63,9 @@ func TestOpenCodeGoReferencePricingLocksOfficialCurrentRates(t *testing.T) {
 		cacheWrite float64
 	}{
 		{model: "grok-4.5", input: 2, output: 6, cacheRead: 0.3},
+		{model: "grok-4.6", input: 2, output: 6, cacheRead: 0.5},
 		{model: "gpt-5.6-luna", input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25},
+		{model: "glm-5.3-flash", input: 0.15, output: 0.5, cacheRead: 0.03},
 		{model: "glm-5.3", input: 1.4, output: 4.4, cacheRead: 0.26},
 		{model: "glm-5.2", input: 1.4, output: 4.4, cacheRead: 0.26},
 		{model: "glm-5.1", input: 1.4, output: 4.4, cacheRead: 0.26},
@@ -72,17 +74,23 @@ func TestOpenCodeGoReferencePricingLocksOfficialCurrentRates(t *testing.T) {
 		{model: "kimi-k2.6", input: 0.95, output: 4, cacheRead: 0.16},
 		{model: "mimo-v2.5", input: 0.14, output: 0.28, cacheRead: 0.0028},
 		{model: "mimo-v2.5-pro", input: 0.435, output: 0.87, cacheRead: 0.003625},
+		{model: "longcat-2.0", input: 0.3, output: 1.2, cacheRead: 0.006},
+		{model: "omen-alpha", input: 0.2, output: 0.66, cacheRead: 0.04},
 		{model: "minimax-m3", input: 0.3, output: 1.2, cacheRead: 0.06},
 		{model: "minimax-m2.7", input: 0.3, output: 1.2, cacheRead: 0.06, cacheWrite: 0.375},
 		{model: "minimax-m2.5", input: 0.3, output: 1.2, cacheRead: 0.06, cacheWrite: 0.375},
+		{model: "muse-spark-1.3-contributor", input: 0.1, output: 0.2, cacheRead: 0.002},
 		{model: "muse-spark-1.2-contributor", input: 0.1, output: 0.2, cacheRead: 0.002},
+		{model: "qwen3.8-flash", input: 0.15, output: 0.47, cacheRead: 0.016, cacheWrite: 0.2},
 		{model: "qwen3.8-max", input: 2, output: 6, cacheRead: 0.25, cacheWrite: 2.5},
 		{model: "qwen3.7-max", input: 2.5, output: 7.5, cacheRead: 0.5, cacheWrite: 3.125},
 		{model: "qwen3.7-plus", input: 0.4, output: 1.6, cacheRead: 0.04, cacheWrite: 0.5},
 		{model: "qwen3.6-plus", input: 0.5, output: 3, cacheRead: 0.05, cacheWrite: 0.625},
 		{model: "deepseek-v4-pro", input: 0.66, output: 1.98, cacheRead: 0.022},
-		{model: "deepseek-v4-flash", input: 0.22, output: 0.66, cacheRead: 0.007},
-		{model: "deepseek-v4-flash-vision-exp", input: 0.22, output: 0.66, cacheRead: 0.007},
+		{model: "deepseek-flash", input: 0.15, output: 0.6, cacheRead: 0.003},
+		{model: "deepseek-v4-flash", input: 0.15, output: 0.6, cacheRead: 0.003},
+		{model: "deepseek-v4-flash-vision-exp", input: 0.15, output: 0.6, cacheRead: 0.003},
+		{model: "hy4-preview", input: 0.834, output: 2.501, cacheRead: 0.042},
 		{model: "hy3", input: 0.14, output: 0.58, cacheRead: 0.035},
 	}
 
@@ -101,8 +109,10 @@ func TestOpenCodeGoReferencePricingLocksOfficialCurrentRates(t *testing.T) {
 func TestOpenCodeGoReferenceQuotaCostsLockOfficialMonthlyUsage(t *testing.T) {
 	expected := map[string]OpenCodeGoQuotaCost{
 		"grok-4.5":                     {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
+		"grok-4.6":                     {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
 		"gpt-5.6-luna":                 {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
 		"glm-5.3":                      {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
+		"glm-5.3-flash":                {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
 		"glm-5.2":                      {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
 		"glm-5.1":                      {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
 		"kimi-k3":                      {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
@@ -113,14 +123,20 @@ func TestOpenCodeGoReferenceQuotaCostsLockOfficialMonthlyUsage(t *testing.T) {
 		"minimax-m3":                   {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
 		"minimax-m2.7":                 {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
 		"minimax-m2.5":                 {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"muse-spark-1.3-contributor":   {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
 		"muse-spark-1.2-contributor":   {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"omen-alpha":                   {IncludedMonthlyUsageUSD: 100, Multiplier: 0.6},
+		"qwen3.8-flash":                {IncludedMonthlyUsageUSD: 30, Multiplier: 2},
 		"qwen3.8-max":                  {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
-		"qwen3.7-max":                  {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"qwen3.7-max":                  {IncludedMonthlyUsageUSD: 30, Multiplier: 2},
 		"qwen3.7-plus":                 {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
 		"qwen3.6-plus":                 {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
+		"deepseek-flash":               {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
 		"deepseek-v4-pro":              {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
 		"deepseek-v4-flash":            {IncludedMonthlyUsageUSD: 30, Multiplier: 2},
 		"deepseek-v4-flash-vision-exp": {IncludedMonthlyUsageUSD: 15, Multiplier: 4},
+		"hy4-preview":                  {IncludedMonthlyUsageUSD: 30, Multiplier: 2},
+		"longcat-2.0":                  {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
 		"hy3":                          {IncludedMonthlyUsageUSD: 60, Multiplier: 1},
 	}
 	require.Len(t, openCodeGoReferenceMonthlyUsageUSD, len(expected))
@@ -197,9 +213,10 @@ func TestOpenCodeGoReferencePricingUsesOfficialDeepSeekTimeBands(t *testing.T) {
 	}{
 		{name: "off peak before first window", model: "deepseek-v4-pro", now: time.Date(2026, time.August, 21, 0, 59, 59, 0, time.UTC), input: 0.66e-6, output: 1.98e-6, cacheRead: 0.022e-6},
 		{name: "first peak starts", model: "deepseek-v4-pro", now: time.Date(2026, time.August, 21, 1, 0, 0, 0, time.UTC), input: 1.32e-6, output: 3.96e-6, cacheRead: 0.044e-6},
-		{name: "first peak ends", model: "deepseek-v4-flash", now: time.Date(2026, time.August, 21, 4, 0, 0, 0, time.UTC), input: 0.22e-6, output: 0.66e-6, cacheRead: 0.007e-6},
-		{name: "second peak starts", model: "deepseek-v4-flash", now: time.Date(2026, time.August, 21, 6, 0, 0, 0, time.UTC), input: 0.44e-6, output: 1.32e-6, cacheRead: 0.014e-6},
-		{name: "second peak ends", model: "deepseek-v4-flash-vision-exp", now: time.Date(2026, time.August, 21, 10, 0, 0, 0, time.UTC), input: 0.22e-6, output: 0.66e-6, cacheRead: 0.007e-6},
+		{name: "first peak ends", model: "deepseek-v4-flash", now: time.Date(2026, time.August, 21, 4, 0, 0, 0, time.UTC), input: 0.15e-6, output: 0.60e-6, cacheRead: 0.003e-6},
+		{name: "second peak starts", model: "deepseek-v4-flash", now: time.Date(2026, time.August, 21, 6, 0, 0, 0, time.UTC), input: 0.30e-6, output: 1.20e-6, cacheRead: 0.006e-6},
+		{name: "second peak ends", model: "deepseek-v4-flash-vision-exp", now: time.Date(2026, time.August, 21, 10, 0, 0, 0, time.UTC), input: 0.15e-6, output: 0.60e-6, cacheRead: 0.003e-6},
+		{name: "weekend peak window remains off peak", model: "deepseek-flash", now: time.Date(2026, time.August, 22, 2, 0, 0, 0, time.UTC), input: 0.15e-6, output: 0.60e-6, cacheRead: 0.003e-6},
 	}
 
 	for _, tt := range tests {
@@ -248,6 +265,7 @@ func TestOpenCodeGoReferencePricingLocksLongContextTiers(t *testing.T) {
 		inputMultiplier  float64
 		outputMultiplier float64
 	}{
+		{model: "grok-4.6", threshold: 200000, inputMultiplier: 2, outputMultiplier: 2},
 		{model: "gpt-5.6-luna", threshold: 272000, inputMultiplier: 2, outputMultiplier: 1.5},
 		{model: "mimo-v2-pro", threshold: 256000, inputMultiplier: 2, outputMultiplier: 2},
 		{model: "qwen3.6-plus", threshold: 256000, inputMultiplier: 4, outputMultiplier: 2},
@@ -310,8 +328,8 @@ func TestBillingServiceOpenCodeGoPlatformPricingUsesOnlyOfficialDynamicSnapshot(
 		time.Date(2026, time.August, 21, 0, 0, 0, 0, time.UTC),
 	)
 	require.NoError(t, err)
-	require.InDelta(t, 0.22e-6, formalReference.InputPricePerToken, 1e-15)
-	require.InDelta(t, 0.66e-6, formalReference.OutputPricePerToken, 1e-15)
+	require.InDelta(t, 0.15e-6, formalReference.InputPricePerToken, 1e-15)
+	require.InDelta(t, 0.60e-6, formalReference.OutputPricePerToken, 1e-15)
 
 	isolatedReference, err := billingSvc.GetModelPricingForPlatform(PlatformOpenCodeGo, "hy3-preview")
 	require.NoError(t, err)
@@ -344,8 +362,8 @@ func TestBillingServiceOpenCodeGoRejectsLegacySingleBandDeepSeekCache(t *testing
 		time.Date(2026, time.August, 21, 0, 0, 0, 0, time.UTC),
 	)
 	require.NoError(t, err)
-	require.InDelta(t, 0.22e-6, offPeak.InputPricePerToken, 1e-15)
-	require.InDelta(t, 0.66e-6, offPeak.OutputPricePerToken, 1e-15)
+	require.InDelta(t, 0.15e-6, offPeak.InputPricePerToken, 1e-15)
+	require.InDelta(t, 0.60e-6, offPeak.OutputPricePerToken, 1e-15)
 
 	peak, err := billingSvc.getModelPricingForPlatformAt(
 		PlatformOpenCodeGo,
@@ -353,8 +371,8 @@ func TestBillingServiceOpenCodeGoRejectsLegacySingleBandDeepSeekCache(t *testing
 		time.Date(2026, time.August, 21, 1, 0, 0, 0, time.UTC),
 	)
 	require.NoError(t, err)
-	require.InDelta(t, 0.44e-6, peak.InputPricePerToken, 1e-15)
-	require.InDelta(t, 1.32e-6, peak.OutputPricePerToken, 1e-15)
+	require.InDelta(t, 0.30e-6, peak.InputPricePerToken, 1e-15)
+	require.InDelta(t, 1.20e-6, peak.OutputPricePerToken, 1e-15)
 }
 
 func TestBillingServiceOpenCodeGoOfficialZeroRatePricingIsTemporaryAndPlatformScoped(t *testing.T) {

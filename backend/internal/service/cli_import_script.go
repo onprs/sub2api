@@ -730,11 +730,15 @@ func applyOpenCodeGoCLIImportReferencePricing(platform, model string, cap CLIImp
 var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability{
 	"deepseek-v4-flash": newOpenCodeGoBuiltinCLIImportCapability(
 		"DeepSeek V4 Flash", "deepseek-flash", false, true, true, true,
-		[]string{"text"}, 1000000, 384000, 0.22, 0.66, cliImportFloat64Ptr(0.007), nil,
+		[]string{"text"}, 1000000, 384000, 0.15, 0.60, cliImportFloat64Ptr(0.003), nil,
+	),
+	"deepseek-flash": newOpenCodeGoBuiltinCLIImportCapability(
+		"DeepSeek V4.1 Flash", "deepseek-flash", true, true, true, true,
+		[]string{"text", "image"}, 1000000, 384000, 0.15, 0.60, cliImportFloat64Ptr(0.003), nil,
 	),
 	"deepseek-v4-flash-vision-exp": newOpenCodeGoBuiltinCLIImportCapability(
 		"DeepSeek V4 Flash Vision Exp", "deepseek-flash", true, true, true, true,
-		[]string{"text", "image"}, 1000000, 384000, 0.22, 0.66, cliImportFloat64Ptr(0.007), nil,
+		[]string{"text", "image"}, 1000000, 384000, 0.15, 0.60, cliImportFloat64Ptr(0.003), nil,
 	),
 	"deepseek-v4-pro": newOpenCodeGoBuiltinCLIImportCapability(
 		"DeepSeek V4 Pro", "deepseek-thinking", false, true, true, true,
@@ -761,9 +765,17 @@ var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability
 		"GLM-5.3", "glm", false, true, true, true,
 		[]string{"text"}, 1000000, 131072, 1.4, 4.4, cliImportFloat64Ptr(0.26), nil,
 	),
+	"glm-5.3-flash": newOpenCodeGoBuiltinCLIImportCapability(
+		"GLM-5.3 Flash", "glm", true, true, true, true,
+		[]string{"text", "image", "video", "pdf"}, 1000000, 131072, 0.15, 0.50, cliImportFloat64Ptr(0.03), nil,
+	),
 	"hy3-preview": newOpenCodeGoBuiltinCLIImportCapability(
 		"HY3 Preview", "hy3", false, true, true, true,
 		[]string{"text"}, 262144, 65536, 0, 0, nil, nil,
+	),
+	"hy4-preview": newOpenCodeGoBuiltinCLIImportCapability(
+		"Hy4 Preview", "hy4", false, true, true, true,
+		[]string{"text"}, 1024000, 64000, 0.834, 2.501, cliImportFloat64Ptr(0.042), nil,
 	),
 	// Hy3 GA (graduated from preview). Pricing mirrors the OpenCode Go docs
 	// ($0.14/$0.58/$0.035 per 1M tokens); limits/caps follow the Tencent Hy3
@@ -778,6 +790,14 @@ var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability
 	"grok-4.5": newOpenCodeGoBuiltinCLIImportCapability(
 		"Grok 4.5", "grok", true, true, true, true,
 		[]string{"text", "image"}, 500000, 500000, 2.0, 6.0, cliImportFloat64Ptr(0.30), nil,
+	),
+	"grok-4.6": newOpenCodeGoBuiltinCLIImportCapability(
+		"Grok 4.6", "grok", true, true, true, true,
+		[]string{"text", "image"}, 500000, 500000, 2.0, 6.0, cliImportFloat64Ptr(0.50), nil,
+	),
+	"muse-spark-1.3-contributor": newOpenCodeGoBuiltinCLIImportCapability(
+		"Muse Spark 1.3 Contributor", "muse-spark", true, true, false, true,
+		[]string{"text", "image", "video", "pdf", "audio"}, 1048576, 131072, 0.1, 0.2, cliImportFloat64Ptr(0.002), nil,
 	),
 	"muse-spark-1.2-contributor": newOpenCodeGoBuiltinCLIImportCapability(
 		"Muse Spark 1.2 Contributor", "muse-spark", true, true, false, true,
@@ -805,6 +825,10 @@ var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability
 	"kimi-k3": newOpenCodeGoBuiltinCLIImportCapability(
 		"Kimi K3", "kimi-k3", true, true, false, true,
 		[]string{"text", "image", "video"}, 1048576, 131072, 3.0, 15.0, cliImportFloat64Ptr(0.30), nil,
+	),
+	"longcat-2.0": newOpenCodeGoBuiltinCLIImportCapability(
+		"LongCat-2.0", "longcat", false, true, true, true,
+		[]string{"text"}, 1000000, 131072, 0.30, 1.20, cliImportFloat64Ptr(0.006), nil,
 	),
 	"mimo-v2.5": newOpenCodeGoBuiltinCLIImportCapability(
 		"MiMo V2.5", "mimo-v2.5", true, true, true, true,
@@ -842,10 +866,18 @@ var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability
 		"Qwen3.5 Plus", "qwen3.5", true, true, true, true,
 		[]string{"text", "image", "video"}, 262144, 65536, 0.2, 1.2, cliImportFloat64Ptr(0.02), cliImportFloat64Ptr(0.25),
 	),
+	"omen-alpha": newOpenCodeGoBuiltinCLIImportCapability(
+		"Omen Alpha", "omen", true, true, true, true,
+		[]string{"text", "image"}, 500000, 128000, 0.20, 0.66, cliImportFloat64Ptr(0.04), nil,
+	),
 	"qwen3.8-max": newOpenCodeGoBuiltinCLIImportCapability(
 		// OpenCode Go docs: 1M context, 65K output, $2/$6 with cache read/write pricing.
 		"Qwen3.8 Max", "qwen3.8-max", false, true, true, true,
 		[]string{"text"}, 1000000, 65536, 2.0, 6.0, cliImportFloat64Ptr(0.25), cliImportFloat64Ptr(2.5),
+	),
+	"qwen3.8-flash": newOpenCodeGoBuiltinCLIImportCapability(
+		"Qwen3.8 Flash", "qwen3.8", true, true, true, true,
+		[]string{"text", "image", "video"}, 1000000, 131072, 0.15, 0.47, cliImportFloat64Ptr(0.016), cliImportFloat64Ptr(0.20),
 	),
 	"qwen3.7-max": newOpenCodeGoBuiltinCLIImportCapability(
 		"Qwen3.7 Max", "qwen3.7-max", false, true, true, true,

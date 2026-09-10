@@ -17,19 +17,29 @@ const openCodeGoSharedMonthlyQuotaUSD = 60.0
 // 同名模型。
 var openCodeGoReferencePrices = map[string]ModelPricing{
 	"deepseek-v4-flash": {
-		InputPricePerToken:     0.22e-6,
-		OutputPricePerToken:    0.66e-6,
-		CacheReadPricePerToken: 0.007e-6,
+		InputPricePerToken:     0.15e-6,
+		OutputPricePerToken:    0.60e-6,
+		CacheReadPricePerToken: 0.003e-6,
+	},
+	"deepseek-flash": {
+		InputPricePerToken:     0.15e-6,
+		OutputPricePerToken:    0.60e-6,
+		CacheReadPricePerToken: 0.003e-6,
 	},
 	"deepseek-v4-flash-vision-exp": {
-		InputPricePerToken:     0.22e-6,
-		OutputPricePerToken:    0.66e-6,
-		CacheReadPricePerToken: 0.007e-6,
+		InputPricePerToken:     0.15e-6,
+		OutputPricePerToken:    0.60e-6,
+		CacheReadPricePerToken: 0.003e-6,
 	},
 	"deepseek-v4-pro": {
 		InputPricePerToken:     0.66e-6,
 		OutputPricePerToken:    1.98e-6,
 		CacheReadPricePerToken: 0.022e-6,
+	},
+	"glm-5.3-flash": {
+		InputPricePerToken:     0.15e-6,
+		OutputPricePerToken:    0.50e-6,
+		CacheReadPricePerToken: 0.03e-6,
 	},
 	"glm-5": {
 		InputPricePerToken:     1e-6,
@@ -60,15 +70,33 @@ var openCodeGoReferencePrices = map[string]ModelPricing{
 		LongContextInputMultiplier:  2,
 		LongContextOutputMultiplier: 1.5,
 	},
+	"grok-4.6": {
+		InputPricePerToken:          2e-6,
+		OutputPricePerToken:         6e-6,
+		CacheReadPricePerToken:      0.5e-6,
+		LongContextInputThreshold:   200000,
+		LongContextInputMultiplier:  2,
+		LongContextOutputMultiplier: 2,
+	},
 	"grok-4.5": {
 		InputPricePerToken:     2e-6,
 		OutputPricePerToken:    6e-6,
 		CacheReadPricePerToken: 0.3e-6,
 	},
+	"muse-spark-1.3-contributor": {
+		InputPricePerToken:     0.10e-6,
+		OutputPricePerToken:    0.20e-6,
+		CacheReadPricePerToken: 0.002e-6,
+	},
 	"muse-spark-1.2-contributor": {
 		InputPricePerToken:     0.1e-6,
 		OutputPricePerToken:    0.2e-6,
 		CacheReadPricePerToken: 0.002e-6,
+	},
+	"hy4-preview": {
+		InputPricePerToken:     0.834e-6,
+		OutputPricePerToken:    2.501e-6,
+		CacheReadPricePerToken: 0.042e-6,
 	},
 	"hy3": {
 		InputPricePerToken:     0.14e-6,
@@ -99,6 +127,11 @@ var openCodeGoReferencePrices = map[string]ModelPricing{
 		InputPricePerToken:     3e-6,
 		OutputPricePerToken:    15e-6,
 		CacheReadPricePerToken: 0.3e-6,
+	},
+	"longcat-2.0": {
+		InputPricePerToken:     0.30e-6,
+		OutputPricePerToken:    1.20e-6,
+		CacheReadPricePerToken: 0.006e-6,
 	},
 	"mimo-v2-omni": {
 		InputPricePerToken:     0.4e-6,
@@ -140,6 +173,11 @@ var openCodeGoReferencePrices = map[string]ModelPricing{
 		OutputPricePerToken:    1.2e-6,
 		CacheReadPricePerToken: 0.06e-6,
 	},
+	"omen-alpha": {
+		InputPricePerToken:     0.20e-6,
+		OutputPricePerToken:    0.66e-6,
+		CacheReadPricePerToken: 0.04e-6,
+	},
 	"qwen3.5-plus": {
 		InputPricePerToken:         0.2e-6,
 		OutputPricePerToken:        1.2e-6,
@@ -170,6 +208,12 @@ var openCodeGoReferencePrices = map[string]ModelPricing{
 		LongContextInputMultiplier:  3,
 		LongContextOutputMultiplier: 3,
 	},
+	"qwen3.8-flash": {
+		InputPricePerToken:         0.15e-6,
+		OutputPricePerToken:        0.47e-6,
+		CacheCreationPricePerToken: 0.20e-6,
+		CacheReadPricePerToken:     0.016e-6,
+	},
 	"qwen3.8-max": {
 		InputPricePerToken:         2e-6,
 		OutputPricePerToken:        6e-6,
@@ -190,23 +234,31 @@ type OpenCodeGoQuotaCost struct {
 // 兼容目录中没有 Usage 证据的型号不得默认按 1x 计费。
 var openCodeGoReferenceMonthlyUsageUSD = map[string]float64{
 	"grok-4.5":                     15,
+	"grok-4.6":                     15,
 	"gpt-5.6-luna":                 15,
 	"glm-5.1":                      60,
 	"glm-5.2":                      60,
 	"glm-5.3":                      15,
+	"glm-5.3-flash":                60,
+	"hy4-preview":                  30,
 	"kimi-k2.6":                    60,
 	"kimi-k2.7-code":               60,
 	"kimi-k3":                      15,
+	"longcat-2.0":                  60,
 	"mimo-v2.5":                    60,
 	"mimo-v2.5-pro":                15,
 	"minimax-m2.5":                 60,
 	"minimax-m2.7":                 60,
 	"minimax-m3":                   60,
+	"muse-spark-1.3-contributor":   60,
 	"muse-spark-1.2-contributor":   60,
+	"omen-alpha":                   100,
 	"qwen3.6-plus":                 60,
-	"qwen3.7-max":                  60,
+	"qwen3.7-max":                  30,
 	"qwen3.7-plus":                 60,
+	"qwen3.8-flash":                30,
 	"qwen3.8-max":                  15,
+	"deepseek-flash":               15,
 	"deepseek-v4-pro":              15,
 	"deepseek-v4-flash":            30,
 	"deepseek-v4-flash-vision-exp": 15,
@@ -241,14 +293,19 @@ func openCodeGoReferenceQuotaCost(model string) (OpenCodeGoQuotaCost, bool) {
 
 var openCodeGoReferencePeakPrices = map[string]ModelPricing{
 	"deepseek-v4-flash": {
-		InputPricePerToken:     0.44e-6,
-		OutputPricePerToken:    1.32e-6,
-		CacheReadPricePerToken: 0.014e-6,
+		InputPricePerToken:     0.30e-6,
+		OutputPricePerToken:    1.20e-6,
+		CacheReadPricePerToken: 0.006e-6,
+	},
+	"deepseek-flash": {
+		InputPricePerToken:     0.30e-6,
+		OutputPricePerToken:    1.20e-6,
+		CacheReadPricePerToken: 0.006e-6,
 	},
 	"deepseek-v4-flash-vision-exp": {
-		InputPricePerToken:     0.44e-6,
-		OutputPricePerToken:    1.32e-6,
-		CacheReadPricePerToken: 0.014e-6,
+		InputPricePerToken:     0.30e-6,
+		OutputPricePerToken:    1.20e-6,
+		CacheReadPricePerToken: 0.006e-6,
 	},
 	"deepseek-v4-pro": {
 		InputPricePerToken:     1.32e-6,
@@ -304,7 +361,11 @@ func isOpenCodeGoPeakTime(now time.Time) bool {
 	if now.IsZero() {
 		now = time.Now()
 	}
-	hour := now.UTC().Hour()
+	utc := now.UTC()
+	if utc.Weekday() == time.Saturday || utc.Weekday() == time.Sunday {
+		return false
+	}
+	hour := utc.Hour()
 	return (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10)
 }
 

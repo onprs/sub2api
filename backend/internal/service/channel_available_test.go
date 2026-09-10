@@ -672,15 +672,15 @@ func TestBuildCatalogSupportedModel_OpenCodeGoShowsOfficialPeakAndOffPeakPricing
 	require.Equal(t, "off_peak", offPeak.Code)
 	require.Equal(t, "UTC", offPeak.TimeZone)
 	require.Equal(t, []string{"00:00-01:00", "04:00-06:00", "10:00-24:00"}, offPeak.TimeRanges)
-	require.InDelta(t, 0.22e-6, *offPeak.Pricing.InputPrice, 1e-15)
-	require.InDelta(t, 0.66e-6, *offPeak.Pricing.OutputPrice, 1e-15)
-	require.InDelta(t, 0.007e-6, *offPeak.Pricing.CacheReadPrice, 1e-15)
+	require.InDelta(t, 0.15e-6, *offPeak.Pricing.InputPrice, 1e-15)
+	require.InDelta(t, 0.60e-6, *offPeak.Pricing.OutputPrice, 1e-15)
+	require.InDelta(t, 0.003e-6, *offPeak.Pricing.CacheReadPrice, 1e-15)
 	peak := model.PricingTimeBands[1]
 	require.Equal(t, "peak", peak.Code)
 	require.Equal(t, []string{"01:00-04:00", "06:00-10:00"}, peak.TimeRanges)
-	require.InDelta(t, 0.44e-6, *peak.Pricing.InputPrice, 1e-15)
-	require.InDelta(t, 1.32e-6, *peak.Pricing.OutputPrice, 1e-15)
-	require.InDelta(t, 0.014e-6, *peak.Pricing.CacheReadPrice, 1e-15)
+	require.InDelta(t, 0.30e-6, *peak.Pricing.InputPrice, 1e-15)
+	require.InDelta(t, 1.20e-6, *peak.Pricing.OutputPrice, 1e-15)
+	require.InDelta(t, 0.006e-6, *peak.Pricing.CacheReadPrice, 1e-15)
 
 	hy3 := svc.BuildCatalogSupportedModel("hy3", PlatformOpenCodeGo, nil)
 	require.Empty(t, hy3.PricingTimeBands)
@@ -692,16 +692,16 @@ func TestBuildCatalogSupportedModel_OpenCodeGoUsageOfferPreservesOriginalPricing
 		pricingData: map[string]*LiteLLMModelPricing{},
 		openCodeGoPricing: map[string]*LiteLLMModelPricing{
 			"deepseek-v4-flash": {
-				InputCostPerToken:                       0.22e-6,
-				OutputCostPerToken:                      0.66e-6,
-				CacheReadInputTokenCost:                 0.007e-6,
+				InputCostPerToken:                       0.15e-6,
+				OutputCostPerToken:                      0.60e-6,
+				CacheReadInputTokenCost:                 0.003e-6,
 				LiteLLMProvider:                         PlatformOpenCodeGo,
 				OpenCodeGoPricingAuthority:              openCodeGoPricingAuthorityOfficial,
 				OpenCodeGoMonthlyUsageUSD:               30,
 				OpenCodeGoPeakPricingKnown:              true,
-				OpenCodeGoPeakInputCostPerToken:         0.22e-6,
-				OpenCodeGoPeakOutputCostPerToken:        0.66e-6,
-				OpenCodeGoPeakCacheReadCostPerToken:     0.007e-6,
+				OpenCodeGoPeakInputCostPerToken:         0.15e-6,
+				OpenCodeGoPeakOutputCostPerToken:        0.60e-6,
+				OpenCodeGoPeakCacheReadCostPerToken:     0.003e-6,
 				OpenCodeGoPeakCacheCreationCostPerToken: 0,
 			},
 		},
@@ -716,8 +716,8 @@ func TestBuildCatalogSupportedModel_OpenCodeGoUsageOfferPreservesOriginalPricing
 	model := svc.BuildCatalogSupportedModel("deepseek-v4-flash", PlatformOpenCodeGo, nil)
 
 	require.NotNil(t, model.Pricing)
-	require.InDelta(t, 0.22e-6, *model.Pricing.InputPrice, 1e-15)
-	require.InDelta(t, 0.66e-6, *model.Pricing.OutputPrice, 1e-15)
+	require.InDelta(t, 0.15e-6, *model.Pricing.InputPrice, 1e-15)
+	require.InDelta(t, 0.60e-6, *model.Pricing.OutputPrice, 1e-15)
 	require.NotNil(t, model.QuotaCost)
 	require.Equal(t, 60.0, model.QuotaCost.IncludedMonthlyUsageUSD)
 	require.Equal(t, 1.0, model.QuotaCost.CostMultiplier)

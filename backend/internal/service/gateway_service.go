@@ -1473,8 +1473,8 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 }
 
 // GetAvailableModels 返回分组可接受的用户请求模型 ID。
-// 通常聚合可调度账号的 model_mapping 键；无显式映射的 OpenAI 和 Gemini 账号按账户能力补充默认目录，
-// 官方 Antigravity OAuth/Setup Token 账号则只公开经过整理的 agy 用户目录。
+// 通常聚合可调度账号的 model_mapping 键；Command Code 使用官方实时目录，账号级映射只负责请求改写；
+// 无显式映射的 OpenAI 和 Gemini 账号按账户能力补充默认目录，官方 Antigravity OAuth/Setup Token 账号则只公开经过整理的 agy 用户目录。
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
 	return s.getAvailableModels(ctx, groupID, platform, true)
 }
@@ -1523,6 +1523,15 @@ func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64,
 			}
 		}
 		accounts = filtered
+	}
+
+	if platform == PlatformCommandCode {
+		models := CommandCodeDefaultModelIDs()
+		if s.modelsListCache != nil {
+			s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
+			modelsListCacheStoreTotal.Add(1)
+		}
+		return cloneStringSlice(models)
 	}
 
 	// 汇总所有账号可接受的用户请求模型 ID。

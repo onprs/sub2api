@@ -54,6 +54,14 @@ func TestOpenCodeGoDefaultCatalogIncludesCurrentOfficialModels(t *testing.T) {
 	models := OpenCodeGoDefaultModelIDs()
 
 	require.Contains(t, models, "gpt-5.6-luna")
+	require.Contains(t, models, "grok-4.6")
+	require.Contains(t, models, "glm-5.3-flash")
+	require.Contains(t, models, "longcat-2.0")
+	require.Contains(t, models, "deepseek-flash")
+	require.Contains(t, models, "qwen3.8-flash")
+	require.Contains(t, models, "hy4-preview")
+	require.Contains(t, models, "muse-spark-1.3-contributor")
+	require.Contains(t, models, "omen-alpha")
 	require.Contains(t, models, "glm-5.3")
 	require.Contains(t, models, "glm-5.2")
 	require.Contains(t, models, "kimi-k2.5")
@@ -97,6 +105,24 @@ func TestOpenCodeGoAccountProtocolFallbackCoversNewOfficialModels(t *testing.T) 
 	protocol, ok = account.ResolveOpenCodeGoModelProtocol("mimo-v2-pro")
 	require.True(t, ok)
 	require.Equal(t, OpenCodeGoProtocolChatCompletions, protocol)
+
+	for _, tt := range []struct {
+		model    string
+		protocol string
+	}{
+		{model: "grok-4.6", protocol: OpenCodeGoProtocolResponses},
+		{model: "glm-5.3-flash", protocol: OpenCodeGoProtocolChatCompletions},
+		{model: "longcat-2.0", protocol: OpenCodeGoProtocolChatCompletions},
+		{model: "deepseek-flash", protocol: OpenCodeGoProtocolChatCompletions},
+		{model: "qwen3.8-flash", protocol: OpenCodeGoProtocolMessages},
+		{model: "hy4-preview", protocol: OpenCodeGoProtocolChatCompletions},
+		{model: "muse-spark-1.3-contributor", protocol: OpenCodeGoProtocolResponses},
+		{model: "omen-alpha", protocol: OpenCodeGoProtocolChatCompletions},
+	} {
+		protocol, ok := account.ResolveOpenCodeGoModelProtocol(tt.model)
+		require.True(t, ok, tt.model)
+		require.Equal(t, tt.protocol, protocol, tt.model)
+	}
 
 	_, ok = account.ResolveOpenCodeGoModelProtocol("hy3-preview")
 	require.False(t, ok, "official model list entries without known protocol metadata must not be guessed")

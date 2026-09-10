@@ -32,6 +32,12 @@ func TestCommandCodeReferencePricingCoversOfficialGoatRates(t *testing.T) {
 	require.InDelta(t, 0.56e-6, pricing.OutputPricePerToken, 1e-12)
 	require.InDelta(t, 0.07e-6, pricing.CacheReadPricePerToken, 1e-12)
 
+	pricing, ok = commandCodeReferencePricingAt("deepseek/deepseek-v4.1-flash", offPeak)
+	require.True(t, ok)
+	require.InDelta(t, 0.15e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 0.60e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.003e-6, pricing.CacheReadPricePerToken, 1e-12)
+
 	pricing, ok = commandCodeReferencePricingAt("Qwen/Qwen3.8-Max-0902", offPeak)
 	require.True(t, ok)
 	require.InDelta(t, 2e-6, pricing.InputPricePerToken, 1e-12)
@@ -47,9 +53,9 @@ func TestCommandCodeReferencePricingCoversOfficialGoatRates(t *testing.T) {
 
 	pricing, ok = commandCodeReferencePricingAt("deepseek/deepseek-v4-flash", offPeak)
 	require.True(t, ok)
-	require.InDelta(t, 0.22e-6, pricing.InputPricePerToken, 1e-12)
-	require.InDelta(t, 0.66e-6, pricing.OutputPricePerToken, 1e-12)
-	require.InDelta(t, 0.007e-6, pricing.CacheReadPricePerToken, 1e-12)
+	require.InDelta(t, 0.15e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 0.60e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.003e-6, pricing.CacheReadPricePerToken, 1e-12)
 
 	pricing, ok = commandCodeReferencePricingAt("Qwen/Qwen3.7-Max", offPeak)
 	require.True(t, ok)
@@ -79,8 +85,10 @@ func TestCommandCodeReferencePricingResolvesAliasesAndCase(t *testing.T) {
 		"gemini-3.8-flash",
 		"qwen-3.8-max-0902",
 		"deepseek-v4-flash-fast",
+		"deepseek-v4.1-flash",
 		"hy4-preview",
 		"longcat-2.0",
+		"ling-3.0-flash-sante",
 		"muse-spark-1.3-contributor",
 		"laguna-s-2.1",
 	} {
@@ -109,6 +117,11 @@ func TestCommandCodeReferencePricingAppliesOfficialDeepSeekPeakWindows(t *testin
 	require.True(t, ok)
 	require.InDelta(t, 0.44e-6, peak.InputPricePerToken, 1e-12)
 
+	peak, ok = commandCodeReferencePricingAt("deepseek/deepseek-v4.1-flash", base.Add(6*time.Hour))
+	require.True(t, ok)
+	require.InDelta(t, 0.30e-6, peak.InputPricePerToken, 1e-12)
+	require.InDelta(t, 1.20e-6, peak.OutputPricePerToken, 1e-12)
+
 	// Flash Fast 没有官方峰谷元数据，峰时仍使用自身固定价格。
 	fixed, ok := commandCodeReferencePricingAt("deepseek/deepseek-v4-flash-fast", base.Add(6*time.Hour))
 	require.True(t, ok)
@@ -118,7 +131,7 @@ func TestCommandCodeReferencePricingAppliesOfficialDeepSeekPeakWindows(t *testin
 	beforeEffective := time.Date(2026, 8, 1, 1, 30, 0, 0, time.UTC)
 	pricing, ok := commandCodeReferencePricingAt("deepseek/deepseek-v4-flash", beforeEffective)
 	require.True(t, ok)
-	require.InDelta(t, 0.22e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 0.15e-6, pricing.InputPricePerToken, 1e-12)
 }
 
 func TestCommandCodeScheduledPriceChangeActivatesAtOfficialInstant(t *testing.T) {
@@ -175,6 +188,7 @@ func TestCommandCodeCurrentFreeModelsAndRemovedDeals(t *testing.T) {
 	now := nowForTest()
 	for _, model := range []string{
 		"meituan/LongCat-2.0:free",
+		"inclusionai/ling-3.0-flash-sante:free",
 		"poolside/laguna-s-2.1-free",
 	} {
 		free, ok := commandCodeReferencePricingAt(model, now)
@@ -249,6 +263,12 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.InDelta(t, 60, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 	require.InDelta(t, 70.0/60.0, quotaCost.Multiplier, 1e-9)
 
+	// DeepSeek V4.1 Flash：官方 credits $60 → 倍率 70/60 ≈ 1.1667x
+	quotaCost, ok = svc.GetCommandCodeQuotaCost("deepseek/deepseek-v4.1-flash")
+	require.True(t, ok)
+	require.InDelta(t, 60, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 70.0/60.0, quotaCost.Multiplier, 1e-9)
+
 	// GLM-5.2：官方 credits $70 → 倍率 1x
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("zai-org/glm-5.2")
 	require.True(t, ok)
@@ -269,6 +289,8 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 
 	// 免费模型无额度倍率，由 AllowZeroRate 路径按 $0 计费。
 	_, ok = svc.GetCommandCodeQuotaCost("meituan/LongCat-2.0:free")
+	require.False(t, ok)
+	_, ok = svc.GetCommandCodeQuotaCost("inclusionai/ling-3.0-flash-sante:free")
 	require.False(t, ok)
 
 	// 未知模型闭合失败
@@ -296,10 +318,10 @@ func TestCommandCodePricingTimeBandsExposeOfficialUTCRanges(t *testing.T) {
 	require.Len(t, bands, 2)
 	require.Equal(t, "off_peak", bands[0].Code)
 	require.Equal(t, []string{"00:00-01:00", "04:00-06:00", "10:00-24:00"}, bands[0].TimeRanges)
-	require.InDelta(t, 0.22e-6, *bands[0].Pricing.InputPrice, 1e-12)
+	require.InDelta(t, 0.15e-6, *bands[0].Pricing.InputPrice, 1e-12)
 	require.Equal(t, "peak", bands[1].Code)
 	require.Equal(t, []string{"01:00-04:00", "06:00-10:00"}, bands[1].TimeRanges)
-	require.InDelta(t, 0.44e-6, *bands[1].Pricing.InputPrice, 1e-12)
+	require.InDelta(t, 0.30e-6, *bands[1].Pricing.InputPrice, 1e-12)
 }
 
 func TestCommandCodeRecordUsageAppliesOfficialMonthlyCreditsMultiplier(t *testing.T) {

@@ -460,6 +460,25 @@ func TestAccountHandlerGetAvailableModels_ClinePassUsesCatalogWithoutMapping(t *
 	require.ElementsMatch(t, expectedModels, ids)
 }
 
+func TestAccountHandlerGetAvailableModels_CommandCodeUsesCatalogInsteadOfAccountMapping(t *testing.T) {
+	models := commandCodeAvailableModels(&service.Account{
+		Platform: service.PlatformCommandCode,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"custom-command-model": "gpt-5.6-sol",
+			},
+		},
+	})
+
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		ids = append(ids, model.ID)
+	}
+	require.NotContains(t, ids, "custom-command-model")
+	require.Contains(t, ids, "deepseek/deepseek-v4-flash")
+	require.Contains(t, ids, "deepseek/deepseek-v4.1-flash")
+}
+
 func TestAccountHandlerGetAvailableModels_ClinePassUsesRequestedMappingModels(t *testing.T) {
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),

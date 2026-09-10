@@ -42,7 +42,7 @@ var (
 	openCodeGoPricePattern      = regexp.MustCompile(`^\$([0-9]+(?:\.[0-9]+)?)$`)
 	openCodeGoThresholdPattern  = regexp.MustCompile(`(?i)(?:<=|≤|>|>=|≥)\s*([0-9]+)\s*([km])\b`)
 	openCodeGoModelIDPattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*$`)
-	openCodeGoUsageOfferPattern = regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)?)\s*x\s+usage(?:\s+limits?)?$`)
+	openCodeGoUsageOfferPattern = regexp.MustCompile(`(?i)(?:^|[^0-9a-z])([0-9]+(?:\.[0-9]+)?)\s*x\s+usage(?:\s+limits?)?(?:$|[^a-z])`)
 	// GPT Image 2.5 token fallback pricing.
 	openAIGPTImage25FallbackPricing = &LiteLLMModelPricing{
 		InputCostPerToken:       5e-06,
@@ -1353,10 +1353,13 @@ func parseOpenCodeGoUsageOffersDocument(body []byte) (map[string]float64, error)
 		}
 		model, hasModel := openCodeGoHTMLAttribute(node, "data-model")
 		bonus := openCodeGoFindDescendantWithAttribute(node, "data-bonus")
-		if hasModel && bonus != nil {
+		if hasModel {
 			model = billingModelAliasLookupKey(model)
 			if model != "" && openCodeGoModelIDPattern.MatchString(model) {
-				text := normalizeOpenCodeGoVisibleText(openCodeGoVisibleText(bonus))
+				text := normalizeOpenCodeGoVisibleText(openCodeGoVisibleText(node))
+				if bonus != nil {
+					text = normalizeOpenCodeGoVisibleText(openCodeGoVisibleText(bonus))
+				}
 				match := openCodeGoUsageOfferPattern.FindStringSubmatch(text)
 				if len(match) == 2 {
 					multiplier, multiplierErr := strconv.ParseFloat(match[1], 64)

@@ -3147,17 +3147,9 @@ func openCodeGoAvailableModels(account *service.Account) []openai.Model {
 	return accountTestModels(ids)
 }
 
-func commandCodeAvailableModels(account *service.Account) []openai.Model {
-	ids := []string{}
-	if account != nil {
-		for requestedModel := range account.GetExplicitModelMapping() {
-			ids = append(ids, requestedModel)
-		}
-	}
-	if len(ids) == 0 {
-		ids = service.CommandCodeDefaultModelIDs()
-	}
-	return accountTestModels(ids)
+func commandCodeAvailableModels(_ *service.Account) []openai.Model {
+	// Command Code 的模型目录由官方实时目录维护，账号级 model_mapping 只负责请求改写，不能缩小目录。
+	return accountTestModels(service.CommandCodeDefaultModelIDs())
 }
 
 func accountTestModels(ids []string) []openai.Model {

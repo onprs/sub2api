@@ -406,9 +406,11 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(ids), commandCodeCatalogMinModelCount)
 	require.Contains(t, ids, "deepseek/deepseek-v4-flash-fast")
+	require.Contains(t, ids, "deepseek/deepseek-v4.1-flash")
 	require.Contains(t, ids, "google/gemini-3.8-flash")
 	require.Contains(t, ids, "Qwen/Qwen3.8-Max-0902")
 	require.Contains(t, ids, "meituan/LongCat-2.0:free")
+	require.Contains(t, ids, "inclusionai/ling-3.0-flash-sante:free")
 	require.NotContains(t, ids, "minimax/minimax-m3-free")
 	entry, ok := catalog.entry("gpt-5.6-luna")
 	require.True(t, ok)
@@ -444,17 +446,19 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 func TestCommandCodeFallbackCatalogHasAllPricedModels(t *testing.T) {
 	entries := commandCodeFallbackCatalogEntries()
 	ids := CommandCodeFallbackModelIDs()
-	require.Len(t, entries, 48)
+	require.Len(t, entries, 50)
 	require.Len(t, entries, len(commandCodeFallbackModels))
 	for _, model := range []string{
 		"google/gemini-3.8-flash",
 		"meta/muse-spark-1.3",
 		"meta/muse-spark-1.3-contributor",
 		"deepseek/deepseek-v4-flash-fast",
+		"deepseek/deepseek-v4.1-flash",
 		"Qwen/Qwen3.8-Max-0902",
 		"Qwen/Qwen3.8-Flash",
 		"tencent/hy4-preview",
 		"meituan/LongCat-2.0:free",
+		"inclusionai/ling-3.0-flash-sante:free",
 	} {
 		require.Contains(t, ids, model)
 	}

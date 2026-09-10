@@ -24,6 +24,7 @@ var commandCodeFallbackModels = []string{
 	"deepseek/deepseek-v4-flash",
 	"deepseek/deepseek-v4-flash-vision-exp",
 	"deepseek/deepseek-v4-flash-fast",
+	"deepseek/deepseek-v4.1-flash",
 	"moonshotai/Kimi-K3",
 	"moonshotai/Kimi-K2.7-Code",
 	"moonshotai/Kimi-K2.7-Code-Highspeed",
@@ -54,6 +55,7 @@ var commandCodeFallbackModels = []string{
 	"tencent/hy3-paid",
 	"tencent/hy4-preview",
 	"meituan/LongCat-2.0:free",
+	"inclusionai/ling-3.0-flash-sante:free",
 	"nvidia/nemotron-3-ultra-550b-a55b",
 	"thinkingmachines/inkling",
 	"thinkingmachines/inkling-small",
@@ -81,9 +83,10 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"meta/muse-spark-1.2":                   {input: 1.25, output: 4.25, cacheRead: 0.15},
 	"meta/muse-spark-1.2-contributor":       {input: 0.1, output: 0.2, cacheRead: 0.002},
 	"deepseek/deepseek-v4-pro":              {input: 0.66, output: 1.98, cacheRead: 0.022},
-	"deepseek/deepseek-v4-flash":            {input: 0.22, output: 0.66, cacheRead: 0.007},
+	"deepseek/deepseek-v4-flash":            {input: 0.15, output: 0.60, cacheRead: 0.003},
 	"deepseek/deepseek-v4-flash-vision-exp": {input: 0.22, output: 0.66, cacheRead: 0.007},
 	"deepseek/deepseek-v4-flash-fast":       {input: 0.28, output: 0.56, cacheRead: 0.07},
+	"deepseek/deepseek-v4.1-flash":          {input: 0.15, output: 0.60, cacheRead: 0.003},
 	"moonshotai/kimi-k3":                    {input: 3, output: 15, cacheRead: 0.3},
 	"moonshotai/kimi-k2.7-code":             {input: 0.95, output: 4, cacheRead: 0.19},
 	"moonshotai/kimi-k2.7-code-highspeed":   {input: 1.9, output: 8, cacheRead: 0.38},
@@ -114,6 +117,7 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"tencent/hy3-paid":                      {input: 0.14, output: 0.58, cacheRead: 0.035},
 	"tencent/hy4-preview":                   {input: 0.834, output: 2.501, cacheRead: 0.042},
 	"meituan/longcat-2.0:free":              {allowZero: true},
+	"inclusionai/ling-3.0-flash-sante:free": {allowZero: true},
 	"nvidia/nemotron-3-ultra-550b-a55b":     {input: 0.6, output: 2.4, cacheRead: 0.12},
 	"thinkingmachines/inkling":              {input: 1, output: 4.05, cacheRead: 0.17},
 	"thinkingmachines/inkling-small":        {input: 0.5, output: 1.2, cacheRead: 0.1},
@@ -129,7 +133,8 @@ var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 	"meta/muse-spark-1.2": 20, "meta/muse-spark-1.2-contributor": 20,
 	"deepseek/deepseek-v4-pro": 20, "deepseek/deepseek-v4-flash": 60,
 	"deepseek/deepseek-v4-flash-vision-exp": 20, "deepseek/deepseek-v4-flash-fast": 20,
-	"moonshotai/kimi-k3": 20, "moonshotai/kimi-k2.7-code": 60,
+	"deepseek/deepseek-v4.1-flash": 60,
+	"moonshotai/kimi-k3":           20, "moonshotai/kimi-k2.7-code": 60,
 	"moonshotai/kimi-k2.7-code-highspeed": 20, "moonshotai/kimi-k2.6": 20,
 	"moonshotai/kimi-k2.5": 20,
 	"z-ai/glm-5.3-flash":   40, "zai-org/glm-5.3": 20,
@@ -145,9 +150,10 @@ var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 	"qwen/qwen3.6-plus":      33,
 	"stepfun/step-3.7-flash": 20, "stepfun/step-3.5-flash": 20,
 	"tencent/hy3-paid": 70, "tencent/hy4-preview": 20,
-	"meituan/longcat-2.0:free":          0,
-	"nvidia/nemotron-3-ultra-550b-a55b": 20,
-	"thinkingmachines/inkling":          20, "thinkingmachines/inkling-small": 20,
+	"meituan/longcat-2.0:free":              0,
+	"inclusionai/ling-3.0-flash-sante:free": 0,
+	"nvidia/nemotron-3-ultra-550b-a55b":     20,
+	"thinkingmachines/inkling":              20, "thinkingmachines/inkling-small": 20,
 	"poolside/laguna-s-2.1-free": 0,
 }
 
@@ -159,7 +165,8 @@ var commandCodeFallbackContextWindows = map[string]int{
 	"meta/muse-spark-1.2": 1_048_576, "meta/muse-spark-1.2-contributor": 1_048_576,
 	"deepseek/deepseek-v4-pro": 1_000_000, "deepseek/deepseek-v4-flash": 1_000_000,
 	"deepseek/deepseek-v4-flash-vision-exp": 1_000_000, "deepseek/deepseek-v4-flash-fast": 1_000_000,
-	"moonshotai/kimi-k3": 1_000_000, "moonshotai/kimi-k2.7-code": 256_000,
+	"deepseek/deepseek-v4.1-flash": 1_000_000,
+	"moonshotai/kimi-k3":           1_000_000, "moonshotai/kimi-k2.7-code": 256_000,
 	"moonshotai/kimi-k2.7-code-highspeed": 262_000, "moonshotai/kimi-k2.6": 256_000,
 	"moonshotai/kimi-k2.5": 256_000,
 	"z-ai/glm-5.3-flash":   1_048_576, "zai-org/glm-5.3": 1_000_000,
@@ -175,9 +182,10 @@ var commandCodeFallbackContextWindows = map[string]int{
 	"qwen/qwen3.6-plus":      200_000,
 	"stepfun/step-3.7-flash": 256_000, "stepfun/step-3.5-flash": 1_000_000,
 	"tencent/hy3-paid": 262_144, "tencent/hy4-preview": 1_048_576,
-	"meituan/longcat-2.0:free":          1_048_576,
-	"nvidia/nemotron-3-ultra-550b-a55b": 1_000_000,
-	"thinkingmachines/inkling":          256_000, "thinkingmachines/inkling-small": 1_000_000,
+	"meituan/longcat-2.0:free":              1_048_576,
+	"inclusionai/ling-3.0-flash-sante:free": 262_144,
+	"nvidia/nemotron-3-ultra-550b-a55b":     1_000_000,
+	"thinkingmachines/inkling":              256_000, "thinkingmachines/inkling-small": 1_000_000,
 	"poolside/laguna-s-2.1-free": 256_000,
 }
 
@@ -185,6 +193,7 @@ var commandCodeModelAliases = map[string]string{
 	"deepseek-v4-pro": "deepseek/deepseek-v4-pro", "deepseek-v4-flash": "deepseek/deepseek-v4-flash",
 	"deepseek-v4-flash-vision-exp": "deepseek/deepseek-v4-flash-vision-exp",
 	"deepseek-v4-flash-fast":       "deepseek/deepseek-v4-flash-fast",
+	"deepseek-v4.1-flash":          "deepseek/deepseek-v4.1-flash",
 	"kimi-k3":                      "moonshotai/kimi-k3", "kimi-k2.7-code": "moonshotai/kimi-k2.7-code",
 	"kimi-k2.7-code-highspeed": "moonshotai/kimi-k2.7-code-highspeed", "kimi-k2.6": "moonshotai/kimi-k2.6",
 	"kimi-k2.5":     "moonshotai/kimi-k2.5",
@@ -210,8 +219,10 @@ var commandCodeModelAliases = map[string]string{
 	"nemotron-3-ultra":           "nvidia/nemotron-3-ultra-550b-a55b",
 	"inkling":                    "thinkingmachines/inkling", "inkling-small": "thinkingmachines/inkling-small",
 	"longcat-2.0:free": "meituan/longcat-2.0:free", "longcat-2.0-free": "meituan/longcat-2.0:free",
-	"longcat-2.0":       "meituan/longcat-2.0:free",
-	"laguna-s-2.1-free": "poolside/laguna-s-2.1-free", "laguna-s-2.1": "poolside/laguna-s-2.1-free",
+	"longcat-2.0":               "meituan/longcat-2.0:free",
+	"ling-3.0-flash-sante:free": "inclusionai/ling-3.0-flash-sante:free",
+	"ling-3.0-flash-sante":      "inclusionai/ling-3.0-flash-sante:free",
+	"laguna-s-2.1-free":         "poolside/laguna-s-2.1-free", "laguna-s-2.1": "poolside/laguna-s-2.1-free",
 	"muse-spark-1.3": "meta/muse-spark-1.3", "muse-spark-1.3-contributor": "meta/muse-spark-1.3-contributor",
 	"muse-spark-1.2": "meta/muse-spark-1.2", "muse-spark-1.2-contributor": "meta/muse-spark-1.2-contributor",
 	"grok-4.5": "xai/grok-4.5", "grok-4.6": "xai/grok-4.6",
@@ -352,6 +363,10 @@ func setCommandCodeFallbackDeals(entries map[string]commandCodeCatalogEntry) {
 		Code: "longcat-2.0-free", Label: "Free", DiscountPercent: 100, Free: true,
 		Term: "while it lasts",
 	})
+	set("inclusionai/ling-3.0-flash-sante:free", commandCodeCatalogDeal{
+		Code: "ling-3.0-flash-sante-free", Label: "Free", DiscountPercent: 100, Free: true,
+		Term: "while it lasts",
+	})
 	set("poolside/laguna-s-2.1-free", commandCodeCatalogDeal{
 		Code: "laguna-s-2.1-free", Label: "Free", DiscountPercent: 100, Free: true,
 		Term: "while capacity lasts",
@@ -376,8 +391,9 @@ func setCommandCodeFallbackTimeBands(entries map[string]commandCodeCatalogEntry)
 		entries[key] = entry
 	}
 	set("deepseek/deepseek-v4-pro", commandCodeRates(1.32, 3.96, 0.044), commandCodeRates(0.66, 1.98, 0.022))
-	set("deepseek/deepseek-v4-flash", commandCodeRates(0.44, 1.32, 0.014), commandCodeRates(0.22, 0.66, 0.007))
+	set("deepseek/deepseek-v4-flash", commandCodeRates(0.30, 1.20, 0.006), commandCodeRates(0.15, 0.60, 0.003))
 	set("deepseek/deepseek-v4-flash-vision-exp", commandCodeRates(0.44, 1.32, 0.014), commandCodeRates(0.22, 0.66, 0.007))
+	set("deepseek/deepseek-v4.1-flash", commandCodeRates(0.30, 1.20, 0.006), commandCodeRates(0.15, 0.60, 0.003))
 }
 
 // commandCodeSharedMonthlyQuotaUSD 是 GOAT 计划的官方月度额度池（USD）：$10 买 $70 credits。

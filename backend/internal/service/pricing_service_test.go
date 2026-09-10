@@ -838,6 +838,9 @@ func TestParseOpenCodeGoUsageOffersDocumentKeepsUsageSemanticsSeparateFromPricin
 <span data-item data-model="hy3">
   <span data-value>34,400</span><span data-name>Hy3</span><span data-bonus>8× usage</span>
 </span>
+<div role="row" data-slot="model-row" data-model="deepseek-flash">
+  <span data-slot="badge">New</span><span data-slot="badge">4× usage</span>
+</div>
 <script><span data-item data-model="deepseek-v4-flash"><span data-bonus>99x usage</span></span></script>
 <template><span data-item data-model="deepseek-v4-flash"><span data-bonus>2x usage</span></span></template>
 </main></body></html>`)
@@ -846,8 +849,9 @@ func TestParseOpenCodeGoUsageOffersDocumentKeepsUsageSemanticsSeparateFromPricin
 
 	require.NoError(t, err)
 	require.Equal(t, 8.0, offers["hy3"])
+	require.Equal(t, 4.0, offers["deepseek-flash"])
 	require.NotContains(t, offers, "deepseek-v4-flash")
-	require.Len(t, offers, 1)
+	require.Len(t, offers, 2)
 
 	_, err = parseOpenCodeGoUsageOffersDocument([]byte(`<html><body>Login</body></html>`))
 	require.Error(t, err)
@@ -950,8 +954,8 @@ func TestParseOpenCodeGoPricingDocumentPreservesPeakPricing(t *testing.T) {
 	body := []byte(`
 <table><tbody>
 <tr><td>GLM-5.3</td><td>$1.40</td><td>$4.40</td><td>$0.26</td><td>-</td><td>$15</td></tr>
-<tr><td>DeepSeek V4 Flash (Off-Peak)</td><td>$0.22</td><td>$0.66</td><td>$0.007</td><td>-</td><td>$30</td></tr>
-<tr><td>DeepSeek V4 Flash (Peak)</td><td>$0.44</td><td>$1.32</td><td>$0.014</td><td>-</td><td>$30</td></tr>
+<tr><td>DeepSeek V4 Flash (Off-Peak)</td><td>$0.15</td><td>$0.60</td><td>$0.003</td><td>-</td><td>$30</td></tr>
+<tr><td>DeepSeek V4 Flash (Peak)</td><td>$0.30</td><td>$1.20</td><td>$0.006</td><td>-</td><td>$30</td></tr>
 </tbody></table>
 <table><tbody>
 <tr><td>GLM-5.3</td><td>glm-5.3</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
@@ -967,23 +971,69 @@ func TestParseOpenCodeGoPricingDocumentPreservesPeakPricing(t *testing.T) {
 
 	flash := pricing["deepseek-v4-flash"]
 	require.NotNil(t, flash)
-	require.InDelta(t, 0.22e-6, flash.InputCostPerToken, 1e-15)
-	require.InDelta(t, 0.66e-6, flash.OutputCostPerToken, 1e-15)
-	require.InDelta(t, 0.007e-6, flash.CacheReadInputTokenCost, 1e-15)
+	require.InDelta(t, 0.15e-6, flash.InputCostPerToken, 1e-15)
+	require.InDelta(t, 0.60e-6, flash.OutputCostPerToken, 1e-15)
+	require.InDelta(t, 0.003e-6, flash.CacheReadInputTokenCost, 1e-15)
 	require.Equal(t, 30.0, flash.OpenCodeGoMonthlyUsageUSD)
 	require.True(t, flash.OpenCodeGoPeakPricingKnown)
-	require.InDelta(t, 0.44e-6, flash.OpenCodeGoPeakInputCostPerToken, 1e-15)
-	require.InDelta(t, 1.32e-6, flash.OpenCodeGoPeakOutputCostPerToken, 1e-15)
-	require.InDelta(t, 0.014e-6, flash.OpenCodeGoPeakCacheReadCostPerToken, 1e-15)
+	require.InDelta(t, 0.30e-6, flash.OpenCodeGoPeakInputCostPerToken, 1e-15)
+	require.InDelta(t, 1.20e-6, flash.OpenCodeGoPeakOutputCostPerToken, 1e-15)
+	require.InDelta(t, 0.006e-6, flash.OpenCodeGoPeakCacheReadCostPerToken, 1e-15)
 
 	billingSvc := NewBillingService(&config.Config{}, nil)
 	offPeak, ok := billingSvc.modelPricingFromLiteLLMAt("deepseek-v4-flash", flash, time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC))
 	require.True(t, ok)
-	require.InDelta(t, 0.22e-6, offPeak.InputPricePerToken, 1e-15)
+	require.InDelta(t, 0.15e-6, offPeak.InputPricePerToken, 1e-15)
 	peak, ok := billingSvc.modelPricingFromLiteLLMAt("deepseek-v4-flash", flash, time.Date(2026, 8, 21, 1, 0, 0, 0, time.UTC))
 	require.True(t, ok)
-	require.InDelta(t, 0.44e-6, peak.InputPricePerToken, 1e-15)
-	require.InDelta(t, 0.014e-6, peak.CacheReadPricePerToken, 1e-15)
+	require.InDelta(t, 0.30e-6, peak.InputPricePerToken, 1e-15)
+	require.InDelta(t, 0.006e-6, peak.CacheReadPricePerToken, 1e-15)
+}
+
+func TestParseOpenCodeGoPricingDocumentParsesCurrentModelRows(t *testing.T) {
+	body := []byte(`
+<table><tbody>
+<tr><td>Omen Alpha</td><td>$0.20</td><td>$0.66</td><td>$0.04</td><td>-</td><td>$100</td></tr>
+<tr><td>GLM-5.3-Flash</td><td>$0.15</td><td>$0.50</td><td>$0.03</td><td>-</td><td>$60</td></tr>
+<tr><td>LongCat-2.0</td><td>$0.30</td><td>$1.20</td><td>$0.006</td><td>-</td><td>$60</td></tr>
+<tr><td>DeepSeek V4.1 Flash (Off-Peak)</td><td>$0.15</td><td>$0.60</td><td>$0.003</td><td>-</td><td>$15</td></tr>
+<tr><td>DeepSeek V4.1 Flash (Peak)</td><td>$0.30</td><td>$1.20</td><td>$0.006</td><td>-</td><td>$15</td></tr>
+<tr><td>Grok 4.6 (≤ 200K tokens)</td><td>$2.00</td><td>$6.00</td><td>$0.50</td><td>-</td><td>$15</td></tr>
+<tr><td>Grok 4.6 (&gt; 200K tokens)</td><td>$4.00</td><td>$12.00</td><td>$1.00</td><td>-</td><td>$15</td></tr>
+</tbody></table>
+<table><tbody>
+<tr><td>Omen Alpha</td><td>omen-alpha</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
+<tr><td>GLM-5.3-Flash</td><td>glm-5.3-flash</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
+<tr><td>LongCat-2.0</td><td>longcat-2.0</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
+<tr><td>DeepSeek V4.1 Flash</td><td>deepseek-flash</td><td><code>https://opencode.ai/zen/go/v1/chat/completions</code></td></tr>
+<tr><td>Grok 4.6</td><td>grok-4.6</td><td><code>https://opencode.ai/zen/go/v1/responses</code></td></tr>
+</tbody></table>`)
+
+	pricing, err := parseOpenCodeGoPricingDocument(body)
+	require.NoError(t, err)
+
+	glm := pricing["glm-5.3-flash"]
+	require.NotNil(t, glm)
+	require.InDelta(t, 0.15e-6, glm.InputCostPerToken, 1e-15)
+	require.InDelta(t, 0.50e-6, glm.OutputCostPerToken, 1e-15)
+	require.Equal(t, 60.0, glm.OpenCodeGoMonthlyUsageUSD)
+
+	deepseek := pricing["deepseek-flash"]
+	require.NotNil(t, deepseek)
+	require.InDelta(t, 0.15e-6, deepseek.InputCostPerToken, 1e-15)
+	require.InDelta(t, 0.30e-6, deepseek.OpenCodeGoPeakInputCostPerToken, 1e-15)
+	require.Equal(t, 15.0, deepseek.OpenCodeGoMonthlyUsageUSD)
+
+	grok := pricing["grok-4.6"]
+	require.NotNil(t, grok)
+	require.Equal(t, 200000, grok.LongContextInputTokenThreshold)
+	require.InDelta(t, 2.0, grok.LongContextInputCostMultiplier, 1e-15)
+	require.InDelta(t, 2.0, grok.LongContextOutputCostMultiplier, 1e-15)
+
+	omen := pricing["omen-alpha"]
+	require.NotNil(t, omen)
+	require.InDelta(t, 0.20e-6, omen.InputCostPerToken, 1e-15)
+	require.Equal(t, 100.0, omen.OpenCodeGoMonthlyUsageUSD)
 }
 
 func TestDownloadPricingDataAndRefreshOpenCodeGoPricingSnapshot(t *testing.T) {

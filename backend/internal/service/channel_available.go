@@ -387,8 +387,8 @@ const openCodeGoPricingTimeZone = "UTC"
 var (
 	openCodeGoOffPeakTimeRanges = []string{"00:00-01:00", "04:00-06:00", "10:00-24:00"}
 	openCodeGoPeakTimeRanges    = []string{"01:00-04:00", "06:00-10:00"}
-	openCodeGoOffPeakSampleTime = time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)
-	openCodeGoPeakSampleTime    = time.Date(2000, time.January, 1, 1, 0, 0, 0, time.UTC)
+	openCodeGoOffPeakSampleTime = time.Date(2000, time.January, 3, 0, 0, 0, 0, time.UTC)
+	openCodeGoPeakSampleTime    = time.Date(2000, time.January, 3, 1, 0, 0, 0, time.UTC)
 )
 
 func (s *ChannelService) fillModelUsageOffers(models []SupportedModel) {
