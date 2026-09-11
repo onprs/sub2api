@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -416,6 +418,162 @@ func (s *CommandCodeGatewayService) bufferResponse(
 	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, actualProtocol, false, startTime), nil
 }
 
+var errCommandCodeEmptyStream = errors.New("commandcode upstream stream completed without output or usage")
+
+type commandCodeStreamObservation struct {
+	usageSeen  bool
+	outputSeen bool
+}
+
+func (o *commandCodeStreamObservation) observe(payload []byte, actualProtocol protocolconv.Protocol) {
+	if o == nil {
+		return
+	}
+	if commandCodeStreamPayloadHasUsage(payload, actualProtocol) {
+		o.usageSeen = true
+	}
+	if commandCodeStreamPayloadHasOutput(payload, actualProtocol) {
+		o.outputSeen = true
+	}
+}
+
+// 只有包含正的 token/图像 token 计数才算可用于记账的 usage；空对象和全零 usage 仍视为缺失。
+func commandCodeStreamPayloadHasUsage(payload []byte, actualProtocol protocolconv.Protocol) bool {
+	var usage gjson.Result
+	switch actualProtocol {
+	case protocolconv.ProtocolOpenAIChat:
+		usage = gjson.GetBytes(payload, "usage")
+	case protocolconv.ProtocolAnthropic:
+		usage = gjson.GetBytes(payload, "usage")
+		if !usage.Exists() {
+			usage = gjson.GetBytes(payload, "message.usage")
+		}
+	default:
+		return false
+	}
+	if !usage.Exists() || !usage.IsObject() {
+		return false
+	}
+	for _, path := range []string{
+		"input_tokens", "output_tokens", "prompt_tokens", "completion_tokens",
+		"cache_read_input_tokens", "cache_creation_input_tokens", "total_tokens",
+		"image_output_tokens", "input_tokens_details.image_tokens", "output_tokens_details.image_tokens",
+	} {
+		if usage.Get(path).Int() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func commandCodeStreamPayloadHasOutput(payload []byte, actualProtocol protocolconv.Protocol) bool {
+	payload = bytes.TrimSpace(payload)
+	if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
+		return false
+	}
+	switch actualProtocol {
+	case protocolconv.ProtocolOpenAIChat:
+		if gjson.GetBytes(payload, "error").Exists() {
+			return false
+		}
+		var chunk apicompat.ChatCompletionsChunk
+		if err := json.Unmarshal(payload, &chunk); err != nil {
+			return false
+		}
+		return chatChunkStartsResponsesOutput(&chunk)
+	case protocolconv.ProtocolAnthropic:
+		eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
+		switch eventType {
+		case "content_block_start":
+			contentType := strings.TrimSpace(gjson.GetBytes(payload, "content_block.type").String())
+			return contentType == "tool_use" || contentType == "server_tool_use"
+		case "content_block_delta":
+			delta := gjson.GetBytes(payload, "delta")
+			return strings.TrimSpace(delta.Get("text").String()) != "" ||
+				strings.TrimSpace(delta.Get("thinking").String()) != "" ||
+				strings.TrimSpace(delta.Get("partial_json").String()) != "" ||
+				strings.TrimSpace(delta.Get("signature").String()) != ""
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+}
+
+func commandCodeStreamRecordIsError(event string, payload []byte) bool {
+	if strings.EqualFold(strings.TrimSpace(event), "error") {
+		return true
+	}
+	eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
+	return eventType == "error" || eventType == "response.failed" || gjson.GetBytes(payload, "error").Exists()
+}
+
+func commandCodeStreamErrorStatus(payload []byte) int {
+	for _, path := range []string{"status_code", "error.status_code"} {
+		status := int(gjson.GetBytes(payload, path).Int())
+		if status >= http.StatusBadRequest {
+			return status
+		}
+	}
+	return http.StatusBadGateway
+}
+
+func commandCodeEmptyStreamBody() []byte {
+	return []byte(`{"error":{"type":"upstream_error","code":"commandcode_empty_stream","message":"Command Code upstream returned an empty stream"}}`)
+}
+
+func recordCommandCodeStreamError(c *gin.Context, account *Account, resp *http.Response, status int, kind, message string) {
+	if status < http.StatusBadRequest {
+		status = http.StatusBadGateway
+	}
+	message = strings.TrimSpace(sanitizeUpstreamErrorMessage(message))
+	if message == "" {
+		message = "Command Code upstream stream failed"
+	}
+	setOpsUpstreamError(c, status, message, "")
+	event := OpsUpstreamErrorEvent{
+		ProxyID:            opsUpstreamProxyID(account),
+		ProxyName:          opsUpstreamProxyName(account),
+		Platform:           PlatformCommandCode,
+		Kind:               kind,
+		UpstreamStatusCode: status,
+		Message:            message,
+	}
+	if account != nil {
+		event.AccountID = account.ID
+		event.AccountName = account.Name
+	}
+	if resp != nil {
+		event.UpstreamRequestID = strings.TrimSpace(resp.Header.Get("x-request-id"))
+	}
+	appendOpsUpstreamError(c, event)
+}
+
+func newCommandCodeStreamFailoverError(c *gin.Context, account *Account, resp *http.Response, body []byte, kind, fallbackMessage string) *UpstreamFailoverError {
+	if len(body) == 0 {
+		body = commandCodeEmptyStreamBody()
+	}
+	status := commandCodeStreamErrorStatus(body)
+	message := strings.TrimSpace(ExtractUpstreamErrorMessage(body))
+	if message == "" {
+		message = fallbackMessage
+	}
+	recordCommandCodeStreamError(c, account, resp, status, kind, message)
+	return &UpstreamFailoverError{
+		StatusCode:   status,
+		ResponseBody: body,
+		ResponseHeaders: func() http.Header {
+			if resp == nil {
+				return nil
+			}
+			return protocoltransport.CloneHeaders(resp.Header)
+		}(),
+		Scope:  GatewayFailureScopeProvider,
+		Reason: GatewayFailureReason("commandcode_stream_error"),
+	}
+}
+
 func (s *CommandCodeGatewayService) streamResponse(
 	c *gin.Context,
 	account *Account,
@@ -428,23 +586,39 @@ func (s *CommandCodeGatewayService) streamResponse(
 	startTime time.Time,
 ) (*ForwardResult, error) {
 	usage := ClaudeUsage{}
+	observation := &commandCodeStreamObservation{}
 	var firstTokenMs *int
 	observe := func(payload []byte) {
-		if firstTokenMs == nil && openCodeGoStreamPayloadHasOutput(payload, actualProtocol) {
+		observation.observe(payload, actualProtocol)
+		if firstTokenMs == nil && observation.outputSeen {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
 		mergeOpenCodeGoStreamUsage(&usage, payload, actualProtocol)
 	}
-	clientDisconnected, err := s.convertStream(c, resp, pipeline, actualProtocol, sourceProtocol, observe)
+	clientDisconnected, err := s.convertStream(c, resp, pipeline, actualProtocol, sourceProtocol, observe, observation)
 	out := openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, actualProtocol, true, startTime)
 	out.ClientDisconnect = clientDisconnected
 	out.FirstTokenMs = firstTokenMs
+	if errors.Is(err, errCommandCodeEmptyStream) {
+		err = newCommandCodeStreamFailoverError(c, account, resp, nil, "empty_stream", "Command Code upstream returned an empty stream")
+	} else if err != nil {
+		var streamErr *sseStreamErrorEventError
+		if errors.As(err, &streamErr) {
+			err = newCommandCodeStreamFailoverError(c, account, resp, []byte(streamErr.RawData), "stream_error", "Command Code upstream stream failed")
+		}
+	}
+	if err == nil && !observation.usageSeen {
+		const message = "Command Code upstream stream omitted usage"
+		out.UsageUnavailable = true
+		recordCommandCodeStreamError(c, account, resp, http.StatusBadGateway, "missing_usage", message)
+		MarkOpsStreamError(c, "upstream_error", message, http.StatusBadGateway)
+	}
 	return out, err
 }
 
-// convertStream 把上游 SSE 流转换为客户端协议流。chat 上游以 [DONE] 结束，
-// Anthropic 上游以 message_stop 事件结束；同协议直通时校验终端事件存在。
+// convertStream 把上游 SSE 流转换为客户端协议流。尚未确认有效输出前暂存结构化事件，
+// 防止上游空流先提交 200 并被当作成功请求记账。
 func (s *CommandCodeGatewayService) convertStream(
 	c *gin.Context,
 	resp *http.Response,
@@ -452,6 +626,7 @@ func (s *CommandCodeGatewayService) convertStream(
 	actualProtocol protocolconv.Protocol,
 	sourceProtocol protocolconv.Protocol,
 	observe func([]byte),
+	observation *commandCodeStreamObservation,
 ) (bool, error) {
 	maxRecordSize := defaultMaxLineSize
 	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
@@ -493,7 +668,7 @@ func (s *CommandCodeGatewayService) convertStream(
 		headersWritten = true
 		return nil
 	}
-	writePayloads := func(payloads [][]byte) error {
+	writeFramedPayloads := func(payloads [][]byte) error {
 		if clientDisconnected || len(payloads) == 0 {
 			return nil
 		}
@@ -513,11 +688,40 @@ func (s *CommandCodeGatewayService) convertStream(
 		c.Writer.Flush()
 		return nil
 	}
+	pendingPayloads := make([][]byte, 0, 4)
+	writePayloads := func(payloads [][]byte) error {
+		if clientDisconnected {
+			return nil
+		}
+		if observation != nil && !observation.outputSeen && !observation.usageSeen {
+			for _, payload := range payloads {
+				if len(payload) > 0 {
+					pendingPayloads = append(pendingPayloads, append([]byte(nil), payload...))
+				}
+			}
+			return nil
+		}
+		if len(pendingPayloads) > 0 {
+			if err := writeFramedPayloads(pendingPayloads); err != nil {
+				return err
+			}
+			pendingPayloads = pendingPayloads[:0]
+		}
+		return writeFramedPayloads(payloads)
+	}
 
 	identityStream := actualProtocol == sourceProtocol
 	identityTerminal := false
 	for {
-		record, nextErr := stream.Events.Next(context.Background())
+		var record protocoltransport.SSERecord
+		var nextErr error
+		if rawParser, ok := stream.Events.(interface {
+			NextRecord(context.Context) (protocoltransport.SSERecord, error)
+		}); ok {
+			record, nextErr = rawParser.NextRecord(context.Background())
+		} else {
+			record, nextErr = stream.Events.Next(context.Background())
+		}
 		if errors.Is(nextErr, protocoltransport.ErrSSEDone) {
 			if identityStream && actualProtocol == protocolconv.ProtocolOpenAIChat {
 				identityTerminal = true
@@ -529,6 +733,15 @@ func (s *CommandCodeGatewayService) convertStream(
 		}
 		if nextErr != nil {
 			return clientDisconnected, nextErr
+		}
+		if commandCodeStreamRecordIsError(string(record.Event), record.Data) {
+			return clientDisconnected, &sseStreamErrorEventError{RawData: string(record.Data)}
+		}
+		if len(record.Data) == 0 {
+			continue
+		}
+		if !json.Valid(record.Data) {
+			return clientDisconnected, errors.New("malformed SSE JSON payload")
 		}
 		if observe != nil {
 			observe(record.Data)
@@ -547,6 +760,12 @@ func (s *CommandCodeGatewayService) convertStream(
 	}
 	if identityStream && !identityTerminal {
 		return clientDisconnected, fmt.Errorf("commandcode %s stream ended without terminal event", actualProtocol)
+	}
+	if observation != nil && !observation.outputSeen && !observation.usageSeen && !clientDisconnected {
+		return clientDisconnected, errCommandCodeEmptyStream
+	}
+	if err := writePayloads(nil); err != nil {
+		return clientDisconnected, err
 	}
 	payloads, _, err := session.Finalize()
 	if err != nil {

@@ -80,6 +80,26 @@ func (s *openAIRecordUsageBestEffortLogRepoStub) Create(ctx context.Context, log
 	return false, s.createErr
 }
 
+func TestGatewayServiceRecordUsageSkipsUnavailableStreamUsage(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+
+	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID:        "gateway_usage_unavailable",
+			Model:            "qwen/qwen3.7-plus",
+			UsageUnavailable: true,
+		},
+		APIKey:  &APIKey{ID: 501},
+		User:    &User{ID: 601},
+		Account: &Account{ID: 701},
+	})
+
+	require.NoError(t, err)
+	require.Zero(t, usageRepo.calls)
+	require.Nil(t, usageRepo.lastLog)
+}
+
 func TestGatewayServiceRecordUsage_WritesResolvedDynamicRateToUsageLog(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	dynamicRepo := &dynamicRateUsageRepoStub{multiplier: 0.14}

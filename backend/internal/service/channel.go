@@ -482,6 +482,7 @@ type SupportedModel struct {
 	Name             string                 // 用户侧模型名
 	Platform         string                 // 所属平台
 	ContextWindow    int                    // 官方最大上下文 token 数；0 表示来源未提供
+	Capability       *ModelCapability       // 公开模型目录的能力元数据；nil 表示目录未收录
 	Promotion        *ModelPromotion        // 当前有效的官方价格活动；nil 表示无活动
 	Pricing          *ChannelModelPricing   // 定价详情（nil 表示未配置定价）
 	PricingSource    string                 // channel/catalog/missing，仅用于用户侧展示来源

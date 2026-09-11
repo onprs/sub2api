@@ -189,6 +189,37 @@ describe('buildModelPricingRows', () => {
     })
   })
 
+  it('keeps catalog capability metadata and drops empty ones', () => {
+    const channels = makeChannels()
+    const models = channels[0].platforms[0].supported_models
+    models[0].capability = {
+      context_tokens: 1_050_000,
+      max_output_tokens: 128_000,
+      reasoning: true,
+      tool_call: true,
+      vision: true,
+      pdf_input: true,
+      image_output: false,
+    }
+    models[1].capability = {}
+
+    const [withCapability] = buildModelPricingRows(channels, {})
+    expect(withCapability.capability).toEqual({
+      maxOutputTokens: 128_000,
+      reasoning: true,
+      toolCall: true,
+      vision: true,
+      pdfInput: true,
+      imageOutput: false,
+    })
+
+    // 报告一个模型（每个模型会按分组展开成多行）里 capability 为空对象的处理。
+    const emptyCapabilityRow = buildModelPricingRows(channels, {}).find(
+      (row) => row.modelName === models[1].name,
+    )
+    expect(emptyCapabilityRow?.capability).toBeNull()
+  })
+
   it('builds dynamic multiplier and actual-price ranges without a user override', () => {
     const channels = makeChannels()
     const group = channels[0].platforms[0].groups[0]

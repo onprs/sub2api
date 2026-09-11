@@ -783,3 +783,65 @@ func TestBuildCatalogSupportedModel_OpenCodeGoReferenceCatalogRequiresQuotaCostE
 func newStubPricingServiceFromMap(data map[string]*LiteLLMModelPricing) *PricingService {
 	return &PricingService{pricingData: data}
 }
+
+// capabilityStubRemote 为 fillModelCapability 测试提供一份固定的公开目录快照。
+type capabilityStubRemote struct {
+	body []byte
+}
+
+func (r capabilityStubRemote) FetchPricingJSON(context.Context, string) ([]byte, error) {
+	return r.body, nil
+}
+
+func (r capabilityStubRemote) FetchHashText(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func TestFillModelCapability_UsesCatalogAndKeepsChannelContextWindow(t *testing.T) {
+	pricingSvc := &PricingService{
+		pricingData:       map[string]*LiteLLMModelPricing{},
+		modelCapabilities: newModelCapabilityCatalog(capabilityStubRemote{body: []byte(capabilityCatalogJSON)}, nil),
+		commandCodeCatalog: commandCodeCatalogForTest(map[string]int{
+			"google/gemini-3.7-flash": 1_048_576,
+		}),
+	}
+	svc := &ChannelService{pricingService: pricingSvc}
+	ctx := context.Background()
+
+	// 公开目录命中：补齐能力，并在上下文窗口缺失时用目录值。
+	fromCatalog := SupportedModel{Name: "gpt-5.6-sol", Platform: PlatformOpenAI}
+	svc.fillModelCapability(ctx, &fromCatalog)
+	require.NotNil(t, fromCatalog.Capability)
+	require.Equal(t, 1_050_000, fromCatalog.ContextWindow)
+	require.True(t, fromCatalog.Capability.Reasoning)
+
+	// Command Code 自身不发布能力字段，能力从厂商目录借用；
+	// 渠道（Command Code 官方目录）已提供的上下文窗口不得被目录覆盖。
+	withChannelContext := SupportedModel{
+		Name:          "google/gemini-3.7-flash",
+		Platform:      PlatformCommandCode,
+		ContextWindow: 1_048_576,
+	}
+	svc.fillModelCapability(ctx, &withChannelContext)
+	require.NotNil(t, withChannelContext.Capability, "Command Code 应从厂商目录借到能力")
+	require.True(t, withChannelContext.Capability.Reasoning)
+	require.Equal(t, 1_048_576, withChannelContext.ContextWindow)
+
+	// 目录中不存在的模型：保持 nil，前端省略展示。
+	unknown := SupportedModel{Name: "codex-auto-review", Platform: PlatformOpenAI}
+	svc.fillModelCapability(ctx, &unknown)
+	require.Nil(t, unknown.Capability)
+	require.Zero(t, unknown.ContextWindow)
+}
+
+func TestFillModelCapability_NoCatalogIsNoop(t *testing.T) {
+	// pricingService 未注入（或没有远程客户端）时不得 panic，也不得改写模型。
+	model := SupportedModel{Name: "gpt-5.6-sol", Platform: PlatformOpenAI}
+	(&ChannelService{}).fillModelCapability(context.Background(), &model)
+	require.Nil(t, model.Capability)
+	require.Zero(t, model.ContextWindow)
+
+	withNilCatalog := &ChannelService{pricingService: &PricingService{}}
+	withNilCatalog.fillModelCapability(context.Background(), &model)
+	require.Nil(t, model.Capability)
+}

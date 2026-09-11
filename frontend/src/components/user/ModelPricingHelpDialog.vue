@@ -101,6 +101,7 @@
           </h4>
           <p class="mt-3 leading-6">{{ t('modelPricing.help.columns.tokenPrices') }}</p>
           <p class="mt-2 leading-6">{{ t('modelPricing.help.columns.billingMode') }}</p>
+          <p class="mt-2 leading-6">{{ t('modelPricing.help.columns.modelMetadata') }}</p>
           <p class="mt-2 leading-6">{{ t('modelPricing.help.columns.source') }}</p>
         </div>
       </section>

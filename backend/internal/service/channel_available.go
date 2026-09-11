@@ -216,6 +216,7 @@ func (s *ChannelService) BuildSupportedModelForPricingGroup(
 	if model.Name == "" || s == nil {
 		return model
 	}
+	s.fillModelCapability(ctx, &model)
 
 	for _, candidate := range catalogPricingLookupCandidates(platform, model.Name, pricingCandidates) {
 		if groupID > 0 && s.channelPricingLookupAvailable() {
@@ -475,6 +476,23 @@ func (s *ChannelService) fillCommandCodeMetadataForName(model *SupportedModel, p
 				UsageMultiplier: 1,
 			}
 		}
+	}
+}
+
+// fillModelCapability 用公开模型目录补齐用户侧展示的模型能力元数据。
+// 目录未收录的模型（例如 Command Code 的专有命名空间）保持 nil，由前端省略展示；
+// 上下文窗口只作为渠道数据的补充，渠道（Command Code 官方目录）已有值时优先。
+func (s *ChannelService) fillModelCapability(ctx context.Context, model *SupportedModel) {
+	if s == nil || model == nil || s.pricingService == nil {
+		return
+	}
+	capability, ok := s.pricingService.GetModelCapability(ctx, model.Platform, model.Name)
+	if !ok {
+		return
+	}
+	model.Capability = &capability
+	if model.ContextWindow <= 0 && capability.ContextTokens > 0 {
+		model.ContextWindow = capability.ContextTokens
 	}
 }
 

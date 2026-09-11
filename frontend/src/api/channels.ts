@@ -89,11 +89,26 @@ export interface UserSupportedModelUsageOffer {
   usage_multiplier: number
 }
 
+/**
+ * 模型能力元数据（来自公开模型目录）；字段缺省表示目录未提供该项。
+ */
+export interface UserSupportedModelCapability {
+  context_tokens?: number
+  max_output_tokens?: number
+  reasoning?: boolean
+  tool_call?: boolean
+  vision?: boolean
+  pdf_input?: boolean
+  image_output?: boolean
+}
+
 export interface UserSupportedModel {
   name: string
   platform: string
   /** 官方模型最大上下文 token 数；缺失表示渠道未提供。 */
   context_length?: number
+  /** 模型能力元数据；缺失表示公开目录未收录。 */
+  capability?: UserSupportedModelCapability | null
   promotion?: UserSupportedModelPromotion | null
   pricing: UserSupportedModelPricing | null
   /** 当前模型额度倍率；OpenCode Go 官方 usage offer 已由后端折算。 */

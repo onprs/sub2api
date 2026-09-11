@@ -124,6 +124,50 @@ func TestToUserSupportedModels_ExposesOfficialContextAndPromotion(t *testing.T) 
 	require.Contains(t, string(raw), `"promotion"`)
 }
 
+func TestToUserSupportedModels_ExposesCapabilityMetadata(t *testing.T) {
+	src := []service.SupportedModel{
+		{
+			Name:     "gpt-5.6-sol",
+			Platform: service.PlatformOpenAI,
+			Capability: &service.ModelCapability{
+				ContextTokens:   1_050_000,
+				MaxOutputTokens: 128_000,
+				Reasoning:       true,
+				ToolCall:        true,
+				Vision:          true,
+				PDFInput:        true,
+			},
+		},
+		// 目录未收录能力的模型不下发 capability 字段。
+		{Name: "codex-auto-review", Platform: service.PlatformOpenAI},
+		// 能力字段全为缺失时同样不下发，避免前端渲染空元数据行。
+		{Name: "empty-capability", Platform: service.PlatformOpenAI, Capability: &service.ModelCapability{}},
+	}
+
+	out := toUserSupportedModels(src, nil)
+	require.Len(t, out, 3)
+	require.NotNil(t, out[0].Capability)
+	require.Equal(t, 1_050_000, out[0].Capability.ContextTokens)
+	require.Equal(t, 128_000, out[0].Capability.MaxOutputTokens)
+	require.True(t, out[0].Capability.Reasoning)
+	require.True(t, out[0].Capability.ToolCall)
+	require.True(t, out[0].Capability.Vision)
+	require.True(t, out[0].Capability.PDFInput)
+	require.False(t, out[0].Capability.ImageOutput)
+	require.Nil(t, out[1].Capability)
+	require.Nil(t, out[2].Capability)
+
+	raw, err := json.Marshal(out[0])
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"capability":{"context_tokens":1050000`)
+	require.Contains(t, string(raw), `"tool_call":true`)
+	require.Contains(t, string(raw), `"pdf_input":true`)
+
+	missingRaw, err := json.Marshal(out[1])
+	require.NoError(t, err)
+	require.NotContains(t, string(missingRaw), "capability")
+}
+
 func TestToUserSupportedModels_ExposesCommandCodePromotionAsOfferLabel(t *testing.T) {
 	src := []service.SupportedModel{
 		{

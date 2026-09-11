@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -183,6 +184,109 @@ func TestCommandCodeGatewayStreamChatToAnthropic(t *testing.T) {
 	requestBody, readErr := io.ReadAll(upstream.requests[0].Body)
 	require.NoError(t, readErr)
 	require.True(t, gjson.GetBytes(requestBody, "stream_options.include_usage").Bool())
+}
+
+func TestCommandCodeGatewayRejectsEmptyChatStream(t *testing.T) {
+	streamBody := strings.Join([]string{
+		`data: {"id":"chatcmpl-empty","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &commandCodeHTTPUpstreamStub{responses: map[string]*http.Response{
+		"/provider/v1/chat/completions": {
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(streamBody)),
+		},
+	}}
+	svc := newCommandCodeGatewayForTest(upstream)
+	recorder, c := newCommandCodeTestContext()
+
+	result, err := svc.ForwardResponses(context.Background(), c, commandCodeGatewayTestAccount(), []byte(`{
+		"model":"meta/muse-spark-1.3-contributor","input":"hi","stream":true
+	}`), "meta/muse-spark-1.3-contributor")
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.False(t, c.Writer.Written(), "空流不能先提交成功响应")
+	require.Empty(t, recorder.Body.String())
+	_, ok := GetOpsStreamError(c)
+	require.False(t, ok, "尚未写出客户端流时不应伪造 SSE 错误")
+}
+
+func TestCommandCodeGatewayRejectsStreamErrorEvent(t *testing.T) {
+	streamBody := strings.Join([]string{
+		`event: error`,
+		`data: {"error":{"type":"server_error","code":"provider_unavailable","message":"temporarily unavailable","status_code":503}}`,
+		"",
+	}, "\n")
+	upstream := &commandCodeHTTPUpstreamStub{responses: map[string]*http.Response{
+		"/provider/v1/chat/completions": {
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(streamBody)),
+		},
+	}}
+	svc := newCommandCodeGatewayForTest(upstream)
+	recorder, c := newCommandCodeTestContext()
+
+	result, err := svc.ForwardChatCompletions(context.Background(), c, commandCodeGatewayTestAccount(), []byte(`{
+		"model":"qwen/qwen3.7-plus","messages":[{"role":"user","content":"hi"}],"stream":true
+	}`))
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusServiceUnavailable, failoverErr.StatusCode)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, recorder.Body.String())
+	events, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	require.NotEmpty(t, events)
+}
+
+func TestCommandCodeGatewayMarksMissingStreamUsageUnavailable(t *testing.T) {
+	streamBody := strings.Join([]string{
+		`data: {"id":"chatcmpl-no-usage","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"chatcmpl-no-usage","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"chatcmpl-no-usage","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &commandCodeHTTPUpstreamStub{responses: map[string]*http.Response{
+		"/provider/v1/chat/completions": {
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(streamBody)),
+		},
+	}}
+	svc := newCommandCodeGatewayForTest(upstream)
+	recorder, c := newCommandCodeTestContext()
+
+	result, err := svc.ForwardChatCompletions(context.Background(), c, commandCodeGatewayTestAccount(), []byte(`{
+		"model":"qwen/qwen3.7-plus","messages":[{"role":"user","content":"hi"}],"stream":true
+	}`))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.UsageUnavailable)
+	require.NotNil(t, result.FirstTokenMs)
+	require.Contains(t, recorder.Body.String(), `"content":"ok"`)
+	streamError, ok := GetOpsStreamError(c)
+	require.True(t, ok)
+	require.Equal(t, "Command Code upstream stream omitted usage", streamError.Message)
+}
+
+func TestCommandCodeStreamObservationRequiresPositiveUsage(t *testing.T) {
+	observation := &commandCodeStreamObservation{}
+	observation.observe([]byte(`{"choices":[],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}`), protocolconv.ProtocolOpenAIChat)
+	require.False(t, observation.usageSeen)
+
+	observation.observe([]byte(`{"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":0,"total_tokens":2}}`), protocolconv.ProtocolOpenAIChat)
+	require.True(t, observation.usageSeen)
 }
 
 func TestCommandCodeGatewayFailoverOnAuthErrors(t *testing.T) {

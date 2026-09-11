@@ -153,11 +153,24 @@ type userSupportedModelUsageOffer struct {
 	UsageMultiplier float64 `json:"usage_multiplier"`
 }
 
+// userSupportedModelCapability 用户可见的模型能力元数据白名单。
+// 只在公开目录收录该模型时下发；前端按「图标 + 短标签」展示。
+type userSupportedModelCapability struct {
+	ContextTokens   int  `json:"context_tokens,omitempty"`
+	MaxOutputTokens int  `json:"max_output_tokens,omitempty"`
+	Reasoning       bool `json:"reasoning,omitempty"`
+	ToolCall        bool `json:"tool_call,omitempty"`
+	Vision          bool `json:"vision,omitempty"`
+	PDFInput        bool `json:"pdf_input,omitempty"`
+	ImageOutput     bool `json:"image_output,omitempty"`
+}
+
 // userSupportedModel 用户可见的支持模型条目。
 type userSupportedModel struct {
 	Name                    string                        `json:"name"`
 	Platform                string                        `json:"platform"`
 	ContextLength           int                           `json:"context_length,omitempty"`
+	Capability              *userSupportedModelCapability `json:"capability,omitempty"`
 	Promotion               *userSupportedModelPromotion  `json:"promotion,omitempty"`
 	Pricing                 *userSupportedModelPricing    `json:"pricing"`
 	ModelSpecificMultiplier *float64                      `json:"model_specific_multiplier,omitempty"`
@@ -580,6 +593,7 @@ func toUserSupportedModels(
 			Name:                    m.Name,
 			Platform:                m.Platform,
 			ContextLength:           m.ContextWindow,
+			Capability:              toUserSupportedModelCapability(m.Capability),
 			Promotion:               toUserSupportedModelPromotion(m.Promotion),
 			Pricing:                 pricing,
 			ModelSpecificMultiplier: toUserSupportedModelMultiplier(m.QuotaCost),
@@ -587,6 +601,27 @@ func toUserSupportedModels(
 		})
 	}
 	return out
+}
+
+func toUserSupportedModelCapability(capability *service.ModelCapability) *userSupportedModelCapability {
+	if capability == nil {
+		return nil
+	}
+	// 全字段缺失时不下发空对象，避免前端渲染无意义的空元数据行。
+	if capability.ContextTokens <= 0 && capability.MaxOutputTokens <= 0 &&
+		!capability.Reasoning && !capability.ToolCall &&
+		!capability.Vision && !capability.PDFInput && !capability.ImageOutput {
+		return nil
+	}
+	return &userSupportedModelCapability{
+		ContextTokens:   max(capability.ContextTokens, 0),
+		MaxOutputTokens: max(capability.MaxOutputTokens, 0),
+		Reasoning:       capability.Reasoning,
+		ToolCall:        capability.ToolCall,
+		Vision:          capability.Vision,
+		PDFInput:        capability.PDFInput,
+		ImageOutput:     capability.ImageOutput,
+	}
 }
 
 func toUserSupportedModelPromotion(promotion *service.ModelPromotion) *userSupportedModelPromotion {

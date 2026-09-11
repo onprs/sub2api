@@ -258,6 +258,7 @@ type PricingService struct {
 	cliImportCatalogMu           sync.RWMutex
 	cliImportCatalogLoaded       bool
 	cliImportCatalog             map[string]map[string]CLIImportModelCapability
+	modelCapabilities            *modelCapabilityCatalog
 	usageOfferMu                 sync.RWMutex
 	openCodeGoUsageOffers        map[string]openCodeGoUsageOffer
 	commandCodeCatalog           *CommandCodeCatalog
@@ -283,6 +284,8 @@ func NewPricingService(cfg *config.Config, remoteClient PricingRemoteClient) *Pr
 		commandCodeCatalogCtx:    commandCodeCatalogCtx,
 		commandCodeCatalogCancel: commandCodeCatalogCancel,
 	}
+	// 能力目录复用本服务的 URL 校验策略，必须等 s 构造完成后再赋值。
+	s.modelCapabilities = newModelCapabilityCatalog(remoteClient, s.resolveCapabilityCatalogURL)
 	return s
 }
 

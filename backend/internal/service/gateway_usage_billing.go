@@ -788,6 +788,10 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 	if input != nil && input.APIKey != nil && input.APIKey.IsInternalChannelMonitor() {
 		return nil
 	}
+	if input != nil && input.Result != nil && input.Result.UsageUnavailable {
+		// 上游没有提供可靠 usage；不能把未知用量伪装成 0 token 成功请求。
+		return nil
+	}
 	return s.recordUsageCore(ctx, &recordUsageCoreInput{
 		Result:             input.Result,
 		APIKey:             input.APIKey,

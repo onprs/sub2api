@@ -214,7 +214,7 @@
               class="model-pricing-sticky-header sticky top-0 z-20 bg-gray-50/95 text-left font-medium uppercase text-gray-500 shadow-sm backdrop-blur dark:bg-dark-800/95 dark:text-gray-400"
             >
               <tr class="border-b border-gray-100 dark:border-dark-700">
-                <th class="model-pricing-sticky-model w-56 px-4 py-3">{{ t('modelPricing.columns.model') }}</th>
+                <th class="model-pricing-sticky-model w-64 px-4 py-3">{{ t('modelPricing.columns.model') }}</th>
                 <th class="w-80 px-4 py-3">{{ t('modelPricing.columns.contextTier') }}</th>
                 <th class="w-28 px-4 py-3">{{ t('modelPricing.columns.groupMultiplier') }}</th>
                 <th class="w-32 px-4 py-3">{{ t('modelPricing.columns.modelSpecificMultiplier') }}</th>
@@ -266,13 +266,27 @@
                       <Icon :name="copiedModel === row.modelName ? 'check' : 'copy'" size="xs" />
                     </button>
                   </div>
-                  <div class="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 font-sans">
+                  <div class="mt-1 flex min-w-0 flex-wrap items-center gap-1 font-sans">
                     <span
                       v-if="row.contextLength !== null"
-                      class="text-[10px] text-gray-500 dark:text-gray-400"
+                      class="model-meta-chip"
+                      :class="capabilityChipClass.context"
+                      :title="t('modelPricing.contextWindowHint')"
                       data-test="model-context-window"
                     >
-                      {{ t('modelPricing.contextWindow', { tokens: formatContextTokenCount(row.contextLength) }) }}
+                      <Icon name="arrowsUpDown" size="xs" class="shrink-0" />
+                      {{ t('modelPricing.contextWindow', { tokens: formatTokenCount(row.contextLength) }) }}
+                    </span>
+                    <span
+                      v-for="badge in capabilityBadges(row)"
+                      :key="badge.key"
+                      class="model-meta-chip"
+                      :class="badge.chipClass"
+                      :title="badge.hint"
+                      :data-test="`model-capability-${badge.key}`"
+                    >
+                      <Icon :name="badge.icon" size="xs" class="shrink-0" />
+                      {{ badge.label }}
                     </span>
                   </div>
                 </td>
@@ -469,6 +483,34 @@ interface ModelPricingGroupOption extends Record<string, unknown> {
   isExclusive: boolean
 }
 
+// 每个能力一个独立色相，用于在模型 ID 下快速区分；
+// 刻意避开「官方额度活动」列使用的 amber / emerald，避免与活动语义混淆。
+const capabilityChipClass = {
+  context: 'bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300',
+  maxOutput: 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300',
+  reasoning: 'bg-violet-50 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300',
+  toolCall: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950/50 dark:text-cyan-300',
+  vision: 'bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-950/50 dark:text-fuchsia-300',
+  pdfInput: 'bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300',
+  imageOutput: 'bg-pink-50 text-pink-700 dark:bg-pink-950/50 dark:text-pink-300',
+} as const
+
+type ModelMetaIcon =
+  | 'arrowUp'
+  | 'lightbulb'
+  | 'cog'
+  | 'eye'
+  | 'document'
+  | 'sparkles'
+
+interface ModelMetaBadge {
+  key: string
+  icon: ModelMetaIcon
+  label: string
+  hint: string
+  chipClass: string
+}
+
 const platformOrder: GroupPlatform[] = [
   'anthropic',
   'openai',
@@ -638,14 +680,81 @@ function reconcileSelection() {
   }
 }
 
-function formatContextTokenCount(tokens: number): string {
+// formatTokenCount 把 Token 数格式化为紧凑形式（1.05M / 65.5K / 128K）。
+// 上下文、最大输出和上下文档位共用同一口径，方便横向比较。
+function formatTokenCount(tokens: number): string {
   if (tokens >= 1_000_000) {
-    return `${Number((tokens / 1_000_000).toFixed(3))}M`
+    return `${Number((tokens / 1_000_000).toFixed(2))}M`
   }
-  if (tokens >= 1_000 && tokens % 1_000 === 0) {
-    return `${tokens / 1_000}K`
+  if (tokens >= 1_000) {
+    const thousands = tokens / 1_000
+    return `${Number.isInteger(thousands) ? thousands : Number(thousands.toFixed(1))}K`
   }
   return tokens.toLocaleString()
+}
+
+function capabilityBadges(row: ModelPricingRow): ModelMetaBadge[] {
+  const capability = row.capability
+  if (!capability) return []
+
+  const badges: ModelMetaBadge[] = []
+  if (capability.maxOutputTokens !== null) {
+    badges.push({
+      key: 'maxOutput',
+      icon: 'arrowUp',
+      label: t('modelPricing.capability.maxOutput', {
+        tokens: formatTokenCount(capability.maxOutputTokens),
+      }),
+      hint: t('modelPricing.capability.hints.maxOutput'),
+      chipClass: capabilityChipClass.maxOutput,
+    })
+  }
+  if (capability.reasoning) {
+    badges.push({
+      key: 'reasoning',
+      icon: 'lightbulb',
+      label: t('modelPricing.capability.reasoning'),
+      hint: t('modelPricing.capability.hints.reasoning'),
+      chipClass: capabilityChipClass.reasoning,
+    })
+  }
+  if (capability.toolCall) {
+    badges.push({
+      key: 'toolCall',
+      icon: 'cog',
+      label: t('modelPricing.capability.toolCall'),
+      hint: t('modelPricing.capability.hints.toolCall'),
+      chipClass: capabilityChipClass.toolCall,
+    })
+  }
+  if (capability.vision) {
+    badges.push({
+      key: 'vision',
+      icon: 'eye',
+      label: t('modelPricing.capability.vision'),
+      hint: t('modelPricing.capability.hints.vision'),
+      chipClass: capabilityChipClass.vision,
+    })
+  }
+  if (capability.pdfInput) {
+    badges.push({
+      key: 'pdfInput',
+      icon: 'document',
+      label: t('modelPricing.capability.pdf'),
+      hint: t('modelPricing.capability.hints.pdf'),
+      chipClass: capabilityChipClass.pdfInput,
+    })
+  }
+  if (capability.imageOutput) {
+    badges.push({
+      key: 'imageOutput',
+      icon: 'sparkles',
+      label: t('modelPricing.capability.imageOutput'),
+      hint: t('modelPricing.capability.hints.imageOutput'),
+      chipClass: capabilityChipClass.imageOutput,
+    })
+  }
+  return badges
 }
 
 function contextTierLabel(interval: ModelPricingIntervalRow): string {
@@ -657,17 +766,17 @@ function contextTierLabel(interval: ModelPricingIntervalRow): string {
   }
   if (interval.minTokens <= 0 && interval.maxTokens != null) {
     return t('modelPricing.contextTiers.upTo', {
-      tokens: formatContextTokenCount(interval.maxTokens),
+      tokens: formatTokenCount(interval.maxTokens),
     })
   }
   if (interval.maxTokens == null) {
     return t('modelPricing.contextTiers.above', {
-      tokens: formatContextTokenCount(interval.minTokens),
+      tokens: formatTokenCount(interval.minTokens),
     })
   }
   return t('modelPricing.contextTiers.range', {
-    min: formatContextTokenCount(interval.minTokens),
-    max: formatContextTokenCount(interval.maxTokens),
+    min: formatTokenCount(interval.minTokens),
+    max: formatTokenCount(interval.maxTokens),
   })
 }
 
@@ -851,9 +960,21 @@ onUnmounted(() => {
   position: sticky;
   left: 0;
   z-index: 10;
-  min-width: 14rem;
+  min-width: 16rem;
   background-color: rgb(255 255 255);
   box-shadow: 8px 0 12px -12px rgb(15 23 42 / 0.45);
+}
+
+/* 颜色由每个能力的 chipClass 提供，此处只保留尺寸与背景形状。 */
+.model-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  border-radius: 0.25rem;
+  padding: 0 0.25rem;
+  font-size: 10px;
+  line-height: 1.125rem;
+  white-space: nowrap;
 }
 
 .model-pricing-sticky-header .model-pricing-sticky-model {

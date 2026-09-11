@@ -31,12 +31,22 @@ export interface ModelPricingTimeBandRow {
   pricing: ModelPricingValues
 }
 
+export interface ModelPricingCapability {
+  maxOutputTokens: number | null
+  reasoning: boolean
+  toolCall: boolean
+  vision: boolean
+  pdfInput: boolean
+  imageOutput: boolean
+}
+
 export interface ModelPricingRow {
   channelName: string
   description: string
   platform: string
   modelName: string
   contextLength: number | null
+  capability: ModelPricingCapability | null
   promotionLabel: string
   promotionTerm: string
   promotionExpiresAt: string
@@ -258,6 +268,35 @@ function commandCodeMetadataFields(model: UserSupportedModel): Pick<
   }
 }
 
+function modelCapabilityForModel(model: UserSupportedModel): ModelPricingCapability | null {
+  const capability = model.capability
+  if (!capability) {
+    return null
+  }
+  const maxOutputTokens =
+    capability.max_output_tokens != null &&
+    Number.isFinite(capability.max_output_tokens) &&
+    capability.max_output_tokens > 0
+      ? Math.floor(capability.max_output_tokens)
+      : null
+  const normalized: ModelPricingCapability = {
+    maxOutputTokens,
+    reasoning: Boolean(capability.reasoning),
+    toolCall: Boolean(capability.tool_call),
+    vision: Boolean(capability.vision),
+    pdfInput: Boolean(capability.pdf_input),
+    imageOutput: Boolean(capability.image_output),
+  }
+  const hasAnyFlag =
+    normalized.maxOutputTokens !== null ||
+    normalized.reasoning ||
+    normalized.toolCall ||
+    normalized.vision ||
+    normalized.pdfInput ||
+    normalized.imageOutput
+  return hasAnyFlag ? normalized : null
+}
+
 function modelSpecificMultiplierForModel(model: UserSupportedModel): number | null {
   const multiplier = model.model_specific_multiplier
   if (multiplier == null || !Number.isFinite(multiplier) || multiplier <= 0) {
@@ -343,6 +382,7 @@ function rowForModelGroup(
   }
   const usageOffer = usageOfferFields(model)
   const metadata = commandCodeMetadataFields(model)
+  const capability = modelCapabilityForModel(model)
   const source = pricingSourceFields(model.pricing)
 
   if (!model.pricing) {
@@ -353,6 +393,7 @@ function rowForModelGroup(
       platform,
       modelName: model.name,
       ...metadata,
+      capability,
       groupId: group.id,
       groupName: group.name,
       subscriptionType: group.subscription_type || 'standard',
@@ -378,6 +419,7 @@ function rowForModelGroup(
     platform,
     modelName: model.name,
     ...metadata,
+    capability,
     groupId: group.id,
     groupName: group.name,
     subscriptionType: group.subscription_type || 'standard',

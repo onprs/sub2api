@@ -14,6 +14,23 @@ export default {
     copyModelId: '复制模型 ID',
     modelCopied: '已复制模型 ID',
     contextWindow: '{tokens} 上下文',
+    contextWindowHint: '模型最大上下文 Token 数',
+    capability: {
+      maxOutput: '输出 {tokens}',
+      reasoning: '推理',
+      toolCall: '工具',
+      vision: '图像',
+      pdf: 'PDF',
+      imageOutput: '生图',
+      hints: {
+        maxOutput: '模型最大输出 Token 数',
+        reasoning: '支持推理（思考）输出',
+        toolCall: '支持工具调用',
+        vision: '支持图像输入',
+        pdf: '支持 PDF 输入',
+        imageOutput: '支持图像输出'
+      }
+    },
     promotion: {
       title: '官方价格活动'
     },
@@ -69,6 +86,7 @@ export default {
         title: '其他计费字段',
         tokenPrices: '输入、输出、缓存写入和缓存读取均按每百万 Token 标价；“-”表示该项没有可展示的价格。',
         billingMode: '计费模式决定请求按 Token、按次还是按图片结算；“按次/图片价”列展示对应的配置单价。',
+        modelMetadata: '模型 ID 下方的图标标出该模型的上下文与输出上限，以及推理、工具调用、图像、PDF 和图像输出能力；未标出表示目录未收录该项。',
         source: '“渠道定价”表示使用管理员配置的价格；“定价目录”表示使用系统可验证的目录价格；“未配置”表示当前无法提供可靠单价。'
       }
     },

@@ -14,6 +14,23 @@ export default {
     copyModelId: 'Copy Model ID',
     modelCopied: 'Model ID copied',
     contextWindow: '{tokens} context',
+    contextWindowHint: 'Maximum context tokens of the model',
+    capability: {
+      maxOutput: '{tokens} out',
+      reasoning: 'Reasoning',
+      toolCall: 'Tools',
+      vision: 'Image',
+      pdf: 'PDF',
+      imageOutput: 'Image out',
+      hints: {
+        maxOutput: 'Maximum output tokens of the model',
+        reasoning: 'Produces reasoning (thinking) output',
+        toolCall: 'Supports tool calling',
+        vision: 'Accepts image input',
+        pdf: 'Accepts PDF input',
+        imageOutput: 'Produces image output'
+      }
+    },
     promotion: {
       title: 'Official pricing promotion'
     },
@@ -69,6 +86,7 @@ export default {
         title: 'Other billing fields',
         tokenPrices: 'Input, output, cache write, and cache read prices are shown per million tokens. A dash means no displayable price is available for that item.',
         billingMode: 'Billing mode determines whether a request is charged per token, per request, or per image. The Per Request/Image column shows the corresponding configured unit price.',
+        modelMetadata: 'Icons under the model ID mark its context and output limits together with reasoning, tool calling, image, PDF, and image-output support. A missing badge means the catalog does not publish that field.',
         source: 'Channel Pricing uses an administrator-configured price; Pricing Catalog uses a verified catalog price; Missing means no reliable unit price is currently available.'
       }
     },

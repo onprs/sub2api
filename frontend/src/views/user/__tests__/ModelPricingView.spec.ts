@@ -29,6 +29,19 @@ const messages: Record<string, string> = {
   'modelPricing.copyModelId': 'Copy Model ID',
   'modelPricing.modelCopied': 'Model ID copied',
   'modelPricing.contextWindow': '{tokens} context',
+  'modelPricing.contextWindowHint': 'Maximum context tokens of the model',
+  'modelPricing.capability.maxOutput': '{tokens} out',
+  'modelPricing.capability.reasoning': 'Reasoning',
+  'modelPricing.capability.toolCall': 'Tools',
+  'modelPricing.capability.vision': 'Image',
+  'modelPricing.capability.pdf': 'PDF',
+  'modelPricing.capability.imageOutput': 'Image out',
+  'modelPricing.capability.hints.maxOutput': 'Maximum output tokens of the model',
+  'modelPricing.capability.hints.reasoning': 'Produces reasoning (thinking) output',
+  'modelPricing.capability.hints.toolCall': 'Supports tool calling',
+  'modelPricing.capability.hints.vision': 'Accepts image input',
+  'modelPricing.capability.hints.pdf': 'Accepts PDF input',
+  'modelPricing.capability.hints.imageOutput': 'Produces image output',
   'modelPricing.promotion.title': 'Official pricing promotion',
   'modelPricing.modes.raw': 'Original Billing',
   'modelPricing.modes.actual': 'Actual Billing',
@@ -321,6 +334,98 @@ describe('ModelPricingView', () => {
     expect(offerCell).toBeTruthy()
     const offerSpan = offerCell!.find('span[title]')
     expect(offerSpan.attributes('title')).toContain('ends December 31, 2026')
+  })
+
+  it('renders compact capability badges under the model ID and hides unknown ones', async () => {
+    const channels = makeChannel()
+    const models = channels[0].platforms[0].supported_models
+    const withCapability = models[0]
+    withCapability.context_length = 1_050_000
+    withCapability.capability = {
+      context_tokens: 1_050_000,
+      max_output_tokens: 128_000,
+      reasoning: true,
+      tool_call: true,
+      vision: true,
+      pdf_input: true,
+      image_output: false,
+    }
+    // 目录未收录能力的模型：只保留上下文窗口。
+    const withoutCapability = { ...withCapability, name: 'unknown-model', capability: undefined }
+    models.push(withoutCapability)
+
+    getAvailable.mockResolvedValue(channels)
+    getUserGroupRates.mockResolvedValue({})
+    const wrapper = mountView()
+    await flushPromises()
+    await selectPricingScope(wrapper, 'opencode_go', 20)
+
+    const firstRow = wrapper.get('tbody tr')
+    const chipTexts = firstRow.findAll('.model-meta-chip').map((chip) => chip.text())
+    expect(chipTexts).toEqual([
+      '1.05M context',
+      '128K out',
+      'Reasoning',
+      'Tools',
+      'Image',
+      'PDF',
+    ])
+    expect(firstRow.get('[data-test="model-context-window"]').attributes('title')).toBe(
+      'Maximum context tokens of the model',
+    )
+    expect(firstRow.get('[data-test="model-capability-reasoning"]').attributes('title')).toBe(
+      'Produces reasoning (thinking) output',
+    )
+
+    // 目录未收录能力的模型只展示上下文窗口，不猜造能力。
+    const secondRow = wrapper.findAll('tbody tr')[1]
+    expect(secondRow.find('[data-test="model-capability-reasoning"]').exists()).toBe(false)
+    expect(secondRow.find('[data-test="model-capability-toolCall"]').exists()).toBe(false)
+  })
+
+  it('gives every capability its own chip color and avoids the quota-offer palette', async () => {
+    const channels = makeChannel()
+    const model = channels[0].platforms[0].supported_models[0]
+    model.context_length = 1_050_000
+    model.capability = {
+      context_tokens: 1_050_000,
+      max_output_tokens: 128_000,
+      reasoning: true,
+      tool_call: true,
+      vision: true,
+      pdf_input: true,
+      image_output: true,
+    }
+    // 官方额度活动列使用 amber / emerald，能力 chip 不能与其同色。
+    model.usage_offer = { code: 'opencode_go_usage_offer', usage_multiplier: 2 }
+
+    getAvailable.mockResolvedValue(channels)
+    getUserGroupRates.mockResolvedValue({})
+    const wrapper = mountView()
+    await flushPromises()
+    await selectPricingScope(wrapper, 'opencode_go', 20)
+
+    const row = wrapper.get('tbody tr')
+    const chips = row.findAll('.model-meta-chip')
+    expect(chips).toHaveLength(7)
+
+    const classes = chips.map((chip) => chip.classes().filter((name) => /^bg-/.test(name)))
+    const hues = classes.map((names) => (names[0] ?? '').replace(/^bg-/, '').replace(/-\d+.*$/, ''))
+    expect(new Set(hues).size).toBe(hues.length)
+    for (const hue of hues) {
+      expect(['amber', 'emerald']).not.toContain(hue)
+    }
+
+    const offerChip = row
+      .findAll('span')
+      .find((span) => span.text().includes('2x usage limits'))
+    const offerHues = (offerChip?.classes() ?? [])
+      .filter((name) => name.startsWith('bg-'))
+      .map((name) => name.replace(/^bg-/, '').replace(/-\d+.*$/, ''))
+    expect(offerHues).toEqual(['emerald'])
+    for (const hue of hues) {
+      expect(offerHues).not.toContain(hue)
+    }
   })
 
   it('requires a platform and matching group before showing pricing rows', async () => {
