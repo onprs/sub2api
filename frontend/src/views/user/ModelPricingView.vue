@@ -209,7 +209,11 @@
 
       <template #table>
         <div class="table-wrapper model-pricing-table-wrapper">
-          <table class="min-w-[1360px] border-collapse text-xs">
+          <!-- 桌面端：13 列宽表。窄屏改由下方卡片列表承载，避免在手机上横向滚动。 -->
+          <table
+            class="model-pricing-table !hidden min-w-[1360px] border-collapse text-xs lg:!table"
+            data-test="pricing-table"
+          >
             <thead
               class="model-pricing-sticky-header sticky top-0 z-20 bg-gray-50/95 text-left font-medium uppercase text-gray-500 shadow-sm backdrop-blur dark:bg-dark-800/95 dark:text-gray-400"
             >
@@ -258,7 +262,7 @@
                     <span class="truncate select-all" :title="row.modelName">{{ row.modelName }}</span>
                     <button
                       type="button"
-                      class="opacity-0 group-hover/model:opacity-100 focus:opacity-100 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-dark-700 dark:hover:text-gray-200 transition-all flex-shrink-0"
+                      class="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-dark-700 dark:hover:text-gray-200 transition-all flex-shrink-0 opacity-0 group-hover/model:opacity-100 focus:opacity-100 [@media(hover:none)]:opacity-100"
                       :class="{ '!opacity-100 text-green-600 dark:text-green-400': copiedModel === row.modelName }"
                       :title="t('modelPricing.copyModelId', '复制模型 ID')"
                       @click.stop="handleCopyModel(row.modelName)"
@@ -414,6 +418,200 @@
               </tr>
             </tbody>
           </table>
+
+          <!-- 移动端：每个模型一张卡片，字段与桌面表格一致，复制按钮常显以适配触屏。 -->
+          <div
+            data-test="pricing-card-list"
+            class="w-full min-w-0 overflow-x-hidden space-y-3 lg:hidden"
+          >
+            <div v-if="loading" data-test="pricing-card-loading" class="py-10 text-center">
+              <Icon name="refresh" size="lg" class="inline-block animate-spin text-gray-400" />
+            </div>
+
+            <div v-else-if="filteredRows.length === 0" data-test="pricing-card-empty" class="py-12 text-center">
+              <Icon name="inbox" size="xl" class="mx-auto mb-3 h-12 w-12 text-gray-400" />
+              <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('modelPricing.empty') }}</p>
+            </div>
+
+            <template v-else>
+              <article
+                v-for="card in mobileCards"
+                :key="`pricing-card-${rowKey(card.row)}`"
+                class="min-w-0 rounded-xl border border-gray-200 bg-white p-3.5 shadow-sm dark:border-dark-700 dark:bg-dark-800"
+              >
+                <header class="flex min-w-0 items-start justify-between gap-2">
+                  <div class="min-w-0 flex-1">
+                    <p
+                      class="break-all font-mono text-[13px] font-medium leading-5 text-gray-900 select-all dark:text-gray-100"
+                    >
+                      {{ card.row.modelName }}
+                    </p>
+                    <div class="mt-1.5 flex min-w-0 flex-wrap items-center gap-1 font-sans">
+                      <span
+                        v-if="card.row.contextLength !== null"
+                        class="model-meta-chip"
+                        :class="capabilityChipClass.context"
+                        :title="t('modelPricing.contextWindowHint')"
+                        data-test="pricing-card-context"
+                      >
+                        <Icon name="arrowsUpDown" size="xs" class="shrink-0" />
+                        {{ t('modelPricing.contextWindow', { tokens: formatTokenCount(card.row.contextLength) }) }}
+                      </span>
+                      <span
+                        v-for="badge in capabilityBadges(card.row)"
+                        :key="badge.key"
+                        class="model-meta-chip"
+                        :class="badge.chipClass"
+                        :title="badge.hint"
+                        :data-test="`pricing-card-capability-${badge.key}`"
+                      >
+                        <Icon :name="badge.icon" size="xs" class="shrink-0" />
+                        {{ badge.label }}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    class="flex-shrink-0 rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-dark-700 dark:hover:text-gray-200"
+                    :class="{ 'text-green-600 dark:text-green-400': copiedModel === card.row.modelName }"
+                    :title="t('modelPricing.copyModelId', '复制模型 ID')"
+                    :aria-label="t('modelPricing.copyModelId', '复制模型 ID')"
+                    data-test="pricing-card-copy"
+                    @click.stop="handleCopyModel(card.row.modelName)"
+                  >
+                    <Icon :name="copiedModel === card.row.modelName ? 'check' : 'copy'" size="sm" />
+                  </button>
+                </header>
+
+                <div class="mt-2.5 flex min-w-0 flex-wrap items-center gap-1.5">
+                  <span
+                    class="inline-flex max-w-full items-center rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:bg-dark-700 dark:text-gray-300"
+                    :title="card.row.pricingSourceDetail || card.row.pricingSource"
+                  >
+                    <span class="truncate">{{ sourceLabel(card.row) }}</span>
+                  </span>
+                  <span
+                    class="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:bg-dark-700 dark:text-gray-300"
+                  >
+                    {{ billingModeLabel(card.row.billingMode) }}
+                  </span>
+                  <span
+                    v-if="card.row.usageOfferCode"
+                    class="inline-flex max-w-full items-center rounded-md border px-2 py-0.5 text-[11px] font-medium"
+                    :class="
+                      card.row.usageOfferLabel
+                        ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                        : 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+                    "
+                    :title="
+                      card.row.usageOfferLabel
+                        ? usageOfferTitle(card.row)
+                        : t('modelPricing.usageOffers.detail')
+                    "
+                  >
+                    <span class="truncate">
+                      {{ card.row.usageOfferLabel || t('modelPricing.usageOffers.multiplier', { multiplier: formatMultiplier(card.row.usageMultiplier) }) }}
+                    </span>
+                  </span>
+                </div>
+
+                <dl class="mt-3 space-y-1.5 rounded-lg bg-gray-50 px-3 py-2.5 dark:bg-dark-900/40">
+                  <div class="flex min-w-0 items-center justify-between gap-3">
+                    <dt class="text-[11px] text-gray-500 dark:text-gray-400">
+                      {{ t('modelPricing.columns.groupMultiplier') }}
+                    </dt>
+                    <dd class="flex min-w-0 items-center gap-1 font-mono text-xs">
+                      <span
+                        v-if="card.row.userMultiplier !== null && (card.row.dynamicRateApplied || card.row.userMultiplier !== card.row.defaultMultiplier)"
+                        class="text-gray-400 line-through dark:text-dark-500"
+                      >
+                        {{ formatGroupDefaultMultiplier(card.row) }}
+                      </span>
+                      <span class="font-semibold text-gray-900 dark:text-white">
+                        {{ formatMultiplierRange(card.row.groupMultiplierMin, card.row.groupMultiplierMax) }}
+                      </span>
+                    </dd>
+                  </div>
+                  <div
+                    v-if="card.row.modelSpecificMultiplier !== null"
+                    class="flex min-w-0 items-center justify-between gap-3"
+                  >
+                    <dt class="text-[11px] text-gray-500 dark:text-gray-400">
+                      {{ t('modelPricing.columns.modelSpecificMultiplier') }}
+                    </dt>
+                    <dd class="font-mono text-xs font-semibold text-gray-900 dark:text-white">
+                      {{ formatMultiplier(card.row.modelSpecificMultiplier) }}
+                    </dd>
+                  </div>
+                  <div class="flex min-w-0 items-center justify-between gap-3">
+                    <dt class="text-[11px] text-gray-500 dark:text-gray-400">
+                      {{ t('modelPricing.columns.effectiveMultiplier') }}
+                    </dt>
+                    <dd class="font-mono text-xs font-semibold text-gray-900 dark:text-white">
+                      {{ formatMultiplierRange(card.row.effectiveMultiplierMin, card.row.effectiveMultiplierMax) }}
+                    </dd>
+                  </div>
+                </dl>
+
+                <div v-if="card.lines.length > 0" class="mt-3 space-y-2">
+                  <section
+                    v-for="line in card.lines"
+                    :key="line.key"
+                    class="min-w-0 rounded-lg border border-gray-100 px-3 py-2.5 dark:border-dark-700/70"
+                  >
+                    <p class="break-words text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                      {{ line.label }}
+                    </p>
+                    <dl class="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
+                      <div v-if="line.hasTokenPrices" class="flex items-baseline justify-between gap-3">
+                        <dt class="text-[11px] text-gray-400 dark:text-dark-500">
+                          {{ t('modelPricing.columns.inputPerMillion') }}
+                        </dt>
+                        <dd class="whitespace-nowrap font-mono text-xs text-gray-900 dark:text-gray-100">
+                          {{ line.input }}
+                        </dd>
+                      </div>
+                      <div v-if="line.hasTokenPrices" class="flex items-baseline justify-between gap-3">
+                        <dt class="text-[11px] text-gray-400 dark:text-dark-500">
+                          {{ t('modelPricing.columns.outputPerMillion') }}
+                        </dt>
+                        <dd class="whitespace-nowrap font-mono text-xs text-gray-900 dark:text-gray-100">
+                          {{ line.output }}
+                        </dd>
+                      </div>
+                      <div v-if="line.hasTokenPrices" class="flex items-baseline justify-between gap-3">
+                        <dt class="text-[11px] text-gray-400 dark:text-dark-500">
+                          {{ t('modelPricing.columns.cacheWritePerMillion') }}
+                        </dt>
+                        <dd class="whitespace-nowrap font-mono text-xs text-gray-900 dark:text-gray-100">
+                          {{ line.cacheWrite }}
+                        </dd>
+                      </div>
+                      <div v-if="line.hasTokenPrices" class="flex items-baseline justify-between gap-3">
+                        <dt class="text-[11px] text-gray-400 dark:text-dark-500">
+                          {{ t('modelPricing.columns.cacheReadPerMillion') }}
+                        </dt>
+                        <dd class="whitespace-nowrap font-mono text-xs text-gray-900 dark:text-gray-100">
+                          {{ line.cacheRead }}
+                        </dd>
+                      </div>
+                      <div
+                        v-if="line.unit !== '-'"
+                        class="flex items-baseline justify-between gap-3 sm:col-span-2"
+                      >
+                        <dt class="text-[11px] text-gray-400 dark:text-dark-500">
+                          {{ t('modelPricing.columns.unitPrice') }}
+                        </dt>
+                        <dd class="whitespace-nowrap font-mono text-xs text-gray-900 dark:text-gray-100">
+                          {{ line.unit }}
+                        </dd>
+                      </div>
+                    </dl>
+                  </section>
+                </div>
+              </article>
+            </template>
+          </div>
         </div>
       </template>
     </TablePageLayout>
@@ -631,6 +829,11 @@ const selectedRows = computed(() => {
   )
 })
 const filteredRows = computed(() => filterModelPricingRows(selectedRows.value, searchQuery.value))
+
+// 移动端卡片：行与它的价格明细一次算好，避免模板里对同一行重复构建明细。
+const mobileCards = computed(() =>
+  filteredRows.value.map((row) => ({ row, lines: mobilePriceLines(row) })),
+)
 
 function setSelectedPlatform(value: string | number | boolean | null) {
   const nextPlatform =
@@ -850,6 +1053,45 @@ function unitPrice(pricing: ModelPricingValues): string {
   return parts.length > 0 ? parts.join(' / ') : '-'
 }
 
+interface MobilePriceLine {
+  key: string
+  label: string
+  hasTokenPrices: boolean
+  input: string
+  output: string
+  cacheWrite: string
+  cacheRead: string
+  unit: string
+}
+
+// 移动端卡片的价格明细：与表格共用 pricingLines 的时段/档位划分，
+// 但把每档价格预先换算成文本，便于在模板里按 label/value 成对渲染。
+// 按次、按图片计费的模型没有任何 token 价，hasTokenPrices 用来省掉整片 "-"；
+// 完全未配置定价的档位（两边都是空）直接从列表里剔除。
+function mobilePriceLines(row: ModelPricingRow): MobilePriceLine[] {
+  return pricingLines(row).flatMap((line) => {
+    const hasTokenPrices =
+      line.pricing.inputPrice !== null ||
+      line.pricing.outputPrice !== null ||
+      line.pricing.cacheWritePrice !== null ||
+      line.pricing.cacheReadPrice !== null
+    const unit = unitPrice(line.pricing)
+    if (!hasTokenPrices && unit === '-') return []
+    return [
+      {
+        key: line.key,
+        label: line.label,
+        hasTokenPrices,
+        input: tokenPrice(row, line.pricing, 'inputPrice'),
+        output: tokenPrice(row, line.pricing, 'outputPrice'),
+        cacheWrite: tokenPrice(row, line.pricing, 'cacheWritePrice'),
+        cacheRead: tokenPrice(row, line.pricing, 'cacheReadPrice'),
+        unit,
+      },
+    ]
+  })
+}
+
 function billingModeLabel(mode: BillingMode | null): string {
   switch (mode) {
     case BILLING_MODE_TOKEN:
@@ -929,15 +1171,6 @@ onUnmounted(() => {
 .model-pricing-table-wrapper {
   overflow-x: auto;
   overflow-y: auto;
-}
-
-@media (max-width: 1023px) {
-  .model-pricing-layout.table-page-layout.mobile-mode
-    :deep(.table-scroll-container .model-pricing-table-wrapper) {
-    max-width: 100%;
-    overflow-x: auto;
-    overflow-y: auto;
-  }
 }
 
 .model-pricing-sticky-header th {

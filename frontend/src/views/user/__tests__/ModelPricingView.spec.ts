@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ModelPricingView from '../ModelPricingView.vue'
 import type { UserAvailableChannel } from '@/api/channels'
-import { BILLING_MODE_TOKEN } from '@/constants/channel'
+import { BILLING_MODE_PER_REQUEST, BILLING_MODE_TOKEN } from '@/constants/channel'
 
 const { getAvailable, getUserGroupRates, showError, showSuccess, extractApiErrorMessage, copyToClipboard } = vi.hoisted(() => ({
   getAvailable: vi.fn(),
@@ -67,11 +67,13 @@ const messages: Record<string, string> = {
   'modelPricing.columns.cacheReadPerMillion': 'Cache Read/M',
   'modelPricing.columns.unitPrice': 'Per Request/Image',
   'modelPricing.sources.channel': 'Channel Pricing',
+  'modelPricing.sources.missing': '未配置',
   'modelPricing.usageOffers.multiplier': '{multiplier} usage limits',
   'modelPricing.usageOffers.detail': 'Included in actual prices and charges',
   'modelPricing.timeBands.off_peak': 'Off-Peak',
   'modelPricing.timeBands.peak': 'Peak',
   'modelPricing.billingModes.token': 'Per Token',
+  'modelPricing.billingModes.perRequest': 'Per Request',
   'modelPricing.contextTiers.all': 'All contexts',
   'modelPricing.contextTiers.upTo': 'Up to {tokens}',
   'modelPricing.contextTiers.above': 'Above {tokens}',
@@ -774,5 +776,124 @@ describe('ModelPricingView', () => {
 
     await copyBtn.trigger('click')
     expect(copyToClipboard).toHaveBeenCalledWith('deepseek-v4-flash', 'Model ID copied')
+  })
+
+  it('renders model pricing cards on small screens and keeps the wide table for desktop', async () => {
+    const channels = makeChannel()
+    const model = channels[0].platforms[0].supported_models[0]
+    model.context_length = 1_050_000
+    model.capability = {
+      context_tokens: 1_050_000,
+      max_output_tokens: 128_000,
+      reasoning: true,
+      tool_call: true,
+      vision: true,
+      pdf_input: true,
+      image_output: false,
+    }
+    copyToClipboard.mockResolvedValue(true)
+    getAvailable.mockResolvedValue(channels)
+    getUserGroupRates.mockResolvedValue({ 20: 0.5 })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await selectPricingScope(wrapper)
+
+    // 窄屏用卡片列表承载，13 列宽表只在 lg 及以上出现
+    expect(wrapper.get('table').classes()).toEqual(
+      expect.arrayContaining(['!hidden', 'lg:!table']),
+    )
+    const cards = wrapper.get('[data-test="pricing-card-list"]')
+    expect(cards.classes()).toEqual(expect.arrayContaining(['lg:hidden']))
+
+    const card = cards.get('article')
+    expect(card.text()).toContain('deepseek-v4-flash')
+    expect(cards.get('[data-test="pricing-card-context"]').text()).toBe('1.05M context')
+    expect(cards.get('[data-test="pricing-card-capability-reasoning"]').text()).toContain(
+      'Reasoning',
+    )
+    // 倍率、来源、计费模式、官方额度活动与时段价格都与桌面表格同源
+    expect(card.text()).toContain('0.5x')
+    expect(card.text()).toContain('1.5x')
+    expect(card.text()).toContain('Channel Pricing')
+    expect(card.text()).toContain('Per Token')
+    expect(card.text()).toContain('2x usage limits')
+    expect(card.text()).toContain('Off-Peak · UTC 00:00-01:00, 04:00-06:00, 10:00-24:00')
+    expect(card.text()).toContain('Input/M')
+
+    // 触屏没有 hover：复制按钮常显，点击复用同一复制逻辑
+    const copyButton = cards.get('[data-test="pricing-card-copy"]')
+    expect(copyButton.classes()).not.toContain('opacity-0')
+    await copyButton.trigger('click')
+    expect(copyToClipboard).toHaveBeenCalledWith('deepseek-v4-flash', 'Model ID copied')
+  })
+
+  it('filters mobile pricing cards with the shared search box', async () => {
+    getAvailable.mockResolvedValue(makeChannel())
+    getUserGroupRates.mockResolvedValue({ 20: 0.5 })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await selectPricingScope(wrapper)
+
+    const cards = wrapper.get('[data-test="pricing-card-list"]')
+    expect(cards.findAll('article')).toHaveLength(1)
+
+    await wrapper.get('[data-test="pricing-search"]').setValue('no-such-model')
+    await wrapper.vm.$nextTick()
+
+    expect(cards.findAll('article')).toHaveLength(0)
+    expect(cards.get('[data-test="pricing-card-empty"]').text()).toContain('No model pricing data')
+  })
+
+  it('shows per-request prices on mobile cards without empty token rows', async () => {
+    const channels = makeChannel()
+    const model = channels[0].platforms[0].supported_models[0]
+    if (!model.pricing) throw new Error('test pricing is required')
+    model.pricing = {
+      ...model.pricing,
+      billing_mode: BILLING_MODE_PER_REQUEST,
+      input_price: null,
+      output_price: null,
+      cache_write_price: null,
+      cache_read_price: null,
+      per_request_price: 0.01,
+      intervals: [],
+      time_bands: [],
+    }
+    getAvailable.mockResolvedValue(channels)
+    getUserGroupRates.mockResolvedValue({ 20: 0.5 })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await selectPricingScope(wrapper)
+
+    const card = wrapper.get('[data-test="pricing-card-list"] article')
+    expect(card.text()).toContain('Per Request')
+    expect(card.text()).toContain('Per Request/Image')
+    expect(card.text()).toContain('¥0.01 req')
+    // 四项 token 价全为空时不再渲染整片 "-"
+    expect(card.text()).not.toContain('Input/M')
+  })
+
+  it('omits the price block on mobile cards when the model has no pricing at all', async () => {
+    const channels = makeChannel()
+    const model = channels[0].platforms[0].supported_models[0]
+    model.pricing = null
+    getAvailable.mockResolvedValue(channels)
+    getUserGroupRates.mockResolvedValue({ 20: 0.5 })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await selectPricingScope(wrapper)
+
+    const cards = wrapper.get('[data-test="pricing-card-list"]')
+    const card = cards.get('article')
+    // 模型 ID、倍率、来源仍在，只是没有可展示的价格明细
+    expect(card.text()).toContain('deepseek-v4-flash')
+    expect(card.text()).toContain('未配置')
+    expect(card.text()).toContain('Group Multiplier')
+    expect(card.text()).not.toContain('All contexts')
+    expect(card.text()).not.toContain('Input/M')
   })
 })
