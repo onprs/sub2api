@@ -141,6 +141,29 @@ describe('AccountActionMenu viewport positioning', () => {
     expect(getLeft()).toBe(224)
   })
 
+  it('offers recover state for every Command Code API key so stale usage can be refreshed', async () => {
+    const wrapper = mount(AccountActionMenu, {
+      props: {
+        show: true,
+        account: {
+          id: 8287,
+          platform: 'commandcode',
+          type: 'apikey',
+          status: 'active',
+          schedulable: true
+        } as Account,
+        anchorRect: new DOMRect(500, 100, 32, 24)
+      },
+      global: { stubs: { Icon: true } }
+    })
+    await flushPromises()
+
+    const recover = Array.from(getMenu().querySelectorAll('button'))
+      .find(button => button.textContent?.includes('admin.accounts.recoverState'))
+    expect(recover).toBeTruthy()
+    wrapper.unmount()
+  })
+
   it('still closes on Escape and backdrop clicks', async () => {
     const wrapper = await mountMenu()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))

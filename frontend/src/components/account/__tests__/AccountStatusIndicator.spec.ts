@@ -81,6 +81,51 @@ describe('AccountStatusIndicator', () => {
     expect(wrapper.text()).not.toContain('claude-sonnet-5')
   })
 
+  it('Command Code 官方快照刷新后，仍有月度余额时不显示配额超限', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          platform: 'commandcode',
+          type: 'apikey',
+          extra: {
+            commandcode_usage_source: 'official_api',
+            commandcode_usage_monthly_usd: 34.8757,
+            commandcode_usage_purchased_usd: 0,
+            commandcode_usage_free_usd: 0,
+            commandcode_usage_30d_used_percent: 50.17,
+            commandcode_usage_30d_resets_at: new Date(Date.now() + 20 * 24 * 60 * 60 * 1000).toISOString()
+          }
+        })
+      },
+      global: { stubs: { Icon: true } }
+    })
+
+    expect(wrapper.text()).toContain('admin.accounts.status.active')
+    expect(wrapper.text()).not.toContain('admin.accounts.status.quotaExceeded')
+  })
+
+  it('Command Code 余额和窗口均耗尽时显示限流状态', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          platform: 'commandcode',
+          type: 'apikey',
+          extra: {
+            commandcode_usage_source: 'official_api',
+            commandcode_usage_monthly_usd: 0,
+            commandcode_usage_purchased_usd: 0,
+            commandcode_usage_free_usd: 0,
+            commandcode_usage_5h_used_percent: 100,
+            commandcode_usage_5h_resets_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
+          }
+        })
+      },
+      global: { stubs: { Icon: true } }
+    })
+
+    expect(wrapper.text()).toContain('admin.accounts.status.rateLimited')
+  })
+
   it('Grok 账号额度限流时显示自动恢复时间而非临时不可调度', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {

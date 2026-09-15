@@ -288,6 +288,93 @@ func TestCommandCodeInsufficientCreditsClassificationAndPause(t *testing.T) {
 	require.Equal(t, now.Add(commandCodeInsufficientCreditsFallbackPause), commandCodeInsufficientCreditsPauseUntil(nil, now))
 }
 
+func TestAccountUsageServiceRefreshCommandCodeUsageForRecovery(t *testing.T) {
+	now := time.Now().UTC()
+	periodEnd := now.Add(20 * 24 * time.Hour)
+	upstream := &commandCodeHTTPUpstreamStub{responses: map[string]*http.Response{
+		"/alpha/whoami": commandCodeJSONResponse(http.StatusOK, `{"org":{"id":"org-cc-recovery"}}`),
+		"/alpha/billing/credits": commandCodeJSONResponse(http.StatusOK, `{
+			"credits": {
+				"planId": "individual-goat",
+				"monthlyCredits": 34.8757287989,
+				"purchasedCredits": 0,
+				"freeCredits": 0,
+				"windowLimits": {
+					"limited": true,
+					"fiveHour": {"used": 0.12, "cap": 14, "resetAt": 1790000000000},
+					"weekly": {"used": 0.12, "cap": 35, "resetAt": 1790500000000}
+				}
+			}
+		}`),
+		"/alpha/billing/subscriptions": commandCodeJSONResponse(http.StatusOK, fmt.Sprintf(`{
+			"data": {"planId": "individual-goat", "status": "active", "currentPeriodEnd": %q}
+		}`, periodEnd.Format(time.RFC3339))),
+	}}
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{
+		8287: {
+			ID:       8287,
+			Platform: PlatformCommandCode,
+			Type:     AccountTypeAPIKey,
+			Status:   StatusActive,
+			Credentials: map[string]any{
+				"api_key":  "recovery-key",
+				"base_url": DefaultCommandCodeBaseURL,
+			},
+			Extra: map[string]any{
+				"commandcode_usage_source":           commandCodeUsageSourceOfficialAPI,
+				"commandcode_usage_updated_at":       now.Add(-time.Hour).Format(time.RFC3339Nano),
+				"commandcode_usage_monthly_usd":      0.0,
+				"commandcode_usage_purchased_usd":    0.0,
+				"commandcode_usage_free_usd":         0.0,
+				"commandcode_usage_30d_used_percent": 100.0,
+			},
+		},
+	}}
+	client := NewCommandCodeClient(upstream, &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}, nil)
+	usageService := &AccountUsageService{accountRepo: repo, commandCodeClient: client}
+
+	require.NoError(t, usageService.RefreshCommandCodeUsage(context.Background(), 8287))
+
+	updated, err := repo.GetByID(context.Background(), 8287)
+	require.NoError(t, err)
+	require.Equal(t, commandCodeUsageSourceOfficialAPI, updated.Extra["commandcode_usage_source"])
+	require.InDelta(t, 34.8757287989, updated.Extra["commandcode_usage_monthly_usd"], 1e-9)
+	require.InDelta(t, 0.8571428571428571, updated.Extra["commandcode_usage_5h_used_percent"], 1e-9)
+	require.InDelta(t, 0.34285714285714286, updated.Extra["commandcode_usage_7d_used_percent"], 1e-9)
+}
+
+func TestAccountUsageServiceRefreshCommandCodeUsageAllowsBalanceOnlySnapshot(t *testing.T) {
+	upstream := &commandCodeHTTPUpstreamStub{responses: map[string]*http.Response{
+		"/alpha/whoami":          commandCodeJSONResponse(http.StatusOK, `{"org":{"id":"org-cc-balance-only"}}`),
+		"/alpha/billing/credits": commandCodeJSONResponse(http.StatusOK, `{"credits":{"planId":"unknown-plan","monthlyCredits":12,"purchasedCredits":0,"freeCredits":0}}`),
+	}}
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{
+		8288: {
+			ID:       8288,
+			Platform: PlatformCommandCode,
+			Type:     AccountTypeAPIKey,
+			Status:   StatusActive,
+			Credentials: map[string]any{
+				"api_key":  "balance-only-key",
+				"base_url": DefaultCommandCodeBaseURL,
+			},
+		},
+	}}
+	client := NewCommandCodeClient(upstream, &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}, nil)
+	usageService := &AccountUsageService{accountRepo: repo, commandCodeClient: client}
+
+	var refreshErr error
+	require.NotPanics(t, func() {
+		refreshErr = usageService.RefreshCommandCodeUsage(context.Background(), 8288)
+	})
+	require.NoError(t, refreshErr)
+	updated, err := repo.GetByID(context.Background(), 8288)
+	require.NoError(t, err)
+	require.Equal(t, commandCodeUsageSourceOfficialAPI, updated.Extra["commandcode_usage_source"])
+	require.Equal(t, "unknown-plan", updated.Extra["commandcode_usage_plan_id"])
+	require.Nil(t, updated.Extra["commandcode_usage_30d_used_percent"])
+}
+
 func TestParseCommandCodeRateLimitResetTime(t *testing.T) {
 	reset := time.Now().Add(2 * time.Hour).Unix()
 	ts := parseCommandCodeRateLimitResetTime([]byte(fmt.Sprintf(

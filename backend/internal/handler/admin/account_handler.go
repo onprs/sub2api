@@ -1327,6 +1327,17 @@ func (h *AccountHandler) RecoverState(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	if account != nil && account.IsCommandCodeAPIKey() && h.accountUsageService != nil {
+		if err := h.accountUsageService.RefreshCommandCodeUsage(c.Request.Context(), accountID); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		account, err = h.adminService.GetAccount(c.Request.Context(), accountID)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }

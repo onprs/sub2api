@@ -67,6 +67,35 @@ func (s *RateLimitService) handleCommandCodeInsufficientCredits(ctx context.Cont
 	slog.Info("commandcode_insufficient_credits_paused", "account_id", account.ID, "until", until.UTC())
 }
 
+// RefreshCommandCodeUsage 强制刷新指定 Command Code 账号的官方用量快照。
+// 管理端恢复运行时状态后调用此方法，避免旧的官方配额快照继续驱动状态显示。
+func (s *AccountUsageService) RefreshCommandCodeUsage(ctx context.Context, accountID int64) error {
+	if s == nil || s.accountRepo == nil {
+		return errors.New("command code usage service is not configured")
+	}
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("get account for Command Code usage refresh: %w", err)
+	}
+	if account == nil || !account.IsCommandCodeAPIKey() {
+		return nil
+	}
+
+	usage, err := s.getCommandCodeUsage(ctx, account, true)
+	if err != nil {
+		return fmt.Errorf("refresh Command Code usage: %w", err)
+	}
+	if usage != nil && usage.ErrorCode != "" {
+		if usage.Error != "" {
+			return fmt.Errorf("refresh Command Code usage: %s", usage.Error)
+		}
+		return fmt.Errorf("refresh Command Code usage failed: %s", usage.ErrorCode)
+	}
+	// 成功响应可能只包含余额，没有可展示的窗口；getCommandCodeUsage
+	// 会在这种情况下返回 nil，但快照字段已经成功写回数据库。
+	return nil
+}
+
 func (s *AccountUsageService) getCommandCodeUsage(ctx context.Context, account *Account, force ...bool) (*UsageInfo, error) {
 	forceRefresh := len(force) > 0 && force[0]
 	now := time.Now().UTC()
