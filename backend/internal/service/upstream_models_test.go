@@ -351,6 +351,18 @@ func TestBuildUpstreamModelsRequestsForAPIKeyAccounts(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "https://opencode.ai/zen/go/v1/models", openCodeGoReq.URL.String())
 	require.Equal(t, "Bearer opencode-go-key", openCodeGoReq.Header.Get("Authorization"))
+
+	dispatchedOpenCodeGoReq, err := svc.buildUpstreamModelsRequest(ctx, &Account{
+		Platform: PlatformOpenCodeGo,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "opencode-go-key",
+			"base_url": "https://opencode.ai/zen/go/v1",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "https://opencode.ai/zen/go/v1/models", dispatchedOpenCodeGoReq.URL.String())
+	require.Equal(t, "Bearer opencode-go-key", dispatchedOpenCodeGoReq.Header.Get("Authorization"))
 }
 
 func TestBuildOpenAIUpstreamModelsRequestAllowsPublicRelayWithStrictURLPolicy(t *testing.T) {

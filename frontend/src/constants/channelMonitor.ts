@@ -34,6 +34,7 @@ export const DEFAULT_KIMI_ENDPOINT = 'https://api.moonshot.cn'
 export const DEFAULT_ZHIPU_ENDPOINT = 'https://open.bigmodel.cn'
 export const DEFAULT_DEEPSEEK_ENDPOINT = 'https://api.deepseek.com'
 export const DEFAULT_MINIMAX_ENDPOINT = 'https://api.minimaxi.com'
+export const DEFAULT_OPENCODE_GO_ENDPOINT = 'https://opencode.ai/zen/go/v1'
 
 export const CHECK_MODE_PROBE: CheckMode = 'probe'
 export const CHECK_MODE_QUOTA: CheckMode = 'quota'

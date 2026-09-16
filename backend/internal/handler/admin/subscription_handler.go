@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -41,14 +42,18 @@ func NewSubscriptionHandler(subscriptionService *service.SubscriptionService) *S
 // AssignSubscriptionRequest represents assign subscription request
 type AssignSubscriptionRequest struct {
 	UserID             int64  `json:"user_id" binding:"required"`
-	SubscriptionPlanID int64  `json:"subscription_plan_id" binding:"required"`
+	SubscriptionPlanID int64  `json:"subscription_plan_id"`
+	GroupID            int64  `json:"group_id"`
+	ValidityDays       int    `json:"validity_days" binding:"omitempty,max=36500"` // max 100 years
 	Notes              string `json:"notes"`
 }
 
 // BulkAssignSubscriptionRequest represents bulk assign subscription request
 type BulkAssignSubscriptionRequest struct {
-	UserIDs            []int64 `json:"user_ids" binding:"required,min=1"`
-	SubscriptionPlanID int64   `json:"subscription_plan_id" binding:"required"`
+	UserIDs            []int64 `json:"user_ids" binding:"required,min=1,max=100,dive,gt=0"`
+	SubscriptionPlanID int64   `json:"subscription_plan_id"`
+	GroupID            int64   `json:"group_id"`
+	ValidityDays       int     `json:"validity_days" binding:"omitempty,max=36500"` // max 100 years
 	Notes              string  `json:"notes"`
 }
 
@@ -142,12 +147,24 @@ func (h *SubscriptionHandler) Assign(c *gin.Context) {
 	// Get admin user ID from context
 	adminID := getAdminIDFromContext(c)
 
-	subscription, err := h.subscriptionService.AssignSubscriptionPlan(c.Request.Context(), &service.AssignSubscriptionPlanInput{
-		UserID:             req.UserID,
-		SubscriptionPlanID: req.SubscriptionPlanID,
-		AssignedBy:         adminID,
-		Notes:              req.Notes,
-	})
+	var subscription *service.UserSubscription
+	var err error
+	if req.SubscriptionPlanID > 0 {
+		subscription, err = h.subscriptionService.AssignSubscriptionPlan(c.Request.Context(), &service.AssignSubscriptionPlanInput{
+			UserID:             req.UserID,
+			SubscriptionPlanID: req.SubscriptionPlanID,
+			AssignedBy:         adminID,
+			Notes:              req.Notes,
+		})
+	} else {
+		subscription, err = h.subscriptionService.AssignSubscription(c.Request.Context(), &service.AssignSubscriptionInput{
+			UserID:       req.UserID,
+			GroupID:      req.GroupID,
+			ValidityDays: req.ValidityDays,
+			AssignedBy:   adminID,
+			Notes:        req.Notes,
+		})
+	}
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -168,18 +185,47 @@ func (h *SubscriptionHandler) BulkAssign(c *gin.Context) {
 	// Get admin user ID from context
 	adminID := getAdminIDFromContext(c)
 
-	result, err := h.subscriptionService.BulkAssignSubscriptionPlan(c.Request.Context(), &service.BulkAssignSubscriptionPlanInput{
-		UserIDs:            req.UserIDs,
-		SubscriptionPlanID: req.SubscriptionPlanID,
-		AssignedBy:         adminID,
-		Notes:              req.Notes,
-	})
+	var result *service.BulkAssignResult
+	var err error
+	if req.SubscriptionPlanID > 0 {
+		result, err = h.subscriptionService.BulkAssignSubscriptionPlan(c.Request.Context(), &service.BulkAssignSubscriptionPlanInput{
+			UserIDs:            req.UserIDs,
+			SubscriptionPlanID: req.SubscriptionPlanID,
+			AssignedBy:         adminID,
+			Notes:              req.Notes,
+		})
+	} else {
+		result, err = h.subscriptionService.BulkAssignSubscription(c.Request.Context(), &service.BulkAssignSubscriptionInput{
+			UserIDs:      req.UserIDs,
+			GroupID:      req.GroupID,
+			ValidityDays: req.ValidityDays,
+			AssignedBy:   adminID,
+			Notes:        req.Notes,
+		})
+	}
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
 	response.Success(c, dto.BulkAssignResultFromService(result))
+}
+
+// BulkAction applies one operation to selected subscriptions, returning each outcome.
+// POST /api/v1/admin/subscriptions/bulk-action
+func (h *SubscriptionHandler) BulkAction(c *gin.Context) {
+	var req service.BulkSubscriptionActionInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if err := req.Validate(); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	executeAdminIdempotentJSONWithTimeout(c, "admin.subscriptions.bulk-action", req, service.DefaultWriteIdempotencyTTL(), 2*time.Minute, func(ctx context.Context) (any, error) {
+		return h.subscriptionService.BulkSubscriptionAction(ctx, &req)
+	})
 }
 
 // Extend handles adjusting a subscription (extend or shorten)

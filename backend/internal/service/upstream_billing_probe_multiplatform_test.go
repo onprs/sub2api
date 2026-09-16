@@ -178,6 +178,8 @@ func TestUpstreamBillingProbeOfficialAPIBaseURLIsUnsupportedWithoutRequest(t *te
 		{PlatformClinePass, DefaultClinePassBaseURL},
 		{PlatformOpenRouter, DefaultOpenRouterBaseURL},
 		{PlatformCommandCode, DefaultCommandCodeBaseURL},
+		{PlatformOpenCodeGo, "https://opencode.ai/zen/go/v1"},
+		{PlatformOpenCodeGo, "https://opencode.ai/zen/go"},
 	}
 	for i, tc := range cases {
 		account := &Account{
@@ -224,6 +226,8 @@ func TestUpstreamBillingProbeOfficialAPIHostMatchingIsNormalized(t *testing.T) {
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI(DefaultClinePassBaseURL))
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI(DefaultOpenRouterBaseURL))
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI(DefaultCommandCodeBaseURL))
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://opencode.ai/zen/go/v1"))
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://opencode.ai/zen/go"))
 	// 相似但不同的注册域不拦：中转完全可能叫 *-x.ai 之外的任何名字。
 	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://relay.example/v1"))
 	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://notx.ai"))

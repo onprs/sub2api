@@ -128,6 +128,32 @@ export async function updateRouting(id: number, routing: ApiKeyRoutingInput): Pr
   return data
 }
 
+export interface BulkUpdateApiKeysResult {
+  succeededIds: number[]
+  failures: Array<{ id: number; error: unknown }>
+}
+
+/** Reuse per-key validation and permissions, with at most five requests in flight. */
+export async function bulkUpdate(
+  ids: number[],
+  updates: UpdateApiKeyRequest
+): Promise<BulkUpdateApiKeysResult> {
+  const uniqueIds = [...new Set(ids)]
+  const result: BulkUpdateApiKeysResult = { succeededIds: [], failures: [] }
+  for (let offset = 0; offset < uniqueIds.length; offset += 5) {
+    const batch = uniqueIds.slice(offset, offset + 5)
+    const responses = await Promise.allSettled(batch.map((id) => update(id, updates)))
+    responses.forEach((response, index) => {
+      if (response.status === 'fulfilled') {
+        result.succeededIds.push(batch[index])
+      } else {
+        result.failures.push({ id: batch[index], error: response.reason })
+      }
+    })
+  }
+  return result
+}
+
 /**
  * Delete API key
  * @param id - API key ID
@@ -263,6 +289,7 @@ export const keysAPI = {
   create,
   update,
   updateRouting,
+  bulkUpdate,
   delete: deleteKey,
   toggleStatus,
   downloadCliImportScript

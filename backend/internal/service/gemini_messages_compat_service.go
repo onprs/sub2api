@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -1536,12 +1537,13 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			contentType = "application/json"
 		}
 		c.Data(resp.StatusCode, contentType, responseBody)
+		responseBodyOwned = false
 		usage = &ClaudeUsage{}
 	} else if requestPipeline == nil {
 		return nil, errors.New("gemini upstream response missing request pipeline")
 	} else if stream {
 		responseBodyOwned = false
-		streamRes, err := s.handleNativeStreamingResponse(c, resp, requestPipeline, startTime, hasVendorEnvelope)
+		streamRes, err := s.handleNativeStreamingResponseWithAccount(c, resp, requestPipeline, startTime, hasVendorEnvelope, isOAuth, account, requestID)
 		if err != nil {
 			return nil, err
 		}
@@ -1551,7 +1553,14 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	} else {
 		if useUpstreamStream {
 			responseBodyOwned = false
-			collected, usageObj, rawStreamBody, err := s.collectGeminiSSEWithRaw(resp.Body, isOAuth)
+			var best geminiResponseSignal
+			sawDataEvent := false
+			collected, usageObj, rawStreamBody, err := s.collectGeminiSSEWithRawObserved(resp.Body, isOAuth, func(rawBytes []byte) {
+				sawDataEvent = true
+				if sig, ok := detectGeminiResponseSignal(rawBytes); ok && sig.Kind > best.Kind {
+					best = sig
+				}
+			})
 			if err != nil {
 				return nil, s.writeGoogleError(c, http.StatusBadGateway, "Failed to read upstream stream")
 			}
@@ -1559,6 +1568,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			if marshalErr != nil {
 				return nil, s.writeGoogleError(c, http.StatusBadGateway, "Failed to aggregate upstream stream")
 			}
+			s.finalizeGeminiSSESignal(c, account, false, requestID, best, sawDataEvent, geminiSSEFallbackFromRaw(rawStreamBody, false))
 			upstreamResponseModelObserverFromContext(c).ObserveGemini(b)
 			observeGeminiImageOutputs(c, b)
 			usage, err = s.renderNativeGoogleResponse(c, resp, requestPipeline, b, usageObj, startTime, rawStreamBody)
@@ -1566,7 +1576,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				return nil, err
 			}
 		} else {
-			usageResp, err := s.handleNativeNonStreamingResponse(c, resp, requestPipeline, startTime, isOAuth)
+			usageResp, err := s.handleNativeNonStreamingResponseWithAccount(c, resp, requestPipeline, startTime, isOAuth, account, requestID, true)
 			if err != nil {
 				return nil, err
 			}
@@ -2283,6 +2293,10 @@ func unwrapIfNeeded(isOAuth bool, raw []byte) []byte {
 }
 
 func (s *GeminiMessagesCompatService) collectGeminiSSEWithRaw(body io.ReadCloser, isOAuth bool) (map[string]any, *ClaudeUsage, []byte, error) {
+	return s.collectGeminiSSEWithRawObserved(body, isOAuth, nil)
+}
+
+func (s *GeminiMessagesCompatService) collectGeminiSSEWithRawObserved(body io.ReadCloser, isOAuth bool, observe func(rawBytes []byte)) (map[string]any, *ClaudeUsage, []byte, error) {
 	if body == nil {
 		return nil, nil, nil, errors.New("response body is nil for Gemini SSE")
 	}
@@ -2326,6 +2340,9 @@ func (s *GeminiMessagesCompatService) collectGeminiSSEWithRaw(body io.ReadCloser
 				return nil, nil, append([]byte(nil), rawStream.Bytes()...), err
 			}
 		}
+		if observe != nil {
+			observe(payload)
+		}
 		var parsed map[string]any
 		if err := json.Unmarshal(payload, &parsed); err != nil {
 			return nil, nil, append([]byte(nil), rawStream.Bytes()...), err
@@ -2355,6 +2372,93 @@ func (r *geminiSSERecordingReadCloser) Close() error {
 		return nil
 	}
 	return r.source.Close()
+}
+
+//nolint:unused // 兼容 unit 构建中的无 raw 聚合测试入口。
+func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, error) {
+	collected, usage, _, err := collectGeminiSSEObserved(body, isOAuth, nil)
+	return collected, usage, err
+}
+
+// geminiSSECollectStats 记录一次 SSE 聚合读到的 data 事件数，以及非 data 行的兜底内容。
+//
+//nolint:unused // 统计信息由 unit 构建中的聚合行为测试直接校验。
+type geminiSSECollectStats struct {
+	dataEvents int
+	fallback   *geminiSSEFallbackBody
+}
+
+// collectGeminiSSEObserved 在聚合的同时把每个解包后的事件原文交给 observe（可为 nil）。
+//
+//nolint:unused // 兼容 unit 构建中的逐事件聚合测试。
+func collectGeminiSSEObserved(body io.Reader, isOAuth bool, observe func(rawBytes []byte)) (map[string]any, *ClaudeUsage, geminiSSECollectStats, error) {
+	reader := bufio.NewReader(body)
+	var last map[string]any
+	var lastWithParts map[string]any
+	var collectedTextParts []string
+	usage := &ClaudeUsage{}
+	stats := geminiSSECollectStats{fallback: &geminiSSEFallbackBody{}}
+
+	for {
+		line, err := reader.ReadString('\n')
+		if len(line) > 0 {
+			trimmed := strings.TrimRight(line, "\r\n")
+			if !strings.HasPrefix(trimmed, "data:") {
+				if stats.dataEvents == 0 {
+					stats.fallback.AddLine(trimmed)
+				}
+			} else {
+				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
+				switch payload {
+				case "", "[DONE]":
+					if payload == "[DONE]" {
+						return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, stats, nil
+					}
+				default:
+					var parsed map[string]any
+					var rawBytes []byte
+					if isOAuth {
+						innerBytes, unwrapErr := unwrapGeminiResponse([]byte(payload))
+						if unwrapErr == nil {
+							rawBytes = innerBytes
+							_ = json.Unmarshal(innerBytes, &parsed)
+						}
+					} else {
+						rawBytes = []byte(payload)
+						_ = json.Unmarshal(rawBytes, &parsed)
+					}
+					if len(rawBytes) > 0 {
+						stats.dataEvents++
+						if observe != nil {
+							observe(rawBytes)
+						}
+					}
+					if parsed != nil {
+						last = parsed
+						if u := extractGeminiUsage(rawBytes); u != nil {
+							usage = u
+						}
+						if parts := extractGeminiParts(parsed); len(parts) > 0 {
+							lastWithParts = parsed
+							for _, part := range parts {
+								if text, ok := part["text"].(string); ok && text != "" {
+									collectedTextParts = append(collectedTextParts, text)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, nil, stats, err
+		}
+	}
+	return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, stats, nil
 }
 
 func pickGeminiCollectResult(last map[string]any, lastWithParts map[string]any) map[string]any {
@@ -2537,6 +2641,19 @@ func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(
 	startTime time.Time,
 	isOAuth bool,
 ) (*ClaudeUsage, error) {
+	return s.handleNativeNonStreamingResponseWithAccount(c, resp, pipeline, startTime, isOAuth, nil, resp.Header.Get("x-request-id"), false)
+}
+
+func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponseWithAccount(
+	c *gin.Context,
+	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
+	startTime time.Time,
+	isOAuth bool,
+	account *Account,
+	upstreamRequestID string,
+	allowRawEmpty bool,
+) (*ClaudeUsage, error) {
 	if s.cfg != nil && s.cfg.Gateway.GeminiDebugResponseHeaders {
 		logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] ========== Response Headers ==========")
 		for key, values := range resp.Header {
@@ -2564,6 +2681,24 @@ func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(
 	}
 	observer.ObserveGemini(googleBody)
 	observeGeminiImageOutputs(c, googleBody)
+	if sig, ok := detectGeminiResponseSignalInBody(googleBody); ok {
+		s.markGeminiResponseSignal(c, account, sig, false, upstreamRequestID)
+	} else if isGeminiEmptyResponseBody(googleBody) {
+		s.markGeminiEmptyResponse(c, account, false, upstreamRequestID)
+	}
+	if allowRawEmpty && isGeminiEmptyResponseBody(googleBody) {
+		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+		contentType := resp.Header.Get("Content-Type")
+		if contentType == "" {
+			contentType = "application/json"
+		}
+		c.Data(resp.StatusCode, contentType, rawUpstreamBody)
+		usage := extractGeminiUsage(googleBody)
+		if usage == nil {
+			usage = &ClaudeUsage{}
+		}
+		return usage, nil
+	}
 	return s.renderNativeGoogleResponse(c, resp, pipeline, googleBody, nil, startTime, rawUpstreamBody)
 }
 
@@ -2614,12 +2749,75 @@ func (s *GeminiMessagesCompatService) renderNativeGoogleResponse(
 	return usage, nil
 }
 
+func (s *GeminiMessagesCompatService) handleNativeNonSSEStreamResponse(
+	c *gin.Context,
+	resp *http.Response,
+	startTime time.Time,
+	isOAuth bool,
+	account *Account,
+	upstreamRequestID string,
+) (*geminiNativeStreamResult, error) {
+	defer func() { _ = resp.Body.Close() }()
+	rawBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
+	if err != nil {
+		return nil, err
+	}
+	googleBody := rawBody
+	if isOAuth {
+		googleBody = unwrapIfNeeded(true, rawBody)
+	}
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
+	observer.ObserveGemini(googleBody)
+	observeGeminiImageOutputs(c, googleBody)
+	if sig, ok := detectGeminiResponseSignalInBody(googleBody); ok {
+		s.markGeminiResponseSignal(c, account, sig, true, upstreamRequestID)
+	} else if isGeminiEmptyResponseBody(googleBody) {
+		s.markGeminiEmptyResponse(c, account, true, upstreamRequestID)
+	}
+
+	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	c.Data(resp.StatusCode, contentType, rawBody)
+
+	result := &geminiNativeStreamResult{usage: extractGeminiUsage(googleBody)}
+	if result.usage == nil {
+		result.usage = &ClaudeUsage{}
+	}
+	if len(bytes.TrimSpace(googleBody)) > 0 && !isGeminiEmptyResponseBody(googleBody) {
+		ms := int(time.Since(startTime).Milliseconds())
+		result.firstTokenMs = &ms
+	}
+	return result, nil
+}
+
 func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 	c *gin.Context,
 	resp *http.Response,
 	pipeline *protocolconv.Pipeline,
 	startTime time.Time,
 	hasVendorEnvelope bool,
+) (*geminiNativeStreamResult, error) {
+	return s.handleNativeStreamingResponseWithAccount(c, resp, pipeline, startTime, hasVendorEnvelope, false, nil, resp.Header.Get("x-request-id"))
+}
+
+func (s *GeminiMessagesCompatService) handleNativeStreamingResponseWithAccount(
+	c *gin.Context,
+	resp *http.Response,
+	pipeline *protocolconv.Pipeline,
+	startTime time.Time,
+	hasVendorEnvelope bool,
+	isOAuth bool,
+	account *Account,
+	upstreamRequestID string,
 ) (*geminiNativeStreamResult, error) {
 	if s.cfg != nil && s.cfg.Gateway.GeminiDebugResponseHeaders {
 		logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] ========== Streaming Response Headers ==========")
@@ -2631,11 +2829,20 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 		logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] ====================================================")
 	}
 
+	if !isEventStreamResponse(resp.Header) {
+		return s.handleNativeNonSSEStreamResponse(c, resp, startTime, isOAuth, account, upstreamRequestID)
+	}
+
 	maxRecordSize := protocoltransport.DefaultMaxSSERecordBytes
 	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
 		maxRecordSize = s.cfg.Gateway.MaxLineSize
 	}
-	var events protocoltransport.EventStream = protocoltransport.NewSSEParser(resp.Body, maxRecordSize)
+	capture := &geminiSSEBodyCapture{limit: geminiSSEFallbackBodyLimit}
+	recordedBody := &geminiSSERecordingReadCloser{
+		Reader: io.TeeReader(resp.Body, capture),
+		source: resp.Body,
+	}
+	var events protocoltransport.EventStream = protocoltransport.NewSSEParser(recordedBody, maxRecordSize)
 	metadata := map[string]any(nil)
 	if hasVendorEnvelope {
 		transformed, err := protocoltransport.NewTransformEventStream(events, unwrapGeminiResponse)
@@ -2673,6 +2880,8 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 	}
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
+	var best geminiResponseSignal
+	sawDataEvent := false
 	headersWritten := false
 	clientDisconnected := false
 	result := func() *geminiNativeStreamResult {
@@ -2703,6 +2912,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 				clientDisconnected = true
 				logger.LegacyPrintf("service.gemini_messages_compat", "Client disconnected during native Gemini streaming, continuing to drain upstream for billing")
 				return nil
+
 			}
 		}
 		c.Writer.Flush()
@@ -2726,6 +2936,10 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 		if nextErr != nil {
 			return result(), failBeforeOutput(fmt.Errorf("read native Google stream: %w", nextErr))
 		}
+		sawDataEvent = true
+		if sig, ok := detectGeminiResponseSignal(record.Data); ok && sig.Kind > best.Kind {
+			best = sig
+		}
 		observer.ObserveGemini(record.Data)
 		observeGeminiImageOutputs(c, record.Data)
 		if firstTokenMs == nil {
@@ -2743,19 +2957,33 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(
 			return result(), fmt.Errorf("render native Google stream event: %w", err)
 		}
 	}
-	payloads, _, err := session.Finalize()
-	if err != nil {
-		return result(), failBeforeOutput(fmt.Errorf("finalize native Google stream: %w", err))
-	}
-	if err := writePayloads(payloads); err != nil {
-		return result(), fmt.Errorf("render finalized native Google stream: %w", err)
+	if sawDataEvent {
+		payloads, _, err := session.Finalize()
+		if err != nil {
+			return result(), failBeforeOutput(fmt.Errorf("finalize native Google stream: %w", err))
+		}
+		if err := writePayloads(payloads); err != nil {
+			return result(), fmt.Errorf("render finalized native Google stream: %w", err)
+		}
 	}
 	if !clientDisconnected && !headersWritten {
 		if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
 			return result(), err
 		}
+		headersWritten = true
 		c.Writer.Flush()
 	}
+	if !clientDisconnected && !sawDataEvent && !capture.Truncated() {
+		if rawBody := capture.Bytes(); len(rawBody) > 0 {
+			if _, err := c.Writer.Write(rawBody); err != nil {
+				clientDisconnected = true
+			} else {
+				c.Writer.Flush()
+			}
+		}
+	}
+	fallback := geminiSSEFallbackFromRaw(capture.Bytes(), capture.Truncated())
+	s.finalizeGeminiSSESignal(c, account, true, upstreamRequestID, best, sawDataEvent, fallback)
 	return result(), nil
 }
 

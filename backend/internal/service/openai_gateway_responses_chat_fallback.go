@@ -20,7 +20,16 @@ import (
 )
 
 // forwardResponsesViaRawChatCompletions serves /v1/responses clients through an
-// upstream that only supports /v1/chat/completions.
+// upstream that only supports /v1/chat/completions, using the legacy rendering path.
+func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+) (*OpenAIForwardResult, error) {
+	return s.forwardResponsesViaRawChatCompletionsWithOutput(ctx, c, account, body, nil)
+}
+
 func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletionsWithOutput(
 	ctx context.Context,
 	c *gin.Context,
