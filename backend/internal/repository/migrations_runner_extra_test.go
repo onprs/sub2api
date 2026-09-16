@@ -107,6 +107,7 @@ func TestMigrationChecksumCompatibilityRules_CoverEditedUpgradeCompatibilityMigr
 		"146_plan_scoped_user_subscriptions.sql",
 		"157_user_platform_quotas_add_grok.sql",
 		"237_add_minimax_platform.sql",
+		"238_opencode_go_platform.sql",
 	} {
 		rule, ok := migrationChecksumCompatibilityRules[name]
 		require.Truef(t, ok, "missing compatibility rule for %s", name)

@@ -1,11 +1,6 @@
--- 将 OpenCode 作为一等平台加入账号（Zen / GO 模式）。
---
--- 定制版本同时支持 ClinePass、OpenRouter、Command Code 和国产供应商，
--- quota 与监控约束必须与完整应用平台集合保持一致。组合路由只允许代码中
--- 定义的 concrete 请求平台。
---
--- 在 237_add_minimax_platform.sql 后执行。DROP ... IF EXISTS 保证幂等，
--- 同时保留 MiniMax 及更早加入的本地平台。
+-- 修复已经记录旧版 238_opencode_go_platform.sql 的数据库平台约束。
+-- 旧版迁移可能已经执行，但没有恢复定制平台白名单；本迁移同时适用于
+-- 官方数据库和定制数据库，并且可以安全重复执行。
 
 ALTER TABLE user_platform_quotas
     DROP CONSTRAINT IF EXISTS user_platform_quotas_platform_check;

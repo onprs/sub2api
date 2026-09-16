@@ -89,8 +89,10 @@ var migrationChecksumCompatibilityRules = map[string]migrationChecksumCompatibil
 	"146_plan_scoped_user_subscriptions.sql":                  newMigrationChecksumCompatibilityRule("b18a4849d0d2de207b85109c21ce915a452fe23cb4f6379c57b36fa2a42fa190", "97647c6f0273cfcb026dccd1dfbb3b4847b633f1e8f167ad4060fab4e179ca81", "0fe1a6ddd92f10c6cb6a399cf0b8a0d0cc92b45f0c32dd834a67db9ad609ecf7"),
 	"157_user_platform_quotas_add_grok.sql":                   newMigrationChecksumCompatibilityRule("237b7df1a8bbed36dd082319599ba5eaadd22f29f1324e3a387873b60d464fa0", "5cace8fa32c6174a72721cd9b01f28f4545de1fd7bcd9ca196a4225056ec4fb8"),
 	"237_add_minimax_platform.sql":                            newMigrationChecksumCompatibilityRule("96e8d454bfa5d675d2ff0ff1a4fd3d8226e53445580801d40c3ef2ae6b5f9e85", "f4c73d2dbce114ca7ade1aac51998c3465490f4f3c9b3e868e53590f3fa8601b"),
-	"159_batch_image_foundation.sql":                          newMigrationChecksumCompatibilityRule("d902b70982025ec519749faf058aab7631e82c3f48167b9a4ae4db718eb72cce", "82da85b5d98e67a0507647b873a40373e84538e4adafdeed6767c0ac8b6570b2"),
-	"161_batch_image_pricing_snapshot.sql":                    newMigrationChecksumCompatibilityRule("4012af3e43636cb6af22e0176d59d1fcc70615c0f310194329461ae462c4fbd6", "96d915c9b7a6941ae99039e0ff3f1a61481eb9bddd933d11c6fadb2274554e87"),
+	// 238 初版会在定制数据库上缩窄平台约束；新文件配合 239 迁移恢复完整集合。
+	"238_opencode_go_platform.sql":         newMigrationChecksumCompatibilityRule("1a4f304ca9558c4b55939bbd7a3cb86175763f277def2431ab9950db05ca61ce", "6f987e251519bd3759e60da44620a5d777494cceb333b6ce394aa0ea536ef5a2"),
+	"159_batch_image_foundation.sql":       newMigrationChecksumCompatibilityRule("d902b70982025ec519749faf058aab7631e82c3f48167b9a4ae4db718eb72cce", "82da85b5d98e67a0507647b873a40373e84538e4adafdeed6767c0ac8b6570b2"),
+	"161_batch_image_pricing_snapshot.sql": newMigrationChecksumCompatibilityRule("4012af3e43636cb6af22e0176d59d1fcc70615c0f310194329461ae462c4fbd6", "96d915c9b7a6941ae99039e0ff3f1a61481eb9bddd933d11c6fadb2274554e87"),
 	// 195 originally seeded mode=v2; flipped to v1 (safe default / opt-in v2). Existing DBs
 	// that already applied the v2 seed keep their row and the historical checksum.
 	"195_channel_monitor_mode.sql": newMigrationChecksumCompatibilityRule("13f3792f3e3e53ee96e26415c884cf8062c77172824b54fcc9a8c0c2b1f185ec", "4c74fe33ef2274cc72e1bb49671e651274532c034b29f5b2982c2a4c88d101a6"),

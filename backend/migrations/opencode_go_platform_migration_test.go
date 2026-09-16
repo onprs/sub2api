@@ -7,23 +7,56 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var openCodeQuotaPlatforms = []string{
+	"anthropic", "openai", "opencode_go", "clinepass", "openrouter", "commandcode",
+	"gemini", "antigravity", "grok", "kimi", "zhipu", "deepseek", "minimax",
+}
+
+var openCodeCompositePlatforms = []string{
+	"anthropic", "openai", "gemini", "antigravity", "grok", "kimi", "zhipu", "deepseek", "minimax", "opencode_go",
+}
+
+var openCodeMonitorProviders = []string{
+	"openai", "anthropic", "gemini", "grok", "opencode_go", "clinepass", "openrouter", "commandcode",
+	"antigravity", "antigravity_claude", "antigravity_gemini", "kimi", "zhipu", "deepseek", "minimax",
+}
+
+func migrationCheckList(t *testing.T, sql, marker string) string {
+	t.Helper()
+	start := strings.Index(sql, marker)
+	require.GreaterOrEqual(t, start, 0, "missing check marker %s", marker)
+	rest := sql[start:]
+	end := strings.Index(rest, "))")
+	require.Greater(t, end, 0, "unterminated check marker %s", marker)
+	return rest[:end]
+}
+
+func assertOpenCodePlatformContracts(t *testing.T, content []byte) {
+	t.Helper()
+	sql := strings.Join(strings.Fields(string(content)), " ")
+	quota := migrationCheckList(t, sql, "CHECK (platform IN (")
+	target := migrationCheckList(t, sql, "CHECK (target_platform IN (")
+	provider := migrationCheckList(t, sql, "CHECK (provider IN (")
+
+	for _, platform := range openCodeQuotaPlatforms {
+		require.Contains(t, quota, "'"+platform+"'")
+	}
+	for _, platform := range openCodeCompositePlatforms {
+		require.Contains(t, target, "'"+platform+"'")
+	}
+	for _, providerName := range openCodeMonitorProviders {
+		require.Contains(t, provider, "'"+providerName+"'")
+	}
+}
+
 func TestOpenCodeGoPlatformMigration(t *testing.T) {
 	content, err := FS.ReadFile("238_opencode_go_platform.sql")
 	require.NoError(t, err)
+	assertOpenCodePlatformContracts(t, content)
+}
 
-	sql := strings.Join(strings.Fields(string(content)), " ")
-	require.Contains(t, sql, "user_platform_quotas_platform_check")
-	require.Contains(t, sql, "composite_model_routes_target_platform_check")
-	require.Contains(t, sql, "channel_monitors_provider_check")
-	require.Contains(t, sql, "channel_monitor_request_templates_provider_check")
-	require.Contains(t, sql, "'opencode_go'")
-	require.Contains(t, sql, "'minimax'")
-	require.Contains(t, sql, "position('opencode_go' IN monitor_constraint_def) = 0")
-	require.Contains(t, sql, "position('opencode_go' IN template_constraint_def) = 0")
-	require.Contains(t, sql,
-		"CHECK (platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go'))")
-	require.Contains(t, sql,
-		"CHECK (target_platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go'))")
-	require.Contains(t, sql,
-		"CHECK (provider IN ('openai', 'anthropic', 'gemini', 'grok', 'antigravity', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go'))")
+func TestOpenCodeGoPlatformConstraintRepairMigration(t *testing.T) {
+	content, err := FS.ReadFile("239_restore_custom_platform_constraints.sql")
+	require.NoError(t, err)
+	assertOpenCodePlatformContracts(t, content)
 }
