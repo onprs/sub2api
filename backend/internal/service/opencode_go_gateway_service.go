@@ -66,6 +66,7 @@ func (s *OpenCodeGoGatewayService) ForwardChatCompletions(
 	account *Account,
 	body []byte,
 ) (*ForwardResult, error) {
+	rememberOpenCodeInboundBody(c, body)
 	model, ok := s.validateJSONModel(c, body, openCodeGoErrorFormatChat)
 	if !ok {
 		return nil, fmt.Errorf("invalid opencode go chat completions request")
@@ -152,6 +153,7 @@ func (s *OpenCodeGoGatewayService) forwardStandardRequest(
 	source protocolconv.Protocol,
 	responseMode openCodeGoResponseMode,
 ) (*ForwardResult, error) {
+	rememberOpenCodeInboundBody(c, body)
 	format := responseMode.errorFormat()
 	if len(body) == 0 {
 		writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", "Request body is empty")
@@ -233,6 +235,7 @@ func (s *OpenCodeGoGatewayService) ForwardMessages(
 	account *Account,
 	body []byte,
 ) (*ForwardResult, error) {
+	rememberOpenCodeInboundBody(c, body)
 	model, ok := s.validateJSONModel(c, body, openCodeGoErrorFormatAnthropic)
 	if !ok {
 		return nil, fmt.Errorf("invalid opencode go messages request")
@@ -484,6 +487,7 @@ func (s *OpenCodeGoGatewayService) sendUpstream(
 			}
 		}
 	}
+	applyOpenCodeSessionHeader(c, account, targetURL, upstreamReq.Header, body)
 
 	proxyURL := ""
 	if account.Proxy != nil {

@@ -1115,9 +1115,10 @@ func TestOpenCodeGoGatewayServiceForwardChatCompletionsDirectUsesOpenCodeGoEndpo
 			},
 		},
 	}
-	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", `{"model":"opencode-go/kimi","messages":[{"role":"user","content":"hi"}],"stream":false}`)
+	requestBody := `{"model":"opencode-go/kimi","prompt_cache_key":"direct-session","messages":[{"role":"user","content":"hi"}],"stream":false}`
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", requestBody)
 
-	result, err := svc.ForwardChatCompletions(context.Background(), rec.Context, account, []byte(`{"model":"opencode-go/kimi","messages":[{"role":"user","content":"hi"}],"stream":false}`))
+	result, err := svc.ForwardChatCompletions(context.Background(), rec.Context, account, []byte(requestBody))
 	if err != nil {
 		t.Fatalf("ForwardChatCompletions error: %v", err)
 	}
@@ -1129,6 +1130,9 @@ func TestOpenCodeGoGatewayServiceForwardChatCompletionsDirectUsesOpenCodeGoEndpo
 	}
 	if got := upstream.req.Header.Get("Authorization"); got != "Bearer ocg-secret" {
 		t.Fatalf("unexpected authorization header: %s", got)
+	}
+	if got := upstream.req.Header.Get(openCodeSessionHeader); got != "direct-session" {
+		t.Fatalf("unexpected OpenCode session header: %q", got)
 	}
 	if !strings.Contains(upstream.body, `"model":"kimi-k2.7-code"`) {
 		t.Fatalf("expected upstream model rewrite, body=%s", upstream.body)
