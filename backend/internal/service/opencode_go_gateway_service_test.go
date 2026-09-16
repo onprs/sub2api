@@ -1145,6 +1145,49 @@ func TestOpenCodeGoGatewayServiceForwardChatCompletionsDirectUsesOpenCodeGoEndpo
 	}
 }
 
+func TestOpenCodeGoGatewayServiceSanitizesConsoleGoChatFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &openCodeGoHTTPUpstreamStub{}
+	svc := &OpenCodeGoGatewayService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{},
+	}
+	account := &Account{
+		ID:          43,
+		Platform:    PlatformOpenCodeGo,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "ocg-secret",
+			"base_url": "https://opencode.ai/zen/go/v1",
+			"model_protocols": map[string]any{
+				"glm-5.3": OpenCodeGoProtocolChatCompletions,
+			},
+		},
+	}
+	body := `{"model":"glm-5.3","messages":[{"role":"user","content":"hi"}],"thinking":{"type":"enabled","budget_tokens":2048,"clear_thinking":false},"tool_stream":true,"stream":false}`
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", body)
+
+	if _, err := svc.ForwardChatCompletions(context.Background(), rec.Context, account, []byte(body)); err != nil {
+		t.Fatalf("ForwardChatCompletions error: %v", err)
+	}
+	if got := upstream.req.URL.Path; got != "/zen/go/v1/chat/completions" {
+		t.Fatalf("unexpected upstream path: %s", got)
+	}
+	if got := gjson.Get(upstream.body, "thinking.type").String(); got != "enabled" {
+		t.Fatalf("thinking.type changed unexpectedly: %q body=%s", got, upstream.body)
+	}
+	if got := gjson.Get(upstream.body, "thinking.budget_tokens").Int(); got != 2048 {
+		t.Fatalf("thinking.budget_tokens changed unexpectedly: %d body=%s", got, upstream.body)
+	}
+	if gjson.Get(upstream.body, "thinking.clear_thinking").Exists() {
+		t.Fatalf("OpenCode Go Chat request must remove thinking.clear_thinking, body=%s", upstream.body)
+	}
+	if gjson.Get(upstream.body, "tool_stream").Exists() {
+		t.Fatalf("OpenCode Go Chat request must remove tool_stream, body=%s", upstream.body)
+	}
+}
+
 func newOpenCodeGoResponsesTestAccount() *Account {
 	return &Account{
 		ID: 42, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Concurrency: 1,

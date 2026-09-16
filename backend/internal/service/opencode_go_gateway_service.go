@@ -457,6 +457,7 @@ func (s *OpenCodeGoGatewayService) sendUpstream(
 		return nil, fmt.Errorf("opencode go account %d missing api_key", account.ID)
 	}
 
+	body = sanitizeOpenCodeGoRequestBody(body)
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	releaseUpstreamCtx()
@@ -1355,6 +1356,16 @@ func prepareOpenCodeGoMessagesCacheBody(body []byte) []byte {
 	body = forceEphemeralCacheControlTTL(body, cacheTTLTarget1h)
 	body = enforceCacheControlLimit(body)
 	return forceEphemeralCacheControlTTL(body, cacheTTLTarget1h)
+}
+
+func sanitizeOpenCodeGoRequestBody(body []byte) []byte {
+	if next, err := sjson.DeleteBytes(body, "thinking.clear_thinking"); err == nil {
+		body = next
+	}
+	if next, err := sjson.DeleteBytes(body, "tool_stream"); err == nil {
+		body = next
+	}
+	return body
 }
 
 func ensureOpenCodeGoSystemCacheAnchor(body []byte) []byte {
