@@ -204,6 +204,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 		// Model pricing feature (default disabled; opt-in)
 		SettingKeyModelPricingEnabled: "false",
+		// Subscription feature (default enabled; opt-out)
+		SettingKeySubscriptionEnabled: "true",
 
 		// Model plaza feature (default disabled; opt-in, public unless require_auth)
 		SettingKeyModelPlazaEnabled:       "false",
@@ -826,6 +828,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// Model pricing feature (default: disabled; strict true; independent from available channels)
 	result.ModelPricingEnabled = settings[SettingKeyModelPricingEnabled] == "true"
+	// Subscription feature (default: enabled; only an explicit false disables)
+	result.SubscriptionEnabled = !isFalseSettingValue(settings[SettingKeySubscriptionEnabled])
 
 	// Model plaza feature (default: disabled; strict true)
 	result.ModelPlazaEnabled = settings[SettingKeyModelPlazaEnabled] == "true"

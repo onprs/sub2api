@@ -39,6 +39,9 @@ vi.mock('@/api/admin', () => ({
     usage: {
       searchUsers
     },
+    users: {
+      list: async () => ({ items: await searchUsers() })
+    },
     payment: {
       getPlans
     }

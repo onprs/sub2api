@@ -28,6 +28,7 @@ var monitorProviders = map[string]struct{}{
 	MonitorProviderKimi:              {},
 	MonitorProviderZhipu:             {},
 	MonitorProviderDeepseek:          {},
+	MonitorProviderMiniMax:           {},
 }
 
 // probeCapableProviders 支持探活（probe / quota_probe）的 provider。
@@ -48,6 +49,7 @@ var probeCapableProviders = map[string]struct{}{
 	MonitorProviderKimi:              {},
 	MonitorProviderZhipu:             {},
 	MonitorProviderDeepseek:          {},
+	MonitorProviderMiniMax:           {},
 }
 
 // validateProvider 校验 provider 字符串。
@@ -138,10 +140,9 @@ func validateJitter(jitterSec, intervalSec int) error {
 
 // validateEndpoint 校验 endpoint：
 //   - scheme 强制 https（拒绝 http，避免明文凭证 + 部分 SSRF 利用面）
-//   - 默认必须为 origin（无 path/query/fragment），防止用户填 https://api.openai.com/v1
-//     导致 joinURL 拼出 /v1/v1/chat/completions
-//   - OpenCode Go 和 ClinePass 的官方 API root 自带 base path，
-//     所以只对这两个 provider 允许非空 path，但仍拒绝 query/fragment。
+//   - endpoint 未指定 provider 时允许上游路径前缀；已知不支持路径前缀的 provider 仍保持 origin 约束。
+//   - OpenCode Go、ClinePass、OpenRouter 和 Command Code 的官方 API root 自带 base path，
+//     所以这些 provider 允许非空 path，但仍拒绝 query/fragment。
 //   - hostname 不能是 localhost/metadata 等已知元数据 hostname
 //   - 解析所有 IP，任一落在 loopback/RFC1918/link-local/ULA 段即拒绝（防 SSRF）
 //
@@ -161,9 +162,6 @@ func validateEndpointForProvider(provider, ep string) error {
 	if u.Host == "" {
 		return ErrChannelMonitorInvalidEndpoint
 	}
-	if provider != MonitorProviderOpenCodeGo && provider != MonitorProviderClinePass && provider != MonitorProviderOpenRouter && provider != MonitorProviderCommandCode && u.Path != "" && u.Path != "/" {
-		return ErrChannelMonitorEndpointPath
-	}
 	if u.RawQuery != "" || u.Fragment != "" {
 		return ErrChannelMonitorEndpointPath
 	}
@@ -178,6 +176,13 @@ func validateEndpointForProvider(provider, ep string) error {
 	if blocked {
 		return ErrChannelMonitorEndpointPrivate
 	}
+
+	pathAllowed := provider == "" || provider == MonitorProviderOpenCodeGo ||
+		provider == MonitorProviderClinePass || provider == MonitorProviderOpenRouter ||
+		provider == MonitorProviderCommandCode
+	if !pathAllowed && u.Path != "" && u.Path != "/" {
+		return ErrChannelMonitorEndpointPath
+	}
 	return nil
 }
 
@@ -186,7 +191,7 @@ func validateEndpoint(ep string) error {
 	return validateEndpointForProvider("", ep)
 }
 
-// normalizeEndpoint 去除前后空白与末尾 `/`，保证存储统一。
+// normalizeEndpoint 去除前后空白与末尾 `/`，保留允许的上游路径前缀。
 // validateEndpointForProvider 已确保格式合法；这里只做最终归一化。
 func normalizeEndpoint(ep string) string {
 	ep = strings.TrimSpace(ep)
@@ -244,6 +249,8 @@ func normalizeMonitorPrimaryModel(provider, checkMode, model string) string {
 //   - gemini/grok/antigravity：本地统计/值通道降级，不会永久 error，放行
 func monitorAccountQuotaCapability(account *Account) error {
 	switch account.Platform {
+	case PlatformOpenCodeGo:
+		return nil
 	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax:
 		if account.IsCodingPlan() {
 			if p := account.GetCodingPlanProvider(); p != PlatformKimi && p != PlatformZhipu && p != PlatformMiniMax {

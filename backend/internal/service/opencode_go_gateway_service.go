@@ -66,6 +66,7 @@ func (s *OpenCodeGoGatewayService) ForwardChatCompletions(
 	account *Account,
 	body []byte,
 ) (*ForwardResult, error) {
+	rememberOpenCodeInboundBody(c, body)
 	model, ok := s.validateJSONModel(c, body, openCodeGoErrorFormatChat)
 	if !ok {
 		return nil, fmt.Errorf("invalid opencode go chat completions request")
@@ -152,6 +153,7 @@ func (s *OpenCodeGoGatewayService) forwardStandardRequest(
 	source protocolconv.Protocol,
 	responseMode openCodeGoResponseMode,
 ) (*ForwardResult, error) {
+	rememberOpenCodeInboundBody(c, body)
 	format := responseMode.errorFormat()
 	if len(body) == 0 {
 		writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", "Request body is empty")
@@ -233,6 +235,7 @@ func (s *OpenCodeGoGatewayService) ForwardMessages(
 	account *Account,
 	body []byte,
 ) (*ForwardResult, error) {
+	rememberOpenCodeInboundBody(c, body)
 	model, ok := s.validateJSONModel(c, body, openCodeGoErrorFormatAnthropic)
 	if !ok {
 		return nil, fmt.Errorf("invalid opencode go messages request")
@@ -454,6 +457,7 @@ func (s *OpenCodeGoGatewayService) sendUpstream(
 		return nil, fmt.Errorf("opencode go account %d missing api_key", account.ID)
 	}
 
+	body = sanitizeOpenCodeGoRequestBody(body)
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	releaseUpstreamCtx()
@@ -484,6 +488,7 @@ func (s *OpenCodeGoGatewayService) sendUpstream(
 			}
 		}
 	}
+	applyOpenCodeSessionHeader(c, account, targetURL, upstreamReq.Header, body)
 
 	proxyURL := ""
 	if account.Proxy != nil {
@@ -1351,6 +1356,16 @@ func prepareOpenCodeGoMessagesCacheBody(body []byte) []byte {
 	body = forceEphemeralCacheControlTTL(body, cacheTTLTarget1h)
 	body = enforceCacheControlLimit(body)
 	return forceEphemeralCacheControlTTL(body, cacheTTLTarget1h)
+}
+
+func sanitizeOpenCodeGoRequestBody(body []byte) []byte {
+	if next, err := sjson.DeleteBytes(body, "thinking.clear_thinking"); err == nil {
+		body = next
+	}
+	if next, err := sjson.DeleteBytes(body, "tool_stream"); err == nil {
+		body = next
+	}
+	return body
 }
 
 func ensureOpenCodeGoSystemCacheAnchor(body []byte) []byte {

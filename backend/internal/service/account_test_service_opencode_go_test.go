@@ -121,6 +121,58 @@ func TestAccountTestService_OpenCodeGoGeneratesThroughMessagesProtocol(t *testin
 	require.NotContains(t, recorder.Body.String(), "internal")
 }
 
+func openCodeGoTestAccount(id int64) *Account {
+	return &Account{
+		ID:          id,
+		Name:        "oc",
+		Platform:    PlatformOpenCodeGo,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":      "sk-opencode-go-test",
+			"api_protocol": APIProtocolAdaptive,
+			"base_url":     "https://opencode.ai/zen/go/v1",
+			"api_base_urls": map[string]any{
+				APIProtocolChatCompletions: "https://opencode.ai/zen/go/v1",
+				APIProtocolAnthropic:       "https://opencode.ai/zen/go",
+				APIProtocolResponses:       "https://opencode.ai/zen/go/v1",
+			},
+		},
+	}
+}
+
+func TestAccountTestService_OpenCodeGoDeepSeekFlashUsesChatCompletions(t *testing.T) {
+	account := openCodeGoTestAccount(401)
+	svc, upstream := adaptiveCNAccountTestService(account, adaptiveCNChatTestResponse())
+	c, recorder := newTestContext()
+
+	err := svc.TestAccountConnection(c, account.ID, "deepseek-v4-flash", "hi", AccountTestModeDefault)
+
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "https://opencode.ai/zen/go/v1/chat/completions", upstream.requests[0].URL.String())
+	require.Equal(t, "Bearer sk-opencode-go-test", upstream.requests[0].Header.Get("Authorization"))
+	require.NotEmpty(t, upstream.requests[0].Header.Get("X-OpenCode-Session"))
+	require.Contains(t, recorder.Body.String(), `"type":"test_complete"`)
+	require.NotContains(t, upstream.requests[0].URL.Path, "/messages")
+}
+
+func TestAccountTestService_OpenCodeGoGrokUsesResponses(t *testing.T) {
+	account := openCodeGoTestAccount(402)
+	svc, upstream := adaptiveCNAccountTestService(account, adaptiveCNResponsesTestResponse())
+	c, recorder := newTestContext()
+
+	err := svc.TestAccountConnection(c, account.ID, "grok-4.6", "hi", AccountTestModeDefault)
+
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "https://opencode.ai/zen/go/v1/responses", upstream.requests[0].URL.String())
+	require.Equal(t, "Bearer sk-opencode-go-test", upstream.requests[0].Header.Get("Authorization"))
+	require.NotEmpty(t, upstream.requests[0].Header.Get("X-OpenCode-Session"))
+	require.Contains(t, recorder.Body.String(), `"type":"test_complete"`)
+}
+
 func TestAccountTestService_OpenCodeGoRejectsReasoningOnlyResponse(t *testing.T) {
 	account := &Account{
 		ID:       90,

@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	miniMaxPlatformMigration = "237_add_minimax_platform.sql"
-	miniMaxConstraintRepair  = "238_align_minimax_platform_constraints.sql"
+	miniMaxPlatformMigration       = "237_add_minimax_platform.sql"
+	miniMaxConstraintRepair        = "238_align_minimax_platform_constraints.sql"
+	openCodePlatformMigration      = "238_opencode_go_platform.sql"
+	customPlatformConstraintRepair = "239_restore_custom_platform_constraints.sql"
 )
 
 func TestMigration237PreservesExistingCustomPlatforms(t *testing.T) {
@@ -28,6 +30,33 @@ func TestMigration237PreservesExistingCustomPlatforms(t *testing.T) {
 
 	// 237 的保护分支和无条件重建约束都必须可重放。
 	applyEmbeddedMigration(ctx, t, tx, miniMaxPlatformMigration)
+	assertMiniMaxPlatformRowsPresent(ctx, t, tx)
+}
+
+func TestMigration238OpenCodePreservesExistingCustomPlatforms(t *testing.T) {
+	ctx := context.Background()
+	tx := testTx(t)
+
+	createMiniMaxMigrationTestTables(ctx, t, tx, true)
+	applyEmbeddedMigration(ctx, t, tx, openCodePlatformMigration)
+
+	assertCustomPlatformRowsPreserved(ctx, t, tx)
+	insertMiniMaxPlatformRows(ctx, t, tx)
+	_, err := tx.ExecContext(ctx, "INSERT INTO composite_model_routes (target_platform) VALUES ('opencode_go')")
+	require.NoError(t, err)
+	assertMiniMaxPlatformRowsPresent(ctx, t, tx)
+}
+
+func TestMigration239RestoresCustomPlatformsAfterOriginalOpenCodeMigration(t *testing.T) {
+	ctx := context.Background()
+	tx := testTx(t)
+
+	createMiniMaxMigrationTestTables(ctx, t, tx, false)
+	applyEmbeddedMigration(ctx, t, tx, customPlatformConstraintRepair)
+
+	insertCustomPlatformRows(ctx, t, tx)
+	insertMiniMaxPlatformRows(ctx, t, tx)
+	assertCustomPlatformRowsPreserved(ctx, t, tx)
 	assertMiniMaxPlatformRowsPresent(ctx, t, tx)
 }
 

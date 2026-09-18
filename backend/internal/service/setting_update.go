@@ -438,6 +438,8 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	// Model pricing feature switch (independent from available channels)
 	updates[SettingKeyModelPricingEnabled] = strconv.FormatBool(settings.ModelPricingEnabled)
+	// Subscription feature switch
+	updates[SettingKeySubscriptionEnabled] = strconv.FormatBool(settings.SubscriptionEnabled)
 
 	// Model plaza feature switches + description
 	updates[SettingKeyModelPlazaEnabled] = strconv.FormatBool(settings.ModelPlazaEnabled)

@@ -194,6 +194,7 @@ func adaptGemini(body []byte, options Options) ([]byte, error) {
 	}
 	injectIdentity(request, options.IdentityPatch)
 	cleanSchemas(request)
+	dropIncompatibleBuiltins(request)
 	if options.RectifySignatures {
 		rectifySignatures(request)
 	}
@@ -237,6 +238,50 @@ func injectIdentity(request map[string]any, identity string) {
 	}
 	instruction["parts"] = append([]any{map[string]any{"text": identity}}, parts...)
 	request["systemInstruction"] = instruction
+}
+
+func dropIncompatibleBuiltins(request map[string]any) {
+	tools, _ := request["tools"].([]any)
+	if len(tools) == 0 {
+		return
+	}
+
+	hasFunctions := false
+	for _, rawGroup := range tools {
+		group, _ := rawGroup.(map[string]any)
+		declarations, _ := group["functionDeclarations"].([]any)
+		if len(declarations) > 0 {
+			hasFunctions = true
+			break
+		}
+	}
+	if !hasFunctions {
+		return
+	}
+
+	filtered := make([]any, 0, len(tools))
+	for _, rawGroup := range tools {
+		group, ok := rawGroup.(map[string]any)
+		if !ok {
+			filtered = append(filtered, rawGroup)
+			continue
+		}
+		delete(group, "googleSearch")
+		delete(group, "google_search")
+		delete(group, "codeExecution")
+		delete(group, "code_execution")
+		if len(group) > 0 {
+			filtered = append(filtered, group)
+		}
+	}
+	request["tools"] = filtered
+	if toolConfig, ok := request["toolConfig"].(map[string]any); ok {
+		delete(toolConfig, "includeServerSideToolInvocations")
+		delete(toolConfig, "include_server_side_tool_invocations")
+		if len(toolConfig) == 0 {
+			delete(request, "toolConfig")
+		}
+	}
 }
 
 func cleanSchemas(request map[string]any) {

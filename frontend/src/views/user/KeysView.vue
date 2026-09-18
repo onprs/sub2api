@@ -28,6 +28,22 @@
             :api-base-url="publicSettings?.api_base_url || ''"
             :custom-endpoints="publicSettings?.custom_endpoints || []"
           />
+          <div v-if="selectedIds.length" class="flex flex-wrap items-center gap-3 text-sm">
+            <span class="text-gray-600 dark:text-gray-300">
+              {{ t('keys.bulkEdit.selectedCount', { count: selectedIds.length }) }}
+            </span>
+            <button
+              class="btn btn-primary btn-sm"
+              :disabled="loading"
+              data-test="bulk-edit-keys"
+              @click="showBulkEditModal = true"
+            >
+              {{ t('keys.bulkEdit.title') }}
+            </button>
+            <button class="btn btn-secondary btn-sm" @click="selectedIds = []">
+              {{ t('keys.bulkEdit.clearSelection') }}
+            </button>
+          </div>
         </div>
       </template>
 
@@ -85,6 +101,11 @@
           :columns="columns"
           :data="apiKeys"
           :loading="loading"
+          selectable
+          row-key="id"
+          :selected-keys="selectedIds"
+          :selection-label="(key: ApiKey) => t('keys.bulkEdit.selectKey', { name: key.name })"
+          @update:selected-keys="handleSelectionChange"
           :server-side-sort="true"
           default-sort-key="created_at"
           default-sort-order="desc"
@@ -456,16 +477,113 @@
           />
         </div>
 
-        <ApiKeyRoutingEditor
-          v-model="formData.routing"
-          :groups="routingGroupCatalog"
-          :user-group-rates="userGroupRates"
-          :health="routingHealth"
-          :health-loading="routingHealthLoading"
-          :health-window-minutes="routingHealthWindowMinutes"
-          data-tour="key-form-group"
-          @refresh-health="loadRoutingHealth"
-        />
+        <template v-if="showEditModal">
+          <ApiKeyRoutingEditor
+            v-model="formData.routing"
+            :groups="routingGroupCatalog"
+            :user-group-rates="userGroupRates"
+            :health="routingHealth"
+            :health-loading="routingHealthLoading"
+            :health-window-minutes="routingHealthWindowMinutes"
+            @refresh-health="loadRoutingHealth"
+          />
+        </template>
+        <template v-else>
+          <fieldset data-tour="key-form-provider">
+            <legend class="input-label">{{ t('keys.providerLabel') }}</legend>
+            <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <label
+                v-for="provider in createProviderOptions"
+                :key="provider.value"
+                class="relative min-w-0"
+                :class="provider.count === 0 ? 'cursor-not-allowed' : 'cursor-pointer'"
+              >
+                <input
+                  type="radio"
+                  name="key-provider"
+                  :value="provider.value"
+                  :checked="createProvider === provider.value"
+                  :disabled="provider.count === 0"
+                  class="peer sr-only"
+                  @change="selectCreateProvider(provider.value)"
+                />
+                <span
+                  class="flex h-full flex-col items-center gap-2 rounded-xl border border-gray-200 bg-white px-2 py-3 text-center transition-colors peer-checked:border-primary-500 peer-checked:bg-primary-50/60 peer-checked:ring-1 peer-checked:ring-primary-500 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary-500 peer-disabled:opacity-40 dark:border-dark-600 dark:bg-dark-800 dark:peer-checked:border-primary-500 dark:peer-checked:bg-primary-500/10"
+                  :class="provider.count > 0 && 'hover:border-primary-300 dark:hover:border-primary-700'"
+                >
+                  <span class="flex h-8 items-center justify-center gap-1.5" aria-hidden="true">
+                    <span
+                      v-for="platform in KEY_GROUP_PROVIDER_ICONS[provider.value]"
+                      :key="platform"
+                      class="flex h-8 w-8 items-center justify-center rounded-lg"
+                      :class="platformBadgeLightClass(platform)"
+                    >
+                      <PlatformIcon :platform="platform" size="lg" />
+                    </span>
+                  </span>
+                  <span class="text-sm font-semibold text-gray-800 dark:text-gray-100">{{ provider.label }}</span>
+                </span>
+                <span
+                  v-if="createProvider === provider.value"
+                  class="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary-500 text-white"
+                  aria-hidden="true"
+                >
+                  <Icon name="check" size="xs" :stroke-width="3" />
+                </span>
+              </label>
+            </div>
+            <p class="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400" aria-live="polite">
+              {{ groups.length === 0 ? t('common.noGroupsAvailable') : t(`keys.providerHints.${createProvider}`) }}
+            </p>
+          </fieldset>
+        </template>
+
+        <div>
+          <label class="input-label" for="key-form-group">{{ t('keys.groupLabel') }}</label>
+            <Select
+              :key="showEditModal ? 'edit' : createProvider"
+              id="key-form-group"
+              :aria-label="t('keys.groupLabel')"
+              v-model="formData.group_id"
+              :options="formGroupOptions"
+              :placeholder="t('keys.selectGroup')"
+              :empty-text="t('common.noGroupsAvailable')"
+              :searchable="true"
+              :search-placeholder="t('keys.searchGroup')"
+              data-tour="key-form-group"
+            >
+              <template #selected="{ option }">
+                <GroupBadge
+                  v-if="option"
+                  :name="(option as unknown as GroupOption).label"
+                  :platform="(option as unknown as GroupOption).platform"
+                  :subscription-type="(option as unknown as GroupOption).subscriptionType"
+                  :rate-multiplier="(option as unknown as GroupOption).rate"
+                  :user-rate-multiplier="(option as unknown as GroupOption).userRate"
+                  :peak-rate-enabled="(option as unknown as GroupOption).peakRateEnabled"
+                  :peak-start="(option as unknown as GroupOption).peakStart"
+                  :peak-end="(option as unknown as GroupOption).peakEnd"
+                  :peak-rate-multiplier="(option as unknown as GroupOption).peakRateMultiplier"
+                />
+                <span v-else class="text-gray-400">{{ t('keys.selectGroup') }}</span>
+              </template>
+              <template #option="{ option, selected }">
+                <GroupOptionItem
+                  :name="(option as unknown as GroupOption).label"
+                  :platform="(option as unknown as GroupOption).platform"
+                  :subscription-type="(option as unknown as GroupOption).subscriptionType"
+                  :rate-multiplier="(option as unknown as GroupOption).rate"
+                  :user-rate-multiplier="(option as unknown as GroupOption).userRate"
+                  :peak-rate-enabled="(option as unknown as GroupOption).peakRateEnabled"
+                  :peak-start="(option as unknown as GroupOption).peakStart"
+                  :peak-end="(option as unknown as GroupOption).peakEnd"
+                  :peak-rate-multiplier="(option as unknown as GroupOption).peakRateMultiplier"
+                  :description="(option as unknown as GroupOption).description"
+                  :selected="selected"
+                />
+              </template>
+            </Select>
+          </div>
 
         <!-- Custom Key Section (only for create) -->
         <div v-if="!showEditModal" class="space-y-3">
@@ -945,6 +1063,14 @@
       </template>
     </BaseDialog>
 
+    <BulkEditKeysModal
+      :show="showBulkEditModal"
+      :selected-keys="selectedApiKeys"
+      :groups="groups"
+      @close="showBulkEditModal = false"
+      @updated="handleBulkUpdated"
+    />
+
     <!-- Delete Confirmation Dialog -->
     <ConfirmDialog
       :show="showDeleteDialog"
@@ -1042,7 +1168,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useOnboardingStore } from '@/stores/onboarding'
@@ -1065,18 +1191,25 @@ import UseKeyModal from '@/components/keys/UseKeyModal.vue'
 import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 import ApiKeyRoutingEditor from '@/components/keys/ApiKeyRoutingEditor.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
+import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
+import BulkEditKeysModal from '@/components/keys/BulkEditKeysModal.vue'
 import type {
   ApiKey,
   ApiKeyRoutingDraft,
   ApiKeyRoutingGroupHealth,
   Group,
+  GroupPlatform,
   PublicSettings,
+  SubscriptionType,
   UpdateApiKeyRequest
 } from '@/types'
 import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
 import { maskApiKey } from '@/utils/maskApiKey'
+import PlatformIcon from '@/components/common/PlatformIcon.vue'
+import { platformBadgeLightClass } from '@/utils/platformColors'
+import { KEY_GROUP_PROVIDERS, KEY_GROUP_PROVIDER_ICONS, getKeyGroupProvider, type KeyGroupProvider } from '@/utils/keyGroupProviders'
 import {
   createEmptyRoutingDraft as emptyRoutingDraft,
   createRoutingDraftFromApiKey as routingDraftFromKey,
@@ -1094,6 +1227,20 @@ const formatDateTimeLocal = (isoDate: string): string => {
   const date = new Date(isoDate)
   const pad = (n: number) => n.toString().padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+interface GroupOption {
+  value: number
+  label: string
+  description: string | null
+  rate: number
+  userRate: number | null
+  peakRateEnabled: boolean
+  peakStart: string
+  peakEnd: string
+  peakRateMultiplier: number
+  subscriptionType: SubscriptionType
+  platform: GroupPlatform
 }
 
 const appStore = useAppStore()
@@ -1195,6 +1342,21 @@ const columns = computed<Column[]>(() =>
 )
 
 const apiKeys = ref<ApiKey[]>([])
+const selectedIds = ref<number[]>([])
+const showBulkEditModal = ref(false)
+const selectedApiKeys = computed(() => apiKeys.value.filter((key) => selectedIds.value.includes(key.id)))
+
+const handleSelectionChange = (ids: Array<string | number>) => {
+  const visibleIds = new Set(apiKeys.value.map((key) => key.id))
+  selectedIds.value = [...new Set(ids.map(Number))].filter((id) => visibleIds.has(id))
+}
+
+const handleBulkUpdated = (succeededIds: number[]) => {
+  const succeeded = new Set(succeededIds)
+  selectedIds.value = selectedIds.value.filter((id) => !succeeded.has(id))
+  loadApiKeys()
+}
+
 const groups = ref<Group[]>([])
 const loading = ref(false)
 const submitting = ref(false)
@@ -1254,6 +1416,7 @@ const routingEditorDraft = ref<ApiKeyRoutingDraft>(emptyRoutingDraft())
 
 const formData = ref({
   name: '',
+  group_id: null as number | null,
   routing: emptyRoutingDraft(),
   status: 'active' as 'active' | 'inactive',
   use_custom_key: false,
@@ -1318,6 +1481,7 @@ const statusFilterOptions = computed(() => [
 ])
 
 const onFilterChange = () => {
+  selectedIds.value = []
   pagination.value.page = 1
   loadApiKeys()
 }
@@ -1332,6 +1496,50 @@ const onStatusFilterChange = (value: string | number | boolean | null) => {
   onFilterChange()
 }
 
+// Convert groups to Select options format with rate multiplier and subscription type
+const groupOptions = computed(() =>
+  groups.value.map((group) => ({
+    value: group.id,
+    label: group.name,
+    description: group.description,
+    rate: group.rate_multiplier,
+    userRate: userGroupRates.value[group.id] ?? null,
+    peakRateEnabled: group.peak_rate_enabled,
+    peakStart: group.peak_start,
+    peakEnd: group.peak_end,
+    peakRateMultiplier: group.peak_rate_multiplier,
+    subscriptionType: group.subscription_type,
+    platform: group.platform
+  }))
+)
+
+const createProvider = ref<KeyGroupProvider>('anthropic')
+const createProviderOptions = computed(() => KEY_GROUP_PROVIDERS.map((value) => ({
+  value,
+  label: t(`keys.providers.${value}`),
+  count: groups.value.filter((group) => getKeyGroupProvider(group.platform) === value).length
+})))
+
+const formGroupOptions = computed(() => showEditModal.value
+  ? groupOptions.value
+  : groupOptions.value.filter((group) => getKeyGroupProvider(group.platform) === createProvider.value)
+)
+
+const selectCreateProvider = (provider: KeyGroupProvider) => {
+  if (createProvider.value === provider) return
+  createProvider.value = provider
+  formData.value.group_id = null
+}
+
+watch([showCreateModal, createProviderOptions], ([isOpen, providers], [wasOpen]) => {
+  if (!isOpen) return
+  if (!wasOpen || !providers.some((provider) => provider.value === createProvider.value && provider.count > 0)) {
+    selectCreateProvider(providers.find((provider) => provider.count > 0)?.value ?? 'anthropic')
+  }
+  if (!formGroupOptions.value.some((group) => group.value === formData.value.group_id)) {
+    formData.value.group_id = null
+  }
+})
 const copyToClipboard = async (text: string, keyId: number) => {
   const success = await clipboardCopy(text, t('keys.copied'))
   if (success) {
@@ -1374,6 +1582,7 @@ const loadApiKeys = async () => {
     })
     if (signal.aborted) return
     apiKeys.value = response.items
+    handleSelectionChange(selectedIds.value)
     pagination.value.total = response.total
     pagination.value.pages = response.pages
 
@@ -1470,17 +1679,20 @@ const closeUseKeyModal = () => {
 }
 
 const handlePageChange = (page: number) => {
+  selectedIds.value = []
   pagination.value.page = page
   loadApiKeys()
 }
 
 const handlePageSizeChange = (pageSize: number) => {
+  selectedIds.value = []
   pagination.value.page_size = pageSize
   pagination.value.page = 1
   loadApiKeys()
 }
 
 const handleSort = (key: string, order: 'asc' | 'desc') => {
+  selectedIds.value = []
   sortState.value.sort_by = key
   sortState.value.sort_order = order
   pagination.value.page = 1
@@ -1494,6 +1706,7 @@ const editKey = (key: ApiKey) => {
   const hasExpiration = !!key.expires_at
   formData.value = {
     name: key.name,
+    group_id: key.group_id ?? key.group?.id ?? null,
     routing: routingDraftFromKey(key),
     status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
     use_custom_key: false,
@@ -1578,8 +1791,17 @@ const confirmDelete = (key: ApiKey) => {
 }
 
 const handleSubmit = async () => {
-  const routing = routingInputFromDraft(formData.value.routing)
-  if (!routing) {
+  const selectedGroup = formData.value.group_id === null
+    ? undefined
+    : groups.value.find((group) => group.id === formData.value.group_id)
+  const routing = routingInputFromDraft(formData.value.routing) ?? (selectedGroup
+    ? {
+        platform: selectedGroup.platform,
+        strategy: 'manual' as const,
+        groups: [{ group_id: selectedGroup.id, priority: 0 }]
+      }
+    : null)
+  if (!routing && !showEditModal.value) {
     appStore.showError(t('keys.groupRequired'))
     return
   }
@@ -1636,7 +1858,6 @@ const handleSubmit = async () => {
     if (showEditModal.value && selectedKey.value) {
       const updates: UpdateApiKeyRequest = {
         name: formData.value.name,
-        routing,
         ip_whitelist: ipWhitelist,
         ip_blacklist: ipBlacklist,
         quota: quota,
@@ -1644,6 +1865,9 @@ const handleSubmit = async () => {
         rate_limit_5h: rateLimitData.rate_limit_5h,
         rate_limit_1d: rateLimitData.rate_limit_1d,
         rate_limit_7d: rateLimitData.rate_limit_7d,
+      }
+      if (routing) {
+        updates.routing = routing
       }
       if (shouldSubmitEditStatus(selectedKey.value, formData.value.status)) {
         updates.status = formData.value.status
@@ -1654,14 +1878,14 @@ const handleSubmit = async () => {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
       await keysAPI.create(
         formData.value.name,
-        undefined,
+        formData.value.group_id,
         customKey,
         ipWhitelist,
         ipBlacklist,
         quota,
         expiresInDays,
         rateLimitData,
-        routing
+        routing ?? undefined
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       // Only advance tour if active, on submit step, and creation succeeded
@@ -1706,6 +1930,7 @@ const closeModals = () => {
   selectedKey.value = null
   formData.value = {
     name: '',
+    group_id: null,
     routing: emptyRoutingDraft(),
     status: 'active',
     use_custom_key: false,
@@ -1740,14 +1965,18 @@ const setExpirationDays = (days: number) => {
 
 // Reset quota used for an API key
 const resetQuotaUsed = async () => {
-  if (!selectedKey.value) return
+  const key = selectedKey.value
+  if (!key) return
   showResetQuotaDialog.value = false
   try {
-    await keysAPI.update(selectedKey.value.id, { reset_quota: true })
+    const updatedKey = await keysAPI.update(key.id, { reset_quota: true })
     appStore.showSuccess(t('keys.quotaResetSuccess'))
-    // Update local state
-    if (selectedKey.value) {
-      selectedKey.value.quota_used = 0
+    key.quota_used = updatedKey.quota_used
+    if (key.status !== updatedKey.status) {
+      key.status = updatedKey.status
+      if (selectedKey.value?.id === key.id) {
+        formData.value.status = updatedKey.status === 'active' ? 'active' : 'inactive'
+      }
     }
   } catch (error: any) {
     const errorMsg = error.response?.data?.detail || t('keys.failedToResetQuota')

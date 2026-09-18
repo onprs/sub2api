@@ -1115,9 +1115,10 @@ func TestOpenCodeGoGatewayServiceForwardChatCompletionsDirectUsesOpenCodeGoEndpo
 			},
 		},
 	}
-	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", `{"model":"opencode-go/kimi","messages":[{"role":"user","content":"hi"}],"stream":false}`)
+	requestBody := `{"model":"opencode-go/kimi","prompt_cache_key":"direct-session","messages":[{"role":"user","content":"hi"}],"stream":false}`
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", requestBody)
 
-	result, err := svc.ForwardChatCompletions(context.Background(), rec.Context, account, []byte(`{"model":"opencode-go/kimi","messages":[{"role":"user","content":"hi"}],"stream":false}`))
+	result, err := svc.ForwardChatCompletions(context.Background(), rec.Context, account, []byte(requestBody))
 	if err != nil {
 		t.Fatalf("ForwardChatCompletions error: %v", err)
 	}
@@ -1130,6 +1131,9 @@ func TestOpenCodeGoGatewayServiceForwardChatCompletionsDirectUsesOpenCodeGoEndpo
 	if got := upstream.req.Header.Get("Authorization"); got != "Bearer ocg-secret" {
 		t.Fatalf("unexpected authorization header: %s", got)
 	}
+	if got := upstream.req.Header.Get(openCodeSessionHeader); got != "direct-session" {
+		t.Fatalf("unexpected OpenCode session header: %q", got)
+	}
 	if !strings.Contains(upstream.body, `"model":"kimi-k2.7-code"`) {
 		t.Fatalf("expected upstream model rewrite, body=%s", upstream.body)
 	}
@@ -1138,6 +1142,49 @@ func TestOpenCodeGoGatewayServiceForwardChatCompletionsDirectUsesOpenCodeGoEndpo
 	}
 	if result.Usage.InputTokens != 3 || result.Usage.OutputTokens != 2 {
 		t.Fatalf("unexpected usage: %+v", result.Usage)
+	}
+}
+
+func TestOpenCodeGoGatewayServiceSanitizesConsoleGoChatFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &openCodeGoHTTPUpstreamStub{}
+	svc := &OpenCodeGoGatewayService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{},
+	}
+	account := &Account{
+		ID:          43,
+		Platform:    PlatformOpenCodeGo,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "ocg-secret",
+			"base_url": "https://opencode.ai/zen/go/v1",
+			"model_protocols": map[string]any{
+				"glm-5.3": OpenCodeGoProtocolChatCompletions,
+			},
+		},
+	}
+	body := `{"model":"glm-5.3","messages":[{"role":"user","content":"hi"}],"thinking":{"type":"enabled","budget_tokens":2048,"clear_thinking":false},"tool_stream":true,"stream":false}`
+	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", body)
+
+	if _, err := svc.ForwardChatCompletions(context.Background(), rec.Context, account, []byte(body)); err != nil {
+		t.Fatalf("ForwardChatCompletions error: %v", err)
+	}
+	if got := upstream.req.URL.Path; got != "/zen/go/v1/chat/completions" {
+		t.Fatalf("unexpected upstream path: %s", got)
+	}
+	if got := gjson.Get(upstream.body, "thinking.type").String(); got != "enabled" {
+		t.Fatalf("thinking.type changed unexpectedly: %q body=%s", got, upstream.body)
+	}
+	if got := gjson.Get(upstream.body, "thinking.budget_tokens").Int(); got != 2048 {
+		t.Fatalf("thinking.budget_tokens changed unexpectedly: %d body=%s", got, upstream.body)
+	}
+	if gjson.Get(upstream.body, "thinking.clear_thinking").Exists() {
+		t.Fatalf("OpenCode Go Chat request must remove thinking.clear_thinking, body=%s", upstream.body)
+	}
+	if gjson.Get(upstream.body, "tool_stream").Exists() {
+		t.Fatalf("OpenCode Go Chat request must remove tool_stream, body=%s", upstream.body)
 	}
 }
 

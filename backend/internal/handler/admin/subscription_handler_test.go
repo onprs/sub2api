@@ -121,7 +121,7 @@ func TestSubscriptionHandlerBulkAssignAcceptsSubscriptionPlanID(t *testing.T) {
 	}
 }
 
-func TestSubscriptionHandlerAssignRejectsLegacyGroupPayload(t *testing.T) {
+func TestSubscriptionHandlerAssignAcceptsGroupPayload(t *testing.T) {
 	fixture := newSubscriptionHandlerPlanFixture(t, 5.0, 70.0, 300.0)
 	targetUser, err := fixture.client.User.Create().
 		SetEmail("legacy-target@example.com").
@@ -145,13 +145,13 @@ func TestSubscriptionHandlerAssignRejectsLegacyGroupPayload(t *testing.T) {
 
 	fixture.handler.Assign(c)
 
-	require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	count, err := fixture.client.UserSubscription.Query().Count(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, 0, count)
+	require.Equal(t, 1, count)
 }
 
-func TestSubscriptionHandlerBulkAssignRejectsLegacyGroupPayload(t *testing.T) {
+func TestSubscriptionHandlerBulkAssignAcceptsGroupPayload(t *testing.T) {
 	fixture := newSubscriptionHandlerPlanFixture(t, 5.0, 70.0, 300.0)
 	targetUser, err := fixture.client.User.Create().
 		SetEmail("legacy-bulk-target@example.com").
@@ -175,10 +175,10 @@ func TestSubscriptionHandlerBulkAssignRejectsLegacyGroupPayload(t *testing.T) {
 
 	fixture.handler.BulkAssign(c)
 
-	require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	count, err := fixture.client.UserSubscription.Query().Count(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, 0, count)
+	require.Equal(t, 1, count)
 }
 
 type subscriptionHandlerPlanFixture struct {

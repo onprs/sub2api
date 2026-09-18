@@ -42,6 +42,8 @@ const (
 const (
 	AccountModePayG   = "payg"   // 按量付费：消耗余额，做余额检测冷却
 	AccountModeCoding = "coding" // Coding Plan：滚动用量窗口冷却（5h / weekly）
+	AccountModeZen    = "zen"    // OpenCode Zen：按量付费，https://opencode.ai/zen/v1
+	AccountModeGo     = "go"     // OpenCode Go：订阅额度窗口，https://opencode.ai/zen/go/v1
 )
 
 // API protocol constants 国产供应商的上游 API 协议维度。存储于
@@ -186,6 +188,20 @@ var antigravityCompatibilityModelMapping = map[string]string{
 	"gemini-3-pro-image-preview":     "gemini-3.1-flash-image",
 	"gpt-oss-120b-medium":            "gpt-oss-120b-medium",
 	"tab_flash_lite_preview":         "tab_flash_lite_preview",
+	// Official Gemini tier aliases.
+	"gemini-3.6-flash":        "gemini-3.6-flash",
+	"gemini-3.6-flash-high":   "gemini-3.6-flash-high",
+	"gemini-3.6-flash-low":    "gemini-3.6-flash-low",
+	"gemini-3.6-flash-medium": "gemini-3.6-flash-medium",
+	"gemini-3.7-flash":        "gemini-3.7-flash",
+	"gemini-3.7-flash-high":   "gemini-3.7-flash-high",
+	"gemini-3.7-flash-low":    "gemini-3.7-flash-low",
+	"gemini-3.7-flash-medium": "gemini-3.7-flash-medium",
+	"gemini-3.8-flash":        "gemini-3.8-flash",
+	"gemini-3.8-flash-high":   "gemini-3.8-flash-high",
+	"gemini-3.8-flash-low":    "gemini-3.8-flash-low",
+	"gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
+	"gemini-3.8-flash-tiered": "gemini-3.8-flash-tiered",
 }
 
 // DefaultAntigravityModelMapping 是官方 Cloud Code OAuth/Setup Token 账号的内置路由表。

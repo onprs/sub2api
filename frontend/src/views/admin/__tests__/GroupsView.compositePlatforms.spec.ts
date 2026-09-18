@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { COMPOSITE_ROUTE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { COMPOSITE_ROUTE_PLATFORM_OPTIONS, CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 
 describe('GroupsView Composite route options', () => {
   it('offers exactly the backend-supported route targets', () => {
@@ -12,7 +12,14 @@ describe('GroupsView Composite route options', () => {
       'kimi',
       'zhipu',
       'deepseek',
-      'minimax'
+      'minimax',
+      'opencode_go'
     ])
+  })
+
+  it('keeps locally supported concrete providers available', () => {
+    expect(CONCRETE_PLATFORM_OPTIONS.map((option) => option.value)).toEqual(
+      expect.arrayContaining(['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go'])
+    )
   })
 })
