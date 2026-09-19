@@ -25,7 +25,7 @@
         :placeholder="models.length === 0 ? placeholder : ''"
         :list="suggestions?.length ? datalistId : undefined"
         @keydown.enter.prevent="addModel"
-        @keydown.tab.prevent="addModel"
+        @keydown.tab="handleTab"
         @keydown.delete="handleBackspace"
         @paste="handlePaste"
         @blur="addModel"
@@ -70,6 +70,12 @@ function addModel() {
     emit('update:models', [...props.models, val])
   }
   inputValue.value = ''
+}
+
+function handleTab(event: KeyboardEvent) {
+  if (!inputValue.value.trim()) return
+  event.preventDefault()
+  addModel()
 }
 
 function removeModel(idx: number) {

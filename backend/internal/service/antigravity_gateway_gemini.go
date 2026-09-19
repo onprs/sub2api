@@ -107,6 +107,16 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 	}
 
 	route, supported := account.ResolveAntigravityRoute(originalModel)
+	resolvedByVariant := false
+	if !supported {
+		if mappedModel, ok := resolveGeminiThinkingVariant(account, originalModel, body); ok {
+			route, supported = account.normalizeAntigravityRouteTarget(mappedModel)
+			resolvedByVariant = supported
+			if supported {
+				logger.LegacyPrintf("service.antigravity_gateway", "%s resolved bare Gemini model %s to thinking variant %s", prefix, originalModel, mappedModel)
+			}
+		}
+	}
 	if !supported {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
 		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusForbidden, fmt.Sprintf("model %s not in whitelist", originalModel))
@@ -115,9 +125,17 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 	if source == "" {
 		source = protocolconv.ProtocolGoogleGenAI
 	}
-	route, reasoningEffort, reasoningErr := resolveAntigravityRequestReasoning(route, body, source)
-	if reasoningErr != nil {
-		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusBadRequest, reasoningErr.Error())
+	var reasoningEffort *string
+	if resolvedByVariant {
+		if _, effort := domain.AntigravityReasoningModel(route.ModelID); effort != "" {
+			reasoningEffort = &effort
+		}
+	} else {
+		var reasoningErr error
+		route, reasoningEffort, reasoningErr = resolveAntigravityRequestReasoning(route, body, source)
+		if reasoningErr != nil {
+			return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusBadRequest, reasoningErr.Error())
+		}
 	}
 	mappedModel := route.WireModel
 	billingModel := mappedModel
