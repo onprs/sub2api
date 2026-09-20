@@ -409,7 +409,9 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 	require.Contains(t, ids, "deepseek/deepseek-v4.1-flash")
 	require.Contains(t, ids, "google/gemini-3.8-flash")
 	require.Contains(t, ids, "Qwen/Qwen3.8-Max-0902")
-	require.Contains(t, ids, "meituan/LongCat-2.0:free")
+	require.Contains(t, ids, "Qwen/Qwen3.8-Omni-Flash")
+	require.Contains(t, ids, "z-ai/glm-5.3-flashx")
+	require.Contains(t, ids, "meituan/LongCat-2.0")
 	require.Contains(t, ids, "inclusionai/ling-3.0-flash-sante:free")
 	require.NotContains(t, ids, "minimax/minimax-m3-free")
 	entry, ok := catalog.entry("gpt-5.6-luna")
@@ -437,6 +439,9 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 	for key, expected := range official {
 		actual, exists := fallback[key]
 		require.True(t, exists, "fallback catalog is missing official model %q", key)
+		if override, ok := commandCodeQuotaMonthlyCreditsOverrides[key]; ok {
+			expected.MonthlyCreditsUSD = override
+		}
 		expected.Name = ""
 		actual.Name = ""
 		require.Equal(t, expected, actual, "fallback metadata differs for %q", key)
@@ -446,18 +451,19 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 func TestCommandCodeFallbackCatalogHasAllPricedModels(t *testing.T) {
 	entries := commandCodeFallbackCatalogEntries()
 	ids := CommandCodeFallbackModelIDs()
-	require.Len(t, entries, 50)
+	require.Len(t, entries, 52)
 	require.Len(t, entries, len(commandCodeFallbackModels))
 	for _, model := range []string{
 		"google/gemini-3.8-flash",
-		"meta/muse-spark-1.3",
+		"z-ai/glm-5.3-flashx",
+		"Qwen/Qwen3.8-Omni-Flash",
 		"meta/muse-spark-1.3-contributor",
 		"deepseek/deepseek-v4-flash-fast",
 		"deepseek/deepseek-v4.1-flash",
 		"Qwen/Qwen3.8-Max-0902",
 		"Qwen/Qwen3.8-Flash",
 		"tencent/hy4-preview",
-		"meituan/LongCat-2.0:free",
+		"meituan/LongCat-2.0",
 		"inclusionai/ling-3.0-flash-sante:free",
 	} {
 		require.Contains(t, ids, model)
@@ -488,7 +494,9 @@ func TestCommandCodeCatalogExposesFallbackWhenRefreshFails(t *testing.T) {
 	require.Contains(t, models, "gpt-5.6-sol")
 	require.Contains(t, models, "google/gemini-3.8-flash")
 	require.Contains(t, models, "deepseek/deepseek-v4-flash-fast")
-	require.Contains(t, models, "meituan/LongCat-2.0:free")
+	require.Contains(t, models, "Qwen/Qwen3.8-Omni-Flash")
+	require.Contains(t, models, "z-ai/glm-5.3-flashx")
+	require.Contains(t, models, "meituan/LongCat-2.0")
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

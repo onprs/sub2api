@@ -38,6 +38,25 @@ func TestCommandCodeReferencePricingCoversOfficialGoatRates(t *testing.T) {
 	require.InDelta(t, 0.60e-6, pricing.OutputPricePerToken, 1e-12)
 	require.InDelta(t, 0.003e-6, pricing.CacheReadPricePerToken, 1e-12)
 
+	pricing, ok = commandCodeReferencePricingAt("Qwen/Qwen3.8-Omni-Flash", offPeak)
+	require.True(t, ok)
+	require.InDelta(t, 0.15e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 0.47e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.016e-6, pricing.CacheReadPricePerToken, 1e-12)
+
+	pricing, ok = commandCodeReferencePricingAt("z-ai/glm-5.3-flashx", offPeak)
+	require.True(t, ok)
+	require.InDelta(t, 0.37e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 1.25e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.075e-6, pricing.CacheReadPricePerToken, 1e-12)
+
+	pricing, ok = commandCodeReferencePricingAt("meituan/LongCat-2.0", offPeak)
+	require.True(t, ok)
+	require.False(t, pricing.AllowZeroRate)
+	require.InDelta(t, 0.3e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 1.2e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.006e-6, pricing.CacheReadPricePerToken, 1e-12)
+
 	pricing, ok = commandCodeReferencePricingAt("Qwen/Qwen3.8-Max-0902", offPeak)
 	require.True(t, ok)
 	require.InDelta(t, 2e-6, pricing.InputPricePerToken, 1e-12)
@@ -82,12 +101,14 @@ func TestCommandCodeReferencePricingResolvesAliasesAndCase(t *testing.T) {
 		"qwen3.7-plus",
 		"grok-4.6",
 		"glm-5.3-flash",
+		"glm-5.3-flashx",
 		"gemini-3.8-flash",
-		"qwen-3.8-max-0902",
+		"qwen-3.8-omni-flash",
 		"deepseek-v4-flash-fast",
 		"deepseek-v4.1-flash",
 		"hy4-preview",
 		"longcat-2.0",
+		"longcat-2.0:free",
 		"ling-3.0-flash-sante",
 		"muse-spark-1.3-contributor",
 		"laguna-s-2.1",
@@ -115,7 +136,7 @@ func TestCommandCodeReferencePricingAppliesOfficialDeepSeekPeakWindows(t *testin
 
 	peak, ok = commandCodeReferencePricingAt("deepseek/deepseek-v4-flash-vision-exp", base.Add(6*time.Hour))
 	require.True(t, ok)
-	require.InDelta(t, 0.44e-6, peak.InputPricePerToken, 1e-12)
+	require.InDelta(t, 0.30e-6, peak.InputPricePerToken, 1e-12)
 
 	peak, ok = commandCodeReferencePricingAt("deepseek/deepseek-v4.1-flash", base.Add(6*time.Hour))
 	require.True(t, ok)
@@ -187,7 +208,6 @@ func TestCommandCodeCatalogPricingUsesListRatesAfterPromotionExpiry(t *testing.T
 func TestCommandCodeCurrentFreeModelsAndRemovedDeals(t *testing.T) {
 	now := nowForTest()
 	for _, model := range []string{
-		"meituan/LongCat-2.0:free",
 		"inclusionai/ling-3.0-flash-sante:free",
 		"poolside/laguna-s-2.1-free",
 	} {
@@ -195,6 +215,10 @@ func TestCommandCodeCurrentFreeModelsAndRemovedDeals(t *testing.T) {
 		require.True(t, ok, model)
 		require.True(t, free.AllowZeroRate, model)
 	}
+
+	longCat, ok := commandCodeReferencePricingAt("meituan/LongCat-2.0", now)
+	require.True(t, ok)
+	require.False(t, longCat.AllowZeroRate)
 
 	for _, removed := range []string{
 		"minimax/minimax-m3-free",
@@ -213,7 +237,7 @@ func TestCommandCodeCurrentFreeModelsAndRemovedDeals(t *testing.T) {
 			ExpiresAt: now.Add(-time.Second),
 		},
 	}
-	_, ok := commandCodeCatalogPricingAt(entry, now)
+	_, ok = commandCodeCatalogPricingAt(entry, now)
 	require.False(t, ok)
 }
 
@@ -263,11 +287,11 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.InDelta(t, 60, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 	require.InDelta(t, 70.0/60.0, quotaCost.Multiplier, 1e-9)
 
-	// DeepSeek V4.1 Flash：官方 credits $60 → 倍率 70/60 ≈ 1.1667x
+	// DeepSeek V4.1 Flash：本项目按月额度 $40 → 倍率 70/40 = 1.75x
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("deepseek/deepseek-v4.1-flash")
 	require.True(t, ok)
-	require.InDelta(t, 60, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
-	require.InDelta(t, 70.0/60.0, quotaCost.Multiplier, 1e-9)
+	require.InDelta(t, 40, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 70.0/40.0, quotaCost.Multiplier, 1e-9)
 
 	// GLM-5.2：官方 credits $70 → 倍率 1x
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("zai-org/glm-5.2")
@@ -287,15 +311,30 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.InDelta(t, 40, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 	require.InDelta(t, 1.75, quotaCost.Multiplier, 1e-9)
 
+	// LongCat 2.0 已恢复为付费模型，旧 :free 输入仍解析到同一付费条目。
+	quotaCost, ok = svc.GetCommandCodeQuotaCost("meituan/LongCat-2.0:free")
+	require.True(t, ok)
+	require.InDelta(t, 50, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 70.0/50.0, quotaCost.Multiplier, 1e-9)
+
 	// 免费模型无额度倍率，由 AllowZeroRate 路径按 $0 计费。
-	_, ok = svc.GetCommandCodeQuotaCost("meituan/LongCat-2.0:free")
-	require.False(t, ok)
 	_, ok = svc.GetCommandCodeQuotaCost("inclusionai/ling-3.0-flash-sante:free")
+	require.False(t, ok)
+	_, ok = svc.GetCommandCodeQuotaCost("poolside/laguna-s-2.1-free")
 	require.False(t, ok)
 
 	// 未知模型闭合失败
 	_, ok = svc.GetCommandCodeQuotaCost("totally-unknown-model")
 	require.False(t, ok)
+}
+
+func TestCommandCodeQuotaCostUsesLocalDeepSeekV41MonthlyOverride(t *testing.T) {
+	entry := commandCodeCatalogEntry{
+		ID:                "deepseek/deepseek-v4.1-flash",
+		MonthlyCreditsUSD: 60,
+	}
+
+	require.Equal(t, 40.0, commandCodeMonthlyCreditsForQuota(entry.ID, entry))
 }
 
 func TestCommandCodePricingMetadataMatchesCurrentOfficialPromotions(t *testing.T) {
