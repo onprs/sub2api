@@ -365,6 +365,53 @@ func TestBuildUpstreamModelsRequestsForAPIKeyAccounts(t *testing.T) {
 	require.Equal(t, "Bearer opencode-go-key", dispatchedOpenCodeGoReq.Header.Get("Authorization"))
 }
 
+func TestBuildGrokAPIKeyModelsRequestUsesCustomHostPolicy(t *testing.T) {
+	t.Parallel()
+
+	svc := &AccountTestService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{
+				Enabled:                      true,
+				UpstreamHosts:                []string{"api.x.ai"},
+				AllowOpenAIAPIKeyCustomHosts: true,
+			},
+		},
+	}}
+	account := &Account{
+		Platform: PlatformGrok,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "xai-key",
+			"base_url": "https://relay.example.com/xai/v1",
+		},
+	}
+
+	req, err := svc.buildUpstreamModelsRequest(context.Background(), account)
+	require.NoError(t, err)
+	require.Equal(t, "https://relay.example.com/xai/v1/models", req.URL.String())
+	require.Equal(t, "Bearer xai-key", req.Header.Get("Authorization"))
+	require.Equal(t, HTTPUpstreamProfileGrok, HTTPUpstreamProfileFromContext(req.Context()))
+
+	account.Credentials["base_url"] = "https://127.0.0.1/xai/v1"
+	_, err = svc.buildUpstreamModelsRequest(context.Background(), account)
+	require.Error(t, err)
+}
+
+func TestBuildGrokOAuthModelsRequestKeepsCustomHostAllowlist(t *testing.T) {
+	t.Parallel()
+
+	svc := &AccountTestService{
+		cfg:               &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: true, UpstreamHosts: []string{"api.x.ai"}, AllowOpenAIAPIKeyCustomHosts: true}}},
+		grokTokenProvider: NewGrokTokenProvider(nil, nil),
+	}
+	_, err := svc.buildUpstreamModelsRequest(context.Background(), grokOAuthModelSyncTestAccount("https://relay.example.com/xai/v1"))
+	require.Error(t, err)
+	var syncErr *UpstreamModelSyncError
+	require.ErrorAs(t, err, &syncErr)
+	require.Equal(t, UpstreamModelSyncErrorConfiguration, syncErr.Kind)
+	require.Contains(t, syncErr.SafeMessage(), "Invalid Grok base URL")
+}
+
 func TestBuildOpenAIUpstreamModelsRequestAllowsPublicRelayWithStrictURLPolicy(t *testing.T) {
 	t.Parallel()
 
