@@ -14,6 +14,7 @@ var commandCodeFallbackModels = []string{
 	"gpt-5.6-luna",
 	"google/gemini-3.8-flash",
 	"google/gemini-3.7-flash",
+	"xai/grok-4.7",
 	"xai/grok-4.6",
 	"xai/grok-4.5",
 	"meta/muse-spark-1.3",
@@ -40,6 +41,9 @@ var commandCodeFallbackModels = []string{
 	"MiniMaxAI/MiniMax-M3",
 	"MiniMaxAI/MiniMax-M2.7",
 	"MiniMaxAI/MiniMax-M2.5",
+	"xiaomi/mimo-v2.6-pro",
+	"xiaomi/mimo-v2.6-pro-ultraspeed",
+	"xiaomi/mimo-v2.6-flash",
 	"xiaomi/mimo-v2.5-pro",
 	"xiaomi/mimo-v2.5",
 	"Qwen/Qwen3.8-Max-0902",
@@ -52,6 +56,7 @@ var commandCodeFallbackModels = []string{
 	"Qwen/Qwen3.7-Flash",
 	"Qwen/Qwen3.6-Max-Preview",
 	"Qwen/Qwen3.6-Plus",
+	"stepfun/Step-5-Preview",
 	"stepfun/Step-3.7-Flash",
 	"stepfun/Step-3.5-Flash",
 	"tencent/hy3-paid",
@@ -78,6 +83,7 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"gpt-5.6-luna":                          {input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25},
 	"google/gemini-3.8-flash":               {input: 1.5, output: 7.5, cacheRead: 0.15},
 	"google/gemini-3.7-flash":               {input: 1.5, output: 7.5, cacheRead: 0.15, cacheWrite: 0.08334},
+	"xai/grok-4.7":                          {input: 1.2, output: 3.6, cacheRead: 0.3},
 	"xai/grok-4.6":                          {input: 2, output: 6, cacheRead: 0.5},
 	"xai/grok-4.5":                          {input: 2, output: 6, cacheRead: 0.5},
 	"meta/muse-spark-1.3":                   {input: 1.25, output: 4.25, cacheRead: 0.15},
@@ -104,6 +110,9 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"minimaxai/minimax-m3":                  {input: 0.3, output: 1.2, cacheRead: 0.06},
 	"minimaxai/minimax-m2.7":                {input: 0.3, output: 1.2, cacheRead: 0.06},
 	"minimaxai/minimax-m2.5":                {input: 0.3, output: 1.2, cacheRead: 0.03},
+	"xiaomi/mimo-v2.6-pro":                  {input: 0.435, output: 0.87, cacheRead: 0.0036},
+	"xiaomi/mimo-v2.6-pro-ultraspeed":       {input: 4.35, output: 8.7, cacheRead: 0.036},
+	"xiaomi/mimo-v2.6-flash":                {input: 0.14, output: 0.28, cacheRead: 0.0028},
 	"xiaomi/mimo-v2.5-pro":                  {input: 0.435, output: 0.87, cacheRead: 0.0036},
 	"xiaomi/mimo-v2.5":                      {input: 0.14, output: 0.28, cacheRead: 0.0028},
 	"qwen/qwen3.8-omni-flash":               {input: 0.15, output: 0.47, cacheRead: 0.016},
@@ -116,6 +125,7 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"qwen/qwen3.7-flash":                    {input: 0.03, output: 0.13, cacheRead: 0.006, cacheWrite: 0.038},
 	"qwen/qwen3.6-max-preview":              {input: 1.3, output: 7.8, cacheRead: 0.26, cacheWrite: 1.63},
 	"qwen/qwen3.6-plus":                     {input: 0.5, output: 3, cacheRead: 0.1},
+	"stepfun/step-5-preview":                {input: 1, output: 2.7, cacheRead: 0.05},
 	"stepfun/step-3.7-flash":                {input: 0.2, output: 1.15, cacheRead: 0.04},
 	"stepfun/step-3.5-flash":                {input: 0.1, output: 0.3, cacheRead: 0.02},
 	"tencent/hy3-paid":                      {input: 0.14, output: 0.58, cacheRead: 0.035},
@@ -133,7 +143,7 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 	"gpt-5.6-sol": 70, "gpt-5.6-luna": 20,
 	"google/gemini-3.8-flash": 40, "google/gemini-3.7-flash": 40,
-	"xai/grok-4.6": 20, "xai/grok-4.5": 20,
+	"xai/grok-4.7": 35, "xai/grok-4.6": 20, "xai/grok-4.5": 20,
 	"meta/muse-spark-1.3": 20, "meta/muse-spark-1.3-contributor": 20,
 	"meta/muse-spark-1.2": 20, "meta/muse-spark-1.2-contributor": 20,
 	"deepseek/deepseek-v4-pro": 20, "deepseek/deepseek-v4-flash": 60,
@@ -147,13 +157,14 @@ var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 	"zai-org/glm-5.1": 20, "zai-org/glm-5": 20,
 	"minimaxai/minimax-m3": 47, "minimaxai/minimax-m2.7": 20,
 	"minimaxai/minimax-m2.5": 20,
-	"xiaomi/mimo-v2.5-pro":   20, "xiaomi/mimo-v2.5": 30,
+	"xiaomi/mimo-v2.6-pro":   20, "xiaomi/mimo-v2.6-pro-ultraspeed": 10, "xiaomi/mimo-v2.6-flash": 67,
+	"xiaomi/mimo-v2.5-pro": 20, "xiaomi/mimo-v2.5": 30,
 	"qwen/qwen3.8-omni-flash": 20, "qwen/qwen3.8-max-0902": 20, "qwen/qwen3.8-max": 20,
 	"qwen/qwen3.8-27b": 70, "qwen/qwen3.8-flash": 20,
 	"qwen/qwen3.7-max": 33, "qwen/qwen3.7-plus": 33,
 	"qwen/qwen3.7-flash": 20, "qwen/qwen3.6-max-preview": 20,
 	"qwen/qwen3.6-plus":      33,
-	"stepfun/step-3.7-flash": 20, "stepfun/step-3.5-flash": 20,
+	"stepfun/step-5-preview": 20, "stepfun/step-3.7-flash": 20, "stepfun/step-3.5-flash": 20,
 	"tencent/hy3-paid": 70, "tencent/hy4-preview": 20,
 	"meituan/longcat-2.0":                   50,
 	"inclusionai/ling-3.0-flash-sante:free": 0,
@@ -165,7 +176,7 @@ var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 var commandCodeFallbackContextWindows = map[string]int{
 	"gpt-5.6-sol": 1_050_000, "gpt-5.6-luna": 1_050_000,
 	"google/gemini-3.8-flash": 1_000_000, "google/gemini-3.7-flash": 1_048_576,
-	"xai/grok-4.6": 500_000, "xai/grok-4.5": 500_000,
+	"xai/grok-4.7": 500_000, "xai/grok-4.6": 500_000, "xai/grok-4.5": 500_000,
 	"meta/muse-spark-1.3": 1_048_576, "meta/muse-spark-1.3-contributor": 1_048_576,
 	"meta/muse-spark-1.2": 1_048_576, "meta/muse-spark-1.2-contributor": 1_048_576,
 	"deepseek/deepseek-v4-pro": 1_000_000, "deepseek/deepseek-v4-flash": 1_000_000,
@@ -179,13 +190,14 @@ var commandCodeFallbackContextWindows = map[string]int{
 	"zai-org/glm-5.1": 200_000, "zai-org/glm-5": 200_000,
 	"minimaxai/minimax-m3": 1_000_000, "minimaxai/minimax-m2.7": 200_000,
 	"minimaxai/minimax-m2.5": 200_000,
-	"xiaomi/mimo-v2.5-pro":   1_000_000, "xiaomi/mimo-v2.5": 1_000_000,
+	"xiaomi/mimo-v2.6-pro":   1_048_576, "xiaomi/mimo-v2.6-pro-ultraspeed": 1_048_576, "xiaomi/mimo-v2.6-flash": 1_048_576,
+	"xiaomi/mimo-v2.5-pro": 1_000_000, "xiaomi/mimo-v2.5": 1_000_000,
 	"qwen/qwen3.8-omni-flash": 1_000_000, "qwen/qwen3.8-max-0902": 1_000_000, "qwen/qwen3.8-max": 1_000_000,
 	"qwen/qwen3.8-27b": 262_144, "qwen/qwen3.8-flash": 1_000_000,
 	"qwen/qwen3.7-max": 1_000_000, "qwen/qwen3.7-plus": 1_000_000,
 	"qwen/qwen3.7-flash": 1_000_000, "qwen/qwen3.6-max-preview": 200_000,
 	"qwen/qwen3.6-plus":      200_000,
-	"stepfun/step-3.7-flash": 256_000, "stepfun/step-3.5-flash": 1_000_000,
+	"stepfun/step-5-preview": 1_000_000, "stepfun/step-3.7-flash": 256_000, "stepfun/step-3.5-flash": 1_000_000,
 	"tencent/hy3-paid": 262_144, "tencent/hy4-preview": 1_048_576,
 	"meituan/longcat-2.0":                   1_048_576,
 	"inclusionai/ling-3.0-flash-sante:free": 262_144,
@@ -207,6 +219,7 @@ var commandCodeModelAliases = map[string]string{
 	"glm-5.1": "zai-org/glm-5.1", "glm-5": "zai-org/glm-5",
 	"minimax-m3": "minimaxai/minimax-m3", "minimax-m2.7": "minimaxai/minimax-m2.7",
 	"minimax-m2.5":  "minimaxai/minimax-m2.5",
+	"mimo-v2.6-pro": "xiaomi/mimo-v2.6-pro", "mimo-v2.6-pro-ultraspeed": "xiaomi/mimo-v2.6-pro-ultraspeed", "mimo-v2.6-flash": "xiaomi/mimo-v2.6-flash",
 	"mimo-v2.5-pro": "xiaomi/mimo-v2.5-pro", "mimo-v2.5": "xiaomi/mimo-v2.5",
 	"qwen3.8-omni-flash": "qwen/qwen3.8-omni-flash", "qwen-3.8-omni-flash": "qwen/qwen3.8-omni-flash",
 	"qwen3.8-max-0902": "qwen/qwen3.8-max-0902", "qwen-3.8-max-0902": "qwen/qwen3.8-max-0902",
@@ -218,7 +231,7 @@ var commandCodeModelAliases = map[string]string{
 	"qwen-3.7-flash": "qwen/qwen3.7-flash", "qwen3.6-max-preview": "qwen/qwen3.6-max-preview",
 	"qwen-3.6-max-preview": "qwen/qwen3.6-max-preview", "qwen3.6-plus": "qwen/qwen3.6-plus",
 	"qwen-3.6-plus":  "qwen/qwen3.6-plus",
-	"step-3.7-flash": "stepfun/step-3.7-flash", "step-3.5-flash": "stepfun/step-3.5-flash",
+	"step-5-preview": "stepfun/step-5-preview", "step-3.7-flash": "stepfun/step-3.7-flash", "step-3.5-flash": "stepfun/step-3.5-flash",
 	"hy3-paid": "tencent/hy3-paid", "hy4-preview": "tencent/hy4-preview",
 	"gemini-3.8-flash": "google/gemini-3.8-flash", "gemini-3.7-flash": "google/gemini-3.7-flash",
 	"nemotron-3-ultra-550b-a55b": "nvidia/nemotron-3-ultra-550b-a55b",
@@ -231,7 +244,7 @@ var commandCodeModelAliases = map[string]string{
 	"laguna-s-2.1-free":         "poolside/laguna-s-2.1-free", "laguna-s-2.1": "poolside/laguna-s-2.1-free",
 	"muse-spark-1.3": "meta/muse-spark-1.3", "muse-spark-1.3-contributor": "meta/muse-spark-1.3-contributor",
 	"muse-spark-1.2": "meta/muse-spark-1.2", "muse-spark-1.2-contributor": "meta/muse-spark-1.2-contributor",
-	"grok-4.5": "xai/grok-4.5", "grok-4.6": "xai/grok-4.6",
+	"grok-4.5": "xai/grok-4.5", "grok-4.6": "xai/grok-4.6", "grok-4.7": "xai/grok-4.7",
 }
 
 func commandCodeCanonicalModelID(model string) string {
@@ -315,6 +328,11 @@ func setCommandCodeFallbackTiers(entries map[string]commandCodeCatalogEntry) {
 		commandCodeTier(0, commandCodeInt(272_000), commandCodeRates(0.2, 1.2, 0.02, 0.25)),
 		commandCodeTier(272_000, nil, commandCodeRates(0.4, 1.8, 0.04, 0.5)),
 	})
+	grok47List := commandCodeRates(2, 6, 0.5)
+	set("xai/grok-4.7", []commandCodeCatalogTier{
+		{MinTokens: 0, MaxTokens: commandCodeInt(200_000), Rates: commandCodeRates(1.2, 3.5999999999999996, 0.3), ListRates: &grok47List},
+		{MinTokens: 200_000, Rates: commandCodeRates(1.2, 3.5999999999999996, 0.3), ListRates: &grok47List},
+	})
 	set("xai/grok-4.6", []commandCodeCatalogTier{
 		commandCodeTier(0, commandCodeInt(200_000), commandCodeRates(2, 6, 0.5)),
 		commandCodeTier(200_000, nil, commandCodeRates(4, 12, 1)),
@@ -354,6 +372,10 @@ func setCommandCodeFallbackDeals(entries map[string]commandCodeCatalogEntry) {
 	set("minimaxai/minimax-m3", commandCodeCatalogDeal{
 		Code: "minimax-m3-2x-usage", Label: "50% off", DiscountPercent: 50,
 		Term: "50% off. See the deal for details.",
+	})
+	set("xai/grok-4.7", commandCodeCatalogDeal{
+		Code: "grok-4.7-40-off", Label: "40% off", DiscountPercent: 40,
+		Term: "ends September 27, 2026", ExpiresAt: time.Date(2026, 9, 27, 23, 59, 59, 999_000_000, time.UTC),
 	})
 	set("xiaomi/mimo-v2.5", commandCodeCatalogDeal{
 		Code: "mimo-v2.5-98-off", Label: "98% off", DiscountPercent: 98,

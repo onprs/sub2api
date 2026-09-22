@@ -20,6 +20,37 @@ func TestCommandCodeReferencePricingCoversOfficialGoatRates(t *testing.T) {
 	require.InDelta(t, 0.25e-6, pricing.CacheCreationPricePerToken, 1e-12)
 	require.Len(t, pricing.Intervals, 2)
 
+	pricing, ok = commandCodeReferencePricingAt("stepfun/Step-5-Preview", offPeak)
+	require.True(t, ok)
+	require.InDelta(t, 1e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 2.7e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.05e-6, pricing.CacheReadPricePerToken, 1e-12)
+
+	pricing, ok = commandCodeReferencePricingAt("xai/grok-4.7", offPeak)
+	require.True(t, ok)
+	require.Len(t, pricing.Intervals, 2)
+	require.InDelta(t, 1.2e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 3.6e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.3e-6, pricing.CacheReadPricePerToken, 1e-12)
+
+	pricing, ok = commandCodeReferencePricingAt("xiaomi/mimo-v2.6-flash", offPeak)
+	require.True(t, ok)
+	require.InDelta(t, 0.14e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 0.28e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.0028e-6, pricing.CacheReadPricePerToken, 1e-12)
+
+	pricing, ok = commandCodeReferencePricingAt("xiaomi/mimo-v2.6-pro", offPeak)
+	require.True(t, ok)
+	require.InDelta(t, 0.435e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 0.87e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.0036e-6, pricing.CacheReadPricePerToken, 1e-12)
+
+	pricing, ok = commandCodeReferencePricingAt("xiaomi/mimo-v2.6-pro-ultraspeed", offPeak)
+	require.True(t, ok)
+	require.InDelta(t, 4.35e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 8.7e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.036e-6, pricing.CacheReadPricePerToken, 1e-12)
+
 	pricing, ok = commandCodeReferencePricingAt("google/gemini-3.8-flash", offPeak)
 	require.True(t, ok)
 	require.InDelta(t, 1.5e-6, pricing.InputPricePerToken, 1e-12)
@@ -100,6 +131,11 @@ func TestCommandCodeReferencePricingResolvesAliasesAndCase(t *testing.T) {
 		"qwen-3.7-plus",
 		"qwen3.7-plus",
 		"grok-4.6",
+		"grok-4.7",
+		"step-5-preview",
+		"mimo-v2.6-flash",
+		"mimo-v2.6-pro",
+		"mimo-v2.6-pro-ultraspeed",
 		"glm-5.3-flash",
 		"glm-5.3-flashx",
 		"gemini-3.8-flash",
@@ -311,6 +347,34 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.InDelta(t, 40, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 	require.InDelta(t, 1.75, quotaCost.Multiplier, 1e-9)
 
+	// Step 5 Preview：官方 credits $20 → 倍率 70/20 = 3.5x
+	quotaCost, ok = svc.GetCommandCodeQuotaCost("stepfun/Step-5-Preview")
+	require.True(t, ok)
+	require.InDelta(t, 20, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 70.0/20.0, quotaCost.Multiplier, 1e-9)
+
+	// Grok 4.7：促销期官方 credits $35 → 倍率 2x
+	quotaCost, ok = svc.GetCommandCodeQuotaCost("xai/grok-4.7")
+	require.True(t, ok)
+	require.InDelta(t, 35, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 2.0, quotaCost.Multiplier, 1e-9)
+
+	// MiMo V2.6 Flash：官方 credits $67 → 倍率 70/67
+	quotaCost, ok = svc.GetCommandCodeQuotaCost("xiaomi/mimo-v2.6-flash")
+	require.True(t, ok)
+	require.InDelta(t, 67, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 70.0/67.0, quotaCost.Multiplier, 1e-9)
+
+	// MiMo V2.6 Pro / UltraSpeed：官方 credits 分别为 $20 / $10。
+	quotaCost, ok = svc.GetCommandCodeQuotaCost("xiaomi/mimo-v2.6-pro")
+	require.True(t, ok)
+	require.InDelta(t, 20, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 70.0/20.0, quotaCost.Multiplier, 1e-9)
+	quotaCost, ok = svc.GetCommandCodeQuotaCost("xiaomi/mimo-v2.6-pro-ultraspeed")
+	require.True(t, ok)
+	require.InDelta(t, 10, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 70.0/10.0, quotaCost.Multiplier, 1e-9)
+
 	// LongCat 2.0 已恢复为付费模型，旧 :free 输入仍解析到同一付费条目。
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("meituan/LongCat-2.0:free")
 	require.True(t, ok)
@@ -338,7 +402,15 @@ func TestCommandCodeQuotaCostUsesLocalDeepSeekV41MonthlyOverride(t *testing.T) {
 }
 
 func TestCommandCodePricingMetadataMatchesCurrentOfficialPromotions(t *testing.T) {
-	contextWindow, promotion, ok := commandCodeReferenceMetadataAt("xiaomi/mimo-v2.5", nowForTest())
+	contextWindow, promotion, ok := commandCodeReferenceMetadataAt("xai/grok-4.7", nowForTest())
+	require.True(t, ok)
+	require.Equal(t, 500_000, contextWindow)
+	require.NotNil(t, promotion)
+	require.Equal(t, "grok-4.7-40-off", promotion.Code)
+	require.Equal(t, "40% off", promotion.Label)
+	require.Equal(t, time.Date(2026, 9, 27, 23, 59, 59, 999_000_000, time.UTC), *promotion.ExpiresAt)
+
+	contextWindow, promotion, ok = commandCodeReferenceMetadataAt("xiaomi/mimo-v2.5", nowForTest())
 	require.True(t, ok)
 	require.Equal(t, 1_000_000, contextWindow)
 	require.NotNil(t, promotion)

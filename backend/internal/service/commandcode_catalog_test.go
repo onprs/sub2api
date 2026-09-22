@@ -409,6 +409,11 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 	require.Contains(t, ids, "deepseek/deepseek-v4.1-flash")
 	require.Contains(t, ids, "google/gemini-3.8-flash")
 	require.Contains(t, ids, "Qwen/Qwen3.8-Max-0902")
+	require.Contains(t, ids, "stepfun/Step-5-Preview")
+	require.Contains(t, ids, "xai/grok-4.7")
+	require.Contains(t, ids, "xiaomi/mimo-v2.6-flash")
+	require.Contains(t, ids, "xiaomi/mimo-v2.6-pro")
+	require.Contains(t, ids, "xiaomi/mimo-v2.6-pro-ultraspeed")
 	require.Contains(t, ids, "Qwen/Qwen3.8-Omni-Flash")
 	require.Contains(t, ids, "z-ai/glm-5.3-flashx")
 	require.Contains(t, ids, "meituan/LongCat-2.0")
@@ -451,7 +456,7 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 func TestCommandCodeFallbackCatalogHasAllPricedModels(t *testing.T) {
 	entries := commandCodeFallbackCatalogEntries()
 	ids := CommandCodeFallbackModelIDs()
-	require.Len(t, entries, 52)
+	require.Len(t, entries, 57)
 	require.Len(t, entries, len(commandCodeFallbackModels))
 	for _, model := range []string{
 		"google/gemini-3.8-flash",
@@ -460,6 +465,11 @@ func TestCommandCodeFallbackCatalogHasAllPricedModels(t *testing.T) {
 		"meta/muse-spark-1.3-contributor",
 		"deepseek/deepseek-v4-flash-fast",
 		"deepseek/deepseek-v4.1-flash",
+		"stepfun/Step-5-Preview",
+		"xai/grok-4.7",
+		"xiaomi/mimo-v2.6-flash",
+		"xiaomi/mimo-v2.6-pro",
+		"xiaomi/mimo-v2.6-pro-ultraspeed",
 		"Qwen/Qwen3.8-Max-0902",
 		"Qwen/Qwen3.8-Flash",
 		"tencent/hy4-preview",
@@ -494,6 +504,11 @@ func TestCommandCodeCatalogExposesFallbackWhenRefreshFails(t *testing.T) {
 	require.Contains(t, models, "gpt-5.6-sol")
 	require.Contains(t, models, "google/gemini-3.8-flash")
 	require.Contains(t, models, "deepseek/deepseek-v4-flash-fast")
+	require.Contains(t, models, "stepfun/Step-5-Preview")
+	require.Contains(t, models, "xai/grok-4.7")
+	require.Contains(t, models, "xiaomi/mimo-v2.6-flash")
+	require.Contains(t, models, "xiaomi/mimo-v2.6-pro")
+	require.Contains(t, models, "xiaomi/mimo-v2.6-pro-ultraspeed")
 	require.Contains(t, models, "Qwen/Qwen3.8-Omni-Flash")
 	require.Contains(t, models, "z-ai/glm-5.3-flashx")
 	require.Contains(t, models, "meituan/LongCat-2.0")

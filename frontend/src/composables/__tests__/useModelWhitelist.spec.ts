@@ -27,7 +27,7 @@ describe('useModelWhitelist', () => {
   it('Command Code 模型列表与最新 GOAT 目录一致', () => {
     const models = getModelsByPlatform('commandcode')
 
-    expect(models).toHaveLength(52)
+    expect(models).toHaveLength(57)
     expect(models).toEqual(expect.arrayContaining([
       'z-ai/glm-5.3-flashx',
       'Qwen/Qwen3.8-Omni-Flash',
@@ -36,6 +36,11 @@ describe('useModelWhitelist', () => {
       'meta/muse-spark-1.3-contributor',
       'deepseek/deepseek-v4-flash-fast',
       'deepseek/deepseek-v4.1-flash',
+      'stepfun/Step-5-Preview',
+      'xai/grok-4.7',
+      'xiaomi/mimo-v2.6-flash',
+      'xiaomi/mimo-v2.6-pro',
+      'xiaomi/mimo-v2.6-pro-ultraspeed',
       'Qwen/Qwen3.8-Max-0902',
       'Qwen/Qwen3.8-Flash',
       'tencent/hy4-preview',
