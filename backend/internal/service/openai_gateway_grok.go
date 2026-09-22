@@ -1671,10 +1671,12 @@ func (s *OpenAIGatewayService) updateGrokUsageSnapshotWithRateLimit(ctx context.
 		_ = s.accountRepo.UpdateExtra(stateCtx, accountID, updates)
 	}
 	// Error responses are reconciled by handleGrokAccountUpstreamError. Pool-mode
-	// API keys retain the snapshot for observability but leave account health to
-	// the upstream pool. Other accounts install the immediate runtime and durable
-	// rate-limit state when the observed window is exhausted.
-	if installRateLimit && hasActiveLimit && !account.IsPoolMode() {
+	// and ordinary Grok API keys retain the snapshot for observability but never
+	// enter account-level rate limiting: an API key has no local subscription
+	// window, and upstream rate-limit headers only describe the provider key.
+	// OAuth accounts install the immediate runtime and durable rate-limit state
+	// when the observed window is exhausted.
+	if installRateLimit && hasActiveLimit && grokAccountCanEnterRateLimit(account) {
 		s.rateLimitGrok(stateCtx, account, resetAt)
 	} else if recovery {
 		clearGrokRateLimitAfterRecovery(stateCtx, s.accountRepo, account)
@@ -1856,8 +1858,12 @@ func clearGrokRateLimitAfterRecovery(ctx context.Context, repo AccountRepository
 	}
 }
 
+func grokAccountCanEnterRateLimit(account *Account) bool {
+	return account != nil && !account.IsGrokAPIKey() && !account.IsPoolMode()
+}
+
 func persistGrokRateLimit(ctx context.Context, repo AccountRepository, account *Account, resetAt time.Time) {
-	if repo == nil || account == nil || account.ID <= 0 {
+	if repo == nil || account == nil || account.ID <= 0 || !grokAccountCanEnterRateLimit(account) {
 		return
 	}
 	resetAt = normalizeGrokRateLimitResetAt(account, resetAt, time.Now())
@@ -1875,7 +1881,7 @@ func persistGrokRateLimit(ctx context.Context, repo AccountRepository, account *
 }
 
 func (s *OpenAIGatewayService) rateLimitGrok(ctx context.Context, account *Account, resetAt time.Time) {
-	if s == nil || account == nil {
+	if s == nil || account == nil || !grokAccountCanEnterRateLimit(account) {
 		return
 	}
 	now := time.Now()
@@ -2018,6 +2024,23 @@ func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Contex
 		return
 	}
 	if isGrokContentPolicyRejection(statusCode, responseBody) {
+		return
+	}
+	// Grok API keys are static credentials. Upstream 429, quota windows, and
+	// temporary provider errors must fail over the current request without
+	// parking the only local account in rate-limit or temp-unschedulable state.
+	if account.IsGrokAPIKey() {
+		now := time.Now()
+		decision := classifyGrokUpstreamFailure(statusCode, responseBody, grokRequestedModelFromCtx(ctx))
+		snapshot := parseGrokQuotaSnapshot(headers, statusCode, now)
+		stampGrokQuotaSnapshotForPlan(account, snapshot, grokRequestedModelFromCtx(ctx))
+		s.updateGrokUsageSnapshotWithRateLimit(ctx, account, snapshot, false)
+		// An administrator's explicit temporary rule remains actionable. Automatic
+		// quota, rate-limit, and temporary-error handling stays disabled below.
+		if statusCode == http.StatusForbidden && s.applyGrokForbiddenPolicy(ctx, account, responseBody) {
+			return
+		}
+		slog.Info("grok_api_key_account_state_skipped", "account_id", account.ID, "status_code", statusCode, "failure_class", string(decision.Class))
 		return
 	}
 	now := time.Now()

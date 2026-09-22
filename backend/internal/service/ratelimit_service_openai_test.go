@@ -198,6 +198,20 @@ func (r *openAI429SnapshotRepo) BulkUpdate(_ context.Context, ids []int64, updat
 	return int64(len(ids)), nil
 }
 
+func TestHandleUpstreamError_GrokAPIKeySkipsAccountRateLimit(t *testing.T) {
+	repo := &openAI429SnapshotRepo{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	account := &Account{ID: 615, Platform: PlatformGrok, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}
+	headers := http.Header{"Retry-After": []string{"45"}}
+
+	shouldDisable := svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, headers, []byte(`{"error":{"message":"rate limited"}}`))
+
+	require.False(t, shouldDisable)
+	require.Zero(t, repo.rateLimitedID)
+	require.Nil(t, account.RateLimitResetAt)
+	require.True(t, account.IsSchedulable())
+}
+
 func TestHandle429_OpenAIPersistsCodexSnapshotImmediately(t *testing.T) {
 	repo := &openAI429SnapshotRepo{}
 	svc := NewRateLimitService(repo, nil, nil, nil, nil)

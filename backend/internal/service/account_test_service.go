@@ -1434,13 +1434,18 @@ func (s *AccountTestService) observeGrokTestResponse(ctx context.Context, accoun
 		_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
 			grokQuotaSnapshotExtraKey: snapshot,
 		})
-		if limited {
+		if limited && grokAccountCanEnterRateLimit(account) {
 			persistGrokRateLimit(ctx, s.accountRepo, account, resetAt)
 		} else if isSuccessfulGrokRateLimitRecovery(account, snapshot) {
 			clearGrokRateLimitAfterRecovery(ctx, s.accountRepo, account)
 		}
 	} else if s.accountRepo != nil && isSuccessfulGrokRateLimitRecovery(account, &xai.QuotaSnapshot{StatusCode: resp.StatusCode}) {
 		clearGrokRateLimitAfterRecovery(ctx, s.accountRepo, account)
+	}
+	// API key tests still record the quota snapshot above, but they must not
+	// convert provider quota or temporary errors into local account downtime.
+	if account.IsGrokAPIKey() {
+		return
 	}
 	if s.accountRepo == nil || len(responseBody) == 0 {
 		if resp.StatusCode == http.StatusPaymentRequired && s.accountRepo != nil {

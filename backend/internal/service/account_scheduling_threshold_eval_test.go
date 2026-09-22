@@ -442,6 +442,24 @@ func TestEvaluateAccountSchedulingThreshold_GrokUsesConfiguredThresholds(t *test
 	require.True(t, wantUntil.Equal(*decision.Until))
 }
 
+func TestEvaluateAccountSchedulingThreshold_GrokAPIKeyIgnoresQuotaWindow(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	account := &Account{
+		Platform: PlatformGrok,
+		Type:     AccountTypeAPIKey,
+		Extra: map[string]any{
+			"grok_sched_utilization": 99.0,
+			"grok_sched_reset_at":    now.Add(2 * time.Hour).Format(time.RFC3339),
+		},
+	}
+
+	decision := EvaluateAccountSchedulingThreshold(account, map[string]int{PlatformGrok: 90}, now)
+
+	require.False(t, decision.ShouldPause)
+}
+
 func TestEvaluateAccountSchedulingThreshold_GrokUsesOnlyHeaderQuotaWindow(t *testing.T) {
 	t.Parallel()
 	// Billing seven_day/thirty_day must not drive pause; only grok_sched_* may.
