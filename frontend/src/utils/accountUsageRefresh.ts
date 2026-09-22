@@ -29,8 +29,8 @@ const isNonBlankString = (value: unknown): value is string => (
   typeof value === 'string' && value.trim().length > 0
 )
 
-export const buildOpenAIAPIKeyBalanceRefreshKey = (account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'credentials' | 'credentials_status' | 'proxy_id'>): string => {
-  if (account.platform !== 'openai' || account.type !== 'apikey') return ''
+export const buildAPIKeyBalanceRefreshKey = (account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'credentials' | 'credentials_status' | 'proxy_id'>): string => {
+  if ((account.platform !== 'openai' && account.platform !== 'grok') || account.type !== 'apikey') return ''
 
   return [
     account.id,
@@ -174,7 +174,7 @@ export const buildAccountUsageRefreshKey = (
   account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'last_used_at' | 'rate_limit_reset_at' | 'extra' | 'credentials' | 'credentials_status' | 'proxy_id'>
 ): string => {
   return buildOpenAIUsageRefreshKey(account) ||
-    buildOpenAIAPIKeyBalanceRefreshKey(account) ||
+    buildAPIKeyBalanceRefreshKey(account) ||
     buildOpenCodeGoUsageRefreshKey(account) ||
     buildClinePassUsageRefreshKey(account) ||
     buildOpenRouterUsageRefreshKey(account) ||

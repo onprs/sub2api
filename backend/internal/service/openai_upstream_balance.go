@@ -68,10 +68,10 @@ type openAIUpstreamUsageResponse struct {
 	Subscription  json.RawMessage           `json:"subscription"`
 }
 
-// getOpenAIAPIKeyUpstreamBalance 对 OpenAI API Key 自定义上游做一次实时探测。
+// getAPIKeyUpstreamBalance 对 OpenAI/Grok API Key 自定义上游做一次实时探测。
 // 非 sub2api 上游通常返回 404/405 或不同结构，此时按 unsupported 降级，
 // 不影响账户状态、调度或凭据。
-func (s *AccountUsageService) getOpenAIAPIKeyUpstreamBalance(ctx context.Context, account *Account) (*UsageInfo, error) {
+func (s *AccountUsageService) getAPIKeyUpstreamBalance(ctx context.Context, account *Account) (*UsageInfo, error) {
 	now := time.Now().UTC()
 	usage := &UsageInfo{UpdatedAt: &now}
 	usage.UpstreamBalance = &UpstreamBalanceInfo{
@@ -79,12 +79,19 @@ func (s *AccountUsageService) getOpenAIAPIKeyUpstreamBalance(ctx context.Context
 		UpdatedAt: &now,
 	}
 
-	if account == nil || !account.IsOpenAIApiKey() {
+	if account == nil || (!account.IsOpenAIApiKey() && !account.IsGrokAPIKey()) {
 		return usage, nil
 	}
 
-	baseURL := strings.TrimSpace(account.GetOpenAIBaseURL())
-	if baseURL == "" || isOfficialOpenAIUpstreamBalanceTarget(baseURL) {
+	baseURL := ""
+	profile := HTTPUpstreamProfileOpenAI
+	if account.IsGrokAPIKey() {
+		baseURL = strings.TrimSpace(account.GetGrokBaseURL())
+		profile = HTTPUpstreamProfileGrok
+	} else {
+		baseURL = strings.TrimSpace(account.GetOpenAIBaseURL())
+	}
+	if baseURL == "" || isOfficialAPIKeyUpstreamBalanceTarget(account, baseURL) {
 		usage.UpstreamBalance.ErrorCode = "unsupported"
 		return usage, nil
 	}
@@ -94,7 +101,7 @@ func (s *AccountUsageService) getOpenAIAPIKeyUpstreamBalance(ctx context.Context
 		return usage, nil
 	}
 
-	apiKey := strings.TrimSpace(account.GetOpenAIApiKey())
+	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 	if apiKey == "" {
 		usage.UpstreamBalance.Status = openAIUpstreamBalanceStatusError
 		usage.UpstreamBalance.ErrorCode = "missing_api_key"
@@ -120,7 +127,7 @@ func (s *AccountUsageService) getOpenAIAPIKeyUpstreamBalance(ctx context.Context
 
 	requestCtx, cancel := context.WithTimeout(ctx, openAIUpstreamBalanceRequestTimeout)
 	defer cancel()
-	requestCtx = WithHTTPUpstreamProfile(requestCtx, HTTPUpstreamProfileOpenAI)
+	requestCtx = WithHTTPUpstreamProfile(requestCtx, profile)
 	requestCtx = WithHTTPUpstreamRedirectsDisabled(requestCtx)
 
 	usageURL := buildOpenAIUpstreamUsageURL(normalizedBaseURL, now)
@@ -293,6 +300,13 @@ func cloneFloat64Pointer(value *float64) *float64 {
 	}
 	cloned := *value
 	return &cloned
+}
+
+func isOfficialAPIKeyUpstreamBalanceTarget(account *Account, raw string) bool {
+	if account != nil && account.IsGrokAPIKey() {
+		return upstreamBillingProbeTargetIsOfficialAPI(raw)
+	}
+	return isOfficialOpenAIUpstreamBalanceTarget(raw)
 }
 
 func isOfficialOpenAIUpstreamBalanceTarget(raw string) bool {
