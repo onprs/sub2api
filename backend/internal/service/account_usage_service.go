@@ -249,7 +249,7 @@ type UsageInfo struct {
 	// 错误码（机器可读）：forbidden / unauthenticated / rate_limited / network_error
 	ErrorCode string `json:"error_code,omitempty"`
 
-	// OpenAI API Key 上游 sub2api 余额或 Key 配额（实时查询，不持久化）。
+	// OpenAI/Grok API Key 上游 sub2api 余额或 Key 配额（实时查询，不持久化）。
 	UpstreamBalance *UpstreamBalanceInfo `json:"upstream_balance,omitempty"`
 
 	// 获取 usage 时的错误信息（降级返回，而非 500）
@@ -397,8 +397,8 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 		return s.getPassiveUsageForAccount(ctx, account)
 	}
 
-	if account.IsOpenAIApiKey() {
-		return s.getOpenAIAPIKeyUpstreamBalance(ctx, account)
+	if account.IsOpenAIApiKey() || account.IsGrokAPIKey() {
+		return s.getAPIKeyUpstreamBalance(ctx, account)
 	}
 
 	if account.IsOpenCodeGoAPIKey() {

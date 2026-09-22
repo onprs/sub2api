@@ -84,6 +84,77 @@ func TestAccountUsageServiceGetUsageOpenAIAPIKeyReadsSub2APIWalletBalance(t *tes
 	require.True(t, HTTPUpstreamRedirectsDisabled(upstream.lastReq.Context()))
 }
 
+func TestAccountUsageServiceGetUsageGrokAPIKeyReadsSub2APIWalletBalance(t *testing.T) {
+	t.Parallel()
+
+	account := Account{
+		ID:          8103,
+		Platform:    PlatformGrok,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 2,
+		Credentials: map[string]any{
+			"api_key":  "xai-upstream-test",
+			"base_url": "https://relay.example/v1",
+		},
+	}
+	repo := &stubOpenAIAccountRepo{accounts: []Account{account}}
+	upstream := &httpUpstreamRecorder{resp: openAIUpstreamBalanceResponse(http.StatusOK, `{
+		"object":"sub2api.usage",
+		"schema_version":1,
+		"mode":"unrestricted",
+		"isValid":true,
+		"remaining":8.76,
+		"unit":"USD",
+		"balance":8.76
+	}`)}
+	svc := &AccountUsageService{
+		accountRepo:  repo,
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled: false,
+		}}},
+	}
+
+	usage, err := svc.GetUsage(context.Background(), account.ID)
+	require.NoError(t, err)
+	require.NotNil(t, usage)
+	require.NotNil(t, usage.UpstreamBalance)
+	require.Equal(t, openAIUpstreamBalanceStatusAvailable, usage.UpstreamBalance.Status)
+	require.Equal(t, openAIUpstreamBalanceKindWallet, usage.UpstreamBalance.Kind)
+	require.NotNil(t, usage.UpstreamBalance.Amount)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "https://relay.example/v1/usage", upstream.lastReq.URL.Scheme+"://"+upstream.lastReq.URL.Host+upstream.lastReq.URL.Path)
+	require.Equal(t, "true", upstream.lastReq.URL.Query().Get("summary_only"))
+	require.Equal(t, "Bearer xai-upstream-test", upstream.lastReq.Header.Get("Authorization"))
+	require.Equal(t, HTTPUpstreamProfileGrok, HTTPUpstreamProfileFromContext(upstream.lastReq.Context()))
+}
+
+func TestAccountUsageServiceGetUsageGrokAPIKeySkipsOfficialXAI(t *testing.T) {
+	t.Parallel()
+
+	account := Account{
+		ID:       8104,
+		Platform: PlatformGrok,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "xai-official-test",
+			"base_url": "https://api.x.ai/v1",
+		},
+	}
+	upstream := &httpUpstreamRecorder{}
+	svc := &AccountUsageService{
+		accountRepo:  &stubOpenAIAccountRepo{accounts: []Account{account}},
+		httpUpstream: upstream,
+		cfg:          &config.Config{},
+	}
+
+	usage, err := svc.GetUsage(context.Background(), account.ID)
+	require.NoError(t, err)
+	require.NotNil(t, usage.UpstreamBalance)
+	require.Equal(t, openAIUpstreamBalanceStatusUnsupported, usage.UpstreamBalance.Status)
+	require.Nil(t, upstream.lastReq)
+}
+
 func TestAccountUsageServiceGetUsageOpenAIAPIKeyReadsQuotaRemainingAndUsesProxy(t *testing.T) {
 	t.Parallel()
 

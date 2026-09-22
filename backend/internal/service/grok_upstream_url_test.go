@@ -92,6 +92,28 @@ func TestGrokAPIKeyURLPolicyAppliesAllowlistAndPrivateHostControls(t *testing.T)
 	require.Equal(t, "https://127.0.0.1/v1/responses", target)
 }
 
+func TestGrokAPIKeyURLPolicyAllowsPublicCustomHostWhenConfigured(t *testing.T) {
+	account := &Account{
+		Platform: PlatformGrok,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://relay.example.test/xai/v1",
+		},
+	}
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = true
+	cfg.Security.URLAllowlist.UpstreamHosts = []string{"other.example.test"}
+	cfg.Security.URLAllowlist.AllowOpenAIAPIKeyCustomHosts = true
+
+	target, err := buildGrokResponsesURL(account, cfg)
+	require.NoError(t, err)
+	require.Equal(t, "https://relay.example.test/xai/v1/responses", target)
+
+	account.Credentials["base_url"] = "https://127.0.0.1/xai/v1"
+	_, err = buildGrokResponsesURL(account, cfg)
+	require.EqualError(t, err, "invalid base url: base URL rejected by URL security policy")
+}
+
 func TestGrokAPIKeyURLPolicyRedactsMalformedConfiguredURL(t *testing.T) {
 	account := &Account{
 		Platform: PlatformGrok,

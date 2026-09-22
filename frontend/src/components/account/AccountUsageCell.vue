@@ -723,7 +723,7 @@
       />
 
       <div
-        v-if="isOpenAIUpstreamBalanceAccount && loading && !openAIUpstreamBalanceAvailable && !openAIUpstreamBalanceError"
+        v-if="isAPIKeyUpstreamBalanceAccount && loading && !apiKeyUpstreamBalanceAvailable && !apiKeyUpstreamBalanceError"
         class="space-y-1.5"
       >
         <div class="flex items-center gap-1">
@@ -731,22 +731,22 @@
           <div class="h-4 w-16 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
         </div>
       </div>
-      <div v-else-if="isOpenAIUpstreamBalanceAccount && openAIUpstreamBalanceAvailable" class="space-y-1">
+      <div v-else-if="isAPIKeyUpstreamBalanceAccount && apiKeyUpstreamBalanceAvailable" class="space-y-1">
         <div class="flex flex-wrap items-center gap-1.5">
           <span class="text-[10px] text-gray-500 dark:text-gray-400">
-            {{ openAIUpstreamBalanceLabel }}
+            {{ apiKeyUpstreamBalanceLabel }}
           </span>
           <span
-            v-if="openAIUpstreamBalanceAmount != null"
+            v-if="apiKeyUpstreamBalanceAmount != null"
             class="rounded bg-emerald-50 px-1.5 py-0.5 font-mono text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
           >
-            {{ formatCurrency(openAIUpstreamBalanceAmount, openAIUpstreamBalanceUnit) }}
+            {{ formatCurrency(apiKeyUpstreamBalanceAmount, apiKeyUpstreamBalanceUnit) }}
           </span>
           <span
             v-else
             class="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
           >
-            {{ openAIUpstreamBalanceNoAmountLabel }}
+            {{ apiKeyUpstreamBalanceNoAmountLabel }}
           </span>
           <span
             v-if="usageInfo?.upstream_balance?.is_valid === false"
@@ -769,12 +769,12 @@
           {{ t('admin.accounts.usageWindow.activeQuery') }}
         </button>
       </div>
-      <div v-else-if="isOpenAIUpstreamBalanceAccount && openAIUpstreamBalanceError" class="space-y-1">
+      <div v-else-if="isAPIKeyUpstreamBalanceAccount && apiKeyUpstreamBalanceError" class="space-y-1">
         <div
           class="max-w-[220px] truncate text-xs text-amber-600 dark:text-amber-400"
-          :title="openAIUpstreamBalanceError"
+          :title="apiKeyUpstreamBalanceError"
         >
-          {{ openAIUpstreamBalanceError }}
+          {{ apiKeyUpstreamBalanceError }}
         </div>
         <button
           type="button"
@@ -793,7 +793,7 @@
 
       <!-- No data at all -->
       <div
-        v-if="!todayStats && !todayStatsLoading && !hasApiKeyQuota && !openAIUpstreamBalanceVisible && !account.ollama_cloud_usage?.eligible"
+        v-if="!todayStats && !todayStatsLoading && !hasApiKeyQuota && !apiKeyUpstreamBalanceVisible && !account.ollama_cloud_usage?.eligible"
         class="text-xs text-gray-400"
       >-</div>
     </div>
@@ -907,7 +907,7 @@ const shouldFetchUsage = computed(() => {
     return props.account.type === 'oauth'
   }
   if (props.account.platform === 'grok') {
-    return props.account.type === 'oauth'
+    return props.account.type === 'oauth' || props.account.type === 'apikey'
   }
   if (props.account.platform === 'openai') {
     return props.account.type === 'oauth' || props.account.type === 'apikey'
@@ -949,26 +949,26 @@ const hasOpenAIUsageFallback = computed(() => {
   return !!usageInfo.value?.five_hour || !!usageInfo.value?.seven_day
 })
 
-const openAIUpstreamBalance = computed(() => {
-  if (props.account.platform !== 'openai' || props.account.type !== 'apikey') return null
+const apiKeyUpstreamBalance = computed(() => {
+  if ((props.account.platform !== 'openai' && props.account.platform !== 'grok') || props.account.type !== 'apikey') return null
   return usageInfo.value?.upstream_balance ?? null
 })
 
-const openAIUpstreamBalanceAvailable = computed(() => {
-  return openAIUpstreamBalance.value?.status === 'available'
+const apiKeyUpstreamBalanceAvailable = computed(() => {
+  return apiKeyUpstreamBalance.value?.status === 'available'
 })
 
-const openAIUpstreamBalanceAmount = computed(() => {
-  const amount = openAIUpstreamBalance.value?.amount
+const apiKeyUpstreamBalanceAmount = computed(() => {
+  const amount = apiKeyUpstreamBalance.value?.amount
   return typeof amount === 'number' && Number.isFinite(amount) ? amount : null
 })
 
-const openAIUpstreamBalanceUnit = computed(() => {
-  return openAIUpstreamBalance.value?.unit || 'USD'
+const apiKeyUpstreamBalanceUnit = computed(() => {
+  return apiKeyUpstreamBalance.value?.unit || 'USD'
 })
 
-const openAIUpstreamBalanceLabel = computed(() => {
-  switch (openAIUpstreamBalance.value?.kind) {
+const apiKeyUpstreamBalanceLabel = computed(() => {
+  switch (apiKeyUpstreamBalance.value?.kind) {
     case 'api_key_quota':
       return t('admin.accounts.upstreamBalance.quotaRemaining')
     case 'subscription':
@@ -980,14 +980,14 @@ const openAIUpstreamBalanceLabel = computed(() => {
   }
 })
 
-const openAIUpstreamBalanceNoAmountLabel = computed(() => {
-  return openAIUpstreamBalance.value?.kind === 'subscription'
+const apiKeyUpstreamBalanceNoAmountLabel = computed(() => {
+  return apiKeyUpstreamBalance.value?.kind === 'subscription'
     ? t('admin.accounts.upstreamBalance.unlimitedSubscription')
     : t('admin.accounts.upstreamBalance.rateLimited')
 })
 
-const openAIUpstreamBalanceError = computed(() => {
-  const balance = openAIUpstreamBalance.value
+const apiKeyUpstreamBalanceError = computed(() => {
+  const balance = apiKeyUpstreamBalance.value
   if (!balance || balance.status !== 'error') return ''
   switch (balance.error_code) {
     case 'unauthorized':
@@ -1003,8 +1003,8 @@ const openAIUpstreamBalanceError = computed(() => {
   }
 })
 
-const openAIUpstreamBalanceVisible = computed(() => {
-  return loading.value || openAIUpstreamBalanceAvailable.value || openAIUpstreamBalanceError.value !== ''
+const apiKeyUpstreamBalanceVisible = computed(() => {
+  return loading.value || apiKeyUpstreamBalanceAvailable.value || apiKeyUpstreamBalanceError.value !== ''
 })
 
 const openCodeGoUsageWindows = computed(() => [
@@ -1618,8 +1618,8 @@ const isAnthropicOAuthOrSetupToken = computed(() => {
   return props.account.platform === 'anthropic' && (props.account.type === 'oauth' || props.account.type === 'setup-token')
 })
 
-const isOpenAIUpstreamBalanceAccount = computed(() => {
-  return props.account.platform === 'openai' && props.account.type === 'apikey'
+const isAPIKeyUpstreamBalanceAccount = computed(() => {
+  return (props.account.platform === 'openai' || props.account.platform === 'grok') && props.account.type === 'apikey'
 })
 
 const requestParentBatchUsage = (options?: { force?: boolean }) => {
@@ -1644,7 +1644,7 @@ const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?
   const requestSeq = ++usageRequestSeq
 
   // sub2api 上游余额必须实时查询；其他平台继续使用共享缓存。
-  if (!options?.bypassCache && !isOpenAIUpstreamBalanceAccount.value) {
+  if (!options?.bypassCache && !isAPIKeyUpstreamBalanceAccount.value) {
     const cached = _usageCache.get(props.account.id)
     if (cached && Date.now() - cached.ts < USAGE_CACHE_TTL) {
       usageInfo.value = cached.data
@@ -1663,7 +1663,7 @@ const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?
     const result = await enqueueUsageRequest(props.account, fetchFn)
     if (!unmounted.value && requestSeq === usageRequestSeq) {
       usageInfo.value = result
-      if (!isOpenAIUpstreamBalanceAccount.value) {
+      if (!isAPIKeyUpstreamBalanceAccount.value) {
         _usageCache.set(props.account.id, { data: result, ts: Date.now() })
       }
     }
@@ -1737,7 +1737,7 @@ const loadActiveUsage = async () => {
     const result = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
     if (!unmounted.value && requestSeq === usageRequestSeq) {
       usageInfo.value = result
-      if (!isOpenAIUpstreamBalanceAccount.value) {
+      if (!isAPIKeyUpstreamBalanceAccount.value) {
         _usageCache.set(props.account.id, { data: result, ts: Date.now() })
       }
     }
@@ -1945,8 +1945,8 @@ watch(
 watch(
   () => props.liveBalanceRefreshToken,
   (nextToken, prevToken) => {
-    if (nextToken === prevToken || !isOpenAIUpstreamBalanceAccount.value) return
-    if (loading.value || openAIUpstreamBalance.value?.status === 'unsupported') return
+    if (nextToken === prevToken || !isAPIKeyUpstreamBalanceAccount.value) return
+    if (loading.value || apiKeyUpstreamBalance.value?.status === 'unsupported') return
 
     requestAutoLoad(undefined, { bypassCache: true })
   }

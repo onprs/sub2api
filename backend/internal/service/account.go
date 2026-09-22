@@ -359,6 +359,10 @@ func (a *Account) IsGrok() bool {
 	return a.Platform == PlatformGrok
 }
 
+func (a *Account) IsGrokAPIKey() bool {
+	return a != nil && a.Platform == PlatformGrok && a.Type == AccountTypeAPIKey
+}
+
 func (a *Account) IsGrokOAuth() bool {
 	return a.IsGrok() && a.Type == AccountTypeOAuth
 }

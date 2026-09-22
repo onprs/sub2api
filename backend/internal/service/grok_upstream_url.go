@@ -18,15 +18,9 @@ func grokBaseURLValidator(account *Account, cfg *config.Config) (xai.BaseURLVali
 	}
 	switch account.Type {
 	case AccountTypeOAuth:
-		// Official gateway hosts are always trusted and always usable, even when
-		// the operator enables a restrictive URL allowlist. A custom forwarding
-		// host is vetted by the same operator policy as API-key accounts.
-		//
-		// The official-vs-custom decision is made on the host, not via
-		// ValidateTrustedBaseURL: that validator relaxes to accept-any under the
-		// XAI_ALLOW_UNSAFE_URL_OVERRIDES debug switch, which must never let an
-		// OAuth bearer token reach an arbitrary custom host.
-		policyValidator := grokOperatorPolicyValidator(cfg)
+		// 官方网关始终可信；OAuth 自定义转发地址仍必须遵守严格的
+		// 出站主机策略，避免 bearer token 发往未明确允许的目标。
+		policyValidator := grokOperatorPolicyValidator(cfg, false)
 		return redactedGrokBaseURLValidator(func(raw string) (string, error) {
 			if xai.IsOfficialBaseURL(raw) {
 				return xai.ValidateTrustedBaseURL(raw)
@@ -34,15 +28,17 @@ func grokBaseURLValidator(account *Account, cfg *config.Config) (xai.BaseURLVali
 			return policyValidator(raw)
 		}), nil
 	case AccountTypeAPIKey:
-		return redactedGrokBaseURLValidator(grokOperatorPolicyValidator(cfg)), nil
+		// API key 账号与 OpenAI API key 使用同一项自定义上游主机开关。
+		allowCustomHosts := cfg != nil && cfg.Security.URLAllowlist.AllowOpenAIAPIKeyCustomHosts
+		return redactedGrokBaseURLValidator(grokOperatorPolicyValidator(cfg, allowCustomHosts)), nil
 	default:
 		return nil, fmt.Errorf("unsupported grok account type: %s", account.Type)
 	}
 }
 
-// grokOperatorPolicyValidator 按全局出站 URL 安全策略校验自定义 base_url：
-// 白名单开启时强制 UpstreamHosts；关闭时仅做格式校验（HTTP 允许与否跟随配置）。
-func grokOperatorPolicyValidator(cfg *config.Config) xai.BaseURLValidator {
+// grokOperatorPolicyValidator 按全局出站 URL 安全策略校验自定义 base_url。
+// API key 账号允许使用 OpenAI API key 同步启用的公网自定义主机策略。
+func grokOperatorPolicyValidator(cfg *config.Config, allowCustomHosts bool) xai.BaseURLValidator {
 	if cfg == nil {
 		return xai.ValidateBaseURL
 	}
@@ -52,11 +48,14 @@ func grokOperatorPolicyValidator(cfg *config.Config) xai.BaseURLValidator {
 		}
 	}
 	return func(raw string) (string, error) {
-		return urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
-			AllowedHosts:     cfg.Security.URLAllowlist.UpstreamHosts,
-			RequireAllowlist: true,
-			AllowPrivate:     cfg.Security.URLAllowlist.AllowPrivateHosts,
-		})
+		options := urlvalidator.ValidationOptions{
+			AllowPrivate: cfg.Security.URLAllowlist.AllowPrivateHosts,
+		}
+		if !allowCustomHosts {
+			options.AllowedHosts = cfg.Security.URLAllowlist.UpstreamHosts
+			options.RequireAllowlist = true
+		}
+		return urlvalidator.ValidateHTTPSURL(raw, options)
 	}
 }
 

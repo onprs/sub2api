@@ -170,6 +170,36 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toMatch(/9[.,]87/)
   })
 
+  it('Grok API Key 会实时展示 sub2api 钱包余额', async () => {
+    getUsage.mockResolvedValue({
+      upstream_balance: {
+        status: 'available',
+        source: 'sub2api',
+        kind: 'wallet',
+        amount: 8.76,
+        unit: 'USD'
+      }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 8103,
+          platform: 'grok',
+          type: 'apikey',
+          credentials: { base_url: 'https://sub2api.example/v1' },
+          credentials_status: { has_api_key: true }
+        })
+      },
+      global: { stubs: { UsageProgressBar: true, AccountQuotaInfo: true } }
+    })
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledWith(8103)
+    expect(wrapper.text()).toContain('admin.accounts.upstreamBalance.wallet')
+    expect(wrapper.text()).toMatch(/8[.,]76/)
+  })
+
   it('OpenAI API Key 后台刷新期间保留上一笔余额，响应后再原位更新', async () => {
     const refreshedUsage = deferred<any>()
     getUsage

@@ -731,7 +731,7 @@ const usageBatchLoadingByAccountId = ref<Record<string, boolean>>({})
 const usageBatchRequestTokenByAccountId = ref<Record<string, number>>({})
 const usageBatchCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
 // 保留滚动窗口结果，避免列表重载或组件重挂载时反复显示骨架屏。
-// OpenAI API Key 上游余额要求实时探测，只参与批量传输，不进入此缓存。
+// OpenAI/Grok API Key 上游余额要求实时探测，只参与批量传输，不进入此缓存。
 const USAGE_BATCH_CACHE_TTL = 5 * 60 * 1000
 const pendingUsageBatchIds = new Set<number>()
 let usageBatchFlushTimer: ReturnType<typeof setTimeout> | null = null
@@ -752,8 +752,8 @@ const accountSupportsBatchUsage = (account: Account) => {
   }
   if (account.platform === 'gemini') return true
   if (account.platform === 'antigravity') return account.type === 'oauth'
+  if (account.platform === 'grok') return account.type === 'oauth' || account.type === 'apikey'
   if (account.platform === 'openai') return account.type === 'oauth' || account.type === 'apikey'
-  if (account.platform === 'grok') return account.type === 'oauth'
   if (
     account.platform === 'opencode_go' ||
     account.platform === 'clinepass' ||
@@ -766,7 +766,7 @@ const accountSupportsBatchUsage = (account: Account) => {
 }
 
 const accountRequiresLiveUsage = (account: Account | undefined) => {
-  return account?.platform === 'openai' && account.type === 'apikey'
+  return (account?.platform === 'openai' || account?.platform === 'grok') && account.type === 'apikey'
 }
 
 const setUsageBatchLoading = (accountID: number, loadingState: boolean) => {
