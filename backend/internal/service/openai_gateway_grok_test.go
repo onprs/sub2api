@@ -1899,6 +1899,8 @@ func TestForwardGrokMedia429APIKeySkipsRateLimitDespiteCustomErrorBypass(t *test
 		Name:        "grok",
 		Platform:    PlatformGrok,
 		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
 		Concurrency: 1,
 		Credentials: map[string]any{
 			"api_key":                    "api-key",
