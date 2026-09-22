@@ -1884,7 +1884,7 @@ func TestGrokMediaVideoRequestBindingIsScopedToUserAndAPIKey(t *testing.T) {
 	require.Zero(t, accountID)
 }
 
-func TestForwardGrokMedia429ReconcilesRateLimitBeforeCustomErrorBypass(t *testing.T) {
+func TestForwardGrokMedia429APIKeySkipsRateLimitDespiteCustomErrorBypass(t *testing.T) {
 	t.Setenv(xai.EnvAllowUnsafeURLOverrides, "true")
 	gin.SetMode(gin.TestMode)
 
@@ -1925,9 +1925,11 @@ func TestForwardGrokMedia429ReconcilesRateLimitBeforeCustomErrorBypass(t *testin
 	require.Equal(t, http.StatusInternalServerError, recorder.Code)
 	require.Contains(t, recorder.Body.String(), "Upstream gateway error")
 	require.NotContains(t, recorder.Body.String(), "do not expose")
-	require.Equal(t, 1, repo.rateLimitedCalls)
+	require.Zero(t, repo.rateLimitedCalls)
 	require.Zero(t, repo.tempUnschedCalls)
-	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Nil(t, account.RateLimitResetAt)
+	require.True(t, account.IsSchedulable())
 }
 
 func TestGrokMedia429FailoverPreservesRetryAfter(t *testing.T) {
