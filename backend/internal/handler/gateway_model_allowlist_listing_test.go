@@ -63,7 +63,103 @@ func TestGatewayModels_ModelAllowlistWildcardExpandsAgainstSource(t *testing.T) 
 	require.Equal(t, []string{"gpt-5.5-codex", "gpt-5.5-mini", "gpt-5.4"}, modelIDsForTest(got.Data))
 }
 
+func TestGatewayModels_DynamicAPIKeyUnionsExactGroupAllowlistModels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	firstGroupID := int64(71)
+	secondGroupID := int64(72)
+	firstGroup := &service.Group{
+		ID: firstGroupID, Platform: service.PlatformOpenAI, Status: service.StatusActive,
+		ModelAllowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"group-one-public", "custom-series-*"}},
+	}
+	secondGroup := &service.Group{
+		ID: secondGroupID, Platform: service.PlatformOpenAI, Status: service.StatusActive,
+		ModelAllowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"group-two-public"}},
+	}
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{
+		firstGroupID: {{
+			ID: 71, Platform: service.PlatformOpenAI,
+			Credentials: map[string]any{"model_mapping": map[string]any{
+				"custom-series-one":  "gpt-5.4",
+				"group-one-unlisted": "gpt-5.5",
+			}},
+		}},
+		secondGroupID: {{
+			ID: 72, Platform: service.PlatformOpenAI,
+			Credentials: map[string]any{"model_mapping": map[string]any{
+				"group-two-unlisted": "gpt-5.4",
+			}},
+		}},
+	}})
+	primaryGroupID := firstGroupID
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		ID: 100, GroupID: &primaryGroupID, Group: firstGroup, RoutingPlatform: service.PlatformOpenAI,
+		RoutingGroups: []service.APIKeyGroupBinding{
+			{GroupID: firstGroupID, Group: firstGroup},
+			{GroupID: secondGroupID, Priority: 1, Group: secondGroup},
+		},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	ids := modelIDsForTest(got.Data)
+	require.Contains(t, ids, "group-one-public")
+	require.Contains(t, ids, "custom-series-one")
+	require.Contains(t, ids, "group-two-public")
+	require.NotContains(t, ids, "custom-series-*")
+	require.NotContains(t, ids, "group-one-unlisted")
+	require.NotContains(t, ids, "group-two-unlisted")
+}
+
+func TestGatewayModels_DynamicAPIKeyUnionsExactAntigravityAllowlistModels(t *testing.T) {
+	firstGroupID := int64(81)
+	secondGroupID := int64(82)
+	firstGroup := &service.Group{
+		ID: firstGroupID, Platform: service.PlatformAntigravity, Status: service.StatusActive,
+		ModelAllowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"claude-one-public", "claude-one-mapped"}},
+	}
+	secondGroup := &service.Group{
+		ID: secondGroupID, Platform: service.PlatformAntigravity, Status: service.StatusActive,
+		ModelAllowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"claude-two-public"}},
+	}
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{
+		firstGroupID: {{
+			ID: 81, Platform: service.PlatformAntigravity,
+			Credentials: map[string]any{"model_mapping": map[string]any{
+				"claude-one-mapped": "claude-provider-model",
+			}},
+		}},
+		secondGroupID: {{
+			ID: 82, Platform: service.PlatformAntigravity,
+			Credentials: map[string]any{"model_mapping": map[string]any{
+				"claude-two-unlisted": "claude-provider-model",
+			}},
+		}},
+	}})
+	primaryGroupID := firstGroupID
+	apiKey := &service.APIKey{
+		ID: 200, GroupID: &primaryGroupID, Group: firstGroup, RoutingPlatform: service.PlatformAntigravity,
+		RoutingGroups: []service.APIKeyGroupBinding{
+			{GroupID: firstGroupID, Group: firstGroup},
+			{GroupID: secondGroupID, Priority: 1, Group: secondGroup},
+		},
+	}
+
+	models := dynamicAPIKeyAntigravityMappedModels(context.Background(), h.gatewayService, apiKey, service.AntigravityModelsProtocolClaude)
+
+	require.Contains(t, models, "claude-one-public")
+	require.Contains(t, models, "claude-one-mapped")
+	require.Contains(t, models, "claude-two-public")
+	require.NotContains(t, models, "claude-two-unlisted")
+}
+
 // geminiAllowlistAccountRepoStub 在 gatewayModelsAccountRepoStub 之上补充
+
 // Gemini 兼容层用到的按平台过滤查询（分组内无任何账号，触发 fallback 列表）。
 type geminiAllowlistAccountRepoStub struct {
 	gatewayModelsAccountRepoStub

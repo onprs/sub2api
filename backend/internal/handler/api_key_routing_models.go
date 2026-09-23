@@ -48,6 +48,7 @@ func dynamicAPIKeyModels(ctx context.Context, gateway *service.GatewayService, a
 		if group.ModelAllowlistEnabled() {
 			source := modelListingSource(groupPlatform, available, fallback)
 			available = group.ModelAllowlist.FilterForListing(source)
+			available = appendExplicitGroupAllowlistModels(available, group.ModelAllowlist.Models)
 		} else if len(available) == 0 {
 			available = fallback
 		}
@@ -57,6 +58,18 @@ func dynamicAPIKeyModels(ctx context.Context, gateway *service.GatewayService, a
 		merged = mergeModelIDs(merged, available)
 	}
 	return merged
+}
+
+func appendExplicitGroupAllowlistModels(models, allowlist []string) []string {
+	explicit := make([]string, 0, len(allowlist))
+	for _, model := range allowlist {
+		model = strings.TrimSpace(model)
+		if model == "" || strings.Contains(model, "*") {
+			continue
+		}
+		explicit = append(explicit, model)
+	}
+	return mergeModelIDs(models, explicit)
 }
 
 func compositeAvailableModelsForGroup(ctx context.Context, gateway *service.GatewayService, groupID *int64) []string {
@@ -112,6 +125,7 @@ func dynamicAPIKeyAntigravityMappedModels(ctx context.Context, gateway *service.
 		groupModels := gateway.GetAntigravityMappedModels(ctx, &groupID, protocol)
 		if binding.Group.ModelAllowlistEnabled() {
 			groupModels = binding.Group.ModelAllowlist.FilterForListing(groupModels)
+			groupModels = appendExplicitGroupAllowlistModels(groupModels, binding.Group.ModelAllowlist.Models)
 		}
 		merged = mergeModelIDs(merged, groupModels)
 	}

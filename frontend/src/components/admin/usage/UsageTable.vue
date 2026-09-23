@@ -691,7 +691,7 @@ const hasReasoningEffortMapping = (row: AdminUsageLog): boolean => {
   return requested !== '' && forwarded !== '' && !reasoningEffortValuesEqual(requested, forwarded)
 }
 
-const isReasoningVariant = (row: AdminUsageLog): boolean => {
+const isReasoningVariant = (row: Pick<UsageTableRow, 'model' | 'upstream_model'>): boolean => {
   const model = row.model?.trim() || ''
   const upstream = row.upstream_model?.trim() || ''
   if (!/^gemini-(3\.[5678]-flash|3\.1-pro)$/.test(model)) return false
@@ -700,7 +700,7 @@ const isReasoningVariant = (row: AdminUsageLog): boolean => {
     (model === 'gemini-3.5-flash' && ['gemini-3-flash-agent', 'gemini-3.5-flash-extra-low'].includes(upstream))
 }
 
-const sentUpstreamModel = (row: AdminUsageLog): string => row.upstream_model?.trim() || row.model?.trim() || ''
+const sentUpstreamModel = (row: Pick<UsageTableRow, 'model' | 'upstream_model'>): string => row.upstream_model?.trim() || row.model?.trim() || ''
 
 const normalizeModelVariant = (model: string): string => model
   .trim()
@@ -709,13 +709,13 @@ const normalizeModelVariant = (model: string): string => model
   .replace(/-\d{4}-\d{2}-\d{2}$/, '')
   .replace(/-\d{8}$/, '')
 
-const isLikelyModelVariant = (row: AdminUsageLog): boolean => {
+const isLikelyModelVariant = (row: Pick<UsageTableRow, 'model' | 'upstream_model' | 'upstream_response_model'>): boolean => {
   const sent = sentUpstreamModel(row)
   const response = row.upstream_response_model?.trim() || ''
   return sent !== '' && response !== '' && normalizeModelVariant(sent) === normalizeModelVariant(response)
 }
 
-const modelAuditTitle = (row: AdminUsageLog): string => [
+const modelAuditTitle = (row: Pick<UsageTableRow, 'model' | 'upstream_model' | 'upstream_response_model'>): string => [
   `${t('usage.requestedModel')}: ${row.model || '-'}`,
   `${t('usage.sentUpstreamModel')}: ${sentUpstreamModel(row) || '-'}`,
   `${t('usage.upstreamResponseModel')}: ${row.upstream_response_model || '-'}`,

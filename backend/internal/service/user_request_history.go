@@ -52,16 +52,19 @@ type UserRequestHistoryGroup struct {
 // UserRequestRecord is the redacted common read model for successful and failed
 // requests owned by one user. Error-only internal fields never enter this type.
 type UserRequestRecord struct {
-	RecordType string    `json:"record_type"`
-	ID         int64     `json:"id"`
-	UserID     int64     `json:"user_id"`
-	CreatedAt  time.Time `json:"created_at"`
-	RequestID  string    `json:"request_id"`
-	StatusCode int       `json:"status_code"`
-	Category   string    `json:"category"`
-	Model      string    `json:"model"`
-	Platform   string    `json:"platform,omitempty"`
-	Message    string    `json:"message,omitempty"`
+	RecordType            string    `json:"record_type"`
+	ID                    int64     `json:"id"`
+	UserID                int64     `json:"user_id"`
+	CreatedAt             time.Time `json:"created_at"`
+	RequestID             string    `json:"request_id"`
+	StatusCode            int       `json:"status_code"`
+	Category              string    `json:"category"`
+	Model                 string    `json:"model"`
+	UpstreamModel         *string   `json:"upstream_model,omitempty"`
+	UpstreamResponseModel *string   `json:"upstream_response_model,omitempty"`
+	UpstreamModelMismatch *bool     `json:"upstream_model_mismatch,omitempty"`
+	Platform              string    `json:"platform,omitempty"`
+	Message               string    `json:"message,omitempty"`
 
 	APIKeyID       *int64                   `json:"api_key_id"`
 	APIKey         *UserRequestHistoryKey   `json:"api_key,omitempty"`

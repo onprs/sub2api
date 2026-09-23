@@ -23,6 +23,10 @@ func TestBuildUserRequestHistoryCTEScopesBothSources(t *testing.T) {
 	require.NotContains(t, cte, "deleted_key_owner_user_id")
 	require.NotContains(t, cte, "deleted_key_name")
 	require.Contains(t, cte, "COALESCE(e.is_count_tokens, false) = false")
+	require.Contains(t, cte, "'upstream_model', NULLIF(TRIM(ul.upstream_model), '')")
+	require.Contains(t, cte, "'upstream_response_model', NULLIF(TRIM(ul.upstream_response_model), '')")
+	require.Contains(t, cte, "'upstream_model_mismatch', ul.upstream_model_mismatch")
+	require.Contains(t, cte, "'upstream_model', NULLIF(TRIM(e.upstream_model), '')")
 	require.NotContains(t, cte, "AND FALSE")
 }
 
