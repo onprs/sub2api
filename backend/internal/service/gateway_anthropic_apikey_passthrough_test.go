@@ -772,6 +772,41 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokens404PassthroughNotE
 	}
 }
 
+func TestGatewayService_AnthropicAPIKeyPassthroughAllowsConfiguredPublicCustomHost(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	cfg := &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+		Enabled:                         true,
+		UpstreamHosts:                   []string{"api.anthropic.com"},
+		AllowAnthropicAPIKeyCustomHosts: true,
+	}}}
+	svc := &GatewayService{cfg: cfg}
+	account := &Account{
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "anthropic-relay-key",
+			"base_url": "https://relay.example.com",
+		},
+	}
+
+	msgReq, _, err := svc.buildUpstreamRequestAnthropicAPIKeyPassthrough(context.Background(), c, account, []byte(`{"messages":[]}`), "anthropic-relay-key")
+	require.NoError(t, err)
+	require.Equal(t, "https://relay.example.com/v1/messages?beta=true", msgReq.URL.String())
+
+	countReq, err := svc.buildCountTokensRequestAnthropicAPIKeyPassthrough(context.Background(), c, account, []byte(`{"messages":[]}`), "anthropic-relay-key")
+	require.NoError(t, err)
+	require.Equal(t, "https://relay.example.com/v1/messages/count_tokens?beta=true", countReq.URL.String())
+
+	cfg.Security.URLAllowlist.AllowAnthropicAPIKeyCustomHosts = false
+	_, _, err = svc.buildUpstreamRequestAnthropicAPIKeyPassthrough(context.Background(), c, account, []byte(`{"messages":[]}`), "anthropic-relay-key")
+	require.Error(t, err)
+	_, err = svc.buildCountTokensRequestAnthropicAPIKeyPassthrough(context.Background(), c, account, []byte(`{"messages":[]}`), "anthropic-relay-key")
+	require.Error(t, err)
+}
+
 func TestGatewayService_AnthropicAPIKeyPassthrough_BuildRequestRejectsInvalidBaseURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

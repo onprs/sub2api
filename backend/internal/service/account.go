@@ -1514,6 +1514,10 @@ func (a *Account) IsAnthropic() bool {
 	return a.Platform == PlatformAnthropic
 }
 
+func (a *Account) IsAnthropicAPIKey() bool {
+	return a != nil && a.Platform == PlatformAnthropic && a.Type == AccountTypeAPIKey
+}
+
 func (a *Account) IsOpenCodeGo() bool {
 	return a != nil && a.Platform == PlatformOpenCodeGo
 }

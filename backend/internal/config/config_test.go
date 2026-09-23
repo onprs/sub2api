@@ -889,6 +889,9 @@ func TestLoadDefaultSecurityToggles(t *testing.T) {
 	if !cfg.Security.URLAllowlist.AllowOpenAIAPIKeyCustomHosts {
 		t.Fatalf("URLAllowlist.AllowOpenAIAPIKeyCustomHosts = false, want true")
 	}
+	if !cfg.Security.URLAllowlist.AllowAnthropicAPIKeyCustomHosts {
+		t.Fatalf("URLAllowlist.AllowAnthropicAPIKeyCustomHosts = false, want true")
+	}
 	require.Contains(t, cfg.Security.URLAllowlist.UpstreamHosts, "daily-cloudcode-pa.googleapis.com")
 	require.Contains(t, cfg.Security.URLAllowlist.UpstreamHosts, "cloudcode-pa.googleapis.com")
 	if !cfg.Security.ResponseHeaders.Enabled {
@@ -917,6 +920,7 @@ func TestLoadURLAllowlistCompatibilityOverrides(t *testing.T) {
 	t.Setenv("SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP", "true")
 	t.Setenv("SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS", "true")
 	t.Setenv("SECURITY_URL_ALLOWLIST_ALLOW_OPENAI_APIKEY_CUSTOM_HOSTS", "false")
+	t.Setenv("SECURITY_URL_ALLOWLIST_ALLOW_ANTHROPIC_APIKEY_CUSTOM_HOSTS", "false")
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -924,6 +928,7 @@ func TestLoadURLAllowlistCompatibilityOverrides(t *testing.T) {
 	require.True(t, cfg.Security.URLAllowlist.AllowInsecureHTTP)
 	require.True(t, cfg.Security.URLAllowlist.AllowPrivateHosts)
 	require.False(t, cfg.Security.URLAllowlist.AllowOpenAIAPIKeyCustomHosts)
+	require.False(t, cfg.Security.URLAllowlist.AllowAnthropicAPIKeyCustomHosts)
 }
 
 func TestLoadDefaultServerMode(t *testing.T) {

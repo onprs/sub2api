@@ -21,26 +21,7 @@ import (
 )
 
 func validateOpenAIAPIKeyBaseURL(raw string, cfg *config.Config) (string, error) {
-	if cfg == nil {
-		return "", errors.New("config is not available")
-	}
-	policy := cfg.Security.URLAllowlist
-	if !policy.Enabled {
-		return urlvalidator.ValidateURLFormat(raw, policy.AllowInsecureHTTP)
-	}
-
-	options := urlvalidator.ValidationOptions{
-		AllowPrivate: policy.AllowPrivateHosts,
-	}
-	if !policy.AllowOpenAIAPIKeyCustomHosts {
-		options.AllowedHosts = policy.UpstreamHosts
-		options.RequireAllowlist = true
-	}
-
-	// The account base URL is an explicit administrator choice. By default,
-	// permit public OpenAI-compatible HTTPS relays while retaining literal-private-host
-	// checks; HTTPUpstream performs the final DNS/IP SSRF check before dialing.
-	return urlvalidator.ValidateHTTPSURL(raw, options)
+	return validateOpenAIAPIKeyBaseURLWithPolicy(raw, cfg)
 }
 
 func (s *OpenAIGatewayService) validateUpstreamBaseURL(raw string) (string, error) {

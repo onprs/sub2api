@@ -898,7 +898,7 @@ const showUsageWindows = computed(() => {
 
 const shouldFetchUsage = computed(() => {
   if (props.account.platform === 'anthropic') {
-    return props.account.type === 'oauth' || props.account.type === 'setup-token'
+    return props.account.type === 'oauth' || props.account.type === 'setup-token' || props.account.type === 'apikey'
   }
   if (props.account.platform === 'gemini') {
     return true
@@ -950,7 +950,12 @@ const hasOpenAIUsageFallback = computed(() => {
 })
 
 const apiKeyUpstreamBalance = computed(() => {
-  if ((props.account.platform !== 'openai' && props.account.platform !== 'grok') || props.account.type !== 'apikey') return null
+  if (
+    (props.account.platform !== 'openai' &&
+      props.account.platform !== 'grok' &&
+      props.account.platform !== 'anthropic') ||
+    props.account.type !== 'apikey'
+  ) return null
   return usageInfo.value?.upstream_balance ?? null
 })
 
@@ -1619,7 +1624,9 @@ const isAnthropicOAuthOrSetupToken = computed(() => {
 })
 
 const isAPIKeyUpstreamBalanceAccount = computed(() => {
-  return (props.account.platform === 'openai' || props.account.platform === 'grok') && props.account.type === 'apikey'
+  const platform = props.account.platform
+  return props.account.type === 'apikey' &&
+    (platform === 'openai' || platform === 'grok' || platform === 'anthropic')
 })
 
 const requestParentBatchUsage = (options?: { force?: boolean }) => {

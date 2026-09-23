@@ -620,7 +620,7 @@ export default {
       addMethod: 'Add Method',
       setupTokenLongLived: 'Setup Token (Long-lived)',
       baseUrl: 'Base URL',
-      baseUrlHint: 'Leave default for official Anthropic API',
+      baseUrlHint: 'Leave default for the official Anthropic API. A sub2api upstream balance is queried automatically through /v1/usage.',
       apiKeyRequired: 'API Key *',
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: 'Your Claude Console API Key',

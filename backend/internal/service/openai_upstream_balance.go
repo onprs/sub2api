@@ -68,7 +68,7 @@ type openAIUpstreamUsageResponse struct {
 	Subscription  json.RawMessage           `json:"subscription"`
 }
 
-// getAPIKeyUpstreamBalance 对 OpenAI/Grok API Key 自定义上游做一次实时探测。
+// getAPIKeyUpstreamBalance 对 OpenAI、Grok 和 Anthropic API Key 自定义上游实时读取余额。
 // 非 sub2api 上游通常返回 404/405 或不同结构，此时按 unsupported 降级，
 // 不影响账户状态、调度或凭据。
 func (s *AccountUsageService) getAPIKeyUpstreamBalance(ctx context.Context, account *Account) (*UsageInfo, error) {
@@ -79,16 +79,22 @@ func (s *AccountUsageService) getAPIKeyUpstreamBalance(ctx context.Context, acco
 		UpdatedAt: &now,
 	}
 
-	if account == nil || (!account.IsOpenAIApiKey() && !account.IsGrokAPIKey()) {
+	if account == nil || (!account.IsOpenAIApiKey() &&
+		!account.IsGrokAPIKey() &&
+		!account.IsAnthropicAPIKey()) {
 		return usage, nil
 	}
 
 	baseURL := ""
 	profile := HTTPUpstreamProfileOpenAI
-	if account.IsGrokAPIKey() {
+	switch {
+	case account.IsAnthropicAPIKey():
+		baseURL = strings.TrimSpace(account.GetBaseURL())
+		profile = HTTPUpstreamProfileDefault
+	case account.IsGrokAPIKey():
 		baseURL = strings.TrimSpace(account.GetGrokBaseURL())
 		profile = HTTPUpstreamProfileGrok
-	} else {
+	default:
 		baseURL = strings.TrimSpace(account.GetOpenAIBaseURL())
 	}
 	if baseURL == "" || isOfficialAPIKeyUpstreamBalanceTarget(account, baseURL) {
@@ -108,7 +114,13 @@ func (s *AccountUsageService) getAPIKeyUpstreamBalance(ctx context.Context, acco
 		return usage, nil
 	}
 
-	normalizedBaseURL, err := validateOpenAIAPIKeyBaseURL(baseURL, s.cfg)
+	var normalizedBaseURL string
+	var err error
+	if account.IsAnthropicAPIKey() {
+		normalizedBaseURL, err = validateAnthropicAPIKeyBaseURL(baseURL, s.cfg)
+	} else {
+		normalizedBaseURL, err = validateOpenAIAPIKeyBaseURL(baseURL, s.cfg)
+	}
 	if err != nil {
 		usage.UpstreamBalance.Status = openAIUpstreamBalanceStatusError
 		usage.UpstreamBalance.ErrorCode = "invalid_base_url"
@@ -303,7 +315,7 @@ func cloneFloat64Pointer(value *float64) *float64 {
 }
 
 func isOfficialAPIKeyUpstreamBalanceTarget(account *Account, raw string) bool {
-	if account != nil && account.IsGrokAPIKey() {
+	if account != nil && (account.IsGrokAPIKey() || account.IsAnthropicAPIKey()) {
 		return upstreamBillingProbeTargetIsOfficialAPI(raw)
 	}
 	return isOfficialOpenAIUpstreamBalanceTarget(raw)

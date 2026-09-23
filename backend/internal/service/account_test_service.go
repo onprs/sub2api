@@ -287,6 +287,10 @@ func (s *AccountTestService) validateOpenAIAPIKeyBaseURL(raw string) (string, er
 	return validateOpenAIAPIKeyBaseURL(raw, s.cfg)
 }
 
+func (s *AccountTestService) validateAnthropicAPIKeyBaseURL(raw string) (string, error) {
+	return validateAnthropicAPIKeyBaseURL(raw, s.cfg)
+}
+
 // generateSessionString generates a Claude Code style session string.
 // The output format is determined by the UA version in claude.DefaultHeaders,
 // ensuring consistency between the user_id format and the UA sent to upstream.
@@ -801,7 +805,13 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		if baseURL == "" {
 			baseURL = "https://api.anthropic.com"
 		}
-		normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+		var normalizedBaseURL string
+		var err error
+		if account.IsAnthropicAPIKey() {
+			normalizedBaseURL, err = s.validateAnthropicAPIKeyBaseURL(baseURL)
+		} else {
+			normalizedBaseURL, err = s.validateUpstreamBaseURL(baseURL)
+		}
 		if err != nil {
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
 		}
@@ -1442,9 +1452,8 @@ func (s *AccountTestService) observeGrokTestResponse(ctx context.Context, accoun
 	} else if s.accountRepo != nil && isSuccessfulGrokRateLimitRecovery(account, &xai.QuotaSnapshot{StatusCode: resp.StatusCode}) {
 		clearGrokRateLimitAfterRecovery(ctx, s.accountRepo, account)
 	}
-	// API key tests still record the quota snapshot above, but they must not
-	// convert provider quota or temporary errors into local account downtime.
-	if account.IsGrokAPIKey() {
+	// 池模式账号保留用量快照，但跳过默认限流和临时停调。
+	if account.IsPoolMode() {
 		return
 	}
 	if s.accountRepo == nil || len(responseBody) == 0 {

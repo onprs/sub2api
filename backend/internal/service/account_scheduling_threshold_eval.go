@@ -334,7 +334,7 @@ func anthropicFableThresholdCandidate(account *Account) *accountSchedulingThresh
 // capped at ~25h when written). Official billing 7d/30d windows are not used
 // for auto-pause here.
 func grokThresholdCandidates(account *Account) []*accountSchedulingThresholdCandidate {
-	if account == nil || account.IsGrokAPIKey() {
+	if account == nil || account.IsPoolMode() {
 		return nil
 	}
 	return []*accountSchedulingThresholdCandidate{

@@ -365,6 +365,37 @@ func TestBuildUpstreamModelsRequestsForAPIKeyAccounts(t *testing.T) {
 	require.Equal(t, "Bearer opencode-go-key", dispatchedOpenCodeGoReq.Header.Get("Authorization"))
 }
 
+func TestFetchAnthropicAPIKeyModelsAllowsCustomPublicHost(t *testing.T) {
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"data":[{"id":"claude-sonnet-4"}]}`)),
+	}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled:                         true,
+			UpstreamHosts:                   []string{"api.anthropic.com"},
+			AllowAnthropicAPIKeyCustomHosts: true,
+		}}},
+	}
+	account := &Account{
+		ID:       14,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "anthropic-relay-key",
+			"base_url": "https://relay.example.com/v1",
+		},
+	}
+
+	models, err := svc.FetchUpstreamSupportedModels(context.Background(), account)
+	require.NoError(t, err)
+	require.Equal(t, []string{"claude-sonnet-4"}, models)
+	require.Equal(t, "https://relay.example.com/v1/models", upstream.lastReq.URL.String())
+	require.Equal(t, "anthropic-relay-key", upstream.lastReq.Header.Get("x-api-key"))
+}
+
 func TestBuildGrokAPIKeyModelsRequestUsesCustomHostPolicy(t *testing.T) {
 	t.Parallel()
 

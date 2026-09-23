@@ -288,6 +288,106 @@ func TestAccountUsageServiceGetUsageOpenAIAPIKeyReturnsSanitizedErrors(t *testin
 	}
 }
 
+func TestAccountUsageServiceGetUsageAnthropicAPIKeyReadsSub2APIWalletBalance(t *testing.T) {
+	t.Parallel()
+
+	account := Account{
+		ID:          8501,
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 2,
+		Credentials: map[string]any{
+			"api_key":  "sk-anthropic-sub2api",
+			"base_url": "https://relay.example.com/v1",
+		},
+	}
+	upstream := &httpUpstreamRecorder{resp: openAIUpstreamBalanceResponse(http.StatusOK, `{
+		"object":"sub2api.usage",
+		"schema_version":1,
+		"mode":"unrestricted",
+		"isValid":true,
+		"remaining":7.65,
+		"unit":"USD",
+		"balance":7.65
+	}`)}
+	svc := &AccountUsageService{
+		accountRepo:  &stubOpenAIAccountRepo{accounts: []Account{account}},
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled:                         true,
+			UpstreamHosts:                   []string{"api.anthropic.com"},
+			AllowAnthropicAPIKeyCustomHosts: true,
+		}}},
+	}
+
+	usage, err := svc.GetUsage(context.Background(), account.ID)
+	require.NoError(t, err)
+	require.NotNil(t, usage.UpstreamBalance)
+	require.Equal(t, openAIUpstreamBalanceStatusAvailable, usage.UpstreamBalance.Status)
+	require.Equal(t, openAIUpstreamBalanceKindWallet, usage.UpstreamBalance.Kind)
+	require.NotNil(t, usage.UpstreamBalance.Amount)
+	require.InDelta(t, 7.65, *usage.UpstreamBalance.Amount, 1e-9)
+	require.Equal(t, "https://relay.example.com/v1/usage", upstream.lastReq.URL.Scheme+"://"+upstream.lastReq.URL.Host+upstream.lastReq.URL.Path)
+	require.Equal(t, "1", upstream.lastReq.URL.Query().Get("days"))
+	require.Equal(t, "true", upstream.lastReq.URL.Query().Get("summary_only"))
+	require.Equal(t, "Bearer sk-anthropic-sub2api", upstream.lastReq.Header.Get("Authorization"))
+	require.True(t, HTTPUpstreamRedirectsDisabled(upstream.lastReq.Context()))
+}
+
+func TestAccountUsageServiceGetUsageAnthropicAPIKeyRespectsStrictCustomHostPolicy(t *testing.T) {
+	t.Parallel()
+
+	account := Account{
+		ID:          8502,
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "sk-anthropic", "base_url": "https://relay.example.com/v1"},
+	}
+	upstream := &httpUpstreamRecorder{}
+	svc := &AccountUsageService{
+		accountRepo:  &stubOpenAIAccountRepo{accounts: []Account{account}},
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled:                         true,
+			UpstreamHosts:                   []string{"api.anthropic.com"},
+			AllowAnthropicAPIKeyCustomHosts: false,
+		}}},
+	}
+
+	usage, err := svc.GetUsage(context.Background(), account.ID)
+	require.NoError(t, err)
+	require.NotNil(t, usage.UpstreamBalance)
+	require.Equal(t, openAIUpstreamBalanceStatusError, usage.UpstreamBalance.Status)
+	require.Equal(t, "invalid_base_url", usage.UpstreamBalance.ErrorCode)
+	require.Nil(t, upstream.lastReq)
+}
+
+func TestAccountUsageServiceGetUsageAnthropicAPIKeySkipsOfficialAnthropic(t *testing.T) {
+	t.Parallel()
+
+	account := Account{
+		ID:       8503,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "sk-anthropic-official",
+			"base_url": "https://api.anthropic.com/v1",
+		},
+	}
+	upstream := &httpUpstreamRecorder{}
+	svc := &AccountUsageService{
+		accountRepo:  &stubOpenAIAccountRepo{accounts: []Account{account}},
+		httpUpstream: upstream,
+		cfg:          &config.Config{},
+	}
+
+	usage, err := svc.GetUsage(context.Background(), account.ID)
+	require.NoError(t, err)
+	require.NotNil(t, usage.UpstreamBalance)
+	require.Equal(t, openAIUpstreamBalanceStatusUnsupported, usage.UpstreamBalance.Status)
+	require.Nil(t, upstream.lastReq)
+}
+
 func TestAccountUsageServiceGetUsageOpenAIAPIKeySkipsOfficialOpenAI(t *testing.T) {
 	t.Parallel()
 

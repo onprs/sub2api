@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -190,8 +189,13 @@ func TestAccountUsageService_GetUsageBatch_BestEffortByAccount(t *testing.T) {
 		t.Fatalf("expected openai snapshot usage, got %#v", usageByAccount[7002])
 	}
 
-	if !strings.Contains(strings.ToLower(errorsByAccount[7003]), "does not support usage query") {
-		t.Fatalf("expected unsupported API key account error to be preserved, got %q", errorsByAccount[7003])
+	anthropicAPIKeyUsage := usageByAccount[7003]
+	if anthropicAPIKeyUsage == nil || anthropicAPIKeyUsage.UpstreamBalance == nil ||
+		anthropicAPIKeyUsage.UpstreamBalance.Status != openAIUpstreamBalanceStatusUnsupported {
+		t.Fatalf("expected Anthropic API key balance to degrade as unsupported, got %#v", anthropicAPIKeyUsage)
+	}
+	if errorsByAccount[7003] != "" {
+		t.Fatalf("expected Anthropic API key balance degradation without batch error, got %q", errorsByAccount[7003])
 	}
 
 	openAIAPIKeyUsage := usageByAccount[7004]

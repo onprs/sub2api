@@ -198,10 +198,13 @@ func (r *openAI429SnapshotRepo) BulkUpdate(_ context.Context, ids []int64, updat
 	return int64(len(ids)), nil
 }
 
-func TestHandleUpstreamError_GrokAPIKeySkipsAccountRateLimit(t *testing.T) {
+func TestHandleUpstreamError_GrokPoolModeSkipsAccountRateLimit(t *testing.T) {
 	repo := &openAI429SnapshotRepo{}
 	svc := NewRateLimitService(repo, nil, nil, nil, nil)
-	account := &Account{ID: 615, Platform: PlatformGrok, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}
+	account := &Account{
+		ID: 615, Platform: PlatformGrok, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true,
+		Credentials: map[string]any{"pool_mode": true},
+	}
 	headers := http.Header{"Retry-After": []string{"45"}}
 
 	shouldDisable := svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, headers, []byte(`{"error":{"message":"rate limited"}}`))
@@ -210,6 +213,17 @@ func TestHandleUpstreamError_GrokAPIKeySkipsAccountRateLimit(t *testing.T) {
 	require.Zero(t, repo.rateLimitedID)
 	require.Nil(t, account.RateLimitResetAt)
 	require.True(t, account.IsSchedulable())
+}
+
+func TestHandleUpstreamError_GrokAPIKeyWithoutPoolModeUsesAccountRateLimit(t *testing.T) {
+	repo := &openAI429SnapshotRepo{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	account := &Account{ID: 616, Platform: PlatformGrok, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}
+
+	shouldDisable := svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, []byte(`{"error":{"message":"rate limited"}}`))
+
+	require.False(t, shouldDisable)
+	require.Equal(t, account.ID, repo.rateLimitedID)
 }
 
 func TestHandle429_OpenAIPersistsCodexSnapshotImmediately(t *testing.T) {

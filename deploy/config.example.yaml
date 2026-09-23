@@ -203,6 +203,11 @@ security:
     # 设为 false 时，OpenAI API-Key 的 base_url 也强制受 upstream_hosts 白名单约束。
     # 无论开关如何，localhost/私网字面量地址与最终拨号阶段的反 SSRF 校验始终生效。
     allow_openai_apikey_custom_hosts: true
+    # Permit arbitrary public HTTPS relays for Anthropic API-key accounts (default: true).
+    # Set false to keep their base URLs within upstream_hosts; private hosts follow allow_private_hosts and dial-time policy.
+    # 是否允许 Anthropic API-Key 账号使用任意公网 HTTPS 中转地址（默认 true）。
+    # 设为 false 时 base_url 继续受 upstream_hosts 约束；私网地址按 allow_private_hosts 与拨号策略处理。
+    allow_anthropic_apikey_custom_hosts: true
     # Allow http:// URLs when allowlist is disabled (default: false)
     # 白名单禁用时是否允许 http:// URL（默认禁用）
     allow_insecure_http: false

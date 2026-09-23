@@ -30,7 +30,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	if account.Type == AccountTypeAPIKey {
 		baseURL := account.GetBaseURL()
 		if baseURL != "" {
-			validatedURL, err := s.validateUpstreamBaseURL(baseURL)
+			validatedURL, err := s.validateAccountUpstreamBaseURL(account, baseURL)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -905,6 +905,17 @@ func (s *GatewayService) buildCustomRelayURL(baseURL, path string, account *Acco
 		}
 	}
 	return u
+}
+
+func (s *GatewayService) validateAccountUpstreamBaseURL(account *Account, raw string) (string, error) {
+	if account != nil && account.IsAnthropicAPIKey() {
+		normalized, err := validateAnthropicAPIKeyBaseURL(raw, s.cfg)
+		if err != nil {
+			return "", fmt.Errorf("invalid base_url: %w", err)
+		}
+		return normalized, nil
+	}
+	return s.validateUpstreamBaseURL(raw)
 }
 
 func (s *GatewayService) validateUpstreamBaseURL(raw string) (string, error) {

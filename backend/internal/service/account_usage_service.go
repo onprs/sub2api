@@ -397,7 +397,7 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 		return s.getPassiveUsageForAccount(ctx, account)
 	}
 
-	if account.IsOpenAIApiKey() || account.IsGrokAPIKey() {
+	if account.IsOpenAIApiKey() || account.IsGrokAPIKey() || account.IsAnthropicAPIKey() {
 		return s.getAPIKeyUpstreamBalance(ctx, account)
 	}
 
@@ -572,7 +572,7 @@ func (s *AccountUsageService) GetUsageForAccount(ctx context.Context, account *A
 }
 
 // GetUsageBatch 批量获取账号使用量。
-// Anthropic OAuth/SetupToken 统一走 passive 链路，其他账号复用现有主动查询逻辑。
+// Anthropic OAuth/SetupToken 走 passive 链路；Anthropic API Key 与其他 API Key 账号走上游余额查询。
 // 单个账号失败不会中断整批请求，错误会按账号返回。
 func (s *AccountUsageService) GetUsageBatch(ctx context.Context, accountIDs []int64, force bool) (map[int64]*UsageInfo, map[int64]string, error) {
 	uniqueIDs := make([]int64, 0, len(accountIDs))

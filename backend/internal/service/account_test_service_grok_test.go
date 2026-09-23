@@ -228,12 +228,30 @@ func TestAccountTestService_Grok429PersistsRateLimitReset(t *testing.T) {
 	require.WithinDuration(t, time.Now().Add(45*time.Second), repo.resetAt, time.Second)
 }
 
-func TestAccountTestService_GrokAPIKey429DoesNotPersistRateLimit(t *testing.T) {
+func TestAccountTestService_GrokAPIKey429WithoutPoolModePersistsRateLimit(t *testing.T) {
+	account := &Account{ID: 150, Platform: PlatformGrok, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}
+	baseRepo := &mockAccountRepoForGemini{accountsByID: map[int64]*Account{account.ID: account}}
+	repo := &grokAccountTestRateLimitRepo{mockAccountRepoForGemini: baseRepo}
+	svc := &AccountTestService{accountRepo: repo}
+	resp := &http.Response{
+		StatusCode: http.StatusTooManyRequests,
+		Header:     http.Header{"Retry-After": []string{"45"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"rate limited"}}`)),
+	}
+	before := time.Now()
+
+	svc.observeGrokTestResponse(context.Background(), account, resp)
+
+	require.Equal(t, 1, repo.rateLimitedCalls)
+	require.WithinDuration(t, before.Add(45*time.Second), repo.resetAt, time.Second)
+}
+
+func TestAccountTestService_GrokPoolMode429DoesNotPersistRateLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	account := &Account{
 		ID: 151, Name: "grok-api-key", Platform: PlatformGrok,
 		Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1,
-		Credentials: map[string]any{"api_key": "xai-test-key"},
+		Credentials: map[string]any{"api_key": "xai-test-key", "pool_mode": true},
 	}
 	baseRepo := &mockAccountRepoForGemini{accountsByID: map[int64]*Account{account.ID: account}}
 	repo := &grokAccountTestRateLimitRepo{mockAccountRepoForGemini: baseRepo}

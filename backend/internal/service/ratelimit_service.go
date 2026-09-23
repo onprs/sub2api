@@ -418,14 +418,6 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		s.handleCommandCodeInsufficientCredits(ctx, account, extractUpstreamErrorMessage(responseBody))
 		return true
 	}
-	// Grok API keys share the OpenAI gateway transport, but provider 429s and
-	// temporary errors are not local account health. The Grok handler records
-	// observability and fails over the request without parking the account.
-	if account.IsGrokAPIKey() {
-		slog.Info("grok_api_key_upstream_error_state_skipped", "account_id", account.ID, "status_code", statusCode)
-		return false
-	}
-
 	// Anthropic official 5h / 7d window exhaustion is a hard account limit.
 	// It must take precedence over user-configured 429 temp-unsched rules,
 	// otherwise a broad "rate limit" keyword rule can shorten a multi-hour

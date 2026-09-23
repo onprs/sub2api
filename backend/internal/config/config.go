@@ -842,12 +842,13 @@ func (c *Config) SetTrustForwardedIPForAPIKeyACL(enabled bool) {
 }
 
 type URLAllowlistConfig struct {
-	Enabled                      bool     `mapstructure:"enabled"`
-	UpstreamHosts                []string `mapstructure:"upstream_hosts"`
-	PricingHosts                 []string `mapstructure:"pricing_hosts"`
-	CRSHosts                     []string `mapstructure:"crs_hosts"`
-	AllowPrivateHosts            bool     `mapstructure:"allow_private_hosts"`
-	AllowOpenAIAPIKeyCustomHosts bool     `mapstructure:"allow_openai_apikey_custom_hosts"`
+	Enabled                         bool     `mapstructure:"enabled"`
+	UpstreamHosts                   []string `mapstructure:"upstream_hosts"`
+	PricingHosts                    []string `mapstructure:"pricing_hosts"`
+	CRSHosts                        []string `mapstructure:"crs_hosts"`
+	AllowPrivateHosts               bool     `mapstructure:"allow_private_hosts"`
+	AllowOpenAIAPIKeyCustomHosts    bool     `mapstructure:"allow_openai_apikey_custom_hosts"`
+	AllowAnthropicAPIKeyCustomHosts bool     `mapstructure:"allow_anthropic_apikey_custom_hosts"`
 	// 关闭 URL 白名单校验时，是否允许 http URL（默认只允许 https）
 	AllowInsecureHTTP bool `mapstructure:"allow_insecure_http"`
 }
@@ -2100,6 +2101,7 @@ func setDefaults() {
 	viper.SetDefault("security.url_allowlist.crs_hosts", []string{})
 	viper.SetDefault("security.url_allowlist.allow_private_hosts", false)
 	viper.SetDefault("security.url_allowlist.allow_openai_apikey_custom_hosts", true)
+	viper.SetDefault("security.url_allowlist.allow_anthropic_apikey_custom_hosts", true)
 	viper.SetDefault("security.url_allowlist.allow_insecure_http", false)
 	viper.SetDefault("security.response_headers.enabled", true)
 	viper.SetDefault("security.response_headers.additional_allowed", []string{})
