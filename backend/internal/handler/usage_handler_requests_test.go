@@ -38,9 +38,13 @@ func (s *userRequestHistoryRepoCapture) ListUserRequestHistory(
 ) ([]service.UserRequestRecord, int64, error) {
 	s.params = params
 	s.filter = filter
+	upstreamModel := "mapped-model"
+	upstreamResponseModel := "provider-model"
+	mismatch := true
 	return []service.UserRequestRecord{{
 		RecordType: service.UserRequestRecordSuccess,
 		ID:         1, RequestID: "client:req-1", StatusCode: 200, Category: "success",
+		UpstreamModel: &upstreamModel, UpstreamResponseModel: &upstreamResponseModel, UpstreamModelMismatch: &mismatch,
 	}}, 1, nil
 }
 
@@ -89,6 +93,9 @@ func TestUserRequestHistoryParsesUnifiedFilters(t *testing.T) {
 	require.Equal(t, "status_code", repo.params.SortBy)
 	require.Equal(t, "asc", repo.params.SortOrder)
 	require.Contains(t, rec.Body.String(), `"record_type":"success"`)
+	require.Contains(t, rec.Body.String(), `"upstream_model":"mapped-model"`)
+	require.Contains(t, rec.Body.String(), `"upstream_response_model":"provider-model"`)
+	require.Contains(t, rec.Body.String(), `"upstream_model_mismatch":true`)
 }
 
 func TestUserRequestHistoryKeepsErrorsDisabledWhenSettingIsUnavailable(t *testing.T) {

@@ -12,6 +12,9 @@ vi.mock('vue-i18n', async () => {
       t: (key: string) => ({
         'usage.errors.categories.success': 'Success',
         'usage.errors.categories.upstream': 'Upstream error',
+        'usage.sentUpstreamModel': 'Sent upstream',
+        'usage.upstreamResponseModel': 'Upstream response',
+        'usage.modelMismatch': 'Different model',
       })[key] ?? key,
     }),
   }
@@ -73,6 +76,41 @@ describe('UsageTable request metadata', () => {
     expect(requestIdText.element.parentElement?.classList.contains('max-w-[220px]')).toBe(true)
     expect(wrapper.text()).toContain('Success')
     expect(wrapper.text()).toContain('200')
+  })
+
+  it('renders upstream model audit fields for a user request record', () => {
+    const row = {
+      record_type: 'success',
+      model: 'requested-model',
+      upstream_model: 'mapped-model',
+      upstream_response_model: 'provider-model',
+      upstream_model_mismatch: true,
+    } as UserRequestRecord
+
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [row],
+        columns: [{ key: 'model', label: 'Model' }],
+        flat: true,
+      },
+      global: {
+        stubs: {
+          DataTable: {
+            props: ['data'],
+            template: '<div><slot name="cell-model" :row="data[0]" /></div>',
+          },
+          EmptyState: true,
+          Icon: true,
+          IpGeoCell: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('requested-model')
+    expect(wrapper.text()).toContain('mapped-model')
+    expect(wrapper.text()).toContain('Upstream response:provider-model')
+    expect(wrapper.text()).toContain('Different model')
   })
 
   it('renders errors in the same table without fake billing values and opens details', async () => {

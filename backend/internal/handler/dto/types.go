@@ -624,6 +624,10 @@ type UsageLog struct {
 	StatusCode int    `json:"status_code"`
 	Category   string `json:"category"`
 	Model      string `json:"model"`
+	// 上游模型审计仅返回模型标识与不一致状态，不包含管理端映射及账号信息。
+	UpstreamModel         *string `json:"upstream_model,omitempty"`
+	UpstreamResponseModel *string `json:"upstream_response_model,omitempty"`
+	UpstreamModelMismatch *bool   `json:"upstream_model_mismatch,omitempty"`
 	// ServiceTier records the OpenAI service tier used for billing, e.g. "priority" / "flex".
 	ServiceTier *string `json:"service_tier,omitempty"`
 	// ReasoningEffort is the client-requested effort (mapping-hidden, like Model).
@@ -706,16 +710,9 @@ type UsageLog struct {
 type AdminUsageLog struct {
 	UsageLog
 
-	// UpstreamModel is the actual model sent to the upstream provider after mapping.
-	// Omitted when no mapping was applied (requested model was used as-is).
-	UpstreamModel *string `json:"upstream_model,omitempty"`
 	// UpstreamReasoningEffort is the effort actually forwarded after group policy /
 	// model-family remapping. Omitted when it matches the client-requested value.
 	UpstreamReasoningEffort *string `json:"upstream_reasoning_effort,omitempty"`
-	// UpstreamResponseModel is the raw model declared by the upstream response.
-	UpstreamResponseModel *string `json:"upstream_response_model,omitempty"`
-	// UpstreamModelMismatch is nil when the upstream did not declare a model.
-	UpstreamModelMismatch *bool `json:"upstream_model_mismatch,omitempty"`
 
 	// ChannelID 渠道 ID
 	ChannelID *int64 `json:"channel_id,omitempty"`
