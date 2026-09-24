@@ -115,15 +115,15 @@ describe('openCodeGo protocol rules', () => {
   })
 
   it('uses Zen vs GO default endpoints and protocol rules', () => {
-    expect(defaultCNBaseUrl('opencode_go', 'zen', 'adaptive')).toBe('https://opencode.ai/zen/v1')
-    expect(defaultCNBaseUrl('opencode_go', 'zen', 'anthropic')).toBe('https://opencode.ai/zen')
-    expect(defaultCNBaseUrl('opencode_go', 'go', 'adaptive')).toBe('https://opencode.ai/zen/go/v1')
-    expect(defaultCNBaseUrl('opencode_go', 'go', 'anthropic')).toBe('https://opencode.ai/zen/go')
+    expect(defaultCNBaseUrl('opencode', 'zen', 'adaptive')).toBe('https://opencode.ai/zen/v1')
+    expect(defaultCNBaseUrl('opencode', 'zen', 'anthropic')).toBe('https://opencode.ai/zen')
+    expect(defaultCNBaseUrl('opencode', 'go', 'adaptive')).toBe('https://opencode.ai/zen/go/v1')
+    expect(defaultCNBaseUrl('opencode', 'go', 'anthropic')).toBe('https://opencode.ai/zen/go')
     expect(defaultOpenCodeProtocolRules('zen').some(rule => rule.pattern === 'claude-*')).toBe(true)
     expect(defaultOpenCodeProtocolRules('go').some(rule => rule.pattern === 'minimax-*')).toBe(true)
-    expect(cnQuotaCellVisible('opencode_go', 'zen')).toBe(false)
-    expect(cnQuotaCellVisible('opencode_go', 'go')).toBe(true)
-    expect(cnQuotaCellVisible('opencode_go', '')).toBe(true)
+    expect(cnQuotaCellVisible('opencode', 'zen')).toBe(false)
+    expect(cnQuotaCellVisible('opencode', 'go')).toBe(true)
+    expect(cnQuotaCellVisible('opencode', '')).toBe(true)
   })
 
   it('parses stored rules and skips invalid entries', () => {
@@ -162,7 +162,7 @@ describe('isHeaderOverrideCapable', () => {
   })
 
   it('kimi/zhipu/deepseek only support apikey accounts', () => {
-    for (const platform of ['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go']) {
+    for (const platform of ['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode']) {
       expect(isHeaderOverrideCapable(platform, 'apikey')).toBe(true)
       expect(isHeaderOverrideCapable(platform, 'oauth')).toBe(false)
     }

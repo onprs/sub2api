@@ -57,11 +57,11 @@ describe('UserPlatformQuotaCell', () => {
     expect(html).toContain('90.5/2000')
   })
 
-  it('多平台按固定顺序展示 Grok 和 OpenCode Go，仅展示有限额的平台', () => {
+  it('多平台按固定顺序展示 Grok 和 OpenCode，仅展示有限额的平台', () => {
     const w = mount(UserPlatformQuotaCell, {
       props: {
         quotas: [
-          item({ platform: 'opencode_go', monthly_limit_usd: 75 }),
+          item({ platform: 'opencode', monthly_limit_usd: 75 }),
           item({ platform: 'gemini', monthly_limit_usd: 50 }),
           item({ platform: 'anthropic', daily_limit_usd: 10 }),
           item({ platform: 'grok', weekly_limit_usd: 25 }),
@@ -72,7 +72,7 @@ describe('UserPlatformQuotaCell', () => {
     const text = w.text()
     expect(text.indexOf('anthropic')).toBeLessThan(text.indexOf('gemini'))
     expect(text.indexOf('gemini')).toBeLessThan(text.indexOf('grok'))
-    expect(text.indexOf('grok')).toBeLessThan(text.indexOf('opencode_go'))
+    expect(text.indexOf('grok')).toBeLessThan(text.indexOf('opencode'))
     expect(text).not.toContain('openai')
   })
 })

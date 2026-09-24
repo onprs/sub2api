@@ -199,24 +199,26 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		if err != nil {
-			safeErr := sanitizeUpstreamErrorMessage(err.Error())
-			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-				ProxyID:            opsUpstreamProxyID(account),
-				ProxyName:          opsUpstreamProxyName(account),
-				Platform:           account.Platform,
-				AccountID:          account.ID,
-				AccountName:        account.Name,
-				UpstreamStatusCode: 0,
-				Kind:               "request_error",
-				Message:            safeErr,
-			})
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
 			if attempt < geminiMaxRetries {
+				safeErr := sanitizeUpstreamErrorMessage(err.Error())
+				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+					ProxyID:            opsUpstreamProxyID(account),
+					ProxyName:          opsUpstreamProxyName(account),
+					Platform:           account.Platform,
+					AccountID:          account.ID,
+					AccountName:        account.Name,
+					UpstreamStatusCode: 0,
+					Kind:               "request_error",
+					Message:            safeErr,
+				})
 				logger.LegacyPrintf("service.gemini_chat_completions", "Gemini account %d: upstream request failed, retry %d/%d: %v", account.ID, attempt, geminiMaxRetries, err)
 				sleepGeminiBackoff(attempt)
 				continue
 			}
-			setOpsUpstreamError(c, 0, safeErr, "")
-			return nil, writeError(http.StatusBadGateway, "upstream_error", "Upstream request failed after retries: "+safeErr)
+			return nil, s.handleUpstreamTransportError(ctx, c, account, err)
 		}
 
 		if resp.StatusCode >= http.StatusBadRequest {
@@ -275,8 +277,10 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 	}
 
 	reasoningEffort := extractGoogleCompatReasoningEffort(input.Source, input.OriginalBody)
-	// 国产模型默认 effort 补充（本路径上游是 Gemini，不会命中 passback-required）。
-	// 保持与 OpenAI 网关路径调用模式一致，便于未来上游变异时语义一致。
+	if reasoningEffort == nil {
+		reasoningEffort = extractGeminiReasoningEffortFromBody(geminiReq)
+	}
+	// Keep the same fallback policy as the OpenAI gateway path.
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, input.OriginalBody, mappedModel)
 
 	if lastError != nil {

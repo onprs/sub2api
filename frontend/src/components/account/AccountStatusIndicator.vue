@@ -224,6 +224,7 @@ const formatScopeName = (scope: string): string => {
     'claude-opus-4-6-thinking': 'COpus46T',
     'claude-opus-4-7': 'COpus47',
     'claude-opus-4-8': 'COpus48',
+    'claude-opus-5-5': 'COpus55',
     'claude-opus-5': 'COpus5',
     'claude-sonnet-4-6': 'CSon46',
     'claude-sonnet-4-5': 'CSon45',
@@ -302,7 +303,11 @@ const resetTimeFromExtra = (extra: Record<string, unknown>, window: string): num
 }
 
 const openCodeGoOfficialUsageRateLimitResetMs = (account: Account): number | null => {
-  if (account.platform !== 'opencode_go' || account.type !== 'apikey') return null
+  if (
+    account.platform !== 'opencode' ||
+    account.type !== 'apikey' ||
+    account.credentials?.account_mode === 'zen'
+  ) return null
   const extra = account.extra as Record<string, unknown> | undefined
   if (!extra) return null
   if (String(extra.opencode_go_usage_source || '').trim() !== 'official_console') return null

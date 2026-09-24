@@ -213,7 +213,7 @@ const upstreamSyncPlatforms = new Set([
   'gemini',
   'antigravity',
   'grok',
-  'opencode_go',
+  'opencode',
   'clinepass',
   'openrouter',
   'commandcode',

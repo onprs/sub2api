@@ -811,8 +811,11 @@ func (s *BillingCacheService) checkBillingEligibilityWithMode(ctx context.Contex
 	if apiKey != nil && apiKey.IsInternalChannelMonitor() {
 		return nil
 	}
-	// 简易模式：跳过所有计费检查
-	if s.cfg.RunMode == config.RunModeSimple {
+	// Simple mode bypasses balance and subscription checks unless API-key windows are opted in.
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+		if s.cfg.SimpleModeKeyRateLimitEnabled {
+			return s.checkSimpleModeAPIKeyRateLimits(ctx, apiKey)
+		}
 		return nil
 	}
 	if s.circuitBreaker != nil && !s.circuitBreaker.Allow() {
@@ -869,6 +872,34 @@ func (s *BillingCacheService) checkBillingEligibilityWithMode(ctx context.Contex
 		return rpmErr
 	}
 
+	return nil
+}
+
+// checkSimpleModeAPIKeyRateLimits is deliberately DB-authoritative. Redis
+// updates are asynchronous and can be dropped or missed after a committed
+// transaction, so using the cache here could let a limited simple-mode key
+// continue past its configured window. A read failure fails closed because
+// the operator explicitly opted into enforcement.
+func (s *BillingCacheService) checkSimpleModeAPIKeyRateLimits(ctx context.Context, apiKey *APIKey) error {
+	if apiKey == nil || !apiKey.HasRateLimits() {
+		return nil
+	}
+	if s.apiKeyRateLimitLoader == nil {
+		return ErrBillingServiceUnavailable
+	}
+	data, err := s.apiKeyRateLimitLoader.GetRateLimitData(ctx, apiKey.ID)
+	if err != nil || data == nil {
+		return ErrBillingServiceUnavailable
+	}
+	if apiKey.RateLimit5h > 0 && data.EffectiveUsage5h() >= apiKey.RateLimit5h {
+		return ErrAPIKeyRateLimit5hExceeded
+	}
+	if apiKey.RateLimit1d > 0 && data.EffectiveUsage1d() >= apiKey.RateLimit1d {
+		return ErrAPIKeyRateLimit1dExceeded
+	}
+	if apiKey.RateLimit7d > 0 && data.EffectiveUsage7d() >= apiKey.RateLimit7d {
+		return ErrAPIKeyRateLimit7dExceeded
+	}
 	return nil
 }
 

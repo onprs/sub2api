@@ -16,7 +16,7 @@ const allNullQuotas: DefaultPlatformQuotasMap = {
   gemini:    { daily: null, weekly: null, monthly: null },
   antigravity: { daily: null, weekly: null, monthly: null },
   grok: { daily: null, weekly: null, monthly: null },
-  opencode_go: { daily: null, weekly: null, monthly: null },
+  opencode: { daily: null, weekly: null, monthly: null },
   clinepass: { daily: null, weekly: null, monthly: null },
   openrouter: { daily: null, weekly: null, monthly: null },
   commandcode: { daily: null, weekly: null, monthly: null },
@@ -242,7 +242,7 @@ describe("normalizePlatformQuotasMap", () => {
     expect(result.gemini).toEqual({ daily: null, weekly: null, monthly: null });
     expect(result.antigravity).toEqual({ daily: null, weekly: null, monthly: null });
     expect(result.grok).toEqual({ daily: null, weekly: null, monthly: null });
-    expect(result.opencode_go).toEqual({ daily: null, weekly: null, monthly: null });
+    expect(result.opencode).toEqual({ daily: null, weekly: null, monthly: null });
     expect(result.clinepass).toEqual({ daily: null, weekly: null, monthly: null });
     expect(result.openrouter).toEqual({ daily: null, weekly: null, monthly: null });
   });

@@ -25,7 +25,11 @@ func isUpstreamModelNotFoundErrorForAccount(account *Account, statusCode int, bo
 	if isUpstreamModelNotFoundError(statusCode, body) {
 		return true
 	}
-	if account != nil && account.Platform == PlatformOpenCodeGo &&
+	if account != nil && statusCode == http.StatusUnauthorized && account.Type == AccountTypeAPIKey &&
+		account.IsOpenAICompatible() && isOpenAICompatibleModelNotFoundBody(body) {
+		return true
+	}
+	if account != nil && account.IsOpenCodeGo() &&
 		isOpenCodeGoModelUnsupportedError(statusCode, body) {
 		return true
 	}

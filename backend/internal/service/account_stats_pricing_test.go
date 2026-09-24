@@ -526,7 +526,7 @@ func TestTryModelFilePricing_Success(t *testing.T) {
 	require.InDelta(t, 0.2, *result, 1e-12)
 }
 
-func TestTryModelFilePricing_Fable51MaxEffortUsesTripleQuota(t *testing.T) {
+func TestTryModelFilePricing_Fable51HasNoImplicitReasoningMultiplier(t *testing.T) {
 	bs := newTestBillingServiceWithPrices(map[string]*ModelPricing{
 		"claude-fable-5-1": {InputPricePerToken: 0.001},
 	})
@@ -535,7 +535,7 @@ func TestTryModelFilePricing_Fable51MaxEffortUsesTripleQuota(t *testing.T) {
 	max := tryModelFilePricingForPlatform(bs, "", "claude-fable-5-1", tokens, "", time.Time{}, "max")
 	require.NotNil(t, standard)
 	require.NotNil(t, max)
-	require.InDelta(t, *standard*3, *max, 1e-12)
+	require.Equal(t, *standard, *max)
 }
 
 func TestTryModelFilePricing_AppliesLongContextPricing(t *testing.T) {
@@ -894,14 +894,14 @@ func TestResolveAccountStatsCost_OpenCodeGoCustomRuleAppliesQuotaCostMultiplier(
 			},
 		},
 	}
-	cs := newTestChannelServiceForStats(t, channel, 10, PlatformOpenCodeGo)
+	cs := newTestChannelServiceForStats(t, channel, 10, PlatformOpenCode)
 	billingService := NewBillingService(nil, nil)
 
-	result := resolveAccountStatsCost(
+	result := resolveAccountStatsCostWithPlatform(
 		context.Background(),
 		cs, billingService,
 		1, 10, "glm-5.3",
-		UsageTokens{InputTokens: 100, OutputTokens: 50}, 1, 999, "", time.Time{},
+		UsageTokens{InputTokens: 100, OutputTokens: 50}, 1, 999, "", time.Time{}, OpenCodeGoPricingPlatform,
 	)
 
 	require.NotNil(t, result)
@@ -981,7 +981,7 @@ func TestResolveAccountStatsCost_OpenCodeGoFallbackAppliesQuotaCostMultiplier(t 
 		Status:                     StatusActive,
 		ApplyPricingToAccountStats: false,
 	}
-	cs := newTestChannelServiceForStats(t, channel, 10, PlatformOpenCodeGo)
+	cs := newTestChannelServiceForStats(t, channel, 10, PlatformOpenCode)
 	pricingSvc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{
 			"glm-5.3": {
@@ -996,11 +996,11 @@ func TestResolveAccountStatsCost_OpenCodeGoFallbackAppliesQuotaCostMultiplier(t 
 	bs := NewBillingService(nil, pricingSvc)
 	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 500_000}
 
-	result := resolveAccountStatsCost(
+	result := resolveAccountStatsCostWithPlatform(
 		context.Background(),
 		cs, bs,
 		1, 10, "glm-5.3",
-		tokens, 1, 999.0, "", time.Time{},
+		tokens, 1, 999.0, "", time.Time{}, OpenCodeGoPricingPlatform,
 	)
 
 	require.NotNil(t, result)

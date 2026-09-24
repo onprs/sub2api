@@ -136,8 +136,8 @@ func (s *OpenAIGatewayService) nativeAnthropicTargetURL(account *Account) (strin
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
-	if account.IsOpenCodeGo() {
-		// OpenCode Go 的 Chat Completions base 带 /v1；用版本感知拼接避免 /v1/v1/messages。
+	if account.IsOpenCode() {
+		// OpenCode base URLs are mode-specific. Version-aware URL joining avoids
 		return buildOpenAIEndpointURL(validatedURL, "/v1/messages"), nil
 	}
 	return strings.TrimRight(validatedURL, "/") + "/v1/messages", nil
@@ -210,6 +210,10 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	if getHeaderRaw(req.Header, "anthropic-version") == "" {
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
+
+	// 官方 OpenCode / Command Code 上游收敛为规范客户端 UA：客户端透传的编程库
+	// UA 会命中其前置 Cloudflare bot 拦截（CF 1010/403），并被计入账号 403 strike。
+	applyOpenCodeUpstreamUserAgent(account, targetURL, req.Header)
 
 	// 账号级请求头覆写（最终生效，覆盖上面所有来源的同名头）
 	account.ApplyHeaderOverrides(req.Header)

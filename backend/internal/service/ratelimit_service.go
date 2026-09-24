@@ -375,7 +375,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	// OpenAI、OpenCode Go 与 Command Code 的模型可用性取决于具体账号。必须先于
 	// 整账号错误策略处理，避免单个模型不受支持时禁用整个账号或被自定义错误码过滤掉。
 	if account != nil && len(requestedModel) > 0 &&
-		(account.Platform == PlatformOpenAI || account.Platform == PlatformOpenCodeGo || account.Platform == PlatformCommandCode) &&
+		(account.Platform == PlatformOpenAI || account.IsOpenCode() || account.Platform == PlatformCommandCode) &&
 		s.HandleUpstreamModelNotFound(ctx, account, requestedModel[0], statusCode, responseBody) {
 		return true
 	}
@@ -1055,7 +1055,7 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	// 国产供应商与 openai 同口径:HTML 403(CDN/代理拦截页)不构成账号失效证据,
 	// 且 403 在 failover 状态集里会被逐账号重放——直接 SetError 会让一个坏请求/
 	// 一层坏代理连环永久禁用整组账号。走 HTML 豁免 + N 次累计 + 临时冷却。
-	if account.Platform == PlatformOpenAI || IsCNProvider(account.Platform) || account.IsOpenCodeGo() {
+	if account.Platform == PlatformOpenAI || IsCNProvider(account.Platform) || account.IsOpenCode() {
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
 	}
 	// 非 Antigravity 平台：保持原有行为
@@ -1087,6 +1087,15 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		slog.Warn(
 			"openai_403_html_body_skips_account_penalty",
 			"account_id", account.ID,
+			"upstream_message", upstreamMsg,
+		)
+		return false
+	}
+	if isCloudflareBotBlockResponse(responseBody) {
+		slog.Warn(
+			"openai_403_cloudflare_bot_block_skips_account_penalty",
+			"account_id", account.ID,
+			"platform", account.Platform,
 			"upstream_message", upstreamMsg,
 		)
 		return false
@@ -1134,6 +1143,14 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		"threshold", openAI403DisableThreshold,
 	)
 	return true
+}
+
+// isCloudflareBotBlockResponse reports Cloudflare's WAF bot-signature response
+// (error code 1010). The upstream never reached the account API, so this is a
+// request/edge-level failure and must not consume the account 403 strike budget.
+func isCloudflareBotBlockResponse(body []byte) bool {
+	normalized := strings.ToLower(strings.TrimSpace(string(body)))
+	return strings.Contains(normalized, "error code: 1010")
 }
 
 // handleAntigravity403 处理 Antigravity 平台的 403 错误
@@ -2582,6 +2599,7 @@ const upstreamModelNotFoundCooldown = 30 * time.Minute
 const openCodeGoModelUnsupportedCooldown = 5 * time.Minute
 const upstreamModelNotFoundReason = "upstream_404_model_not_found"
 const upstreamModelUnsupportedReason = "upstream_model_not_supported"
+const upstreamModelNotFound401Reason = "upstream_401_model_not_found"
 const upstreamCodexPlanGatedModelCooldown = 30 * time.Minute
 const upstreamCodexPlanGatedModelReason = "upstream_400_codex_plan_gated_model"
 const tempUnschedBodyMaxBytes = 64 << 10
@@ -2607,9 +2625,9 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	if !recognized {
 		return false
 	}
-	// 这是账号与模型组合的能力反馈，不是整账号错误策略。OpenAI、OpenCode Go 与
-	// Command Code 即使自定义错误码未包含对应状态码，也必须切换账号并只冷却被拒绝的模型。
-	if account.Platform != PlatformOpenAI && account.Platform != PlatformOpenCodeGo && account.Platform != PlatformCommandCode && !account.ShouldHandleErrorCode(statusCode) {
+	// Model capability feedback must be scoped to the requested model. These
+	// providers handle model rejection independently of the account error-code policy.
+	if !account.IsOpenAI() && !account.IsOpenCode() && account.Platform != PlatformCommandCode && !account.ShouldHandleErrorCode(statusCode) {
 		return false
 	}
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)
@@ -2618,11 +2636,13 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	}
 	cooldown := upstreamModelNotFoundCooldown
 	reason := upstreamModelNotFoundReason
-	if account.Platform == PlatformOpenCodeGo {
+	switch {
+	case account.IsOpenCodeGo():
 		cooldown = openCodeGoModelUnsupportedCooldown
 		reason = upstreamModelUnsupportedReason
-	}
-	if planGated {
+	case statusCode == http.StatusUnauthorized && account.Type == AccountTypeAPIKey && account.IsOpenAICompatible() && isOpenAICompatibleModelNotFoundBody(responseBody):
+		reason = upstreamModelNotFound401Reason
+	case planGated:
 		cooldown = upstreamCodexPlanGatedModelCooldown
 		reason = upstreamCodexPlanGatedModelReason
 	}

@@ -197,10 +197,10 @@ func TestParseOpenCodeGoUsageTiers(t *testing.T) {
 	require.InDelta(t, 22.2, tiers[2].UsedPercent, 0.001)
 
 	updates := cnQuotaExtraUpdates(PlatformOpenCodeGo, tiers, time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC))
-	require.Equal(t, 12.5, updates["opencode_go_5h_used_percent"])
-	require.Equal(t, 40.0, updates["opencode_go_weekly_used_percent"])
-	require.Equal(t, 22.2, updates["opencode_go_monthly_used_percent"])
-	require.Equal(t, "2026-10-01T00:00:00Z", updates["opencode_go_monthly_reset_at"])
+	require.Equal(t, 12.5, updates["opencode_5h_used_percent"])
+	require.Equal(t, 40.0, updates["opencode_weekly_used_percent"])
+	require.Equal(t, 22.2, updates["opencode_monthly_used_percent"])
+	require.Equal(t, "2026-10-01T00:00:00Z", updates["opencode_monthly_reset_at"])
 
 	require.Empty(t, parseOpenCodeGoUsageTiers([]byte(`{"ok":true}`)))
 }

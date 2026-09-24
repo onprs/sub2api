@@ -164,7 +164,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 
 	// OpenCode Go：按模型原生协议分流（与 inbound 协议正交）。
 	// 规则未命中一律兜底 Chat Completions，只有显式 Responses 才走下方转换链。
-	if account.IsOpenCodeGo() {
+	if account.IsOpenCode() {
 		mapped := resolveOpenCodeGoMappedModel(account, body, defaultMappedModel)
 		proto := openCodeGoNativeProtocol(account, mapped)
 		if proto != APIProtocolResponses {
@@ -199,7 +199,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	// 自适应账号的标准 Chat Completions 入站使用供应商原生 CC 端点。
 	// Responses 形状下，DeepSeek / Kimi 继续走下方原生 Responses 链；GLM
 	// 没有 Responses 端点，先转换成 Chat Completions 再直转。
-	if account.IsAdaptiveAPIProtocol() && !account.IsOpenCodeGo() {
+	if account.IsAdaptiveAPIProtocol() && !account.IsOpenCode() {
 		if !isResponsesShape {
 			return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 		}
@@ -313,9 +313,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 			responsesReq.Reasoning = &apicompat.ResponsesReasoning{Effort: effort}
 		}
 	} else {
-		// Normal path: keep one request-scoped pipeline for request conversion and
-		// the non-stream response conversion. Streaming retains its characterized
-		// service policy loop until that transport boundary is structured.
+		// Keep one request-scoped pipeline for request conversion and the non-stream response path.
 		pipeline, err = newOpenAIChatResponsesPipeline(account, originalModel, upstreamModel)
 		if err != nil {
 			return nil, fmt.Errorf("create chat responses pipeline: %w", err)
@@ -331,6 +329,13 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		responsesReq.Model = upstreamModel
 		responsesReq.Stream = true
 		normalizeResponsesRequestServiceTier(responsesReq)
+		if account.IsOpenAIApiKey() && isOpenAIGPT6Model(upstreamModel) {
+			responsesReq.PromptCacheOptions = chatReq.PromptCacheOptions
+			if responsesReq.Reasoning == nil || !strings.EqualFold(strings.TrimSpace(responsesReq.Reasoning.Effort), "none") {
+				responsesReq.Temperature = nil
+				responsesReq.TopP = nil
+			}
+		}
 		responsesBody, err = json.Marshal(responsesReq)
 		if err != nil {
 			return nil, fmt.Errorf("marshal responses request: %w", err)
@@ -409,6 +414,10 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	}
 
 	// 4b. Apply OpenAI fast policy (may filter service_tier or block the request).
+	responsesBody, _, err = normalizeGPT6ResponsesSampling(responsesBody, upstreamModel)
+	if err != nil {
+		return nil, err
+	}
 	updatedBody, policyErr := s.applyOpenAIFastPolicyToBody(ctx, account, upstreamModel, responsesBody)
 	if policyErr != nil {
 		var blocked *OpenAIFastBlockedError
@@ -480,7 +489,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 			return s.forwardAsChatCompletions(markAgentIdentityTaskRecoveryTried(ctx), c, account, body, promptCacheKey, defaultMappedModel, compatPromptCacheTenantIsolated)
 		}
 		if account.Type == AccountTypeAPIKey &&
-			!account.IsOpenCodeGo() &&
+			!account.IsOpenCode() &&
 			openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportUnknown &&
 			!isResponsesEndpointSupportedByStatus(upstream.StatusCode) {
 			logger.L().Info("openai chat_completions: /responses unsupported, falling back to raw chat completions",

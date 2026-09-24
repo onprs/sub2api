@@ -145,7 +145,7 @@ describe('buildAPIKeyBalanceRefreshKey', () => {
   it('OpenCode Go 官方 Console 快照变化时生成不同账号 usage key', () => {
     const base = {
       id: 4,
-      platform: 'opencode_go',
+      platform: 'opencode',
       type: 'apikey',
       updated_at: '2026-06-22T10:00:00Z',
       last_used_at: null,

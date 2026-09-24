@@ -160,12 +160,12 @@ func TestBillingServiceOpenCodeGoQuotaCostUsesDynamicUsageAndAppliesUsageOffer(t
 	pricingSvc := &PricingService{
 		openCodeGoPricing: map[string]*LiteLLMModelPricing{
 			"glm-5.2": {
-				LiteLLMProvider:            PlatformOpenCodeGo,
+				LiteLLMProvider:            OpenCodeGoPricingPlatform,
 				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
 				OpenCodeGoMonthlyUsageUSD:  15,
 			},
 			"ox-alpha-free": {
-				LiteLLMProvider:            PlatformOpenCodeGo,
+				LiteLLMProvider:            OpenCodeGoPricingPlatform,
 				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
 				OpenCodeGoExplicitZeroRate: true,
 			},
@@ -297,33 +297,33 @@ func TestBillingServiceOpenCodeGoPlatformPricingUsesOnlyOfficialDynamicSnapshot(
 			"hy3-preview": {
 				InputCostPerToken:  77e-6,
 				OutputCostPerToken: 77e-6,
-				LiteLLMProvider:    PlatformOpenCodeGo,
+				LiteLLMProvider:    OpenCodeGoPricingPlatform,
 			},
 		},
 		openCodeGoPricing: map[string]*LiteLLMModelPricing{
 			"glm-5.2": {
 				InputCostPerToken:          8e-6,
 				OutputCostPerToken:         9e-6,
-				LiteLLMProvider:            PlatformOpenCodeGo,
+				LiteLLMProvider:            OpenCodeGoPricingPlatform,
 				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
 			},
 			"deepseek-v4-flash": {
 				InputCostPerToken:          0.07e-6,
 				OutputCostPerToken:         0.14e-6,
-				LiteLLMProvider:            PlatformOpenCodeGo,
+				LiteLLMProvider:            OpenCodeGoPricingPlatform,
 				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityModelsDev,
 			},
 		},
 	}
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 
-	official, err := billingSvc.GetModelPricingForPlatform(PlatformOpenCodeGo, "glm-5.2")
+	official, err := billingSvc.GetModelPricingForPlatform(OpenCodeGoPricingPlatform, "glm-5.2")
 	require.NoError(t, err)
 	require.InDelta(t, 8e-6, official.InputPricePerToken, 1e-15)
 	require.InDelta(t, 9e-6, official.OutputPricePerToken, 1e-15)
 
 	formalReference, err := billingSvc.getModelPricingForPlatformAt(
-		PlatformOpenCodeGo,
+		OpenCodeGoPricingPlatform,
 		"deepseek-v4-flash",
 		time.Date(2026, time.August, 21, 0, 0, 0, 0, time.UTC),
 	)
@@ -331,7 +331,7 @@ func TestBillingServiceOpenCodeGoPlatformPricingUsesOnlyOfficialDynamicSnapshot(
 	require.InDelta(t, 0.15e-6, formalReference.InputPricePerToken, 1e-15)
 	require.InDelta(t, 0.60e-6, formalReference.OutputPricePerToken, 1e-15)
 
-	isolatedReference, err := billingSvc.GetModelPricingForPlatform(PlatformOpenCodeGo, "hy3-preview")
+	isolatedReference, err := billingSvc.GetModelPricingForPlatform(OpenCodeGoPricingPlatform, "hy3-preview")
 	require.NoError(t, err)
 	require.InDelta(t, 0.285714e-6, isolatedReference.InputPricePerToken, 1e-15)
 
@@ -347,7 +347,7 @@ func TestBillingServiceOpenCodeGoRejectsLegacySingleBandDeepSeekCache(t *testing
 				InputCostPerToken:          0.44e-6,
 				OutputCostPerToken:         1.32e-6,
 				CacheReadInputTokenCost:    0.014e-6,
-				LiteLLMProvider:            PlatformOpenCodeGo,
+				LiteLLMProvider:            OpenCodeGoPricingPlatform,
 				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
 			},
 		},
@@ -357,7 +357,7 @@ func TestBillingServiceOpenCodeGoRejectsLegacySingleBandDeepSeekCache(t *testing
 	require.Nil(t, pricingSvc.GetOpenCodeGoModelPricingExact("deepseek-v4-flash"))
 
 	offPeak, err := billingSvc.getModelPricingForPlatformAt(
-		PlatformOpenCodeGo,
+		OpenCodeGoPricingPlatform,
 		"deepseek-v4-flash",
 		time.Date(2026, time.August, 21, 0, 0, 0, 0, time.UTC),
 	)
@@ -366,7 +366,7 @@ func TestBillingServiceOpenCodeGoRejectsLegacySingleBandDeepSeekCache(t *testing
 	require.InDelta(t, 0.60e-6, offPeak.OutputPricePerToken, 1e-15)
 
 	peak, err := billingSvc.getModelPricingForPlatformAt(
-		PlatformOpenCodeGo,
+		OpenCodeGoPricingPlatform,
 		"deepseek-v4-flash",
 		time.Date(2026, time.August, 21, 1, 0, 0, 0, time.UTC),
 	)
@@ -379,7 +379,7 @@ func TestBillingServiceOpenCodeGoOfficialZeroRatePricingIsTemporaryAndPlatformSc
 	pricingSvc := &PricingService{
 		openCodeGoPricing: map[string]*LiteLLMModelPricing{
 			"ox-alpha-free": {
-				LiteLLMProvider:            PlatformOpenCodeGo,
+				LiteLLMProvider:            OpenCodeGoPricingPlatform,
 				Mode:                       "chat",
 				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
 				OpenCodeGoExplicitZeroRate: true,
@@ -391,13 +391,13 @@ func TestBillingServiceOpenCodeGoOfficialZeroRatePricingIsTemporaryAndPlatformSc
 	}
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 
-	pricing, err := billingSvc.GetModelPricingForPlatform(PlatformOpenCodeGo, "ox-alpha-free")
+	pricing, err := billingSvc.GetModelPricingForPlatform(OpenCodeGoPricingPlatform, "ox-alpha-free")
 	require.NoError(t, err)
 	require.NotNil(t, pricing)
 	require.True(t, pricing.AllowZeroRate)
 
 	cost, err := billingSvc.CalculateCostForPlatform(
-		PlatformOpenCodeGo,
+		OpenCodeGoPricingPlatform,
 		"ox-alpha-free",
 		UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 250},
 		1.25,
@@ -413,13 +413,13 @@ func TestBillingServiceOpenCodeGoOfficialZeroRatePricingIsTemporaryAndPlatformSc
 	pricingSvc.mu.Lock()
 	pricingSvc.openCodeGoPricingConfirmedAt = time.Now().Add(-openCodeGoZeroRateEvidenceTTL - time.Minute)
 	pricingSvc.mu.Unlock()
-	_, err = billingSvc.GetModelPricingForPlatform(PlatformOpenCodeGo, "ox-alpha-free")
+	_, err = billingSvc.GetModelPricingForPlatform(OpenCodeGoPricingPlatform, "ox-alpha-free")
 	require.ErrorIs(t, err, ErrModelPricingUnavailable)
 
 	pricingSvc.mu.Lock()
 	pricingSvc.openCodeGoPricingConfirmedAt = time.Now().Add(time.Minute)
 	pricingSvc.mu.Unlock()
-	_, err = billingSvc.GetModelPricingForPlatform(PlatformOpenCodeGo, "ox-alpha-free")
+	_, err = billingSvc.GetModelPricingForPlatform(OpenCodeGoPricingPlatform, "ox-alpha-free")
 	require.ErrorIs(t, err, ErrModelPricingUnavailable)
 }
 
@@ -427,7 +427,7 @@ func TestBillingServiceOpenCodeGoUntrustedZeroRateStillFailsClosed(t *testing.T)
 	pricingSvc := &PricingService{
 		openCodeGoPricing: map[string]*LiteLLMModelPricing{
 			"unpriced-preview": {
-				LiteLLMProvider:            PlatformOpenCodeGo,
+				LiteLLMProvider:            OpenCodeGoPricingPlatform,
 				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityModelsDev,
 				OpenCodeGoExplicitZeroRate: true,
 			},
@@ -437,7 +437,7 @@ func TestBillingServiceOpenCodeGoUntrustedZeroRateStillFailsClosed(t *testing.T)
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 
 	_, err := billingSvc.CalculateCostForPlatform(
-		PlatformOpenCodeGo,
+		OpenCodeGoPricingPlatform,
 		"unpriced-preview",
 		UsageTokens{InputTokens: 10, OutputTokens: 5},
 		1,
@@ -448,7 +448,7 @@ func TestBillingServiceOpenCodeGoUntrustedZeroRateStillFailsClosed(t *testing.T)
 func TestCalculateCostForPlatformAppliesOpenCodeGoLongContextAndGroupMultiplier(t *testing.T) {
 	billingSvc := NewBillingService(&config.Config{}, nil)
 	cost, err := billingSvc.CalculateCostForPlatform(
-		PlatformOpenCodeGo,
+		OpenCodeGoPricingPlatform,
 		"qwen3.7-plus",
 		UsageTokens{InputTokens: 256001, OutputTokens: 1000},
 		1.25,

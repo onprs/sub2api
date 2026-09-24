@@ -271,7 +271,7 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 	// count_tokens 为 "Anthropic only"，Kimi/智谱亦无任何文档承诺。转发上游
 	// 只会常态 404，且错误还会流入账号处置逻辑误伤整账号调度；Claude Code
 	// 高频调用此端点，本地 tiktoken 估算是与 Grok 一致的既有方案。
-	if account.IsCNProvider() || account.IsOpenCodeGo() {
+	if account.IsCNProvider() || account.IsOpenCode() {
 		estimated, err := estimateAnthropicCountTokensLocally(body)
 		if err != nil {
 			writeAnthropicCountTokensError(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")

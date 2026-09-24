@@ -60,3 +60,67 @@ func TestOpenCodeGoPlatformConstraintRepairMigration(t *testing.T) {
 	require.NoError(t, err)
 	assertOpenCodePlatformContracts(t, content)
 }
+
+func TestUnifiedOpenCodePlatformMigrationRenamesPersistedIdentifiersAndModes(t *testing.T) {
+	content, err := FS.ReadFile("241_unify_opencode_platform.sql")
+	require.NoError(t, err)
+	sql := string(content)
+
+	normalizedSQL := strings.Join(strings.Fields(sql), " ")
+	updateRoutes := strings.Index(normalizedSQL, "UPDATE composite_model_routes SET target_platform = 'opencode'")
+	dropRoutesCheck := strings.Index(normalizedSQL, "ALTER TABLE composite_model_routes DROP CONSTRAINT IF EXISTS composite_model_routes_target_platform_check")
+	addRoutesCheck := strings.Index(normalizedSQL, "ALTER TABLE composite_model_routes ADD CONSTRAINT composite_model_routes_target_platform_check")
+	require.GreaterOrEqual(t, dropRoutesCheck, 0)
+	require.Greater(t, updateRoutes, dropRoutesCheck, "drop the legacy check before writing the canonical platform")
+	require.Greater(t, addRoutesCheck, updateRoutes, "restore the canonical check after rewriting route values")
+
+	quotaContract := migrationCheckList(t, normalizedSQL, "CHECK (platform IN (")
+	routeContract := migrationCheckList(t, normalizedSQL, "CHECK (target_platform IN (")
+	providerContract := migrationCheckList(t, normalizedSQL, "CHECK (provider IN (")
+	for _, contract := range []string{quotaContract, routeContract, providerContract} {
+		require.Contains(t, contract, "'opencode'")
+		require.NotContains(t, contract, "'opencode_go'")
+	}
+
+	for _, fragment := range []string{
+		"WHERE platform = 'opencode_go'",
+		"'{account_mode}', '\"go\"'::jsonb",
+		"'{account_mode}', '\"zen\"'::jsonb",
+		"UPDATE groups",
+		"UPDATE api_keys",
+		"UPDATE channel_model_pricing",
+		"UPDATE channel_account_stats_model_pricing",
+		"UPDATE channels AS channel_row",
+		"UPDATE error_passthrough_rules AS rule",
+		"channel_monitor_v2_config",
+		"channel_monitor_v2_metrics_1m",
+		"channel_monitor_v2_user_metrics_1m",
+		"channel_monitor_v2_error_metrics_1m",
+		"channel_monitor_v2_latency_histograms_1m",
+		"channel_monitor_v2_metrics_rollup",
+		"channel_monitor_v2_user_metrics_rollup",
+		"channel_monitor_v2_error_metrics_rollup",
+		"channel_monitor_v2_latency_histograms_rollup",
+		"UPDATE ops_error_logs SET platform = 'opencode'",
+		"UPDATE ops_system_metrics SET platform = 'opencode'",
+		"UPDATE ops_system_logs SET platform = 'opencode'",
+		"UPDATE ops_alert_silences SET platform = 'opencode'",
+		"UPDATE ops_alert_rules",
+		"UPDATE ops_alert_events",
+		"UPDATE ops_metrics_hourly AS canonical",
+		"UPDATE ops_metrics_daily AS canonical",
+		"ON CONFLICT (bucket_start, platform, group_id, model) DO UPDATE SET",
+		"UPDATE composite_model_routes",
+		"UPDATE channel_monitors",
+		"UPDATE channel_monitor_request_templates",
+		"provider IN ('opencode', 'opencode_go')",
+		"candidate_name := LEFT(template_row.name",
+		"attempt := attempt + 1",
+		"UPDATE user_platform_quotas",
+		"default_platform_quotas",
+		"opencode_go_5h_used_percent",
+		"opencode_5h_used_percent",
+	} {
+		require.Contains(t, normalizedSQL, fragment)
+	}
+}

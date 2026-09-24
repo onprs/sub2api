@@ -280,12 +280,12 @@ func TestGroupHandlerEndpoints(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestGroupHandlerCreateAcceptsOpenCodeGoPlatform(t *testing.T) {
+func TestGroupHandlerCreateAcceptsOpenCodePlatform(t *testing.T) {
 	router, _ := setupAdminRouter()
 
 	body, _ := json.Marshal(map[string]any{
 		"name":              "opencode-go",
-		"platform":          "opencode_go",
+		"platform":          "opencode",
 		"subscription_type": "standard",
 	})
 	rec := httptest.NewRecorder()
@@ -296,12 +296,12 @@ func TestGroupHandlerCreateAcceptsOpenCodeGoPlatform(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestGroupHandlerRejectsRequireOAuthOnlyForOpenCodeGo(t *testing.T) {
+func TestGroupHandlerRejectsRequireOAuthOnlyForOpenCode(t *testing.T) {
 	router, _ := setupAdminRouter()
 
 	body, _ := json.Marshal(map[string]any{
 		"name":               "opencode-go",
-		"platform":           "opencode_go",
+		"platform":           "opencode",
 		"subscription_type":  "standard",
 		"require_oauth_only": true,
 	})
@@ -314,7 +314,7 @@ func TestGroupHandlerRejectsRequireOAuthOnlyForOpenCodeGo(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "require_oauth_only")
 
 	body, _ = json.Marshal(map[string]any{
-		"platform":           "opencode_go",
+		"platform":           "opencode",
 		"require_oauth_only": true,
 	})
 	rec = httptest.NewRecorder()

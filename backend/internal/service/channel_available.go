@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -609,7 +610,7 @@ func catalogPricingLookupCandidates(platform, displayName string, pricingCandida
 	if platform == PlatformAntigravity {
 		add(domain.DefaultAntigravityModelMapping[displayName])
 	}
-	if platform == PlatformOpenCodeGo && strings.HasSuffix(displayName, "-code") {
+	if isOpenCodeGoPricingPlatform(platform) && strings.HasSuffix(displayName, "-code") {
 		add(strings.TrimSuffix(displayName, "-code"))
 	}
 	add(displayName)
@@ -662,31 +663,31 @@ func synthesizePricingFromLiteLLM(lp *LiteLLMModelPricing, existing *ChannelMode
 
 	if mode == BillingModeImage || mode == BillingModePerRequest {
 		return &ChannelModelPricing{
-			BillingMode:                  mode,
-			PerRequestPrice:              nonZeroPtr(lp.OutputCostPerImage),
-			ImageOutputPrice:             nonZeroPtr(lp.OutputCostPerImageToken),
-			InputPrice:                   nonZeroPtr(lp.InputCostPerToken),
-			OutputPrice:                  nonZeroPtr(lp.OutputCostPerToken),
-			MaxReasoningEffortMultiplier: maxReasoningEffortMultiplierFromPricing(existing),
+			BillingMode:                mode,
+			PerRequestPrice:            nonZeroPtr(lp.OutputCostPerImage),
+			ImageOutputPrice:           nonZeroPtr(lp.OutputCostPerImageToken),
+			InputPrice:                 nonZeroPtr(lp.InputCostPerToken),
+			OutputPrice:                nonZeroPtr(lp.OutputCostPerToken),
+			ReasoningEffortMultipliers: reasoningEffortMultipliersFromPricing(existing),
 		}
 	}
 	return &ChannelModelPricing{
-		BillingMode:                  mode,
-		InputPrice:                   nonZeroPtr(lp.InputCostPerToken),
-		OutputPrice:                  nonZeroPtr(lp.OutputCostPerToken),
-		CacheWritePrice:              nonZeroPtr(lp.CacheCreationInputTokenCost),
-		CacheWrite1hPrice:            nonZeroPtr(lp.CacheCreationInputTokenCostAbove1hr),
-		CacheReadPrice:               nonZeroPtr(lp.CacheReadInputTokenCost),
-		ImageOutputPrice:             nonZeroPtr(lp.OutputCostPerImageToken),
-		MaxReasoningEffortMultiplier: maxReasoningEffortMultiplierFromPricing(existing),
+		BillingMode:                mode,
+		InputPrice:                 nonZeroPtr(lp.InputCostPerToken),
+		OutputPrice:                nonZeroPtr(lp.OutputCostPerToken),
+		CacheWritePrice:            nonZeroPtr(lp.CacheCreationInputTokenCost),
+		CacheWrite1hPrice:          nonZeroPtr(lp.CacheCreationInputTokenCostAbove1hr),
+		CacheReadPrice:             nonZeroPtr(lp.CacheReadInputTokenCost),
+		ImageOutputPrice:           nonZeroPtr(lp.OutputCostPerImageToken),
+		ReasoningEffortMultipliers: reasoningEffortMultipliersFromPricing(existing),
 	}
 }
 
-func maxReasoningEffortMultiplierFromPricing(pricing *ChannelModelPricing) *float64 {
+func reasoningEffortMultipliersFromPricing(pricing *ChannelModelPricing) map[string]float64 {
 	if pricing == nil {
 		return nil
 	}
-	return pricing.MaxReasoningEffortMultiplier
+	return maps.Clone(pricing.ReasoningEffortMultipliers)
 }
 
 func synthesizePricingFromModelPricing(mp *ModelPricing, existing *ChannelModelPricing) *ChannelModelPricing {

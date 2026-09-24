@@ -22,7 +22,8 @@ const (
 const (
 	PlatformAnthropic   = "anthropic"
 	PlatformOpenAI      = "openai"
-	PlatformOpenCodeGo  = "opencode_go"
+	PlatformOpenCode    = "opencode"
+	PlatformOpenCodeGo  = PlatformOpenCode // Deprecated: use PlatformOpenCode; mode lives in account_mode.
 	PlatformClinePass   = "clinepass"
 	PlatformOpenRouter  = "openrouter"
 	PlatformCommandCode = "commandcode"

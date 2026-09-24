@@ -994,5 +994,5 @@ func (f *stubOpenAIQuotaUsageFetcher) asService(repo AccountRepository, tokenPro
 		w.Header().Set("content-type", "application/json")
 		_ = json.NewEncoder(w).Encode(f.usage)
 	}))
-	return NewOpenAIQuotaService(repo, nil, tokenProvider, newQuotaRedirectingFactory(srv))
+	return NewOpenAIQuotaService(repo, nil, tokenProvider, newQuotaRedirectingFactory(srv), nil)
 }

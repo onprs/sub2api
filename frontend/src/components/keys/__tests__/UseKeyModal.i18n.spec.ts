@@ -30,7 +30,7 @@ const apiKeyRecord = {
   group: {
     id: 3,
     name: 'OpenCode Go',
-    platform: 'opencode_go',
+    platform: 'opencode',
     default_mapped_model: 'gpt-5.5'
   }
 }
@@ -41,7 +41,7 @@ function mountModal() {
       show: true,
       apiKey: 'sk-test',
       baseUrl: 'https://example.com/v1',
-      platform: 'opencode_go',
+      platform: 'opencode',
       apiKeyRecord
     } as any,
     global: {
@@ -62,14 +62,14 @@ describe('UseKeyModal locale copy', () => {
     const english = mountModal()
     expect(english.text()).toContain('Default Model')
     expect(english.text()).toContain('Download for Windows')
-    expect(english.text()).toContain('Import this API key into OpenCode')
+    expect(english.text()).toContain('Config path: ~/.config/opencode/opencode.json')
     expect(english.text()).not.toContain('keys.useKeyModal')
 
     testLocale.value = 'zh'
     const chinese = mountModal()
     expect(chinese.text()).toContain('默认模型')
     expect(chinese.text()).toContain('下载 Windows 脚本')
-    expect(chinese.text()).toContain('将此 API 密钥导入 OpenCode')
+    expect(chinese.text()).toContain('配置文件路径：~/.config/opencode/opencode.json')
     expect(chinese.text()).not.toContain('keys.useKeyModal')
   })
 })

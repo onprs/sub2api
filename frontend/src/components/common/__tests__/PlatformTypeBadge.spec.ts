@@ -17,8 +17,9 @@ describe('PlatformTypeBadge', () => {
     testLocale.value = 'en'
     const wrapper = mount(PlatformTypeBadge, {
       props: {
-        platform: 'opencode_go',
-        type: 'apikey'
+        platform: 'opencode',
+        type: 'apikey',
+        accountMode: 'go'
       }
     })
 
@@ -26,6 +27,21 @@ describe('PlatformTypeBadge', () => {
     expect(wrapper.text()).toContain('API Key')
     expect(wrapper.text()).not.toContain('Gemini')
     expect(wrapper.find('svg[stroke="currentColor"]').exists()).toBe(true)
+  })
+
+  it('renders OpenCode Zen from the account mode while keeping the canonical platform', () => {
+    testLocale.value = 'en'
+    const wrapper = mount(PlatformTypeBadge, {
+      props: {
+        platform: 'opencode',
+        type: 'apikey',
+        accountMode: 'zen'
+      }
+    })
+
+    expect(wrapper.text()).toContain('OpenCode Zen')
+    expect(wrapper.text()).toContain('API Key')
+    expect(wrapper.text()).not.toContain('OpenCode Go')
   })
 
   it('renders ClinePass as an independent API key platform', () => {

@@ -42,7 +42,7 @@ func TestChannelMonitorBindingAcceptsLocalGroupWithoutCredentials(t *testing.T) 
 func TestChannelMonitorBindingAcceptsOpenCodeGoMessages(t *testing.T) {
 	createBody := `{
 		"name":"opencode-go",
-		"provider":"opencode_go",
+		"provider":"opencode",
 		"api_mode":"messages",
 		"endpoint":"https://opencode.ai/zen/go/v1",
 		"api_key":"sk-test",
@@ -51,12 +51,12 @@ func TestChannelMonitorBindingAcceptsOpenCodeGoMessages(t *testing.T) {
 	}`
 	require.NoError(t, bindChannelMonitorJSON(t, createBody, &channelMonitorCreateRequest{}))
 
-	updateBody := `{"provider":"opencode_go","api_mode":"messages"}`
+	updateBody := `{"provider":"opencode","api_mode":"messages"}`
 	require.NoError(t, bindChannelMonitorJSON(t, updateBody, &channelMonitorUpdateRequest{}))
 
 	templateCreateBody := `{
 		"name":"opencode-go messages",
-		"provider":"opencode_go",
+		"provider":"opencode",
 		"api_mode":"messages"
 	}`
 	require.NoError(t, bindChannelMonitorJSON(t, templateCreateBody, &channelMonitorTemplateCreateRequest{}))

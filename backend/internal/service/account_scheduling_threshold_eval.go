@@ -44,6 +44,10 @@ func EvaluateAccountSchedulingThreshold(account *Account, thresholds map[string]
 		return decision
 	}
 
+	if account.IsOpenCode() && !account.IsOpenCodeGoPlan() {
+		return decision
+	}
+
 	threshold, ok := resolveEffectiveAccountSchedulingThreshold(account, thresholds, decision.Platform)
 	decision.ThresholdPercent = threshold
 	if !ok || threshold >= 100 {
@@ -58,7 +62,7 @@ func EvaluateAccountSchedulingThreshold(account *Account, thresholds map[string]
 		winner = pickLatestResetSchedulingCandidate(anthropicThresholdCandidates(account), threshold, now)
 	case PlatformGrok:
 		winner = pickLatestResetSchedulingCandidate(grokThresholdCandidates(account), threshold, now)
-	case PlatformKimi, PlatformZhipu, PlatformMiniMax, PlatformOpenCodeGo:
+	case PlatformKimi, PlatformZhipu, PlatformMiniMax, PlatformOpenCode:
 		winner = pickLatestResetSchedulingCandidate(cnProviderThresholdCandidates(account, decision.Platform), threshold, now)
 	default:
 		return decision

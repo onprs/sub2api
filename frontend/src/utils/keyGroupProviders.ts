@@ -19,7 +19,7 @@ const PROVIDER_BY_PLATFORM: Record<GroupPlatform, KeyGroupProvider> = {
   openrouter: 'other',
   commandcode: 'other',
   composite: 'other',
-  opencode_go: 'other'
+  opencode: 'other'
 }
 
 export function getKeyGroupProvider(platform: GroupPlatform): KeyGroupProvider {

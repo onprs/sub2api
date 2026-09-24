@@ -1,4 +1,5 @@
 import type { BillingMode, ChannelTimePricing, PricingInterval } from '@/api/admin/channels'
+import { REASONING_EFFORT_LEVELS } from '@/constants/channel'
 
 type TranslateFn = (key: string, params?: Record<string, unknown>) => string
 
@@ -29,7 +30,7 @@ export interface PricingFormEntry {
   cache_read_price: number | string | null
   fast_multiplier?: number | string | null
   flex_multiplier?: number | string | null
-  max_reasoning_effort_multiplier?: number | string | null
+  reasoning_effort_multipliers?: Record<string, number | string> | null
   image_input_price: number | string | null
   image_output_price: number | string | null
   per_request_price: number | string | null
@@ -180,6 +181,30 @@ export function isValidPositiveMultiplier(val: number | string | null | undefine
   if (val === null || val === undefined || val === '') return true
   const multiplier = Number(val)
   return Number.isFinite(multiplier) && multiplier > 0
+}
+
+export function formReasoningEffortMultipliersToAPI(
+  value: PricingFormEntry['reasoning_effort_multipliers'],
+): Record<string, number> | null {
+  const entries = Object.entries(value || {})
+    .filter(([, multiplier]) => multiplier !== '')
+    .map(([effort, multiplier]) => [effort, Number(multiplier)])
+  return entries.length ? Object.fromEntries(entries) : null
+}
+
+export function validateReasoningEffortMultipliers(
+  value: PricingFormEntry['reasoning_effort_multipliers'],
+  t: TranslateFn,
+): string | null {
+  for (const [effort, multiplier] of Object.entries(value || {})) {
+    if (!REASONING_EFFORT_LEVELS.some(level => level === effort)) {
+      return t('admin.channels.form.reasoningEffortLevelInvalid', { effort })
+    }
+    if (multiplier !== '' && !isValidPositiveMultiplier(multiplier)) {
+      return t('admin.channels.form.reasoningEffortMultiplierPositive', { effort })
+    }
+  }
+  return null
 }
 
 /** 前端显示值($/MTok) → 后端存储值(per-token) */
@@ -411,7 +436,7 @@ export function getPlatformTagClass(platform: string): string {
     case 'gemini': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
     case 'antigravity': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
     case 'grok': return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-    case 'opencode_go': return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
+    case 'opencode': return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
     case 'clinepass': return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
     case 'openrouter': return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
     case 'commandcode': return 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300'
@@ -430,7 +455,7 @@ export function getPlatformTextClass(platform: string): string {
     case 'gemini': return 'text-blue-700 dark:text-blue-400'
     case 'antigravity': return 'text-purple-700 dark:text-purple-400'
     case 'grok': return 'text-slate-700 dark:text-slate-300'
-    case 'opencode_go': return 'text-cyan-700 dark:text-cyan-300'
+    case 'opencode': return 'text-cyan-700 dark:text-cyan-300'
     case 'clinepass': return 'text-rose-700 dark:text-rose-300'
     case 'openrouter': return 'text-indigo-700 dark:text-indigo-300'
     case 'commandcode': return 'text-lime-700 dark:text-lime-300'

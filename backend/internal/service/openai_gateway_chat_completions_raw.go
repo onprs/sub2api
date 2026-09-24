@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -83,10 +84,11 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		// anchored to the client's stable conversation prefix.
 		grokCacheIdentity = resolveGrokCacheIdentity(c, body, "", upstreamModel)
 	}
-	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
-	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 billingModel 算出之后。
-	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
-
+	if openai.IsGPT6SolOrLunaModelSpelling(upstreamModel) && (len(gjson.GetBytes(body, "tools").Array()) > 0 || len(gjson.GetBytes(body, "functions").Array()) > 0) && gjson.GetBytes(body, "reasoning_effort").String() != "none" {
+		err := fmt.Errorf("%s requires Responses for tool calls with reasoning; this account only supports Chat Completions. Use reasoning_effort=none or a Responses-capable account", upstreamModel)
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
 	// 3. Rewrite model in body (no protocol conversion)
 	upstreamBody := body
 	if upstreamModel != originalModel {
@@ -203,6 +205,10 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if customUA == "" && account.IsGrokOAuth() {
 		customUA = defaultGrokUpstreamUserAgent()
 	}
+	// Record the final provider-normalized effort, so usage and pricing match
+	// the outbound request (for example GLM xhigh is forwarded as max).
+	reasoningEffort := extractOpenAIReasoningEffortFromBody(upstreamBody, upstreamModel, billingModel, originalModel)
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, upstreamBody, upstreamModel)
 	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, upstreamBody, clientStream, token, customUA, grokCacheIdentity)
 	if err != nil {
 		return nil, err
@@ -419,9 +425,10 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		terminal.ObserveDataLine(strings.TrimSpace(string(record.Data)))
 		payload := applyOllamaCloudRawChatCompletionsResponse(account, record.Data)
 		payload, _ = stripEmptyChatToolCallIdentity(payload)
-		payloadText := string(payload)
 		eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
 		observer.ObserveOpenAI(payload, eventType)
+		payload = s.replaceModelInResponseBody(payload, upstreamModel, originalModel)
+		payloadText := string(payload)
 		usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payloadText)
 		if u := extractCCStreamUsage(payloadText); u != nil {
 			usage = *u
@@ -588,6 +595,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	}
 	observer.ObserveOpenAI(respBody, strings.TrimSpace(gjson.GetBytes(respBody, "type").String()))
 	respBody = applyOllamaCloudRawChatCompletionsResponse(account, respBody)
+	respBody = s.replaceModelInResponseBody(respBody, upstreamModel, originalModel)
 
 	if len(respBody) == 0 {
 		if requiresBillableGrokChatUsage(account, billingModel, upstreamModel) {
@@ -637,7 +645,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	result.UpstreamResponseModelConflict = observedUpstreamResponseModelConflict(c)
 	result.UpstreamResponseServiceTier = observedUpstreamResponseServiceTier(c)
 	result.ServiceTier = resolvedOpenAIUpstreamServiceTier(c, serviceTier)
-	responseModel := gjson.GetBytes(respBody, "model").String()
+	responseModel := observedUpstreamResponseModel(c)
 	if requiresBillableGrokChatUsage(account, billingModel, upstreamModel, responseModel) && !hasBillableGrokChatUsage(result.Usage) {
 		upstreamRequestID := firstNonEmpty(result.RequestID, resp.Header.Get("xai-request-id"))
 		return nil, newGrokMissingUsageFailoverError(c, account, upstreamRequestID)

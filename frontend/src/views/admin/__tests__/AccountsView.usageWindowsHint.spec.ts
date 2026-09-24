@@ -231,7 +231,7 @@ describe('admin AccountsView usage windows hint', () => {
         {
           id: 81,
           name: 'OpenCode usage account',
-          platform: 'opencode_go',
+          platform: 'opencode',
           type: 'apikey',
           status: 'active',
           schedulable: true,

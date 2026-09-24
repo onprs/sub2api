@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestChannelMonitorOpenCodeGoEntEnums(t *testing.T) {
-	require.NoError(t, channelmonitor.ProviderValidator(channelmonitor.ProviderOpencodeGo))
-	require.NoError(t, channelmonitorrequesttemplate.ProviderValidator(channelmonitorrequesttemplate.ProviderOpencodeGo))
+func TestChannelMonitorOpenCodeEntEnums(t *testing.T) {
+	require.NoError(t, channelmonitor.ProviderValidator(channelmonitor.ProviderOpencode))
+	require.NoError(t, channelmonitorrequesttemplate.ProviderValidator(channelmonitorrequesttemplate.ProviderOpencode))
 }
 
 func TestChannelMonitorOpenCodeGoProviderAdapters(t *testing.T) {

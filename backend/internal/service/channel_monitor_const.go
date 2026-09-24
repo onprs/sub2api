@@ -75,7 +75,8 @@ const (
 	MonitorProviderAnthropic         = "anthropic"
 	MonitorProviderGemini            = "gemini"
 	MonitorProviderGrok              = "grok"
-	MonitorProviderOpenCodeGo        = "opencode_go"
+	MonitorProviderOpenCode          = "opencode"
+	MonitorProviderOpenCodeGo        = MonitorProviderOpenCode // Deprecated: use MonitorProviderOpenCode.
 	MonitorProviderClinePass         = "clinepass"
 	MonitorProviderOpenRouter        = "openrouter"
 	MonitorProviderCommandCode       = "commandcode"
@@ -195,7 +196,7 @@ var (
 		"CHANNEL_MONITOR_GROUP_ALREADY_MONITORED", "the selected group already has a local monitor",
 	)
 	ErrChannelMonitorInvalidProvider = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/grok/opencode_go/clinepass/openrouter/commandcode/antigravity/antigravity_claude/antigravity_gemini/kimi/zhipu/deepseek/minimax",
+		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/grok/opencode/clinepass/openrouter/commandcode/antigravity/antigravity_claude/antigravity_gemini/kimi/zhipu/deepseek/minimax",
 	)
 	ErrChannelMonitorInvalidCheckMode = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_CHECK_MODE", "check_mode must be one of probe/quota/quota_probe; antigravity only supports quota",
@@ -210,7 +211,7 @@ var (
 		"CHANNEL_MONITOR_ACCOUNT_NOT_SUPPORTABLE", "linked account cannot serve as a quota data source (cn coding plan must be kimi/zhipu/minimax, cn payg must be kimi/deepseek, openai requires an oauth account, anthropic requires oauth or setup-token)",
 	)
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, messages, or responses; responses is supported for openai/opencode_go and messages is supported for opencode_go/commandcode",
+		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, messages, or responses; responses is supported for openai/opencode and messages is supported for opencode/commandcode",
 	)
 	ErrChannelMonitorInvalidRequestBody = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_REQUEST_BODY", "replace-mode body_override must include non-empty messages for chat_completions/messages or non-empty instructions and input for responses",

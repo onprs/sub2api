@@ -185,7 +185,7 @@ function buildOpenCodeGoAccount() {
     ...account,
     id: 5,
     name: 'OpenCode Go Key',
-    platform: 'opencode_go',
+    platform: 'opencode',
     credentials: {
       api_key: 'sk-opencode-go-test',
       base_url: 'https://opencode.ai/zen/go/v1',
@@ -564,7 +564,7 @@ describe('EditAccountModal', () => {
 
   it('preserves OpenCode Zen account type and endpoints on submit', async () => {
     const account = buildAccount()
-    account.platform = 'opencode_go'
+    account.platform = 'opencode'
     account.credentials = {
       api_key: 'sk-opencode',
       account_mode: 'zen',
@@ -611,7 +611,7 @@ describe('EditAccountModal', () => {
 
   it('treats a legacy OpenCode account without account_mode as GO', async () => {
     const account = buildAccount()
-    account.platform = 'opencode_go'
+    account.platform = 'opencode'
     account.credentials = {
       api_key: 'sk-opencode',
       api_protocol: 'adaptive',

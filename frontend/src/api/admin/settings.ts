@@ -17,7 +17,7 @@ export interface DefaultSubscriptionSetting {
 }
 
 // ── 平台限额类型 ──────────────────────────────────────────────────
-export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity" | "grok" | "opencode_go" | "clinepass" | "openrouter" | "commandcode"
+export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity" | "grok" | "opencode" | "clinepass" | "openrouter" | "commandcode"
 export type QuotaWindowType = "daily" | "weekly" | "monthly"
 
 /** 单平台三档限额；null = 不限制，undefined = 未填（等价 null） */
@@ -30,7 +30,7 @@ export interface PlatformQuotaLimits {
 /** 全平台默认限额 map（key = PlatformType） */
 export type DefaultPlatformQuotasMap = Partial<Record<PlatformType, PlatformQuotaLimits>>
 
-const PLATFORMS: PlatformType[] = ["anthropic", "openai", "gemini", "antigravity", "grok", "opencode_go", "clinepass", "openrouter", "commandcode"]
+const PLATFORMS: PlatformType[] = ["anthropic", "openai", "gemini", "antigravity", "grok", "opencode", "clinepass", "openrouter", "commandcode"]
 
 export type SchedulingThresholdPlatformType =
   | "openai"
@@ -39,7 +39,7 @@ export type SchedulingThresholdPlatformType =
   | "kimi"
   | "zhipu"
   | "minimax"
-  | "opencode_go"
+  | "opencode"
 
 export type AccountSchedulingThresholdsMap = Record<SchedulingThresholdPlatformType, number>
 
@@ -52,7 +52,7 @@ export const SCHEDULING_THRESHOLD_PLATFORMS: SchedulingThresholdPlatformType[] =
   "kimi",
   "zhipu",
   "minimax",
-  "opencode_go",
+  "opencode",
 ]
 
 export function normalizeAccountSchedulingThresholdsMap(
@@ -640,6 +640,9 @@ export interface SystemSettings {
   openai_codex_client_version: string;
   openai_codex_client_version_synced: string;
   openai_codex_version_auto_sync_enabled: boolean;
+  claude_code_client_version: string;
+  claude_code_client_version_synced: string;
+  claude_code_version_auto_sync_enabled: boolean;
   // codex_cli_only 加固
   min_codex_version: string;
   max_codex_version: string;
@@ -684,7 +687,8 @@ export interface SystemSettings {
   payment_visible_method_alipay_enabled?: boolean;
   payment_visible_method_wxpay_enabled?: boolean;
   openai_low_upstream_rate_priority_enabled?: boolean;
-  openai_oauth_scheduling_rate_multiplier?: number;
+  /** null means OAuth accounts use their individual account rates. */
+  openai_oauth_scheduling_rate_multiplier?: number | null;
   openai_advanced_scheduler_enabled?: boolean;
   openai_advanced_scheduler_sticky_weighted_enabled?: boolean;
   openai_advanced_scheduler_subscription_priority_enabled?: boolean;
@@ -963,6 +967,8 @@ export interface UpdateSettingsRequest {
   openai_codex_user_agent?: string;
   openai_codex_client_version?: string;
   openai_codex_version_auto_sync_enabled?: boolean;
+  claude_code_client_version?: string;
+  claude_code_version_auto_sync_enabled?: boolean;
   // codex_cli_only 加固
   min_codex_version?: string;
   max_codex_version?: string;
@@ -1005,7 +1011,8 @@ export interface UpdateSettingsRequest {
   payment_visible_method_alipay_enabled?: boolean;
   payment_visible_method_wxpay_enabled?: boolean;
   openai_low_upstream_rate_priority_enabled?: boolean;
-  openai_oauth_scheduling_rate_multiplier?: number;
+  /** Omit to preserve the override; null clears it; zero is an explicit rate. */
+  openai_oauth_scheduling_rate_multiplier?: number | null;
   openai_advanced_scheduler_enabled?: boolean;
   openai_advanced_scheduler_sticky_weighted_enabled?: boolean;
   openai_advanced_scheduler_subscription_priority_enabled?: boolean;

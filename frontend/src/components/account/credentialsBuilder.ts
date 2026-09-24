@@ -46,7 +46,7 @@ export function isHeaderOverrideCapable(platform: string, type: string): boolean
     platform === 'zhipu' ||
     platform === 'deepseek' ||
     platform === 'minimax' ||
-    platform === 'opencode_go'
+    platform === 'opencode'
   ) {
     return type === 'apikey'
   }
@@ -272,7 +272,7 @@ export function isCNProviderPlatform(platform: string): platform is CnProviderPl
 
 /** DeepSeek、Kimi 与 MiniMax 提供原生 Responses 端点。 */
 export function cnSupportsNativeResponses(platform: string): boolean {
-  return platform === 'deepseek' || platform === 'kimi' || platform === 'minimax' || platform === 'opencode_go'
+  return platform === 'deepseek' || platform === 'kimi' || platform === 'minimax' || platform === 'opencode'
 }
 
 export const OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
@@ -280,8 +280,8 @@ export const OPENCODE_GO_ANTHROPIC_BASE_URL = 'https://opencode.ai/zen/go'
 export const OPENCODE_ZEN_BASE_URL = 'https://opencode.ai/zen/v1'
 export const OPENCODE_ZEN_ANTHROPIC_BASE_URL = 'https://opencode.ai/zen'
 
-export function isOpenCodeGoPlatform(platform: string): boolean {
-  return platform === 'opencode_go'
+export function isOpenCodePlatform(platform: string): boolean {
+  return platform === 'opencode'
 }
 
 export const OPENCODE_GO_PROTOCOL_RULES_KEY = 'protocol_rules'
@@ -358,7 +358,7 @@ export function applyOpenCodeGoProtocolRules(
 }
 
 export function isMultiProtocolApiKeyPlatform(platform: string): boolean {
-  return platform === 'kimi' || platform === 'zhipu' || platform === 'deepseek' || platform === 'minimax' || platform === 'opencode_go'
+  return platform === 'kimi' || platform === 'zhipu' || platform === 'deepseek' || platform === 'minimax' || platform === 'opencode'
 }
 
 export interface CnBaseUrlPreset {
@@ -422,7 +422,7 @@ export function defaultCNBaseUrl(
         return 'https://api.deepseek.com/anthropic'
       case 'minimax':
         return 'https://api.minimaxi.com/anthropic'
-      case 'opencode_go':
+      case 'opencode':
         return mode === 'zen' ? OPENCODE_ZEN_ANTHROPIC_BASE_URL : OPENCODE_GO_ANTHROPIC_BASE_URL
       default:
         return ''
@@ -440,7 +440,7 @@ export function defaultCNBaseUrl(
       return 'https://api.deepseek.com'
     case 'minimax':
       return 'https://api.minimaxi.com/v1'
-    case 'opencode_go':
+    case 'opencode':
       return mode === 'zen' ? OPENCODE_ZEN_BASE_URL : OPENCODE_GO_BASE_URL
     default:
       return ''
@@ -449,7 +449,7 @@ export function defaultCNBaseUrl(
 
 /** 返回自适应模式下需要配置的原生协议及其默认端点。 */
 export function defaultCNAdaptiveBaseUrls(
-  platform: CnProviderPlatform | 'opencode_go',
+  platform: CnProviderPlatform | 'opencode',
   mode: CnAccountMode | OpenCodeAccountMode
 ): Record<CnNativeApiProtocol, string> {
   return {
@@ -464,7 +464,7 @@ export function defaultCNAdaptiveBaseUrls(
 // 共用，避免多处复制条件后一处改另一处漏改。
 
 export function cnQuotaCellVisible(platform: string, accountMode: string): boolean {
-  if (platform === 'opencode_go') return accountMode !== 'zen'
+  if (platform === 'opencode') return accountMode !== 'zen'
   return (platform === 'kimi' || platform === 'zhipu' || platform === 'minimax') && accountMode === 'coding'
 }
 

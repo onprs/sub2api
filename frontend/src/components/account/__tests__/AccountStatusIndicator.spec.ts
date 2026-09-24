@@ -295,7 +295,7 @@ describe('AccountStatusIndicator', () => {
       const wrapper = mount(AccountStatusIndicator, {
         props: {
           account: makeAccount({
-            platform: 'opencode_go',
+            platform: 'opencode',
             type: 'apikey',
             extra: {
               opencode_go_usage_source: 'official_console',

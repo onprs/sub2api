@@ -393,7 +393,7 @@ func (a *Account) IsCNProvider() bool {
 // openai/grok 原生走 OpenAI 网关；国产供应商同为 OpenAI Chat Completions
 // 兼容上游，也经 OpenAI 网关转发。OpenCode 同样经 OpenAI 网关按模型分流。
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCodeGo())
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCode())
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -1518,12 +1518,20 @@ func (a *Account) IsAnthropicAPIKey() bool {
 	return a != nil && a.Platform == PlatformAnthropic && a.Type == AccountTypeAPIKey
 }
 
+func (a *Account) IsOpenCode() bool {
+	return a != nil && a.Platform == PlatformOpenCode
+}
+
 func (a *Account) IsOpenCodeGo() bool {
-	return a != nil && a.Platform == PlatformOpenCodeGo
+	return a != nil && a.IsOpenCodeGoPlan()
 }
 
 func (a *Account) IsOpenCodeGoAPIKey() bool {
 	return a.IsOpenCodeGo() && a.Type == AccountTypeAPIKey
+}
+
+func (a *Account) IsOpenCodeAPIKey() bool {
+	return a != nil && a.IsOpenCode() && a.Type == AccountTypeAPIKey
 }
 
 func (a *Account) IsClinePass() bool {
@@ -1595,7 +1603,7 @@ func (a *Account) IsOpenAIApiKey() bool {
 // 适用 openai、国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go；
 // grok 走 GetGrokBaseURL，此处对 grok 返回 "" 以保持原有行为。
 func (a *Account) GetOpenAIBaseURL() string {
-	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() {
+	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCode() {
 		return ""
 	}
 	if a.IsMultiProtocolAPIKey() && a.IsAdaptiveAPIProtocol() {
@@ -1671,7 +1679,7 @@ func (a *Account) GetAPIProtocol() string {
 	case APIProtocolChatCompletions:
 		return APIProtocolChatCompletions
 	}
-	if a.IsOpenCodeGo() {
+	if a.IsOpenCode() {
 		return APIProtocolAdaptive
 	}
 	return APIProtocolChatCompletions
@@ -1996,8 +2004,22 @@ func (a *Account) GetOpenCodeGoAPIKey() string {
 	return strings.TrimSpace(a.GetCredential("api_key"))
 }
 
+func (a *Account) GetOpenCodeAPIKey() string {
+	if !a.IsOpenCodeAPIKey() {
+		return ""
+	}
+	return strings.TrimSpace(a.GetCredential("api_key"))
+}
+
 func (a *Account) GetOpenCodeGoBaseURL() string {
 	if !a.IsOpenCodeGo() {
+		return ""
+	}
+	return a.GetOpenCodeBaseURL()
+}
+
+func (a *Account) GetOpenCodeBaseURL() string {
+	if !a.IsOpenCode() {
 		return ""
 	}
 	baseURL := strings.TrimRight(strings.TrimSpace(a.GetCredential("base_url")), "/")
@@ -2395,6 +2417,8 @@ func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapabilit
 		return false
 	}
 	switch capability {
+	case OpenAIImagesCapabilityAPIKey:
+		return a.Type == AccountTypeAPIKey
 	case OpenAIImagesCapabilityBasic, OpenAIImagesCapabilityNative:
 		return a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken || a.Type == AccountTypeAPIKey
 	default:

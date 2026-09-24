@@ -33,6 +33,12 @@ func resolveAntigravityRequestReasoning(route domain.AntigravityModelRoute, body
 				Budget *int   `json:"thinkingBudget"`
 			} `json:"thinkingConfig"`
 		} `json:"generationConfig"`
+		GenerationConfigSnake struct {
+			ThinkingConfig struct {
+				Level  string `json:"thinking_level"`
+				Budget *int   `json:"thinking_budget"`
+			} `json:"thinking_config"`
+		} `json:"generation_config"`
 	}
 	if err := json.Unmarshal(body, &request); err != nil {
 		return route, nil, fmt.Errorf("invalid reasoning configuration: %w", err)
@@ -56,8 +62,17 @@ func resolveAntigravityRequestReasoning(route domain.AntigravityModelRoute, body
 	default:
 		effort = request.GenerationConfig.ThinkingConfig.Level
 		budget = request.GenerationConfig.ThinkingConfig.Budget
+		if effort == "" {
+			effort = request.GenerationConfigSnake.ThinkingConfig.Level
+		}
+		if budget == nil {
+			budget = request.GenerationConfigSnake.ThinkingConfig.Budget
+		}
 	}
 	effort = strings.ToLower(strings.TrimSpace(effort))
+	if effort == "thinking_level_unspecified" {
+		effort = ""
+	}
 	if effort == "" && budget != nil {
 		switch {
 		case *budget == 0:

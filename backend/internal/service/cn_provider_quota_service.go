@@ -290,7 +290,7 @@ func validateCodingPlanAccount(account *Account) error {
 	if account.IsOpenCodeGoPlan() {
 		return nil
 	}
-	if account.IsOpenCodeGo() {
+	if account.IsOpenCode() {
 		return infraerrors.New(http.StatusBadRequest, "CN_QUOTA_NOT_CODING_PLAN", "opencode zen accounts have no subscription quota window")
 	}
 	if !account.IsCNProvider() {

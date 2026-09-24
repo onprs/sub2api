@@ -48,7 +48,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		return nil, err
 	}
 
-	// 3. Convert Chat Completions → Anthropic with one pipeline retained for
+	// 3. Convert Chat Completions to Anthropic with one pipeline retained for
 	// the successful response or stream from this upstream attempt.
 	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
 		Route: protocolconv.Route{
@@ -72,7 +72,12 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	if err := json.Unmarshal(convertedRequest.Body, &anthropicReq); err != nil {
 		return nil, fmt.Errorf("decode converted anthropic request: %w", err)
 	}
+	if err := validateClaudeOpus55Request(body, mappedModel); err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
 	anthropicReq.Model = mappedModel
+	normalizeGatewayAnthropicThinking(&anthropicReq, mappedModel)
 	anthropicReq.Stream = true
 
 	logger.L().Debug("gateway forward_as_chat_completions: model mapping applied",
@@ -87,6 +92,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	if err != nil {
 		return nil, fmt.Errorf("marshal anthropic request: %w", err)
 	}
+	reasoningEffort := gatewayAnthropicForwardedReasoningEffort(anthropicBody, mappedModel)
 
 	resp, err := s.forwardStandardProtocolToAnthropic(ctx, c, account, anthropicBody, anthropicReq.System, mappedModel, func(statusCode int, errorType, message string) {
 		writeGatewayCCError(c, statusCode, errorType, message)
@@ -95,14 +101,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		return nil, err
 	}
 
-	// 13. Extract reasoning effort from CC request body
-	reasoningEffort := extractCCReasoningEffortFromBody(body, mappedModel, originalModel)
-	// 国产模型默认 effort 补充：本路径是客户端 CC 请求 → Anthropic 上游，
-	// 如果上游是 passback-required 国产模型 (Kimi-anthropic / GLM-anthropic / MiniMax)
-	// 且客户端在 body 里传了 thinking.type=enabled，补中默认 effort。
-	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
-
-	// 14. Handle normal response
+	// 13. Handle normal response
 	// Read Anthropic SSE → convert to Responses events → convert to CC format
 	var result *ForwardResult
 	var handleErr error
@@ -344,6 +343,9 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal(record.Data, &event); err != nil {
 			return resultWithUsage(), fmt.Errorf("decode anthropic stream event: %w", err)
+		}
+		if event.Type == "ping" {
+			continue
 		}
 		if firstTokenMs == nil {
 			ms := int(time.Since(startTime).Milliseconds())

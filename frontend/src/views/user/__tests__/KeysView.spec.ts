@@ -666,7 +666,7 @@ describe('user KeysView column settings', () => {
   })
 
   describe('create provider selection', () => {
-    const platforms = ['anthropic', 'openai', 'kimi', 'zhipu', 'deepseek', 'minimax', 'gemini', 'grok', 'antigravity', 'composite', 'opencode_go']
+    const platforms = ['anthropic', 'openai', 'kimi', 'zhipu', 'deepseek', 'minimax', 'gemini', 'grok', 'antigravity', 'composite', 'opencode']
     const availableGroups = platforms.map((platform, index) => ({
       id: index + 1,
       // Deliberately ambiguous names: classification must follow the platform.

@@ -35,6 +35,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	// 工具 Schema 清洗必须先于所有分流：下游每条路径（原生 Anthropic 直通、
+	// Chat Completions 转换、Responses 转换）都会把 tools 原样带给上游，而
+	// xAI / Moonshot 等严格校验方会因 input_schema 里的 required:null 或
+	// type:null 直接 400。
+	if sanitized, changed, err := sanitizeOpenAIResponsesToolSchemasForPlatform(body, account.Platform); err != nil {
+		return nil, err
+	} else if changed {
+		body = sanitized
+	}
 	rememberOpenCodeInboundBody(c, body)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
@@ -47,7 +56,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 
 	// OpenCode Go：按模型原生协议分流。规则未命中兜底 Chat Completions。
-	if account.IsOpenCodeGo() {
+	if account.IsOpenCode() {
 		mapped := resolveOpenCodeGoMappedModel(account, body, defaultMappedModel)
 		switch openCodeGoNativeProtocol(account, mapped) {
 		case APIProtocolAnthropic:
@@ -184,6 +193,16 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if reasoning, ok := responsesPolicyBody["reasoning"].(map[string]any); ok {
 		effort := strings.TrimSpace(firstNonEmptyString(reasoning["effort"]))
 		reasoning["effort"] = openAICompatAnthropicReasoningEffort(&anthropicReq, upstreamModel, effort)
+	}
+	if account.IsOpenAIApiKey() && isOpenAIGPT6Model(upstreamModel) {
+		effort := ""
+		if reasoning, ok := responsesPolicyBody["reasoning"].(map[string]any); ok {
+			effort = strings.TrimSpace(firstNonEmptyString(reasoning["effort"]))
+		}
+		if !strings.EqualFold(effort, "none") {
+			delete(responsesPolicyBody, "temperature")
+			delete(responsesPolicyBody, "top_p")
+		}
 	}
 	if previousResponseID != "" {
 		responsesPolicyBody["previous_response_id"] = previousResponseID

@@ -24,9 +24,9 @@
         class="flex-1 min-w-[120px] border-none bg-transparent text-sm outline-none placeholder:text-gray-400 dark:text-white"
         :placeholder="models.length === 0 ? placeholder : ''"
         :list="suggestions?.length ? datalistId : undefined"
-        @keydown.enter.prevent="addModel"
+        @keydown.enter="handleEnter"
         @keydown.tab="handleTab"
-        @keydown.delete="handleBackspace"
+        @keydown.backspace="handleBackspace"
         @paste="handlePaste"
         @blur="addModel"
       />
@@ -72,8 +72,14 @@ function addModel() {
   inputValue.value = ''
 }
 
+function handleEnter(event: KeyboardEvent) {
+  if (event.isComposing) return
+  event.preventDefault()
+  addModel()
+}
+
 function handleTab(event: KeyboardEvent) {
-  if (!inputValue.value.trim()) return
+  if (event.isComposing || !inputValue.value.trim()) return
   event.preventDefault()
   addModel()
 }
@@ -84,7 +90,8 @@ function removeModel(idx: number) {
   emit('update:models', newModels)
 }
 
-function handleBackspace() {
+function handleBackspace(event: KeyboardEvent) {
+  if (event.isComposing) return
   if (inputValue.value === '' && props.models.length > 0) {
     removeModel(props.models.length - 1)
   }

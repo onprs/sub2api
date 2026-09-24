@@ -162,16 +162,16 @@
           </button>
           <button
             type="button"
-            @click="selectOpenCodeGoPlatform()"
+            @click="selectOpenCodePlatform()"
             :class="[
               'flex min-w-[8.5rem] flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'opencode_go'
+              form.platform === 'opencode'
                 ? 'bg-white text-cyan-600 shadow-sm dark:bg-dark-600 dark:text-cyan-300'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
             ]"
           >
-            <PlatformIcon platform="opencode_go" size="sm" />
-            OpenCode Go
+            <PlatformIcon platform="opencode" size="sm" />
+            OpenCode
           </button>
           <button
             type="button"
@@ -1501,7 +1501,7 @@
 
           <template v-else>
             <!-- Mode Toggle -->
-            <div v-if="form.platform !== 'opencode_go'" class="mb-4 flex gap-2">
+            <div v-if="form.platform !== 'opencode'" class="mb-4 flex gap-2">
               <button
                 type="button"
                 @click="modelRestrictionMode = 'whitelist'"
@@ -1555,7 +1555,7 @@
             </div>
 
             <!-- Whitelist Mode -->
-            <div v-if="modelRestrictionMode === 'whitelist' && form.platform !== 'opencode_go'">
+            <div v-if="modelRestrictionMode === 'whitelist' && form.platform !== 'opencode'">
               <ModelWhitelistSelector
                 v-model="allowedModels"
                 :platform="form.platform"
@@ -1680,7 +1680,7 @@
         </div>
 
         <!-- Pool Mode Section -->
-        <div v-if="form.platform !== 'opencode_go'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div v-if="form.platform !== 'opencode'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.poolMode') }}</label>
@@ -1744,7 +1744,7 @@
         </div>
 
         <!-- Custom Error Codes Section -->
-        <div v-if="form.platform !== 'opencode_go'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div v-if="form.platform !== 'opencode'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.customErrorCodes') }}</label>
@@ -2204,7 +2204,7 @@
 
       <!-- 配额控制 (非 Anthropic apikey/bedrock) -->
       <div
-        v-else-if="(form.type === 'apikey' || form.type === 'bedrock') && form.platform !== 'opencode_go'"
+        v-else-if="(form.type === 'apikey' || form.type === 'bedrock') && form.platform !== 'opencode'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="mb-3">
@@ -4140,7 +4140,7 @@ const COMMANDCODE_DEFAULT_BASE_URL = 'https://api.commandcode.ai'
 const browserTimeZone = getBrowserTimeZone()
 
 const oauthStepTitle = computed(() => {
-  if (form.platform === 'opencode_go') return '官方用量同步'
+  if (form.platform === 'opencode' && openCodeAccountMode.value === 'go') return 'OpenCode Go 用量同步'
   if (form.platform === 'openai') return t('admin.accounts.oauth.openai.title')
   if (form.platform === 'gemini') return t('admin.accounts.oauth.gemini.title')
   if (form.platform === 'antigravity') return t('admin.accounts.oauth.antigravity.title')
@@ -4161,7 +4161,7 @@ const baseUrlHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (form.platform === 'grok') return t('admin.accounts.grok.baseUrlHint')
-  if (form.platform === 'opencode_go') return t('admin.accounts.opencodeGo.baseUrlHint')
+  if (form.platform === 'opencode') return t('admin.accounts.opencodeGo.baseUrlHint')
   if (form.platform === 'clinepass') return t('admin.accounts.clinePass.baseUrlHint')
   if (form.platform === 'openrouter') return t('admin.accounts.openRouter.baseUrlHint')
   if (form.platform === 'commandcode') return t('admin.accounts.commandCode.baseUrlHint')
@@ -4172,7 +4172,7 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   if (form.platform === 'grok') return t('admin.accounts.grok.apiKeyHint')
-  if (form.platform === 'opencode_go') return t('admin.accounts.opencodeGo.apiKeyHint')
+  if (form.platform === 'opencode') return t('admin.accounts.opencodeGo.apiKeyHint')
   if (form.platform === 'clinepass') return t('admin.accounts.clinePass.apiKeyHint')
   if (form.platform === 'openrouter') return t('admin.accounts.openRouter.apiKeyHint')
   if (form.platform === 'commandcode') return t('admin.accounts.commandCode.apiKeyHint')
@@ -4182,7 +4182,7 @@ const apiKeyHint = computed(() => {
 // Base URL / API Key 占位符：国产供应商随账号类型变化。
 const apiKeyBaseUrlPlaceholder = computed(() => {
   if (isMultiProtocolPlatform.value) {
-    const mode = form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
+    const mode = form.platform === 'opencode' ? openCodeAccountMode.value : accountMode.value
     return defaultCNBaseUrl(form.platform, mode, apiProtocol.value) || 'https://api.example.com'
   }
   switch (form.platform) {
@@ -4192,7 +4192,7 @@ const apiKeyBaseUrlPlaceholder = computed(() => {
       return 'https://generativelanguage.googleapis.com'
     case 'grok':
       return 'https://api.x.ai/v1'
-    case 'opencode_go':
+    case 'opencode':
       return OPENCODE_GO_DEFAULT_BASE_URL
     case 'clinepass':
       return CLINEPASS_DEFAULT_BASE_URL
@@ -4219,7 +4219,7 @@ const apiKeyValuePlaceholder = computed(() => {
       return '<api-key>.<secret>'
     case 'deepseek':
       return 'sk-...'
-    case 'opencode_go':
+    case 'opencode':
     case 'clinepass':
     case 'openrouter':
     case 'commandcode':
@@ -4330,7 +4330,7 @@ const adaptiveBaseUrls = ref<Record<CnNativeApiProtocol, string>>({
   responses: ''
 })
 const isCNPlatform = computed(() => isCNProviderPlatform(form.platform))
-const isOpenCodeGoPlatform = computed(() => form.platform === 'opencode_go')
+const isOpenCodeGoPlatform = computed(() => form.platform === 'opencode')
 const isMultiProtocolPlatform = computed(() => isCNPlatform.value || isOpenCodeGoPlatform.value)
 function currentOpenCodeOrCNMode(): CnAccountMode | OpenCodeAccountMode {
   return isOpenCodeGoPlatform.value ? openCodeAccountMode.value : accountMode.value
@@ -4343,8 +4343,8 @@ const cnPresetPlatform = computed<CnProviderPlatform>(() => {
   }
   return 'kimi'
 })
-const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go'>(() => {
-  if (form.platform === 'opencode_go') return 'opencode_go'
+const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode'>(() => {
+  if (form.platform === 'opencode') return 'opencode'
   return cnPresetPlatform.value
 })
 // 当前平台可选的协议档（responses 仅 deepseek / kimi）。
@@ -4369,7 +4369,7 @@ const cnAdaptiveProtocolOptions = computed<Array<{ value: CnNativeApiProtocol; l
 })
 
 function resetAdaptiveBaseUrls(
-  platform: CnProviderPlatform | 'opencode_go',
+  platform: CnProviderPlatform | 'opencode',
   mode: CnAccountMode | OpenCodeAccountMode
 ) {
   adaptiveBaseUrls.value = defaultCNAdaptiveBaseUrls(platform, mode)
@@ -4385,7 +4385,7 @@ const cnAccentActiveClass = computed(() => {
       return 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
     case 'minimax':
       return 'border-rose-500 bg-rose-50 dark:bg-rose-900/20'
-    case 'opencode_go':
+    case 'opencode':
       return 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
     default:
       return 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
@@ -4401,7 +4401,7 @@ const cnAccentIconClass = computed(() => {
       return 'bg-teal-500 text-white'
     case 'minimax':
       return 'bg-rose-500 text-white'
-    case 'opencode_go':
+    case 'opencode':
       return 'bg-amber-500 text-white'
     default:
       return 'bg-primary-500 text-white'
@@ -4420,22 +4420,22 @@ function selectCNPlatform(platform: CnProviderPlatform) {
   apiKeyBaseUrl.value = defaultCNBaseUrl(platform, accountMode.value, apiProtocol.value)
   resetAdaptiveBaseUrls(platform, accountMode.value)
 }
-function selectOpenCodeGoPlatform() {
-  form.platform = 'opencode_go'
+function selectOpenCodePlatform() {
+  form.platform = 'opencode'
   form.type = 'apikey'
   accountCategory.value = 'apikey'
   apiProtocol.value = 'adaptive'
   openCodeAccountMode.value = 'zen'
-  apiKeyBaseUrl.value = defaultCNBaseUrl('opencode_go', openCodeAccountMode.value, 'adaptive')
-  resetAdaptiveBaseUrls('opencode_go', openCodeAccountMode.value)
+  apiKeyBaseUrl.value = defaultCNBaseUrl('opencode', openCodeAccountMode.value, 'adaptive')
+  resetAdaptiveBaseUrls('opencode', openCodeAccountMode.value)
   openCodeGoProtocolRules.value = cloneOpenCodeGoProtocolRules(defaultOpenCodeProtocolRules(openCodeAccountMode.value))
 }
 // 账号类型 / 协议变更时同步默认 base url。
 watch(openCodeAccountMode, (mode, previousMode) => {
   if (!isOpenCodeGoPlatform.value) return
   if (apiProtocol.value === 'adaptive') {
-    const previousDefaults = defaultCNAdaptiveBaseUrls('opencode_go', previousMode)
-    const nextDefaults = defaultCNAdaptiveBaseUrls('opencode_go', mode)
+    const previousDefaults = defaultCNAdaptiveBaseUrls('opencode', previousMode)
+    const nextDefaults = defaultCNAdaptiveBaseUrls('opencode', mode)
     for (const item of cnAdaptiveProtocolOptions.value) {
       if (!adaptiveBaseUrls.value[item.value] || adaptiveBaseUrls.value[item.value] === previousDefaults[item.value]) {
         adaptiveBaseUrls.value[item.value] = nextDefaults[item.value]
@@ -4443,7 +4443,7 @@ watch(openCodeAccountMode, (mode, previousMode) => {
     }
     apiKeyBaseUrl.value = adaptiveBaseUrls.value.chat_completions
   } else {
-    apiKeyBaseUrl.value = defaultCNBaseUrl('opencode_go', mode, apiProtocol.value)
+    apiKeyBaseUrl.value = defaultCNBaseUrl('opencode', mode, apiProtocol.value)
   }
   const previousRules = JSON.stringify(defaultOpenCodeProtocolRules(previousMode))
   if (JSON.stringify(openCodeGoProtocolRules.value) === previousRules) {
@@ -4869,7 +4869,7 @@ const form = reactive({
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
-  if (form.platform === 'opencode_go' || form.platform === 'clinepass' || form.platform === 'openrouter' || form.platform === 'commandcode') {
+  if (form.platform === 'opencode' || form.platform === 'clinepass' || form.platform === 'openrouter' || form.platform === 'commandcode') {
     return false
   }
   // Antigravity upstream 类型不需要 OAuth 流程
@@ -4885,13 +4885,14 @@ const isOAuthFlow = computed(() => {
 
 const isOpenCodeGoConsoleSyncStep = computed(() => (
   step.value === 2 &&
-  form.platform === 'opencode_go' &&
+  form.platform === 'opencode' &&
+  openCodeAccountMode.value === 'go' &&
   !!openCodeGoCreatedAccount.value
 ))
 
 const showCreateStepIndicator = computed(() => (
   isOAuthFlow.value ||
-  form.platform === 'opencode_go' ||
+  (form.platform === 'opencode' && openCodeAccountMode.value === 'go') ||
   isOpenCodeGoConsoleSyncStep.value
 ))
 
@@ -4958,7 +4959,7 @@ watch(
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
-    if (form.platform === 'opencode_go' || form.platform === 'clinepass' || form.platform === 'openrouter' || form.platform === 'commandcode') {
+    if (form.platform === 'opencode' || form.platform === 'clinepass' || form.platform === 'openrouter' || form.platform === 'commandcode') {
       form.type = 'apikey'
       return
     }
@@ -4991,8 +4992,8 @@ watch(
     apiKeyValue.value = ''
     upstreamBillingAutoProbeEnabled.value = true
     // Reset base URL based on platform
-    if (isCNProviderPlatform(newPlatform) || newPlatform === 'opencode_go') {
-      const mode = newPlatform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
+    if (isCNProviderPlatform(newPlatform) || newPlatform === 'opencode') {
+      const mode = newPlatform === 'opencode' ? openCodeAccountMode.value : accountMode.value
       apiKeyBaseUrl.value = defaultCNBaseUrl(newPlatform, mode, apiProtocol.value)
     } else {
       apiKeyBaseUrl.value =
@@ -5023,7 +5024,7 @@ watch(
       antigravityWhitelistModels.value = []
       accountCategory.value = 'oauth-based'
       antigravityAccountType.value = 'oauth'
-    } else if (newPlatform === 'opencode_go') {
+    } else if (newPlatform === 'opencode') {
       accountCategory.value = 'apikey'
       modelRestrictionMode.value = 'mapping'
       poolModeEnabled.value = false
@@ -6015,8 +6016,8 @@ const handleSubmit = async () => {
         ? 'https://generativelanguage.googleapis.com'
         : form.platform === 'grok'
           ? 'https://api.x.ai/v1'
-          : form.platform === 'opencode_go'
-            ? OPENCODE_GO_DEFAULT_BASE_URL
+          : form.platform === 'opencode'
+            ? defaultCNBaseUrl('opencode', openCodeAccountMode.value, apiProtocol.value)
             : form.platform === 'clinepass'
               ? CLINEPASS_DEFAULT_BASE_URL
               : form.platform === 'openrouter'
@@ -6037,13 +6038,13 @@ const handleSubmit = async () => {
   // 国产供应商：账号模式 + 协议 + 对应端点写入凭据；后端按 account_mode 路由
   // 额度/余额探测，按 api_protocol 路由转发端点与格式。注意 CN apikey 走本函数
   // 的通用路径（直接 doCreateAccount），不经过 createAccountAndFinish。
-  if (isCNProviderPlatform(form.platform) || form.platform === 'opencode_go') {
-    credentials.account_mode = form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
+  if (isCNProviderPlatform(form.platform) || form.platform === 'opencode') {
+    credentials.account_mode = form.platform === 'opencode' ? openCodeAccountMode.value : accountMode.value
     credentials.api_protocol = apiProtocol.value
     if (apiProtocol.value === 'adaptive') {
       const defaults = defaultCNAdaptiveBaseUrls(
         form.platform,
-        form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
+        form.platform === 'opencode' ? openCodeAccountMode.value : accountMode.value
       )
       const protocolBaseUrls: Record<string, string> = {}
       for (const item of cnAdaptiveProtocolOptions.value) {
@@ -6063,14 +6064,14 @@ const handleSubmit = async () => {
       if (zhipuOrganization.value.trim()) credentials.zhipu_organization = zhipuOrganization.value.trim()
       if (zhipuProject.value.trim()) credentials.zhipu_project = zhipuProject.value.trim()
     }
-    if (form.platform === 'opencode_go') {
+    if (form.platform === 'opencode') {
       applyOpenCodeGoProtocolRules(credentials, openCodeGoProtocolRules.value, 'create')
     }
   }
 
   // Add model mapping if configured（OpenAI 开启自动透传时不应用）
   if (!isOpenAIModelRestrictionDisabled.value) {
-    const mappingMode = form.platform === 'opencode_go' ? 'mapping' : modelRestrictionMode.value
+    const mappingMode = form.platform === 'opencode' ? 'mapping' : modelRestrictionMode.value
     const modelMapping = buildModelMappingObject(mappingMode, allowedModels.value, modelMappings.value)
     if (modelMapping) {
       credentials.model_mapping = modelMapping
@@ -6128,7 +6129,7 @@ const handleSubmit = async () => {
     auto_pause_on_expired: autoPauseOnExpired.value
   }
 
-  if (form.platform === 'opencode_go') {
+  if (form.platform === 'opencode' && openCodeAccountMode.value === 'go') {
     await createOpenCodeGoAccountAndStartConsoleSync(payload)
     return
   }

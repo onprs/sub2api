@@ -587,6 +587,8 @@ type AccountSelectionResult struct {
 	Acquired    bool
 	ReleaseFunc func()
 	WaitPlan    *AccountWaitPlan // nil means no wait allowed
+	// stickySessionHit 标记账号来自会话粘性绑定命中，供非高级调度路径回填决策标签。
+	stickySessionHit bool
 	// profitGate 携带本次选号真实生效的利润门（无门为 nil）。门安装在调度栈的
 	// 局部 ctx 上，handler 必须经 ContextWithSelectionProfitGate 重放后才能在
 	// 调度栈之外做抢槽后终检与准入后粘性绑定。
@@ -1476,8 +1478,18 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 }
 
 // GetAvailableModels 返回分组可接受的用户请求模型 ID。
-// 通常聚合可调度账号的 model_mapping 键；Command Code 使用官方实时目录，账号级映射只负责请求改写；
-// 无显式映射的 OpenAI 和 Gemini 账号按账户能力补充默认目录，官方 Antigravity OAuth/Setup Token 账号则只公开经过整理的 agy 用户目录。
+// Command Code 使用官方目录；OpenAI/Gemini 未配置映射时可按账号能力补齐默认模型。
+// 混合调度账号只公开目标分组可接受的模型。
+// mixedListingAccountAllowed mirrors the mixed-scheduling rule in
+// GeminiMessagesCompatService.listSchedulableAccountsOnce.
+func mixedListingAccountAllowed(groupPlatform string, account *Account) bool {
+	return groupPlatform == PlatformGemini && account.IsMixedSchedulingEnabled()
+}
+
+// mixedListingModelAllowed limits mixed-scheduling accounts to the group's platform.
+func mixedListingModelAllowed(groupPlatform, model string) bool {
+	return groupPlatform == PlatformGemini && isAntigravityGeminiModel(model)
+}
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
 	return s.getAvailableModels(ctx, groupID, platform, true)
 }
@@ -1517,11 +1529,12 @@ func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64,
 		return nil
 	}
 
-	// 指定平台时只聚合该平台账号。
+	// Filter by platform if specified. A gemini group can also route to mixed-scheduling
+	// antigravity accounts, so include those accounts and filter their models below.
 	if platform != "" {
 		filtered := make([]Account, 0)
 		for _, acc := range accounts {
-			if acc.Platform == platform {
+			if acc.Platform == platform || mixedListingAccountAllowed(platform, &acc) {
 				filtered = append(filtered, acc)
 			}
 		}
@@ -1554,13 +1567,14 @@ func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64,
 			return nil
 		}
 
-		// OAuth/Setup Token 的默认 mapping 还包含 wire ID 和历史兼容 alias。
-		// 它们可继续参与路由，但用户模型目录和价格列表只能公开 agy 的请求 ID。
-		// 账号中遗留的旧显式 mapping 同样不能重新污染该公开目录。
+		// Antigravity OAuth/Setup Token mappings include wire IDs and historical aliases.
+		// Publish only the curated user-facing model IDs, filtered to this group platform.
 		if acc.Platform == PlatformAntigravity && acc.IsOAuth() {
-			hasResolvedModels = true
 			for _, model := range DefaultAntigravityRouteModelIDs() {
-				modelSet[model] = struct{}{}
+				if platform == "" || acc.Platform == platform || mixedListingModelAllowed(platform, model) {
+					modelSet[model] = struct{}{}
+					hasResolvedModels = true
+				}
 			}
 			continue
 		}
@@ -1583,15 +1597,20 @@ func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64,
 			continue
 		}
 
-		hasResolvedModels = true
+		accountHasModel := false
 		for model := range mapping {
+			if platform != "" && acc.Platform != platform && !mixedListingModelAllowed(platform, model) {
+				continue
+			}
 			modelSet[model] = struct{}{}
+			accountHasModel = true
+		}
+		if accountHasModel {
+			hasResolvedModels = true
 		}
 	}
 
-	// 无显式 model_mapping 的 OpenAI OAuth 账号由 IsModelSupported 按默认 Codex 能力判断。
-	// 当它与显式映射账号共存时补入整理后的默认目录，使 /v1/models 与实际调度面一致，
-	// 同时不向尚未逐账号探测的账号写入模型映射。
+	// Unmapped OpenAI OAuth accounts contribute only models they report as supported.
 	if hasOpenAIEmptyMappingAccount {
 		hasResolvedModels = true
 		for _, model := range openai.DefaultModelIDs() {

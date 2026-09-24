@@ -451,10 +451,10 @@ func (s *OpenCodeGoGatewayService) sendUpstream(
 	format openCodeGoErrorFormat,
 	protocol string,
 ) (*http.Response, error) {
-	apiKey := account.GetOpenCodeGoAPIKey()
+	apiKey := account.GetOpenCodeAPIKey()
 	if apiKey == "" {
-		writeOpenCodeGoError(c, http.StatusBadGateway, format, "upstream_error", "OpenCode Go account is missing api_key")
-		return nil, fmt.Errorf("opencode go account %d missing api_key", account.ID)
+		writeOpenCodeGoError(c, http.StatusBadGateway, format, "upstream_error", "OpenCode account is missing api_key")
+		return nil, fmt.Errorf("opencode account %d missing api_key", account.ID)
 	}
 
 	body = sanitizeOpenCodeGoRequestBody(body)
@@ -1277,9 +1277,9 @@ func (s *OpenCodeGoGatewayService) convertOpenCodeGoStream(
 }
 
 func (s *OpenCodeGoGatewayService) openCodeGoEndpointURL(account *Account, endpoint string) (string, error) {
-	baseURL := account.GetOpenCodeGoBaseURL()
+	baseURL := account.GetOpenCodeBaseURL()
 	if baseURL == "" {
-		baseURL = DefaultOpenCodeGoBaseURL
+		baseURL = account.openCodeDefaultChatBaseURL()
 	}
 	validated, err := s.validateUpstreamBaseURL(baseURL)
 	if err != nil {
@@ -1306,8 +1306,8 @@ func (s *OpenCodeGoGatewayService) validateJSONModel(c *gin.Context, body []byte
 }
 
 func (s *OpenCodeGoGatewayService) resolveUpstreamModelProtocol(c *gin.Context, account *Account, model string, format openCodeGoErrorFormat) (string, string, bool) {
-	if account == nil || !account.IsOpenCodeGoAPIKey() {
-		writeOpenCodeGoError(c, http.StatusBadGateway, format, "upstream_error", "OpenCode Go account must use API key credentials")
+	if account == nil || !account.IsOpenCodeAPIKey() {
+		writeOpenCodeGoError(c, http.StatusBadGateway, format, "upstream_error", "OpenCode account must use API key credentials")
 		return "", "", false
 	}
 	upstreamModel := strings.TrimSpace(account.GetMappedModel(model))

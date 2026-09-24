@@ -59,16 +59,16 @@ func (s *GatewayService) ForwardAsResponses(
 	originalModel := responsesReq.Model
 	clientStream := responsesReq.Stream
 
-	// 3. Resolve the upstream model before creating the request-scoped route.
+	// Resolve the upstream model before creating the request-scoped route.
 	mappedModel, err := resolveStandardAnthropicTargetModel(account, originalModel)
 	if err != nil {
 		return nil, err
 	}
-	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body, mappedModel, originalModel)
-	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 mapping 完成之后。
-	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
-
-	// 3. Convert Responses → Anthropic with one pipeline retained for the
+	if err := validateClaudeOpus55Request(body, mappedModel); err != nil {
+		writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
+	// Convert Responses to Anthropic with one pipeline retained for the
 	// successful response or stream from this upstream attempt.
 	pipeline, err := protocolconv.NewPipeline(standardProtocolRegistry, protocolconv.PipelineConfig{
 		Route: protocolconv.Route{
@@ -93,6 +93,7 @@ func (s *GatewayService) ForwardAsResponses(
 		return nil, fmt.Errorf("decode converted anthropic request: %w", err)
 	}
 	anthropicReq.Model = mappedModel
+	normalizeGatewayAnthropicThinking(&anthropicReq, mappedModel)
 	anthropicReq.Stream = true
 
 	logger.L().Debug("gateway forward_as_responses: model mapping applied",
@@ -107,6 +108,7 @@ func (s *GatewayService) ForwardAsResponses(
 	if err != nil {
 		return nil, fmt.Errorf("marshal anthropic request: %w", err)
 	}
+	reasoningEffort := gatewayAnthropicForwardedReasoningEffort(anthropicBody, mappedModel)
 
 	resp, err := s.forwardStandardProtocolToAnthropic(ctx, c, account, anthropicBody, anthropicReq.System, mappedModel, func(statusCode int, errorType, message string) {
 		writeResponsesError(c, statusCode, errorType, message)
@@ -288,6 +290,9 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 		if err := json.Unmarshal(record.Data, &event); err != nil {
 			return nil, fmt.Errorf("decode anthropic stream event: %w", err)
 		}
+		if event.Type == "ping" {
+			continue
+		}
 		if event.Type == "message_start" && event.Message != nil {
 			mergeAnthropicUsage(&usage, event.Message.Usage)
 		}
@@ -433,6 +438,9 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal(record.Data, &event); err != nil {
 			return resultWithUsage(), fmt.Errorf("decode anthropic stream event: %w", err)
+		}
+		if event.Type == "ping" {
+			continue
 		}
 		if firstTokenMs == nil {
 			ms := int(time.Since(startTime).Milliseconds())

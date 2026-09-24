@@ -64,8 +64,12 @@ export const buildOpenAIUsageRefreshKey = (account: Pick<Account, 'id' | 'platfo
   ].map(normalizeUsageRefreshValue).join('|')
 }
 
-export const buildOpenCodeGoUsageRefreshKey = (account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'extra'>): string => {
-  if (account.platform !== 'opencode_go' || account.type !== 'apikey') {
+export const buildOpenCodeGoUsageRefreshKey = (account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'extra' | 'credentials'>): string => {
+  if (
+    account.platform !== 'opencode' ||
+    account.type !== 'apikey' ||
+    account.credentials?.account_mode === 'zen'
+  ) {
     return ''
   }
 

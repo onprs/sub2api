@@ -178,7 +178,7 @@ const labelClass = computed(() => {
   if (props.platform === 'grok') {
     return `${base} bg-zinc-300/70 text-zinc-800 dark:bg-zinc-700/60 dark:text-zinc-200`
   }
-  if (props.platform === 'opencode_go') {
+  if (props.platform === 'opencode') {
     return `${base} bg-cyan-200/60 text-cyan-800 dark:bg-cyan-800/40 dark:text-cyan-300`
   }
   if (props.platform === 'clinepass') {
@@ -240,7 +240,7 @@ const badgeClass = computed(() => {
       ? 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100'
       : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200'
   }
-  if (props.platform === 'opencode_go') {
+  if (props.platform === 'opencode') {
     return isSubscription.value
       ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
       : 'bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-300'

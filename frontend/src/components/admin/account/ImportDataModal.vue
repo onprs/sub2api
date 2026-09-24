@@ -315,7 +315,7 @@ const handleImport = async () => {
     }
     const dataPayload = mergeDataPayloads(dataPayloads)
     const opencodeGoNames = dataPayload.accounts
-      .filter(account => account.platform === 'opencode_go')
+      .filter(account => account.platform === 'opencode' && account.credentials?.account_mode !== 'zen')
       .map(account => account.name)
       .filter((name): name is string => !!name)
 

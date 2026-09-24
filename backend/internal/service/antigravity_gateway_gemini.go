@@ -109,11 +109,15 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 	route, supported := account.ResolveAntigravityRoute(originalModel)
 	resolvedByVariant := false
 	if !supported {
-		if mappedModel, ok := resolveGeminiThinkingVariant(account, originalModel, body); ok {
-			route, supported = account.normalizeAntigravityRouteTarget(mappedModel)
+		variantModel, found := resolveGeminiThinkingVariant(account, originalModel, body)
+		if !found {
+			variantModel = s.getMappedModelForThinkingLevel(account, originalModel, geminiThinkingLevelFromBody(body))
+		}
+		if variantModel != "" && variantModel != originalModel {
+			route, supported = account.normalizeAntigravityRouteTarget(variantModel)
 			resolvedByVariant = supported
 			if supported {
-				logger.LegacyPrintf("service.antigravity_gateway", "%s resolved bare Gemini model %s to thinking variant %s", prefix, originalModel, mappedModel)
+				logger.LegacyPrintf("service.antigravity_gateway", "%s resolved Gemini model %s to thinking variant %s", prefix, originalModel, variantModel)
 			}
 		}
 	}

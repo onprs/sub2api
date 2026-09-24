@@ -96,7 +96,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   gemini: 'Gemini',
   antigravity: 'Antigravity',
   grok: 'Grok',
-  opencode_go: 'OpenCode Go',
+  opencode: 'OpenCode',
   clinepass: 'ClinePass',
   openrouter: 'OpenRouter',
   commandcode: 'Command Code',

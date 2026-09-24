@@ -245,6 +245,29 @@ func TestOpenCodeGoGatewayServiceModelUnsupportedUsesMappedModelRateLimit(t *tes
 	require.Equal(t, "qwen3.7-max", repo.modelRateLimitCalls[0].scope)
 	require.Equal(t, upstreamModelUnsupportedReason, repo.modelRateLimitCalls[0].reason)
 	require.True(t, account.IsSchedulable())
+
+}
+
+func TestRateLimitService_HandleUpstreamError_APIKeyModel401UsesModelRateLimit(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAIModelNotFoundTempAccount()
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusUnauthorized,
+		http.Header{},
+		[]byte(`{"error":{"message":"unknown model definitely-not-real"}}`),
+		"definitely-not-real",
+	)
+
+	require.True(t, handled)
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, "definitely-not-real", call.scope)
+	require.Equal(t, upstreamModelNotFound401Reason, call.reason)
 }
 
 func TestRateLimitService_HandleUpstreamError_ModelNotFoundWriteFailureDoesNotTempUnschedule(t *testing.T) {

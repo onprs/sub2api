@@ -155,6 +155,7 @@ const appStore = useAppStore()
 const apiKeys = ref<ApiKey[]>([])
 const allGroups = ref<AdminGroup[]>([])
 const loading = ref(false)
+let requestVersion = 0
 const updatingKeyIds = ref(new Set<number>())
 const routingEditorKey = ref<ApiKey | null>(null)
 const routingDraft = ref<ApiKeyRoutingDraft>(createEmptyRoutingDraft())
@@ -178,14 +179,17 @@ const routingGroupCount = getRoutingGroupCount
 
 const load = async () => {
   if (!props.user) return
+  const version = ++requestVersion
+  apiKeys.value = []
   loading.value = true
   try {
     const response = await adminAPI.users.getUserApiKeys(props.user.id)
-    apiKeys.value = response.items || []
+    if (version === requestVersion) apiKeys.value = response.items || []
   } catch (error) {
+    if (version !== requestVersion) return
     console.error('Failed to load API keys:', error)
   } finally {
-    loading.value = false
+    if (version === requestVersion) loading.value = false
   }
 }
 
@@ -237,8 +241,9 @@ const closeRoutingEditor = () => {
 }
 
 watch(
-  () => props.show,
-  (visible) => {
+  () => [props.show, props.user?.id] as const,
+  ([visible], _, onCleanup) => {
+    onCleanup(() => { requestVersion++ })
     if (visible && props.user) {
       void load()
       void loadGroups()

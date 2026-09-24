@@ -250,6 +250,9 @@ func normalizeMonitorPrimaryModel(provider, checkMode, model string) string {
 func monitorAccountQuotaCapability(account *Account) error {
 	switch account.Platform {
 	case PlatformOpenCodeGo:
+		if !account.IsOpenCodeGoPlan() {
+			return ErrChannelMonitorAccountNotSupportable
+		}
 		return nil
 	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax:
 		if account.IsCodingPlan() {

@@ -581,7 +581,7 @@ func TestBuildCLIImportShellHelperWritesOpenCodeGoModelsInTempHome(t *testing.T)
 	require.NoError(t, json.Unmarshal([]byte(readTestFile(t, filepath.Join(home, ".config", "opencode", "opencode.jsonc"))), &opencode))
 	providers, ok := opencode["provider"].(map[string]any)
 	require.True(t, ok)
-	provider, ok := providers["sub2api_opencode_go_42"].(map[string]any)
+	provider, ok := providers["sub2api_opencode_42"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "OnprsCodexApi", provider["name"])
 	models, ok := provider["models"].(map[string]any)
@@ -737,7 +737,7 @@ func TestResolveCLIImportModelListUsesCustomThenProviderThenDefault(t *testing.T
 	models = resolveCLIImportModelList([]string{"z-model", "a-model", "a-model"}, group)
 	require.Equal(t, []string{"z-model", "a-model"}, models)
 
-	models = resolveCLIImportModelList(nil, &Group{Platform: PlatformOpenCodeGo})
+	models = resolveCLIImportModelList(nil, &Group{Platform: PlatformOpenCode})
 	require.True(t, len(models) > 0)
 	require.True(t, strings.Contains(strings.Join(models, ","), "qwen3.7-plus"))
 }
@@ -965,7 +965,7 @@ func TestPricingServiceGetCLIImportModelCapabilityUsesOpenCodeGoModelsDevProvide
 		"qwen3.7-plus",
 	} {
 		t.Run(model, func(t *testing.T) {
-			capability, ok := svc.GetCLIImportModelCapability(context.Background(), PlatformOpenCodeGo, model)
+			capability, ok := svc.GetCLIImportModelCapability(context.Background(), OpenCodeGoPricingPlatform, model)
 			require.True(t, ok)
 			require.True(t, capability.openCodeComplete())
 			require.NotEqual(t, "Wrong provider sentinel", capability.Name)
@@ -977,7 +977,7 @@ func TestPricingServiceGetCLIImportModelCapabilityUsesOpenCodeGoModelsDevProvide
 		})
 	}
 
-	qwen, ok := svc.GetCLIImportModelCapability(context.Background(), PlatformOpenCodeGo, "qwen3.7-plus")
+	qwen, ok := svc.GetCLIImportModelCapability(context.Background(), OpenCodeGoPricingPlatform, "qwen3.7-plus")
 	require.True(t, ok)
 	require.Equal(t, "Qwen3.7 Plus", qwen.Name)
 	require.Equal(t, 1000000, qwen.MaxInputTokens)
@@ -987,13 +987,33 @@ func TestPricingServiceGetCLIImportModelCapabilityUsesOpenCodeGoModelsDevProvide
 	require.InDelta(t, 0.04, *qwen.CacheReadCostPerToken, 1e-12)
 	require.InDelta(t, 0.5, *qwen.CacheWriteCostPerToken, 1e-12)
 
-	minimax, ok := svc.GetCLIImportModelCapability(context.Background(), PlatformOpenCodeGo, "minimax-m3")
+	minimax, ok := svc.GetCLIImportModelCapability(context.Background(), OpenCodeGoPricingPlatform, "minimax-m3")
 	require.True(t, ok)
 	require.Equal(t, "MiniMax M3 (3x usage)", minimax.Name)
 	require.InDelta(t, 0.3, *minimax.InputCostPerToken, 1e-12)
 	require.InDelta(t, 1.2, *minimax.OutputCostPerToken, 1e-12)
 	require.InDelta(t, 0.06, *minimax.CacheReadCostPerToken, 1e-12)
 	require.Nil(t, minimax.CacheWriteCostPerToken)
+}
+
+func TestPricingServiceGetCLIImportModelCapabilityUsesOpenCodeGoMetadataWithoutGoPricingForCanonicalPlatform(t *testing.T) {
+	svc := &PricingService{
+		remoteClient: &pricingTestRemoteClient{pricingBodies: map[string][]byte{}},
+	}
+
+	zenCapability, ok := svc.GetCLIImportModelCapability(context.Background(), PlatformOpenCode, "kimi-k2.7-code")
+	require.True(t, ok)
+	require.Equal(t, "Kimi K2.7 Code", zenCapability.Name)
+	require.True(t, zenCapability.LimitKnown)
+	require.Nil(t, zenCapability.InputCostPerToken)
+	require.Nil(t, zenCapability.OutputCostPerToken)
+	require.False(t, zenCapability.CostKnown)
+
+	goCapability, ok := svc.GetCLIImportModelCapability(context.Background(), OpenCodeGoPricingPlatform, "kimi-k2.7-code")
+	require.True(t, ok)
+	require.NotNil(t, goCapability.InputCostPerToken)
+	require.NotNil(t, goCapability.OutputCostPerToken)
+	require.True(t, goCapability.CostKnown)
 }
 
 func TestPricingServiceGetCLIImportModelCapabilityHasBuiltinFallbackForEveryOpenCodeGoDefault(t *testing.T) {
@@ -1003,7 +1023,7 @@ func TestPricingServiceGetCLIImportModelCapabilityHasBuiltinFallbackForEveryOpen
 
 	for _, model := range OpenCodeGoFallbackModelIDs() {
 		t.Run(model, func(t *testing.T) {
-			capability, ok := svc.GetCLIImportModelCapability(context.Background(), PlatformOpenCodeGo, model)
+			capability, ok := svc.GetCLIImportModelCapability(context.Background(), OpenCodeGoPricingPlatform, model)
 			require.True(t, ok)
 			require.True(t, capability.openCodeComplete())
 			require.NotEmpty(t, capability.Name)
@@ -1028,7 +1048,7 @@ func TestPricingServiceGetCLIImportModelCapabilityHasBuiltinFallbackForEveryOpen
 		})
 	}
 
-	glm, ok := svc.GetCLIImportModelCapability(context.Background(), PlatformOpenCodeGo, "glm-5.3")
+	glm, ok := svc.GetCLIImportModelCapability(context.Background(), OpenCodeGoPricingPlatform, "glm-5.3")
 	require.True(t, ok)
 	require.Equal(t, "GLM-5.3", glm.Name)
 	require.Equal(t, "glm", glm.Family)

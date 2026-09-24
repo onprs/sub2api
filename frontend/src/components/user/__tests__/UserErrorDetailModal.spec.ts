@@ -1,42 +1,46 @@
-import { describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import UserErrorDetailModal from '../UserErrorDetailModal.vue'
 
-const { getMyErrorDetail } = vi.hoisted(() => ({
-  getMyErrorDetail: vi.fn(),
-}))
-
-vi.mock('@/api/usage', () => ({ getMyErrorDetail }))
-
-vi.mock('vue-i18n', async () => {
-  const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
-  return {
-    ...actual,
-    useI18n: () => ({ t: (key: string) => key }),
-  }
+const { getDetail } = vi.hoisted(() => ({ getDetail: vi.fn() }))
+vi.mock('@/api/usage', () => ({ getMyErrorDetail: getDetail }))
+vi.mock('@/utils/format', () => ({ formatDateTime: (value: string) => value }))
+vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
+enableAutoUnmount(afterEach)
+beforeEach(() => {
+  getDetail.mockReset()
+  vi.spyOn(console, 'error').mockImplementation(() => {})
 })
+afterEach(() => vi.restoreAllMocks())
+
+function deferred() {
+  let resolve!: (value: unknown) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}
+
+const detail = (model: string) => ({
+  request_id: 'client:req-error-visible-to-user',
+  model,
+  status_code: 500,
+  category: 'upstream',
+  created_at: '2026-09-20',
+})
+
+async function open(errorId = 1) {
+  const wrapper = mount(UserErrorDetailModal, {
+    props: { show: false, errorId },
+    global: { stubs: { BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /></div>' } } },
+  })
+  await wrapper.setProps({ show: true })
+  return wrapper
+}
 
 describe('UserErrorDetailModal', () => {
   it('hides the internal request ID prefix and wraps long IDs', async () => {
-    getMyErrorDetail.mockResolvedValue({
-      id: 1,
-      created_at: '2026-07-22T00:00:00Z',
-      request_id: 'client:req-error-visible-to-user',
-      status_code: 502,
-      category: 'upstream',
-    })
-
-    const wrapper = mount(UserErrorDetailModal, {
-      props: { show: false, errorId: null },
-      global: {
-        stubs: {
-          BaseDialog: { template: '<div><slot /></div>' },
-        },
-      },
-    })
-
-    await wrapper.setProps({ show: true, errorId: 1 })
+    getDetail.mockResolvedValue(detail('gpt-5.4'))
+    const wrapper = await open()
     await flushPromises()
 
     expect(wrapper.text()).toContain('req-error-visible-to-user')
@@ -45,5 +49,56 @@ describe('UserErrorDetailModal', () => {
       'whitespace-normal',
       'break-all',
     ]))
+  })
+
+  it('keeps the newer detail when an earlier request finishes last', async () => {
+    const old = deferred()
+    const current = deferred()
+    getDetail.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)
+    const wrapper = await open()
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true, errorId: 2 })
+    current.resolve(detail('current-model'))
+    await flushPromises()
+    old.resolve(detail('old-model'))
+    await flushPromises()
+    expect(wrapper.text()).toContain('current-model')
+    expect(wrapper.text()).not.toContain('old-model')
+  })
+
+  it('keeps loading until the current request settles', async () => {
+    const old = deferred()
+    const current = deferred()
+    getDetail.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)
+    const wrapper = await open()
+    await wrapper.setProps({ errorId: 2 })
+    old.resolve(detail('old-model'))
+    await flushPromises()
+    expect(wrapper.find('.animate-spin').exists()).toBe(true)
+    current.resolve(detail('current-model'))
+    await flushPromises()
+    expect(wrapper.find('.animate-spin').exists()).toBe(false)
+    expect(wrapper.text()).toContain('current-model')
+  })
+
+  it('ignores an obsolete failure, including when reopening the same record', async () => {
+    const old = deferred()
+    getDetail.mockReturnValueOnce(old.promise).mockResolvedValueOnce(detail('current-model'))
+    const wrapper = await open()
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    old.reject(new Error('obsolete'))
+    await flushPromises()
+    expect(wrapper.text()).toContain('current-model')
+    expect(wrapper.text()).not.toContain('usage.errors.detail.loadFailed')
+  })
+
+  it('still reports a failure for the current record', async () => {
+    getDetail.mockRejectedValueOnce(new Error('current failure'))
+    const wrapper = await open()
+    await flushPromises()
+    expect(wrapper.text()).toContain('usage.errors.detail.loadFailed')
+    expect(wrapper.find('.animate-spin').exists()).toBe(false)
   })
 })

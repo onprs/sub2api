@@ -36,7 +36,10 @@ func (s *AccountUsageService) GetStoredUsageSnapshot(account *Account, now time.
 		}
 		return usage, nil
 
-	case PlatformOpenCodeGo:
+	case PlatformOpenCode:
+		if !account.IsOpenCodeGoPlan() {
+			return nil, ErrObserverQuotaUnavailable
+		}
 		if usage := buildOpenCodeGoOfficialUsageFromExtra(account.Extra, now); usage != nil {
 			return usage, nil
 		}

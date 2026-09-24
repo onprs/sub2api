@@ -439,7 +439,7 @@ func TestGatewayServiceOpenCodeGoOfficialZeroRatePassesPreflightAndRecordsUsageW
 	pricingSvc := &PricingService{
 		openCodeGoPricing: map[string]*LiteLLMModelPricing{
 			"ox-alpha-free": {
-				LiteLLMProvider:            PlatformOpenCodeGo,
+				LiteLLMProvider:            OpenCodeGoPricingPlatform,
 				Mode:                       "chat",
 				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
 				OpenCodeGoExplicitZeroRate: true,
@@ -531,7 +531,7 @@ func TestGatewayServiceValidateGatewayTokenPricingAvailable_RejectsOpenCodeGoMod
 				Mode:               "chat",
 				InputCostPerToken:  0.60e-6,
 				OutputCostPerToken: 3.00e-6,
-				LiteLLMProvider:    PlatformOpenCodeGo,
+				LiteLLMProvider:    OpenCodeGoPricingPlatform,
 			},
 		},
 	}
@@ -589,7 +589,7 @@ func TestGatewayServiceRecordUsage_OpenCodeGoStoresBasePricesAndEffectiveMultipl
 		context.Background(),
 		groupID,
 		"deepseek-v4-flash",
-		PlatformOpenCodeGo,
+		OpenCodeGoPricingPlatform,
 		nil,
 	)
 	require.Equal(t, PricingSourceChannel, displayed.PricingSource)

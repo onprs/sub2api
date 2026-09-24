@@ -326,7 +326,7 @@ var providerOpenCodeGoChatAdapter = providerAdapter{
 		return map[string]string{"Authorization": "Bearer " + apiKey}
 	},
 	textPath:           "choices.0.message.content",
-	releaseGuardMarker: "channel_monitor_provider_opencode_go",
+	releaseGuardMarker: "channel_monitor_provider_opencode",
 }
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。

@@ -21,7 +21,7 @@ import (
 // OpenCode Go 调用方会在这里保留活动折算后的模型倍率。
 // serviceTier 是最终参与用户计费的 OpenAI 服务层级，用于优先级 3。
 // pricingAt 与本次客户计费使用同一时刻，避免跨峰谷请求的成本与售价错位。
-// reasoningEffort 是最终转发等级；Fable 5.1 max 默认按 3 倍额度消耗。
+// reasoningEffort 是最终转发等级；按账号统计定价中配置的等级倍率计费。
 func resolveAccountStatsCost(
 	ctx context.Context,
 	channelService *ChannelService,
@@ -36,6 +36,25 @@ func resolveAccountStatsCost(
 	pricingAt time.Time,
 	reasoningEfforts ...string,
 ) *float64 {
+	return resolveAccountStatsCostWithPlatform(ctx, channelService, billingService, accountID, groupID,
+		upstreamModel, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, "", reasoningEfforts...)
+}
+
+func resolveAccountStatsCostWithPlatform(
+	ctx context.Context,
+	channelService *ChannelService,
+	billingService *BillingService,
+	accountID int64,
+	groupID int64,
+	upstreamModel string,
+	tokens UsageTokens,
+	requestCount int,
+	accountBaseCost float64,
+	serviceTier string,
+	pricingAt time.Time,
+	pricingPlatform string,
+	reasoningEfforts ...string,
+) *float64 {
 	reasoningEffort := ""
 	if len(reasoningEfforts) > 0 {
 		reasoningEffort = reasoningEfforts[0]
@@ -48,11 +67,14 @@ func resolveAccountStatsCost(
 		return nil
 	}
 
-	platform := channelService.GetGroupPlatform(ctx, groupID)
+	groupPlatform := channelService.GetGroupPlatform(ctx, groupID)
+	if strings.TrimSpace(pricingPlatform) == "" {
+		pricingPlatform = groupPlatform
+	}
 
 	// 优先级 1：自定义规则（始终尝试）
-	if cost := tryCustomRules(channel, accountID, groupID, platform, upstreamModel, tokens, requestCount, reasoningEffort); cost != nil {
-		return applyOpenCodeGoQuotaCostToAccountStats(billingService, platform, upstreamModel, cost)
+	if cost := tryCustomRules(channel, accountID, groupID, groupPlatform, upstreamModel, tokens, requestCount, reasoningEffort); cost != nil {
+		return applyOpenCodeGoQuotaCostToAccountStats(billingService, pricingPlatform, upstreamModel, cost)
 	}
 
 	// 优先级 2：渠道开启"应用模型定价到账号统计"时，直接使用账号基础成本
@@ -66,7 +88,7 @@ func resolveAccountStatsCost(
 
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricingForPlatform(billingService, platform, upstreamModel, tokens, serviceTier, pricingAt, reasoningEffort)
+		return tryModelFilePricingForPlatform(billingService, pricingPlatform, upstreamModel, tokens, serviceTier, pricingAt, reasoningEffort)
 	}
 
 	return nil
@@ -132,7 +154,7 @@ func tryCustomRules(
 		}
 		cost := calculateStatsCost(pricing, tokens, requestCount)
 		if cost != nil {
-			*cost *= maxReasoningEffortBillingMultiplier(model, reasoningEffort, nil)
+			*cost *= reasoningEffortBillingMultiplier(reasoningEffort, pricing.ReasoningEffortMultipliers)
 		}
 		return cost
 	}
@@ -217,7 +239,7 @@ func calculateStatsCost(pricing *ChannelModelPricing, tokens UsageTokens, reques
 		return nil
 	}
 	switch pricing.BillingMode {
-	case BillingModePerRequest, BillingModeImage:
+	case BillingModePerRequest, BillingModeImage, BillingModeVideo:
 		return calculatePerRequestStatsCost(pricing, requestCount)
 	default:
 		return calculateTokenStatsCost(pricing, tokens)
@@ -288,6 +310,7 @@ func applyAccountStatsCost(
 	tokens UsageTokens,
 	accountBaseCost float64,
 	pricingAt time.Time,
+	pricingPlatforms ...string,
 ) {
 	model := upstreamModel
 	if model == "" {
@@ -305,7 +328,17 @@ func applyAccountStatsCost(
 	if usageLog != nil && usageLog.ReasoningEffort != nil {
 		reasoningEffort = *usageLog.ReasoningEffort
 	}
-	usageLog.AccountStatsCost = resolveAccountStatsCost(
-		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, reasoningEffort,
+	pricingPlatform := ""
+	if len(pricingPlatforms) > 0 {
+		pricingPlatform = pricingPlatforms[0]
+	}
+	if pricingPlatform == "" {
+		usageLog.AccountStatsCost = resolveAccountStatsCost(
+			ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, reasoningEffort,
+		)
+		return
+	}
+	usageLog.AccountStatsCost = resolveAccountStatsCostWithPlatform(
+		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, pricingPlatform, reasoningEffort,
 	)
 }

@@ -625,7 +625,7 @@ func upstreamModelRegistryBaseURL(account *Account) string {
 		return ""
 	}
 	switch {
-	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo():
+	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCode():
 		return account.GetOpenAIFormatBaseURL()
 	case account.IsGrok():
 		return account.GetGrokBaseURL()
@@ -813,7 +813,7 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
 		return s.buildGrokUpstreamModelsRequest(ctx, account)
-	case account.IsOpenCodeGo():
+	case account.IsOpenCode():
 		return s.buildOpenCodeGoUpstreamModelsRequest(ctx, account)
 	case account.IsOpenAI() || account.IsCNProvider():
 		// 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）复用 OpenAI /v1/models 探测。
@@ -984,7 +984,7 @@ func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Con
 	if err != nil {
 		return nil, newUpstreamModelSyncConfigError("Invalid Anthropic model list URL", err)
 	}
-	for key, value := range claude.DefaultHeaders {
+	for key, value := range claude.DefaultHeaders() {
 		req.Header.Set(key, value)
 	}
 	req.Header.Set("Accept", "application/json")
@@ -1032,7 +1032,7 @@ func (s *AccountTestService) buildAntigravityAPIKeyModelsRequest(ctx context.Con
 	if err != nil {
 		return nil, newUpstreamModelSyncConfigError("Invalid Antigravity model list URL", err)
 	}
-	for key, value := range claude.DefaultHeaders {
+	for key, value := range claude.DefaultHeaders() {
 		req.Header.Set(key, value)
 	}
 	req.Header.Set("Accept", "application/json")
@@ -1087,17 +1087,17 @@ func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, valid
 func (s *AccountTestService) buildOpenCodeGoUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
 	if account.Type != AccountTypeAPIKey {
 		return nil, newUpstreamModelSyncUnsupportedError(
-			fmt.Sprintf("Unsupported OpenCode Go account type for upstream model sync: %s", account.Type), nil,
+			fmt.Sprintf("Unsupported OpenCode account type for upstream model sync: %s", account.Type), nil,
 		)
 	}
-	apiKey := strings.TrimSpace(account.GetOpenCodeGoAPIKey())
+	apiKey := account.GetOpenCodeAPIKey()
 	if apiKey == "" {
-		return nil, newUpstreamModelSyncConfigError("No OpenCode Go API key is available", nil)
+		return nil, newUpstreamModelSyncConfigError("No OpenCode API key is available", nil)
 	}
 
-	normalizedBaseURL, err := s.validateUpstreamBaseURL(account.GetOpenCodeGoBaseURL())
+	normalizedBaseURL, err := s.validateUpstreamBaseURL(account.GetOpenCodeBaseURL())
 	if err != nil {
-		return nil, newUpstreamModelSyncConfigError("Invalid OpenCode Go base URL", err)
+		return nil, newUpstreamModelSyncConfigError("Invalid OpenCode base URL", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, buildOpenAIModelsURL(normalizedBaseURL), nil)

@@ -11,15 +11,14 @@ const concretePlatforms = [
   'gemini',
   'antigravity',
   'grok',
-  'opencode_go',
+  'opencode',
   'clinepass',
   'openrouter',
   'commandcode',
   'kimi',
   'zhipu',
   'deepseek',
-  'minimax',
-  'opencode_go'
+  'minimax'
 ]
 
 describe('platform option catalogs', () => {
@@ -34,11 +33,11 @@ describe('platform option catalogs', () => {
       'gemini',
       'antigravity',
       'grok',
+      'opencode',
       'kimi',
       'zhipu',
       'deepseek',
-      'minimax',
-      'opencode_go'
+      'minimax'
     ])
   })
 

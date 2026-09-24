@@ -6,6 +6,18 @@ import (
 	"time"
 )
 
+const OpenCodeGoPricingPlatform = "opencode_go"
+
+func pricingPlatformForAccount(account *Account) string {
+	if account == nil {
+		return ""
+	}
+	if account.IsOpenCodeGoPlan() {
+		return OpenCodeGoPricingPlatform
+	}
+	return account.Platform
+}
+
 const openCodeGoSharedMonthlyQuotaUSD = 60.0
 
 // openCodeGoReferencePrices 是 OpenCode Go 的平台限定标准价目录。
@@ -370,5 +382,5 @@ func isOpenCodeGoPeakTime(now time.Time) bool {
 }
 
 func isOpenCodeGoPricingPlatform(platform string) bool {
-	return strings.EqualFold(strings.TrimSpace(platform), PlatformOpenCodeGo)
+	return strings.EqualFold(strings.TrimSpace(platform), OpenCodeGoPricingPlatform)
 }

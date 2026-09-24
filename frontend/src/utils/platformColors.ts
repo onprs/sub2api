@@ -11,7 +11,7 @@ export type Platform =
   | 'antigravity'
   | 'gemini'
   | 'grok'
-  | 'opencode_go'
+  | 'opencode'
   | 'clinepass'
   | 'openrouter'
   | 'commandcode'
@@ -28,7 +28,7 @@ const BADGE: Record<Platform, string> = {
   antigravity: 'bg-purple-500/10 text-purple-600 border-purple-500/30 dark:text-purple-400',
   gemini: 'bg-blue-500/10 text-blue-600 border-blue-500/30 dark:text-blue-400',
   grok: 'bg-zinc-800/10 text-zinc-800 border-zinc-800/30 dark:bg-zinc-500/10 dark:text-zinc-200 dark:border-zinc-500/30',
-  opencode_go: 'bg-cyan-500/10 text-cyan-600 border-cyan-500/30 dark:text-cyan-300',
+  opencode: 'bg-cyan-500/10 text-cyan-600 border-cyan-500/30 dark:text-cyan-300',
   clinepass: 'bg-rose-500/10 text-rose-600 border-rose-500/30 dark:text-rose-300',
   openrouter: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/30 dark:text-indigo-300',
   commandcode: 'bg-lime-500/10 text-lime-600 border-lime-500/30 dark:text-lime-300',
@@ -47,7 +47,7 @@ const BADGE_LIGHT: Record<Platform, string> = {
   antigravity: 'bg-purple-500/10 text-purple-600 dark:bg-purple-500/10 dark:text-purple-300',
   gemini: 'bg-blue-500/10 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300',
   grok: 'bg-zinc-800/10 text-zinc-800 dark:bg-zinc-500/10 dark:text-zinc-200',
-  opencode_go: 'bg-cyan-500/10 text-cyan-600 dark:bg-cyan-500/10 dark:text-cyan-300',
+  opencode: 'bg-cyan-500/10 text-cyan-600 dark:bg-cyan-500/10 dark:text-cyan-300',
   clinepass: 'bg-rose-500/10 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300',
   openrouter: 'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300',
   commandcode: 'bg-lime-500/10 text-lime-600 dark:bg-lime-500/10 dark:text-lime-300',
@@ -65,7 +65,7 @@ const BORDER: Record<Platform, string> = {
   antigravity: 'border-purple-500/20 dark:border-purple-500/20',
   gemini: 'border-blue-500/20 dark:border-blue-500/20',
   grok: 'border-zinc-800/20 dark:border-zinc-500/20',
-  opencode_go: 'border-cyan-500/20 dark:border-cyan-500/20',
+  opencode: 'border-cyan-500/20 dark:border-cyan-500/20',
   clinepass: 'border-rose-500/20 dark:border-rose-500/20',
   openrouter: 'border-indigo-500/20 dark:border-indigo-500/20',
   commandcode: 'border-lime-500/20 dark:border-lime-500/20',
@@ -84,7 +84,7 @@ const BORDER_STRONG: Record<Platform, string> = {
   antigravity: 'border-purple-500/35 dark:border-purple-500/30',
   gemini: 'border-blue-500/35 dark:border-blue-500/30',
   grok: 'border-zinc-800/35 dark:border-zinc-500/35',
-  opencode_go: 'border-cyan-500/35 dark:border-cyan-500/30',
+  opencode: 'border-cyan-500/35 dark:border-cyan-500/30',
   clinepass: 'border-rose-500/35 dark:border-rose-500/30',
   openrouter: 'border-indigo-500/35 dark:border-indigo-500/30',
   commandcode: 'border-lime-500/35 dark:border-lime-500/30',
@@ -104,7 +104,7 @@ const ACCENT: Record<Platform, string> = {
   antigravity: '#a855f7', // purple-500
   gemini: '#3b82f6', // blue-500
   grok: '#71717a', // zinc-500
-  opencode_go: '#06b6d4', // cyan-500
+  opencode: '#06b6d4', // cyan-500
   clinepass: '#f43f5e', // rose-500
   openrouter: '#6366f1', // indigo-500
   commandcode: '#84cc16', // lime-500
@@ -123,7 +123,7 @@ const ACCENT_BAR: Record<Platform, string> = {
   antigravity: 'bg-gradient-to-r from-purple-400 to-purple-500',
   gemini: 'bg-gradient-to-r from-blue-400 to-blue-500',
   grok: 'bg-gradient-to-r from-zinc-700 to-zinc-900',
-  opencode_go: 'bg-gradient-to-r from-cyan-400 to-teal-500',
+  opencode: 'bg-gradient-to-r from-cyan-400 to-teal-500',
   clinepass: 'bg-gradient-to-r from-rose-400 to-red-500',
   openrouter: 'bg-gradient-to-r from-indigo-400 to-violet-500',
   commandcode: 'bg-gradient-to-r from-lime-400 to-emerald-500',
@@ -142,7 +142,7 @@ const TEXT: Record<Platform, string> = {
   antigravity: 'text-purple-600 dark:text-purple-400',
   gemini: 'text-blue-600 dark:text-blue-400',
   grok: 'text-zinc-800 dark:text-zinc-200',
-  opencode_go: 'text-cyan-600 dark:text-cyan-300',
+  opencode: 'text-cyan-600 dark:text-cyan-300',
   clinepass: 'text-rose-600 dark:text-rose-300',
   openrouter: 'text-indigo-600 dark:text-indigo-300',
   commandcode: 'text-lime-600 dark:text-lime-300',
@@ -161,7 +161,7 @@ const ICON: Record<Platform, string> = {
   antigravity: 'text-purple-500 dark:text-purple-400',
   gemini: 'text-blue-500 dark:text-blue-400',
   grok: 'text-zinc-800 dark:text-zinc-200',
-  opencode_go: 'text-cyan-500 dark:text-cyan-300',
+  opencode: 'text-cyan-500 dark:text-cyan-300',
   clinepass: 'text-rose-500 dark:text-rose-300',
   openrouter: 'text-indigo-500 dark:text-indigo-300',
   commandcode: 'text-lime-500 dark:text-lime-300',
@@ -180,7 +180,7 @@ const BUTTON: Record<Platform, string> = {
   antigravity: 'bg-purple-500 text-white hover:bg-purple-600 active:bg-purple-700 dark:bg-purple-500/80 dark:hover:bg-purple-500',
   gemini: 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700 dark:bg-blue-500/80 dark:hover:bg-blue-500',
   grok: 'bg-zinc-800 text-white hover:bg-zinc-900 active:bg-black dark:bg-zinc-700 dark:hover:bg-zinc-600',
-  opencode_go: 'bg-cyan-600 text-white hover:bg-cyan-700 active:bg-cyan-800 dark:bg-cyan-600/80 dark:hover:bg-cyan-600',
+  opencode: 'bg-cyan-600 text-white hover:bg-cyan-700 active:bg-cyan-800 dark:bg-cyan-600/80 dark:hover:bg-cyan-600',
   clinepass: 'bg-rose-600 text-white hover:bg-rose-700 active:bg-rose-800 dark:bg-rose-600/80 dark:hover:bg-rose-600',
   openrouter: 'bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800 dark:bg-indigo-600/80 dark:hover:bg-indigo-600',
   commandcode: 'bg-lime-600 text-white hover:bg-lime-700 active:bg-lime-800 dark:bg-lime-600/80 dark:hover:bg-lime-600',
@@ -199,7 +199,7 @@ const DISCOUNT: Record<Platform, string> = {
   antigravity: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300',
   gemini: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
   grok: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
-  opencode_go: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
+  opencode: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
   clinepass: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
   openrouter: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
   commandcode: 'bg-lime-100 text-lime-700 dark:bg-lime-900/40 dark:text-lime-300',
@@ -218,7 +218,7 @@ const GRADIENT: Record<Platform, string> = {
   antigravity: 'from-purple-500 to-purple-600',
   gemini: 'from-blue-500 to-blue-600',
   grok: 'from-zinc-700 to-zinc-900',
-  opencode_go: 'from-cyan-500 to-teal-600',
+  opencode: 'from-cyan-500 to-teal-600',
   clinepass: 'from-rose-500 to-red-600',
   openrouter: 'from-indigo-500 to-violet-600',
   commandcode: 'from-lime-500 to-emerald-600',
@@ -237,7 +237,7 @@ const GRADIENT_TEXT: Record<Platform, string> = {
   antigravity: 'text-purple-100',
   gemini: 'text-blue-100',
   grok: 'text-zinc-100',
-  opencode_go: 'text-cyan-50',
+  opencode: 'text-cyan-50',
   clinepass: 'text-rose-50',
   openrouter: 'text-indigo-50',
   commandcode: 'text-lime-50',
@@ -255,7 +255,7 @@ const GRADIENT_SUBTEXT: Record<Platform, string> = {
   antigravity: 'text-purple-200',
   gemini: 'text-blue-200',
   grok: 'text-zinc-300',
-  opencode_go: 'text-cyan-100',
+  opencode: 'text-cyan-100',
   clinepass: 'text-rose-100',
   openrouter: 'text-indigo-100',
   commandcode: 'text-lime-100',
@@ -276,7 +276,7 @@ function isPlatform(p: string): p is Platform {
     p === 'antigravity' ||
     p === 'gemini' ||
     p === 'grok' ||
-    p === 'opencode_go' ||
+    p === 'opencode' ||
     p === 'clinepass' ||
     p === 'openrouter' ||
     p === 'commandcode' ||
@@ -347,7 +347,7 @@ export function platformLabel(p: string): string {
     case 'antigravity': return 'Antigravity'
     case 'gemini': return 'Gemini'
     case 'grok': return 'Grok'
-    case 'opencode_go': return 'OpenCode Go'
+    case 'opencode': return 'OpenCode'
     case 'clinepass': return 'ClinePass'
     case 'openrouter': return 'OpenRouter'
     case 'commandcode': return 'Command Code'

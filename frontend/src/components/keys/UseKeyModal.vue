@@ -394,7 +394,7 @@ const defaultClientTab = computed(() => {
       return 'gemini'
     case 'antigravity':
       return 'claude'
-    case 'opencode_go':
+    case 'opencode':
     case 'clinepass':
     case 'openrouter':
     case 'commandcode':
@@ -510,7 +510,7 @@ const clientTabs = computed((): TabConfig[] => {
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
     case 'antigravity':
-    case 'opencode_go':
+    case 'opencode':
     case 'clinepass':
     case 'openrouter':
     case 'commandcode':
@@ -593,7 +593,7 @@ const platformDescription = computed(() => {
     case 'gemini':
       return t('keys.useKeyModal.gemini.description')
     case 'antigravity':
-    case 'opencode_go':
+    case 'opencode':
     case 'clinepass':
     case 'openrouter':
     case 'commandcode':
@@ -607,7 +607,7 @@ const platformDescription = computed(() => {
         return t('keys.useKeyModal.gemini.description')
       }
       if (props.platform === 'antigravity') return t('keys.useKeyModal.antigravity.description')
-      if (props.platform === 'opencode_go') return t('keys.useKeyModal.opencodeGo.description')
+      if (props.platform === 'opencode') return t('keys.useKeyModal.openai.description')
       return t('keys.useKeyModal.openai.description')
     case 'grok':
       if (activeClientTab.value === 'claude') {
@@ -663,7 +663,7 @@ const platformNote = computed(() => {
       return activeTab.value === 'windows'
         ? t('keys.useKeyModal.openai.noteWindows')
         : t('keys.useKeyModal.openai.note')
-    case 'opencode_go':
+    case 'opencode':
     case 'clinepass':
     case 'openrouter':
     case 'commandcode':
@@ -868,8 +868,8 @@ const currentFiles = computed((): FileConfig[] => {
           generateOpenCodeConfig('antigravity-claude', antigravityBase, apiKey, 'opencode.json (Claude)'),
           generateOpenCodeConfig('antigravity-gemini', antigravityGeminiBase, apiKey, 'opencode.json (Gemini)')
         ]
-      case 'opencode_go':
-        return [generateOpenCodeConfig('opencode-go', apiBase, apiKey)]
+      case 'opencode':
+        return [generateOpenCodeConfig('opencode', apiBase, apiKey)]
       case 'clinepass':
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
       case 'grok':
@@ -882,15 +882,17 @@ const currentFiles = computed((): FileConfig[] => {
   switch (props.platform) {
     case 'openai':
       if (activeClientTab.value === 'claude') {
-        return generateAnthropicFiles(baseUrl, apiKey)
+        // Anthropic clients append /v1/messages themselves.
+        return generateAnthropicFiles(baseRoot, apiKey)
       }
       if (activeClientTab.value === 'gemini') {
         return [generateGeminiCliContent(baseRoot, apiKey)]
       }
       if (activeClientTab.value === 'codex-ws') {
-        return generateOpenAIWsFiles(baseUrl, apiKey)
+        return generateOpenAIWsFiles(apiBase, apiKey)
       }
-      return generateOpenAIFiles(baseUrl, apiKey)
+      // Codex appends /responses directly and does not add /v1.
+      return generateOpenAIFiles(apiBase, apiKey)
     case 'gemini':
       if (activeClientTab.value === 'codex') {
         return generateRoutedCodexFiles(apiBase, apiKey, 'gemini')
@@ -904,7 +906,7 @@ const currentFiles = computed((): FileConfig[] => {
         return [generateGeminiCliContent(baseRoot, apiKey)]
       }
       return generateAnthropicFiles(baseUrl, apiKey)
-    case 'opencode_go':
+    case 'opencode':
     case 'clinepass':
     case 'openrouter':
     case 'commandcode':
@@ -1395,7 +1397,7 @@ function generateRoutedCodexFiles(
     gemini: 'gemini-2.5-pro',
     antigravity: 'claude-sonnet-4-6',
     grok: 'grok-4.5',
-    opencode_go: 'gpt-5.6-luna',
+    opencode: 'gpt-5.6-luna',
     clinepass: 'cline-pass/glm-5.2',
     openrouter: 'openrouter/free',
     commandcode: 'gpt-5.6-sol',
@@ -1413,7 +1415,7 @@ function generateRoutedCodexFiles(
     gemini: 'Gemini',
     antigravity: 'Antigravity',
     grok: 'Grok',
-    opencode_go: 'OpenCode Go',
+    opencode: 'OpenCode',
     clinepass: 'ClinePass',
     openrouter: 'OpenRouter',
     commandcode: 'Command Code',
@@ -1564,6 +1566,24 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
         max: {}
       }
     },
+    'gpt-6-sol': {
+      name: 'GPT-6 Sol',
+      limit: {
+        context: 1050000,
+        output: 128000
+      },
+      options: {
+        store: false
+      },
+      variants: {
+        none: {},
+        low: {},
+        medium: {},
+        high: {},
+        xhigh: {},
+        max: {}
+      }
+    },
     'gpt-5.6-sol': {
       name: 'GPT-5.6 Sol',
       limit: {
@@ -1597,6 +1617,24 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
         medium: {},
         high: {},
         xhigh: {}
+      }
+    },
+    'gpt-6-luna': {
+      name: 'GPT-6 Luna',
+      limit: {
+        context: 1050000,
+        output: 128000
+      },
+      options: {
+        store: false
+      },
+      variants: {
+        none: {},
+        low: {},
+        medium: {},
+        high: {},
+        xhigh: {},
+        max: {}
       }
     },
     'gpt-5.6-luna': {
@@ -2030,6 +2068,21 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
     provider[platform].models = geminiModels
   } else if (platform === 'anthropic') {
     provider[platform].npm = '@ai-sdk/anthropic'
+    provider[platform].models = {
+      'claude-opus-5-5': {
+        name: 'Claude Opus 5.5',
+        limit: { context: 1000000, output: 128000 },
+        modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+        options: { thinking: { type: 'adaptive' }, effort: 'medium' },
+        variants: {
+          low: { effort: 'low' },
+          medium: { effort: 'medium' },
+          high: { effort: 'high' },
+          xhigh: { effort: 'xhigh' },
+          max: { effort: 'max' }
+        }
+      }
+    }
   } else if (platform === 'antigravity-claude') {
     provider[platform].npm = '@ai-sdk/anthropic'
     provider[platform].name = 'Antigravity (Claude)'

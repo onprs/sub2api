@@ -600,7 +600,7 @@ func cliImportModelsDevProviderForPlatform(platform string) string {
 		return "anthropic"
 	case PlatformGemini, PlatformAntigravity:
 		return "google"
-	case PlatformOpenCodeGo:
+	case PlatformOpenCode, OpenCodeGoPricingPlatform:
 		return "opencode-go"
 	default:
 		return ""
@@ -692,21 +692,23 @@ func (s *PricingService) GetCLIImportModelCapability(ctx context.Context, platfo
 	if pricing.OutputCostPerImageToken != 0 {
 		cap.OutputCostPerImageToken = cliImportFloat64Ptr(pricing.OutputCostPerImageToken)
 	}
-	return applyOpenCodeGoCLIImportReferencePricing(platform, model, cap), true
+	if strings.TrimSpace(platform) == PlatformOpenCode && isOpenCodeGoPricingPlatform(pricing.LiteLLMProvider) {
+		cap = clearOpenCodeGoCLIImportCosts(cap)
+	} else {
+		cap = applyOpenCodeGoCLIImportReferencePricing(platform, model, cap)
+	}
+	return cap, true
 }
 
 func applyOpenCodeGoCLIImportReferencePricing(platform, model string, cap CLIImportModelCapability) CLIImportModelCapability {
+	if strings.TrimSpace(platform) == PlatformOpenCode {
+		return clearOpenCodeGoCLIImportCosts(cap)
+	}
 	if !isOpenCodeGoPricingPlatform(platform) {
 		return cap
 	}
 
-	cap.InputCostPerToken = nil
-	cap.OutputCostPerToken = nil
-	cap.CacheReadCostPerToken = nil
-	cap.CacheWriteCostPerToken = nil
-	cap.OutputCostPerImage = nil
-	cap.OutputCostPerImageToken = nil
-	cap.CostKnown = false
+	cap = clearOpenCodeGoCLIImportCosts(cap)
 
 	pricing, ok := openCodeGoReferencePricing(model)
 	if !ok {
@@ -724,6 +726,17 @@ func applyOpenCodeGoCLIImportReferencePricing(platform, model string, cap CLIImp
 		cap.OutputCostPerImageToken = cliImportFloat64Ptr(pricing.ImageOutputPricePerToken)
 	}
 	cap.CostKnown = pricing.InputPricePerToken > 0 && pricing.OutputPricePerToken > 0
+	return cap
+}
+
+func clearOpenCodeGoCLIImportCosts(cap CLIImportModelCapability) CLIImportModelCapability {
+	cap.InputCostPerToken = nil
+	cap.OutputCostPerToken = nil
+	cap.CacheReadCostPerToken = nil
+	cap.CacheWriteCostPerToken = nil
+	cap.OutputCostPerImage = nil
+	cap.OutputCostPerImageToken = nil
+	cap.CostKnown = false
 	return cap
 }
 
@@ -890,7 +903,7 @@ var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability
 }
 
 func getOpenCodeGoBuiltinCLIImportCapability(platform, model string) (CLIImportModelCapability, bool) {
-	if strings.TrimSpace(platform) != PlatformOpenCodeGo {
+	if !isOpenCodeGoPricingPlatform(platform) && strings.TrimSpace(platform) != PlatformOpenCode {
 		return CLIImportModelCapability{}, false
 	}
 	cap, ok := openCodeGoBuiltinCLIImportCapabilities[strings.ToLower(strings.TrimSpace(model))]

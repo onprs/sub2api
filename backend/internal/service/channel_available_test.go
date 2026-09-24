@@ -386,18 +386,19 @@ func TestBuildCatalogSupportedModel_AntigravityDefaultMappingCandidate(t *testin
 	require.InDelta(t, 5e-6, *got.Pricing.InputPrice, 1e-12)
 }
 
-func TestBuildCatalogSupportedModel_OpenCodeGoCodeAliasCandidate(t *testing.T) {
+func TestBuildCatalogSupportedModel_OpenCodeGoPricingDomainAddsCodeAliasCandidate(t *testing.T) {
 	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
 		"kimi-k2.7": {
 			Mode:                    "chat",
 			InputCostPerToken:       0.95e-6,
 			OutputCostPerToken:      4.00e-6,
 			CacheReadInputTokenCost: 0.19e-6,
+			LiteLLMProvider:         OpenCodeGoPricingPlatform,
 		},
 	})
 	svc := &ChannelService{pricingService: pricingSvc}
 
-	got := svc.BuildCatalogSupportedModel("kimi-k2.7-code", PlatformOpenCodeGo, nil)
+	got := svc.BuildCatalogSupportedModel("kimi-k2.7-code", OpenCodeGoPricingPlatform, nil)
 
 	require.Equal(t, PricingSourceCatalog, got.PricingSource)
 	require.NotNil(t, got.Pricing)
@@ -407,6 +408,11 @@ func TestBuildCatalogSupportedModel_OpenCodeGoCodeAliasCandidate(t *testing.T) {
 	require.Equal(t, 60.0, got.QuotaCost.IncludedMonthlyUsageUSD)
 	require.Equal(t, 1.0, got.QuotaCost.CostMultiplier)
 	require.NotNil(t, got.Pricing.CacheReadPrice)
+
+	canonical := svc.BuildCatalogSupportedModel("kimi-k2.7-code", PlatformOpenCode, nil)
+	require.Equal(t, PricingSourceMissing, canonical.PricingSource)
+	require.Nil(t, canonical.Pricing)
+	require.Nil(t, canonical.QuotaCost)
 }
 
 func TestBuildCatalogSupportedModel_ClinePassUsesReferencePricingAndContextTiers(t *testing.T) {
@@ -450,12 +456,12 @@ func TestBuildCatalogSupportedModel_OpenCodeGoSupplementalModelWithoutUsageFails
 			InputCostPerToken:       0.60e-6,
 			OutputCostPerToken:      3.00e-6,
 			CacheReadInputTokenCost: 0.10e-6,
-			LiteLLMProvider:         PlatformOpenCodeGo,
+			LiteLLMProvider:         OpenCodeGoPricingPlatform,
 		},
 	})
 	svc := &ChannelService{pricingService: pricingSvc}
 
-	got := svc.BuildCatalogSupportedModel("kimi-k2.5", PlatformOpenCodeGo, nil)
+	got := svc.BuildCatalogSupportedModel("kimi-k2.5", OpenCodeGoPricingPlatform, nil)
 
 	require.Equal(t, PricingSourceMissing, got.PricingSource)
 	require.Nil(t, got.Pricing)
@@ -489,14 +495,14 @@ func TestBuildSupportedModelForPricingGroup_OpenCodeGoChannelPricingOverridesCat
 		billingService: NewBillingService(&config.Config{}, pricingSvc),
 	}
 	cache := newEmptyChannelCache()
-	cache.channelByGroupID[groupID] = &Channel{ID: 1, Status: StatusActive}
-	cache.groupPlatform[groupID] = PlatformOpenCodeGo
+	cache.channelByGroupID[groupID] = &Channel{ID: groupID, Status: StatusActive}
+	cache.groupPlatform[groupID] = PlatformOpenCode
 	cache.pricingByGroupModel[channelModelKey{
 		groupID:  groupID,
-		platform: PlatformOpenCodeGo,
+		platform: PlatformOpenCode,
 		model:    "deepseek-v4-flash",
 	}] = &ChannelModelPricing{
-		Platform:       PlatformOpenCodeGo,
+		Platform:       PlatformOpenCode,
 		Models:         []string{"deepseek-v4-flash"},
 		BillingMode:    BillingModeToken,
 		InputPrice:     &input,
@@ -510,7 +516,7 @@ func TestBuildSupportedModelForPricingGroup_OpenCodeGoChannelPricingOverridesCat
 		context.Background(),
 		groupID,
 		"flash-alias",
-		PlatformOpenCodeGo,
+		OpenCodeGoPricingPlatform,
 		[]string{"deepseek-v4-flash"},
 	)
 
@@ -531,14 +537,14 @@ func TestBuildSupportedModelForPricingGroup_OpenCodeGoPartialChannelPricingUsesC
 		billingService: NewBillingService(&config.Config{}, pricingSvc),
 	}
 	cache := newEmptyChannelCache()
-	cache.channelByGroupID[groupID] = &Channel{ID: 2, Status: StatusActive}
-	cache.groupPlatform[groupID] = PlatformOpenCodeGo
+	cache.channelByGroupID[groupID] = &Channel{ID: groupID, Status: StatusActive}
+	cache.groupPlatform[groupID] = PlatformOpenCode
 	cache.pricingByGroupModel[channelModelKey{
 		groupID:  groupID,
-		platform: PlatformOpenCodeGo,
+		platform: PlatformOpenCode,
 		model:    "deepseek-v4-pro",
 	}] = &ChannelModelPricing{
-		Platform:    PlatformOpenCodeGo,
+		Platform:    PlatformOpenCode,
 		Models:      []string{"deepseek-v4-pro"},
 		BillingMode: BillingModeToken,
 		InputPrice:  &input,
@@ -550,7 +556,7 @@ func TestBuildSupportedModelForPricingGroup_OpenCodeGoPartialChannelPricingUsesC
 		context.Background(),
 		groupID,
 		"deepseek-v4-pro",
-		PlatformOpenCodeGo,
+		OpenCodeGoPricingPlatform,
 		nil,
 	)
 
@@ -663,7 +669,7 @@ func TestBuildCatalogSupportedModel_OpenCodeGoShowsOfficialPeakAndOffPeakPricing
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
 
-	model := svc.BuildCatalogSupportedModel("deepseek-v4-flash-vision-exp", PlatformOpenCodeGo, nil)
+	model := svc.BuildCatalogSupportedModel("deepseek-v4-flash-vision-exp", OpenCodeGoPricingPlatform, nil)
 
 	require.Equal(t, PricingSourceCatalog, model.PricingSource)
 	require.NotNil(t, model.Pricing)
@@ -682,7 +688,7 @@ func TestBuildCatalogSupportedModel_OpenCodeGoShowsOfficialPeakAndOffPeakPricing
 	require.InDelta(t, 1.20e-6, *peak.Pricing.OutputPrice, 1e-15)
 	require.InDelta(t, 0.006e-6, *peak.Pricing.CacheReadPrice, 1e-15)
 
-	hy3 := svc.BuildCatalogSupportedModel("hy3", PlatformOpenCodeGo, nil)
+	hy3 := svc.BuildCatalogSupportedModel("hy3", OpenCodeGoPricingPlatform, nil)
 	require.Empty(t, hy3.PricingTimeBands)
 }
 
@@ -695,7 +701,7 @@ func TestBuildCatalogSupportedModel_OpenCodeGoUsageOfferPreservesOriginalPricing
 				InputCostPerToken:                       0.15e-6,
 				OutputCostPerToken:                      0.60e-6,
 				CacheReadInputTokenCost:                 0.003e-6,
-				LiteLLMProvider:                         PlatformOpenCodeGo,
+				LiteLLMProvider:                         OpenCodeGoPricingPlatform,
 				OpenCodeGoPricingAuthority:              openCodeGoPricingAuthorityOfficial,
 				OpenCodeGoMonthlyUsageUSD:               30,
 				OpenCodeGoPeakPricingKnown:              true,
@@ -713,7 +719,7 @@ func TestBuildCatalogSupportedModel_OpenCodeGoUsageOfferPreservesOriginalPricing
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
 
-	model := svc.BuildCatalogSupportedModel("deepseek-v4-flash", PlatformOpenCodeGo, nil)
+	model := svc.BuildCatalogSupportedModel("deepseek-v4-flash", OpenCodeGoPricingPlatform, nil)
 
 	require.NotNil(t, model.Pricing)
 	require.InDelta(t, 0.15e-6, *model.Pricing.InputPrice, 1e-15)
@@ -730,7 +736,7 @@ func TestBuildCatalogSupportedModel_OpenCodeGoOfficialZeroRateIsDisplayedAsCatal
 	pricingSvc := &PricingService{
 		openCodeGoPricing: map[string]*LiteLLMModelPricing{
 			"ox-alpha-free": {
-				LiteLLMProvider:            PlatformOpenCodeGo,
+				LiteLLMProvider:            OpenCodeGoPricingPlatform,
 				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
 				OpenCodeGoExplicitZeroRate: true,
 			},
@@ -740,7 +746,7 @@ func TestBuildCatalogSupportedModel_OpenCodeGoOfficialZeroRateIsDisplayedAsCatal
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
 
-	model := svc.BuildCatalogSupportedModel("ox-alpha-free", PlatformOpenCodeGo, nil)
+	model := svc.BuildCatalogSupportedModel("ox-alpha-free", OpenCodeGoPricingPlatform, nil)
 
 	require.Equal(t, PricingSourceCatalog, model.PricingSource)
 	require.NotNil(t, model.Pricing)
@@ -762,7 +768,7 @@ func TestBuildCatalogSupportedModel_OpenCodeGoReferenceCatalogRequiresQuotaCostE
 		if modelID == "ox-alpha-free" {
 			continue
 		}
-		model := svc.BuildCatalogSupportedModel(modelID, PlatformOpenCodeGo, nil)
+		model := svc.BuildCatalogSupportedModel(modelID, OpenCodeGoPricingPlatform, nil)
 		quotaCost, known := openCodeGoReferenceQuotaCost(modelID)
 		if !known {
 			require.Equal(t, PricingSourceMissing, model.PricingSource, modelID)

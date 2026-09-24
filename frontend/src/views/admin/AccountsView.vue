@@ -260,6 +260,7 @@
             <div class="flex min-w-0 flex-col gap-1">
               <div class="flex flex-wrap items-center gap-1">
                 <PlatformTypeBadge :platform="row.platform" :type="row.type"
+                  :account-mode="row.credentials?.account_mode"
                   :auth-mode="getOpenAIAuthMode(row)"
                   :plan-type="getAccountPlanType(row)"
                   :privacy-mode="row.extra?.privacy_mode || row.parent_privacy_mode"
@@ -755,7 +756,7 @@ const accountSupportsBatchUsage = (account: Account) => {
   if (account.platform === 'grok') return account.type === 'oauth' || account.type === 'apikey'
   if (account.platform === 'openai') return account.type === 'oauth' || account.type === 'apikey'
   if (
-    account.platform === 'opencode_go' ||
+    (account.platform === 'opencode' && account.credentials?.account_mode !== 'zen') ||
     account.platform === 'clinepass' ||
     account.platform === 'openrouter' ||
     account.platform === 'commandcode'
@@ -2319,7 +2320,7 @@ const handleAccountUpdated = (updatedAccount: Account) => {
   const currentAccount = accounts.value.find(account => account.id === updatedAccount.id)
   const usageRefreshNeeded =
     (currentAccount && buildAccountUsageRefreshKey(currentAccount) !== buildAccountUsageRefreshKey(updatedAccount)) ||
-    ((updatedAccount.platform === 'opencode_go' || updatedAccount.platform === 'clinepass' || updatedAccount.platform === 'openrouter' || updatedAccount.platform === 'commandcode') && updatedAccount.type === 'apikey')
+    ((updatedAccount.platform === 'opencode' && updatedAccount.credentials?.account_mode !== 'zen' || updatedAccount.platform === 'clinepass' || updatedAccount.platform === 'openrouter' || updatedAccount.platform === 'commandcode') && updatedAccount.type === 'apikey')
   patchAccountInList(updatedAccount)
   if (usageRefreshNeeded) {
     usageManualRefreshToken.value += 1

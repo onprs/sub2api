@@ -388,7 +388,7 @@ func TestBulkAdminResetQuota_AllFilteredUsesFilter(t *testing.T) {
 
 	result, err := svc.BulkAdminResetQuota(context.Background(), BulkResetSubscriptionQuotaInput{
 		AllFiltered:   true,
-		Filter:        BulkResetSubscriptionQuotaFilter{UserID: &userID, GroupID: &groupID, Status: SubscriptionStatusActive, Platform: "opencode_go", SortBy: "expires_at", SortOrder: "asc"},
+		Filter:        BulkResetSubscriptionQuotaFilter{UserID: &userID, GroupID: &groupID, Status: SubscriptionStatusActive, Platform: "opencode", SortBy: "expires_at", SortOrder: "asc"},
 		ResetSevenDay: true,
 	})
 
@@ -400,7 +400,7 @@ func TestBulkAdminResetQuota_AllFilteredUsesFilter(t *testing.T) {
 	require.Equal(t, userID, *stub.lastListIDsFilter.UserID)
 	require.Equal(t, groupID, *stub.lastListIDsFilter.GroupID)
 	require.Equal(t, SubscriptionStatusActive, stub.lastListIDsFilter.Status)
-	require.Equal(t, "opencode_go", stub.lastListIDsFilter.Platform)
+	require.Equal(t, "opencode", stub.lastListIDsFilter.Platform)
 	require.Equal(t, "expires_at", stub.lastListIDsFilter.SortBy)
 	require.Equal(t, "asc", stub.lastListIDsFilter.SortOrder)
 	require.InDelta(t, 0, stub.subs[201].FiveHourUsageUSD, 0.0000001)

@@ -235,7 +235,7 @@ describe('ImportDataModal', () => {
       accounts: [
         {
           name: 'OpenCode Go Imported',
-          platform: 'opencode_go',
+          platform: 'opencode',
           type: 'apikey',
           credentials: {
             base_url: 'https://opencode.ai/zen/go/v1',

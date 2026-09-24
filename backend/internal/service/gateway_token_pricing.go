@@ -11,7 +11,7 @@ import (
 // especially important for providers with open-ended model catalogs, which
 // must not silently fall back to zero-cost billing for unknown models.
 func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Context, apiKey *APIKey, account *Account, requestedModel string, mapping ChannelMappingResult) error {
-	if s == nil || account == nil || (!account.IsOpenCodeGo() && !account.IsClinePass() && !account.IsOpenRouter() && !account.IsCommandCode()) {
+	if s == nil || account == nil || (!account.IsOpenCode() && !account.IsClinePass() && !account.IsOpenRouter() && !account.IsCommandCode()) {
 		return nil
 	}
 
@@ -45,7 +45,7 @@ func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Contex
 					continue
 				}
 			}
-			resolved := s.resolver.Resolve(ctx, PricingInput{Model: candidate, GroupID: apiKey.GroupID, Platform: account.Platform})
+			resolved := s.resolver.Resolve(ctx, PricingInput{Model: candidate, GroupID: apiKey.GroupID, Platform: pricingPlatformForAccount(account)})
 			if resolved == nil {
 				continue
 			}
@@ -70,7 +70,7 @@ func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Contex
 				continue
 			}
 		}
-		pricing, err := billingService.GetModelPricingForPlatform(account.Platform, candidate)
+		pricing, err := billingService.GetModelPricingForPlatform(pricingPlatformForAccount(account), candidate)
 		if err == nil && hasBillableTokenPricing(pricing) {
 			return nil
 		}

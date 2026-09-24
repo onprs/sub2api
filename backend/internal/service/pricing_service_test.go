@@ -884,7 +884,7 @@ func TestParseOpenCodeGoPricingDocument_MapsOfficialModelIDsAndPrices(t *testing
 	require.InDelta(t, 4.40e-6, glm.OutputCostPerToken, 1e-12)
 	require.InDelta(t, 0.26e-6, glm.CacheReadInputTokenCost, 1e-12)
 	require.Equal(t, 60.0, glm.OpenCodeGoMonthlyUsageUSD)
-	require.Equal(t, PlatformOpenCodeGo, glm.LiteLLMProvider)
+	require.Equal(t, OpenCodeGoPricingPlatform, glm.LiteLLMProvider)
 
 	kimi := pricing["kimi-k2.7"]
 	require.NotNil(t, kimi)
@@ -893,7 +893,7 @@ func TestParseOpenCodeGoPricingDocument_MapsOfficialModelIDsAndPrices(t *testing
 	require.InDelta(t, 0.19e-6, kimi.CacheReadInputTokenCost, 1e-12)
 	require.Zero(t, kimi.CacheCreationInputTokenCost)
 	require.Equal(t, 60.0, kimi.OpenCodeGoMonthlyUsageUSD)
-	require.Equal(t, PlatformOpenCodeGo, kimi.LiteLLMProvider)
+	require.Equal(t, OpenCodeGoPricingPlatform, kimi.LiteLLMProvider)
 
 	qwen := pricing["qwen3.7-plus"]
 	require.NotNil(t, qwen)
@@ -1257,7 +1257,7 @@ func TestRefreshOpenCodeGoPricingKeepsOfficialSnapshotWhenOnlyModelsDevSucceeds(
 	existing := &LiteLLMModelPricing{
 		InputCostPerToken:          0.95e-6,
 		OutputCostPerToken:         4e-6,
-		LiteLLMProvider:            PlatformOpenCodeGo,
+		LiteLLMProvider:            OpenCodeGoPricingPlatform,
 		OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
 	}
 	svc := &PricingService{
@@ -1331,7 +1331,7 @@ func TestMergeOpenCodeGoPricingBestEffort_MergesModelsDevSupplementalPricing(t *
 
 	kimi25 := pricingData["kimi-k2.5"]
 	require.NotNil(t, kimi25)
-	require.Equal(t, PlatformOpenCodeGo, kimi25.LiteLLMProvider)
+	require.Equal(t, OpenCodeGoPricingPlatform, kimi25.LiteLLMProvider)
 	require.Equal(t, "chat", kimi25.Mode)
 	require.InDelta(t, 0.60e-6, kimi25.InputCostPerToken, 1e-12)
 	require.InDelta(t, 3.00e-6, kimi25.OutputCostPerToken, 1e-12)
@@ -1510,7 +1510,7 @@ func TestRefreshOpenCodeGoPricingReplacesTemporaryZeroRateWithPaidPrice(t *testi
 		remoteClient: remote,
 		openCodeGoPricing: map[string]*LiteLLMModelPricing{
 			"ox-alpha-free": {
-				LiteLLMProvider:            PlatformOpenCodeGo,
+				LiteLLMProvider:            OpenCodeGoPricingPlatform,
 				OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityOfficial,
 				OpenCodeGoExplicitZeroRate: true,
 			},
@@ -1527,7 +1527,7 @@ func TestRefreshOpenCodeGoPricingReplacesTemporaryZeroRateWithPaidPrice(t *testi
 	require.InDelta(t, 2e-6, refreshed.OutputCostPerToken, 1e-15)
 
 	cost, err := NewBillingService(&config.Config{}, pricingSvc).CalculateCostForPlatform(
-		PlatformOpenCodeGo,
+		OpenCodeGoPricingPlatform,
 		"ox-alpha-free",
 		UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000},
 		1,

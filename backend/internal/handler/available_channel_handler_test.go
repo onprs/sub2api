@@ -331,8 +331,9 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 	cacheWriteMultiplier := 2.0
 	cacheReadMultiplier := 2.0
 	pricing := toUserPricing(&service.ChannelModelPricing{
-		BillingMode: service.BillingModeToken,
-		InputPrice:  &inputPrice,
+		BillingMode:                service.BillingModeToken,
+		InputPrice:                 &inputPrice,
+		ReasoningEffortMultipliers: map[string]float64{"high": 1.5, "max": 3},
 		Intervals: []service.PricingInterval{
 			{
 				ID: 7, MinTokens: 0, MaxTokens: nil, SortOrder: 3,
@@ -349,6 +350,7 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 	require.Equal(t, "channel", pricingDecoded["pricing_source"])
 	require.Equal(t, "modelPricing.sources.channel", pricingDecoded["pricing_source_label"])
 	require.Equal(t, "channel_model_pricing", pricingDecoded["pricing_source_detail"])
+	require.Equal(t, map[string]float64{"high": 1.5, "max": 3}, pricing.ReasoningEffortMultipliers)
 	require.Len(t, pricing.Intervals, 1)
 	rawIv, err := json.Marshal(pricing.Intervals[0])
 	require.NoError(t, err)
@@ -483,32 +485,30 @@ func TestBuildModelPricingChannels_RootsAtGroupsAndUsesMappedPricingCandidate(t 
 	require.NotNil(t, model.Pricing.CacheReadPrice)
 }
 
-func TestBuildModelPricingChannels_OpenCodeGoFallbackIncludesOfficialCatalogModel(t *testing.T) {
+func TestBuildModelPricingChannels_OpenCodePlatformDoesNotUseGoPricingFallback(t *testing.T) {
 	pricingSvc := newHandlerPricingService(t, `{
-		"glm-5.2": {
+		"opencode-go-pricing-fixture": {
 			"input_cost_per_token": 0.0000014,
 			"output_cost_per_token": 0.0000044,
 			"cache_read_input_token_cost": 0.00000026,
-			"litellm_provider": "opencode_go",
-			"mode": "chat"
-		},
-		"kimi-k2.5": {
-			"input_cost_per_token": 0.0000006,
-			"output_cost_per_token": 0.000003,
-			"cache_read_input_token_cost": 0.0000001,
 			"litellm_provider": "opencode_go",
 			"mode": "chat"
 		}
 	}`)
 	h := &AvailableChannelHandler{
 		channelService: service.NewChannelService(nil, nil, nil, pricingSvc, service.NewBillingService(&config.Config{}, pricingSvc)),
+		modelPricingModels: &modelPricingGatewayStub{
+			modelsByGroup: map[int64][]string{
+				18: {"opencode-go-pricing-fixture"},
+			},
+		},
 	}
 
 	got := h.buildModelPricingChannels(context.Background(), []service.Group{
 		{
 			ID:               18,
-			Name:             "OpenCode Go",
-			Platform:         service.PlatformOpenCodeGo,
+			Name:             "OpenCode",
+			Platform:         service.PlatformOpenCode,
 			RateMultiplier:   1,
 			SubscriptionType: service.SubscriptionTypeStandard,
 		},
@@ -516,26 +516,14 @@ func TestBuildModelPricingChannels_OpenCodeGoFallbackIncludesOfficialCatalogMode
 
 	require.Len(t, got, 1)
 	section := got[0].Platforms[0]
-	require.Equal(t, service.PlatformOpenCodeGo, section.Platform)
-	models := map[string]userSupportedModel{}
-	for _, model := range section.SupportedModels {
-		models[model.Name] = model
-	}
-	glm := models["glm-5.2"]
-	require.Equal(t, "glm-5.2", glm.Name)
-	require.NotNil(t, glm.Pricing)
-	require.Equal(t, service.PricingSourceCatalog, glm.Pricing.PricingSource)
-	require.NotNil(t, glm.Pricing.InputPrice)
-	require.NotNil(t, glm.ModelSpecificMultiplier)
-	require.Equal(t, 1.0, *glm.ModelSpecificMultiplier)
-	require.InDelta(t, 0.0000014, *glm.Pricing.InputPrice, 1e-12)
-
-	kimi25 := models["kimi-k2.5"]
-	require.Equal(t, "kimi-k2.5", kimi25.Name)
-	require.NotNil(t, kimi25.Pricing)
-	require.Equal(t, service.PricingSourceMissing, kimi25.Pricing.PricingSource)
-	require.Nil(t, kimi25.Pricing.InputPrice)
-	require.Nil(t, kimi25.ModelSpecificMultiplier)
+	require.Equal(t, service.PlatformOpenCode, section.Platform)
+	require.Len(t, section.SupportedModels, 1)
+	model := section.SupportedModels[0]
+	require.Equal(t, "opencode-go-pricing-fixture", model.Name)
+	require.NotNil(t, model.Pricing)
+	require.Equal(t, service.PricingSourceMissing, model.Pricing.PricingSource)
+	require.Nil(t, model.Pricing.InputPrice)
+	require.Nil(t, model.ModelSpecificMultiplier)
 }
 
 func TestBuildModelPricingChannels_ClinePassIncludesEveryReferencePrice(t *testing.T) {

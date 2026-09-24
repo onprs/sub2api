@@ -43,7 +43,7 @@
             @select="editBaseUrl = $event"
           />
           <CnBaseUrlPresets
-            v-if="isCNApiKeyAccount && account.platform !== 'opencode_go'"
+            v-if="isCNApiKeyAccount && account.platform !== 'opencode'"
             class="mt-2"
             :platform="cnPresetPlatform"
             :mode="editAccountMode"
@@ -67,7 +67,7 @@
           </p>
         </div>
         <!-- OpenCode Zen vs GO -->
-        <div v-if="isCNApiKeyAccount && account.platform === 'opencode_go'">
+        <div v-if="isCNApiKeyAccount && account.platform === 'opencode'">
           <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
           <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <button
@@ -119,7 +119,7 @@
           </div>
         </div>
         <!-- Account Mode Selection (CN providers) -->
-        <div v-if="isCNApiKeyAccount && account.platform !== 'opencode_go'">
+        <div v-if="isCNApiKeyAccount && account.platform !== 'opencode'">
           <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
           <div class="mt-2 flex flex-wrap gap-2">
             <button
@@ -161,7 +161,7 @@
           <p class="input-hint">{{ t(`admin.accounts.cnProviders.apiProtocol.${cnProtocolDescKey}Desc`) }}</p>
         </div>
         <OpenCodeGoProtocolRulesEditor
-          v-if="account.platform === 'opencode_go' && editApiProtocol === 'adaptive'"
+          v-if="account.platform === 'opencode' && editApiProtocol === 'adaptive'"
           v-model:rows="editOpenCodeGoProtocolRules"
           :plan="editOpenCodeAccountMode"
         />
@@ -210,7 +210,7 @@
         </div>
 
         <div
-          v-if="account.platform === 'opencode_go'"
+          v-if="isOpenCodeGoAccount"
           class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
           data-testid="opencode-go-console-panel"
         >
@@ -365,7 +365,7 @@
 
           <template v-else>
             <!-- Mode Toggle -->
-            <div v-if="account.platform !== 'opencode_go'" class="mb-4 flex gap-2">
+            <div v-if="account.platform !== 'opencode'" class="mb-4 flex gap-2">
               <button
                 type="button"
                 @click="modelRestrictionMode = 'whitelist'"
@@ -419,7 +419,7 @@
             </div>
 
             <!-- Whitelist Mode -->
-            <div v-if="modelRestrictionMode === 'whitelist' && account.platform !== 'opencode_go'">
+            <div v-if="modelRestrictionMode === 'whitelist' && account.platform !== 'opencode'">
               <ModelWhitelistSelector
                 v-model="allowedModels"
                 :platform="account?.platform || 'anthropic'"
@@ -437,7 +437,7 @@
 
             <!-- Mapping Mode -->
             <div v-else>
-              <div v-if="account.platform === 'opencode_go'" class="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <div v-if="account.platform === 'opencode'" class="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
                 {{ t('admin.accounts.modelMapping') }}
               </div>
               <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
@@ -546,7 +546,7 @@
         </div>
 
         <!-- Pool Mode Section -->
-        <div v-if="account.platform !== 'opencode_go'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div v-if="account.platform !== 'opencode'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.poolMode') }}</label>
@@ -610,7 +610,7 @@
         </div>
 
         <!-- Custom Error Codes Section -->
-        <div v-if="account.platform !== 'opencode_go'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div v-if="account.platform !== 'opencode'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.customErrorCodes') }}</label>
@@ -1560,7 +1560,7 @@
       </div>
 
       <!-- Temp Unschedulable Rules -->
-      <div v-if="account.platform !== 'opencode_go'" class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4">
+      <div v-if="account.platform !== 'opencode'" class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4">
         <div class="mb-3 flex items-center justify-between">
           <div>
             <label class="input-label mb-0">{{ t('admin.accounts.tempUnschedulable.title') }}</label>
@@ -2124,6 +2124,91 @@
         @updated="handleOllamaCloudUsageUpdated"
       />
 
+      <section
+        v-if="account?.opencode_go_usage?.eligible"
+        class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
+        data-testid="opencode-go-usage-settings"
+      >
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.accounts.opencodeGo.title') }}
+            </h3>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.opencodeGo.panelHint') }}
+            </p>
+          </div>
+          <span
+            class="whitespace-nowrap rounded px-2 py-1 text-xs font-medium"
+            :class="opencodeGoStatusOk
+              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+              : 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300'"
+          >
+            {{ opencodeGoStatusLabel }}
+          </span>
+        </div>
+
+        <div v-if="opencodeGoLoading" class="flex h-20 items-center justify-center text-gray-400">
+          <Icon name="refresh" size="sm" class="animate-spin" />
+        </div>
+        <template v-else>
+          <div
+            v-if="opencodeGoSnapshot"
+            class="border-y border-gray-100 py-3 dark:border-dark-700"
+            data-testid="opencode-go-usage-details"
+          >
+            <div class="grid grid-cols-[minmax(4rem,auto)_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-xs">
+              <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.opencodeGo.rolling') }}</span>
+              <span class="break-words text-gray-900 dark:text-white">{{ opencodeGoWindowSummary(opencodeGoSnapshot.data?.rolling) }}</span>
+              <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.opencodeGo.weekly') }}</span>
+              <span class="break-words text-gray-900 dark:text-white">{{ opencodeGoWindowSummary(opencodeGoSnapshot.data?.weekly) }}</span>
+              <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.opencodeGo.monthly') }}</span>
+              <span class="break-words text-gray-900 dark:text-white">{{ opencodeGoWindowSummary(opencodeGoSnapshot.data?.monthly) }}</span>
+              <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.opencodeGo.status') }}</span>
+              <span class="break-words font-medium text-gray-900 dark:text-white">{{ opencodeGoStatusLabel }}</span>
+              <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.opencodeGo.updatedAt') }}</span>
+              <span class="break-words text-gray-900 dark:text-white">{{ opencodeGoFormatDate(opencodeGoSnapshot.fetched_at || opencodeGoSnapshot.last_attempt_at) }}</span>
+            </div>
+            <p
+              v-if="opencodeGoSnapshot.last_error"
+              class="mt-2 break-words border-t border-gray-100 pt-2 text-xs text-amber-700 dark:border-dark-700 dark:text-amber-300"
+            >
+              {{ t(`admin.accounts.opencodeGo.errors.${opencodeGoSnapshot.last_error}`, opencodeGoSnapshot.last_error) }}
+            </p>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="opencodeGoRefreshing"
+              data-testid="opencode-go-refresh"
+              @click="refreshOpenCodeGoUsage"
+            >
+              <Icon name="refresh" size="xs" class="mr-1.5" :class="{ 'animate-spin': opencodeGoRefreshing }" />
+              {{ t('admin.accounts.opencodeGo.refreshNow') }}
+            </button>
+          </div>
+
+          <div class="flex items-center justify-between gap-4 border-t border-gray-100 pt-4 dark:border-dark-700">
+            <div>
+              <label class="text-sm font-medium text-gray-900 dark:text-white">
+                {{ t('admin.accounts.opencodeGo.autoRefresh') }}
+              </label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.opencodeGo.autoRefreshHint') }}
+              </p>
+            </div>
+            <Toggle
+              :model-value="opencodeGoState?.auto_refresh_enabled ?? false"
+              :disabled="opencodeGoSaving"
+              data-testid="opencode-go-auto-refresh"
+              @update:model-value="setOpenCodeGoAutoRefresh"
+            />
+          </div>
+        </template>
+      </section>
+
       <!-- Anthropic API Key 自动透传开关 -->
       <div
         v-if="account?.platform === 'anthropic' && account?.type === 'apikey'"
@@ -2245,7 +2330,7 @@
       </div>
       <!-- 配额控制 (非 Anthropic apikey/bedrock) -->
       <div
-        v-else-if="(account?.type === 'apikey' || account?.type === 'bedrock') && account?.platform !== 'opencode_go'"
+        v-else-if="(account?.type === 'apikey' || account?.type === 'bedrock') && account?.platform !== 'opencode'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="mb-3">
@@ -3151,7 +3236,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, nextTick } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 
@@ -3169,7 +3254,9 @@ import type {
   OpenAIEndpointCapability,
   OllamaCloudUsageState,
   GrokMediaEligibilityMode,
-  GrokMediaEligibilityState
+  GrokMediaEligibilityState,
+  OpenCodeGoUsageState,
+  OpenCodeGoUsageWindow
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -3224,6 +3311,7 @@ import {
   getBrowserTimeZone,
   parseDateTimeLocalInput
 } from '@/utils/format'
+import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { getAccountExpiryTimestamp } from '@/components/account/accountExpiry'
 import { allSelectedGroupsEnableLongContextPricing } from '@/components/account/longContextBilling'
@@ -3262,7 +3350,6 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const OPENCODE_GO_DEFAULT_BASE_URL = 'https://opencode.ai/zen/go/v1'
 const CLINEPASS_DEFAULT_BASE_URL = 'https://api.cline.bot/api/v1'
 const OPENROUTER_DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1'
 const COMMANDCODE_DEFAULT_BASE_URL = 'https://api.commandcode.ai'
@@ -3296,13 +3383,95 @@ const handleOllamaCloudUsageUpdated = (state: OllamaCloudUsageState) => {
   if (props.account) emit('updated', { ...props.account, ollama_cloud_usage: state })
 }
 
+// OpenCode Go usage panel state
+const opencodeGoState = ref<OpenCodeGoUsageState | null>(props.account?.opencode_go_usage ?? null)
+const opencodeGoLoading = ref(false)
+const opencodeGoSaving = ref(false)
+const opencodeGoRefreshing = ref(false)
+const opencodeGoSnapshot = computed(() => opencodeGoState.value?.snapshot)
+const opencodeGoStatusOk = computed(() => opencodeGoSnapshot.value?.status === 'ok')
+const opencodeGoStatusLabel = computed(() => {
+  if (!opencodeGoSnapshot.value) return t('admin.accounts.opencodeGo.notRefreshed')
+  if (opencodeGoSnapshot.value.status === 'unauthorized') return t('admin.accounts.opencodeGo.unauthorized')
+  if (opencodeGoSnapshot.value.status === 'failed') return t('admin.accounts.opencodeGo.failed')
+  return t('admin.accounts.opencodeGo.ok')
+})
+const opencodeGoFormatPercent = (value?: number) => typeof value === 'number' && Number.isFinite(value)
+  ? `${value.toFixed(value % 1 ? 1 : 0)}%`
+  : '-'
+const opencodeGoFormatDate = (value?: string) => {
+  if (!value) return '-'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+const opencodeGoWindowSummary = (window?: OpenCodeGoUsageWindow) => {
+  if (!window) return '-'
+  const reset = window.resets_at ? opencodeGoFormatDate(window.resets_at) : null
+  return reset
+    ? t('admin.accounts.opencodeGo.windowWithReset', { percent: opencodeGoFormatPercent(window.percent), reset })
+    : opencodeGoFormatPercent(window.percent)
+}
+
+const applyOpenCodeGoState = (next: OpenCodeGoUsageState) => {
+  opencodeGoState.value = next
+  if (props.account) emit('updated', { ...props.account, opencode_go_usage: next })
+}
+
+const loadOpenCodeGoUsage = async () => {
+  opencodeGoLoading.value = true
+  try {
+    applyOpenCodeGoState(await adminAPI.accounts.getOpenCodeGoUsage(props.account!.id))
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.opencodeGo.loadFailed')))
+  } finally {
+    opencodeGoLoading.value = false
+  }
+}
+
+const setOpenCodeGoAutoRefresh = async (enabled: boolean) => {
+  opencodeGoSaving.value = true
+  try {
+    applyOpenCodeGoState(await adminAPI.accounts.setOpenCodeGoUsageAutoRefresh(props.account!.id, enabled))
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.opencodeGo.autoRefreshFailed')))
+  } finally {
+    opencodeGoSaving.value = false
+  }
+}
+
+const refreshOpenCodeGoUsage = async () => {
+  opencodeGoRefreshing.value = true
+  try {
+    applyOpenCodeGoState(await adminAPI.accounts.refreshOpenCodeGoUsage(props.account!.id))
+    appStore.showSuccess(t('admin.accounts.opencodeGo.refreshSuccess'))
+  } catch (error) {
+    appStore.showError(extractI18nErrorMessage(
+      error,
+      t,
+      'admin.accounts.opencodeGo.errors',
+      t('admin.accounts.opencodeGo.refreshFailed')
+    ))
+  } finally {
+    opencodeGoRefreshing.value = false
+  }
+}
+
+watch(() => props.account?.id, () => {
+  opencodeGoState.value = props.account?.opencode_go_usage ?? null
+  if (isOpenCodeGoAccount.value && opencodeGoState.value && !opencodeGoState.value.snapshot) void loadOpenCodeGoUsage()
+})
+
+onMounted(() => {
+  if (isOpenCodeGoAccount.value && opencodeGoState.value && !opencodeGoState.value.snapshot) void loadOpenCodeGoUsage()
+})
+
 // Platform-specific hint for Base URL
 const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (props.account.platform === 'grok') return t('admin.accounts.grok.baseUrlHint')
-  if (props.account.platform === 'opencode_go') return t('admin.accounts.opencodeGo.baseUrlHint')
+  if (props.account?.platform === 'opencode') return t('admin.accounts.opencodeGo.baseUrlHint')
   if (props.account.platform === 'clinepass') return t('admin.accounts.clinePass.baseUrlHint')
   if (props.account.platform === 'openrouter') return t('admin.accounts.openRouter.baseUrlHint')
   if (props.account.platform === 'commandcode') return t('admin.accounts.commandCode.baseUrlHint')
@@ -3333,7 +3502,7 @@ const openCodeGoConsoleBusy = ref(false)
 const isCNApiKeyAccount = computed(
   () =>
     props.account?.type === 'apikey' &&
-    (isCNProviderPlatform(props.account.platform) || props.account.platform === 'opencode_go')
+    (isCNProviderPlatform(props.account.platform) || props.account.platform === 'opencode')
 )
 // CnBaseUrlPresets 的 platform prop 是平台字面量联合类型，模板里不能写
 // `as` 断言（其中的 `|` 会被 eslint 误判为 Vue2 filter 语法），经此 computed 传递。
@@ -3344,8 +3513,8 @@ const cnPresetPlatform = computed<CnProviderPlatform>(() => {
   }
   return 'kimi'
 })
-const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go'>(() => {
-  if (props.account?.platform === 'opencode_go') return 'opencode_go'
+const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode'>(() => {
+  if (props.account?.platform === 'opencode') return 'opencode'
   return cnPresetPlatform.value
 })
 const editApiProtocol = ref<CnApiProtocol>('adaptive')
@@ -3353,7 +3522,7 @@ const editOpenCodeGoProtocolRules = ref<OpenCodeGoProtocolRule[]>(cloneOpenCodeG
 const editAccountMode = ref<CnAccountMode>('payg')
 const editOpenCodeAccountMode = ref<OpenCodeAccountMode>('go')
 function currentOpenCodeOrCNMode(): CnAccountMode | OpenCodeAccountMode {
-  return props.account?.platform === 'opencode_go' ? editOpenCodeAccountMode.value : editAccountMode.value
+  return props.account?.platform === 'opencode' ? editOpenCodeAccountMode.value : editAccountMode.value
 }
 // 智谱团队版 Coding Plan：组织/项目 ID，写入 credentials 供额度探测切换团队端点
 const editZhipuOrganization = ref('')
@@ -3421,7 +3590,7 @@ watch(editApiProtocol, (protocol, previousProtocol) => {
 })
 watch(editAccountMode, (mode, previousMode) => {
   if (!isCNApiKeyAccount.value || syncingForm.value) return
-  if (props.account?.platform === 'opencode_go') return
+  if (props.account?.platform === 'opencode') return
   // deepseek 无 coding 套餐：防御性回退（UI 已隐藏该选项）。
   const effectiveMode = props.account!.platform === 'deepseek' && mode === 'coding' ? 'payg' : mode
   if (effectiveMode !== mode) {
@@ -3442,10 +3611,10 @@ watch(editAccountMode, (mode, previousMode) => {
   editBaseUrl.value = defaultCNBaseUrl(props.account!.platform, mode, editApiProtocol.value)
 })
 watch(editOpenCodeAccountMode, (mode, previousMode) => {
-  if (!isCNApiKeyAccount.value || props.account?.platform !== 'opencode_go' || syncingForm.value) return
+  if (!isCNApiKeyAccount.value || props.account?.platform !== 'opencode' || syncingForm.value) return
   if (editApiProtocol.value === 'adaptive') {
-    const previousDefaults = defaultCNAdaptiveBaseUrls('opencode_go', previousMode)
-    const nextDefaults = defaultCNAdaptiveBaseUrls('opencode_go', mode)
+    const previousDefaults = defaultCNAdaptiveBaseUrls('opencode', previousMode)
+    const nextDefaults = defaultCNAdaptiveBaseUrls('opencode', mode)
     for (const item of editAdaptiveProtocolOptions.value) {
       if (!editAdaptiveBaseUrls.value[item.value] || editAdaptiveBaseUrls.value[item.value] === previousDefaults[item.value]) {
         editAdaptiveBaseUrls.value[item.value] = nextDefaults[item.value]
@@ -3453,7 +3622,7 @@ watch(editOpenCodeAccountMode, (mode, previousMode) => {
     }
     editBaseUrl.value = editAdaptiveBaseUrls.value.chat_completions
   } else {
-    editBaseUrl.value = defaultCNBaseUrl('opencode_go', mode, editApiProtocol.value)
+    editBaseUrl.value = defaultCNBaseUrl('opencode', mode, editApiProtocol.value)
   }
   const previousRules = JSON.stringify(defaultOpenCodeProtocolRules(previousMode))
   if (JSON.stringify(editOpenCodeGoProtocolRules.value) === previousRules) {
@@ -3938,7 +4107,9 @@ const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
   if (props.account?.platform === 'antigravity') return 'https://cloudcode-pa.googleapis.com'
-  if (props.account?.platform === 'opencode_go') return OPENCODE_GO_DEFAULT_BASE_URL
+  if (props.account?.platform === 'opencode') {
+    return defaultCNBaseUrl('opencode', editOpenCodeAccountMode.value, editApiProtocol.value)
+  }
   if (props.account?.platform === 'clinepass') return CLINEPASS_DEFAULT_BASE_URL
   if (props.account?.platform === 'openrouter') return OPENROUTER_DEFAULT_BASE_URL
   if (props.account?.platform === 'commandcode') return COMMANDCODE_DEFAULT_BASE_URL
@@ -3965,7 +4136,7 @@ const editApiKeyPlaceholder = computed(() => {
     case 'zhipu':
       return '<api-key>.<secret>'
     case 'antigravity':
-    case 'opencode_go':
+    case 'opencode':
     case 'clinepass':
     case 'openrouter':
     case 'commandcode':
@@ -3978,7 +4149,9 @@ const editApiKeyPlaceholder = computed(() => {
 })
 
 const isOpenCodeGoAccount = computed(() =>
-  props.account?.platform === 'opencode_go' && props.account?.type === 'apikey'
+  props.account?.platform === 'opencode' &&
+  props.account?.type === 'apikey' &&
+  editOpenCodeAccountMode.value === 'go'
 )
 
 const normalizeOpenCodeGoNullableString = (value: unknown): string => {
@@ -4543,8 +4716,8 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
     const credentials = newAccount.credentials as Record<string, unknown>
     // 国产供应商：读取 account_mode 与 api_protocol 作为可编辑初始值
     // （编辑弹窗允许修正两者，用于修复早期存错默认值的账号）。
-    if (isCNProviderPlatform(newAccount.platform) || newAccount.platform === 'opencode_go') {
-      if (newAccount.platform === 'opencode_go') {
+    if (isCNProviderPlatform(newAccount.platform) || newAccount.platform === 'opencode') {
+      if (newAccount.platform === 'opencode') {
         editOpenCodeAccountMode.value = resolveOpenCodeAccountMode(credentials.account_mode)
       } else {
         editAccountMode.value = credentials.account_mode === 'coding' ? 'coding' : 'payg'
@@ -4596,7 +4769,7 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
         editZhipuOrganization.value = typeof credentials.zhipu_organization === 'string' ? credentials.zhipu_organization : ''
         editZhipuProject.value = typeof credentials.zhipu_project === 'string' ? credentials.zhipu_project : ''
       }
-      if (newAccount.platform === 'opencode_go') {
+      if (newAccount.platform === 'opencode') {
         editOpenCodeGoProtocolRules.value =
           parseOpenCodeGoProtocolRules(credentials.protocol_rules) ??
           cloneOpenCodeGoProtocolRules(defaultOpenCodeProtocolRules(editOpenCodeAccountMode.value))
@@ -4609,8 +4782,8 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'grok'
             ? 'https://api.x.ai/v1'
-            : newAccount.platform === 'opencode_go'
-              ? OPENCODE_GO_DEFAULT_BASE_URL
+            : newAccount.platform === 'opencode'
+              ? defaultCNBaseUrl('opencode', editOpenCodeAccountMode.value, editApiProtocol.value)
               : newAccount.platform === 'clinepass'
                 ? CLINEPASS_DEFAULT_BASE_URL
                 : newAccount.platform === 'openrouter'
@@ -4619,7 +4792,8 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
                     ? COMMANDCODE_DEFAULT_BASE_URL
                     : newAccount.platform === 'kimi' ||
                         newAccount.platform === 'zhipu' ||
-                        newAccount.platform === 'deepseek'
+                        newAccount.platform === 'deepseek' ||
+                        newAccount.platform === 'minimax'
                       ? defaultCNBaseUrl(newAccount.platform, editAccountMode.value, editApiProtocol.value)
                       : 'https://api.anthropic.com'
     editBaseUrl.value = isCNApiKeyAccount.value && editApiProtocol.value === 'adaptive'
@@ -4627,7 +4801,7 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
       : (credentials.base_url as string) || platformDefaultUrl
 
     // Load model mappings and detect mode
-    if (newAccount.platform === 'opencode_go') {
+    if (newAccount.platform === 'opencode') {
       loadMappingOnlyModelRestriction(credentials.model_mapping as Record<string, unknown> | undefined)
     } else {
       loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
@@ -4698,8 +4872,8 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'grok'
             ? 'https://api.x.ai/v1'
-            : newAccount.platform === 'opencode_go'
-              ? OPENCODE_GO_DEFAULT_BASE_URL
+            : newAccount.platform === 'opencode'
+              ? defaultCNBaseUrl('opencode', editOpenCodeAccountMode.value, editApiProtocol.value)
               : newAccount.platform === 'clinepass'
                 ? CLINEPASS_DEFAULT_BASE_URL
                 : newAccount.platform === 'openrouter'
@@ -4724,7 +4898,11 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
     customErrorCodesEnabled.value = false
     selectedErrorCodes.value = []
   }
-  if (newAccount.platform === 'opencode_go' && newAccount.type === 'apikey') {
+  if (
+    newAccount.platform === 'opencode' &&
+    newAccount.type === 'apikey' &&
+    resolveOpenCodeAccountMode((newAccount.credentials as Record<string, unknown> | undefined)?.account_mode) === 'go'
+  ) {
     const credentials = newAccount.credentials as Record<string, unknown> | undefined
     const nextWorkspaceID = normalizeOpenCodeGoNullableString(
       credentials?.console_workspace_id || extra?.console_workspace_id
@@ -5400,7 +5578,7 @@ const handleSubmit = async () => {
         } else {
           delete newCredentials.api_base_urls
         }
-        if (props.account.platform === 'opencode_go') {
+        if (props.account.platform === 'opencode') {
           applyOpenCodeGoProtocolRules(newCredentials, editOpenCodeGoProtocolRules.value, 'edit')
         }
         // 智谱团队版 Coding Plan：组织/项目 ID 写入凭据（非空才写，清空即移除回落个人版路径）

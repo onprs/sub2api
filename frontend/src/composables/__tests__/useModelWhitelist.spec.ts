@@ -21,6 +21,8 @@ describe('useModelWhitelist', () => {
     expect(models).not.toContain('gpt-5.5-pro')
     expect(models).not.toContain('gpt-5.4-nano')
     expect(models).not.toContain('gpt-5.4-pro')
+    expect(models).toContain('gpt-6-sol')
+    expect(models).toContain('gpt-6-luna')
     expect(new Set(models).size).toBe(models.length)
   })
 
@@ -79,6 +81,7 @@ describe('useModelWhitelist', () => {
       'gemini-3.5-flash',
       'gemini-3.1-pro',
       'claude-fable-5-1',
+      'claude-fable-5',
       'claude-sonnet-4-6',
       'claude-opus-4-6-thinking',
       'gpt-oss-120b-medium'
@@ -89,6 +92,9 @@ describe('useModelWhitelist', () => {
     expect(getModelsByPlatform('claude')).toContain('claude-fable-5-1')
     expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5-1')
     expect(getModelsByPlatform('claude')).toContain('claude-fable-5')
+    expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5')
+    expect(getModelsByPlatform('claude')).toContain('claude-opus-5-5')
+    expect(getModelsByPlatform('antigravity')).not.toContain('claude-opus-5-5')
     expect(getModelsByPlatform('claude')).toContain('claude-opus-4-8')
     expect(getModelsByPlatform('antigravity')).toContain('claude-sonnet-4-6')
     expect(getModelsByPlatform('antigravity')).toContain('claude-opus-4-6-thinking')

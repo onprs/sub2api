@@ -110,6 +110,16 @@ type postUsageBillingParams struct {
 	DynamicRateBasis      float64
 	APIKeyService         APIKeyQuotaUpdater
 	Platform              string // 来自 APIKey 关联 Group 的平台标识
+	// SimpleModeKeyRateLimitOnly opts the request into the simple-mode billing
+	// path that records only API-key 5h/1d/7d window usage. It must not trigger
+	// balance, subscription, account, platform, or lifetime-key-quota effects.
+	SimpleModeKeyRateLimitOnly bool
+}
+
+var ErrSimpleModeKeyRateLimitBillingUnavailable = errors.New("simple mode api key rate-limit billing unavailable")
+
+func simpleModeKeyRateLimitBillingEnabled(cfg *config.Config, apiKey *APIKey) bool {
+	return cfg != nil && cfg.RunMode == config.RunModeSimple && cfg.SimpleModeKeyRateLimitEnabled && apiKey != nil && apiKey.HasRateLimits()
 }
 
 // PlatformFromAPIKey 从 APIKey 关联的 Group 推导 platform 名称。
@@ -332,7 +342,7 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 		cost, err := s.calculateRecordUsageCost(ctx, result, apiKey, candidate, multiplier, imageMultiplier, independentMultiplier, pricingAt, opts)
 		if err == nil && opts != nil {
 			switch opts.PricingPlatform {
-			case PlatformOpenCodeGo:
+			case OpenCodeGoPricingPlatform:
 				quotaCost, ok := s.billingService.GetOpenCodeGoQuotaCost(candidate)
 				if !ok {
 					err = openCodeGoQuotaCostUnavailableError(candidate)
@@ -447,13 +457,20 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		}
 	}
 
-	// Subscription / balance 使用 ActualCost；它已经包含分组、用户专属、分组可选时段和活动折算后模型倍率。
-	// TotalCost 与各分项成本始终保持价格表原价，便于 usage history 直接核对。
+	if p.SimpleModeKeyRateLimitOnly {
+		if p.Cost.ActualCost > 0 && p.APIKey.HasRateLimits() {
+			cmd.APIKeyRateLimitCost = p.Cost.ActualCost
+		}
+		cmd.Normalize()
+		return cmd
+	}
+	// Subscription and balance usage consume ActualCost while history retains raw TotalCost.
 	if p.IsSubscriptionBill && p.Cost.TotalCost > 0 {
 		cmd.SubscriptionID = nil
 		if p.APIKey != nil && p.APIKey.GroupID != nil {
 			cmd.GroupID = p.APIKey.GroupID
 		}
+
 		cmd.SubscriptionCost = p.Cost.ActualCost
 	} else if p.Cost.ActualCost > 0 {
 		cmd.BalanceCost = p.Cost.ActualCost
@@ -480,6 +497,11 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 
 	cmd := buildUsageBillingCommand(requestID, usageLog, p)
 	if cmd == nil || cmd.RequestID == "" || repo == nil {
+		if p.SimpleModeKeyRateLimitOnly {
+			return false, nil, ErrSimpleModeKeyRateLimitBillingUnavailable
+		}
+		// The legacy path is only a fallback for standard billing. Simple mode
+		// must retain request-id deduplication and never bill other balances.
 		postUsageBilling(ctx, p, deps)
 		return true, nil, nil
 	}
@@ -552,6 +574,20 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 		return
 	}
 
+	if p.SimpleModeKeyRateLimitOnly {
+		// Simple-mode key windows are DB-authoritative during preflight. Clear
+		// any Redis snapshot after the committed increment as a best-effort aid
+		// when switching back to standard mode. Enforcement here never relies on
+		// successful cache invalidation.
+		if p.APIKey != nil && deps.billingCacheService != nil {
+			if err := deps.billingCacheService.InvalidateAPIKeyRateLimit(ctx, p.APIKey.ID); err != nil {
+				logger.LegacyPrintf("service.gateway", "Warning: invalidate simple-mode api key rate-limit cache failed for key %d: %v", p.APIKey.ID, err)
+			}
+		}
+		deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)
+		return
+	}
+
 	if p.IsSubscriptionBill {
 		if p.Cost.ActualCost > 0 && p.User != nil && p.APIKey != nil && p.APIKey.GroupID != nil && deps.billingCacheService != nil {
 			deps.billingCacheService.QueueUpdateSubscriptionUsage(p.User.ID, *p.APIKey.GroupID, p.Cost.ActualCost)
@@ -573,7 +609,7 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 	//     限制在并发 in-flight 请求数量内（旧实现的异步入队会让超支无限累积直到 worker 处理）
 	//   - DB 异步(flusher_enabled=false):在独立 goroutine 中走 detached context,失败用 ALERT log 触发 oncall 对账
 	//   - flusher_enabled=true:不直写 DB,由 flusher 异步批量刷（markDirty 已在 IncrementUserPlatformQuotaUsage 内部完成）
-	if !p.IsSubscriptionBill && p.Platform != "" && p.Cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
+	if !p.IsSubscriptionBill && p.Platform != "" && p.Cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil && deps.billingCacheService != nil {
 		if deps.billingCacheService.HasUserPlatformQuotaLimit(ctx, p.User.ID, p.Platform) {
 			deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, p.Cost.ActualCost)
 			if deps.cfg == nil || !deps.cfg.Database.UserPlatformQuotaFlusherEnabled {
@@ -916,8 +952,8 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	user := input.User
 	account := input.Account
 	subscription := input.Subscription
-	if account != nil && (account.IsOpenCodeGo() || account.IsClinePass() || account.IsOpenRouter() || account.IsCommandCode()) {
-		opts.PricingPlatform = account.Platform
+	if account != nil && (account.IsOpenCode() || account.IsClinePass() || account.IsOpenRouter() || account.IsCommandCode()) {
+		opts.PricingPlatform = pricingPlatformForAccount(account)
 	}
 	ApplyForwardImageBillingResolution(result)
 	logServiceTierBillingDowngrade("service.gateway", account, result.RequestID, ApplyForwardServiceTierBillingResolution(result))
@@ -1021,7 +1057,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		ctx, result, apiKey, billingModels, multiplier, imageMultiplier, ratePlan.StaticMultiplier, pricingAt, opts,
 	)
 	if costErr != nil {
-		if account != nil && (account.IsOpenCodeGo() || account.IsClinePass() || account.IsOpenRouter() || account.IsCommandCode()) && isUsagePricingUnavailableError(costErr) {
+		if account != nil && (account.IsOpenCode() || account.IsClinePass() || account.IsOpenRouter() || account.IsCommandCode()) && isUsagePricingUnavailableError(costErr) {
 			return costErr
 		}
 		logger.LegacyPrintf("service.gateway", "Calculate cost failed for billing models %s: %v", strings.Join(billingModels, ","), costErr)
@@ -1082,7 +1118,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 				CacheReadTokens:     result.Usage.CacheReadInputTokens,
 				ImageOutputTokens:   result.Usage.ImageOutputTokens,
 			},
-			accountStatsBaseCost, pricingAt,
+			accountStatsBaseCost, pricingAt, pricingPlatformForAccount(account),
 		)
 	}
 	// 没有关联渠道时 resolver 会返回 nil；显式写入模型倍率后的成本，避免账号 A $ 回退到原价。
@@ -1091,7 +1127,8 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		usageLog.AccountStatsCost = &accountStatsCost
 	}
 
-	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+	simpleModeKeyRateLimitOnly := simpleModeKeyRateLimitBillingEnabled(s.cfg, apiKey)
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple && !simpleModeKeyRateLimitOnly {
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
 		logger.LegacyPrintf("service.gateway", "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
 		s.deferredService.ScheduleLastUsedUpdate(account.ID)
@@ -1111,18 +1148,19 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	requestID := usageLog.RequestID
 	dynamicRate := dynamicRateForTokenUsage(usageLog, ratePlan)
 	_, billingResult, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
-		Cost:                  cost,
-		User:                  user,
-		APIKey:                apiKey,
-		Account:               account,
-		Subscription:          subscription,
-		RequestPayloadHash:    resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
-		IsSubscriptionBill:    isSubscriptionBilling,
-		AccountRateMultiplier: accountRateMultiplier,
-		DynamicRate:           dynamicRate,
-		DynamicRateBasis:      ratePlan.Multiplier,
-		APIKeyService:         input.APIKeyService,
-		Platform:              quotaPlatform,
+		Cost:                       cost,
+		User:                       user,
+		APIKey:                     apiKey,
+		Account:                    account,
+		Subscription:               subscription,
+		RequestPayloadHash:         resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
+		IsSubscriptionBill:         isSubscriptionBilling,
+		AccountRateMultiplier:      accountRateMultiplier,
+		DynamicRate:                dynamicRate,
+		DynamicRateBasis:           ratePlan.Multiplier,
+		APIKeyService:              input.APIKeyService,
+		Platform:                   quotaPlatform,
+		SimpleModeKeyRateLimitOnly: simpleModeKeyRateLimitOnly,
 	}, s.billingDeps(), s.usageBillingRepo)
 
 	if billingErr != nil {
@@ -1171,6 +1209,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 				GroupID: &gid, Group: apiKey.Group,
 				UsageUnits: result.AudioUsage.DurationOrUnits, SizeTier: result.AudioUsage.Mode,
 				RateMultiplier: independentMultiplier, Resolver: s.resolver, Resolved: resolved,
+				ReasoningEffort: optionalStringValue(result.ReasoningEffort),
 			})
 			if err == nil {
 				return cost, nil
@@ -1314,6 +1353,7 @@ func (s *GatewayService) calculateImageCost(
 			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
 			RequestCount: result.ImageCount, SizeTier: sizeTier,
 			RateMultiplier: multiplier, Resolver: s.resolver, Resolved: resolved,
+			ReasoningEffort: optionalStringValue(result.ReasoningEffort),
 		})
 		if err == nil {
 			return cost
@@ -1339,6 +1379,7 @@ func (s *GatewayService) calculateImageCost(
 			Tokens:          tokens,
 			RequestCount:    result.ImageCount,
 			SizeTier:        sizeTier,
+			ReasoningEffort: optionalStringValue(result.ReasoningEffort),
 			RateMultiplier:  multiplier,
 			Resolver:        s.resolver,
 			Resolved:        resolved,

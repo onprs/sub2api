@@ -35,7 +35,7 @@ func (ChannelMonitor) Fields() []ent.Field {
 			NotEmpty().
 			MaxLen(100),
 		field.Enum("provider").
-			Values("openai", "anthropic", "gemini", "grok", "opencode_go", "clinepass", "openrouter", "commandcode",
+			Values("openai", "anthropic", "gemini", "grok", "opencode", "clinepass", "openrouter", "commandcode",
 				"antigravity", "antigravity_claude", "antigravity_gemini", "kimi", "zhipu", "deepseek", "minimax"),
 		// check_mode: 'probe' | 'quota' | 'quota_probe'
 		//   probe       - LLM 探活（默认，原有行为）

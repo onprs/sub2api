@@ -203,7 +203,7 @@ beforeEach(() => {
   createAccountMock.mockResolvedValue({
     id: 42,
     name: 'OpenCode Go Key',
-    platform: 'opencode_go',
+    platform: 'opencode',
     type: 'apikey',
     credentials: {},
     extra: {},
@@ -276,35 +276,33 @@ describe('CreateAccountModal', () => {
     ])
   })
 
-  it('creates OpenCode Go as an API key account with the default upstream base URL', async () => {
+  it('creates OpenCode Zen as an API key account with the default upstream base URL', async () => {
     const wrapper = mountModal()
 
-    const platformButton = wrapper.findAll('button').find((button) => button.text().includes('OpenCode Go'))
-    expect(platformButton).toBeDefined()
-    await platformButton!.trigger('click')
+    await selectButtonByText(wrapper, 'OpenCode')
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('OAuth')
     expect(wrapper.text()).not.toContain('admin.accounts.types.responsesApi')
     expect(wrapper.find('[data-testid="openai-responses-mode-select"]').exists()).toBe(false)
 
-    await wrapper.get('[data-tour="account-form-name"]').setValue('OpenCode Go Key')
+    await wrapper.get('[data-tour="account-form-name"]').setValue('OpenCode Zen Key')
     const keyInput = wrapper.findAll('input[type="password"]').find((input) =>
       (input.attributes('placeholder') || '').includes('sk-')
     )
     expect(keyInput).toBeDefined()
-    await keyInput!.setValue('sk-opencode-go')
+    await keyInput!.setValue('sk-opencode-zen')
 
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     const payload = createAccountMock.mock.calls[0]?.[0]
-    expect(payload.platform).toBe('opencode_go')
+    expect(payload.platform).toBe('opencode')
     expect(payload.type).toBe('apikey')
     expect(payload.credentials).toMatchObject({
       base_url: 'https://opencode.ai/zen/v1',
-      api_key: 'sk-opencode-go',
+      api_key: 'sk-opencode-zen',
       account_mode: 'zen',
       api_protocol: 'adaptive',
       api_base_urls: {
@@ -346,10 +344,8 @@ describe('CreateAccountModal', () => {
   it('shows OpenCode Go official usage sync step after creation and generates helper command', async () => {
     const wrapper = mountModal()
 
-    const platformButton = wrapper.findAll('button').find((button) => button.text().includes('OpenCode Go'))
-    await platformButton!.trigger('click')
-    await flushPromises()
-
+    await selectButtonByText(wrapper, 'OpenCode')
+    await selectButtonByText(wrapper, 'admin.accounts.opencodeGo.accountMode.go')
     await wrapper.get('[data-tour="account-form-name"]').setValue('OpenCode Go Key')
     const keyInput = wrapper.findAll('input[type="password"]').find((input) =>
       (input.attributes('placeholder') || '').includes('sk-')
