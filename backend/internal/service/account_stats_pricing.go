@@ -21,6 +21,8 @@ import (
 // OpenCode Go 调用方会在这里保留活动折算后的模型倍率。
 // serviceTier 是最终参与用户计费的 OpenAI 服务层级，用于优先级 3。
 // pricingAt 与本次客户计费使用同一时刻，避免跨峰谷请求的成本与售价错位。
+// longContextPricingEnabled 表示上游是否对本次请求收取长上下文费率，用于优先级 3；
+// 由 accountStatsLongContextPricingEnabled 按账号开关得出，不受分组售价开关影响。
 // reasoningEffort 是最终转发等级；按账号统计定价中配置的等级倍率计费。
 func resolveAccountStatsCost(
 	ctx context.Context,
@@ -34,10 +36,11 @@ func resolveAccountStatsCost(
 	accountBaseCost float64,
 	serviceTier string,
 	pricingAt time.Time,
+	longContextPricingEnabled bool,
 	reasoningEfforts ...string,
 ) *float64 {
 	return resolveAccountStatsCostWithPlatform(ctx, channelService, billingService, accountID, groupID,
-		upstreamModel, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, "", reasoningEfforts...)
+		upstreamModel, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, "", longContextPricingEnabled, reasoningEfforts...)
 }
 
 func resolveAccountStatsCostWithPlatform(
@@ -53,6 +56,7 @@ func resolveAccountStatsCostWithPlatform(
 	serviceTier string,
 	pricingAt time.Time,
 	pricingPlatform string,
+	longContextPricingEnabled bool,
 	reasoningEfforts ...string,
 ) *float64 {
 	reasoningEffort := ""
@@ -88,7 +92,7 @@ func resolveAccountStatsCostWithPlatform(
 
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricingForPlatform(billingService, pricingPlatform, upstreamModel, tokens, serviceTier, pricingAt, reasoningEffort)
+		return tryModelFilePricingForPlatform(billingService, pricingPlatform, upstreamModel, tokens, serviceTier, pricingAt, longContextPricingEnabled, reasoningEffort)
 	}
 
 	return nil
@@ -96,11 +100,16 @@ func resolveAccountStatsCostWithPlatform(
 
 // tryModelFilePricingForPlatform 使用平台限定的模型定价文件（LiteLLM/fallback）标准价计算费用。
 // 与用户计费共用统一定价管线，并沿用本次请求的计费时刻。
-func tryModelFilePricingForPlatform(billingService *BillingService, platform, model string, tokens UsageTokens, serviceTier string, pricingAt time.Time, reasoningEfforts ...string) *float64 {
+func tryModelFilePricingForPlatform(billingService *BillingService, platform, model string, tokens UsageTokens, serviceTier string, pricingAt time.Time, longContextPricingEnabled bool, reasoningEfforts ...string) *float64 {
 	reasoningEffort := ""
 	if len(reasoningEfforts) > 0 {
 		reasoningEffort = reasoningEfforts[0]
 	}
+	resolver := NewModelPricingResolver(nil, billingService)
+	resolved := resolver.Resolve(context.Background(), PricingInput{Model: model})
+	// 无分组的解析结果默认开启长上下文，CostInput.LongContextBillingEnabled=false 无法否决，
+	// 因此直接覆写解析结果。
+	resolved.longContextPricingEnabled = longContextPricingEnabled
 	breakdown, err := billingService.CalculateCostUnified(CostInput{
 		Ctx:             context.Background(),
 		Model:           model,
@@ -110,7 +119,8 @@ func tryModelFilePricingForPlatform(billingService *BillingService, platform, mo
 		ServiceTier:     normalizeBillingServiceTier(serviceTier),
 		ReasoningEffort: reasoningEffort,
 		PricingAt:       pricingAt,
-		Resolver:        NewModelPricingResolver(nil, billingService),
+		Resolver:        resolver,
+		Resolved:        resolved,
 	})
 	if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
 		return nil
@@ -310,6 +320,7 @@ func applyAccountStatsCost(
 	tokens UsageTokens,
 	accountBaseCost float64,
 	pricingAt time.Time,
+	longContextPricingEnabled bool,
 	pricingPlatforms ...string,
 ) {
 	model := upstreamModel
@@ -332,13 +343,15 @@ func applyAccountStatsCost(
 	if len(pricingPlatforms) > 0 {
 		pricingPlatform = pricingPlatforms[0]
 	}
-	if pricingPlatform == "" {
-		usageLog.AccountStatsCost = resolveAccountStatsCost(
-			ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, reasoningEffort,
-		)
-		return
-	}
 	usageLog.AccountStatsCost = resolveAccountStatsCostWithPlatform(
-		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, pricingPlatform, reasoningEffort,
+		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, pricingPlatform, longContextPricingEnabled, reasoningEffort,
 	)
+}
+
+// accountStatsLongContextPricingEnabled 判断账号统计成本是否计入长上下文阶梯。
+// 账号统计成本反映上游实际成本：OpenAI 账号由开关声明上游是否收取长上下文费率；
+// 其它平台没有该开关（accountGate 为 nil），按官方阶梯计。分组开关只决定客户售价，
+// 不参与成本判断。
+func accountStatsLongContextPricingEnabled(accountGate *bool) bool {
+	return accountGate == nil || *accountGate
 }

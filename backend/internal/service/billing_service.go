@@ -1740,8 +1740,8 @@ func (s *BillingService) getFallbackModelPricingExactAt(model string, pricingAt 
 	return s.applyModelSpecificPricingPolicyEx(model, fallback, true, pricingAt), true
 }
 
-// GetModelPricingWithChannel 获取模型定价，渠道配置的价格覆盖默认值
-// 渠道存在时，未配置的图片输出价格归零（不回退到 LiteLLM）
+// GetModelPricingWithChannel 获取模型定价，渠道配置的价格覆盖默认值。
+// 与其他 token 字段一致，渠道留空的图片输入/输出价沿用目录价，见 applyChannelImagePriceOverrides。
 func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing *ChannelModelPricing) (*ModelPricing, error) {
 	pricing, err := s.GetModelPricing(model)
 	if err != nil {
@@ -1757,13 +1757,7 @@ func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing
 	pricing.FastMultiplier = channelPricing.FastMultiplier
 	pricing.FlexMultiplier = channelPricing.FlexMultiplier
 	pricing.ReasoningEffortMultipliers = maps.Clone(channelPricing.ReasoningEffortMultipliers)
-	if channelPricing.ImageOutputPrice != nil {
-		pricing.ImageOutputPricePerToken = *channelPricing.ImageOutputPrice
-	} else {
-		pricing.ImageOutputPricePerToken = 0
-	}
-	pricing.ImageOutputPriceExplicit = true
-	applyChannelImageInputPrice(channelPricing, pricing)
+	applyChannelImagePriceOverrides(channelPricing, pricing)
 	return pricing, nil
 }
 

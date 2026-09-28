@@ -240,6 +240,8 @@ func googleStatusName(status int) string {
 		return "ALREADY_EXISTS"
 	case http.StatusTooManyRequests:
 		return "RESOURCE_EXHAUSTED"
+	case 499:
+		return "CANCELLED"
 	case http.StatusNotImplemented:
 		return "UNIMPLEMENTED"
 	case http.StatusServiceUnavailable:
