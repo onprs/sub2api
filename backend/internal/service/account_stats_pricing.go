@@ -106,7 +106,7 @@ func tryModelFilePricingForPlatform(billingService *BillingService, platform, mo
 		reasoningEffort = reasoningEfforts[0]
 	}
 	resolver := NewModelPricingResolver(nil, billingService)
-	resolved := resolver.Resolve(context.Background(), PricingInput{Model: model})
+	resolved := resolver.Resolve(context.Background(), PricingInput{Model: model, Platform: platform})
 	// 无分组的解析结果默认开启长上下文，CostInput.LongContextBillingEnabled=false 无法否决，
 	// 因此直接覆写解析结果。
 	resolved.longContextPricingEnabled = longContextPricingEnabled
@@ -342,6 +342,12 @@ func applyAccountStatsCost(
 	pricingPlatform := ""
 	if len(pricingPlatforms) > 0 {
 		pricingPlatform = pricingPlatforms[0]
+	}
+	if pricingPlatform == "" {
+		usageLog.AccountStatsCost = resolveAccountStatsCost(
+			ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, longContextPricingEnabled, reasoningEffort,
+		)
+		return
 	}
 	usageLog.AccountStatsCost = resolveAccountStatsCostWithPlatform(
 		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, pricingPlatform, longContextPricingEnabled, reasoningEffort,

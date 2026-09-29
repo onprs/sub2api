@@ -144,7 +144,13 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	}
 
 	// 2. Resolve fresh billing state after the user wait.
+	if failoverClientGone(c) {
+		return
+	}
 	if subscription, err = resolveLatestBillingEligibility(c, h.billingEligibilityService, apiKey, subject.UserID, service.QuotaPlatform(requestCtx, apiKey)); err != nil {
+		if failoverClientGone(c) {
+			return
+		}
 		reqLog.Info("gateway.responses.billing_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
