@@ -323,11 +323,14 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.InDelta(t, 60, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 	require.InDelta(t, 70.0/60.0, quotaCost.Multiplier, 1e-9)
 
-	// DeepSeek V4.1 Flash：本项目按月额度 $40 → 倍率 70/40 = 1.75x
+	// DeepSeek V4.1 Flash：本项目按月额度 $60 → 倍率 70/60。
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("deepseek/deepseek-v4.1-flash")
 	require.True(t, ok)
-	require.InDelta(t, 40, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
-	require.InDelta(t, 70.0/40.0, quotaCost.Multiplier, 1e-9)
+	require.InDelta(t, 60, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 70.0/60.0, quotaCost.Multiplier, 1e-9)
+	quotaCost, ok = svc.GetCommandCodeQuotaCost("deepseek-v4.1-flash")
+	require.True(t, ok)
+	require.InDelta(t, 60, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 
 	// GLM-5.2：官方 credits $70 → 倍率 1x
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("zai-org/glm-5.2")
@@ -359,11 +362,11 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.InDelta(t, 35, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 	require.InDelta(t, 2.0, quotaCost.Multiplier, 1e-9)
 
-	// MiMo V2.6 Flash：官方 credits $67 → 倍率 70/67
+	// MiMo V2.6 Flash：官方 credits $20 → 倍率 70/20
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("xiaomi/mimo-v2.6-flash")
 	require.True(t, ok)
-	require.InDelta(t, 67, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
-	require.InDelta(t, 70.0/67.0, quotaCost.Multiplier, 1e-9)
+	require.InDelta(t, 20, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 70.0/20.0, quotaCost.Multiplier, 1e-9)
 
 	// MiMo V2.6 Pro / UltraSpeed：官方 credits 分别为 $20 / $10。
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("xiaomi/mimo-v2.6-pro")
@@ -384,6 +387,10 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	// 免费模型无额度倍率，由 AllowZeroRate 路径按 $0 计费。
 	_, ok = svc.GetCommandCodeQuotaCost("inclusionai/ling-3.0-flash-sante:free")
 	require.False(t, ok)
+	_, ok = svc.GetCommandCodeQuotaCost("stealth/pixel-canary")
+	require.False(t, ok)
+	_, ok = svc.GetCommandCodeQuotaCost("stealth/space-bunny-alpha")
+	require.False(t, ok)
 	_, ok = svc.GetCommandCodeQuotaCost("poolside/laguna-s-2.1-free")
 	require.False(t, ok)
 
@@ -395,10 +402,10 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 func TestCommandCodeQuotaCostUsesLocalDeepSeekV41MonthlyOverride(t *testing.T) {
 	entry := commandCodeCatalogEntry{
 		ID:                "deepseek/deepseek-v4.1-flash",
-		MonthlyCreditsUSD: 60,
+		MonthlyCreditsUSD: 40,
 	}
 
-	require.Equal(t, 40.0, commandCodeMonthlyCreditsForQuota(entry.ID, entry))
+	require.Equal(t, 60.0, commandCodeMonthlyCreditsForQuota(entry.ID, entry))
 }
 
 func TestCommandCodePricingMetadataMatchesCurrentOfficialPromotions(t *testing.T) {

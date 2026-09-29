@@ -29,8 +29,11 @@ describe('useModelWhitelist', () => {
   it('Command Code 模型列表与最新 GOAT 目录一致', () => {
     const models = getModelsByPlatform('commandcode')
 
-    expect(models).toHaveLength(57)
+    expect(models).toHaveLength(60)
     expect(models).toEqual(expect.arrayContaining([
+      'gpt-6-luna',
+      'stealth/pixel-canary',
+      'stealth/space-bunny-alpha',
       'z-ai/glm-5.3-flashx',
       'Qwen/Qwen3.8-Omni-Flash',
       'google/gemini-3.8-flash',
@@ -49,6 +52,7 @@ describe('useModelWhitelist', () => {
       'meituan/LongCat-2.0',
       'inclusionai/ling-3.0-flash-sante:free'
     ]))
+    expect(models).not.toContain('typesafe/jev')
     expect(models).not.toContain('minimax/minimax-m3-free')
     expect(models).not.toContain('minimax/minimax-m2.7-free')
   })

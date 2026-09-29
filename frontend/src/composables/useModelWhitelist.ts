@@ -413,6 +413,9 @@ const openRouterPresetMappings: typeof anthropicPresetMappings = []
 const commandCodeModels = [
   'gpt-5.6-sol',
   'gpt-5.6-luna',
+  'gpt-6-luna',
+  'stealth/pixel-canary',
+  'stealth/space-bunny-alpha',
   'google/gemini-3.8-flash',
   'google/gemini-3.7-flash',
   'xai/grok-4.7',

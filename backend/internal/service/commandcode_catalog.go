@@ -469,6 +469,11 @@ func (c *CommandCodeCatalog) fetch(ctx context.Context) (map[string]commandCodeC
 	for key, entry := range entries {
 		provider, ok := providerModels[key]
 		if !ok {
+			// GOAT 页面已收录 Jev，但公开 Provider API 尚未列出；不让它阻断其余已验证模型的刷新。
+			if key == "typesafe/jev" {
+				delete(entries, key)
+				continue
+			}
 			return nil, fmt.Errorf("commandcode GOAT model %q is absent from Provider API", entry.ID)
 		}
 		if provider.ContextWindow <= 0 || entry.ContextWindow != provider.ContextWindow {
@@ -479,6 +484,9 @@ func (c *CommandCodeCatalog) fetch(ctx context.Context) (map[string]commandCodeC
 				provider.ContextWindow,
 			)
 		}
+	}
+	if len(entries) < c.minimumModels {
+		return nil, fmt.Errorf("commandcode GOAT catalog contained only %d Provider-verified models", len(entries))
 	}
 	return entries, nil
 }

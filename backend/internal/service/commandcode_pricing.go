@@ -12,6 +12,9 @@ import (
 var commandCodeFallbackModels = []string{
 	"gpt-5.6-sol",
 	"gpt-5.6-luna",
+	"gpt-6-luna",
+	"stealth/pixel-canary",
+	"stealth/space-bunny-alpha",
 	"google/gemini-3.8-flash",
 	"google/gemini-3.7-flash",
 	"xai/grok-4.7",
@@ -81,6 +84,9 @@ type commandCodePriceEntry struct {
 var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"gpt-5.6-sol":                           {input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25},
 	"gpt-5.6-luna":                          {input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25},
+	"gpt-6-luna":                            {input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125},
+	"stealth/pixel-canary":                  {allowZero: true},
+	"stealth/space-bunny-alpha":             {allowZero: true},
 	"google/gemini-3.8-flash":               {input: 1.5, output: 7.5, cacheRead: 0.15},
 	"google/gemini-3.7-flash":               {input: 1.5, output: 7.5, cacheRead: 0.15, cacheWrite: 0.08334},
 	"xai/grok-4.7":                          {input: 1.2, output: 3.6, cacheRead: 0.3},
@@ -127,7 +133,7 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"qwen/qwen3.6-plus":                     {input: 0.5, output: 3, cacheRead: 0.1},
 	"stepfun/step-5-preview":                {input: 1, output: 2.7, cacheRead: 0.05},
 	"stepfun/step-3.7-flash":                {input: 0.2, output: 1.15, cacheRead: 0.04},
-	"stepfun/step-3.5-flash":                {input: 0.1, output: 0.3, cacheRead: 0.02},
+	"stepfun/step-3.5-flash":                {input: 0.09, output: 0.3, cacheRead: 0.02},
 	"tencent/hy3-paid":                      {input: 0.14, output: 0.58, cacheRead: 0.035},
 	"tencent/hy4-preview":                   {input: 0.834, output: 2.501, cacheRead: 0.042},
 	"meituan/longcat-2.0":                   {input: 0.3, output: 1.2, cacheRead: 0.006},
@@ -141,14 +147,15 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 // commandCodeFallbackMonthlyCreditsUSD 是启动降级与配额计算使用的本地月额度基线（USD）。
 // 官方在线目录刷新后，配额计算仍会应用 commandCodeQuotaMonthlyCreditsOverrides。
 var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
-	"gpt-5.6-sol": 70, "gpt-5.6-luna": 20,
+	"gpt-5.6-sol": 70, "gpt-5.6-luna": 20, "gpt-6-luna": 20,
+	"stealth/pixel-canary": 0, "stealth/space-bunny-alpha": 0,
 	"google/gemini-3.8-flash": 40, "google/gemini-3.7-flash": 40,
 	"xai/grok-4.7": 35, "xai/grok-4.6": 20, "xai/grok-4.5": 20,
 	"meta/muse-spark-1.3": 20, "meta/muse-spark-1.3-contributor": 20,
 	"meta/muse-spark-1.2": 20, "meta/muse-spark-1.2-contributor": 20,
 	"deepseek/deepseek-v4-pro": 20, "deepseek/deepseek-v4-flash": 60,
 	"deepseek/deepseek-v4-flash-vision-exp": 20, "deepseek/deepseek-v4-flash-fast": 20,
-	"deepseek/deepseek-v4.1-flash": 40,
+	"deepseek/deepseek-v4.1-flash": 60,
 	"moonshotai/kimi-k3":           20, "moonshotai/kimi-k2.7-code": 60,
 	"moonshotai/kimi-k2.7-code-highspeed": 20, "moonshotai/kimi-k2.6": 20,
 	"moonshotai/kimi-k2.5": 20,
@@ -157,7 +164,7 @@ var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 	"zai-org/glm-5.1": 20, "zai-org/glm-5": 20,
 	"minimaxai/minimax-m3": 47, "minimaxai/minimax-m2.7": 20,
 	"minimaxai/minimax-m2.5": 20,
-	"xiaomi/mimo-v2.6-pro":   20, "xiaomi/mimo-v2.6-pro-ultraspeed": 10, "xiaomi/mimo-v2.6-flash": 67,
+	"xiaomi/mimo-v2.6-pro":   20, "xiaomi/mimo-v2.6-pro-ultraspeed": 10, "xiaomi/mimo-v2.6-flash": 20,
 	"xiaomi/mimo-v2.5-pro": 20, "xiaomi/mimo-v2.5": 30,
 	"qwen/qwen3.8-omni-flash": 20, "qwen/qwen3.8-max-0902": 20, "qwen/qwen3.8-max": 20,
 	"qwen/qwen3.8-27b": 70, "qwen/qwen3.8-flash": 20,
@@ -174,7 +181,8 @@ var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 }
 
 var commandCodeFallbackContextWindows = map[string]int{
-	"gpt-5.6-sol": 1_050_000, "gpt-5.6-luna": 1_050_000,
+	"gpt-5.6-sol": 1_050_000, "gpt-5.6-luna": 1_050_000, "gpt-6-luna": 1_050_000,
+	"stealth/pixel-canary": 262_144, "stealth/space-bunny-alpha": 1_000_000,
 	"google/gemini-3.8-flash": 1_000_000, "google/gemini-3.7-flash": 1_048_576,
 	"xai/grok-4.7": 500_000, "xai/grok-4.6": 500_000, "xai/grok-4.5": 500_000,
 	"meta/muse-spark-1.3": 1_048_576, "meta/muse-spark-1.3-contributor": 1_048_576,
@@ -197,7 +205,7 @@ var commandCodeFallbackContextWindows = map[string]int{
 	"qwen/qwen3.7-max": 1_000_000, "qwen/qwen3.7-plus": 1_000_000,
 	"qwen/qwen3.7-flash": 1_000_000, "qwen/qwen3.6-max-preview": 200_000,
 	"qwen/qwen3.6-plus":      200_000,
-	"stepfun/step-5-preview": 1_000_000, "stepfun/step-3.7-flash": 256_000, "stepfun/step-3.5-flash": 1_000_000,
+	"stepfun/step-5-preview": 1_000_000, "stepfun/step-3.7-flash": 256_000, "stepfun/step-3.5-flash": 262_144,
 	"tencent/hy3-paid": 262_144, "tencent/hy4-preview": 1_048_576,
 	"meituan/longcat-2.0":                   1_048_576,
 	"inclusionai/ling-3.0-flash-sante:free": 262_144,
@@ -328,6 +336,10 @@ func setCommandCodeFallbackTiers(entries map[string]commandCodeCatalogEntry) {
 		commandCodeTier(0, commandCodeInt(272_000), commandCodeRates(0.2, 1.2, 0.02, 0.25)),
 		commandCodeTier(272_000, nil, commandCodeRates(0.4, 1.8, 0.04, 0.5)),
 	})
+	set("gpt-6-luna", []commandCodeCatalogTier{
+		commandCodeTier(0, commandCodeInt(272_000), commandCodeRates(0.1, 0.5, 0.01, 0.125)),
+		commandCodeTier(272_000, nil, commandCodeRates(0.2, 0.75, 0.02, 0.25)),
+	})
 	grok47List := commandCodeRates(2, 6, 0.5)
 	set("xai/grok-4.7", []commandCodeCatalogTier{
 		{MinTokens: 0, MaxTokens: commandCodeInt(200_000), Rates: commandCodeRates(1.2, 3.5999999999999996, 0.3), ListRates: &grok47List},
@@ -387,6 +399,14 @@ func setCommandCodeFallbackDeals(entries map[string]commandCodeCatalogEntry) {
 		Term: "99% off. See the deal for details.",
 	})
 	setListRates("xiaomi/mimo-v2.5-pro", commandCodeRates(2, 6, 0.4))
+	set("stealth/pixel-canary", commandCodeCatalogDeal{
+		Code: "pixel-canary-free", Label: "Free", DiscountPercent: 100, Free: true,
+		Term: "while the stealth preview lasts",
+	})
+	set("stealth/space-bunny-alpha", commandCodeCatalogDeal{
+		Code: "space-bunny-alpha-free", Label: "Free", DiscountPercent: 100, Free: true,
+		Term: "while the stealth preview lasts",
+	})
 	set("inclusionai/ling-3.0-flash-sante:free", commandCodeCatalogDeal{
 		Code: "ling-3.0-flash-sante-free", Label: "Free", DiscountPercent: 100, Free: true,
 		Term: "while it lasts",
@@ -426,7 +446,7 @@ const commandCodeSharedMonthlyQuotaUSD = 70.0
 // commandCodeQuotaMonthlyCreditsOverrides 是本项目配额计算采用的月额度覆盖。
 // Command Code 官方目录可能临时调整展示额度；这里保留产品侧的固定计算口径。
 var commandCodeQuotaMonthlyCreditsOverrides = map[string]float64{
-	"deepseek/deepseek-v4.1-flash": 40,
+	"deepseek/deepseek-v4.1-flash": 60,
 }
 
 func commandCodeMonthlyCreditsForQuota(model string, entry commandCodeCatalogEntry) float64 {

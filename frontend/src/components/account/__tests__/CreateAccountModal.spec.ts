@@ -376,6 +376,7 @@ describe('CreateAccountModal', () => {
     expect(platformButton).toBeDefined()
     await platformButton!.trigger('click')
     await flushPromises()
+    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('modelValue')).toEqual([])
 
     await wrapper.get('[data-tour="account-form-name"]').setValue('Command Code Key')
     const keyInput = wrapper.findAll('input[type="password"]').find((input) =>
@@ -397,6 +398,34 @@ describe('CreateAccountModal', () => {
       },
       upstream_billing_probe_enabled: true,
     })
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).not.toHaveProperty('model_mapping')
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+  })
+
+  it('Command Code 仅在手动选择模型后写入账号白名单', async () => {
+    syncUpstreamModelsMock.mockResolvedValue({ warnings: [] })
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Command Code')
+    await flushPromises()
+
+    const selector = wrapper.getComponent(ModelWhitelistSelectorStub)
+    expect(selector.props('modelValue')).toEqual([])
+    selector.vm.$emit('update:modelValue', ['gpt-6-luna'])
+    await flushPromises()
+
+    await wrapper.get('[data-tour="account-form-name"]').setValue('Command Code 账号')
+    const keyInput = wrapper.findAll('input[type="password"]').find((input) =>
+      (input.attributes('placeholder') || '').includes('sk-')
+    )
+    expect(keyInput).toBeDefined()
+    await keyInput!.setValue('cc-test-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials.model_mapping).toEqual({
+      'gpt-6-luna': 'gpt-6-luna',
+    })
+    expect(syncUpstreamModelsMock).toHaveBeenCalledWith(42)
   })
 
   it('creates OpenRouter account with API key and temporary unschedulable rules', async () => {

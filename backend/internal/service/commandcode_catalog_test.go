@@ -1,9 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -276,6 +279,46 @@ func TestCommandCodeCatalogRefreshCrossValidatesAndKeepsLastKnownGood(t *testing
 	require.Equal(t, 1_050_000, entry.ContextWindow)
 }
 
+func TestCommandCodeCatalogRefreshOnlySkipsUnlistedJev(t *testing.T) {
+	base := commandCodeTestModel("gpt-5.6-luna", "Go", 1_050_000, []map[string]any{
+		commandCodeTestTier("", 0.2, 1.2, 0.02, nil),
+	})
+	for _, tt := range []struct {
+		id      string
+		wantErr bool
+	}{
+		{id: "typesafe/jev"},
+		{id: "unlisted/other", wantErr: true},
+	} {
+		t.Run(tt.id, func(t *testing.T) {
+			unlisted := commandCodeTestModel(tt.id, "GOAT", 32_000, []map[string]any{
+				commandCodeTestTier("", 0.042, 0, 0, nil),
+			})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/models" {
+					_, _ = w.Write(commandCodeTestProviderBody(t, []map[string]any{base}))
+					return
+				}
+				_, _ = w.Write(commandCodeTestGoatHTML(t, []map[string]any{base, unlisted}))
+			}))
+			defer server.Close()
+
+			catalog := NewCommandCodeCatalog(server.Client())
+			catalog.providerEndpoint = server.URL + "/models"
+			catalog.goatEndpoint = server.URL + "/goat"
+			catalog.minimumModels = 1
+			catalog.minimumRetainedPercent = 0
+			ids, err := catalog.ForceRefresh(context.Background())
+			if tt.wantErr {
+				require.ErrorContains(t, err, "absent from Provider API")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, []string{"gpt-5.6-luna"}, ids)
+		})
+	}
+}
+
 func TestCommandCodeCatalogRefreshRejectsUnexpectedLargeShrink(t *testing.T) {
 	models := []map[string]any{
 		commandCodeTestModel("gpt-5.6-luna", "Go", 1_050_000, []map[string]any{
@@ -398,13 +441,30 @@ func TestCommandCodeCatalogConcurrentRefreshUsesSingleFlight(t *testing.T) {
 }
 
 func TestCommandCodeOfficialCatalogLive(t *testing.T) {
-	if os.Getenv("COMMANDCODE_LIVE_TEST") != "1" {
-		t.Skip("set COMMANDCODE_LIVE_TEST=1 to validate the official catalog")
+	fixtureDir := strings.TrimSpace(os.Getenv("COMMANDCODE_SNAPSHOT_DIR"))
+	if fixtureDir == "" && os.Getenv("COMMANDCODE_LIVE_TEST") != "1" {
+		t.Skip("set COMMANDCODE_LIVE_TEST=1 or COMMANDCODE_SNAPSHOT_DIR to validate the official catalog")
 	}
 	catalog := NewCommandCodeCatalog(nil)
+	if fixtureDir != "" {
+		catalog.client = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			filename := "provider.json"
+			if request.URL.Host == "commandcode.ai" {
+				filename = "goat.html"
+			}
+			body, err := os.ReadFile(filepath.Join(fixtureDir, filename))
+			if err != nil {
+				return nil, err
+			}
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(body))}, nil
+		})}
+	}
 	ids, err := catalog.ForceRefresh(context.Background())
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(ids), commandCodeCatalogMinModelCount)
+	require.Contains(t, ids, "gpt-6-luna")
+	require.Contains(t, ids, "stealth/pixel-canary")
+	require.Contains(t, ids, "stealth/space-bunny-alpha")
 	require.Contains(t, ids, "deepseek/deepseek-v4-flash-fast")
 	require.Contains(t, ids, "deepseek/deepseek-v4.1-flash")
 	require.Contains(t, ids, "google/gemini-3.8-flash")
@@ -418,6 +478,7 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 	require.Contains(t, ids, "z-ai/glm-5.3-flashx")
 	require.Contains(t, ids, "meituan/LongCat-2.0")
 	require.Contains(t, ids, "inclusionai/ling-3.0-flash-sante:free")
+	require.NotContains(t, ids, "typesafe/jev")
 	require.NotContains(t, ids, "minimax/minimax-m3-free")
 	entry, ok := catalog.entry("gpt-5.6-luna")
 	require.True(t, ok)
@@ -449,16 +510,19 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 		}
 		expected.Name = ""
 		actual.Name = ""
-		require.Equal(t, expected, actual, "fallback metadata differs for %q", key)
+		assert.Equal(t, expected, actual, "fallback metadata differs for %q", key)
 	}
 }
 
 func TestCommandCodeFallbackCatalogHasAllPricedModels(t *testing.T) {
 	entries := commandCodeFallbackCatalogEntries()
 	ids := CommandCodeFallbackModelIDs()
-	require.Len(t, entries, 57)
+	require.Len(t, entries, 60)
 	require.Len(t, entries, len(commandCodeFallbackModels))
 	for _, model := range []string{
+		"gpt-6-luna",
+		"stealth/pixel-canary",
+		"stealth/space-bunny-alpha",
 		"google/gemini-3.8-flash",
 		"z-ai/glm-5.3-flashx",
 		"Qwen/Qwen3.8-Omni-Flash",
@@ -478,6 +542,7 @@ func TestCommandCodeFallbackCatalogHasAllPricedModels(t *testing.T) {
 	} {
 		require.Contains(t, ids, model)
 	}
+	require.NotContains(t, ids, "typesafe/jev")
 	require.NotContains(t, ids, "minimax/minimax-m3-free")
 	require.NotContains(t, ids, "minimax/minimax-m2.7-free")
 
@@ -501,6 +566,9 @@ func TestCommandCodeCatalogExposesFallbackWhenRefreshFails(t *testing.T) {
 	catalog := NewCommandCodeCatalog(client)
 	models := catalog.ModelIDs(context.Background())
 	require.NotEmpty(t, models)
+	require.Contains(t, models, "gpt-6-luna")
+	require.Contains(t, models, "stealth/pixel-canary")
+	require.Contains(t, models, "stealth/space-bunny-alpha")
 	require.Contains(t, models, "gpt-5.6-sol")
 	require.Contains(t, models, "google/gemini-3.8-flash")
 	require.Contains(t, models, "deepseek/deepseek-v4-flash-fast")

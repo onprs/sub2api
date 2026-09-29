@@ -4935,8 +4935,8 @@ watch(
       adminAPI.tlsFingerprintProfiles.list()
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
         .catch(() => { tlsFingerprintProfiles.value = [] })
-      // 打开弹窗时填充当前账户上下文对应的模型。
-      allowedModels.value = [...currentPlatformModels()]
+      // Command Code 默认不限定模型，后续目录更新可直接生效。
+      allowedModels.value = form.platform === 'commandcode' ? [] : [...currentPlatformModels()]
       // Antigravity: 默认使用映射模式并填充默认映射
       if (form.platform === 'antigravity') {
         antigravityModelRestrictionMode.value = 'mapping'
@@ -5141,11 +5141,11 @@ const handleSelectGeminiOAuthType = (oauthType: 'code_assist' | 'google_one' | '
   geminiOAuthType.value = oauthType
 }
 
-// 切换白名单模式、平台、账户方式或等级时自动填充对应模型。
+// 切换白名单模式、平台、账户方式或等级时自动填充对应模型；Command Code 默认不创建白名单。
 watch(
   [modelRestrictionMode, () => form.platform, () => form.type, geminiSelectedTier],
   ([newMode]) => {
-    if (newMode === 'whitelist') {
+    if (newMode === 'whitelist' && form.platform !== 'commandcode') {
       allowedModels.value = [...currentPlatformModels()]
     }
   }
