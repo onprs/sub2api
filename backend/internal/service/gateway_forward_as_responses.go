@@ -64,7 +64,7 @@ func (s *GatewayService) ForwardAsResponses(
 	if err != nil {
 		return nil, err
 	}
-	if err := validateClaudeOpus55Request(body, mappedModel); err != nil {
+	if err := validateClaude55Request(body, mappedModel); err != nil {
 		writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
@@ -86,6 +86,9 @@ func (s *GatewayService) ForwardAsResponses(
 	}
 	convertedRequest, err := pipeline.ConvertRequest(adaptedBody)
 	if err != nil {
+		if isClaude55SignedThinkingModel(mappedModel) {
+			writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		}
 		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
 	}
 	var anthropicReq apicompat.AnthropicRequest
@@ -211,22 +214,22 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 		return
 	}
 
+	cacheReadTokens := src.CacheReadInputTokens
+	if cacheReadTokens == 0 && src.CachedTokens > 0 {
+		cacheReadTokens = src.CachedTokens
+	}
+	if cacheReadTokens == 0 && src.PromptTokensDetails != nil && src.PromptTokensDetails.CachedTokens > 0 {
+		cacheReadTokens = src.PromptTokensDetails.CachedTokens
+	}
+	if cacheReadTokens == 0 && src.PromptCacheHitTokens != nil {
+		cacheReadTokens = max(*src.PromptCacheHitTokens, 0)
+	}
+
 	// Some Anthropic-compatible providers retain OpenAI-style prompt/cache
 	// fields. Prefer those authoritative totals or hit/miss buckets over the
 	// overloaded input_tokens field. This covers Kimi's changing stream
 	// semantics as well as GLM/DeepSeek cache aliases.
 	if src.PromptTokens > 0 || src.PromptCacheHitTokens != nil || src.PromptCacheMissTokens != nil {
-		cacheReadTokens := src.CacheReadInputTokens
-		if cacheReadTokens == 0 && src.CachedTokens > 0 {
-			cacheReadTokens = src.CachedTokens
-		}
-		if cacheReadTokens == 0 && src.PromptTokensDetails != nil && src.PromptTokensDetails.CachedTokens > 0 {
-			cacheReadTokens = src.PromptTokensDetails.CachedTokens
-		}
-		if cacheReadTokens == 0 && src.PromptCacheHitTokens != nil {
-			cacheReadTokens = max(*src.PromptCacheHitTokens, 0)
-		}
-
 		if src.PromptCacheMissTokens != nil {
 			dst.InputTokens = max(*src.PromptCacheMissTokens, 0)
 		} else {
@@ -235,13 +238,16 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 		dst.CacheReadInputTokens = cacheReadTokens
 		dst.CacheCreationInputTokens = src.CacheCreationInputTokens
 	} else {
+		// Without an authoritative prompt total or miss bucket, input_tokens is
+		// provider-specific: it may already be the uncached bucket, or it may be
+		// a total from an earlier event. Do not infer a subtraction merely because
+		// a later event contains cache buckets; that would corrupt providers whose
+		// stream uses independent input and cache fields.
 		if src.InputTokens > 0 {
 			dst.InputTokens = src.InputTokens
 		}
-		if src.CacheReadInputTokens > 0 {
-			dst.CacheReadInputTokens = src.CacheReadInputTokens
-		} else if src.CachedTokens > 0 {
-			dst.CacheReadInputTokens = src.CachedTokens
+		if cacheReadTokens > 0 {
+			dst.CacheReadInputTokens = cacheReadTokens
 		}
 		if src.CacheCreationInputTokens > 0 {
 			dst.CacheCreationInputTokens = src.CacheCreationInputTokens
@@ -250,6 +256,56 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 	if src.OutputTokens > 0 {
 		dst.OutputTokens = src.OutputTokens
 	}
+}
+
+func syncAnthropicResponsesUsage(state *apicompat.AnthropicEventToResponsesState, usage ClaudeUsage) {
+	state.InputTokens = usage.InputTokens
+	state.OutputTokens = usage.OutputTokens
+	state.CacheReadInputTokens = usage.CacheReadInputTokens
+	state.CacheCreationInputTokens = usage.CacheCreationInputTokens
+}
+
+func normalizeAnthropicEventUsageForResponses(event *apicompat.AnthropicStreamEvent, usage ClaudeUsage) {
+	normalize := func(dst *apicompat.AnthropicUsage) {
+		if dst == nil {
+			return
+		}
+		dst.InputTokens = usage.InputTokens
+		dst.OutputTokens = usage.OutputTokens
+		dst.CacheReadInputTokens = usage.CacheReadInputTokens
+		dst.CacheCreationInputTokens = usage.CacheCreationInputTokens
+	}
+	normalize(event.Usage)
+	if event.Message != nil {
+		normalize(&event.Message.Usage)
+	}
+}
+
+func marshalNormalizedAnthropicEvent(event *apicompat.AnthropicStreamEvent, usage ClaudeUsage, mappedModel string) ([]byte, error) {
+	if event.Type == "message_start" && event.Message != nil && isClaude55SignedThinkingModel(mappedModel) {
+		event.Message.Model = mappedModel
+	}
+	normalizeAnthropicEventUsageForResponses(event, usage)
+	return json.Marshal(event)
+}
+
+func completeAnthropicStreamOnEOF(session *protocolconv.StreamSession, sawStopReason bool) ([][]byte, error) {
+	if !sawStopReason {
+		return nil, nil
+	}
+	completed, _, err := session.Convert([]byte(`{"type":"message_stop"}`))
+	return completed, err
+}
+
+// parseAnthropicSSEField parses an SSE field line in the form "field:value" or "field: value".
+// According to the SSE spec (https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation),
+// the space after the colon is optional. This function handles both formats.
+func parseAnthropicSSEField(line, field string) (string, bool) {
+	prefix := field + ":"
+	if !strings.HasPrefix(line, prefix) {
+		return "", false
+	}
+	return strings.TrimSpace(strings.TrimPrefix(line, prefix)), true
 }
 
 // handleResponsesBufferedStreamingResponse reads all Anthropic SSE events from
@@ -277,10 +333,18 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	}
 	var usage ClaudeUsage
 	var finalBody []byte
+	sawStopReason := false
 
 	for {
 		record, nextErr := stream.Events.Next(context.Background())
 		if errors.Is(nextErr, io.EOF) || errors.Is(nextErr, protocoltransport.ErrSSEDone) {
+			completed, err := completeAnthropicStreamOnEOF(session, sawStopReason)
+			if err != nil {
+				return nil, fmt.Errorf("complete anthropic stream: %w", err)
+			}
+			if terminal := responsesTerminalBody(completed); len(terminal) > 0 {
+				finalBody = terminal
+			}
 			break
 		}
 		if nextErr != nil {
@@ -299,7 +363,14 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 		if event.Type == "message_delta" && event.Usage != nil {
 			mergeAnthropicUsage(&usage, *event.Usage)
 		}
-		converted, _, err := session.Convert(record.Data)
+		if event.Type == "message_delta" && event.Delta != nil && event.Delta.StopReason != "" {
+			sawStopReason = true
+		}
+		normalized, err := marshalNormalizedAnthropicEvent(&event, usage, mappedModel)
+		if err != nil {
+			return nil, fmt.Errorf("normalize anthropic stream event: %w", err)
+		}
+		converted, _, err := session.Convert(normalized)
 		if err != nil {
 			return nil, fmt.Errorf("convert anthropic stream event: %w", err)
 		}
@@ -377,6 +448,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	clientToolRestorer := apicompat.NewResponsesClientToolStreamRestorer(clientToolMapping)
 	var usage ClaudeUsage
 	var firstTokenMs *int
+	sawStopReason := false
 	headersWritten := false
 	clientDisconnected := false
 
@@ -430,6 +502,13 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	for {
 		record, err := stream.Events.Next(context.Background())
 		if errors.Is(err, io.EOF) || errors.Is(err, protocoltransport.ErrSSEDone) {
+			completed, stopErr := completeAnthropicStreamOnEOF(session, sawStopReason)
+			if stopErr != nil {
+				return resultWithUsage(), fmt.Errorf("complete anthropic stream: %w", stopErr)
+			}
+			if err := writePayloads(completed); err != nil {
+				return resultWithUsage(), err
+			}
 			break
 		}
 		if err != nil {
@@ -452,7 +531,14 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		if event.Type == "message_start" && event.Message != nil {
 			mergeAnthropicUsage(&usage, event.Message.Usage)
 		}
-		converted, _, err := session.Convert(record.Data)
+		if event.Type == "message_delta" && event.Delta != nil && event.Delta.StopReason != "" {
+			sawStopReason = true
+		}
+		normalized, err := marshalNormalizedAnthropicEvent(&event, usage, mappedModel)
+		if err != nil {
+			return resultWithUsage(), fmt.Errorf("normalize anthropic stream event: %w", err)
+		}
+		converted, _, err := session.Convert(normalized)
 		if err != nil {
 			return resultWithUsage(), fmt.Errorf("convert anthropic stream event: %w", err)
 		}

@@ -35,6 +35,28 @@ func TestStreamDecoderPreservesReasoningSignatureDelta(t *testing.T) {
 	}, events)
 }
 
+func TestStreamDecoderWrapsSignedClaudeThinkingOnce(t *testing.T) {
+	decoder := newStreamDecoder()
+	for _, payload := range []string{
+		`{"type":"message_start","message":{"id":"msg-1","model":"claude-sonnet-5-5","content":[],"usage":{"input_tokens":1}}}`,
+		`{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`,
+		`{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"signed"}}`,
+	} {
+		_, _, err := decoder.Decode([]byte(payload))
+		require.NoError(t, err)
+	}
+	events, _, err := decoder.Decode([]byte(`{"type":"content_block_stop","index":0}`))
+	require.NoError(t, err)
+	var signatures []string
+	for _, event := range events {
+		if event.Signature != "" {
+			signatures = append(signatures, event.Signature)
+		}
+	}
+	require.Len(t, signatures, 1)
+	require.Contains(t, signatures[0], "anthropic-thinking-v1:")
+}
+
 func TestStreamEncoderGeneratesAnthropicMessageIDOnlyWhenRequested(t *testing.T) {
 	encodeStartID := func(options protocolconv.Options) string {
 		t.Helper()

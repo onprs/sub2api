@@ -1025,6 +1025,7 @@ func TestAPIContracts(t *testing.T) {
 					"model_pricing_enabled": false,
 					"subscription_enabled": true,
 					"model_plaza_enabled": false,
+					"cyber_policy_user_allowlist": "",
 					"wechat_connect_enabled": false,
 					"wechat_connect_app_id": "",
 					"wechat_connect_app_secret_configured": false,
@@ -1345,6 +1346,7 @@ func TestAPIContracts(t *testing.T) {
 					"model_pricing_enabled": false,
 					"subscription_enabled": true,
 					"model_plaza_enabled": false,
+					"cyber_policy_user_allowlist": "",
 					"wechat_connect_enabled": true,
 					"wechat_connect_app_id": "wx-open-config",
 					"wechat_connect_app_secret_configured": true,
@@ -2806,7 +2808,7 @@ func (r *stubUsageLogRepo) GetAPIKeyUsageTrend(ctx context.Context, startTime, e
 	return nil, errors.New("not implemented")
 }
 
-func (r *stubUsageLogRepo) GetUserUsageTrend(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) ([]usagestats.UserUsageTrendPoint, error) {
+func (r *stubUsageLogRepo) GetUserUsageTrend(ctx context.Context, startTime, endTime time.Time, granularity string, limit int, metric string) ([]usagestats.UserUsageTrendPoint, error) {
 	return nil, errors.New("not implemented")
 }
 

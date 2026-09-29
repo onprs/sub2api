@@ -7,7 +7,7 @@ import (
 )
 
 func normalizeGatewayAnthropicThinking(req *apicompat.AnthropicRequest, model string) {
-	if req == nil || !claude.IsOpus55(model) {
+	if req == nil || (!claude.IsOpus55(model) && !claude.IsSonnet55(model)) {
 		return
 	}
 	req.Thinking = &apicompat.AnthropicThinking{Type: "adaptive"}

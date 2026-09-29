@@ -52,9 +52,16 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 	if err := json.Unmarshal(chunk, &wire); err != nil {
 		return nil, nil, &protocolconv.Error{Code: protocolconv.ErrorInvalidJSON, Protocol: protocolconv.ProtocolAnthropic, Cause: err}
 	}
+	if wire.Type == "message_delta" && wire.Usage != nil &&
+		(wire.Usage.PromptTokens > 0 || wire.Usage.PromptCacheHitTokens != nil || wire.Usage.PromptCacheMissTokens != nil) {
+		d.bridge.InputTokens = wire.Usage.InputTokens
+	}
 	if wire.Type == "content_block_delta" && wire.Delta != nil && wire.Delta.Type == "signature_delta" {
 		if d.reasoningBlock >= 0 && wire.Index != nil && *wire.Index == d.reasoningBlock {
 			d.reasoningSignature += wire.Delta.Signature
+		}
+		if d.bridge.PreserveThinkingSignatures {
+			return d.decodeResponses(apicompat.AnthropicEventToResponsesEvents(&wire, d.bridge))
 		}
 		return nil, nil, nil
 	}
@@ -65,7 +72,7 @@ func (d *streamDecoder) Decode(chunk []byte) ([]ir.StreamEvent, []protocolconv.W
 	}
 	if wire.Type == "content_block_stop" && d.reasoningBlock >= 0 && wire.Index != nil && *wire.Index == d.reasoningBlock {
 		var events []ir.StreamEvent
-		if d.reasoningSignature != "" {
+		if d.reasoningSignature != "" && !d.bridge.PreserveThinkingSignatures {
 			events = append(events, ir.StreamEvent{Type: ir.EventReasoningDelta, BlockIndex: d.reasoningOutput, Signature: d.reasoningSignature})
 		}
 		converted, warnings, err := d.decodeResponses(apicompat.AnthropicEventToResponsesEvents(&wire, d.bridge))

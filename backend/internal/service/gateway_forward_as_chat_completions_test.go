@@ -269,7 +269,7 @@ func TestHandleCCStreamingFromAnthropic_CompactSSEFormat(t *testing.T) {
 	}
 
 	result, err := (&GatewayService{}).handleCCStreamingFromAnthropic(
-		resp, c, chatAnthropicTestPipeline(t, true, true), "k3", "k3", nil, time.Now(), true,
+		resp, c, chatAnthropicTestPipeline(t, true, true), "k3", "k3", nil, time.Now(),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -308,7 +308,7 @@ func TestHandleCCStreamingFromAnthropic_PreservesMessageStartCacheUsageAndReason
 
 	svc := &GatewayService{}
 	pipeline := chatAnthropicTestPipeline(t, true, true)
-	result, err := svc.handleCCStreamingFromAnthropic(resp, c, pipeline, "gpt-5", "claude-sonnet-4.5", &reasoningEffort, time.Now(), true)
+	result, err := svc.handleCCStreamingFromAnthropic(resp, c, pipeline, "gpt-5", "claude-sonnet-4.5", &reasoningEffort, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 20, result.Usage.InputTokens)
@@ -348,7 +348,7 @@ func TestHandleCCStreamingFromAnthropic_DrainsAfterClientDisconnect(t *testing.T
 		}, "\n"))),
 	}
 
-	result, err := (&GatewayService{}).handleCCStreamingFromAnthropic(resp, c, chatAnthropicTestPipeline(t, true, true), "client-model", "upstream-model", nil, time.Now(), true)
+	result, err := (&GatewayService{}).handleCCStreamingFromAnthropic(resp, c, chatAnthropicTestPipeline(t, true, true), "client-model", "upstream-model", nil, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.True(t, result.ClientDisconnect)
@@ -356,7 +356,7 @@ func TestHandleCCStreamingFromAnthropic_DrainsAfterClientDisconnect(t *testing.T
 	require.Equal(t, 5, result.Usage.OutputTokens)
 }
 
-func TestHandleCCStreamingFromAnthropic_OmitsUsageWhenNotRequested(t *testing.T) {
+func TestHandleCCStreamingFromAnthropic_ForwardsUpstreamUsageWithoutStreamOptions(t *testing.T) {
 	t.Parallel()
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -379,10 +379,10 @@ func TestHandleCCStreamingFromAnthropic_OmitsUsageWhenNotRequested(t *testing.T)
 		}, "\n"))),
 	}
 
-	result, err := (&GatewayService{}).handleCCStreamingFromAnthropic(resp, c, chatAnthropicTestPipeline(t, true, false), "gpt-5", "upstream-model", nil, time.Now(), false)
+	result, err := (&GatewayService{}).handleCCStreamingFromAnthropic(resp, c, chatAnthropicTestPipeline(t, true, false), "gpt-5", "upstream-model", nil, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.NotContains(t, rec.Body.String(), `"usage"`)
+	require.Contains(t, rec.Body.String(), `"usage"`)
 	require.Equal(t, 1, strings.Count(rec.Body.String(), "data: [DONE]"))
 }
 

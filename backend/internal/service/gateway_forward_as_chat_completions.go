@@ -40,11 +40,14 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	}
 	originalModel := ccReq.Model
 	clientStream := ccReq.Stream
-	includeUsage := ccReq.StreamOptions != nil && ccReq.StreamOptions.IncludeUsage
 
 	// 2. Resolve the upstream model before creating the request-scoped route.
 	mappedModel, err := resolveStandardAnthropicTargetModel(account, originalModel)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateClaude55Request(body, mappedModel); err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
 
@@ -66,15 +69,14 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	}
 	convertedRequest, err := pipeline.ConvertRequest(body)
 	if err != nil {
+		if isClaude55SignedThinkingModel(mappedModel) {
+			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		}
 		return nil, fmt.Errorf("convert chat completions to anthropic: %w", err)
 	}
 	var anthropicReq apicompat.AnthropicRequest
 	if err := json.Unmarshal(convertedRequest.Body, &anthropicReq); err != nil {
 		return nil, fmt.Errorf("decode converted anthropic request: %w", err)
-	}
-	if err := validateClaudeOpus55Request(body, mappedModel); err != nil {
-		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
-		return nil, err
 	}
 	anthropicReq.Model = mappedModel
 	normalizeGatewayAnthropicThinking(&anthropicReq, mappedModel)
@@ -106,7 +108,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	var result *ForwardResult
 	var handleErr error
 	if clientStream {
-		result, handleErr = s.handleCCStreamingFromAnthropic(resp, c, pipeline, originalModel, mappedModel, reasoningEffort, startTime, includeUsage)
+		result, handleErr = s.handleCCStreamingFromAnthropic(resp, c, pipeline, originalModel, mappedModel, reasoningEffort, startTime)
 	} else {
 		result, handleErr = s.handleCCBufferedFromAnthropic(resp, c, pipeline, originalModel, mappedModel, reasoningEffort, startTime)
 	}
@@ -265,7 +267,6 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	mappedModel string,
 	reasoningEffort *string,
 	startTime time.Time,
-	includeUsage bool,
 ) (*ForwardResult, error) {
 	stream, err := s.collectAnthropicProtocolStream(resp, startTime)
 	if err != nil {
@@ -283,6 +284,8 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	}
 	var usage ClaudeUsage
 	var firstTokenMs *int
+	hasUsage := false
+	sawStopReason := false
 	headersWritten := false
 	clientDisconnected := false
 
@@ -304,7 +307,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	writePayloads := func(payloads [][]byte) error {
 		var visible [][]byte
 		for _, payload := range payloads {
-			if includeUsage || !isOpenAIChatUsageOnlyStreamChunk(string(payload)) {
+			if hasUsage || !isOpenAIChatUsageOnlyStreamChunk(string(payload)) {
 				visible = append(visible, payload)
 			}
 		}
@@ -335,6 +338,13 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	for {
 		record, err := stream.Events.Next(context.Background())
 		if errors.Is(err, io.EOF) || errors.Is(err, protocoltransport.ErrSSEDone) {
+			completed, stopErr := completeAnthropicStreamOnEOF(session, sawStopReason)
+			if stopErr != nil {
+				return resultWithUsage(), fmt.Errorf("complete anthropic stream: %w", stopErr)
+			}
+			if err := writePayloads(completed); err != nil {
+				return resultWithUsage(), err
+			}
 			break
 		}
 		if err != nil {
@@ -357,7 +367,15 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		if event.Type == "message_start" && event.Message != nil {
 			mergeAnthropicUsage(&usage, event.Message.Usage)
 		}
-		converted, _, err := session.Convert(record.Data)
+		hasUsage = hasUsage || anthropicChatStreamHasUsage(&event, string(record.Data))
+		if event.Type == "message_delta" && event.Delta != nil && event.Delta.StopReason != "" {
+			sawStopReason = true
+		}
+		normalized, err := marshalNormalizedAnthropicEvent(&event, usage, mappedModel)
+		if err != nil {
+			return resultWithUsage(), fmt.Errorf("normalize anthropic stream event: %w", err)
+		}
+		converted, _, err := session.Convert(normalized)
 		if err != nil {
 			return resultWithUsage(), fmt.Errorf("convert anthropic stream event: %w", err)
 		}
@@ -399,4 +417,17 @@ func writeGatewayCCError(c *gin.Context, statusCode int, errType, message string
 			"message": message,
 		},
 	})
+}
+
+// anthropicChatStreamHasUsage distinguishes an explicit zero-valued usage object
+// from omitted/null usage before the Anthropic→Responses conversion loses that distinction.
+func anthropicChatStreamHasUsage(event *apicompat.AnthropicStreamEvent, payload string) bool {
+	switch event.Type {
+	case "message_start":
+		return event.Message != nil && gjson.Get(payload, "message.usage").IsObject()
+	case "message_delta":
+		return event.Usage != nil
+	default:
+		return false
+	}
 }
