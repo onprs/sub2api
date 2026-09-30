@@ -4,9 +4,16 @@
     class="group text-left p-5 rounded-2xl min-h-[280px] min-w-0 w-full overflow-hidden bg-white/70 backdrop-blur-xl border border-gray-200/80 shadow-card dark:bg-dark-800/60 dark:border-dark-700/70 hover:-translate-y-1 hover:shadow-card-hover dark:hover:border-primary-500/30 hover:border-gray-300 transition-all duration-300 ease-out flex flex-col"
     @click="emit('click')"
   >
-    <!-- 名称与状态 -->
-    <div class="flex min-w-0 items-start justify-between gap-3">
-      <div class="min-w-0 break-words [overflow-wrap:anywhere] text-base font-semibold text-gray-900 dark:text-gray-100">
+    <!-- 平台图标、名称与状态 -->
+    <div class="flex w-full min-w-0 items-start gap-3">
+      <span
+        aria-hidden="true"
+        class="w-9 h-9 rounded-xl ring-1 ring-black/5 dark:ring-white/10 grid place-items-center flex-shrink-0"
+        :class="[providerGradient(item.provider), providerTintClass]"
+      >
+        <ProviderIcon :provider="item.provider" :size="20" />
+      </span>
+      <div class="flex-1 min-w-0 break-words [overflow-wrap:anywhere] text-base font-semibold text-gray-900 dark:text-gray-100">
         {{ item.name }}
       </div>
       <span
@@ -68,13 +75,27 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { UserMonitorView } from '@/api/channelMonitor'
-import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import { useChannelMonitorFormat, providerGradient } from '@/composables/useChannelMonitorFormat'
 import { formatMultiplier } from '@/utils/formatters'
 import { isChannelMonitorQuotaVisible } from '@/utils/featureFlags'
+import ProviderIcon from './ProviderIcon.vue'
 import MonitorMetricPair from './MonitorMetricPair.vue'
 import MonitorAvailabilityRow from './MonitorAvailabilityRow.vue'
 import MonitorTimeline from './MonitorTimeline.vue'
 import MonitorQuotaView from '@/components/common/MonitorQuotaView.vue'
+
+// 沿用监控卡片的平台图标配色。
+const PROVIDER_TINT: Record<string, string> = {
+  openai: 'text-emerald-600 dark:text-emerald-300',
+  anthropic: 'text-orange-600 dark:text-orange-300',
+  gemini: 'text-sky-600 dark:text-sky-300',
+  grok: 'text-zinc-700 dark:text-zinc-200',
+  antigravity: 'text-purple-600 dark:text-purple-300',
+  kimi: 'text-pink-600 dark:text-pink-300',
+  zhipu: 'text-indigo-600 dark:text-indigo-300',
+  deepseek: 'text-teal-600 dark:text-teal-300',
+  opencode: 'text-amber-700 dark:text-amber-300',
+}
 
 const props = defineProps<{
   item: UserMonitorView
@@ -94,6 +115,10 @@ const {
   formatLatency,
   formatMonitorModel,
 } = useChannelMonitorFormat()
+
+const providerTintClass = computed(() =>
+  PROVIDER_TINT[props.item.provider] ?? 'text-gray-500 dark:text-gray-300'
+)
 
 const groupRateLabel = computed(() => {
   const min = props.item.group_dynamic_rate_min_multiplier
