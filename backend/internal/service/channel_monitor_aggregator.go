@@ -478,6 +478,7 @@ func buildUserViewFromSummary(
 		ID:               m.ID,
 		Name:             m.Name,
 		Provider:         m.Provider,
+		TargetType:       m.TargetType,
 		GroupName:        m.GroupName,
 		PrimaryModel:     m.PrimaryModel,
 		PrimaryStatus:    summary.PrimaryStatus,
@@ -485,6 +486,16 @@ func buildUserViewFromSummary(
 		Availability7d:   summary.Availability7d,
 		ExtraModels:      summary.ExtraModels,
 		Timeline:         buildTimelinePoints(timelineEntries),
+	}
+	// 本站分组来自列表查询已加载的关联；外站名称没有对应的本地倍率。
+	if m.TargetType == ChannelMonitorTargetLocal && m.Group != nil {
+		rate := m.Group.RateMultiplier
+		view.GroupRateMultiplier = &rate
+		if m.Group.DynamicRateEnabled {
+			minRate, maxRate := m.Group.DynamicRateMinMultiplier, m.Group.DynamicRateMaxMultiplier
+			view.GroupDynamicRateMinMultiplier = &minRate
+			view.GroupDynamicRateMaxMultiplier = &maxRate
+		}
 	}
 	if primaryLatest != nil {
 		view.PrimaryPingLatencyMs = primaryLatest.PingLatencyMs

@@ -618,6 +618,7 @@ export default {
     availabilityPrefix: '可用性',
     dialogLatency: '对话延迟',
     endpointPing: '端点 PING',
+    groupRate: '分组倍率 {rate}',
     history60pts: '近 {n} 次记录',
     nextUpdateIn: '{n}s 后刷新',
     past: 'PAST',

@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from './client'
-import type { MonitorQuotaSnapshot, Provider, MonitorStatus } from './admin/channelMonitor'
+import type { MonitorQuotaSnapshot, MonitorTargetType, Provider, MonitorStatus } from './admin/channelMonitor'
 
 export type { Provider, MonitorStatus } from './admin/channelMonitor'
 
@@ -25,7 +25,13 @@ export interface UserMonitorView {
   id: number
   name: string
   provider: Provider
+  target_type: MonitorTargetType
   group_name: string
+  /** 本站关联分组的默认倍率；外站或关联分组缺失时为 null。 */
+  group_rate_multiplier: number | null
+  /** 动态分组展示配置的倍率区间。 */
+  group_dynamic_rate_min_multiplier?: number
+  group_dynamic_rate_max_multiplier?: number
   primary_model: string
   primary_status: MonitorStatus
   primary_latency_ms: number | null
