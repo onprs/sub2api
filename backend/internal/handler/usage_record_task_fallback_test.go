@@ -45,6 +45,16 @@ func TestOpenAIGatewayHandlerSubmitUsageRecordTask_StoppedPoolFallsBackToSync(t 
 	require.True(t, executed, "池已停止时计费任务必须内联同步执行")
 }
 
+func TestOpenCodeGoGatewayHandlerSubmitUsageRecordTask_StoppedPoolFallsBackToSync(t *testing.T) {
+	h := &OpenCodeGoGatewayHandler{usageRecordWorkerPool: newStoppedUsageRecordPoolForTest()}
+
+	executed := false
+	h.submitUsageRecordTask(context.Background(), func(context.Context) {
+		executed = true
+	})
+	require.True(t, executed, "定制平台在池停止时也必须内联完成计费")
+}
+
 func TestGatewayHandlerSubmitUsageRecordTask_DropPolicyOverflowStillDrops(t *testing.T) {
 	pool := service.NewUsageRecordWorkerPoolWithOptions(service.UsageRecordWorkerPoolOptions{
 		WorkerCount:    1,

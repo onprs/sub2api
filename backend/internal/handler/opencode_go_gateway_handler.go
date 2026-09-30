@@ -680,10 +680,14 @@ func (h *OpenCodeGoGatewayHandler) submitUsageRecordTask(parent context.Context,
 	if task == nil {
 		return
 	}
-	task = wrapUsageRecordTaskContext(parent, task)
+	task, abandon := wrapUsageRecordTaskContext(parent, task)
 	if h.usageRecordWorkerPool != nil {
-		h.usageRecordWorkerPool.Submit(task)
-		return
+		if mode := h.usageRecordWorkerPool.Submit(task); mode != service.UsageRecordSubmitModeDroppedStopped {
+			if mode.Dropped() {
+				abandon()
+			}
+			return
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

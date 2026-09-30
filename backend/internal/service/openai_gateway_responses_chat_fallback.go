@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -82,6 +83,15 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletionsWithOutput(
 	var chatReq apicompat.ChatCompletionsRequest
 	if err := json.Unmarshal(convertedRequest.Body, &chatReq); err != nil {
 		return nil, fmt.Errorf("decode converted chat completions request: %w", err)
+	}
+	if err := validateGPT61SolCompatRequest(body, upstreamModel); err != nil {
+		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
+	if openai.IsGPT61SolModelSpelling(upstreamModel) && len(chatReq.Tools) > 0 {
+		err := fmt.Errorf("gpt-6.1-sol requires Responses for tool calls; this account only supports Chat Completions")
+		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
 	}
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
 	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 billingModel 算出之后。
