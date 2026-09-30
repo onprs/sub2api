@@ -1,5 +1,5 @@
 <template>
-  <div class="mt-5 grid grid-cols-2 gap-2">
+  <div class="mt-5 grid gap-2" :class="showSecondary ? 'grid-cols-2' : 'grid-cols-1'">
     <div
       class="rounded-xl p-3 bg-gray-50/80 dark:bg-dark-900/40 border border-gray-100 dark:border-dark-700/50"
     >
@@ -14,6 +14,7 @@
       </div>
     </div>
     <div
+      v-if="showSecondary"
       class="rounded-xl p-3 bg-gray-50/80 dark:bg-dark-900/40 border border-gray-100 dark:border-dark-700/50"
     >
       <div
@@ -32,7 +33,7 @@
 <script setup lang="ts">
 import Icon from '@/components/icons/Icon.vue'
 
-defineProps<{
+withDefaults(defineProps<{
   primaryLabel: string
   primaryValue: string
   primaryUnit: string
@@ -41,5 +42,8 @@ defineProps<{
   secondaryValue: string
   secondaryUnit: string
   secondaryIcon: 'bolt' | 'globe' | 'clock' | 'link'
-}>()
+  showSecondary?: boolean
+}>(), {
+  showSecondary: true,
+})
 </script>

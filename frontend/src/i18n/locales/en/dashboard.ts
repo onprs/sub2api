@@ -613,6 +613,7 @@ export default {
     availabilityPrefix: 'Availability',
     dialogLatency: 'Dialog Latency',
     endpointPing: 'Endpoint PING',
+    groupRate: 'Group rate {rate}',
     history60pts: 'HISTORY ({n} PTS)',
     nextUpdateIn: 'NEXT UPDATE IN {n}s',
     past: 'PAST',

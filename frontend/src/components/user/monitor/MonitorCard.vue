@@ -4,36 +4,10 @@
     class="group text-left p-5 rounded-2xl min-h-[280px] min-w-0 w-full overflow-hidden bg-white/70 backdrop-blur-xl border border-gray-200/80 shadow-card dark:bg-dark-800/60 dark:border-dark-700/70 hover:-translate-y-1 hover:shadow-card-hover dark:hover:border-primary-500/30 hover:border-gray-300 transition-all duration-300 ease-out flex flex-col"
     @click="emit('click')"
   >
-    <!-- Header: icon + name/model + status chip -->
-    <div class="flex min-w-0 items-start gap-3">
-      <span
-        class="w-9 h-9 rounded-xl ring-1 ring-black/5 dark:ring-white/10 grid place-items-center flex-shrink-0"
-        :class="[providerGradient(item.provider), providerTintClass]"
-      >
-        <ProviderIcon :provider="item.provider" :size="20" />
-      </span>
-      <div class="flex-1 min-w-0">
-        <div class="text-base font-semibold truncate text-gray-900 dark:text-gray-100">
-          {{ item.name }}
-        </div>
-        <div class="mt-0.5 flex items-center gap-1.5 min-w-0">
-          <span
-            class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium flex-shrink-0"
-            :class="providerBadgeClass(item.provider)"
-          >
-            {{ providerLabel(item.provider) }}
-          </span>
-          <!-- 纯配额模式主模型是占位符 "quota"，展示层替换为本地化「配额」标签 -->
-          <span class="font-mono text-xs truncate text-gray-500 dark:text-gray-400">
-            {{ formatMonitorModel(item.primary_model) }}
-          </span>
-          <span
-            v-if="item.group_name"
-            class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300 flex-shrink-0"
-          >
-            {{ item.group_name }}
-          </span>
-        </div>
+    <!-- 名称与状态 -->
+    <div class="flex min-w-0 items-start justify-between gap-3">
+      <div class="min-w-0 break-words [overflow-wrap:anywhere] text-base font-semibold text-gray-900 dark:text-gray-100">
+        {{ item.name }}
       </div>
       <span
         class="px-2.5 py-1 rounded-full text-xs font-semibold flex-shrink-0"
@@ -43,7 +17,20 @@
       </span>
     </div>
 
-    <!-- Metrics -->
+    <!-- 分组倍率与模型名称分别占行，长模型名可完整换行 -->
+    <div class="mt-2 flex min-w-0 flex-col items-start gap-1.5">
+      <span
+        v-if="groupRateLabel !== null"
+        class="inline-flex max-w-full items-center rounded-md px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300"
+      >
+        {{ t('monitorCommon.groupRate', { rate: groupRateLabel }) }}
+      </span>
+      <span class="w-full min-w-0 break-all font-mono text-xs leading-5 text-gray-500 dark:text-gray-400">
+        {{ formatMonitorModel(item.primary_model) }}
+      </span>
+    </div>
+
+    <!-- 延迟指标 -->
     <MonitorMetricPair
       primary-icon="bolt"
       :primary-label="t('monitorCommon.dialogLatency')"
@@ -53,6 +40,7 @@
       :secondary-label="t('monitorCommon.endpointPing')"
       :secondary-value="formatLatency(item.primary_ping_latency_ms)"
       secondary-unit="ms"
+      :show-secondary="item.target_type === 'external'"
     />
 
     <!-- 配额模式：最新用量/余额快照（服务端已按系统开关剥离，此处 flag 为纵深防御） -->
@@ -80,29 +68,13 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { UserMonitorView } from '@/api/channelMonitor'
-import {
-  useChannelMonitorFormat,
-  providerGradient,
-} from '@/composables/useChannelMonitorFormat'
+import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import { formatMultiplier } from '@/utils/formatters'
 import { isChannelMonitorQuotaVisible } from '@/utils/featureFlags'
-import ProviderIcon from './ProviderIcon.vue'
 import MonitorMetricPair from './MonitorMetricPair.vue'
 import MonitorAvailabilityRow from './MonitorAvailabilityRow.vue'
 import MonitorTimeline from './MonitorTimeline.vue'
 import MonitorQuotaView from '@/components/common/MonitorQuotaView.vue'
-
-// 图标配色与 utils/platformColors.ts 的平台色对齐（新 4 家）。
-const PROVIDER_TINT: Record<string, string> = {
-  openai: 'text-emerald-600 dark:text-emerald-300',
-  anthropic: 'text-orange-600 dark:text-orange-300',
-  gemini: 'text-sky-600 dark:text-sky-300',
-  grok: 'text-zinc-700 dark:text-zinc-200',
-  antigravity: 'text-purple-600 dark:text-purple-300',
-  kimi: 'text-pink-600 dark:text-pink-300',
-  zhipu: 'text-indigo-600 dark:text-indigo-300',
-  deepseek: 'text-teal-600 dark:text-teal-300',
-  opencode: 'text-amber-700 dark:text-amber-300',
-}
 
 const props = defineProps<{
   item: UserMonitorView
@@ -119,15 +91,20 @@ const { t } = useI18n()
 const {
   statusLabel,
   statusBadgeClass,
-  providerLabel,
-  providerBadgeClass,
   formatLatency,
   formatMonitorModel,
 } = useChannelMonitorFormat()
 
-const providerTintClass = computed(() =>
-  PROVIDER_TINT[props.item.provider] ?? 'text-gray-500 dark:text-gray-300'
-)
+const groupRateLabel = computed(() => {
+  const min = props.item.group_dynamic_rate_min_multiplier
+  const max = props.item.group_dynamic_rate_max_multiplier
+  if (min != null && max != null) {
+    if (min === max) return `${formatMultiplier(min)}x`
+    return `${formatMultiplier(min)}x–${formatMultiplier(max)}x`
+  }
+  const rate = props.item.group_rate_multiplier
+  return rate == null ? null : `${formatMultiplier(rate)}x`
+})
 
 const quotaVisible = computed(
   () => isChannelMonitorQuotaVisible() && !!props.item.latest_quota
