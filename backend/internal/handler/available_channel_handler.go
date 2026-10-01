@@ -176,6 +176,7 @@ type userSupportedModel struct {
 	Pricing                 *userSupportedModelPricing    `json:"pricing"`
 	ModelSpecificMultiplier *float64                      `json:"model_specific_multiplier,omitempty"`
 	UsageOffer              *userSupportedModelUsageOffer `json:"usage_offer,omitempty"`
+	MonthlyQuota            *service.ModelMonthlyQuota    `json:"monthly_quota,omitempty"`
 }
 
 // userChannelPlatformSection 单渠道内某个平台的子视图：用户可见的分组 + 该平台
@@ -599,6 +600,7 @@ func toUserSupportedModels(
 			Pricing:                 pricing,
 			ModelSpecificMultiplier: toUserSupportedModelMultiplier(m.QuotaCost),
 			UsageOffer:              toUserSupportedModelUsageOffer(m.UsageOffer),
+			MonthlyQuota:            m.MonthlyQuota,
 		})
 	}
 	return out

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,9 +30,9 @@ func TestCommandCodeReferencePricingCoversOfficialGoatRates(t *testing.T) {
 	pricing, ok = commandCodeReferencePricingAt("xai/grok-4.7", offPeak)
 	require.True(t, ok)
 	require.Len(t, pricing.Intervals, 2)
-	require.InDelta(t, 1.2e-6, pricing.InputPricePerToken, 1e-12)
-	require.InDelta(t, 3.6e-6, pricing.OutputPricePerToken, 1e-12)
-	require.InDelta(t, 0.3e-6, pricing.CacheReadPricePerToken, 1e-12)
+	require.InDelta(t, 2e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 6e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.5e-6, pricing.CacheReadPricePerToken, 1e-12)
 
 	pricing, ok = commandCodeReferencePricingAt("xiaomi/mimo-v2.6-flash", offPeak)
 	require.True(t, ok)
@@ -142,6 +143,9 @@ func TestCommandCodeReferencePricingResolvesAliasesAndCase(t *testing.T) {
 		"qwen-3.8-omni-flash",
 		"deepseek-v4-flash-fast",
 		"deepseek-v4.1-flash",
+		"deepseek-v4.1-flash-fast",
+		"claude-sonnet-5-5",
+		"ling-3.1-flash",
 		"hy4-preview",
 		"longcat-2.0",
 		"longcat-2.0:free",
@@ -323,7 +327,7 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.InDelta(t, 60, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 	require.InDelta(t, 70.0/60.0, quotaCost.Multiplier, 1e-9)
 
-	// DeepSeek V4.1 Flash：本项目按月额度 $60 → 倍率 70/60。
+	// DeepSeek V4.1 Flash：官方月额度 $60 → 倍率 70/60。
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("deepseek/deepseek-v4.1-flash")
 	require.True(t, ok)
 	require.InDelta(t, 60, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
@@ -356,11 +360,11 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.InDelta(t, 20, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 	require.InDelta(t, 70.0/20.0, quotaCost.Multiplier, 1e-9)
 
-	// Grok 4.7：促销期官方 credits $35 → 倍率 2x
+	// Grok 4.7：活动已结束，官方 credits $20 → 倍率 3.5x。
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("xai/grok-4.7")
 	require.True(t, ok)
-	require.InDelta(t, 35, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
-	require.InDelta(t, 2.0, quotaCost.Multiplier, 1e-9)
+	require.InDelta(t, 20, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 3.5, quotaCost.Multiplier, 1e-9)
 
 	// MiMo V2.6 Flash：官方 credits $20 → 倍率 70/20
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("xiaomi/mimo-v2.6-flash")
@@ -399,23 +403,21 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.False(t, ok)
 }
 
-func TestCommandCodeQuotaCostUsesLocalDeepSeekV41MonthlyOverride(t *testing.T) {
-	entry := commandCodeCatalogEntry{
-		ID:                "deepseek/deepseek-v4.1-flash",
-		MonthlyCreditsUSD: 40,
-	}
-
-	require.Equal(t, 60.0, commandCodeMonthlyCreditsForQuota(entry.ID, entry))
+func TestCommandCodeQuotaCostUsesOfficialMonthlyPolicy(t *testing.T) {
+	entry := commandCodeFallbackCatalogEntries()["deepseek/deepseek-v4.1-flash"]
+	entry.MonthlyQuota.BaseCreditsUSD = 40
+	catalog := &CommandCodeCatalog{entries: map[string]commandCodeCatalogEntry{strings.ToLower(entry.ID): entry}}
+	quota, ok := catalog.MonthlyQuotaAt("deepseek-v4.1-flash", nowForTest())
+	require.True(t, ok)
+	require.Equal(t, 40.0, quota.CreditsUSD)
+	require.Equal(t, 70.0/40.0, quota.CostMultiplier)
 }
 
 func TestCommandCodePricingMetadataMatchesCurrentOfficialPromotions(t *testing.T) {
 	contextWindow, promotion, ok := commandCodeReferenceMetadataAt("xai/grok-4.7", nowForTest())
 	require.True(t, ok)
 	require.Equal(t, 500_000, contextWindow)
-	require.NotNil(t, promotion)
-	require.Equal(t, "grok-4.7-40-off", promotion.Code)
-	require.Equal(t, "40% off", promotion.Label)
-	require.Equal(t, time.Date(2026, 9, 27, 23, 59, 59, 999_000_000, time.UTC), *promotion.ExpiresAt)
+	require.Nil(t, promotion)
 
 	contextWindow, promotion, ok = commandCodeReferenceMetadataAt("xiaomi/mimo-v2.5", nowForTest())
 	require.True(t, ok)

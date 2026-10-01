@@ -2,7 +2,7 @@ package service
 
 import (
 	"fmt"
-	"math"
+	"slices"
 	"strings"
 	"time"
 )
@@ -10,10 +10,10 @@ import (
 // Command Code 内置目录只作为官方 GOAT 文档暂时不可用时的启动降级。
 // 在线快照会按官方 minPlanName=Go/GOAT 自动替换这些条目。
 var commandCodeFallbackModels = []string{
+	"claude-sonnet-5-5",
 	"gpt-5.6-sol",
 	"gpt-5.6-luna",
 	"gpt-6-luna",
-	"stealth/pixel-canary",
 	"stealth/space-bunny-alpha",
 	"google/gemini-3.8-flash",
 	"google/gemini-3.7-flash",
@@ -29,6 +29,7 @@ var commandCodeFallbackModels = []string{
 	"deepseek/deepseek-v4-flash-vision-exp",
 	"deepseek/deepseek-v4-flash-fast",
 	"deepseek/deepseek-v4.1-flash",
+	"deepseek/deepseek-v4.1-flash-fast",
 	"moonshotai/Kimi-K3",
 	"moonshotai/Kimi-K2.7-Code",
 	"moonshotai/Kimi-K2.7-Code-Highspeed",
@@ -66,6 +67,7 @@ var commandCodeFallbackModels = []string{
 	"tencent/hy4-preview",
 	"meituan/LongCat-2.0",
 	"inclusionai/ling-3.0-flash-sante:free",
+	"inclusionai/ling-3.1-flash:free",
 	"nvidia/nemotron-3-ultra-550b-a55b",
 	"thinkingmachines/inkling",
 	"thinkingmachines/inkling-small",
@@ -82,14 +84,14 @@ type commandCodePriceEntry struct {
 
 // commandCodeReferencePrices 是当前官方 GOAT 价格的内置降级副本，单位为 USD / 1M token。
 var commandCodeReferencePrices = map[string]commandCodePriceEntry{
+	"claude-sonnet-5-5":                     {input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5},
 	"gpt-5.6-sol":                           {input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25},
 	"gpt-5.6-luna":                          {input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25},
 	"gpt-6-luna":                            {input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125},
-	"stealth/pixel-canary":                  {allowZero: true},
 	"stealth/space-bunny-alpha":             {allowZero: true},
 	"google/gemini-3.8-flash":               {input: 1.5, output: 7.5, cacheRead: 0.15},
 	"google/gemini-3.7-flash":               {input: 1.5, output: 7.5, cacheRead: 0.15, cacheWrite: 0.08334},
-	"xai/grok-4.7":                          {input: 1.2, output: 3.6, cacheRead: 0.3},
+	"xai/grok-4.7":                          {input: 2, output: 6, cacheRead: 0.5},
 	"xai/grok-4.6":                          {input: 2, output: 6, cacheRead: 0.5},
 	"xai/grok-4.5":                          {input: 2, output: 6, cacheRead: 0.5},
 	"meta/muse-spark-1.3":                   {input: 1.25, output: 4.25, cacheRead: 0.15},
@@ -101,6 +103,7 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"deepseek/deepseek-v4-flash-vision-exp": {input: 0.15, output: 0.60, cacheRead: 0.003},
 	"deepseek/deepseek-v4-flash-fast":       {input: 0.28, output: 0.56, cacheRead: 0.07},
 	"deepseek/deepseek-v4.1-flash":          {input: 0.15, output: 0.60, cacheRead: 0.003},
+	"deepseek/deepseek-v4.1-flash-fast":     {input: 0.16, output: 0.58, cacheRead: 0.016},
 	"moonshotai/kimi-k3":                    {input: 3, output: 15, cacheRead: 0.3},
 	"moonshotai/kimi-k2.7-code":             {input: 0.95, output: 4, cacheRead: 0.19},
 	"moonshotai/kimi-k2.7-code-highspeed":   {input: 1.9, output: 8, cacheRead: 0.38},
@@ -138,28 +141,30 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"tencent/hy4-preview":                   {input: 0.834, output: 2.501, cacheRead: 0.042},
 	"meituan/longcat-2.0":                   {input: 0.3, output: 1.2, cacheRead: 0.006},
 	"inclusionai/ling-3.0-flash-sante:free": {allowZero: true},
+	"inclusionai/ling-3.1-flash:free":       {allowZero: true},
 	"nvidia/nemotron-3-ultra-550b-a55b":     {input: 0.6, output: 2.4, cacheRead: 0.12},
 	"thinkingmachines/inkling":              {input: 1, output: 4.05, cacheRead: 0.17},
 	"thinkingmachines/inkling-small":        {input: 0.5, output: 1.2, cacheRead: 0.1},
 	"poolside/laguna-s-2.1-free":            {allowZero: true},
 }
 
-// commandCodeFallbackMonthlyCreditsUSD 是启动降级与配额计算使用的本地月额度基线（USD）。
-// 官方在线目录刷新后，配额计算仍会应用 commandCodeQuotaMonthlyCreditsOverrides。
+// commandCodeFallbackMonthlyCreditsUSD 是官方基础月额度；限时提升另存为时间段。
+// 来源：https://commandcode.ai/docs/plans/goat，2026-10-01 核对。
 var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
-	"gpt-5.6-sol": 70, "gpt-5.6-luna": 20, "gpt-6-luna": 20,
-	"stealth/pixel-canary": 0, "stealth/space-bunny-alpha": 0,
-	"google/gemini-3.8-flash": 40, "google/gemini-3.7-flash": 40,
-	"xai/grok-4.7": 35, "xai/grok-4.6": 20, "xai/grok-4.5": 20,
+	"claude-sonnet-5-5": 10,
+	"gpt-5.6-sol":       70, "gpt-5.6-luna": 20, "gpt-6-luna": 20,
+	"stealth/space-bunny-alpha": 0,
+	"google/gemini-3.8-flash":   40, "google/gemini-3.7-flash": 40,
+	"xai/grok-4.7": 20, "xai/grok-4.6": 20, "xai/grok-4.5": 20,
 	"meta/muse-spark-1.3": 20, "meta/muse-spark-1.3-contributor": 20,
 	"meta/muse-spark-1.2": 20, "meta/muse-spark-1.2-contributor": 20,
 	"deepseek/deepseek-v4-pro": 20, "deepseek/deepseek-v4-flash": 60,
 	"deepseek/deepseek-v4-flash-vision-exp": 20, "deepseek/deepseek-v4-flash-fast": 20,
-	"deepseek/deepseek-v4.1-flash": 60,
-	"moonshotai/kimi-k3":           20, "moonshotai/kimi-k2.7-code": 60,
+	"deepseek/deepseek-v4.1-flash": 60, "deepseek/deepseek-v4.1-flash-fast": 60,
+	"moonshotai/kimi-k3": 20, "moonshotai/kimi-k2.7-code": 60,
 	"moonshotai/kimi-k2.7-code-highspeed": 20, "moonshotai/kimi-k2.6": 20,
 	"moonshotai/kimi-k2.5": 20,
-	"z-ai/glm-5.3-flash":   40, "z-ai/glm-5.3-flashx": 20, "zai-org/glm-5.3": 20,
+	"z-ai/glm-5.3-flash":   60, "z-ai/glm-5.3-flashx": 20, "zai-org/glm-5.3": 20,
 	"zai-org/glm-5.2": 70, "zai-org/glm-5.2-fast": 20,
 	"zai-org/glm-5.1": 20, "zai-org/glm-5": 20,
 	"minimaxai/minimax-m3": 47, "minimaxai/minimax-m2.7": 20,
@@ -175,22 +180,24 @@ var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 	"tencent/hy3-paid": 70, "tencent/hy4-preview": 20,
 	"meituan/longcat-2.0":                   50,
 	"inclusionai/ling-3.0-flash-sante:free": 0,
+	"inclusionai/ling-3.1-flash:free":       0,
 	"nvidia/nemotron-3-ultra-550b-a55b":     20,
 	"thinkingmachines/inkling":              20, "thinkingmachines/inkling-small": 20,
 	"poolside/laguna-s-2.1-free": 0,
 }
 
 var commandCodeFallbackContextWindows = map[string]int{
-	"gpt-5.6-sol": 1_050_000, "gpt-5.6-luna": 1_050_000, "gpt-6-luna": 1_050_000,
-	"stealth/pixel-canary": 262_144, "stealth/space-bunny-alpha": 1_000_000,
-	"google/gemini-3.8-flash": 1_000_000, "google/gemini-3.7-flash": 1_048_576,
+	"claude-sonnet-5-5": 1_000_000,
+	"gpt-5.6-sol":       1_050_000, "gpt-5.6-luna": 1_050_000, "gpt-6-luna": 1_050_000,
+	"stealth/space-bunny-alpha": 1_000_000,
+	"google/gemini-3.8-flash":   1_000_000, "google/gemini-3.7-flash": 1_048_576,
 	"xai/grok-4.7": 500_000, "xai/grok-4.6": 500_000, "xai/grok-4.5": 500_000,
 	"meta/muse-spark-1.3": 1_048_576, "meta/muse-spark-1.3-contributor": 1_048_576,
 	"meta/muse-spark-1.2": 1_048_576, "meta/muse-spark-1.2-contributor": 1_048_576,
 	"deepseek/deepseek-v4-pro": 1_000_000, "deepseek/deepseek-v4-flash": 1_000_000,
 	"deepseek/deepseek-v4-flash-vision-exp": 1_000_000, "deepseek/deepseek-v4-flash-fast": 1_000_000,
-	"deepseek/deepseek-v4.1-flash": 1_000_000,
-	"moonshotai/kimi-k3":           1_000_000, "moonshotai/kimi-k2.7-code": 256_000,
+	"deepseek/deepseek-v4.1-flash": 1_000_000, "deepseek/deepseek-v4.1-flash-fast": 1_000_000,
+	"moonshotai/kimi-k3": 1_000_000, "moonshotai/kimi-k2.7-code": 256_000,
 	"moonshotai/kimi-k2.7-code-highspeed": 262_000, "moonshotai/kimi-k2.6": 256_000,
 	"moonshotai/kimi-k2.5": 256_000,
 	"z-ai/glm-5.3-flash":   1_048_576, "z-ai/glm-5.3-flashx": 1_000_000, "zai-org/glm-5.3": 1_000_000,
@@ -209,6 +216,7 @@ var commandCodeFallbackContextWindows = map[string]int{
 	"tencent/hy3-paid": 262_144, "tencent/hy4-preview": 1_048_576,
 	"meituan/longcat-2.0":                   1_048_576,
 	"inclusionai/ling-3.0-flash-sante:free": 262_144,
+	"inclusionai/ling-3.1-flash:free":       262_144,
 	"nvidia/nemotron-3-ultra-550b-a55b":     1_000_000,
 	"thinkingmachines/inkling":              256_000, "thinkingmachines/inkling-small": 1_000_000,
 	"poolside/laguna-s-2.1-free": 256_000,
@@ -219,6 +227,7 @@ var commandCodeModelAliases = map[string]string{
 	"deepseek-v4-flash-vision-exp": "deepseek/deepseek-v4-flash-vision-exp",
 	"deepseek-v4-flash-fast":       "deepseek/deepseek-v4-flash-fast",
 	"deepseek-v4.1-flash":          "deepseek/deepseek-v4.1-flash",
+	"deepseek-v4.1-flash-fast":     "deepseek/deepseek-v4.1-flash-fast",
 	"kimi-k3":                      "moonshotai/kimi-k3", "kimi-k2.7-code": "moonshotai/kimi-k2.7-code",
 	"kimi-k2.7-code-highspeed": "moonshotai/kimi-k2.7-code-highspeed", "kimi-k2.6": "moonshotai/kimi-k2.6",
 	"kimi-k2.5":     "moonshotai/kimi-k2.5",
@@ -249,6 +258,8 @@ var commandCodeModelAliases = map[string]string{
 	"longcat-2.0":               "meituan/longcat-2.0",
 	"ling-3.0-flash-sante:free": "inclusionai/ling-3.0-flash-sante:free",
 	"ling-3.0-flash-sante":      "inclusionai/ling-3.0-flash-sante:free",
+	"ling-3.1-flash":            "inclusionai/ling-3.1-flash:free",
+	"ling-3.1-flash:free":       "inclusionai/ling-3.1-flash:free",
 	"laguna-s-2.1-free":         "poolside/laguna-s-2.1-free", "laguna-s-2.1": "poolside/laguna-s-2.1-free",
 	"muse-spark-1.3": "meta/muse-spark-1.3", "muse-spark-1.3-contributor": "meta/muse-spark-1.3-contributor",
 	"muse-spark-1.2": "meta/muse-spark-1.2", "muse-spark-1.2-contributor": "meta/muse-spark-1.2-contributor",
@@ -281,10 +292,10 @@ func commandCodeFallbackCatalogEntries() map[string]commandCodeCatalogEntry {
 			continue
 		}
 		entries[key] = commandCodeCatalogEntry{
-			ID:                id,
-			Name:              id,
-			ContextWindow:     commandCodeFallbackContextWindows[key],
-			MonthlyCreditsUSD: commandCodeFallbackMonthlyCreditsUSD[key],
+			ID:            id,
+			Name:          id,
+			ContextWindow: commandCodeFallbackContextWindows[key],
+			MonthlyQuota:  MonthlyQuotaPolicy{BaseCreditsUSD: commandCodeFallbackMonthlyCreditsUSD[key]},
 			Tiers: []commandCodeCatalogTier{{
 				Rates: commandCodeCatalogRatesFromReference(price),
 			}},
@@ -294,6 +305,14 @@ func commandCodeFallbackCatalogEntries() map[string]commandCodeCatalogEntry {
 	setCommandCodeFallbackTiers(entries)
 	setCommandCodeFallbackDeals(entries)
 	setCommandCodeFallbackTimeBands(entries)
+	// Kimi K3 官方 creditDeal：单价不变，2026-09-30 至 10-07 的月额度为 $60。
+	kimi := entries["moonshotai/kimi-k3"]
+	startsAt := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	expiresAt := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
+	kimi.MonthlyQuota.Periods = []MonthlyQuotaPeriod{{
+		CreditsUSD: 60, StartsAt: &startsAt, ExpiresAt: &expiresAt, Term: "through Oct 7th",
+	}}
+	entries["moonshotai/kimi-k3"] = kimi
 	return entries
 }
 
@@ -340,10 +359,9 @@ func setCommandCodeFallbackTiers(entries map[string]commandCodeCatalogEntry) {
 		commandCodeTier(0, commandCodeInt(272_000), commandCodeRates(0.1, 0.5, 0.01, 0.125)),
 		commandCodeTier(272_000, nil, commandCodeRates(0.2, 0.75, 0.02, 0.25)),
 	})
-	grok47List := commandCodeRates(2, 6, 0.5)
 	set("xai/grok-4.7", []commandCodeCatalogTier{
-		{MinTokens: 0, MaxTokens: commandCodeInt(200_000), Rates: commandCodeRates(1.2, 3.5999999999999996, 0.3), ListRates: &grok47List},
-		{MinTokens: 200_000, Rates: commandCodeRates(1.2, 3.5999999999999996, 0.3), ListRates: &grok47List},
+		commandCodeTier(0, commandCodeInt(200_000), commandCodeRates(2, 6, 0.5)),
+		commandCodeTier(200_000, nil, commandCodeRates(4, 12, 1)),
 	})
 	set("xai/grok-4.6", []commandCodeCatalogTier{
 		commandCodeTier(0, commandCodeInt(200_000), commandCodeRates(2, 6, 0.5)),
@@ -385,10 +403,6 @@ func setCommandCodeFallbackDeals(entries map[string]commandCodeCatalogEntry) {
 		Code: "minimax-m3-2x-usage", Label: "50% off", DiscountPercent: 50,
 		Term: "50% off. See the deal for details.",
 	})
-	set("xai/grok-4.7", commandCodeCatalogDeal{
-		Code: "grok-4.7-40-off", Label: "40% off", DiscountPercent: 40,
-		Term: "ends September 27, 2026", ExpiresAt: time.Date(2026, 9, 27, 23, 59, 59, 999_000_000, time.UTC),
-	})
 	set("xiaomi/mimo-v2.5", commandCodeCatalogDeal{
 		Code: "mimo-v2.5-98-off", Label: "98% off", DiscountPercent: 98,
 		Term: "98% off. See the deal for details.",
@@ -399,16 +413,16 @@ func setCommandCodeFallbackDeals(entries map[string]commandCodeCatalogEntry) {
 		Term: "99% off. See the deal for details.",
 	})
 	setListRates("xiaomi/mimo-v2.5-pro", commandCodeRates(2, 6, 0.4))
-	set("stealth/pixel-canary", commandCodeCatalogDeal{
-		Code: "pixel-canary-free", Label: "Free", DiscountPercent: 100, Free: true,
-		Term: "while the stealth preview lasts",
-	})
 	set("stealth/space-bunny-alpha", commandCodeCatalogDeal{
 		Code: "space-bunny-alpha-free", Label: "Free", DiscountPercent: 100, Free: true,
 		Term: "while the stealth preview lasts",
 	})
 	set("inclusionai/ling-3.0-flash-sante:free", commandCodeCatalogDeal{
 		Code: "ling-3.0-flash-sante-free", Label: "Free", DiscountPercent: 100, Free: true,
+		Term: "while it lasts",
+	})
+	set("inclusionai/ling-3.1-flash:free", commandCodeCatalogDeal{
+		Code: "ling-3.1-flash-free", Label: "Free", DiscountPercent: 100, Free: true,
 		Term: "while it lasts",
 	})
 	set("poolside/laguna-s-2.1-free", commandCodeCatalogDeal{
@@ -431,6 +445,7 @@ func setCommandCodeFallbackTimeBands(entries map[string]commandCodeCatalogEntry)
 			Peak:      peak,
 			OffPeak:   offPeak,
 			Windows:   append([]commandCodeCatalogTimeWindow(nil), windows...),
+			Weekdays:  []time.Weekday{time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday},
 		}
 		entries[key] = entry
 	}
@@ -438,50 +453,36 @@ func setCommandCodeFallbackTimeBands(entries map[string]commandCodeCatalogEntry)
 	set("deepseek/deepseek-v4-flash", commandCodeRates(0.30, 1.20, 0.006), commandCodeRates(0.15, 0.60, 0.003))
 	set("deepseek/deepseek-v4-flash-vision-exp", commandCodeRates(0.30, 1.20, 0.006), commandCodeRates(0.15, 0.60, 0.003))
 	set("deepseek/deepseek-v4.1-flash", commandCodeRates(0.30, 1.20, 0.006), commandCodeRates(0.15, 0.60, 0.003))
+	set("deepseek/deepseek-v4.1-flash-fast", commandCodeRates(0.32, 1.16, 0.032), commandCodeRates(0.16, 0.58, 0.016))
 }
 
 // commandCodeSharedMonthlyQuotaUSD 是 GOAT 计划的官方月度额度池（USD）：$10 买 $70 credits。
 const commandCodeSharedMonthlyQuotaUSD = 70.0
 
-// commandCodeQuotaMonthlyCreditsOverrides 是本项目配额计算采用的月额度覆盖。
-// Command Code 官方目录可能临时调整展示额度；这里保留产品侧的固定计算口径。
-var commandCodeQuotaMonthlyCreditsOverrides = map[string]float64{
-	"deepseek/deepseek-v4.1-flash": 60,
-}
-
-func commandCodeMonthlyCreditsForQuota(model string, entry commandCodeCatalogEntry) float64 {
-	if monthlyCreditsUSD, ok := commandCodeQuotaMonthlyCreditsOverrides[commandCodeCanonicalModelID(model)]; ok {
-		return monthlyCreditsUSD
-	}
-	return entry.MonthlyCreditsUSD
-}
-
-// commandCodeReferenceQuotaCost 返回模型当前月可用 credits 对应的额度成本乘数。
-// 倍率 = 标准化月度额度池 / 模型月额度；本项目覆盖值优先于官方在线目录值。
-// 例如 GPT-5.6 Luna：70/20 = 3.5x，即每 1 美元模型成本消耗 3.5 美元标准化额度池。
-func commandCodeReferenceQuotaCost(model string) (OpenCodeGoQuotaCost, bool) {
-	entry, ok := defaultCommandCodeCatalog.entry(model)
+// commandCodeReferenceQuotaCostAt 按指定时刻解析官方月额度，倍率为共享额度 / 当前额度。
+func commandCodeReferenceQuotaCostAt(model string, at time.Time) (OpenCodeGoQuotaCost, bool) {
+	quota, ok := defaultCommandCodeCatalog.MonthlyQuotaAt(model, at)
 	if !ok {
 		return OpenCodeGoQuotaCost{}, false
 	}
-	monthlyCreditsUSD := commandCodeMonthlyCreditsForQuota(model, entry)
-	if monthlyCreditsUSD <= 0 || math.IsNaN(monthlyCreditsUSD) || math.IsInf(monthlyCreditsUSD, 0) {
-		return OpenCodeGoQuotaCost{}, false
-	}
-	multiplier := commandCodeSharedMonthlyQuotaUSD / monthlyCreditsUSD
-	if multiplier <= 0 || math.IsNaN(multiplier) || math.IsInf(multiplier, 0) {
-		return OpenCodeGoQuotaCost{}, false
-	}
 	return OpenCodeGoQuotaCost{
-		IncludedMonthlyUsageUSD: monthlyCreditsUSD,
-		Multiplier:              multiplier,
+		IncludedMonthlyUsageUSD: quota.CreditsUSD,
+		Multiplier:              quota.CostMultiplier,
 	}, true
 }
 
-// GetCommandCodeQuotaCost 返回 Command Code 模型当前月可用 credits 对应的额度成本乘数。
+// GetCommandCodeQuotaCost 返回当前有效的 Command Code 月额度倍率。
 func (s *BillingService) GetCommandCodeQuotaCost(model string) (OpenCodeGoQuotaCost, bool) {
+	return s.GetCommandCodeQuotaCostAt(model, time.Now())
+}
+
+// GetCommandCodeQuotaCostAt 让计费使用请求定价时刻，历史入账不受当前活动状态影响。
+func (s *BillingService) GetCommandCodeQuotaCostAt(model string, at time.Time) (OpenCodeGoQuotaCost, bool) {
+	if at.IsZero() {
+		at = time.Now()
+	}
 	for _, candidate := range billingModelPricingCandidates(model) {
-		if quotaCost, ok := commandCodeReferenceQuotaCost(candidate); ok {
+		if quotaCost, ok := commandCodeReferenceQuotaCostAt(candidate, at); ok {
 			return quotaCost, true
 		}
 	}
@@ -601,6 +602,12 @@ func commandCodeReferencePricingTimeBandsAt(model string, now time.Time) []Model
 		!commandCodeCatalogEntryAvailableAt(entry, now) {
 		return nil
 	}
+	if len(entry.TimeOfDay.Weekdays) > 0 && !slices.Contains(entry.TimeOfDay.Weekdays, now.UTC().Weekday()) {
+		return []ModelPricingTimeBand{{
+			Code: "off_peak", TimeZone: "UTC", TimeRanges: []string{"00:00-24:00"},
+			Pricing: commandCodeChannelPricingFromRates(entry.TimeOfDay.OffPeak),
+		}}
+	}
 	return []ModelPricingTimeBand{
 		{
 			Code:       "off_peak",
@@ -627,7 +634,11 @@ func commandCodeTimeOfDayIsPeak(schedule *commandCodeCatalogTimeOfDay, now time.
 	if schedule == nil {
 		return false
 	}
-	hour := now.UTC().Hour()
+	utc := now.UTC()
+	if len(schedule.Weekdays) > 0 && !slices.Contains(schedule.Weekdays, utc.Weekday()) {
+		return false
+	}
+	hour := utc.Hour()
 	for _, window := range schedule.Windows {
 		if hour >= window.StartHourUTC && hour < window.EndHourUTC {
 			return true

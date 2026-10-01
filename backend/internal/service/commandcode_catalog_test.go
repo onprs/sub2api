@@ -463,7 +463,10 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(ids), commandCodeCatalogMinModelCount)
 	require.Contains(t, ids, "gpt-6-luna")
-	require.Contains(t, ids, "stealth/pixel-canary")
+	require.Contains(t, ids, "claude-sonnet-5-5")
+	require.Contains(t, ids, "deepseek/deepseek-v4.1-flash-fast")
+	require.Contains(t, ids, "inclusionai/ling-3.1-flash:free")
+	require.NotContains(t, ids, "stealth/pixel-canary")
 	require.Contains(t, ids, "stealth/space-bunny-alpha")
 	require.Contains(t, ids, "deepseek/deepseek-v4-flash-fast")
 	require.Contains(t, ids, "deepseek/deepseek-v4.1-flash")
@@ -505,9 +508,6 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 	for key, expected := range official {
 		actual, exists := fallback[key]
 		require.True(t, exists, "fallback catalog is missing official model %q", key)
-		if override, ok := commandCodeQuotaMonthlyCreditsOverrides[key]; ok {
-			expected.MonthlyCreditsUSD = override
-		}
 		expected.Name = ""
 		actual.Name = ""
 		assert.Equal(t, expected, actual, "fallback metadata differs for %q", key)
@@ -517,11 +517,13 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 func TestCommandCodeFallbackCatalogHasAllPricedModels(t *testing.T) {
 	entries := commandCodeFallbackCatalogEntries()
 	ids := CommandCodeFallbackModelIDs()
-	require.Len(t, entries, 60)
+	require.Len(t, entries, 62)
 	require.Len(t, entries, len(commandCodeFallbackModels))
 	for _, model := range []string{
 		"gpt-6-luna",
-		"stealth/pixel-canary",
+		"claude-sonnet-5-5",
+		"deepseek/deepseek-v4.1-flash-fast",
+		"inclusionai/ling-3.1-flash:free",
 		"stealth/space-bunny-alpha",
 		"google/gemini-3.8-flash",
 		"z-ai/glm-5.3-flashx",
@@ -549,12 +551,14 @@ func TestCommandCodeFallbackCatalogHasAllPricedModels(t *testing.T) {
 	for _, model := range ids {
 		entry, ok := entries[strings.ToLower(model)]
 		require.True(t, ok, "fallback catalog model %q is missing", model)
+		require.NoError(t, validateCommandCodeCatalogEntry(entry), model)
 		pricing, ok := commandCodeCatalogPricingAt(entry, nowForTest())
 		require.True(t, ok, "fallback catalog model %q has no active pricing", model)
 		if pricing.AllowZeroRate {
-			require.Zero(t, entry.MonthlyCreditsUSD, "free fallback model %q must not consume monthly credits", model)
+			require.Zero(t, entry.MonthlyQuota.BaseCreditsUSD, "free fallback model %q must not consume monthly credits", model)
+			require.Empty(t, entry.MonthlyQuota.Periods)
 		} else {
-			require.Positive(t, entry.MonthlyCreditsUSD, "fallback catalog model %q has no monthly credits", model)
+			require.Positive(t, entry.MonthlyQuota.BaseCreditsUSD, "fallback catalog model %q has no monthly credits", model)
 		}
 	}
 }
@@ -567,7 +571,10 @@ func TestCommandCodeCatalogExposesFallbackWhenRefreshFails(t *testing.T) {
 	models := catalog.ModelIDs(context.Background())
 	require.NotEmpty(t, models)
 	require.Contains(t, models, "gpt-6-luna")
-	require.Contains(t, models, "stealth/pixel-canary")
+	require.Contains(t, models, "claude-sonnet-5-5")
+	require.Contains(t, models, "deepseek/deepseek-v4.1-flash-fast")
+	require.Contains(t, models, "inclusionai/ling-3.1-flash:free")
+	require.NotContains(t, models, "stealth/pixel-canary")
 	require.Contains(t, models, "stealth/space-bunny-alpha")
 	require.Contains(t, models, "gpt-5.6-sol")
 	require.Contains(t, models, "google/gemini-3.8-flash")

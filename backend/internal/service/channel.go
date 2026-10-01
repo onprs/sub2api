@@ -466,7 +466,7 @@ type ModelUsageOffer struct {
 	UsageMultiplier float64
 }
 
-// ModelQuotaCost 是用户价格页展示用的 OpenCode Go 当前有效额度成本规则（已包含官方活动折算）。
+// ModelQuotaCost 是用户价格页展示用的当前有效额度成本规则（已包含官方活动折算）。
 type ModelQuotaCost struct {
 	IncludedMonthlyUsageUSD float64
 	CostMultiplier          float64
@@ -489,8 +489,9 @@ type SupportedModel struct {
 	Promotion        *ModelPromotion        // 当前有效的官方价格活动；nil 表示无活动
 	Pricing          *ChannelModelPricing   // 定价详情（nil 表示未配置定价）
 	PricingSource    string                 // channel/catalog/missing，仅用于用户侧展示来源
-	QuotaCost        *ModelQuotaCost        // OpenCode Go 当前月可用额度与活动折算后的额度成本乘数
+	QuotaCost        *ModelQuotaCost        // 当前月可用额度与活动折算后的额度成本乘数
 	UsageOffer       *ModelUsageOffer       // 官方 Usage 活动；nil 表示当前无有效证据
+	MonthlyQuota     *ModelMonthlyQuota     // 当前月额度与有效期，计费和展示共用
 	PricingTimeBands []ModelPricingTimeBand // 分时定价；空切片表示全天同价
 }
 

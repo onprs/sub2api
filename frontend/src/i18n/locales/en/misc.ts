@@ -111,6 +111,7 @@ export default {
     },
     usageOffers: {
       multiplier: '{multiplier} usage limits',
+      validUntil: 'Valid until {time} (UTC)',
       detail: 'The offer multiplier is included in the model quota multiplier, actual prices, user charges, and Usage History'
     },
     timeBands: {

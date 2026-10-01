@@ -344,11 +344,7 @@
                         ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
                         : 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
                     "
-                    :title="
-                      row.usageOfferLabel
-                        ? usageOfferTitle(row)
-                        : t('modelPricing.usageOffers.detail')
-                    "
+                    :title="usageOfferTitle(row) || t('modelPricing.usageOffers.detail')"
                   >
                     <span class="truncate">
                       {{ row.usageOfferLabel || t('modelPricing.usageOffers.multiplier', { multiplier: formatMultiplier(row.usageMultiplier) }) }}
@@ -503,11 +499,7 @@
                         ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
                         : 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
                     "
-                    :title="
-                      card.row.usageOfferLabel
-                        ? usageOfferTitle(card.row)
-                        : t('modelPricing.usageOffers.detail')
-                    "
+                    :title="usageOfferTitle(card.row) || t('modelPricing.usageOffers.detail')"
                   >
                     <span class="truncate">
                       {{ card.row.usageOfferLabel || t('modelPricing.usageOffers.multiplier', { multiplier: formatMultiplier(card.row.usageMultiplier) }) }}
@@ -744,6 +736,7 @@ const utcTime = ref('')
 const utcDateTime = ref('')
 let copyTimeout: ReturnType<typeof setTimeout> | null = null
 let utcClockTimer: ReturnType<typeof setInterval> | null = null
+let monthlyQuotaRefreshAt = Number.POSITIVE_INFINITY
 
 function updateUtcClock() {
   const now = new Date()
@@ -758,6 +751,11 @@ function updateUtcClock() {
   utcDate.value = `${parts[0]}-${parts[1]}-${parts[2]}`
   utcTime.value = `${parts[3]}:${parts[4]}:${parts[5]}`
   utcDateTime.value = now.toISOString()
+  if (!loading.value && now.getTime() >= monthlyQuotaRefreshAt) {
+    // 复用现有时钟，在服务端声明的下一次额度变更后刷新价格。
+    monthlyQuotaRefreshAt = Number.POSITIVE_INFINITY
+    void loadPricing()
+  }
 }
 
 async function handleCopyModel(modelName: string) {
@@ -990,6 +988,14 @@ function timeBandLabel(timeBand: ModelPricingTimeBandRow): string {
 }
 
 function usageOfferTitle(row: ModelPricingRow): string {
+  if (row.usageOfferCode === 'commandcode_monthly_credits') {
+    return [
+      row.monthlyQuotaTerm,
+      row.monthlyQuotaExpiresAt
+        ? t('modelPricing.usageOffers.validUntil', { time: row.monthlyQuotaExpiresAt.slice(0, 19).replace('T', ' ') })
+        : '',
+    ].filter(Boolean).join(' · ')
+  }
   return [
     row.promotionTerm,
     row.promotionExpiresAt ? row.promotionExpiresAt.slice(0, 10) : '',
@@ -1146,6 +1152,13 @@ async function loadPricing() {
       }),
     ])
     channels.value = list
+    const now = Date.now()
+    monthlyQuotaRefreshAt = Math.min(Number.POSITIVE_INFINITY, ...list.flatMap(channel =>
+      channel.platforms.flatMap(section => section.supported_models.flatMap(model => {
+        const nextChange = Date.parse(model.monthly_quota?.next_change_at || '')
+        return Number.isFinite(nextChange) && nextChange > now ? [nextChange] : []
+      })),
+    ))
     userGroupRates.value = rates
     reconcileSelection()
   } catch (err: unknown) {
