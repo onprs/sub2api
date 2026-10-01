@@ -89,6 +89,17 @@ export interface UserSupportedModelUsageOffer {
   usage_multiplier: number
 }
 
+/** 月额度活动与模型单价活动独立；有效期包含 starts_at，不包含 expires_at。 */
+export interface UserSupportedModelMonthlyQuota {
+  base_credits_usd: number
+  credits_usd: number
+  cost_multiplier: number
+  starts_at?: string
+  expires_at?: string
+  next_change_at?: string
+  term?: string
+}
+
 /**
  * 模型能力元数据（来自公开模型目录）；字段缺省表示目录未提供该项。
  */
@@ -111,9 +122,10 @@ export interface UserSupportedModel {
   capability?: UserSupportedModelCapability | null
   promotion?: UserSupportedModelPromotion | null
   pricing: UserSupportedModelPricing | null
-  /** 当前模型额度倍率；OpenCode Go 官方 usage offer 已由后端折算。 */
+  /** 当前模型额度倍率；官方月额度活动已由后端按有效期折算。 */
   model_specific_multiplier?: number | null
   usage_offer?: UserSupportedModelUsageOffer | null
+  monthly_quota?: UserSupportedModelMonthlyQuota | null
 }
 
 /**

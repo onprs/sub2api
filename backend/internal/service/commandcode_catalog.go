@@ -36,6 +36,7 @@ const (
 var (
 	commandCodeTimeWindowPattern         = regexp.MustCompile(`(?i)([0-9]{1,2})(?::00)?\s*[–—-]\s*([0-9]{1,2})(?::00)?`)
 	commandCodeListRatesReferencePattern = regexp.MustCompile(`:tiers:([0-9]+):listRates$`)
+	commandCodeWeekdaysPattern           = regexp.MustCompile(`(?i)\bMon\s*[–—-]\s*Fri\b`)
 )
 
 type commandCodeCatalogRates struct {
@@ -77,21 +78,23 @@ type commandCodeCatalogTimeOfDay struct {
 	Peak      commandCodeCatalogRates
 	OffPeak   commandCodeCatalogRates
 	Windows   []commandCodeCatalogTimeWindow
+	Weekdays  []time.Weekday
 }
 
 type commandCodeCatalogEntry struct {
-	ID                string
-	Name              string
-	ContextWindow     int
-	MonthlyCreditsUSD float64
-	Tiers             []commandCodeCatalogTier
-	Deal              *commandCodeCatalogDeal
-	ScheduledChange   *commandCodeCatalogScheduledChange
-	TimeOfDay         *commandCodeCatalogTimeOfDay
+	ID              string
+	Name            string
+	ContextWindow   int
+	MonthlyQuota    MonthlyQuotaPolicy
+	Tiers           []commandCodeCatalogTier
+	Deal            *commandCodeCatalogDeal
+	ScheduledChange *commandCodeCatalogScheduledChange
+	TimeOfDay       *commandCodeCatalogTimeOfDay
 }
 
 func (e commandCodeCatalogEntry) clone() commandCodeCatalogEntry {
 	cloned := e
+	cloned.MonthlyQuota = e.MonthlyQuota.Clone()
 	if e.Tiers != nil {
 		cloned.Tiers = make([]commandCodeCatalogTier, len(e.Tiers))
 		for i := range e.Tiers {
@@ -117,6 +120,7 @@ func (e commandCodeCatalogEntry) clone() commandCodeCatalogEntry {
 	if e.TimeOfDay != nil {
 		value := *e.TimeOfDay
 		value.Windows = append([]commandCodeCatalogTimeWindow(nil), e.TimeOfDay.Windows...)
+		value.Weekdays = append([]time.Weekday(nil), e.TimeOfDay.Weekdays...)
 		cloned.TimeOfDay = &value
 	}
 	return cloned
@@ -128,7 +132,8 @@ type commandCodeCatalogDiskSnapshot struct {
 	Entries map[string]commandCodeCatalogEntry `json:"entries"`
 }
 
-const commandCodeCatalogSnapshotVersion = 1
+// 旧快照未保存额度活动时限，不能继续用于额度计算。
+const commandCodeCatalogSnapshotVersion = 2
 
 // CommandCodeCatalog 保存 Command Code 官方 GOAT 模型注册表的最后成功快照。
 // GOAT 文档提供价格与活动，Provider API 则用于确认模型仍可调用并校验上下文上限。
@@ -285,12 +290,15 @@ func validateCommandCodeCatalogEntry(entry commandCodeCatalogEntry) error {
 	if !isCommandCodeModelID(entry.ID) || entry.ContextWindow <= 0 || len(entry.Tiers) == 0 {
 		return fmt.Errorf("missing model metadata")
 	}
-	if entry.MonthlyCreditsUSD < 0 || math.IsNaN(entry.MonthlyCreditsUSD) || math.IsInf(entry.MonthlyCreditsUSD, 0) {
-		return fmt.Errorf("invalid monthly credits")
+	if err := entry.MonthlyQuota.Validate(); err != nil {
+		return err
 	}
 	free := entry.Deal != nil && entry.Deal.Free
-	if !free && entry.MonthlyCreditsUSD <= 0 {
+	if !free && entry.MonthlyQuota.BaseCreditsUSD <= 0 {
 		return fmt.Errorf("invalid monthly credits")
+	}
+	if free && (entry.MonthlyQuota.BaseCreditsUSD != 0 || len(entry.MonthlyQuota.Periods) != 0) {
+		return fmt.Errorf("free model has monthly credit rules")
 	}
 	if entry.Deal != nil && (strings.TrimSpace(entry.Deal.Code) == "" || strings.TrimSpace(entry.Deal.Label) == "" ||
 		entry.Deal.DiscountPercent <= 0 || entry.Deal.DiscountPercent > 100) {
@@ -338,6 +346,13 @@ func validateCommandCodeCatalogEntry(entry commandCodeCatalogEntry) error {
 			!commandCodeCatalogRatesValid(entry.TimeOfDay.Peak) || !commandCodeCatalogRatesValid(entry.TimeOfDay.OffPeak) ||
 			(!free && (!commandCodeCatalogRatesHavePrice(entry.TimeOfDay.Peak) || !commandCodeCatalogRatesHavePrice(entry.TimeOfDay.OffPeak))) {
 			return fmt.Errorf("invalid time-of-day pricing")
+		}
+		seenDays := make(map[time.Weekday]bool, len(entry.TimeOfDay.Weekdays))
+		for _, day := range entry.TimeOfDay.Weekdays {
+			if day < time.Sunday || day > time.Saturday || seenDays[day] {
+				return fmt.Errorf("invalid time-of-day weekday")
+			}
+			seenDays[day] = true
 		}
 		lastEnd := 0
 		for _, window := range entry.TimeOfDay.Windows {
@@ -602,11 +617,18 @@ type commandCodeDocumentModel struct {
 	MonthlyCreditsRaw string                    `json:"credits"`
 }
 
-// commandCodeDocumentCreditRow 是 GOAT 页面模型表格组件的 rows 数据：
-// 以显示名关联模型，并提供官方 Monthly credits（如 "$$70"）。
+// commandCodeDocumentCreditRow 来自 GOAT 模型额度表；creditDeal 与价格 deal 独立。
 type commandCodeDocumentCreditRow struct {
-	Name    string `json:"name"`
-	Credits string `json:"credits"`
+	Name       string          `json:"name"`
+	Credits    string          `json:"credits"`
+	CreditDeal json.RawMessage `json:"creditDeal"`
+}
+
+type commandCodeDocumentCreditDeal struct {
+	Was     string `json:"was"`
+	Starts  string `json:"starts"`
+	Expires string `json:"expires"`
+	Term    string `json:"term"`
 }
 
 func parseCommandCodeGoatDocument(body []byte) (map[string]commandCodeCatalogEntry, error) {
@@ -810,8 +832,8 @@ func extractCommandCodeJSONContainer(source string, start int, opening, closing 
 // 每个模型的显示名与官方 Monthly credits（如 "$$70"）。
 // rows 的 name 可能带档位后缀（如 "Qwen 3.7 Flash (≤ 32k)"）或状态后缀
 // （如 "(latest)"），统一规范化后与 models 数组的 name 匹配。
-func extractCommandCodeCreditRows(flight string) (map[string]float64, error) {
-	rows := make(map[string]float64)
+func extractCommandCodeCreditRows(flight string) (map[string]MonthlyQuotaPolicy, error) {
+	rows := make(map[string]MonthlyQuotaPolicy)
 	searchFrom := 0
 	foundAny := false
 	for {
@@ -839,11 +861,19 @@ func extractCommandCodeCreditRows(flight string) (map[string]float64, error) {
 			if name == "" {
 				continue
 			}
-			credits, parseErr := parseCommandCodeCreditsUSD(row.Credits)
-			if parseErr != nil {
+			// 其它 rows 组件（如请求数估算）没有 credits，不属于额度规则。
+			if strings.TrimSpace(row.Credits) == "" {
 				continue
 			}
-			rows[commandCodeNormalizeCreditRowName(name)] = credits
+			policy, parseErr := parseCommandCodeMonthlyQuota(row)
+			if parseErr != nil {
+				return nil, fmt.Errorf("parse monthly credits for %q: %w", row.Name, parseErr)
+			}
+			key := commandCodeNormalizeCreditRowName(name)
+			if previous, exists := rows[key]; exists && !commandCodeMonthlyQuotaPoliciesEqual(previous, policy) {
+				return nil, fmt.Errorf("conflicting monthly credits for %q", row.Name)
+			}
+			rows[key] = policy
 			foundAny = true
 		}
 	}
@@ -871,7 +901,7 @@ func commandCodeNormalizeCreditRowName(name string) string {
 	return strings.TrimSpace(name)
 }
 
-func normalizeCommandCodeDocumentModels(models []commandCodeDocumentModel, creditRows map[string]float64) (map[string]commandCodeCatalogEntry, error) {
+func normalizeCommandCodeDocumentModels(models []commandCodeDocumentModel, creditRows map[string]MonthlyQuotaPolicy) (map[string]commandCodeCatalogEntry, error) {
 	entries := make(map[string]commandCodeCatalogEntry)
 	for _, model := range models {
 		plan := strings.ToLower(strings.TrimSpace(model.MinPlanName))
@@ -887,11 +917,13 @@ func normalizeCommandCodeDocumentModels(models []commandCodeDocumentModel, credi
 			return nil, fmt.Errorf("parse deal for %q: %w", id, err)
 		}
 		isFree := deal != nil && deal.Free
-		monthlyCreditsUSD := 0.0
-		if credits, ok := creditRows[commandCodeNormalizeCreditRowName(model.Name)]; ok {
-			monthlyCreditsUSD = credits
-		} else if !isFree {
-			return nil, fmt.Errorf("missing monthly credits for %q", id)
+		monthlyQuota := MonthlyQuotaPolicy{}
+		if !isFree {
+			var ok bool
+			monthlyQuota, ok = creditRows[commandCodeNormalizeCreditRowName(model.Name)]
+			if !ok {
+				return nil, fmt.Errorf("missing monthly credits for %q", id)
+			}
 		}
 		tiers, err := normalizeCommandCodeDocumentTiers(model.Tiers, isFree)
 		if err != nil {
@@ -916,14 +948,14 @@ func normalizeCommandCodeDocumentModels(models []commandCodeDocumentModel, credi
 			return nil, fmt.Errorf("duplicate commandcode GOAT model %q", id)
 		}
 		entry := commandCodeCatalogEntry{
-			ID:                id,
-			Name:              strings.TrimSpace(model.Name),
-			ContextWindow:     model.ContextWindow,
-			MonthlyCreditsUSD: monthlyCreditsUSD,
-			Tiers:             tiers,
-			Deal:              deal,
-			ScheduledChange:   scheduledChange,
-			TimeOfDay:         timeOfDay,
+			ID:              id,
+			Name:            strings.TrimSpace(model.Name),
+			ContextWindow:   model.ContextWindow,
+			MonthlyQuota:    monthlyQuota.Clone(),
+			Tiers:           tiers,
+			Deal:            deal,
+			ScheduledChange: scheduledChange,
+			TimeOfDay:       timeOfDay,
 		}
 		if err := validateCommandCodeCatalogEntry(entry); err != nil {
 			return nil, fmt.Errorf("validate commandcode GOAT model %q: %w", id, err)
@@ -1200,11 +1232,16 @@ func parseCommandCodeDocumentTimeOfDay(raw json.RawMessage) (*commandCodeCatalog
 			return nil, fmt.Errorf("overlapping peak windows")
 		}
 	}
+	var weekdays []time.Weekday
+	if commandCodeWeekdaysPattern.MatchString(document.Windows) {
+		weekdays = []time.Weekday{time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday}
+	}
 	return &commandCodeCatalogTimeOfDay{
 		Effective: effective.UTC(),
 		Peak:      peak,
 		OffPeak:   offPeak,
 		Windows:   windows,
+		Weekdays:  weekdays,
 	}, nil
 }
 

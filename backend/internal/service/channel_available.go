@@ -401,7 +401,7 @@ func (s *ChannelService) fillModelUsageOffers(models []SupportedModel) {
 
 func (s *ChannelService) fillModelQuotaCosts(models []SupportedModel) {
 	for i := range models {
-		if !isOpenCodeGoPricingPlatform(models[i].Platform) {
+		if !isOpenCodeGoPricingPlatform(models[i].Platform) && models[i].Platform != PlatformCommandCode {
 			continue
 		}
 		candidates := []string{models[i].Name}
@@ -423,8 +423,17 @@ func (s *ChannelService) fillModelQuotaCosts(models []SupportedModel) {
 }
 
 func (s *ChannelService) fillModelQuotaCostForName(model *SupportedModel, pricingModel string) bool {
+	return s.fillModelQuotaCostForNameAt(model, pricingModel, time.Now())
+}
+
+func (s *ChannelService) fillModelQuotaCostForNameAt(model *SupportedModel, pricingModel string, at time.Time) bool {
 	if s == nil || model == nil {
 		return false
+	}
+	model.QuotaCost = nil
+	model.MonthlyQuota = nil
+	if model.Platform == PlatformCommandCode && model.UsageOffer != nil && model.UsageOffer.Code == "commandcode_monthly_credits" {
+		model.UsageOffer = nil
 	}
 	billingService := s.billingService
 	if billingService == nil {
@@ -436,10 +445,18 @@ func (s *ChannelService) fillModelQuotaCostForName(model *SupportedModel, pricin
 	case isOpenCodeGoPricingPlatform(model.Platform):
 		quotaCost, ok = billingService.GetOpenCodeGoQuotaCost(pricingModel)
 	case model.Platform == PlatformCommandCode:
-		quotaCost, ok = billingService.GetCommandCodeQuotaCost(pricingModel)
+		var quota ModelMonthlyQuota
+		quota, ok = defaultCommandCodeCatalog.MonthlyQuotaAt(pricingModel, at)
+		if ok {
+			model.MonthlyQuota = &quota
+			quotaCost = OpenCodeGoQuotaCost{IncludedMonthlyUsageUSD: quota.CreditsUSD, Multiplier: quota.CostMultiplier}
+			if offer := commandCodeMonthlyQuotaUsageOffer(&quota); offer != nil {
+				model.UsageOffer = offer
+			}
+		}
 		if !ok {
 			// 免费模型无 credits 属于正常情况，返回成功但不设置倍率。
-			pricing, pricingOK := commandCodeReferencePricingAt(pricingModel, time.Now())
+			pricing, pricingOK := commandCodeReferencePricingAt(pricingModel, at)
 			if pricingOK && pricing.AllowZeroRate {
 				return true
 			}
@@ -459,16 +476,21 @@ func (s *ChannelService) fillModelQuotaCostForName(model *SupportedModel, pricin
 }
 
 func (s *ChannelService) fillCommandCodeMetadataForName(model *SupportedModel, pricingModel string) {
+	s.fillCommandCodeMetadataForNameAt(model, pricingModel, time.Now())
+}
+
+func (s *ChannelService) fillCommandCodeMetadataForNameAt(model *SupportedModel, pricingModel string, at time.Time) {
 	if model == nil || model.Platform != PlatformCommandCode {
 		return
 	}
-	contextWindow, promotion, ok := commandCodeReferenceMetadataAt(pricingModel, time.Now())
+	contextWindow, promotion, ok := commandCodeReferenceMetadataAt(pricingModel, at)
 	if !ok {
 		return
 	}
 	model.ContextWindow = contextWindow
 	if model.PricingSource == PricingSourceCatalog {
 		model.Promotion = promotion
+		model.UsageOffer = nil
 		if promotion != nil {
 			// 官方促销（50% off / Free）在价格页“官方额度活动”列展示。
 			model.UsageOffer = &ModelUsageOffer{
@@ -477,6 +499,19 @@ func (s *ChannelService) fillCommandCodeMetadataForName(model *SupportedModel, p
 				UsageMultiplier: 1,
 			}
 		}
+	}
+	if offer := commandCodeMonthlyQuotaUsageOffer(model.MonthlyQuota); offer != nil {
+		model.UsageOffer = offer
+	}
+}
+
+func commandCodeMonthlyQuotaUsageOffer(quota *ModelMonthlyQuota) *ModelUsageOffer {
+	if quota == nil || quota.BaseCreditsUSD <= 0 || quota.CreditsUSD <= quota.BaseCreditsUSD {
+		return nil
+	}
+	return &ModelUsageOffer{
+		Code:            "commandcode_monthly_credits",
+		UsageMultiplier: quota.CreditsUSD / quota.BaseCreditsUSD,
 	}
 }
 

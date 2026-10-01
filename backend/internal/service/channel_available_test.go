@@ -612,17 +612,21 @@ func TestBuildCatalogSupportedModel_CommandCode(t *testing.T) {
 	require.NotNil(t, ds.QuotaCost)
 	require.InDelta(t, 20, ds.QuotaCost.IncludedMonthlyUsageUSD, 1e-9)
 	require.InDelta(t, 3.5, ds.QuotaCost.CostMultiplier, 1e-9)
-	require.Len(t, ds.PricingTimeBands, 2)
+	require.Len(t, ds.PricingTimeBands, len(commandCodeReferencePricingTimeBandsAt("deepseek/deepseek-v4-pro", time.Now())))
 	offPeak := ds.PricingTimeBands[0]
 	require.Equal(t, "off_peak", offPeak.Code)
 	require.InDelta(t, 0.66e-6, *offPeak.Pricing.InputPrice, 1e-15)
 	require.InDelta(t, 1.98e-6, *offPeak.Pricing.OutputPrice, 1e-15)
 	require.InDelta(t, 0.022e-6, *offPeak.Pricing.CacheReadPrice, 1e-15)
-	peak := ds.PricingTimeBands[1]
-	require.Equal(t, "peak", peak.Code)
-	require.InDelta(t, 1.32e-6, *peak.Pricing.InputPrice, 1e-15)
-	require.InDelta(t, 3.96e-6, *peak.Pricing.OutputPrice, 1e-15)
-	require.InDelta(t, 0.044e-6, *peak.Pricing.CacheReadPrice, 1e-15)
+	if len(ds.PricingTimeBands) == 2 {
+		peak := ds.PricingTimeBands[1]
+		require.Equal(t, "peak", peak.Code)
+		require.InDelta(t, 1.32e-6, *peak.Pricing.InputPrice, 1e-15)
+		require.InDelta(t, 3.96e-6, *peak.Pricing.OutputPrice, 1e-15)
+		require.InDelta(t, 0.044e-6, *peak.Pricing.CacheReadPrice, 1e-15)
+	} else {
+		require.Equal(t, []string{"00:00-24:00"}, offPeak.TimeRanges)
+	}
 
 	// 2. Qwen 3.7 Max flat with cache write
 	qwen := svc.BuildCatalogSupportedModel("Qwen/Qwen3.7-Max", PlatformCommandCode, nil)

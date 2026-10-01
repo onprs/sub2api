@@ -51,6 +51,8 @@ export interface ModelPricingRow {
   promotionTerm: string
   promotionExpiresAt: string
   promotionFree: boolean
+  monthlyQuotaTerm: string
+  monthlyQuotaExpiresAt: string
   groupId: number
   groupName: string
   subscriptionType: string
@@ -252,7 +254,7 @@ function peakRateFields(group: UserAvailableGroup): Pick<
 
 function commandCodeMetadataFields(model: UserSupportedModel): Pick<
   ModelPricingRow,
-  'contextLength' | 'promotionLabel' | 'promotionTerm' | 'promotionExpiresAt' | 'promotionFree'
+  'contextLength' | 'promotionLabel' | 'promotionTerm' | 'promotionExpiresAt' | 'promotionFree' | 'monthlyQuotaTerm' | 'monthlyQuotaExpiresAt'
 > {
   const contextLength = model.context_length
   const promotion = model.promotion
@@ -265,6 +267,8 @@ function commandCodeMetadataFields(model: UserSupportedModel): Pick<
     promotionTerm: promotion?.term || '',
     promotionExpiresAt: promotion?.expires_at || '',
     promotionFree: Boolean(promotion?.free),
+    monthlyQuotaTerm: model.monthly_quota?.term || '',
+    monthlyQuotaExpiresAt: model.monthly_quota?.expires_at || '',
   }
 }
 

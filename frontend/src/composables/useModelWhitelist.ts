@@ -413,11 +413,12 @@ const antigravityPresetMappings = [
 const opencodeGoPresetMappings: typeof anthropicPresetMappings = []
 const clinePassPresetMappings: typeof anthropicPresetMappings = []
 const openRouterPresetMappings: typeof anthropicPresetMappings = []
+// 2026-10-01 官方 GOAT 与 Provider API 交叉核对的离线目录。
 const commandCodeModels = [
+  'claude-sonnet-5-5',
   'gpt-5.6-sol',
   'gpt-5.6-luna',
   'gpt-6-luna',
-  'stealth/pixel-canary',
   'stealth/space-bunny-alpha',
   'google/gemini-3.8-flash',
   'google/gemini-3.7-flash',
@@ -433,6 +434,7 @@ const commandCodeModels = [
   'deepseek/deepseek-v4-flash-vision-exp',
   'deepseek/deepseek-v4-flash-fast',
   'deepseek/deepseek-v4.1-flash',
+  'deepseek/deepseek-v4.1-flash-fast',
   'moonshotai/Kimi-K3',
   'moonshotai/Kimi-K2.7-Code',
   'moonshotai/Kimi-K2.7-Code-Highspeed',
@@ -470,6 +472,7 @@ const commandCodeModels = [
   'tencent/hy4-preview',
   'meituan/LongCat-2.0',
   'inclusionai/ling-3.0-flash-sante:free',
+  'inclusionai/ling-3.1-flash:free',
   'nvidia/nemotron-3-ultra-550b-a55b',
   'thinkingmachines/inkling',
   'thinkingmachines/inkling-small',

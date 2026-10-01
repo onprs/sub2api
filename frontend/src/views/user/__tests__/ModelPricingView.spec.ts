@@ -70,6 +70,7 @@ const messages: Record<string, string> = {
   'modelPricing.sources.missing': '未配置',
   'modelPricing.usageOffers.multiplier': '{multiplier} usage limits',
   'modelPricing.usageOffers.detail': 'Included in actual prices and charges',
+  'modelPricing.usageOffers.validUntil': 'Valid until {time} (UTC)',
   'modelPricing.timeBands.off_peak': 'Off-Peak',
   'modelPricing.timeBands.peak': 'Peak',
   'modelPricing.billingModes.token': 'Per Token',
@@ -336,6 +337,55 @@ describe('ModelPricingView', () => {
     expect(offerCell).toBeTruthy()
     const offerSpan = offerCell!.find('span[title]')
     expect(offerSpan.attributes('title')).toContain('ends December 31, 2026')
+  })
+
+  it('额度活动到期后自动刷新倍率，并在桌面和移动端显示截止时间', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-07T23:59:58Z'))
+    const channels = makeChannel()
+    const section = channels[0].platforms[0]
+    const model = section.supported_models[0]
+    section.platform = 'commandcode'
+    section.groups[0].platform = 'commandcode'
+    model.platform = 'commandcode'
+    model.name = 'moonshotai/Kimi-K3'
+    model.model_specific_multiplier = 70 / 60
+    model.monthly_quota = {
+      base_credits_usd: 20,
+      credits_usd: 60,
+      cost_multiplier: 70 / 60,
+      starts_at: '2026-09-30T00:00:00Z',
+      expires_at: '2026-10-08T00:00:00Z',
+      next_change_at: '2026-10-08T00:00:00Z',
+      term: 'through Oct 7th',
+    }
+    model.usage_offer = { code: 'commandcode_monthly_credits', usage_multiplier: 3 }
+    const expired = structuredClone(channels)
+    const expiredModel = expired[0].platforms[0].supported_models[0]
+    expiredModel.model_specific_multiplier = 3.5
+    expiredModel.monthly_quota = { base_credits_usd: 20, credits_usd: 20, cost_multiplier: 3.5 }
+    expiredModel.usage_offer = undefined
+    getAvailable.mockResolvedValueOnce(channels).mockResolvedValue(expired)
+    getUserGroupRates.mockResolvedValue({})
+    const wrapper = mountView()
+    await flushPromises()
+    await selectPricingScope(wrapper, 'commandcode', 20)
+    const offers = wrapper.findAll('span[title]').filter(span => span.text().includes('3x usage limits'))
+    expect(offers).toHaveLength(2)
+    for (const offer of offers) {
+      expect(offer.attributes('title')).toContain('through Oct 7th')
+      expect(offer.attributes('title')).toContain('2026-10-08 00:00:00 (UTC)')
+    }
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(getAvailable).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+    expect(getAvailable).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).not.toContain('3x usage limits')
+    expect(wrapper.text()).toContain('3.5x')
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(getAvailable).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
   })
 
   it('renders compact capability badges under the model ID and hides unknown ones', async () => {

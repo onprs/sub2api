@@ -111,6 +111,7 @@ export default {
     },
     usageOffers: {
       multiplier: '{multiplier} 用量额度',
+      validUntil: '有效至 {time}（UTC）',
       detail: '活动倍数已除入模型额度倍率，并反映到实际价格、用户扣费和 Usage History'
     },
     timeBands: {

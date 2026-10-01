@@ -333,6 +333,9 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 	if len(billingModels) == 0 {
 		return nil, "", errors.New("usage billing model is empty")
 	}
+	if pricingAt.IsZero() {
+		pricingAt = time.Now()
+	}
 	var lastErr error
 	for _, candidate := range billingModels {
 		candidate = strings.TrimSpace(candidate)
@@ -355,7 +358,7 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 					applyModelSpecificMultiplierToCost(cost, 1)
 					break
 				}
-				quotaCost, ok := s.billingService.GetCommandCodeQuotaCost(candidate)
+				quotaCost, ok := s.billingService.GetCommandCodeQuotaCostAt(candidate, pricingAt)
 				if !ok {
 					err = openCodeGoQuotaCostUnavailableError(candidate)
 				} else {
