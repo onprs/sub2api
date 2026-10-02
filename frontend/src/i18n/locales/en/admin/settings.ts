@@ -1034,6 +1034,27 @@ export default {
         securityWarning: 'Warning: This key provides full admin access. Keep it secure.',
         usage: 'Usage: Add to request header - x-api-key: <your-admin-api-key>'
       },
+      adminReadOnlyApiKey: {
+        title: 'Read-only API Key',
+        description: 'Allow external systems to view groups, accounts, quota usage, and remaining Claude resets.',
+        notConfigured: 'Read-only API key not configured',
+        currentKey: 'Current Key',
+        create: 'Create Read-only Key',
+        creating: 'Creating...',
+        regenerate: 'Regenerate',
+        regenerating: 'Regenerating...',
+        delete: 'Delete',
+        regenerateConfirm: 'Regenerate the read-only key? The current read-only key will immediately stop working.',
+        deleteConfirm: 'Delete the read-only key? Queries using this key will stop working.',
+        keyGenerated: 'Read-only API key generated',
+        keyDeleted: 'Read-only API key deleted',
+        copyKey: 'Copy Key',
+        keyCopied: 'Key copied to clipboard',
+        keyWarning: 'This key is shown only once. Copy and save it now.',
+        usage: 'Use the x-api-key request header. This key grants query access only.',
+        loadFailed: 'Failed to load the read-only key status. Please retry.',
+        retry: 'Retry'
+      },
       overloadCooldown: {
         title: '529 Overload Cooldown',
         description: 'Configure account scheduling pause strategy when upstream returns 529 (overloaded)',

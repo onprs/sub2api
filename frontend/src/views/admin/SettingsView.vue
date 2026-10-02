@@ -198,6 +198,7 @@
               </div>
             </div>
           </div>
+          <ReadOnlyApiKeySettings />
         </div>
         <!-- /Tab: Security — Admin API Key -->
 
@@ -9074,6 +9075,7 @@ import type {
 import type { ProviderInstance } from "@/types/payment";
 import AppLayout from "@/components/layout/AppLayout.vue";
 import Icon from "@/components/icons/Icon.vue";
+import ReadOnlyApiKeySettings from "@/components/admin/ReadOnlyApiKeySettings.vue";
 import Select, { type SelectOption } from "@/components/common/Select.vue";
 import {
   SITE_BILLING_MODES,

@@ -1290,6 +1290,28 @@ export async function deleteAdminApiKey(): Promise<{ message: string }> {
   return data;
 }
 
+// 只读 API Key 的完整值仅在生成响应中返回。
+export async function getAdminReadOnlyApiKey(): Promise<AdminApiKeyStatus> {
+  const { data } = await apiClient.get<AdminApiKeyStatus>(
+    "/admin/settings/admin-read-only-api-key",
+  );
+  return data;
+}
+
+export async function regenerateAdminReadOnlyApiKey(): Promise<{ key: string }> {
+  const { data } = await apiClient.post<{ key: string }>(
+    "/admin/settings/admin-read-only-api-key/regenerate",
+  );
+  return data;
+}
+
+export async function deleteAdminReadOnlyApiKey(): Promise<{ message: string }> {
+  const { data } = await apiClient.delete<{ message: string }>(
+    "/admin/settings/admin-read-only-api-key",
+  );
+  return data;
+}
+
 // ==================== Overload Cooldown Settings ====================
 
 /**
@@ -1596,6 +1618,9 @@ export const settingsAPI = {
   getAdminApiKey,
   regenerateAdminApiKey,
   deleteAdminApiKey,
+  getAdminReadOnlyApiKey,
+  regenerateAdminReadOnlyApiKey,
+  deleteAdminReadOnlyApiKey,
   getOverloadCooldownSettings,
   updateOverloadCooldownSettings,
   getRateLimit429CooldownSettings,

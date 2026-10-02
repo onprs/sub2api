@@ -685,6 +685,14 @@ func (h *AccountHandler) List(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	if isAdminReadOnlyAPIKey(c) {
+		items := make([]dto.AdminReadOnlyAccount, 0, len(accounts))
+		for i := range accounts {
+			items = append(items, *dto.AdminReadOnlyAccountFromService(&accounts[i]))
+		}
+		response.Paginated(c, items, total, page, pageSize)
+		return
+	}
 	if len(accounts) > 0 {
 		accountPointers := make([]*service.Account, len(accounts))
 		for index := range accounts {
@@ -953,6 +961,10 @@ func (h *AccountHandler) GetByID(c *gin.Context) {
 	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
+		return
+	}
+	if isAdminReadOnlyAPIKey(c) {
+		response.Success(c, dto.AdminReadOnlyAccountFromService(account))
 		return
 	}
 	if h.ollamaCloudUsage != nil {
@@ -2589,7 +2601,9 @@ func (h *AccountHandler) GetUsage(c *gin.Context) {
 	force := c.Query("force") == "true"
 
 	var usage *service.UsageInfo
-	if source == "passive" {
+	if isAdminReadOnlyAPIKey(c) {
+		usage, err = h.accountUsageService.GetReadOnlyUsage(c.Request.Context(), accountID, source)
+	} else if source == "passive" {
 		usage, err = h.accountUsageService.GetPassiveUsage(c.Request.Context(), accountID)
 	} else {
 		usage, err = h.accountUsageService.GetUsage(c.Request.Context(), accountID, force)
@@ -2784,7 +2798,14 @@ func (h *AccountHandler) GetBatchUsage(c *gin.Context) {
 		return
 	}
 
-	usageByAccount, errorsByAccount, err := h.accountUsageService.GetUsageBatch(c.Request.Context(), accountIDs, req.Force)
+	var usageByAccount map[int64]*service.UsageInfo
+	var errorsByAccount map[int64]string
+	var err error
+	if isAdminReadOnlyAPIKey(c) {
+		usageByAccount, errorsByAccount, err = h.accountUsageService.GetReadOnlyUsageBatch(c.Request.Context(), accountIDs)
+	} else {
+		usageByAccount, errorsByAccount, err = h.accountUsageService.GetUsageBatch(c.Request.Context(), accountIDs, req.Force)
+	}
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

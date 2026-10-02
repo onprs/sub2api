@@ -1028,6 +1028,27 @@ export default {
         securityWarning: '警告：此密钥拥有完整的管理员权限，请妥善保管。',
         usage: '使用方法：在请求头中添加 x-api-key: <your-admin-api-key>'
       },
+      adminReadOnlyApiKey: {
+        title: '只读 API Key',
+        description: '用于外部系统查看分组、账号、额度和 Claude 剩余重置次数。',
+        notConfigured: '尚未配置只读 API Key',
+        currentKey: '当前密钥',
+        create: '创建只读密钥',
+        creating: '创建中...',
+        regenerate: '重新生成',
+        regenerating: '生成中...',
+        delete: '删除',
+        regenerateConfirm: '确定要重新生成只读密钥吗？当前只读密钥将立即失效。',
+        deleteConfirm: '确定要删除只读密钥吗？使用此密钥的查询将停止工作。',
+        keyGenerated: '只读 API Key 已生成',
+        keyDeleted: '只读 API Key 已删除',
+        copyKey: '复制密钥',
+        keyCopied: '密钥已复制到剪贴板',
+        keyWarning: '此密钥仅显示一次，请立即复制保存。',
+        usage: '请求头使用 x-api-key。此密钥仅有查询权限。',
+        loadFailed: '读取只读密钥状态失败，请重试。',
+        retry: '重试'
+      },
       overloadCooldown: {
         title: '529 过载冷却',
         description: '配置上游返回 529（过载）时的账号调度暂停策略',

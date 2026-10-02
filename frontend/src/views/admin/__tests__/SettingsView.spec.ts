@@ -91,6 +91,7 @@ vi.mock("@/api", () => ({
       getWebSearchEmulationConfig,
       updateWebSearchEmulationConfig,
       getAdminApiKey,
+      getAdminReadOnlyApiKey: vi.fn().mockResolvedValue({ exists: false, masked_key: "" }),
       getOverloadCooldownSettings,
       getRateLimit429CooldownSettings,
       updateRateLimit429CooldownSettings,
@@ -813,6 +814,20 @@ describe("admin SettingsView payment visible method controls", () => {
     });
     fetchPublicSettings.mockResolvedValue(undefined);
     adminSettingsFetch.mockResolvedValue(undefined);
+  });
+
+  it("places the read-only key card below the administrator key in the security tab", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    const cards = wrapper.findAll(".card");
+    const adminCard = cards.findIndex(card => card.text().includes("admin.settings.adminApiKey.title"));
+    const readOnlyCard = cards.findIndex(card => card.text().includes("admin.settings.adminReadOnlyApiKey.title"));
+    expect(adminCard).toBeGreaterThanOrEqual(0);
+    expect(readOnlyCard).toBe(adminCard + 1);
+    expect(wrapper.get('[aria-labelledby="read-only-api-key-title"]').isVisible()).toBe(true);
+    wrapper.unmount();
   });
 
   it("loads and saves the open button visibility for each custom menu", async () => {
