@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
-	"math/rand/v2"
 	"net/http"
 	"strings"
 	"sync"
@@ -388,8 +387,6 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 	if account == nil {
 		return nil, fmt.Errorf("account is required")
 	}
-	accountID := account.ID
-
 	// Dedicated UI load-test accounts must remain fully interactive without ever
 	// contacting Anthropic with synthetic credentials. Reuse the same persisted
 	// passive snapshot that the account table loads on mount.
@@ -454,87 +451,7 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 
 	// 只有oauth类型账号可以通过API获取usage（有profile scope）
 	if account.CanGetUsage() {
-		var apiResp *ClaudeUsageResponse
-
-		// 1. 检查缓存（成功响应 3 分钟 / 错误响应 1 分钟）
-		if cached, ok := s.cache.apiCache.Load(accountID); ok {
-			if cache, ok := cached.(*apiUsageCache); ok {
-				age := time.Since(cache.timestamp)
-				if cache.err != nil && age < apiErrorCacheTTL {
-					// 负缓存命中：返回缓存的错误，避免重试风暴
-					return nil, cache.err
-				}
-				if cache.response != nil && age < apiCacheTTL {
-					apiResp = cache.response
-				}
-			}
-		}
-
-		// 2. 如果没有有效缓存，通过 singleflight 从 API 获取（防止并发击穿）
-		if apiResp == nil {
-			// 随机延迟：打散多账号并发请求，避免同一时刻大量相同 TLS 指纹请求
-			// 触发上游反滥用检测。延迟范围 0~800ms，仅在缓存未命中时生效。
-			jitter := time.Duration(rand.Int64N(int64(apiQueryMaxJitter)))
-			select {
-			case <-time.After(jitter):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-
-			flightKey := fmt.Sprintf("usage:%d", accountID)
-			result, flightErr, _ := s.cache.apiFlight.Do(flightKey, func() (any, error) {
-				// 再次检查缓存（可能在等待 singleflight 期间被其他请求填充）
-				if cached, ok := s.cache.apiCache.Load(accountID); ok {
-					if cache, ok := cached.(*apiUsageCache); ok {
-						age := time.Since(cache.timestamp)
-						if cache.err != nil && age < apiErrorCacheTTL {
-							return nil, cache.err
-						}
-						if cache.response != nil && age < apiCacheTTL {
-							return cache.response, nil
-						}
-					}
-				}
-				resp, fetchErr := s.fetchOAuthUsageRaw(ctx, account)
-				if fetchErr != nil {
-					// 负缓存：缓存错误响应，防止后续请求重复触发 429
-					s.cache.apiCache.Store(accountID, &apiUsageCache{
-						err:       fetchErr,
-						timestamp: time.Now(),
-					})
-					return nil, fetchErr
-				}
-				// 缓存成功响应
-				s.cache.apiCache.Store(accountID, &apiUsageCache{
-					response:  resp,
-					timestamp: time.Now(),
-				})
-				return resp, nil
-			})
-			if flightErr != nil {
-				return nil, flightErr
-			}
-			apiResp, _ = result.(*ClaudeUsageResponse)
-		}
-
-		// 3. 构建 UsageInfo（每次都重新计算 RemainingSeconds）
-		now := time.Now()
-		usage := s.buildUsageInfo(apiResp, &now)
-
-		// 4. 添加窗口统计（有独立缓存，1 分钟）
-		s.addWindowStats(ctx, account, usage)
-
-		// 5. 将主动查询结果同步到被动缓存，下次 passive 加载即为最新值
-		s.syncActiveToPassive(ctx, account.ID, usage)
-
-		// 6. 上游 usage API 目前不一定下发 Fable 7d 窗口；缺失时回填被动采样
-		// （7d_oi 响应头）的数据，避免主动查询后 7d F 进度条丢失。
-		if usage.SevenDayFable == nil {
-			usage.SevenDayFable = buildPassiveUsageWindow(account.Extra, "passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset")
-		}
-
-		s.tryClearRecoverableAccountError(ctx, account)
-		return usage, nil
+		return s.getAnthropicOAuthUsage(ctx, account, false)
 	}
 
 	// Setup Token账号：根据session_window推算（没有profile scope，无法调用usage API）

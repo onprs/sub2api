@@ -49,7 +49,11 @@ func adminAuth(
 		// 检查 x-api-key header（Admin API Key 认证）
 		apiKey := c.GetHeader("x-api-key")
 		if apiKey != "" {
-			if !validateAdminAPIKey(c, apiKey, settingService, userService) {
+			if strings.HasPrefix(apiKey, service.AdminReadOnlyAPIKeyPrefix) {
+				if !validateAdminReadOnlyAPIKey(c, apiKey, settingService, userService) {
+					return
+				}
+			} else if !validateAdminAPIKey(c, apiKey, settingService, userService) {
 				return
 			}
 			c.Next()

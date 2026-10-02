@@ -391,6 +391,10 @@ func (h *GroupHandler) List(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	if isAdminReadOnlyAPIKey(c) {
+		response.Paginated(c, adminReadOnlyGroups(groups, h.isSimpleMode()), total, page, pageSize)
+		return
+	}
 
 	if h.isSimpleMode() {
 		simpleGroups := make([]simpleModeGroupResponse, 0, len(groups))
@@ -578,6 +582,10 @@ func (h *GroupHandler) GetAll(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	if isAdminReadOnlyAPIKey(c) {
+		response.Success(c, adminReadOnlyGroups(groups, h.isSimpleMode()))
+		return
+	}
 
 	if h.isSimpleMode() {
 		simpleGroups := make([]simpleModeGroupResponse, 0, len(groups))
@@ -611,6 +619,10 @@ func (h *GroupHandler) GetByID(c *gin.Context) {
 	group, err := h.adminService.GetGroup(c.Request.Context(), groupID)
 	if err != nil {
 		response.ErrorFrom(c, err)
+		return
+	}
+	if isAdminReadOnlyAPIKey(c) {
+		response.Success(c, dto.AdminReadOnlyGroupFromService(group))
 		return
 	}
 
