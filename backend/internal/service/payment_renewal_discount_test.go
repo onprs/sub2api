@@ -167,8 +167,11 @@ func TestCreateOrderInTxSnapshotsRenewalDiscountPricing(t *testing.T) {
 			RenewalEligible:        true,
 			RenewalDiscountPercent: &discount,
 		},
+		7.40,
+		7.40,
 		0,
 		7.40,
+		0,
 		nil,
 	)
 

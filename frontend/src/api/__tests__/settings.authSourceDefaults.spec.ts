@@ -20,6 +20,7 @@ const allNullQuotas: DefaultPlatformQuotasMap = {
   clinepass: { daily: null, weekly: null, monthly: null },
   openrouter: { daily: null, weekly: null, monthly: null },
   commandcode: { daily: null, weekly: null, monthly: null },
+  typesafe: { daily: null, weekly: null, monthly: null },
 }
 
 describe("admin settings auth source defaults helpers", () => {
@@ -247,9 +248,9 @@ describe("normalizePlatformQuotasMap", () => {
     expect(result.openrouter).toEqual({ daily: null, weekly: null, monthly: null });
   });
 
-  it("无参数时返回全 9 平台全 null", () => {
+  it("无参数时返回全 10 平台全 null", () => {
     const result = normalizePlatformQuotasMap();
-    expect(Object.keys(result)).toHaveLength(9);
+    expect(Object.keys(result)).toHaveLength(10);
     for (const v of Object.values(result)) {
       expect(v).toEqual({ daily: null, weekly: null, monthly: null });
     }
@@ -297,7 +298,7 @@ describe("sanitizePlatformQuotasMap", () => {
 
   it("缺失平台填充为全 null", () => {
     const result = sanitizePlatformQuotasMap({});
-    expect(Object.keys(result)).toHaveLength(9);
+    expect(Object.keys(result)).toHaveLength(10);
     for (const v of Object.values(result)) {
       expect(v).toEqual({ daily: null, weekly: null, monthly: null });
     }

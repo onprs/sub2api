@@ -84,9 +84,12 @@ func TestCreateOrderInTx_WritesProviderSnapshot(t *testing.T) {
 			MaxPendingOrders: 3,
 			OrderTimeoutMin:  30,
 		},
-		subscriptionOrderPricing{EffectivePrice: 88},
+		subscriptionOrderPricing{},
+		88,
+		88,
 		0,
 		88,
+		0,
 		&payment.InstanceSelection{
 			InstanceID:     strconv.FormatInt(instance.ID, 10),
 			ProviderKey:    payment.TypeAlipay,
@@ -159,8 +162,11 @@ func TestCreateOrderInTx_WritesSubscriptionQuotaSnapshot(t *testing.T) {
 		plan,
 		&PaymentConfig{MaxPendingOrders: 3, OrderTimeoutMin: 30},
 		subscriptionOrderPricing{PlanPrice: plan.Price, EffectivePrice: plan.Price},
+		plan.Price,
+		plan.Price,
 		0,
 		plan.Price,
+		0,
 		nil,
 	)
 	require.NoError(t, err)

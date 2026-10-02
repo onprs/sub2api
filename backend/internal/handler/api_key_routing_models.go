@@ -37,7 +37,7 @@ func dynamicAPIKeyModels(ctx context.Context, gateway *service.GatewayService, a
 		groupID := group.ID
 		var available []string
 		if groupPlatform == service.PlatformComposite {
-			available = compositeAvailableModelsForGroup(ctx, gateway, &groupID)
+			available = compositeAvailableModelsForGroup(ctx, gateway, &groupID, !codex)
 		} else {
 			available = gateway.GetAvailableModels(ctx, &groupID, groupPlatform)
 		}
@@ -72,7 +72,7 @@ func appendExplicitGroupAllowlistModels(models, allowlist []string) []string {
 	return mergeModelIDs(models, explicit)
 }
 
-func compositeAvailableModelsForGroup(ctx context.Context, gateway *service.GatewayService, groupID *int64) []string {
+func compositeAvailableModelsForGroup(ctx context.Context, gateway *service.GatewayService, groupID *int64, includeSystemOne bool) []string {
 	if gateway == nil {
 		return nil
 	}
@@ -89,11 +89,16 @@ func compositeAvailableModelsForGroup(ctx context.Context, gateway *service.Gate
 		service.PlatformZhipu,
 		service.PlatformDeepseek,
 		service.PlatformMiniMax,
+		service.PlatformOpenCode,
+		service.PlatformTypeSafe,
 	} {
+		if platform == service.PlatformTypeSafe && !includeSystemOne {
+			continue
+		}
 		platformModels := gateway.GetAvailableModelsForComposite(ctx, groupID, platform)
 		if len(platformModels) == 0 {
 			// CN 供应商没有可靠的静态默认模型列表，只暴露账号映射键。
-			if _, ok := schedulablePlatforms[platform]; ok && !service.IsCNProvider(platform) {
+			if _, ok := schedulablePlatforms[platform]; ok && !service.IsMultiProtocolAPIKeyProvider(platform) {
 				platformModels = defaultModelIDsForPlatform(platform)
 			}
 		}

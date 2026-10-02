@@ -35,6 +35,7 @@ const (
 	PlatformZhipu     = "zhipu"    // 智谱 GLM (bigmodel)
 	PlatformDeepseek  = "deepseek" // DeepSeek
 	PlatformMiniMax   = "minimax"  // MiniMax (M 系列)
+	PlatformTypeSafe  = "typesafe" // TypeSafe 的 System One 协议（Jev）
 	PlatformComposite = "composite"
 )
 

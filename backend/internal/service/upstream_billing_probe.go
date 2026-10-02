@@ -1014,7 +1014,7 @@ func IsUpstreamBillingProbeIdentity(platform, accountType string) bool {
 	switch platform {
 	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformAntigravity, PlatformGrok,
 		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax,
-		PlatformOpenCodeGo, PlatformClinePass, PlatformOpenRouter, PlatformCommandCode:
+		PlatformOpenCodeGo, PlatformClinePass, PlatformOpenRouter, PlatformCommandCode, PlatformTypeSafe:
 		return true
 	default:
 		return false
@@ -1057,6 +1057,7 @@ var upstreamBillingProbeOfficialAPIDomains = []string{
 	"cline.bot",
 	"openrouter.ai",
 	"commandcode.ai",
+	"typesafe.ai",
 }
 
 func upstreamBillingProbeTargetIsOfficialAPI(baseURL string) bool {

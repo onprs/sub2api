@@ -18,7 +18,8 @@ const concretePlatforms = [
   'kimi',
   'zhipu',
   'deepseek',
-  'minimax'
+  'minimax',
+  'typesafe'
 ]
 
 describe('platform option catalogs', () => {
@@ -37,7 +38,8 @@ describe('platform option catalogs', () => {
       'kimi',
       'zhipu',
       'deepseek',
-      'minimax'
+      'minimax',
+      'typesafe'
     ])
   })
 

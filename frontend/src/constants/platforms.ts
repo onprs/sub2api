@@ -18,7 +18,8 @@ const CN_PLATFORM_OPTIONS = [
   { value: 'kimi', label: 'Kimi' },
   { value: 'zhipu', label: 'Zhipu GLM' },
   { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'minimax', label: 'MiniMax' }
+  { value: 'minimax', label: 'MiniMax' },
+  { value: 'typesafe', label: 'TypeSafe / Jev' }
 ] as const satisfies readonly PlatformOption<AccountPlatform>[]
 
 /** Platforms supported as Composite model route targets. */

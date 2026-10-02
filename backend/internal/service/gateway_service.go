@@ -1541,6 +1541,11 @@ func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64,
 		accounts = filtered
 	}
 
+	// 仅在该平台确实有可调度账号时补充内置目录，避免跨平台泄漏模型。
+	if len(accounts) == 0 {
+		return nil
+	}
+
 	if platform == PlatformCommandCode {
 		models := CommandCodeDefaultModelIDs()
 		if s.modelsListCache != nil {
