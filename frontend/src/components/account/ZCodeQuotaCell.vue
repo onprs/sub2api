@@ -2,9 +2,9 @@
   <div data-test="zcode-quota" class="min-w-0 space-y-1 text-xs text-gray-600 dark:text-gray-300">
     <div class="flex flex-wrap items-center gap-2"><span class="font-medium">{{ quota?.plan === 'coding' || account.credentials?.account_mode === 'coding' ? 'Coding Plan' : 'Start Plan' }}</span><button type="button" data-test="zcode-quota-refresh" class="text-primary-600 disabled:opacity-50 dark:text-primary-400" :disabled="loading" @click="refresh">{{ t('admin.accounts.cnProviders.probe') }}</button></div>
     <div v-if="!quota || !quota.balances.length" class="text-gray-400">{{ t('admin.accounts.zcode.quotaUnknown') }}</div>
-    <div v-for="(balance, index) in quota?.balances || []" :key="index" class="space-y-1">
-      <span>{{ balance.name }}</span>
-      <div v-if="balance.remaining != null" data-test="zcode-remaining">{{ t('admin.accounts.zcode.remaining') }}: {{ number(balance.remaining) }}<span v-if="balance.total != null"> / {{ number(balance.total) }}</span><span v-if="balance.unit"> {{ balance.unit }}</span></div>
+    <div v-for="(balance, index) in quota?.balances || []" :key="index" class="space-y-1.5">
+      <span v-if="balance.remaining == null && balance.used_percent == null">{{ balance.name }}</span>
+      <div v-if="balance.remaining != null" data-test="zcode-remaining"><span v-if="balance.used_percent == null" class="font-medium">{{ balance.name }}</span> {{ t('admin.accounts.zcode.remaining') }}: {{ number(balance.remaining) }}<span v-if="balance.total != null"> / {{ number(balance.total) }}</span><span v-if="balance.unit"> {{ balance.unit }}</span></div>
       <UsageProgressBar v-if="balance.used_percent != null" :label="balance.window === '5h' ? t('admin.accounts.cnProviders.window5h') : balance.window === 'weekly' ? t('admin.accounts.cnProviders.windowWeekly') : balance.name" :utilization="balance.used_percent" :resets-at="balance.reset_at ? new Date(balance.reset_at * 1000).toISOString() : undefined" color="indigo" />
       <div v-if="balance.effective_at && balance.effective_at > now">{{ t('admin.accounts.zcode.effectiveAt') }}: {{ date(balance.effective_at) }}</div>
       <div v-if="balance.expires_at">{{ t('admin.accounts.zcode.expiresAt') }}: {{ date(balance.expires_at) }}</div>
