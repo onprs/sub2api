@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/zcode"
 	"github.com/tidwall/gjson"
 	"golang.org/x/sync/singleflight"
 )
@@ -52,6 +53,7 @@ type CNQuotaTier struct {
 
 // CNProviderQuotaProbeResult 是 Coding Plan 额度探测的返回结构（管理端 + UI 消费）。
 type CNProviderQuotaProbeResult struct {
+	ZCodeQuota      *zcode.Quota  `json:"zcode_quota,omitempty"`
 	Provider        string        `json:"provider"`
 	Source          string        `json:"source"`
 	Success         bool          `json:"success"`
@@ -71,6 +73,7 @@ type CNProviderQuotaService struct {
 	httpUpstream HTTPUpstream
 	cfg          *config.Config
 	flight       singleflight.Group
+	zcodeService *ZCodeService
 }
 
 // NewCNProviderQuotaService 构造 Coding Plan 额度探测服务。
@@ -103,6 +106,9 @@ func (s *CNProviderQuotaService) QueryUsage(ctx context.Context, accountID int64
 func (s *CNProviderQuotaService) QueryUsageForAccount(ctx context.Context, account *Account) (*CNProviderQuotaProbeResult, error) {
 	if s == nil || s.accountRepo == nil || s.httpUpstream == nil {
 		return nil, infraerrors.New(http.StatusInternalServerError, "CN_QUOTA_NOT_CONFIGURED", "cn provider quota service is not configured")
+	}
+	if account.IsZCodeOAuth() {
+		return s.queryZCodeQuota(ctx, account)
 	}
 	if err := validateCodingPlanAccount(account); err != nil {
 		return nil, err
@@ -284,6 +290,9 @@ func (s *CNProviderQuotaService) loadCodingPlanAccount(ctx context.Context, acco
 // validateCodingPlanAccount 加载后的非 DB 校验（ForAccount 入口同样复用，
 // 保证直传 account 也不绕过平台/模式检查）。
 func validateCodingPlanAccount(account *Account) error {
+	if account.IsZCodeOAuth() {
+		return nil
+	}
 	if account == nil {
 		return infraerrors.New(http.StatusNotFound, "CN_QUOTA_ACCOUNT_NOT_FOUND", "account not found")
 	}

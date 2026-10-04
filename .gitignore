@@ -148,6 +148,7 @@ docs/*
 !docs/PLUGIN_DEVELOPMENT.md
 !docs/channel-monitor-v2-safe-defaults.md
 !docs/codex-credits.md
+!docs/ZCODE_INTEGRATION.md
 !docs/legal/
 !docs/legal/*.md
 !docs/screenshots/

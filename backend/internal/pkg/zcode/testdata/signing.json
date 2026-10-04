@@ -1,0 +1,17 @@
+{
+  "upstream_commit": "0f8788ae02d3a2432b96276f200e7c41bf8f64d7",
+  "id": "synthetic-id",
+  "secret": "synthetic-secret",
+  "ts": "1700000000123",
+  "nonce": "00112233445566778899aabbccddeeff",
+  "session": "synthetic-session",
+  "version": "3.14.0",
+  "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "hkdf_private_hex": "dce15c0dc25248bc06b672db2a37deea3850d71dc0ce5cd63f6d4273298c7cda",
+  "handshake_hmac": "WHk5DYXYRqxAhyJjKsnWHqFWMQCX+n+OK/o8ujF/MmI=",
+  "private_cipher": "AAECAwQFBgcICQoLW/ytCdTMNVcZbdfFD6ajvJtt+LtZL5lrG4lN/WHI0ZjAbSo8an3coc+vNuGG2MHt1gPJEA5NvhZOugrZeaJ7Cw1Norbh18yKZFhTnrxdqn4=",
+  "message": "synthetic-id\n1700000000123\n3.14.0\nsynthetic-session\n00112233445566778899aabbccddeeff",
+  "signature": "zWflYQV+Qn9jkBESzI4D/XT/PXBpys3vQ07FacBfRZa+IQMxF3hTmvw7zALBmogL56pDRlRnStJTRMkUY2pYBg==",
+  "pow_seed": "3ee218754c65d93dcd08332ff9a7cb76",
+  "pow": "00112233445566778899aabb0000008c"
+}

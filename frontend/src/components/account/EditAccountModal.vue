@@ -27,7 +27,12 @@
       </div>
 
       <!-- API Key fields (only for apikey type) -->
-      <div v-if="account.type === 'apikey'" class="space-y-4">
+      <div v-if="account.platform === 'zhipu' && account.type === 'apikey'">
+        <label class="input-label">{{ t('admin.accounts.oauth.authMethod') }}</label>
+        <select v-model="editZCodeAuthMode" data-test="zhipu-auth-mode" class="input"><option value="apikey">API Key</option><option value="zcode_oauth">ZCode OAuth</option></select>
+      </div>
+      <ZCodeOAuthPanel v-if="show && isZCodeOAuthEditing" v-model="editZCodeForm" :proxy-id="form.proxy_id" :account="account" />
+      <div v-if="account.type === 'apikey' && !isZCodeOAuthEditing" class="space-y-4">
         <div v-if="!isCNApiKeyAccount || editApiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -865,7 +870,7 @@
 
       <!-- OpenAI/Grok OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
       <div
-        v-if="(account.platform === 'openai' || account.platform === 'grok') && account.type === 'oauth'"
+        v-if="((account.platform === 'openai' || account.platform === 'grok') && account.type === 'oauth') || isZCodeOAuthEditing"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -3275,6 +3280,8 @@ import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
+import ZCodeOAuthPanel from './ZCodeOAuthPanel.vue'
+import { defaultZCodeForm, isZCodeAccount, zcodeCredentials } from './zcodeForm'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
 import {
   applyAntigravityProjectID,
@@ -3490,6 +3497,13 @@ interface ModelMapping {
 
 // State
 const submitting = ref(false)
+const editZCodeAuthMode = ref<'apikey' | 'zcode_oauth'>('apikey')
+const editZCodeForm = ref(defaultZCodeForm())
+const isZCodeOAuthEditing = computed(() => props.account?.platform === 'zhipu' && editZCodeAuthMode.value === 'zcode_oauth')
+watch([() => props.account, () => props.show], () => {
+  editZCodeAuthMode.value = isZCodeAccount(props.account) ? 'zcode_oauth' : 'apikey'
+  editZCodeForm.value = defaultZCodeForm(props.account)
+}, { immediate: true })
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
 const openCodeGoWorkspaceInput = ref('')
@@ -4888,7 +4902,7 @@ const syncFormFromAccount = (newAccount: Account | null, options: SyncFormFromAc
     editBaseUrl.value = platformDefaultUrl
 
     // Load model mappings for OpenAI/Grok OAuth accounts
-    if ((newAccount.platform === 'openai' || newAccount.platform === 'grok') && newAccount.credentials) {
+    if ((newAccount.platform === 'openai' || newAccount.platform === 'grok' || isZCodeAccount(newAccount)) && newAccount.credentials) {
       const oauthCredentials = newAccount.credentials as Record<string, unknown>
       loadModelRestrictionFromMapping(oauthCredentials.model_mapping as Record<string, unknown> | undefined)
     } else {
@@ -5555,8 +5569,21 @@ const handleSubmit = async () => {
       }
     }
 
-    // For apikey type, handle credentials update
-    if (props.account.type === 'apikey') {
+    if (isZCodeOAuthEditing.value) {
+      const current = props.account.credentials as Record<string, unknown>
+      const changed = !isZCodeAccount(props.account) || current.zcode_provider !== editZCodeForm.value.provider || current.account_mode !== editZCodeForm.value.plan
+      if (changed && !editZCodeForm.value.ready) { appStore.showError(t('admin.accounts.zcode.loginRequired')); return }
+      const credentials = { ...current, ...zcodeCredentials(editZCodeForm.value) }
+      delete credentials.base_url
+      delete credentials.api_base_urls
+      const mapping = buildModelRestrictionMapping()
+      if (mapping) credentials.model_mapping = mapping
+      else delete credentials.model_mapping
+      applyAccountSchedulingThresholdOverridePatch(credentials, current)
+      if (!applyTempUnschedConfig(credentials)) return
+      updatePayload.type = 'oauth'
+      updatePayload.credentials = credentials
+    } else if (props.account.type === 'apikey') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
       const shouldApplyModelMapping = !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)

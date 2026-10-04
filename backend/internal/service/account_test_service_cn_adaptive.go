@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/zcode"
 	"github.com/gin-gonic/gin"
 )
 
@@ -209,6 +210,12 @@ func (s *AccountTestService) doCNProviderAdaptiveRequest(req *http.Request, acco
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	if account.IsZCodeOAuth() {
+		if s.zcodeService == nil {
+			return nil, &zcode.Error{Kind: zcode.ErrConfiguration}
+		}
+		return s.zcodeService.RoundTrip(req, proxyURL, account)
+	}
 	return s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 }
 
@@ -221,6 +228,9 @@ func (s *AccountTestService) doCNProviderAdaptiveRequest(req *http.Request, acco
 // including per-platform defaults) and the shared API-key auth header.
 func (s *AccountTestService) testCNProviderAnthropicConnection(c *gin.Context, account *Account, modelID string) error {
 	ctx := c.Request.Context()
+	if account.IsZCodeOAuth() && strings.TrimSpace(modelID) == "" {
+		modelID = "glm-5.3"
+	}
 
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {

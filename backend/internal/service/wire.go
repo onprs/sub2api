@@ -13,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/zcode"
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -24,6 +25,20 @@ func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthCli
 	if redisClient != nil {
 		svc = svc.WithSessionStore(xai.NewRedisSessionStore(redisClient))
 	}
+	return svc
+}
+
+// ProvideZCodeService 将单一协议边界连接到现有网关、账号测试与分布式任务。
+func ProvideZCodeService(repo AccountRepository, proxy ProxyRepository, upstream HTTPUpstream, encryptor SecretEncryptor, cfg *config.Config, rdb *redis.Client, rateLimit *RateLimitService, gateway *OpenAIGatewayService, tester *AccountTestService, cnQuota *CNProviderQuotaService) *ZCodeService {
+	var store zcode.Store
+	if rdb != nil {
+		store = &zcode.RedisStore{Client: rdb}
+	}
+	svc := NewZCodeService(repo, proxy, upstream, encryptor, cfg, store, rateLimit)
+	gateway.zcodeService = svc
+	tester.zcodeService = svc
+	cnQuota.zcodeService = svc
+	svc.Start()
 	return svc
 }
 
@@ -940,6 +955,7 @@ var ProviderSet = wire.NewSet(
 	ProvideOpenAIQuotaAutoResetService,
 	ProvideGrokQuotaService,
 	ProvideCNProviderQuotaService,
+	ProvideZCodeService,
 	ProvideCNProviderBalanceService,
 	ProvideCNProviderBalanceCheckService,
 	ProvideClaudeTokenProvider,

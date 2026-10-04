@@ -1,0 +1,109 @@
+{
+  "upstream_commit": "0f8788ae02d3a2432b96276f200e7c41bf8f64d7",
+  "source_paths": [
+    "src/proxy/upstream.ts",
+    "src/server/routes-quota.ts",
+    "src/claim/client.ts",
+    "src/proxy/endpoint-routing.ts"
+  ],
+  "identity": {
+    "User-Agent": "ZCode/3.14.0",
+    "HTTP-Referer": "https://zcode.z.ai",
+    "X-Title": "Z Code@cli",
+    "X-ZCode-App-Version": "3.14.0",
+    "X-Platform": "linux-x64",
+    "X-Os-Category": "linux",
+    "X-ZCode-Agent": "glm",
+    "X-Release-Channel": "production"
+  },
+  "start_request": {
+    "path": "/api/v1/zcode-plan/anthropic/v1/messages",
+    "model": "glm-5.3",
+    "max_tokens": 512,
+    "messages": [
+      {
+        "role": "user",
+        "content": "合成协议测试"
+      }
+    ],
+    "stream": true
+  },
+  "quota_remaining_only": {
+    "balances": [
+      {
+        "show_name": "合成体验套餐",
+        "remaining_units": 1250,
+        "unit_type": "points",
+        "expires_at": 2000000000
+      }
+    ]
+  },
+  "quota_with_total": {
+    "balances": [
+      {
+        "show_name": "合成体验套餐",
+        "remaining_units": 25,
+        "total_units": 100,
+        "unit_type": "points",
+        "effective_at": 100,
+        "expires_at": 2000000000
+      }
+    ]
+  },
+  "coding_quota": {
+    "limits": [
+      {
+        "type": "TOKENS_LIMIT",
+        "unit": 3,
+        "remaining": 1,
+        "number": 100,
+        "percentage": 90,
+        "next_reset_time": 2000000000000
+      },
+      {
+        "type": "TOKENS_LIMIT",
+        "unit": 6,
+        "percentage": 20,
+        "next_reset_time": 2000100000000
+      }
+    ]
+  },
+  "preview": {
+    "campaign": {
+      "id": "synthetic-weekend",
+      "type": "trial",
+      "name": "合成周末活动",
+      "starts_at": 100,
+      "ends_at": 2000000000,
+      "min_app_version": "3.14.0",
+      "plans": [
+        {
+          "id": "synthetic-plan",
+          "show_name": "合成体验套餐",
+          "starts_at": 100,
+          "ends_at": 2000000000
+        }
+      ]
+    },
+    "claimable": true
+  },
+  "claim": {
+    "plan": {
+      "id": "synthetic-plan",
+      "show_name": "合成体验套餐",
+      "starts_at": 100,
+      "ends_at": 2000000000,
+      "total_units": 1000
+    }
+  },
+  "routing": {
+    "proxyEndpoint": {
+      "mapping": [
+        {
+          "from": "https://zcode.z.ai/api/v1/zcode-plan/anthropic/v1/messages",
+          "to": "https://api.z.ai/api/v1/off-peak/anthropic/v1/messages"
+        }
+      ]
+    }
+  }
+}

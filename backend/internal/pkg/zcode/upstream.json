@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "upstream_repo": "TriDefender/zcode-api",
+  "upstream_url": "https://github.com/TriDefender/zcode-api",
+  "pinned_tag": "v4.7.6",
+  "pinned_commit": "0f8788ae02d3a2432b96276f200e7c41bf8f64d7",
+  "synced_at": "2026-10-03",
+  "source_mapping": [
+    {
+      "category": "oauth",
+      "upstream_files": [
+        "src/auth/oauth.ts",
+        "src/auth/resolver.ts",
+        "src/auth/types.ts"
+      ],
+      "local_files": [
+        "backend/internal/pkg/zcode/oauth.go",
+        "backend/internal/service/zcode_oauth.go"
+      ]
+    },
+    {
+      "category": "jwt",
+      "upstream_files": [
+        "src/auth/jwt-age.ts",
+        "src/auth/manager.ts"
+      ],
+      "local_files": [
+        "backend/internal/pkg/zcode/types.go",
+        "backend/internal/service/zcode_account.go"
+      ]
+    },
+    {
+      "category": "identity",
+      "upstream_files": [
+        "src/proxy/identity.ts",
+        "src/proxy/trace-headers.ts",
+        "src/config/loader.ts"
+      ],
+      "local_files": [
+        "backend/internal/pkg/zcode/identity.go",
+        "backend/internal/pkg/zcode/forward.go",
+        "backend/internal/config/config.go"
+      ]
+    },
+    {
+      "category": "routing",
+      "upstream_files": [
+        "src/proxy/endpoint-routing.ts"
+      ],
+      "local_files": [
+        "backend/internal/pkg/zcode/routing.go"
+      ]
+    },
+    {
+      "category": "captcha",
+      "upstream_files": [
+        "src/proxy/captcha.ts",
+        "src/proxy/captcha-happy.ts",
+        "src/proxy/captcha-token.ts",
+        "src/proxy/captcha-pool.ts",
+        "src/proxy/captcha-retry.ts",
+        "src/proxy/captcha-worker-dispatch.ts",
+        "src/proxy/captcha-solver.ts"
+      ],
+      "local_files": [
+        "backend/internal/pkg/zcode/captcha.go",
+        "backend/internal/pkg/zcode/captcha_browser.go"
+      ]
+    },
+    {
+      "category": "claim",
+      "upstream_files": [
+        "src/claim/client.ts",
+        "src/claim/scheduler.ts",
+        "src/claim/types.ts"
+      ],
+      "local_files": [
+        "backend/internal/pkg/zcode/claim.go",
+        "backend/internal/service/zcode_tasks.go",
+        "frontend/src/components/account/ZCodeOAuthPanel.vue"
+      ]
+    },
+    {
+      "category": "quota",
+      "upstream_files": [
+        "src/server/routes-quota.ts"
+      ],
+      "local_files": [
+        "backend/internal/pkg/zcode/quota.go",
+        "backend/internal/service/zcode_tasks.go",
+        "frontend/src/components/account/ZCodeQuotaCell.vue"
+      ]
+    },
+    {
+      "category": "start_plan",
+      "upstream_files": [
+        "src/proxy/upstream.ts",
+        "src/proxy/handler.ts"
+      ],
+      "local_files": [
+        "backend/internal/pkg/zcode/forward.go",
+        "backend/internal/service/zcode_service.go"
+      ]
+    },
+    {
+      "category": "body",
+      "upstream_files": [
+        "src/proxy/body-transformer.ts",
+        "src/proxy/system-prompt.ts",
+        "src/proxy/zcode_system.json"
+      ],
+      "local_files": [
+        "backend/internal/pkg/zcode/body.go",
+        "backend/internal/pkg/zcode/zcode_system.json"
+      ]
+    },
+    {
+      "category": "signing",
+      "upstream_files": [
+        "src/proxy/client-signing.ts",
+        "src/proxy/client-session.ts"
+      ],
+      "local_files": [
+        "backend/internal/pkg/zcode/signing.go",
+        "backend/internal/pkg/zcode/forward.go"
+      ]
+    },
+    {
+      "category": "license",
+      "upstream_files": [
+        "README.md",
+        "README_EN.md",
+        "package.json"
+      ],
+      "local_files": [
+        "backend/internal/pkg/zcode/NOTICE.md",
+        "backend/internal/pkg/zcode/upstream.json"
+      ]
+    }
+  ],
+  "license": {
+    "declaration": "MIT",
+    "declaration_file": "README.md",
+    "declaration_heading": "License",
+    "standalone_license_file": null,
+    "github_license_metadata": null,
+    "notice": "backend/internal/pkg/zcode/NOTICE.md"
+  },
+  "known_differences": [
+    "原生 Go 模块，不加载 Bun、Node 或 zcode-api 代理服务。",
+    "OAuth 仅实现上游当前默认的服务端 init/poll；上游传统 localhost callback CLI 流程不作为远端管理后台入口。",
+    "JWT 不存为 api_key；通过 Sub2API AES-GCM 加密凭据保存，并使用加密 Redis 会话。",
+    "CAPTCHA 在受控 Chromium 中执行官方动态 Aliyun SDK，不移植 Happy DOM/polyfill；需要 Chromium，可取消，保留 sandbox。带用户名密码的浏览器代理当前明确拒绝。",
+    "自动领取默认关闭；账号开启后使用 Redis 分布式周期锁、持久化 next_attempt 和 jitter。",
+    "额度通过持久化快照与跨实例缓存/限频展示；页面挂载不查询上游。",
+    "动态 endpoint mapping 仅接受 HTTPS、明确允许的公共主机；不跟随重定向。",
+    "固定默认客户端版本 3.14.0，可通过 gateway.zcode.app_version 覆盖；身份平台和 OS 版本可集中配置。",
+    "Start Plan 保留上游官方 system 数据块，同时保留客户端原始 system 文本，使用既有协议 Pipeline。",
+    "不修改 Ent schema 和历史迁移；平台仍为 zhipu，auth 与 plan 独立。"
+  ]
+}

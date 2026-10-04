@@ -283,6 +283,12 @@
         </div>
       </div>
 
+      <div v-if="form.platform === 'zhipu'">
+        <label class="input-label">{{ t('admin.accounts.oauth.authMethod') }}</label>
+        <select v-model="zcodeAuthMode" data-test="zhipu-auth-mode" class="input"><option value="apikey">API Key</option><option value="zcode_oauth">ZCode OAuth</option></select>
+      </div>
+      <ZCodeOAuthPanel v-if="show && isZCodeOAuth" v-model="zcodeForm" :proxy-id="form.proxy_id" />
+
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
@@ -585,7 +591,7 @@
       </div>
 
       <!-- Account Mode Selection (Kimi / Zhipu / DeepSeek) -->
-      <div v-if="isCNPlatform && !isOpenCodeGoPlatform">
+      <div v-if="isCNPlatform && !isOpenCodeGoPlatform && !isZCodeOAuth">
         <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
         <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-mode">
           <!-- Pay-as-you-go (token balance) -->
@@ -645,7 +651,7 @@
       </div>
 
       <!-- API Protocol Selection (Kimi / Zhipu / DeepSeek / OpenCode) -->
-      <div v-if="isMultiProtocolPlatform" class="mt-4">
+      <div v-if="isMultiProtocolPlatform && !isZCodeOAuth" class="mt-4">
         <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.title') }}</label>
         <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <button
@@ -679,7 +685,7 @@
       </div>
 
       <!-- Zhipu 团队版 Coding Plan：组织/项目 ID（可选，填写后额度探测走团队版端点） -->
-      <div v-if="form.platform === 'zhipu' && accountMode === 'coding'" class="mt-4">
+      <div v-if="form.platform === 'zhipu' && accountMode === 'coding' && !isZCodeOAuth" class="mt-4">
         <div class="flex items-center">
           <label class="input-label">{{ t('admin.accounts.cnProviders.zhipuTeam.title') }}</label>
           <HelpTooltip trigger="click" width-class="w-80">
@@ -2356,7 +2362,7 @@
 
       <!-- OpenAI OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
       <div
-        v-if="(form.platform === 'openai' || form.platform === 'grok') && isOAuthFlow"
+        v-if="((form.platform === 'openai' || form.platform === 'grok') && isOAuthFlow) || isZCodeOAuth"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -4130,6 +4136,8 @@ import {
   type OpenAIWSMode
 } from '@/utils/openaiWsMode'
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
+import ZCodeOAuthPanel from './ZCodeOAuthPanel.vue'
+import { defaultZCodeForm, zcodeCredentials } from './zcodeForm'
 import { buildTempUnschedPresets, type TempUnschedRuleForm } from './tempUnschedPresets'
 
 // Type for exposed OAuthAuthorizationFlow component
@@ -4894,8 +4902,17 @@ const form = reactive({
   expires_at: null as number | null
 })
 
+const zcodeAuthMode = ref<'apikey' | 'zcode_oauth'>('apikey')
+const zcodeForm = ref(defaultZCodeForm())
+const isZCodeOAuth = computed(() => form.platform === 'zhipu' && zcodeAuthMode.value === 'zcode_oauth')
+watch([() => form.platform, zcodeAuthMode], () => {
+  if (form.platform === 'zhipu') form.type = isZCodeOAuth.value ? 'oauth' : 'apikey'
+  else { zcodeAuthMode.value = 'apikey'; zcodeForm.value = defaultZCodeForm() }
+})
+
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
+  if (form.platform === 'zhipu') return false
   if (form.platform === 'opencode' || form.platform === 'clinepass' || form.platform === 'openrouter' || form.platform === 'commandcode') {
     return false
   }
@@ -5566,6 +5583,8 @@ const copyOpenCodeGoConsoleHelperCommand = async () => {
 
 // Methods
 const resetForm = () => {
+  zcodeAuthMode.value = 'apikey'
+  zcodeForm.value = defaultZCodeForm()
   step.value = 1
   form.name = ''
   form.notes = ''
@@ -5898,6 +5917,15 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (isZCodeOAuth.value) {
+    if (!form.name.trim()) { appStore.showError(t('admin.accounts.pleaseEnterAccountName')); return }
+    if (!zcodeForm.value.ready) { appStore.showError(t('admin.accounts.zcode.loginRequired')); return }
+    const credentials = zcodeCredentials(zcodeForm.value)
+    const mapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    if (mapping) credentials.model_mapping = mapping
+    await createAccountAndFinish('zhipu', 'oauth', credentials)
+    return
+  }
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
     if (!isGrokSSOInputMethod.value && !form.name.trim()) {
