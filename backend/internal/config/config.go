@@ -1161,6 +1161,21 @@ type GatewayConfig struct {
 	// CNProviders: 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）的余额检测配置。
 	// 仅作用于 payg（按量付费）账号：周期探测余额，低于阈值则临时停调。
 	CNProviders GatewayCNProvidersConfig `mapstructure:"cn_providers"`
+
+	// ZCode：既有智谱账号的 OAuth / Start Plan 协议兼容配置。
+	ZCode GatewayZCodeConfig `mapstructure:"zcode"`
+}
+
+// GatewayZCodeConfig 不改变普通 GLM API Key 账号的配置或运行方式。
+type GatewayZCodeConfig struct {
+	AppVersion           string `mapstructure:"app_version"`
+	Origin               string `mapstructure:"origin"`
+	ChromiumPath         string `mapstructure:"chromium_path"`
+	NoSandbox            bool   `mapstructure:"no_sandbox"`
+	IdentityPlatform     string `mapstructure:"identity_platform"`
+	IdentityOSVersion    string `mapstructure:"identity_os_version"`
+	QuotaCacheSeconds    int    `mapstructure:"quota_cache_seconds"`
+	ClaimIntervalSeconds int    `mapstructure:"claim_interval_seconds"`
 }
 
 // GatewayGrokConfig holds Grok-specific gateway scheduling knobs.
@@ -2125,6 +2140,9 @@ func setDefaults() {
 		"api.moonshot.ai",
 		"api.moonshot.cn",
 		"open.bigmodel.cn",
+		"api.z.ai",         // ZCode / Z.AI Coding Plan
+		"bigmodel.cn",      // BigModel OAuth 业务接口
+		"zcode.z.ai",       // ZCode OAuth / Start Plan / 活动与路由
 		"api.minimaxi.com", // MiniMax CN quota + inference
 		"api.minimax.io",   // MiniMax intl; frozen allowlists must add this host to use the intl site
 		"opencode.ai",
@@ -2567,6 +2585,14 @@ func setDefaults() {
 	viper.SetDefault("gateway.grok.free_quota_window_hours", 24)
 	viper.SetDefault("gateway.grok.free_quota_stats_cache_seconds", 60)
 	// 国产供应商余额检测（kimi/deepseek payg；zhipu 无余额端点，仅靠响应式 429/402）。
+	viper.SetDefault("gateway.zcode.app_version", "") // 默认值统一来自 zcode.DefaultAppVersion
+	viper.SetDefault("gateway.zcode.origin", "")      // 默认值统一来自 zcode.DefaultOrigin
+	viper.SetDefault("gateway.zcode.chromium_path", "")
+	viper.SetDefault("gateway.zcode.no_sandbox", false)
+	viper.SetDefault("gateway.zcode.identity_platform", "")
+	viper.SetDefault("gateway.zcode.identity_os_version", "")
+	viper.SetDefault("gateway.zcode.quota_cache_seconds", 60)
+	viper.SetDefault("gateway.zcode.claim_interval_seconds", 300)
 	viper.SetDefault("gateway.cn_providers.balance_check_enabled", true)
 	viper.SetDefault("gateway.cn_providers.balance_threshold", 0.5)
 	viper.SetDefault("gateway.cn_providers.balance_check_interval_minutes", 10)

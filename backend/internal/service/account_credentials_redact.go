@@ -5,6 +5,8 @@ package service
 var SensitiveCredentialKeys = []string{
 	// OAuth
 	"access_token", "refresh_token", "id_token", "agent_private_key",
+	// ZCode 密文及临时协议凭据不可进入前端和审计日志。
+	"zcode_tokens_encrypted", "zcode_oauth_session_id", "jwt", "captcha_token", "poll_token",
 	// API Key 类
 	"api_key", "session_key", "cookie", "console_cookie",
 	// OpenCode Go Console auth metadata must survive ordinary account edits.

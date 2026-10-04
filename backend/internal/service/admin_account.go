@@ -478,6 +478,7 @@ var accountUsageSnapshotExtraKeyPrefixes = []string{
 	"openrouter_usage_",
 	"commandcode_usage_",
 	"passive_usage_",
+	"zcode_",
 }
 
 func isAccountUsageSnapshotExtraKey(key string) bool {
@@ -511,6 +512,9 @@ func mergeAccountUsageSnapshotExtra(requested, current map[string]any) map[strin
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	if err := validateZCodeAccount(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
 	if input.Platform == PlatformTypeSafe && input.Type != AccountTypeAPIKey {
 		return nil, errors.New("typesafe accounts only support apikey credentials")
 	}
@@ -734,6 +738,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 	previousProbeIdentity := upstreamBillingProbeIdentity(account)
+	previousZCodeToken := account.GetCredential(zcodeTokensKey)
+	previousZCodePlan := account.GetAccountMode()
+	previousZCodeProvider := account.GetCredential("zcode_provider")
 	previousOllamaUsageIdentity := ollamaCloudUsageIdentity(account)
 	previousOpenCodeUsageIdentity := openCodeGoUsageIdentity(account)
 	// 安全/身份不变量(影子账号):通用更新路径被 edit/re-auth/refresh/batch 共用,
@@ -779,7 +786,11 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	} else if len(input.Credentials) > 0 {
 		// 敏感子键采用"incoming 没提供就保留"的合并语义：前端响应已脱敏，
 		// 全对象 PUT 编辑时不会再带回 token，避免覆盖时清空已有凭证。
-		account.Credentials = MergePreservingSensitiveCreds(account.Credentials, input.Credentials)
+		if input.Credentials["auth_mode"] == "zcode_oauth" && previousZCodeToken == "" {
+			account.Credentials = shallowCopyMap(input.Credentials)
+		} else {
+			account.Credentials = MergePreservingSensitiveCreds(account.Credentials, input.Credentials)
+		}
 		// 校验并规范化请求头覆写配置（header 名小写化、格式检查）
 		if err := NormalizeHeaderOverrideCredentials(account.Credentials); err != nil {
 			return nil, err
@@ -980,6 +991,28 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	if err := normalizeAndValidateCommandCodeAccount(account.Platform, account.Type, account.Credentials); err != nil {
 		return nil, err
+	}
+
+	if err := validateZCodeAccount(account.Platform, account.Type, account.Credentials); err != nil {
+		return nil, err
+	}
+
+	if account.IsZCodeOAuth() {
+		if previousZCodeToken == account.GetCredential(zcodeTokensKey) && (previousZCodePlan != account.GetAccountMode() || previousZCodeProvider != account.GetCredential("zcode_provider")) {
+			return nil, infraerrors.BadRequest("ZCODE_RELOGIN_REQUIRED", "更换授权来源或套餐后需要重新登录")
+		}
+		if previousZCodeToken != account.GetCredential(zcodeTokensKey) {
+			if account.Extra == nil {
+				account.Extra = map[string]any{}
+			}
+			account.Extra[zcodeStateKey] = map[string]any{"oauth_status": "authorized", "checked_at": time.Now().Unix()}
+			account.Extra[zcodeQuotaKey] = nil
+			account.Extra[zcodeClaimKey] = nil
+			if strings.HasPrefix(account.TempUnschedulableReason, "zcode_") {
+				account.TempUnschedulableUntil = nil
+				account.TempUnschedulableReason = ""
+			}
+		}
 	}
 
 	// 先验证分组是否存在（在任何写操作之前）

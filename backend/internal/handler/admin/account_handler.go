@@ -69,6 +69,7 @@ type AccountHandler struct {
 	ollamaCloudUsage        *service.OllamaCloudUsageService
 	cfg                     *config.Config
 	opencodeGoUsage         *service.OpenCodeGoUsageService
+	zcodeService            *service.ZCodeService
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
@@ -1059,12 +1060,26 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	var createdAccount *service.Account
 
 	result, err := executeAdminIdempotent(c, "admin.accounts.create", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		finish := func(bool) {}
+		credentials := req.Credentials
+		if _, exists := credentials["zcode_oauth_session_id"]; exists {
+			if h.zcodeService == nil {
+				return nil, infraerrors.New(http.StatusServiceUnavailable, "ZCODE_UNAVAILABLE", "ZCode 服务不可用")
+			}
+			prepared, done, prepareErr := h.zcodeService.PrepareCredentials(ctx, adminActorScope(c), 0, credentials)
+			if prepareErr != nil {
+				return nil, prepareErr
+			}
+			credentials = prepared
+			finish = done
+		}
+		defer finish(false)
 		account, execErr := h.adminService.CreateAccount(ctx, &service.CreateAccountInput{
 			Name:                  req.Name,
 			Notes:                 req.Notes,
 			Platform:              req.Platform,
 			Type:                  req.Type,
-			Credentials:           req.Credentials,
+			Credentials:           credentials,
 			Extra:                 req.Extra,
 			ProxyID:               req.ProxyID,
 			Concurrency:           req.Concurrency,
@@ -1080,7 +1095,11 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		if execErr != nil {
 			return nil, execErr
 		}
+		finish(true)
 		createdAccount = account
+		if account.IsZCodeOAuth() && h.zcodeService != nil {
+			_ = h.zcodeService.OnAuthorized(ctx, account)
+		}
 		// Antigravity OAuth: 新账号直接设置隐私
 		h.adminService.ForceAntigravityPrivacy(ctx, account)
 		// OpenAI OAuth: 新账号直接设置隐私
@@ -1191,6 +1210,21 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	// 确定是否跳过混合渠道检查
 	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
 
+	finish := func(bool) {}
+	if _, exists := req.Credentials["zcode_oauth_session_id"]; exists {
+		if h.zcodeService == nil {
+			response.Error(c, http.StatusServiceUnavailable, "ZCode 服务不可用")
+			return
+		}
+		prepared, done, prepareErr := h.zcodeService.PrepareCredentials(c.Request.Context(), adminActorScope(c), accountID, req.Credentials)
+		if prepareErr != nil {
+			response.ErrorFrom(c, prepareErr)
+			return
+		}
+		req.Credentials = prepared
+		finish = done
+	}
+	defer finish(false)
 	account, err := h.adminService.UpdateAccount(c.Request.Context(), accountID, &service.UpdateAccountInput{
 		Name:                  req.Name,
 		Notes:                 req.Notes,
@@ -1225,6 +1259,8 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+
+	finish(true)
 
 	// OpenAI APIKey: credentials 修改后重新探测上游能力（base_url/api_key 可能变更）。
 	// 异步执行，探测失败不影响账号更新响应。
