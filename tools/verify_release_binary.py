@@ -37,6 +37,10 @@ PROFILE_MARKERS = {
         "commandcode",
         "https://api.commandcode.ai",
         "channel_monitor_provider_commandcode",
+        "gateway.zcode.app_version",
+        "/api/v1/zcode-plan/billing/preview",
+        "/api/v1/zcode-plan/billing/claim",
+        "zcode_auto_claim",
     ],
 }
 
