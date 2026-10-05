@@ -56,7 +56,7 @@ describe('ZCode OAuth 管理界面', () => {
     const wrapper = mount(ZCodeQuotaCell, { props: { account: account({ zcode_quota: { plan: 'start', balances: [{ name: '合成积分', remaining: 1250, unit: 'points', expires_at: 2000000000 }], updated_at: 1700000000 } }) }, global: { plugins: [makeI18n()] } })
     expect(api.quota).not.toHaveBeenCalled()
     expect(wrapper.get('[data-test="zcode-remaining"]').text()).not.toContain('/')
-    expect(wrapper.text()).toContain('到期时间')
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('到期时间')
     api.quota.mockResolvedValue({ plan: 'start', balances: [{ name: '合成积分', remaining: 100 }], updated_at: 1700000001 })
     await wrapper.get('[data-test="zcode-quota-refresh"]').trigger('click'); await flushPromises()
     expect(api.quota).toHaveBeenCalledTimes(1)
@@ -65,11 +65,15 @@ describe('ZCode OAuth 管理界面', () => {
     wrapper.unmount()
   })
 
-  it('有进度条时以进度为主，精确剩余仅在悬浮提示中', async () => {
+  it('有进度条时以进度为主，精确剩余收纳于名字旁的信息提示', async () => {
     const wrapper = mount(ZCodeQuotaCell, { props: { account: account({ zcode_quota: { plan: 'start', balances: [{ name: 'GLM-5.3-Flash', remaining: 99998232, total: 100000000, used_percent: 0, unit: 'token', expires_at: 1791216000 }], updated_at: 1700000000 } }) }, global: { plugins: [makeI18n()] } })
     expect(wrapper.find('[data-test="zcode-remaining"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('99,998,232')
-    expect(wrapper.get('[title]').attributes('title')).toContain('剩余: 99,998,232 / 100,000,000 token')
+    expect(wrapper.find('svg.cursor-help').exists()).toBe(true)
+    const tooltip = document.querySelector('[role="tooltip"]')
+    expect(tooltip?.textContent).toContain('剩余: 99,998,232 / 100,000,000 token')
+    expect(tooltip?.textContent).toContain('到期时间')
+    expect(tooltip?.textContent).toContain('额度更新时间')
     expect(wrapper.text()).toContain('GLM-5.3-Flash')
     wrapper.unmount()
   })
