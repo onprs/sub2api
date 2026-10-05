@@ -40,19 +40,19 @@ func NewClinePassGatewayService(client *ClinePassClient, cfg *config.Config, rat
 }
 
 func (s *ClinePassGatewayService) ForwardChatCompletions(ctx context.Context, c *gin.Context, account *Account, body []byte) (*ForwardResult, error) {
-	return s.forward(ctx, c, account, body, "", "", false, protocolconv.ProtocolOpenAIChat, openCodeGoResponseChat)
+	return s.forward(ctx, c, account, body, "", "", false, protocolconv.ProtocolOpenAIChat, standardGatewayResponseChat)
 }
 
 func (s *ClinePassGatewayService) ForwardResponses(ctx context.Context, c *gin.Context, account *Account, body []byte, clientModel string) (*ForwardResult, error) {
-	return s.forward(ctx, c, account, body, clientModel, "", false, protocolconv.ProtocolOpenAIResponses, openCodeGoResponseResponses)
+	return s.forward(ctx, c, account, body, clientModel, "", false, protocolconv.ProtocolOpenAIResponses, standardGatewayResponseResponses)
 }
 
 func (s *ClinePassGatewayService) ForwardMessages(ctx context.Context, c *gin.Context, account *Account, body []byte) (*ForwardResult, error) {
-	return s.forward(ctx, c, account, body, "", "", false, protocolconv.ProtocolAnthropic, openCodeGoResponseAnthropic)
+	return s.forward(ctx, c, account, body, "", "", false, protocolconv.ProtocolAnthropic, standardGatewayResponseAnthropic)
 }
 
 func (s *ClinePassGatewayService) ForwardGoogleGenAI(ctx context.Context, c *gin.Context, account *Account, body []byte, clientModel, routingModel string, stream bool) (*ForwardResult, error) {
-	return s.forward(ctx, c, account, body, clientModel, routingModel, stream, protocolconv.ProtocolGoogleGenAI, openCodeGoResponseGoogle)
+	return s.forward(ctx, c, account, body, clientModel, routingModel, stream, protocolconv.ProtocolGoogleGenAI, standardGatewayResponseGoogle)
 }
 
 func (s *ClinePassGatewayService) forward(
@@ -64,11 +64,11 @@ func (s *ClinePassGatewayService) forward(
 	routingModel string,
 	stream bool,
 	source protocolconv.Protocol,
-	responseMode openCodeGoResponseMode,
+	responseMode standardGatewayResponseMode,
 ) (*ForwardResult, error) {
 	format := responseMode.errorFormat()
 	if len(body) == 0 || !gjson.ValidBytes(body) {
-		writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", "Failed to parse request body")
+		writeStandardGatewayError(c, http.StatusBadRequest, format, "invalid_request_error", "Failed to parse request body")
 		return nil, fmt.Errorf("invalid ClinePass %s request", source)
 	}
 	if source != protocolconv.ProtocolGoogleGenAI {
@@ -76,14 +76,14 @@ func (s *ClinePassGatewayService) forward(
 		stream = gjson.GetBytes(body, "stream").Bool()
 	}
 	if routingModel == "" {
-		writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", "model is required")
+		writeStandardGatewayError(c, http.StatusBadRequest, format, "invalid_request_error", "model is required")
 		return nil, fmt.Errorf("ClinePass model is required")
 	}
 	if clientModel == "" {
 		clientModel = routingModel
 	}
 	if account == nil || !account.IsClinePassAPIKey() {
-		writeOpenCodeGoError(c, http.StatusBadGateway, format, "upstream_error", "ClinePass account must use API key credentials")
+		writeStandardGatewayError(c, http.StatusBadGateway, format, "upstream_error", "ClinePass account must use API key credentials")
 		return nil, fmt.Errorf("invalid ClinePass account")
 	}
 	upstreamModel := strings.TrimSpace(account.GetMappedModel(routingModel))
@@ -91,7 +91,7 @@ func (s *ClinePassGatewayService) forward(
 		upstreamModel = routingModel
 	}
 	if !isClinePassModelID(upstreamModel) {
-		writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", "ClinePass upstream model must be a full cline-pass/... slug")
+		writeStandardGatewayError(c, http.StatusBadRequest, format, "invalid_request_error", "ClinePass upstream model must be a full cline-pass/... slug")
 		return nil, fmt.Errorf("invalid ClinePass upstream model %q", upstreamModel)
 	}
 
@@ -100,13 +100,13 @@ func (s *ClinePassGatewayService) forward(
 		var err error
 		sourceBody, err = sjson.SetBytes(sourceBody, "model", upstreamModel)
 		if err != nil {
-			writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", "Failed to rewrite model")
+			writeStandardGatewayError(c, http.StatusBadRequest, format, "invalid_request_error", "Failed to rewrite model")
 			return nil, err
 		}
 	}
 	pipeline, converted, err := newClinePassPipelineRequest(sourceBody, source, account, clientModel, upstreamModel)
 	if err != nil {
-		writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", "Request cannot be represented as ClinePass Chat Completions")
+		writeStandardGatewayError(c, http.StatusBadRequest, format, "invalid_request_error", "Request cannot be represented as ClinePass Chat Completions")
 		return nil, err
 	}
 	converted, err = sjson.SetBytes(converted, "stream", stream)
@@ -121,13 +121,13 @@ func (s *ClinePassGatewayService) forward(
 	}
 	converted, err = normalizeClinePassChatRequest(converted, upstreamModel)
 	if err != nil {
-		writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", "Failed to normalize Chat Completions request")
+		writeStandardGatewayError(c, http.StatusBadRequest, format, "invalid_request_error", "Failed to normalize Chat Completions request")
 		return nil, err
 	}
 
 	endpoint, err := s.client.endpointURL(account, clinePassChatCompletionsPath)
 	if err != nil {
-		writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", err.Error())
+		writeStandardGatewayError(c, http.StatusBadRequest, format, "invalid_request_error", err.Error())
 		return nil, err
 	}
 	startTime := time.Now()
@@ -145,10 +145,10 @@ func (s *ClinePassGatewayService) forward(
 	return s.buffer(c, account, resp, pipeline, responseMode.protocol(), clientModel, upstreamModel, startTime)
 }
 
-func (s *ClinePassGatewayService) send(ctx context.Context, c *gin.Context, account *Account, endpoint string, body []byte, stream bool, format openCodeGoErrorFormat) (*http.Response, error) {
+func (s *ClinePassGatewayService) send(ctx context.Context, c *gin.Context, account *Account, endpoint string, body []byte, stream bool, format standardGatewayErrorFormat) (*http.Response, error) {
 	apiKey := account.GetClinePassAPIKey()
 	if apiKey == "" {
-		writeOpenCodeGoError(c, http.StatusBadGateway, format, "upstream_error", "ClinePass account is missing api_key")
+		writeStandardGatewayError(c, http.StatusBadGateway, format, "upstream_error", "ClinePass account is missing api_key")
 		return nil, fmt.Errorf("ClinePass account %d missing api_key", account.ID)
 	}
 	upstreamCtx, release := detachUpstreamContext(ctx)
@@ -178,7 +178,7 @@ func (s *ClinePassGatewayService) send(ctx context.Context, c *gin.Context, acco
 	return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte(safeErr)}
 }
 
-func (s *ClinePassGatewayService) handleError(ctx context.Context, c *gin.Context, account *Account, resp *http.Response, format openCodeGoErrorFormat) error {
+func (s *ClinePassGatewayService) handleError(ctx context.Context, c *gin.Context, account *Account, resp *http.Response, format standardGatewayErrorFormat) error {
 	if resp.StatusCode < http.StatusBadRequest {
 		return nil
 	}
@@ -209,7 +209,7 @@ func (s *ClinePassGatewayService) handleError(ctx context.Context, c *gin.Contex
 	if decoded.Retryable || decoded.AccountAffecting || shouldDisable {
 		return &UpstreamFailoverError{StatusCode: status, ResponseBody: body, ResponseHeaders: protocoltransport.CloneHeaders(resp.Header)}
 	}
-	writeOpenCodeGoError(c, status, format, firstNonEmptyString(decoded.Type, decoded.Code, "upstream_error"), decoded.Message)
+	writeStandardGatewayError(c, status, format, firstNonEmptyString(decoded.Type, decoded.Code, "upstream_error"), decoded.Message)
 	return decoded
 }
 
@@ -246,7 +246,7 @@ func (s *ClinePassGatewayService) buffer(c *gin.Context, account *Account, resp 
 	if err := renderer.RenderJSON(c.Writer, structured.StatusCode, structured.Headers, converted.Body); err != nil {
 		return nil, err
 	}
-	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolOpenAIChat, false, startTime), nil
+	return standardGatewayForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolOpenAIChat, false, startTime), nil
 }
 
 func (s *ClinePassGatewayService) stream(c *gin.Context, account *Account, resp *http.Response, pipeline *protocolconv.Pipeline, sourceProtocol protocolconv.Protocol, originalModel, upstreamModel string, startTime time.Time) (*ForwardResult, error) {
@@ -327,7 +327,7 @@ func (s *ClinePassGatewayService) stream(c *gin.Context, account *Account, resp 
 			return nil, streamFailure("invalid_stream_event", normalizeErr)
 		}
 		if extracted := extractCCStreamUsage(string(normalized)); extracted != nil {
-			usage = normalizeOpenCodeGoChatUsage(ClaudeUsage{
+			usage = normalizeGatewayChatUsage(ClaudeUsage{
 				InputTokens:              extracted.InputTokens,
 				OutputTokens:             extracted.OutputTokens,
 				CacheReadInputTokens:     extracted.CacheReadInputTokens,
@@ -372,7 +372,7 @@ func (s *ClinePassGatewayService) stream(c *gin.Context, account *Account, resp 
 			c.Writer.Flush()
 		}
 	}
-	result := openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolOpenAIChat, true, startTime)
+	result := standardGatewayForwardResult(resp, usage, originalModel, upstreamModel, protocolconv.ProtocolOpenAIChat, true, startTime)
 	result.ClientDisconnect = clientDisconnected
 	result.FirstTokenMs = firstTokenMs
 	return result, nil

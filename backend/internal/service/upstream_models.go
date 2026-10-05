@@ -625,7 +625,7 @@ func upstreamModelRegistryBaseURL(account *Account) string {
 		return ""
 	}
 	switch {
-	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCode():
+	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo():
 		return account.GetOpenAIFormatBaseURL()
 	case account.IsGrok():
 		return account.GetGrokBaseURL()
@@ -813,10 +813,9 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
 		return s.buildGrokUpstreamModelsRequest(ctx, account)
-	case account.IsOpenCode():
-		return s.buildOpenCodeGoUpstreamModelsRequest(ctx, account)
-	case account.IsOpenAI() || account.IsCNProvider():
-		// 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）复用 OpenAI /v1/models 探测。
+	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo():
+		// 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go
+		// 复用 OpenAI /v1/models 探测。
 		return s.buildOpenAIUpstreamModelsRequest(ctx, account)
 	case account.IsClinePass():
 		return nil, newUpstreamModelSyncUnsupportedError("ClinePass uses its dedicated public catalog", nil)
@@ -1081,31 +1080,6 @@ func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, valid
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	// 账号级请求头覆写：模型列表探测与真实转发保持一致的最终头
 	account.ApplyHeaderOverrides(req.Header)
-	return req, nil
-}
-
-func (s *AccountTestService) buildOpenCodeGoUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
-	if account.Type != AccountTypeAPIKey {
-		return nil, newUpstreamModelSyncUnsupportedError(
-			fmt.Sprintf("Unsupported OpenCode account type for upstream model sync: %s", account.Type), nil,
-		)
-	}
-	apiKey := account.GetOpenCodeAPIKey()
-	if apiKey == "" {
-		return nil, newUpstreamModelSyncConfigError("No OpenCode API key is available", nil)
-	}
-
-	normalizedBaseURL, err := s.validateUpstreamBaseURL(account.GetOpenCodeBaseURL())
-	if err != nil {
-		return nil, newUpstreamModelSyncConfigError("Invalid OpenCode base URL", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, buildOpenAIModelsURL(normalizedBaseURL), nil)
-	if err != nil {
-		return nil, newUpstreamModelSyncConfigError("Invalid OpenCode Go model list URL", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
 	return req, nil
 }
 

@@ -53,27 +53,6 @@ func TestRunSecurityAuditDoesNotSkipSubsequentWebSocketTurns(t *testing.T) {
 	require.Equal(t, int64(2), engine.enqueues.Load(), "subsequent WebSocket turns must be audited again")
 }
 
-func TestOpenCodeGoSecurityAuditUsesPromptCoordinator(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	engine := &turnCountingEngine{
-		mode: securityaudit.ModeBlocking,
-		decision: &securityaudit.PromptDecision{
-			Kind: securityaudit.DecisionBlock, ErrorCode: securityaudit.ErrorCodeBlocked, AllowNextStage: false,
-		},
-	}
-	handler := &OpenCodeGoGatewayHandler{securityAuditCoordinator: securityaudit.NewCoordinator(nil, engine)}
-
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-
-	decision := handler.checkSecurityAudit(c, nil, nil, middleware2.AuthSubject{UserID: 7}, "openai_chat_completions", "gpt-test", []byte(`{"model":"gpt-test","messages":[]}`))
-	require.NotNil(t, decision)
-	require.False(t, decision.AllowNextStage)
-	require.Equal(t, securityaudit.ErrorCodeBlocked, decision.ErrorCode)
-	require.Equal(t, int64(1), engine.evaluates.Load())
-}
-
 func TestRunSecurityAuditDeduplicatesRepeatedPayloadWithinWebSocketTurn(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := &turnCountingEngine{mode: securityaudit.ModeBlocking}
@@ -184,7 +163,6 @@ func TestRunSecurityAuditLogsWebSocketChecksAndCacheHits(t *testing.T) {
 
 type turnCountingEngine struct {
 	mode      securityaudit.Mode
-	decision  *securityaudit.PromptDecision
 	enqueues  atomic.Int64
 	evaluates atomic.Int64
 	decisions []*securityaudit.PromptDecision
@@ -197,9 +175,6 @@ func (e *turnCountingEngine) Enqueue(context.Context, securityaudit.Request) err
 }
 func (e *turnCountingEngine) Evaluate(context.Context, securityaudit.Request) (*securityaudit.PromptDecision, error) {
 	call := e.evaluates.Add(1)
-	if e.decision != nil {
-		return e.decision, nil
-	}
 	if int(call) <= len(e.decisions) {
 		return e.decisions[call-1], nil
 	}

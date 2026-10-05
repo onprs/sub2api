@@ -293,39 +293,6 @@ const timeFromExtra = (value: unknown): number | null => {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-const resetTimeFromExtra = (extra: Record<string, unknown>, window: string): number | null => {
-  const resetAt = timeFromExtra(extra[`opencode_go_usage_${window}_resets_at`])
-  if (resetAt !== null) return resetAt
-
-  const updatedAt = timeFromExtra(extra.opencode_go_usage_updated_at)
-  const resetInSec = numberFromExtra(extra[`opencode_go_usage_${window}_reset_in_sec`])
-  if (updatedAt === null || resetInSec === null || resetInSec <= 0) return null
-  return updatedAt + resetInSec * 1000
-}
-
-const openCodeGoOfficialUsageRateLimitResetMs = (account: Account): number | null => {
-  if (
-    account.platform !== 'opencode' ||
-    account.type !== 'apikey' ||
-    account.credentials?.account_mode === 'zen'
-  ) return null
-  const extra = account.extra as Record<string, unknown> | undefined
-  if (!extra) return null
-  if (String(extra.opencode_go_usage_source || '').trim() !== 'official_console') return null
-  const authStatus = String(extra.opencode_go_console_auth_status || '').trim()
-  if (authStatus && authStatus !== 'ready') return null
-
-  let latest: number | null = null
-  for (const window of ['5h', '7d', '30d']) {
-    const usedPercent = numberFromExtra(extra[`opencode_go_usage_${window}_used_percent`])
-    if (usedPercent === null || usedPercent < 100) continue
-
-    const resetAtMs = resetTimeFromExtra(extra, window)
-    if (resetAtMs === null || resetAtMs <= Date.now()) continue
-    if (latest === null || resetAtMs > latest) latest = resetAtMs
-  }
-  return latest
-}
 
 const clinePassOfficialUsageRateLimitResetMs = (account: Account): number | null => {
   if (account.platform !== 'clinepass' || account.type !== 'apikey') return null
@@ -404,8 +371,7 @@ const commandCodeOfficialUsageRateLimitResetMs = (account: Account): number | nu
 }
 
 const isOfficialUsageExceeded = computed(() => {
-  return openCodeGoOfficialUsageRateLimitResetMs(props.account) !== null ||
-    clinePassOfficialUsageRateLimitResetMs(props.account) !== null ||
+  return clinePassOfficialUsageRateLimitResetMs(props.account) !== null ||
     openRouterOfficialUsageRateLimitResetMs(props.account) !== null ||
     commandCodeOfficialUsageRateLimitResetMs(props.account) !== null
 })
@@ -415,8 +381,7 @@ const effectiveRateLimitResetAt = computed(() => {
   if (accountResetMs !== null && accountResetMs > Date.now()) {
     return props.account.rate_limit_reset_at
   }
-  const providerResetMs = openCodeGoOfficialUsageRateLimitResetMs(props.account) ??
-    clinePassOfficialUsageRateLimitResetMs(props.account) ??
+  const providerResetMs = clinePassOfficialUsageRateLimitResetMs(props.account) ??
     openRouterOfficialUsageRateLimitResetMs(props.account) ??
     commandCodeOfficialUsageRateLimitResetMs(props.account)
   if (providerResetMs !== null && providerResetMs > Date.now()) {

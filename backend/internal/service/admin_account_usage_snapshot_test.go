@@ -22,26 +22,6 @@ func TestAdminUpdateAccountPreservesProviderUsageSnapshots(t *testing.T) {
 		thirtyDay float64
 	}{
 		{
-			name:     "OpenCode Go",
-			id:       601,
-			platform: PlatformOpenCodeGo,
-			extra: map[string]any{
-				"opencode_go_console_auth_status":    OpenCodeGoConsoleAuthStatusReady,
-				"opencode_go_usage_source":           openCodeGoUsageSourceOfficialConsole,
-				"opencode_go_usage_updated_at":       now.Format(time.RFC3339),
-				"opencode_go_usage_5h_used_percent":  19.0,
-				"opencode_go_usage_5h_resets_at":     now.Add(5 * time.Hour).Format(time.RFC3339),
-				"opencode_go_usage_7d_used_percent":  7.0,
-				"opencode_go_usage_7d_resets_at":     now.Add(7 * 24 * time.Hour).Format(time.RFC3339),
-				"opencode_go_usage_30d_used_percent": 10.0,
-				"opencode_go_usage_30d_resets_at":    now.Add(30 * 24 * time.Hour).Format(time.RFC3339),
-			},
-			source:    openCodeGoUsageSourceOfficialConsole,
-			fiveHour:  19.0,
-			sevenDay:  7.0,
-			thirtyDay: 10.0,
-		},
-		{
 			name:     "Command Code",
 			id:       602,
 			platform: PlatformCommandCode,

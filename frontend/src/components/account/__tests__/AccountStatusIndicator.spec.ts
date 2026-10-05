@@ -293,32 +293,4 @@ describe('AccountStatusIndicator', () => {
     expect(wrapper.text()).not.toContain('admin.accounts.status.active')
   })
 
-  it('OpenCode Go 官方 5h/7d/30d 用量满额时显示账号限流', () => {
-    const resetsAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
-
-    for (const window of ['5h', '7d', '30d']) {
-      const wrapper = mount(AccountStatusIndicator, {
-        props: {
-          account: makeAccount({
-            platform: 'opencode',
-            type: 'apikey',
-            extra: {
-              opencode_go_usage_source: 'official_console',
-              opencode_go_console_auth_status: 'ready',
-              [`opencode_go_usage_${window}_used_percent`]: 100,
-              [`opencode_go_usage_${window}_resets_at`]: resetsAt
-            }
-          })
-        },
-        global: {
-          stubs: {
-            Icon: true
-          }
-        }
-      })
-
-      expect(wrapper.text()).toContain('admin.accounts.status.rateLimited')
-      expect(wrapper.text()).not.toContain('admin.accounts.status.active')
-    }
-  })
 })

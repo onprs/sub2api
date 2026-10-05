@@ -56,7 +56,7 @@ const usageState = (overrides: Partial<OpenCodeGoUsageState> = {}): OpenCodeGoUs
 
 const account = (state = usageState()): Account => ({
   id: 7,
-  name: 'opencode',
+  name: 'opencode_go',
   platform: 'openai',
   type: 'apikey',
   opencode_go_usage: state,

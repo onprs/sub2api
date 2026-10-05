@@ -22,12 +22,12 @@ const (
 	opencodeGoBaseURLMatchSQLSuffix = ") ~ '" + opencodeGoBaseURLRegexSQL + "'"
 	// opencodeGoUsageMountPlatformsSQL 是 service.isOpenCodeGoUsageMountPlatform 的
 	// SQL 镜像：OpenCode Go key 允许挂在 openai/anthropic 与国产 OpenAI 兼容平台
-	// 下复用，与 ollama 的 ollamaCloudUsagePlatformsSQL 完全一致。OpenCode 平台
-	// 本身不在名单内，Go/Zen 由 account_mode 分支区分。所有平台白名单 SQL
+	// 下复用，与 ollama 的 ollamaCloudUsagePlatformsSQL 完全一致。opencode_go
+	// 平台本身不在名单内——平台账号走下方 account_mode 分支。所有平台白名单 SQL
 	// 只允许引用本常量，不得各处重写字面量，防止漂移。
 	opencodeGoUsageMountPlatformsSQL = "'openai', 'anthropic', 'kimi', 'zhipu', 'deepseek', 'minimax'"
 	// opencodeGoUsageEligibleSQL 与 service.IsOpenCodeGoUsageAccount 互为镜像：
-	//   - OpenCode 平台的 Go 模式：account_mode 存储于 credentials（domain/constants.go），
+	//   - opencode_go 平台：account_mode 存储于 credentials（domain/constants.go），
 	//     未设置/为 null/非 "zen" 一律视为 Go 订阅，与 GetOpenCodeAccountMode 的
 	//     默认兼容逻辑一致；COALESCE 把 <> 对 NULL 的结果归一为 true。不校验
 	//     base_url（平台字段已是权威来源）。
@@ -39,7 +39,7 @@ const (
 	// 故保持现状不改行为。
 	opencodeGoUsageEligibleSQL = `
 	(
-		(platform = 'opencode'
+		(platform = 'opencode_go'
 			AND COALESCE(btrim(credentials ->> 'account_mode') <> 'zen', true))
 		OR (platform IN (` + opencodeGoUsageMountPlatformsSQL + `)
 			AND ` + opencodeGoBaseURLMatchSQLPrefix + `credentials ->> 'base_url'` + opencodeGoBaseURLMatchSQLSuffix + `)

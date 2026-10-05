@@ -6,10 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -196,56 +194,6 @@ func TestRateLimitService_HandleUpstreamError_OpenCodeGoUnauthorizedStillSetsErr
 	require.Equal(t, 1, repo.setErrorCalls)
 	require.Zero(t, repo.tempCalls)
 	require.Empty(t, repo.modelRateLimitCalls)
-}
-
-func TestOpenCodeGoGatewayServiceModelUnsupportedUsesMappedModelRateLimit(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	repo := &modelNotFoundAccountRepoStub{}
-	upstreamBody := `{"type":"error","error":{"type":"ModelError","message":"Model is not supported"}}`
-	upstream := &openCodeGoHTTPUpstreamStub{
-		resp: &http.Response{
-			StatusCode: http.StatusUnauthorized,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(upstreamBody)),
-		},
-	}
-	svc := &OpenCodeGoGatewayService{
-		httpUpstream:     upstream,
-		rateLimitService: &RateLimitService{accountRepo: repo},
-	}
-	account := &Account{
-		ID:          204,
-		Platform:    PlatformOpenCodeGo,
-		Type:        AccountTypeAPIKey,
-		Status:      StatusActive,
-		Schedulable: true,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key": "ocg-secret",
-			"model_mapping": map[string]any{
-				"opencode-go/qwen": "qwen3.7-max",
-			},
-			"model_protocols": map[string]any{
-				"qwen3.7-max": OpenCodeGoProtocolChatCompletions,
-			},
-		},
-	}
-	requestBody := []byte(`{"model":"opencode-go/qwen","messages":[{"role":"user","content":"hi"}],"stream":false}`)
-	rec := newTestGinContextRecorder(http.MethodPost, "/v1/chat/completions", string(requestBody))
-
-	_, err := svc.ForwardChatCompletions(context.Background(), rec.Context, account, requestBody)
-
-	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Equal(t, http.StatusUnauthorized, failoverErr.StatusCode)
-	require.False(t, rec.Context.Writer.Written())
-	require.Zero(t, repo.setErrorCalls)
-	require.Zero(t, repo.tempCalls)
-	require.Len(t, repo.modelRateLimitCalls, 1)
-	require.Equal(t, "qwen3.7-max", repo.modelRateLimitCalls[0].scope)
-	require.Equal(t, upstreamModelUnsupportedReason, repo.modelRateLimitCalls[0].reason)
-	require.True(t, account.IsSchedulable())
-
 }
 
 func TestRateLimitService_HandleUpstreamError_APIKeyModel401UsesModelRateLimit(t *testing.T) {

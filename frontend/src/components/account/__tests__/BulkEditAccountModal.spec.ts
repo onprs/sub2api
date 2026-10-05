@@ -253,7 +253,7 @@ describe('BulkEditAccountModal', () => {
 
   it('OpenCode Go 批量编辑也支持配置临时不可调度规则入口', () => {
     const wrapper = mountModal({
-      selectedPlatforms: ['opencode'],
+      selectedPlatforms: ['opencode_go'],
       selectedTypes: ['apikey']
     })
 

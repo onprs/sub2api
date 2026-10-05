@@ -85,9 +85,6 @@ func (s *ChannelMonitorService) runLocalCheckForModel(
 }
 
 func channelMonitorLocalBaseEndpoint(provider string) string {
-	if provider == MonitorProviderOpenCodeGo {
-		return channelMonitorLocalEndpoint + "/v1"
-	}
 	return channelMonitorLocalEndpoint
 }
 

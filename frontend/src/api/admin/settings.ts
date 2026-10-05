@@ -18,7 +18,7 @@ export interface DefaultSubscriptionSetting {
 }
 
 // ── 平台限额类型 ──────────────────────────────────────────────────
-export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity" | "grok" | "opencode" | "clinepass" | "openrouter" | "commandcode" | "typesafe"
+export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity" | "grok" | "opencode_go" | "clinepass" | "openrouter" | "commandcode" | "typesafe"
 export type QuotaWindowType = "daily" | "weekly" | "monthly"
 
 /** 单平台三档限额；null = 不限制，undefined = 未填（等价 null） */
@@ -31,7 +31,7 @@ export interface PlatformQuotaLimits {
 /** 全平台默认限额 map（key = PlatformType） */
 export type DefaultPlatformQuotasMap = Partial<Record<PlatformType, PlatformQuotaLimits>>
 
-const PLATFORMS: PlatformType[] = ["anthropic", "openai", "gemini", "antigravity", "grok", "opencode", "clinepass", "openrouter", "commandcode", "typesafe"]
+const PLATFORMS: PlatformType[] = ["anthropic", "openai", "gemini", "antigravity", "grok", "opencode_go", "clinepass", "openrouter", "commandcode", "typesafe"]
 
 export type SchedulingThresholdPlatformType =
   | "openai"
@@ -40,7 +40,7 @@ export type SchedulingThresholdPlatformType =
   | "kimi"
   | "zhipu"
   | "minimax"
-  | "opencode"
+  | "opencode_go"
 
 export type AccountSchedulingThresholdsMap = Record<SchedulingThresholdPlatformType, number>
 
@@ -53,7 +53,7 @@ export const SCHEDULING_THRESHOLD_PLATFORMS: SchedulingThresholdPlatformType[] =
   "kimi",
   "zhipu",
   "minimax",
-  "opencode",
+  "opencode_go",
 ]
 
 export function normalizeAccountSchedulingThresholdsMap(

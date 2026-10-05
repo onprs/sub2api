@@ -571,7 +571,7 @@ func TestGatewayModels_CompositeExcludesUnrelatedProviderCatalogs(t *testing.T) 
 			groupID: {{ID: 1, Platform: service.PlatformOpenAI}},
 		},
 	})
-	for _, platform := range []string{service.PlatformOpenCode, service.PlatformClinePass, service.PlatformOpenRouter, service.PlatformCommandCode} {
+	for _, platform := range []string{service.PlatformOpenCodeGo, service.PlatformClinePass, service.PlatformOpenRouter, service.PlatformCommandCode} {
 		t.Run(platform, func(t *testing.T) {
 			require.Empty(t, h.gatewayService.GetAvailableModelsForComposite(context.Background(), &groupID, platform))
 		})
@@ -917,7 +917,6 @@ func TestGatewayModels_OpenCodeGoGroupFallsBackToOpenCodeGoModels(t *testing.T) 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	modelIDs := modelIDsForTest(got.Data)
 	require.Contains(t, modelIDs, "glm-5.2")
-	require.Contains(t, modelIDs, "qwen3.5-plus")
 	require.Contains(t, modelIDs, "kimi-k2.7-code")
 	require.Contains(t, modelIDs, "qwen3.7-plus")
 	require.NotContains(t, modelIDs, "kimi-k2.7")

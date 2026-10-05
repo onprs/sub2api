@@ -36,25 +36,6 @@ func (s *AccountUsageService) GetStoredUsageSnapshot(account *Account, now time.
 		}
 		return usage, nil
 
-	case PlatformOpenCode:
-		if !account.IsOpenCodeGoPlan() {
-			return nil, ErrObserverQuotaUnavailable
-		}
-		if usage := buildOpenCodeGoOfficialUsageFromExtra(account.Extra, now); usage != nil {
-			return usage, nil
-		}
-		usage := &UsageInfo{
-			Source:    strings.TrimSpace(fmt.Sprint(account.Extra["opencode_go_usage_source"])),
-			UpdatedAt: observerStoredUsageUpdatedAt(account.Extra, "opencode_go_usage_updated_at"),
-		}
-		usage.FiveHour = observerOpenCodeGoStoredWindow(account.Extra, "5h")
-		usage.SevenDay = observerOpenCodeGoStoredWindow(account.Extra, "7d")
-		usage.ThirtyDay = observerOpenCodeGoStoredWindow(account.Extra, "30d")
-		if observerUsageEmpty(usage) {
-			return nil, ErrObserverQuotaUnavailable
-		}
-		return usage, nil
-
 	case PlatformClinePass:
 		if usage := buildClinePassUsageFromExtra(account.Extra, now); usage != nil {
 			return usage, nil
@@ -75,20 +56,6 @@ func (s *AccountUsageService) GetStoredUsageSnapshot(account *Account, now time.
 
 	default:
 		return nil, ErrObserverQuotaUnavailable
-	}
-}
-
-func observerOpenCodeGoStoredWindow(extra map[string]any, prefix string) *UsageProgress {
-	key := "opencode_go_usage_" + prefix + "_used_percent"
-	if extra == nil {
-		return nil
-	}
-	if _, ok := extra[key]; !ok {
-		return nil
-	}
-	return &UsageProgress{
-		Utilization: parseExtraFloat64(extra[key]),
-		Estimated:   strings.EqualFold(strings.TrimSpace(fmt.Sprint(extra["opencode_go_usage_source"])), openCodeGoUsageSourceEstimated),
 	}
 }
 

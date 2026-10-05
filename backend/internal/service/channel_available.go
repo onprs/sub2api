@@ -107,7 +107,6 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 		s.fillGlobalPricingFallback(supported)
 		s.fillModelQuotaCosts(supported)
 		s.fillModelPricingTimeBands(supported)
-		s.fillModelUsageOffers(supported)
 
 		out = append(out, AvailableChannel{
 			ID:                 ch.ID,
@@ -193,11 +192,9 @@ func (s *ChannelService) BuildCatalogSupportedModel(displayName, platform string
 			continue
 		}
 		s.fillModelPricingTimeBandsForName(&model, candidate, nil)
-		s.fillModelUsageOfferForName(&model, candidate)
 		s.fillCommandCodeMetadataForName(&model, candidate)
 		return model
 	}
-	s.fillModelUsageOfferForName(&model, model.Name)
 	return model
 }
 
@@ -232,7 +229,6 @@ func (s *ChannelService) BuildSupportedModelForPricingGroup(
 					continue
 				}
 				s.fillModelPricingTimeBandsForName(&model, candidate, pricing)
-				s.fillModelUsageOfferForName(&model, candidate)
 				s.fillCommandCodeMetadataForName(&model, candidate)
 				return model
 			}
@@ -250,11 +246,9 @@ func (s *ChannelService) BuildSupportedModelForPricingGroup(
 			continue
 		}
 		s.fillModelPricingTimeBandsForName(&model, candidate, nil)
-		s.fillModelUsageOfferForName(&model, candidate)
 		s.fillCommandCodeMetadataForName(&model, candidate)
 		return model
 	}
-	s.fillModelUsageOfferForName(&model, model.Name)
 	return model
 }
 
@@ -368,40 +362,16 @@ func (s *ChannelService) displayPricingForModelAt(platform, model string, existi
 		}
 	}
 	if s.pricingService != nil {
-		if isOpenCodeGoPricingPlatform(platform) {
-			if lp := s.pricingService.GetOpenCodeGoModelPricingExact(model); lp != nil &&
-				isOpenCodeGoPricingPlatform(lp.LiteLLMProvider) &&
-				lp.OpenCodeGoPricingAuthority == openCodeGoPricingAuthorityOfficial {
-				return synthesizePricingFromLiteLLM(openCodeGoPricingAt(lp, now), existing), true
-			}
-			if pricing, ok := openCodeGoReferencePricingAt(model, now); ok {
-				return synthesizePricingFromModelPricing(pricing, existing), true
-			}
-		} else if lp := s.pricingService.GetModelPricing(model); lp != nil && !isOpenCodeGoPricingPlatform(lp.LiteLLMProvider) {
+		if lp := s.pricingService.GetModelPricing(model); lp != nil {
 			return synthesizePricingFromLiteLLM(lp, existing), true
 		}
 	}
 	return nil, false
 }
 
-const openCodeGoPricingTimeZone = "UTC"
-
-var (
-	openCodeGoOffPeakTimeRanges = []string{"00:00-01:00", "04:00-06:00", "10:00-24:00"}
-	openCodeGoPeakTimeRanges    = []string{"01:00-04:00", "06:00-10:00"}
-	openCodeGoOffPeakSampleTime = time.Date(2000, time.January, 3, 0, 0, 0, 0, time.UTC)
-	openCodeGoPeakSampleTime    = time.Date(2000, time.January, 3, 1, 0, 0, 0, time.UTC)
-)
-
-func (s *ChannelService) fillModelUsageOffers(models []SupportedModel) {
-	for i := range models {
-		s.fillModelUsageOfferForName(&models[i], models[i].Name)
-	}
-}
-
 func (s *ChannelService) fillModelQuotaCosts(models []SupportedModel) {
 	for i := range models {
-		if !isOpenCodeGoPricingPlatform(models[i].Platform) && models[i].Platform != PlatformCommandCode {
+		if models[i].Platform != PlatformCommandCode {
 			continue
 		}
 		candidates := []string{models[i].Name}
@@ -435,21 +405,15 @@ func (s *ChannelService) fillModelQuotaCostForNameAt(model *SupportedModel, pric
 	if model.Platform == PlatformCommandCode && model.UsageOffer != nil && model.UsageOffer.Code == "commandcode_monthly_credits" {
 		model.UsageOffer = nil
 	}
-	billingService := s.billingService
-	if billingService == nil {
-		billingService = &BillingService{pricingService: s.pricingService}
-	}
-	var quotaCost OpenCodeGoQuotaCost
+	var quotaCost MonthlyQuotaCost
 	var ok bool
-	switch {
-	case isOpenCodeGoPricingPlatform(model.Platform):
-		quotaCost, ok = billingService.GetOpenCodeGoQuotaCost(pricingModel)
-	case model.Platform == PlatformCommandCode:
+	switch model.Platform {
+	case PlatformCommandCode:
 		var quota ModelMonthlyQuota
 		quota, ok = defaultCommandCodeCatalog.MonthlyQuotaAt(pricingModel, at)
 		if ok {
 			model.MonthlyQuota = &quota
-			quotaCost = OpenCodeGoQuotaCost{IncludedMonthlyUsageUSD: quota.CreditsUSD, Multiplier: quota.CostMultiplier}
+			quotaCost = MonthlyQuotaCost{IncludedMonthlyUsageUSD: quota.CreditsUSD, Multiplier: quota.CostMultiplier}
 			if offer := commandCodeMonthlyQuotaUsageOffer(&quota); offer != nil {
 				model.UsageOffer = offer
 			}
@@ -532,20 +496,6 @@ func (s *ChannelService) fillModelCapability(ctx context.Context, model *Support
 	}
 }
 
-func (s *ChannelService) fillModelUsageOfferForName(model *SupportedModel, pricingModel string) {
-	if s == nil || model == nil || !isOpenCodeGoPricingPlatform(model.Platform) || s.pricingService == nil {
-		return
-	}
-	multiplier := s.pricingService.OpenCodeGoUsageOfferMultiplier(pricingModel, time.Now())
-	if multiplier <= 1 {
-		return
-	}
-	model.UsageOffer = &ModelUsageOffer{
-		Code:            "opencode_go_usage_offer",
-		UsageMultiplier: multiplier,
-	}
-}
-
 func (s *ChannelService) fillModelPricingTimeBands(models []SupportedModel) {
 	for i := range models {
 		var existing *ChannelModelPricing
@@ -557,7 +507,7 @@ func (s *ChannelService) fillModelPricingTimeBands(models []SupportedModel) {
 }
 
 func (s *ChannelService) fillModelPricingTimeBandsForName(model *SupportedModel, pricingModel string, existing *ChannelModelPricing) {
-	if s == nil || model == nil || model.Pricing == nil || (!isOpenCodeGoPricingPlatform(model.Platform) && model.Platform != PlatformCommandCode) {
+	if s == nil || model == nil || model.Pricing == nil || model.Platform != PlatformCommandCode {
 		return
 	}
 	if existing != nil && (existing.BillingMode == BillingModePerRequest || existing.BillingMode == BillingModeImage || len(existing.Intervals) > 0) {
@@ -576,51 +526,6 @@ func (s *ChannelService) fillModelPricingTimeBandsForName(model *SupportedModel,
 		model.PricingTimeBands = bands
 		return
 	}
-	offPeak, offPeakOK := s.displayPricingForModelAt(model.Platform, pricingModel, nil, openCodeGoOffPeakSampleTime)
-	peak, peakOK := s.displayPricingForModelAt(model.Platform, pricingModel, nil, openCodeGoPeakSampleTime)
-	if !offPeakOK || !peakOK {
-		return
-	}
-	if existing != nil {
-		preserveExplicitDisplayPrices(offPeak, existing)
-		preserveExplicitDisplayPrices(peak, existing)
-	}
-	if channelPricingValuesEqual(offPeak, peak) {
-		return
-	}
-	model.PricingTimeBands = []ModelPricingTimeBand{
-		{
-			Code:       "off_peak",
-			TimeZone:   openCodeGoPricingTimeZone,
-			TimeRanges: append([]string(nil), openCodeGoOffPeakTimeRanges...),
-			Pricing:    offPeak,
-		},
-		{
-			Code:       "peak",
-			TimeZone:   openCodeGoPricingTimeZone,
-			TimeRanges: append([]string(nil), openCodeGoPeakTimeRanges...),
-			Pricing:    peak,
-		},
-	}
-}
-
-func channelPricingValuesEqual(left, right *ChannelModelPricing) bool {
-	if left == nil || right == nil {
-		return left == right
-	}
-	return optionalPriceEqual(left.InputPrice, right.InputPrice) &&
-		optionalPriceEqual(left.OutputPrice, right.OutputPrice) &&
-		optionalPriceEqual(left.CacheWritePrice, right.CacheWritePrice) &&
-		optionalPriceEqual(left.CacheReadPrice, right.CacheReadPrice) &&
-		optionalPriceEqual(left.ImageOutputPrice, right.ImageOutputPrice) &&
-		optionalPriceEqual(left.PerRequestPrice, right.PerRequestPrice)
-}
-
-func optionalPriceEqual(left, right *float64) bool {
-	if left == nil || right == nil {
-		return left == right
-	}
-	return *left == *right
 }
 
 func catalogPricingLookupCandidates(platform, displayName string, pricingCandidates []string) []string {
@@ -644,9 +549,6 @@ func catalogPricingLookupCandidates(platform, displayName string, pricingCandida
 	}
 	if platform == PlatformAntigravity {
 		add(domain.DefaultAntigravityModelMapping[displayName])
-	}
-	if isOpenCodeGoPricingPlatform(platform) && strings.HasSuffix(displayName, "-code") {
-		add(strings.TrimSuffix(displayName, "-code"))
 	}
 	add(displayName)
 	return out

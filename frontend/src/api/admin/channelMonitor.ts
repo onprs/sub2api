@@ -10,7 +10,7 @@ export type Provider =
   | 'anthropic'
   | 'gemini'
   | 'grok'
-  | 'opencode'
+  | 'opencode_go'
   | 'clinepass'
   | 'openrouter'
   | 'commandcode'

@@ -17,8 +17,7 @@ export const PROVIDER_GROK: Provider = 'grok'
 export const PROVIDER_ANTIGRAVITY: Provider = 'antigravity'
 export const PROVIDER_ANTIGRAVITY_CLAUDE: Provider = 'antigravity_claude'
 export const PROVIDER_ANTIGRAVITY_GEMINI: Provider = 'antigravity_gemini'
-export const PROVIDER_OPENCODE: Provider = 'opencode'
-export const PROVIDER_OPENCODE_GO = PROVIDER_OPENCODE
+export const PROVIDER_OPENCODE_GO: Provider = 'opencode_go'
 export const PROVIDER_CLINEPASS: Provider = 'clinepass'
 export const PROVIDER_OPENROUTER: Provider = 'openrouter'
 export const PROVIDER_COMMANDCODE: Provider = 'commandcode'
@@ -101,7 +100,7 @@ const MONITOR_PROVIDER_KEY_GROUP_PLATFORM: Record<Provider, GroupPlatform> = {
   antigravity: 'antigravity',
   antigravity_claude: 'antigravity',
   antigravity_gemini: 'antigravity',
-  opencode: 'opencode',
+  opencode_go: 'opencode_go',
   clinepass: 'clinepass',
   openrouter: 'openrouter',
   commandcode: 'commandcode',

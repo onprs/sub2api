@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -106,28 +105,26 @@ type antigravityUsageCache struct {
 }
 
 const (
-	apiCacheTTL                    = 3 * time.Minute
-	apiErrorCacheTTL               = 1 * time.Minute        // 负缓存 TTL：429 等错误缓存 1 分钟
-	antigravityErrorTTL            = 1 * time.Minute        // Antigravity 错误缓存 TTL（可恢复错误）
-	apiQueryMaxJitter              = 800 * time.Millisecond // 用量查询最大随机延迟
-	windowStatsCacheTTL            = 1 * time.Minute
-	openAIProbeCacheTTL            = 10 * time.Minute
-	openCodeGoConsoleUsageCacheTTL = 5 * time.Minute
-	grokProbeRetryTTL              = 1 * time.Minute
-	grokFreeQuotaWindow            = 24 * time.Hour
-	openAICodexProbeVersion        = codexCLIVersion // 与网关出站身份同源，避免两处硬编码版本各自漂移
+	apiCacheTTL             = 3 * time.Minute
+	apiErrorCacheTTL        = 1 * time.Minute        // 负缓存 TTL：429 等错误缓存 1 分钟
+	antigravityErrorTTL     = 1 * time.Minute        // Antigravity 错误缓存 TTL（可恢复错误）
+	apiQueryMaxJitter       = 800 * time.Millisecond // 用量查询最大随机延迟
+	windowStatsCacheTTL     = 1 * time.Minute
+	openAIProbeCacheTTL     = 10 * time.Minute
+	grokProbeRetryTTL       = 1 * time.Minute
+	grokFreeQuotaWindow     = 24 * time.Hour
+	openAICodexProbeVersion = codexCLIVersion // 与网关出站身份同源，避免两处硬编码版本各自漂移
 )
 
 // UsageCache 封装账户使用量相关的缓存
 type UsageCache struct {
-	apiCache                      sync.Map           // accountID -> *apiUsageCache
-	windowStatsCache              sync.Map           // accountID -> *windowStatsCache
-	antigravityCache              sync.Map           // accountID -> *antigravityUsageCache
-	apiFlight                     singleflight.Group // 防止同一账号的并发请求击穿缓存（Anthropic）
-	antigravityFlight             singleflight.Group // 防止同一 Antigravity 账号的并发请求击穿缓存
-	openAIProbeCache              sync.Map           // accountID -> time.Time
-	openCodeGoConsoleRefreshCache sync.Map           // accountID -> time.Time
-	grokProbeCache                sync.Map           // accountID -> last billing probe attempt
+	apiCache          sync.Map           // accountID -> *apiUsageCache
+	windowStatsCache  sync.Map           // accountID -> *windowStatsCache
+	antigravityCache  sync.Map           // accountID -> *antigravityUsageCache
+	apiFlight         singleflight.Group // 防止同一账号的并发请求击穿缓存（Anthropic）
+	antigravityFlight singleflight.Group // 防止同一 Antigravity 账号的并发请求击穿缓存
+	openAIProbeCache  sync.Map           // accountID -> time.Time
+	grokProbeCache    sync.Map           // accountID -> last billing probe attempt
 }
 
 // NewUsageCache 创建 UsageCache 实例
@@ -297,33 +294,27 @@ type ClaudeUsageFetcher interface {
 	FetchUsageWithOptions(ctx context.Context, opts *ClaudeUsageFetchOptions) (*ClaudeUsageResponse, error)
 }
 
-type OpenCodeGoConsoleSummaryFetcher interface {
-	FetchSummary(ctx context.Context, workspaceID, consoleCookie string) (*OpenCodeGoConsoleSummary, error)
-}
-
 // AccountUsageService 账号使用量查询服务
 type AccountUsageService struct {
-	accountRepo                     AccountRepository
-	usageLogRepo                    UsageLogRepository
-	usageFetcher                    ClaudeUsageFetcher
-	geminiQuotaService              *GeminiQuotaService
-	antigravityQuotaFetcher         *AntigravityQuotaFetcher
-	grokQuotaFetcher                *GrokQuotaFetcher
-	grokQuotaService                *GrokQuotaService
-	openAIQuotaService              *OpenAIQuotaService
-	cache                           *UsageCache
-	identityCache                   IdentityCache
-	tlsFPProfileService             *TLSFingerprintProfileService
-	clinePassClient                 *ClinePassClient
-	openRouterClient                *OpenRouterClient
-	commandCodeClient               *CommandCodeClient
-	openCodeGoConsoleSummaryFetch   OpenCodeGoConsoleSummaryFetcher
-	openCodeGoReferralActionApplier OpenCodeGoReferralActionApplier
-	httpUpstream                    HTTPUpstream
-	cfg                             *config.Config
-	agentIdentityTaskMu             sync.Mutex
-	agentIdentityWS                 agentIdentityWSConnectionInvalidator
-	runtimeBlocker                  AccountRuntimeBlocker
+	accountRepo             AccountRepository
+	usageLogRepo            UsageLogRepository
+	usageFetcher            ClaudeUsageFetcher
+	geminiQuotaService      *GeminiQuotaService
+	antigravityQuotaFetcher *AntigravityQuotaFetcher
+	grokQuotaFetcher        *GrokQuotaFetcher
+	grokQuotaService        *GrokQuotaService
+	openAIQuotaService      *OpenAIQuotaService
+	cache                   *UsageCache
+	identityCache           IdentityCache
+	tlsFPProfileService     *TLSFingerprintProfileService
+	clinePassClient         *ClinePassClient
+	openRouterClient        *OpenRouterClient
+	commandCodeClient       *CommandCodeClient
+	httpUpstream            HTTPUpstream
+	cfg                     *config.Config
+	agentIdentityTaskMu     sync.Mutex
+	agentIdentityWS         agentIdentityWSConnectionInvalidator
+	runtimeBlocker          AccountRuntimeBlocker
 }
 
 // NewAccountUsageService 创建AccountUsageService实例
@@ -396,14 +387,6 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 
 	if account.IsOpenAIApiKey() || account.IsGrokAPIKey() || account.IsAnthropicAPIKey() {
 		return s.getAPIKeyUpstreamBalance(ctx, account)
-	}
-
-	if account.IsOpenCodeGoAPIKey() {
-		usage, err := s.getOpenCodeGoUsage(ctx, account, forceProbe)
-		if err == nil {
-			s.tryClearRecoverableAccountError(ctx, account)
-		}
-		return usage, err
 	}
 
 	if account.IsClinePassAPIKey() {
@@ -707,6 +690,22 @@ func clearObservedOpenAIRateLimit(ctx context.Context, repo AccountRepository, a
 	return true, nil
 }
 
+func isOpenAICodexUsageExhausted(usage *UsageInfo) bool {
+	if usage == nil {
+		return false
+	}
+	if usage.FiveHour != nil && usage.FiveHour.Utilization >= 100.0 {
+		return true
+	}
+	if usage.SevenDay != nil && usage.SevenDay.Utilization >= 100.0 {
+		return true
+	}
+	if usage.SevenDayFable != nil && usage.SevenDayFable.Utilization >= 100.0 {
+		return true
+	}
+	return false
+}
+
 func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Account, force bool) (*UsageInfo, error) {
 	now := time.Now()
 	usage := &UsageInfo{UpdatedAt: &now}
@@ -789,368 +788,6 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 	}
 
 	return usage, nil
-}
-
-const (
-	openCodeGoUsageSourceEstimated = "estimated"
-	openCodeGoUsageSourceLabel     = "Based on Sub2API logs"
-	openCodeGoFiveHourLimitUSD     = 12.0
-	openCodeGoSevenDayLimitUSD     = 30.0
-	openCodeGoThirtyDayLimitUSD    = 60.0
-)
-
-func (s *AccountUsageService) getOpenCodeGoUsage(ctx context.Context, account *Account, force bool) (*UsageInfo, error) {
-	now := time.Now()
-	usage := &UsageInfo{UpdatedAt: &now}
-	if account == nil {
-		return usage, nil
-	}
-
-	official := buildOpenCodeGoOfficialUsageFromExtra(account.Extra, now)
-	if shouldRefreshOpenCodeGoConsoleUsage(account, official, now, force) && s.shouldRefreshOpenCodeGoConsoleSnapshot(account.ID, now, force) {
-		if updates, err := s.refreshOpenCodeGoConsoleUsageSnapshot(ctx, account); err == nil && len(updates) > 0 {
-			mergeAccountExtra(account, updates)
-			official = buildOpenCodeGoOfficialUsageFromExtra(account.Extra, now)
-		} else if err != nil {
-			if errors.Is(err, ErrOpenCodeGoConsoleAuthExpired) {
-				s.markOpenCodeGoConsoleAuthExpired(ctx, account.ID)
-				if official != nil {
-					official.NeedsReauth = true
-					official.ErrorCode = "unauthenticated"
-					official.Error = "OpenCode Go Console login expired"
-					return official, nil
-				}
-				usage.NeedsReauth = true
-				usage.ErrorCode = "unauthenticated"
-				usage.Error = "OpenCode Go Console login expired"
-			} else {
-				slog.Warn("opencode_go_console_usage_refresh_failed", "account_id", account.ID, "error", err)
-				if official != nil {
-					official.ErrorCode = "network_error"
-					official.Error = "OpenCode Go Console sync failed"
-					return official, nil
-				}
-				usage.ErrorCode = "network_error"
-				usage.Error = "OpenCode Go Console sync failed"
-			}
-		}
-	}
-	if official != nil {
-		s.syncOpenCodeGoOfficialUsageRateLimit(ctx, account.ID, account.RateLimitResetAt, account.Extra)
-		return official, nil
-	}
-
-	usage.FiveHour = s.buildOpenCodeGoEstimatedProgress(ctx, account.ID, now.Add(-5*time.Hour), openCodeGoFiveHourLimitUSD)
-	usage.SevenDay = s.buildOpenCodeGoEstimatedProgress(ctx, account.ID, now.Add(-7*24*time.Hour), openCodeGoSevenDayLimitUSD)
-	usage.ThirtyDay = s.buildOpenCodeGoEstimatedProgress(ctx, account.ID, now.Add(-30*24*time.Hour), openCodeGoThirtyDayLimitUSD)
-	s.persistOpenCodeGoUsageSnapshot(ctx, account.ID, usage, now)
-	return usage, nil
-}
-
-func shouldRefreshOpenCodeGoConsoleUsage(account *Account, official *UsageInfo, now time.Time, force bool) bool {
-	if account == nil || !account.IsOpenCodeGoAPIKey() || !hasOpenCodeGoConsoleCredentials(account) {
-		return false
-	}
-	if force {
-		return true
-	}
-	if account.Extra != nil {
-		if rawStatus, ok := account.Extra["opencode_go_console_auth_status"]; ok {
-			status := strings.TrimSpace(fmt.Sprint(rawStatus))
-			if status != "" && status != "<nil>" && status != OpenCodeGoConsoleAuthStatusReady {
-				return false
-			}
-		}
-	}
-	if official == nil {
-		return true
-	}
-	updatedAt := openCodeGoConsoleUsageUpdatedAt(account.Extra)
-	if updatedAt == nil {
-		return true
-	}
-	return now.Sub(*updatedAt) >= openCodeGoConsoleUsageCacheTTL
-}
-
-func hasOpenCodeGoConsoleCredentials(account *Account) bool {
-	if account == nil {
-		return false
-	}
-	return strings.TrimSpace(account.GetCredential("console_cookie")) != "" && openCodeGoConsoleWorkspaceIDFromAccount(account) != ""
-}
-
-func openCodeGoConsoleWorkspaceIDFromAccount(account *Account) string {
-	if account == nil {
-		return ""
-	}
-	if workspaceID := strings.TrimSpace(account.GetCredential("console_workspace_id")); workspaceID != "" {
-		return workspaceID
-	}
-	if account.Extra != nil {
-		if raw, ok := account.Extra["console_workspace_id"]; ok {
-			workspaceID := strings.TrimSpace(fmt.Sprint(raw))
-			if workspaceID != "" && workspaceID != "<nil>" {
-				return workspaceID
-			}
-		}
-	}
-	return ""
-}
-
-func openCodeGoConsoleUsageUpdatedAt(extra map[string]any) *time.Time {
-	if len(extra) == 0 {
-		return nil
-	}
-	raw := strings.TrimSpace(fmt.Sprint(extra["opencode_go_usage_updated_at"]))
-	if raw == "" || raw == "<nil>" {
-		return nil
-	}
-	parsed, err := parseTime(raw)
-	if err != nil {
-		return nil
-	}
-	utc := parsed.UTC()
-	return &utc
-}
-
-func (s *AccountUsageService) shouldRefreshOpenCodeGoConsoleSnapshot(accountID int64, now time.Time, force bool) bool {
-	if s == nil || s.cache == nil || accountID <= 0 {
-		return true
-	}
-	if !force {
-		if cached, ok := s.cache.openCodeGoConsoleRefreshCache.Load(accountID); ok {
-			if ts, ok := cached.(time.Time); ok && now.Sub(ts) < openCodeGoConsoleUsageCacheTTL {
-				return false
-			}
-		}
-	}
-	s.cache.openCodeGoConsoleRefreshCache.Store(accountID, now)
-	return true
-}
-
-func (s *AccountUsageService) refreshOpenCodeGoConsoleUsageSnapshot(ctx context.Context, account *Account) (map[string]any, error) {
-	if account == nil {
-		return nil, nil
-	}
-	cookie := strings.TrimSpace(account.GetCredential("console_cookie"))
-	workspaceID := openCodeGoConsoleWorkspaceIDFromAccount(account)
-	if cookie == "" || workspaceID == "" {
-		return nil, ErrOpenCodeGoConsoleAuthExpired
-	}
-	fetcher := s.openCodeGoConsoleSummaryFetch
-	if fetcher == nil {
-		fetcher = NewOpenCodeGoConsoleClient("", nil)
-	}
-	summary, err := fetcher.FetchSummary(ctx, workspaceID, cookie)
-	if err != nil {
-		return nil, err
-	}
-	summary, _ = s.AutoApplyOpenCodeGoReferralRewardsIfEligible(ctx, account.ID, workspaceID, cookie, summary)
-	updates := BuildOpenCodeGoConsoleSummaryExtra(summary, OpenCodeGoConsoleAuthStatusReady)
-	if len(updates) == 0 {
-		return nil, fmt.Errorf("opencode go console summary is empty")
-	}
-	if s.accountRepo != nil {
-		if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
-			return nil, err
-		}
-		mergedExtra := cloneCredentials(account.Extra)
-		mergeAccountExtra(&Account{Extra: mergedExtra}, updates)
-		s.syncOpenCodeGoOfficialUsageRateLimitAt(ctx, account.ID, account.RateLimitResetAt, mergedExtra, summary.FetchedAt)
-	}
-	return updates, nil
-}
-
-func (s *AccountUsageService) syncOpenCodeGoOfficialUsageRateLimit(ctx context.Context, accountID int64, currentResetAt *time.Time, extra map[string]any) {
-	s.syncOpenCodeGoOfficialUsageRateLimitAt(ctx, accountID, currentResetAt, extra, time.Now())
-}
-
-func (s *AccountUsageService) syncOpenCodeGoOfficialUsageRateLimitAt(ctx context.Context, accountID int64, currentResetAt *time.Time, extra map[string]any, now time.Time) {
-	if s == nil || s.accountRepo == nil || accountID <= 0 || len(extra) == 0 {
-		return
-	}
-	if now.IsZero() {
-		now = time.Now()
-	}
-	resetAt := (&Account{
-		ID:       accountID,
-		Platform: PlatformOpenCodeGo,
-		Type:     AccountTypeAPIKey,
-		Extra:    extra,
-	}).OpenCodeGoOfficialUsageRateLimitResetAt(now)
-	if resetAt == nil {
-		if currentResetAt != nil || s.isAccountRateLimited(ctx, accountID) {
-			if err := s.accountRepo.ClearRateLimit(ctx, accountID); err != nil {
-				slog.Warn("opencode_go_official_usage_rate_limit_clear_failed", "account_id", accountID, "error", err)
-			} else {
-				slog.Info("opencode_go_official_usage_rate_limit_cleared", "account_id", accountID)
-			}
-		}
-		return
-	}
-	if currentResetAt != nil && now.Before(*currentResetAt) && !currentResetAt.Before(*resetAt) {
-		return
-	}
-	if err := s.accountRepo.SetRateLimited(ctx, accountID, *resetAt); err != nil {
-		slog.Warn("opencode_go_official_usage_rate_limit_sync_failed", "account_id", accountID, "reset_at", *resetAt, "error", err)
-	}
-}
-
-func (s *AccountUsageService) isAccountRateLimited(ctx context.Context, accountID int64) bool {
-	if s == nil || s.accountRepo == nil || accountID <= 0 {
-		return false
-	}
-	acc, err := s.accountRepo.GetByID(ctx, accountID)
-	if err != nil || acc == nil {
-		return false
-	}
-	return acc.RateLimitedAt != nil || acc.RateLimitResetAt != nil || acc.OverloadUntil != nil
-}
-
-func isOpenAICodexUsageExhausted(usage *UsageInfo) bool {
-	if usage == nil {
-		return false
-	}
-	if usage.FiveHour != nil && usage.FiveHour.Utilization >= 100.0 {
-		return true
-	}
-	if usage.SevenDay != nil && usage.SevenDay.Utilization >= 100.0 {
-		return true
-	}
-	if usage.SevenDayFable != nil && usage.SevenDayFable.Utilization >= 100.0 {
-		return true
-	}
-	return false
-}
-
-func (s *AccountUsageService) markOpenCodeGoConsoleAuthExpired(ctx context.Context, accountID int64) {
-	if s == nil || s.accountRepo == nil || accountID <= 0 {
-		return
-	}
-	if err := s.accountRepo.UpdateExtra(ctx, accountID, map[string]any{
-		"opencode_go_console_auth_status":     OpenCodeGoConsoleAuthStatusExpired,
-		"opencode_go_console_auth_checked_at": time.Now().UTC().Format(time.RFC3339),
-	}); err != nil {
-		slog.Warn("opencode_go_console_auth_expired_update_failed", "account_id", accountID, "error", err)
-	}
-}
-
-func buildOpenCodeGoOfficialUsageFromExtra(extra map[string]any, now time.Time) *UsageInfo {
-	if len(extra) == 0 {
-		return nil
-	}
-	if fmt.Sprint(extra["opencode_go_usage_source"]) != openCodeGoUsageSourceOfficialConsole {
-		return nil
-	}
-	if status := strings.TrimSpace(fmt.Sprint(extra["opencode_go_console_auth_status"])); status != "" && status != OpenCodeGoConsoleAuthStatusReady {
-		return nil
-	}
-
-	var updatedAt *time.Time
-	if raw := strings.TrimSpace(fmt.Sprint(extra["opencode_go_usage_updated_at"])); raw != "" && raw != "<nil>" {
-		if parsed, err := parseTime(raw); err == nil {
-			utc := parsed.UTC()
-			updatedAt = &utc
-		}
-	}
-	fiveHour := buildOpenCodeGoOfficialProgressFromExtra(extra, "5h", updatedAt, now)
-	sevenDay := buildOpenCodeGoOfficialProgressFromExtra(extra, "7d", updatedAt, now)
-	thirtyDay := buildOpenCodeGoOfficialProgressFromExtra(extra, "30d", updatedAt, now)
-	if fiveHour == nil || sevenDay == nil || thirtyDay == nil {
-		return nil
-	}
-	return &UsageInfo{
-		Source:    openCodeGoUsageSourceOfficialConsole,
-		UpdatedAt: updatedAt,
-		FiveHour:  fiveHour,
-		SevenDay:  sevenDay,
-		ThirtyDay: thirtyDay,
-	}
-}
-
-func buildOpenCodeGoOfficialProgressFromExtra(extra map[string]any, prefix string, updatedAt *time.Time, now time.Time) *UsageProgress {
-	usedPercentKey := "opencode_go_usage_" + prefix + "_used_percent"
-	if _, ok := extra[usedPercentKey]; !ok {
-		return nil
-	}
-	progress := &UsageProgress{
-		Utilization: parseExtraFloat64(extra[usedPercentKey]),
-		Source:      openCodeGoUsageSourceOfficialConsole,
-		SourceLabel: openCodeGoUsageSourceOfficialLabel,
-		Estimated:   false,
-	}
-
-	if raw := strings.TrimSpace(fmt.Sprint(extra["opencode_go_usage_"+prefix+"_resets_at"])); raw != "" && raw != "<nil>" {
-		if resetAt, err := parseTime(raw); err == nil {
-			utc := resetAt.UTC()
-			progress.ResetsAt = &utc
-		}
-	}
-	if progress.ResetsAt == nil {
-		resetInSec := parseExtraInt(extra["opencode_go_usage_"+prefix+"_reset_in_sec"])
-		if resetInSec > 0 && updatedAt != nil {
-			resetAt := updatedAt.Add(time.Duration(resetInSec) * time.Second)
-			progress.ResetsAt = &resetAt
-		}
-	}
-	if progress.ResetsAt == nil {
-		return nil
-	}
-	if !now.Before(*progress.ResetsAt) {
-		return nil
-	}
-	progress.RemainingSeconds = int(progress.ResetsAt.Sub(now).Seconds())
-	if progress.RemainingSeconds < 0 {
-		progress.RemainingSeconds = 0
-	}
-	return progress
-}
-
-func (s *AccountUsageService) buildOpenCodeGoEstimatedProgress(ctx context.Context, accountID int64, start time.Time, limitUSD float64) *UsageProgress {
-	stats := &WindowStats{}
-	if s != nil && s.usageLogRepo != nil {
-		if got, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, start); err == nil {
-			stats = windowStatsFromAccountStats(got)
-		}
-	}
-	utilization := 0.0
-	if limitUSD > 0 && stats != nil {
-		utilization = stats.Cost / limitUSD * 100
-	}
-	return &UsageProgress{
-		Utilization:      utilization,
-		ResetsAt:         nil,
-		RemainingSeconds: 0,
-		WindowStats:      stats,
-		Source:           openCodeGoUsageSourceEstimated,
-		SourceLabel:      openCodeGoUsageSourceLabel,
-		Estimated:        true,
-	}
-}
-
-func (s *AccountUsageService) persistOpenCodeGoUsageSnapshot(ctx context.Context, accountID int64, usage *UsageInfo, now time.Time) {
-	if s == nil || s.accountRepo == nil || usage == nil {
-		return
-	}
-	updates := map[string]any{
-		"opencode_go_usage_source":     openCodeGoUsageSourceEstimated,
-		"opencode_go_usage_updated_at": now.UTC().Format(time.RFC3339),
-	}
-	add := func(prefix string, progress *UsageProgress) {
-		if progress == nil {
-			return
-		}
-		updates["opencode_go_usage_"+prefix+"_used_percent"] = progress.Utilization
-		if progress.WindowStats != nil {
-			updates["opencode_go_usage_"+prefix+"_cost_usd"] = progress.WindowStats.Cost
-		}
-	}
-	add("5h", usage.FiveHour)
-	add("7d", usage.SevenDay)
-	add("30d", usage.ThirtyDay)
-	if err := s.accountRepo.UpdateExtra(ctx, accountID, updates); err != nil {
-		slog.Warn("opencode_go_usage_snapshot_update_failed", "account_id", accountID, "error", err)
-	}
 }
 
 func shouldRefreshOpenAICodexSnapshot(account *Account, usage *UsageInfo, now time.Time) bool {
@@ -2181,22 +1818,4 @@ func buildGeminiUsageProgress(used, limit int64, resetAt time.Time, tokens int64
 // 用于账号列表页面显示当前窗口费用
 func (s *AccountUsageService) GetAccountWindowStats(ctx context.Context, accountID int64, startTime time.Time) (*usagestats.AccountStats, error) {
 	return s.usageLogRepo.GetAccountWindowStats(ctx, accountID, startTime)
-}
-
-// SyncRateLimitedOpenCodeGoAccounts 扫描当前处于限流状态的 OpenCode Go 账号，尝试同步控制台并自动应用可能新获得的奖励
-func (s *AccountUsageService) SyncRateLimitedOpenCodeGoAccounts(ctx context.Context) {
-	if s == nil || s.accountRepo == nil {
-		return
-	}
-	accounts, err := s.accountRepo.ListByPlatform(ctx, PlatformOpenCodeGo)
-	if err != nil {
-		return
-	}
-	now := time.Now()
-	for i := range accounts {
-		acc := &accounts[i]
-		if acc.IsOpenCodeGoPlan() && acc.RateLimitResetAt != nil && acc.RateLimitResetAt.After(now) && hasOpenCodeGoConsoleCredentials(acc) {
-			_, _ = s.getOpenCodeGoUsage(ctx, acc, false)
-		}
-	}
 }

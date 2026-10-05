@@ -1578,3 +1578,17 @@ func TestForwardAsRawChatCompletions_RestoresMappedResponseModel(t *testing.T) {
 		}
 	}
 }
+
+type testGinContextRecorder struct {
+	Context  *gin.Context
+	Recorder *httptest.ResponseRecorder
+}
+
+func newTestGinContextRecorder(method string, path string, body string) *testGinContextRecorder {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+	return &testGinContextRecorder{Context: c, Recorder: recorder}
+}

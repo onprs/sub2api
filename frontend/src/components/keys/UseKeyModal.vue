@@ -420,7 +420,7 @@ const defaultClientTab = computed(() => {
       return 'gemini'
     case 'antigravity':
       return 'claude'
-    case 'opencode':
+    case 'opencode_go':
     case 'clinepass':
     case 'openrouter':
     case 'commandcode':
@@ -547,7 +547,7 @@ const clientTabs = computed((): TabConfig[] => {
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
     case 'antigravity':
-    case 'opencode':
+    case 'opencode_go':
     case 'clinepass':
     case 'openrouter':
     case 'commandcode':
@@ -634,7 +634,7 @@ const platformDescription = computed(() => {
     case 'gemini':
       return t('keys.useKeyModal.gemini.description')
     case 'antigravity':
-    case 'opencode':
+    case 'opencode_go':
     case 'clinepass':
     case 'openrouter':
     case 'commandcode':
@@ -648,7 +648,7 @@ const platformDescription = computed(() => {
         return t('keys.useKeyModal.gemini.description')
       }
       if (props.platform === 'antigravity') return t('keys.useKeyModal.antigravity.description')
-      if (props.platform === 'opencode') return t('keys.useKeyModal.openai.description')
+      if (props.platform === 'opencode_go') return t('keys.useKeyModal.openai.description')
       return t('keys.useKeyModal.openai.description')
     case 'grok':
       if (activeClientTab.value === 'claude') {
@@ -706,7 +706,7 @@ const platformNote = computed(() => {
       return activeTab.value === 'windows'
         ? t('keys.useKeyModal.openai.noteWindows')
         : t('keys.useKeyModal.openai.note')
-    case 'opencode':
+    case 'opencode_go':
     case 'clinepass':
     case 'openrouter':
     case 'commandcode':
@@ -916,7 +916,7 @@ const currentFiles = computed((): FileConfig[] => {
           generateOpenCodeConfig('antigravity-claude', antigravityBase, apiKey, 'opencode.json (Claude)'),
           generateOpenCodeConfig('antigravity-gemini', antigravityGeminiBase, apiKey, 'opencode.json (Gemini)')
         ]
-      case 'opencode':
+      case 'opencode_go':
         return [generateOpenCodeConfig('opencode', apiBase, apiKey)]
       case 'clinepass':
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
@@ -956,7 +956,7 @@ const currentFiles = computed((): FileConfig[] => {
         return [generateGeminiCliContent(baseRoot, apiKey)]
       }
       return generateAnthropicFiles(baseUrl, apiKey)
-    case 'opencode':
+    case 'opencode_go':
     case 'clinepass':
     case 'openrouter':
     case 'commandcode':
@@ -1485,7 +1485,7 @@ function generateRoutedCodexFiles(
     gemini: 'gemini-2.5-pro',
     antigravity: 'claude-sonnet-4-6',
     grok: 'grok-4.5',
-    opencode: 'gpt-5.6-luna',
+    opencode_go: 'gpt-5.6-luna',
     clinepass: 'cline-pass/glm-5.2',
     openrouter: 'openrouter/free',
     commandcode: 'gpt-5.6-sol',
@@ -1503,7 +1503,7 @@ function generateRoutedCodexFiles(
     gemini: 'Gemini',
     antigravity: 'Antigravity',
     grok: 'Grok',
-    opencode: 'OpenCode',
+    opencode_go: 'OpenCode',
     clinepass: 'ClinePass',
     openrouter: 'OpenRouter',
     commandcode: 'Command Code',

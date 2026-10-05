@@ -285,7 +285,7 @@ func TestGroupHandlerCreateAcceptsOpenCodePlatform(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]any{
 		"name":              "opencode-go",
-		"platform":          "opencode",
+		"platform":          "opencode_go",
 		"subscription_type": "standard",
 	})
 	rec := httptest.NewRecorder()
@@ -301,7 +301,7 @@ func TestGroupHandlerRejectsRequireOAuthOnlyForOpenCode(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]any{
 		"name":               "opencode-go",
-		"platform":           "opencode",
+		"platform":           "opencode_go",
 		"subscription_type":  "standard",
 		"require_oauth_only": true,
 	})
@@ -314,7 +314,7 @@ func TestGroupHandlerRejectsRequireOAuthOnlyForOpenCode(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "require_oauth_only")
 
 	body, _ = json.Marshal(map[string]any{
-		"platform":           "opencode",
+		"platform":           "opencode_go",
 		"require_oauth_only": true,
 	})
 	rec = httptest.NewRecorder()

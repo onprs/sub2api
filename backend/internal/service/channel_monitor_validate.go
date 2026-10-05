@@ -40,7 +40,6 @@ var probeCapableProviders = map[string]struct{}{
 	MonitorProviderAnthropic:         {},
 	MonitorProviderGemini:            {},
 	MonitorProviderGrok:              {},
-	MonitorProviderOpenCodeGo:        {},
 	MonitorProviderClinePass:         {},
 	MonitorProviderOpenRouter:        {},
 	MonitorProviderCommandCode:       {},
@@ -99,7 +98,7 @@ func validateCheckMode(provider, checkMode string) error {
 }
 
 // validateAPIMode 校验 provider 与 api_mode 的组合。
-// responses 对 OpenAI/OpenCode Go 有意义；messages 只对 OpenCode Go 有意义；
+// responses 对 OpenAI 有意义；messages 对 Command Code 有意义；
 // 其它 provider 使用 chat_completions 作为默认占位。
 func validateAPIMode(provider, apiMode string) error {
 	apiMode = defaultAPIMode(apiMode)
@@ -107,12 +106,12 @@ func validateAPIMode(provider, apiMode string) error {
 	case MonitorAPIModeChatCompletions:
 		return nil
 	case MonitorAPIModeResponses:
-		if provider == "" || provider == MonitorProviderOpenAI || provider == MonitorProviderOpenCodeGo {
+		if provider == "" || provider == MonitorProviderOpenAI {
 			return nil
 		}
 		return ErrChannelMonitorInvalidAPIMode
 	case MonitorAPIModeMessages:
-		if provider == "" || provider == MonitorProviderOpenCodeGo || provider == MonitorProviderCommandCode {
+		if provider == "" || provider == MonitorProviderCommandCode {
 			return nil
 		}
 		return ErrChannelMonitorInvalidAPIMode

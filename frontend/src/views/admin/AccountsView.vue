@@ -761,7 +761,7 @@ const accountSupportsBatchUsage = (account: Account) => {
   if (account.platform === 'grok') return account.type === 'oauth' || account.type === 'apikey'
   if (account.platform === 'openai') return account.type === 'oauth' || account.type === 'apikey'
   if (
-    (account.platform === 'opencode' && account.credentials?.account_mode !== 'zen') ||
+    (account.platform === 'opencode_go' && account.credentials?.account_mode !== 'zen') ||
     account.platform === 'clinepass' ||
     account.platform === 'openrouter' ||
     account.platform === 'commandcode'
@@ -2325,7 +2325,7 @@ const handleAccountUpdated = (updatedAccount: Account) => {
   const currentAccount = accounts.value.find(account => account.id === updatedAccount.id)
   const usageRefreshNeeded =
     (currentAccount && buildAccountUsageRefreshKey(currentAccount) !== buildAccountUsageRefreshKey(updatedAccount)) ||
-    ((updatedAccount.platform === 'opencode' && updatedAccount.credentials?.account_mode !== 'zen' || updatedAccount.platform === 'clinepass' || updatedAccount.platform === 'openrouter' || updatedAccount.platform === 'commandcode') && updatedAccount.type === 'apikey')
+    ((updatedAccount.platform === 'opencode_go' && updatedAccount.credentials?.account_mode !== 'zen' || updatedAccount.platform === 'clinepass' || updatedAccount.platform === 'openrouter' || updatedAccount.platform === 'commandcode') && updatedAccount.type === 'apikey')
   patchAccountInList(updatedAccount)
   if (usageRefreshNeeded) {
     usageManualRefreshToken.value += 1

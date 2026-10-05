@@ -485,46 +485,6 @@ func TestBuildModelPricingChannels_RootsAtGroupsAndUsesMappedPricingCandidate(t 
 	require.NotNil(t, model.Pricing.CacheReadPrice)
 }
 
-func TestBuildModelPricingChannels_OpenCodePlatformDoesNotUseGoPricingFallback(t *testing.T) {
-	pricingSvc := newHandlerPricingService(t, `{
-		"opencode-go-pricing-fixture": {
-			"input_cost_per_token": 0.0000014,
-			"output_cost_per_token": 0.0000044,
-			"cache_read_input_token_cost": 0.00000026,
-			"litellm_provider": "opencode_go",
-			"mode": "chat"
-		}
-	}`)
-	h := &AvailableChannelHandler{
-		channelService: service.NewChannelService(nil, nil, nil, pricingSvc, service.NewBillingService(&config.Config{}, pricingSvc)),
-		modelPricingModels: &modelPricingGatewayStub{
-			modelsByGroup: map[int64][]string{
-				18: {"opencode-go-pricing-fixture"},
-			},
-		},
-	}
-
-	got := h.buildModelPricingChannels(context.Background(), []service.Group{
-		{
-			ID:               18,
-			Name:             "OpenCode",
-			Platform:         service.PlatformOpenCode,
-			RateMultiplier:   1,
-			SubscriptionType: service.SubscriptionTypeStandard,
-		},
-	}, nil)
-
-	require.Len(t, got, 1)
-	section := got[0].Platforms[0]
-	require.Equal(t, service.PlatformOpenCode, section.Platform)
-	require.Len(t, section.SupportedModels, 1)
-	model := section.SupportedModels[0]
-	require.Equal(t, "opencode-go-pricing-fixture", model.Name)
-	require.NotNil(t, model.Pricing)
-	require.Equal(t, service.PricingSourceMissing, model.Pricing.PricingSource)
-	require.Nil(t, model.Pricing.InputPrice)
-	require.Nil(t, model.ModelSpecificMultiplier)
-}
 
 func TestBuildModelPricingChannels_ClinePassIncludesEveryReferencePrice(t *testing.T) {
 	h := &AvailableChannelHandler{

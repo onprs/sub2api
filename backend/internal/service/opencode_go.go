@@ -249,9 +249,13 @@ func NormalizeOpenCodeGoProtocolRulesCredentials(credentials map[string]any) err
 	return nil
 }
 
+func (a *Account) IsOpenCodeGo() bool {
+	return a != nil && a.Platform == PlatformOpenCodeGo
+}
+
 // GetOpenCodeAccountMode 返回 OpenCode 账号类型。未设置时按 Go 处理，兼容已有账号。
 func (a *Account) GetOpenCodeAccountMode() string {
-	if a == nil || !a.IsOpenCode() {
+	if a == nil || !a.IsOpenCodeGo() {
 		return ""
 	}
 	if strings.TrimSpace(a.GetCredential("account_mode")) == AccountModeZen {
@@ -304,7 +308,7 @@ func openCodeGoNativeProtocol(account *Account, model string) string {
 // 显式 pinned 协议优先；adaptive（默认）先走 credentials.protocol_rules，
 // 未配置时回落内置默认表；已配置但未命中则走 Chat Completions。
 func (a *Account) ResolveOpenCodeGoUpstreamProtocol(model string) string {
-	if a == nil || !a.IsOpenCode() {
+	if a == nil || !a.IsOpenCodeGo() {
 		return ""
 	}
 	switch a.GetAPIProtocol() {

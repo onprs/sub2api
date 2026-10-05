@@ -78,14 +78,14 @@ func applyOpenCodeSessionHeader(c *gin.Context, account *Account, targetURL stri
 }
 
 func shouldSendOpenCodeSessionHeader(account *Account, targetURL string) bool {
-	if account != nil && account.IsOpenCode() {
+	if account != nil && account.IsOpenCodeGoPlan() {
 		return true
 	}
 	return isOfficialOpenCodeHost(targetURL)
 }
 
 func shouldGenerateOpenCodeSession(account *Account, targetURL string) bool {
-	if account != nil && account.IsOpenCode() {
+	if account != nil && account.IsOpenCodeGoPlan() {
 		return true
 	}
 	parsed, err := url.Parse(targetURL)
@@ -127,7 +127,7 @@ func applyOpenCodeUpstreamUserAgent(account *Account, targetURL string, headers 
 	switch {
 	case isOfficialCommandCodeHost(targetURL):
 		userAgent = CodexCanonicalUserAgent()
-	case account != nil && account.IsOpenCode(), isOfficialOpenCodeHost(targetURL):
+	case account != nil && account.IsOpenCodeGo(), isOfficialOpenCodeHost(targetURL):
 		userAgent = openCodeUpstreamUserAgent
 	default:
 		return

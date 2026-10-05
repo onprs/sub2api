@@ -460,24 +460,24 @@ func setCommandCodeFallbackTimeBands(entries map[string]commandCodeCatalogEntry)
 const commandCodeSharedMonthlyQuotaUSD = 70.0
 
 // commandCodeReferenceQuotaCostAt 按指定时刻解析官方月额度，倍率为共享额度 / 当前额度。
-func commandCodeReferenceQuotaCostAt(model string, at time.Time) (OpenCodeGoQuotaCost, bool) {
+func commandCodeReferenceQuotaCostAt(model string, at time.Time) (MonthlyQuotaCost, bool) {
 	quota, ok := defaultCommandCodeCatalog.MonthlyQuotaAt(model, at)
 	if !ok {
-		return OpenCodeGoQuotaCost{}, false
+		return MonthlyQuotaCost{}, false
 	}
-	return OpenCodeGoQuotaCost{
+	return MonthlyQuotaCost{
 		IncludedMonthlyUsageUSD: quota.CreditsUSD,
 		Multiplier:              quota.CostMultiplier,
 	}, true
 }
 
 // GetCommandCodeQuotaCost 返回当前有效的 Command Code 月额度倍率。
-func (s *BillingService) GetCommandCodeQuotaCost(model string) (OpenCodeGoQuotaCost, bool) {
+func (s *BillingService) GetCommandCodeQuotaCost(model string) (MonthlyQuotaCost, bool) {
 	return s.GetCommandCodeQuotaCostAt(model, time.Now())
 }
 
 // GetCommandCodeQuotaCostAt 让计费使用请求定价时刻，历史入账不受当前活动状态影响。
-func (s *BillingService) GetCommandCodeQuotaCostAt(model string, at time.Time) (OpenCodeGoQuotaCost, bool) {
+func (s *BillingService) GetCommandCodeQuotaCostAt(model string, at time.Time) (MonthlyQuotaCost, bool) {
 	if at.IsZero() {
 		at = time.Now()
 	}
@@ -486,7 +486,7 @@ func (s *BillingService) GetCommandCodeQuotaCostAt(model string, at time.Time) (
 			return quotaCost, true
 		}
 	}
-	return OpenCodeGoQuotaCost{}, false
+	return MonthlyQuotaCost{}, false
 }
 
 func commandCodeReferencePricingAt(model string, now time.Time) (*ModelPricing, bool) {

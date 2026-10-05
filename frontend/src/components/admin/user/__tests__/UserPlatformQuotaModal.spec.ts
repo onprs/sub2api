@@ -105,7 +105,7 @@ describe('UserPlatformQuotaModal', () => {
     const w = await mountAndOpen()
     const rows = w.findAll('tbody tr')
     expect(rows.map(row => row.find('td').text())).toEqual([
-      'anthropic', 'openai', 'opencode', 'clinepass', 'openrouter', 'commandcode',
+      'anthropic', 'openai', 'opencode_go', 'clinepass', 'openrouter', 'commandcode',
       'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'typesafe',
     ])
     for (const row of rows) {
@@ -116,11 +116,11 @@ describe('UserPlatformQuotaModal', () => {
     w.unmount()
   })
 
-  it.each(['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode', 'typesafe'] as const)(
+  it.each(['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe'] as const)(
     'saves edits to %s without erasing existing platform limits', async (platform) => {
       const existing: PlatformQuotaUpdateItem[] = [
         { platform: 'openai', daily_limit_usd: 10, weekly_limit_usd: 20, monthly_limit_usd: 100 },
-        ...(['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode', 'typesafe'] as const).map(p => ({
+        ...(['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe'] as const).map(p => ({
           platform: p, daily_limit_usd: 0, weekly_limit_usd: null, monthly_limit_usd: 50,
         })),
       ]
@@ -178,7 +178,7 @@ describe('UserPlatformQuotaModal', () => {
     expect(payload).toHaveLength(14) // all supported platforms are always submitted
     const openai = payload.find((p: any) => p.platform === 'openai')
     expect(openai.weekly_limit_usd).toBe(20)
-    expect(payload.some((p: any) => p.platform === 'opencode')).toBe(true)
+    expect(payload.some((p: any) => p.platform === 'opencode_go')).toBe(true)
     expect(payload.some((p: any) => p.platform === 'clinepass')).toBe(true)
     expect(payload.some((p: any) => p.platform === 'openrouter')).toBe(true)
   })

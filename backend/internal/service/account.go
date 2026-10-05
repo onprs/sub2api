@@ -115,14 +115,9 @@ const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
 const GrokMediaEligibleExtraKey = "grok_media_eligible"
 
 const (
-	DefaultOpenCodeGoBaseURL           = "https://opencode.ai/zen/go/v1"
-	DefaultClinePassBaseURL            = "https://api.cline.bot/api/v1"
-	DefaultOpenRouterBaseURL           = "https://openrouter.ai/api/v1"
-	DefaultCommandCodeBaseURL          = "https://api.commandcode.ai"
-	OpenCodeGoProtocolChatCompletions  = "chat_completions"
-	OpenCodeGoProtocolResponses        = "responses"
-	OpenCodeGoProtocolMessages         = "messages"
-	openCodeGoModelProtocolsCredential = "model_protocols"
+	DefaultClinePassBaseURL   = "https://api.cline.bot/api/v1"
+	DefaultOpenRouterBaseURL  = "https://openrouter.ai/api/v1"
+	DefaultCommandCodeBaseURL = "https://api.commandcode.ai"
 )
 
 // Command Code 上游原生协议：claude-* 模型走 Anthropic Messages，
@@ -131,79 +126,6 @@ const (
 	CommandCodeProtocolChatCompletions = "chat_completions"
 	CommandCodeProtocolMessages        = "messages"
 )
-
-var openCodeGoBuiltinModelProtocols = map[string]string{
-	"gpt-5.6-luna":                 OpenCodeGoProtocolResponses,
-	"grok-4.5":                     OpenCodeGoProtocolResponses,
-	"grok-4.6":                     OpenCodeGoProtocolResponses,
-	"muse-spark-1.3-contributor":   OpenCodeGoProtocolResponses,
-	"muse-spark-1.2":               OpenCodeGoProtocolResponses,
-	"muse-spark-1.2-contributor":   OpenCodeGoProtocolResponses,
-	"glm-5.1":                      OpenCodeGoProtocolChatCompletions,
-	"glm-5.2":                      OpenCodeGoProtocolChatCompletions,
-	"glm-5":                        OpenCodeGoProtocolChatCompletions,
-	"glm-5.3":                      OpenCodeGoProtocolChatCompletions,
-	"glm-5.3-flash":                OpenCodeGoProtocolChatCompletions,
-	"longcat-2.0":                  OpenCodeGoProtocolChatCompletions,
-	"kimi-k2.7":                    OpenCodeGoProtocolChatCompletions, // legacy docs alias; OpenCode Go exposes kimi-k2.7-code.
-	"kimi-k2.7-code":               OpenCodeGoProtocolChatCompletions,
-	"kimi-k2.6":                    OpenCodeGoProtocolChatCompletions,
-	"kimi-k2.5":                    OpenCodeGoProtocolChatCompletions,
-	"kimi-k3":                      OpenCodeGoProtocolChatCompletions,
-	"hy4-preview":                  OpenCodeGoProtocolChatCompletions,
-	"hy3":                          OpenCodeGoProtocolChatCompletions,
-	"deepseek-flash":               OpenCodeGoProtocolChatCompletions,
-	"deepseek-v4-pro":              OpenCodeGoProtocolChatCompletions,
-	"deepseek-v4-flash":            OpenCodeGoProtocolChatCompletions,
-	"deepseek-v4-flash-vision-exp": OpenCodeGoProtocolChatCompletions,
-	"mimo-v2.5":                    OpenCodeGoProtocolChatCompletions,
-	"mimo-v2.5-pro":                OpenCodeGoProtocolChatCompletions,
-	"mimo-v2-pro":                  OpenCodeGoProtocolChatCompletions,
-	"mimo-v2-omni":                 OpenCodeGoProtocolChatCompletions,
-	"omen-alpha":                   OpenCodeGoProtocolChatCompletions,
-	"minimax-m3":                   OpenCodeGoProtocolMessages,
-	"minimax-m2.7":                 OpenCodeGoProtocolMessages,
-	"minimax-m2.5":                 OpenCodeGoProtocolMessages,
-	"qwen3.5-plus":                 OpenCodeGoProtocolMessages,
-	"qwen3.8-max":                  OpenCodeGoProtocolMessages,
-	"qwen3.8-flash":                OpenCodeGoProtocolMessages,
-	"qwen3.7-max":                  OpenCodeGoProtocolMessages,
-	"qwen3.7-plus":                 OpenCodeGoProtocolMessages,
-	"qwen3.6-plus":                 OpenCodeGoProtocolMessages,
-}
-
-func inferOpenCodeGoModelFamilyProtocol(model string) string {
-	model = strings.ToLower(strings.TrimSpace(model))
-	if model == "" || strings.Contains(model, "*") || !isOpenCodeGoModelID(model) {
-		return ""
-	}
-
-	switch {
-	case strings.EqualFold(model, "gpt-5.6-luna"),
-		strings.HasPrefix(model, "muse-"),
-		openCodeGoHasVersionedPrefix(model, "grok-"):
-		return OpenCodeGoProtocolResponses
-	case openCodeGoHasVersionedPrefix(model, "glm-"),
-		openCodeGoHasVersionedPrefix(model, "deepseek-v"),
-		openCodeGoHasVersionedPrefix(model, "mimo-v"),
-		openCodeGoHasVersionedPrefix(model, "kimi-k2."),
-		openCodeGoHasVersionedPrefix(model, "kimi-k3."):
-		return OpenCodeGoProtocolChatCompletions
-	case openCodeGoHasVersionedPrefix(model, "qwen"),
-		openCodeGoHasVersionedPrefix(model, "minimax-m"):
-		return OpenCodeGoProtocolMessages
-	default:
-		return ""
-	}
-}
-
-func openCodeGoHasVersionedPrefix(model, prefix string) bool {
-	if !strings.HasPrefix(model, prefix) {
-		return false
-	}
-	rest := strings.TrimPrefix(model, prefix)
-	return rest != "" && rest[0] >= '0' && rest[0] <= '9'
-}
 
 const (
 	OpenAIAuthModePersonalAccessToken = "personalAccessToken"
@@ -401,7 +323,7 @@ func (a *Account) IsCNProvider() bool {
 // openai/grok 原生走 OpenAI 网关；国产供应商同为 OpenAI Chat Completions
 // 兼容上游，也经 OpenAI 网关转发。OpenCode 同样经 OpenAI 网关按模型分流。
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCode())
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCodeGo())
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -686,19 +608,6 @@ func stringMappingFromRaw(raw any) map[string]string {
 		return result
 	default:
 		return nil
-	}
-}
-
-func normalizeOpenCodeGoModelProtocol(protocol string) string {
-	switch strings.ToLower(strings.TrimSpace(protocol)) {
-	case OpenCodeGoProtocolChatCompletions:
-		return OpenCodeGoProtocolChatCompletions
-	case OpenCodeGoProtocolResponses:
-		return OpenCodeGoProtocolResponses
-	case OpenCodeGoProtocolMessages:
-		return OpenCodeGoProtocolMessages
-	default:
-		return ""
 	}
 }
 
@@ -1552,22 +1461,6 @@ func (a *Account) IsAnthropicAPIKey() bool {
 	return a != nil && a.Platform == PlatformAnthropic && a.Type == AccountTypeAPIKey
 }
 
-func (a *Account) IsOpenCode() bool {
-	return a != nil && a.Platform == PlatformOpenCode
-}
-
-func (a *Account) IsOpenCodeGo() bool {
-	return a != nil && a.IsOpenCodeGoPlan()
-}
-
-func (a *Account) IsOpenCodeGoAPIKey() bool {
-	return a.IsOpenCodeGo() && a.Type == AccountTypeAPIKey
-}
-
-func (a *Account) IsOpenCodeAPIKey() bool {
-	return a != nil && a.IsOpenCode() && a.Type == AccountTypeAPIKey
-}
-
 func (a *Account) IsClinePass() bool {
 	return a != nil && a.Platform == PlatformClinePass
 }
@@ -1640,7 +1533,7 @@ func (a *Account) GetOpenAIBaseURL() string {
 	if a.IsZCodeOAuth() {
 		return a.zcodeBaseURL()
 	}
-	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCode() {
+	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() {
 		return ""
 	}
 	if a.IsMultiProtocolAPIKey() && a.IsAdaptiveAPIProtocol() {
@@ -1722,7 +1615,7 @@ func (a *Account) GetAPIProtocol() string {
 	case APIProtocolChatCompletions:
 		return APIProtocolChatCompletions
 	}
-	if a.IsOpenCode() {
+	if a.IsOpenCodeGo() {
 		return APIProtocolAdaptive
 	}
 	return APIProtocolChatCompletions
@@ -2043,38 +1936,6 @@ func (a *Account) GetOpenAIApiKey() string {
 	return a.GetCredential("api_key")
 }
 
-func (a *Account) GetOpenCodeGoAPIKey() string {
-	if !a.IsOpenCodeGoAPIKey() {
-		return ""
-	}
-	return strings.TrimSpace(a.GetCredential("api_key"))
-}
-
-func (a *Account) GetOpenCodeAPIKey() string {
-	if !a.IsOpenCodeAPIKey() {
-		return ""
-	}
-	return strings.TrimSpace(a.GetCredential("api_key"))
-}
-
-func (a *Account) GetOpenCodeGoBaseURL() string {
-	if !a.IsOpenCodeGo() {
-		return ""
-	}
-	return a.GetOpenCodeBaseURL()
-}
-
-func (a *Account) GetOpenCodeBaseURL() string {
-	if !a.IsOpenCode() {
-		return ""
-	}
-	baseURL := strings.TrimRight(strings.TrimSpace(a.GetCredential("base_url")), "/")
-	if baseURL == "" {
-		return a.openCodeDefaultChatBaseURL()
-	}
-	return baseURL
-}
-
 func (a *Account) GetClinePassAPIKey() string {
 	if !a.IsClinePassAPIKey() {
 		return ""
@@ -2142,57 +2003,6 @@ func (a *Account) ResolveCommandCodeModelProtocol(upstreamModel string) (string,
 		return CommandCodeProtocolMessages, true
 	}
 	return CommandCodeProtocolChatCompletions, true
-}
-
-func (a *Account) GetOpenCodeGoModelProtocols() map[string]string {
-	if a == nil || a.Credentials == nil {
-		return nil
-	}
-	raw, ok := a.Credentials[openCodeGoModelProtocolsCredential]
-	if !ok || raw == nil {
-		return nil
-	}
-
-	parsed := stringMappingFromRaw(raw)
-	if len(parsed) == 0 {
-		return nil
-	}
-
-	result := make(map[string]string, len(parsed))
-	for model, protocol := range parsed {
-		model = strings.TrimSpace(model)
-		normalized := normalizeOpenCodeGoModelProtocol(protocol)
-		if model == "" || normalized == "" {
-			continue
-		}
-		result[model] = normalized
-	}
-	if len(result) == 0 {
-		return nil
-	}
-	return result
-}
-
-func (a *Account) ResolveOpenCodeGoModelProtocol(upstreamModel string) (string, bool) {
-	model := strings.TrimSpace(upstreamModel)
-	if model == "" {
-		return "", false
-	}
-	if protocols := a.GetOpenCodeGoModelProtocols(); len(protocols) > 0 {
-		if protocol := normalizeOpenCodeGoModelProtocol(protocols[model]); protocol != "" {
-			return protocol, true
-		}
-	}
-	if protocol, ok := OpenCodeGoCatalogModelProtocol(model); ok {
-		return protocol, true
-	}
-	if protocol := normalizeOpenCodeGoModelProtocol(openCodeGoBuiltinModelProtocols[model]); protocol != "" {
-		return protocol, true
-	}
-	if protocol := inferOpenCodeGoModelFamilyProtocol(model); protocol != "" {
-		return protocol, true
-	}
-	return "", false
 }
 
 // GetOpenAIProtocolAPIKey 返回 OpenAI 协议族 APIKey 账号的密钥。
@@ -3399,56 +3209,9 @@ func (a *Account) HasAnyQuotaLimit() bool {
 	return a.GetQuotaLimit() > 0 || a.GetQuotaDailyLimit() > 0 || a.GetQuotaWeeklyLimit() > 0
 }
 
-var openCodeGoOfficialUsageQuotaWindows = [...]string{"5h", "7d", "30d"}
 var clinePassOfficialUsageQuotaWindows = [...]string{"5h", "7d", "30d"}
 
 const clinePassMissingResetBackoff = 10 * time.Minute
-
-func (a *Account) IsOpenCodeGoOfficialUsageExhausted() bool {
-	return a.OpenCodeGoOfficialUsageRateLimitResetAt(time.Now()) != nil
-}
-
-func (a *Account) OpenCodeGoOfficialUsageRateLimitResetAt(now time.Time) *time.Time {
-	if a == nil || !a.IsOpenCodeGoAPIKey() || len(a.Extra) == 0 {
-		return nil
-	}
-	if strings.TrimSpace(a.getExtraString("opencode_go_usage_source")) != openCodeGoUsageSourceOfficialConsole {
-		return nil
-	}
-	if status := strings.TrimSpace(a.getExtraString("opencode_go_console_auth_status")); status != "" && status != OpenCodeGoConsoleAuthStatusReady {
-		return nil
-	}
-	if now.IsZero() {
-		now = time.Now()
-	}
-	var latest *time.Time
-	for _, window := range openCodeGoOfficialUsageQuotaWindows {
-		resetAt := a.openCodeGoOfficialUsageWindowResetAt(window, now)
-		if resetAt != nil && (latest == nil || resetAt.After(*latest)) {
-			copyResetAt := *resetAt
-			latest = &copyResetAt
-		}
-	}
-	return latest
-}
-
-func (a *Account) openCodeGoOfficialUsageWindowResetAt(window string, now time.Time) *time.Time {
-	if a.getExtraFloat64("opencode_go_usage_"+window+"_used_percent") < 100 {
-		return nil
-	}
-	resetAt := a.getExtraTime("opencode_go_usage_" + window + "_resets_at")
-	if resetAt.IsZero() {
-		updatedAt := a.getExtraTime("opencode_go_usage_updated_at")
-		resetInSec := a.getExtraInt("opencode_go_usage_" + window + "_reset_in_sec")
-		if !updatedAt.IsZero() && resetInSec > 0 {
-			resetAt = updatedAt.Add(time.Duration(resetInSec) * time.Second)
-		}
-	}
-	if resetAt.IsZero() || !now.Before(resetAt) {
-		return nil
-	}
-	return &resetAt
-}
 
 func (a *Account) IsClinePassOfficialUsageExhausted() bool {
 	return a.ClinePassOfficialUsageRateLimitResetAt(time.Now()) != nil
@@ -3572,7 +3335,7 @@ func (a *Account) IsWeeklyQuotaPeriodExpired() bool {
 
 // IsQuotaExceeded 检查 API Key 账号配额是否已超限（任一维度超限即返回 true）
 func (a *Account) IsQuotaExceeded() bool {
-	if a.IsOpenCodeGoOfficialUsageExhausted() || a.IsClinePassOfficialUsageExhausted() || a.IsCommandCodeOfficialUsageExhausted() {
+	if a.IsClinePassOfficialUsageExhausted() || a.IsCommandCodeOfficialUsageExhausted() {
 		return true
 	}
 	// 总额度

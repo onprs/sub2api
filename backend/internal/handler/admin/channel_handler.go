@@ -678,7 +678,7 @@ func (h *ChannelHandler) SyncPricingModels(c *gin.Context) {
 		response.Success(c, gin.H{"models": models})
 		return
 	case service.PlatformOpenCodeGo:
-		models := service.OpenCodeGoDefaultModelIDs()
+		models := service.DefaultOpenCodeGoModelIDs()
 		response.Success(c, gin.H{"models": models})
 		return
 	}

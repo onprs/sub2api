@@ -221,7 +221,7 @@ func (f *ChannelMonitorQuotaFetcher) fetchUncached(ctx context.Context, accountI
 			return f.fetchCNQuota(ctx, account, now)
 		}
 		return f.fetchCNBalance(ctx, account, now)
-	case domain.PlatformOpenCode:
+	case domain.PlatformOpenCodeGo:
 		if account.IsOpenCodeGoPlan() {
 			return f.fetchCNQuota(ctx, account, now)
 		}

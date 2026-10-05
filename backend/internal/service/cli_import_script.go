@@ -419,7 +419,7 @@ func DefaultModelIDsForPlatform(platform string) []string {
 		}
 		return ids
 	case PlatformOpenCodeGo:
-		return OpenCodeGoDefaultModelIDs()
+		return DefaultOpenCodeGoModelIDs()
 	case PlatformClinePass:
 		return ClinePassDefaultModelIDs()
 	case PlatformOpenRouter:
@@ -600,7 +600,7 @@ func cliImportModelsDevProviderForPlatform(platform string) string {
 		return "anthropic"
 	case PlatformGemini, PlatformAntigravity:
 		return "google"
-	case PlatformOpenCode, OpenCodeGoPricingPlatform:
+	case PlatformOpenCodeGo:
 		return "opencode-go"
 	default:
 		return ""
@@ -632,10 +632,7 @@ func (s *PricingService) GetCLIImportModelCapability(ctx context.Context, platfo
 		return CLIImportModelCapability{}, false
 	}
 	if cap, ok := s.getCLIImportModelsDevCapability(ctx, platform, model); ok {
-		return applyOpenCodeGoCLIImportReferencePricing(platform, model, cap), true
-	}
-	if cap, ok := getOpenCodeGoBuiltinCLIImportCapability(platform, model); ok {
-		return applyOpenCodeGoCLIImportReferencePricing(platform, model, cap), true
+		return cap, true
 	}
 	pricing := s.GetModelPricing(model)
 	if pricing == nil {
@@ -692,259 +689,7 @@ func (s *PricingService) GetCLIImportModelCapability(ctx context.Context, platfo
 	if pricing.OutputCostPerImageToken != 0 {
 		cap.OutputCostPerImageToken = cliImportFloat64Ptr(pricing.OutputCostPerImageToken)
 	}
-	if strings.TrimSpace(platform) == PlatformOpenCode && isOpenCodeGoPricingPlatform(pricing.LiteLLMProvider) {
-		cap = clearOpenCodeGoCLIImportCosts(cap)
-	} else {
-		cap = applyOpenCodeGoCLIImportReferencePricing(platform, model, cap)
-	}
 	return cap, true
-}
-
-func applyOpenCodeGoCLIImportReferencePricing(platform, model string, cap CLIImportModelCapability) CLIImportModelCapability {
-	if strings.TrimSpace(platform) == PlatformOpenCode {
-		return clearOpenCodeGoCLIImportCosts(cap)
-	}
-	if !isOpenCodeGoPricingPlatform(platform) {
-		return cap
-	}
-
-	cap = clearOpenCodeGoCLIImportCosts(cap)
-
-	pricing, ok := openCodeGoReferencePricing(model)
-	if !ok {
-		return cap
-	}
-	cap.InputCostPerToken = cliImportFloat64Ptr(pricing.InputPricePerToken * 1_000_000)
-	cap.OutputCostPerToken = cliImportFloat64Ptr(pricing.OutputPricePerToken * 1_000_000)
-	if pricing.CacheReadPricePerToken > 0 {
-		cap.CacheReadCostPerToken = cliImportFloat64Ptr(pricing.CacheReadPricePerToken * 1_000_000)
-	}
-	if pricing.CacheCreationPricePerToken > 0 {
-		cap.CacheWriteCostPerToken = cliImportFloat64Ptr(pricing.CacheCreationPricePerToken * 1_000_000)
-	}
-	if pricing.ImageOutputPricePerToken > 0 {
-		cap.OutputCostPerImageToken = cliImportFloat64Ptr(pricing.ImageOutputPricePerToken)
-	}
-	cap.CostKnown = pricing.InputPricePerToken > 0 && pricing.OutputPricePerToken > 0
-	return cap
-}
-
-func clearOpenCodeGoCLIImportCosts(cap CLIImportModelCapability) CLIImportModelCapability {
-	cap.InputCostPerToken = nil
-	cap.OutputCostPerToken = nil
-	cap.CacheReadCostPerToken = nil
-	cap.CacheWriteCostPerToken = nil
-	cap.OutputCostPerImage = nil
-	cap.OutputCostPerImageToken = nil
-	cap.CostKnown = false
-	return cap
-}
-
-var openCodeGoBuiltinCLIImportCapabilities = map[string]CLIImportModelCapability{
-	"deepseek-v4-flash": newOpenCodeGoBuiltinCLIImportCapability(
-		"DeepSeek V4 Flash", "deepseek-flash", false, true, true, true,
-		[]string{"text"}, 1000000, 384000, 0.15, 0.60, cliImportFloat64Ptr(0.003), nil,
-	),
-	"deepseek-flash": newOpenCodeGoBuiltinCLIImportCapability(
-		"DeepSeek V4.1 Flash", "deepseek-flash", true, true, true, true,
-		[]string{"text", "image"}, 1000000, 384000, 0.15, 0.60, cliImportFloat64Ptr(0.003), nil,
-	),
-	"deepseek-v4-flash-vision-exp": newOpenCodeGoBuiltinCLIImportCapability(
-		"DeepSeek V4 Flash Vision Exp", "deepseek-flash", true, true, true, true,
-		[]string{"text", "image"}, 1000000, 384000, 0.15, 0.60, cliImportFloat64Ptr(0.003), nil,
-	),
-	"deepseek-v4-pro": newOpenCodeGoBuiltinCLIImportCapability(
-		"DeepSeek V4 Pro", "deepseek-thinking", false, true, true, true,
-		[]string{"text"}, 1000000, 384000, 0.66, 1.98, cliImportFloat64Ptr(0.022), nil,
-	),
-	"gpt-5.6-luna": newOpenCodeGoBuiltinCLIImportCapability(
-		// OpenCode Go docs: 1.05M context, 128K output, $0.20/$1.20 with cache read/write pricing.
-		"GPT-5.6 Luna", "gpt-5.6", true, true, false, true,
-		[]string{"text", "image"}, 1050000, 128000, 0.2, 1.2, cliImportFloat64Ptr(0.02), cliImportFloat64Ptr(0.25),
-	),
-	"glm-5": newOpenCodeGoBuiltinCLIImportCapability(
-		"GLM-5", "glm", false, true, true, true,
-		[]string{"text"}, 202752, 32768, 1, 3.2, cliImportFloat64Ptr(0.2), nil,
-	),
-	"glm-5.1": newOpenCodeGoBuiltinCLIImportCapability(
-		"GLM-5.1", "glm", false, true, true, true,
-		[]string{"text"}, 202752, 32768, 1.4, 4.4, cliImportFloat64Ptr(0.26), nil,
-	),
-	"glm-5.2": newOpenCodeGoBuiltinCLIImportCapability(
-		"GLM-5.2", "glm", false, true, true, true,
-		[]string{"text"}, 1000000, 131072, 1.4, 4.4, cliImportFloat64Ptr(0.26), nil,
-	),
-	"glm-5.3": newOpenCodeGoBuiltinCLIImportCapability(
-		"GLM-5.3", "glm", false, true, true, true,
-		[]string{"text"}, 1000000, 131072, 1.4, 4.4, cliImportFloat64Ptr(0.26), nil,
-	),
-	"glm-5.3-flash": newOpenCodeGoBuiltinCLIImportCapability(
-		"GLM-5.3 Flash", "glm", true, true, true, true,
-		[]string{"text", "image", "video", "pdf"}, 1000000, 131072, 0.15, 0.50, cliImportFloat64Ptr(0.03), nil,
-	),
-	"hy3-preview": newOpenCodeGoBuiltinCLIImportCapability(
-		"HY3 Preview", "hy3", false, true, true, true,
-		[]string{"text"}, 262144, 65536, 0, 0, nil, nil,
-	),
-	"hy4-preview": newOpenCodeGoBuiltinCLIImportCapability(
-		"Hy4 Preview", "hy4", false, true, true, true,
-		[]string{"text"}, 1024000, 64000, 0.834, 2.501, cliImportFloat64Ptr(0.042), nil,
-	),
-	// Hy3 GA (graduated from preview). Pricing mirrors the OpenCode Go docs
-	// ($0.14/$0.58/$0.035 per 1M tokens); limits/caps follow the Tencent Hy3
-	// native spec published on models.dev.
-	"hy3": newOpenCodeGoBuiltinCLIImportCapability(
-		"Hy3", "hy3", false, true, true, true,
-		[]string{"text"}, 262144, 65536, 0.14, 0.58, cliImportFloat64Ptr(0.035), nil,
-	),
-	// Grok 4.5: OpenCode Go serves it via /responses at
-	// $2/$6/$0.30 (cache read) per 1M tokens. Output spec mirrors the xAI
-	// canonical models.dev entry (500000 input / 500000 output).
-	"grok-4.5": newOpenCodeGoBuiltinCLIImportCapability(
-		"Grok 4.5", "grok", true, true, true, true,
-		[]string{"text", "image"}, 500000, 500000, 2.0, 6.0, cliImportFloat64Ptr(0.30), nil,
-	),
-	"grok-4.6": newOpenCodeGoBuiltinCLIImportCapability(
-		"Grok 4.6", "grok", true, true, true, true,
-		[]string{"text", "image"}, 500000, 500000, 2.0, 6.0, cliImportFloat64Ptr(0.50), nil,
-	),
-	"muse-spark-1.3-contributor": newOpenCodeGoBuiltinCLIImportCapability(
-		"Muse Spark 1.3 Contributor", "muse-spark", true, true, false, true,
-		[]string{"text", "image", "video", "pdf", "audio"}, 1048576, 131072, 0.1, 0.2, cliImportFloat64Ptr(0.002), nil,
-	),
-	"muse-spark-1.2-contributor": newOpenCodeGoBuiltinCLIImportCapability(
-		"Muse Spark 1.2 Contributor", "muse-spark", true, true, false, true,
-		[]string{"text", "image", "video", "pdf", "audio"}, 1048576, 131072, 0.1, 0.2, cliImportFloat64Ptr(0.002), nil,
-	),
-	"kimi-k2.5": newOpenCodeGoBuiltinCLIImportCapability(
-		"Kimi K2.5", "kimi-k2", true, true, true, true,
-		[]string{"text", "image", "video"}, 262144, 65536, 0.6, 3, cliImportFloat64Ptr(0.1), nil,
-	),
-	"kimi-k2.6": newOpenCodeGoBuiltinCLIImportCapability(
-		"Kimi K2.6", "kimi-k2", true, true, true, true,
-		[]string{"text", "image", "video"}, 262144, 65536, 0.95, 4, cliImportFloat64Ptr(0.16), nil,
-	),
-	"kimi-k2.7": newOpenCodeGoBuiltinCLIImportCapability(
-		"Kimi K2.7", "kimi-k2", true, true, false, true,
-		[]string{"text", "image", "video"}, 262144, 262144, 0.95, 4, cliImportFloat64Ptr(0.19), nil,
-	),
-	"kimi-k2.7-code": newOpenCodeGoBuiltinCLIImportCapability(
-		"Kimi K2.7 Code", "kimi-k2", true, true, false, true,
-		[]string{"text", "image", "video"}, 262144, 262144, 0.95, 4, cliImportFloat64Ptr(0.19), nil,
-	),
-	// Kimi K3: OpenCode Go serves it via /chat/completions at
-	// $3/$15/$0.30 (cache read) per 1M tokens. Native spec is 1M context /
-	// 131072 output, multimodal text+image+video, reasoning toggle, no temperature.
-	"kimi-k3": newOpenCodeGoBuiltinCLIImportCapability(
-		"Kimi K3", "kimi-k3", true, true, false, true,
-		[]string{"text", "image", "video"}, 1048576, 131072, 3.0, 15.0, cliImportFloat64Ptr(0.30), nil,
-	),
-	"longcat-2.0": newOpenCodeGoBuiltinCLIImportCapability(
-		"LongCat-2.0", "longcat", false, true, true, true,
-		[]string{"text"}, 1000000, 131072, 0.30, 1.20, cliImportFloat64Ptr(0.006), nil,
-	),
-	"mimo-v2.5": newOpenCodeGoBuiltinCLIImportCapability(
-		"MiMo V2.5", "mimo-v2.5", true, true, true, true,
-		[]string{"text", "image", "audio", "video"}, 1000000, 128000, 0.14, 0.28, cliImportFloat64Ptr(0.0028), nil,
-	),
-	"mimo-v2.5-pro": newOpenCodeGoBuiltinCLIImportCapability(
-		"MiMo V2.5 Pro", "mimo-v2.5-pro", true, true, true, true,
-		[]string{"text"}, 1048576, 128000, 1.74, 3.48, cliImportFloat64Ptr(0.0145), nil,
-	),
-	"mimo-v2-omni": newOpenCodeGoBuiltinCLIImportCapability(
-		"MiMo V2 Omni", "mimo-v2-omni", true, true, true, true,
-		[]string{"text", "image", "audio", "pdf"}, 262144, 128000, 0.4, 2, cliImportFloat64Ptr(0.08), nil,
-	),
-	"mimo-v2-pro": newOpenCodeGoBuiltinCLIImportCapability(
-		"MiMo V2 Pro", "mimo-v2-pro", true, true, true, true,
-		[]string{"text"}, 1048576, 128000, 1, 3, cliImportFloat64Ptr(0.2), nil,
-	),
-	"minimax-m2.5": newOpenCodeGoBuiltinCLIImportCapability(
-		"MiniMax M2.5", "minimax-m2.5", false, true, true, true,
-		[]string{"text"}, 204800, 65536, 0.3, 1.2, cliImportFloat64Ptr(0.03), nil,
-	),
-	"minimax-m2.7": newOpenCodeGoBuiltinCLIImportCapability(
-		"MiniMax M2.7", "minimax-m2.7", false, true, true, true,
-		[]string{"text"}, 204800, 131072, 0.3, 1.2, cliImportFloat64Ptr(0.06), nil,
-	),
-	"minimax-m3": newOpenCodeGoBuiltinCLIImportCapability(
-		"MiniMax M3", "minimax-m3", false, true, true, true,
-		[]string{"text", "image", "video"}, 512000, 131072, 0.1, 0.4, cliImportFloat64Ptr(0.02), nil,
-	),
-	"qwen3.6-plus": newOpenCodeGoBuiltinCLIImportCapability(
-		"Qwen3.6 Plus", "qwen3.6", true, true, true, true,
-		[]string{"text", "image", "video"}, 1000000, 65536, 0.5, 3, cliImportFloat64Ptr(0.05), cliImportFloat64Ptr(0.625),
-	),
-	"qwen3.5-plus": newOpenCodeGoBuiltinCLIImportCapability(
-		"Qwen3.5 Plus", "qwen3.5", true, true, true, true,
-		[]string{"text", "image", "video"}, 262144, 65536, 0.2, 1.2, cliImportFloat64Ptr(0.02), cliImportFloat64Ptr(0.25),
-	),
-	"omen-alpha": newOpenCodeGoBuiltinCLIImportCapability(
-		"Omen Alpha", "omen", true, true, true, true,
-		[]string{"text", "image"}, 500000, 128000, 0.20, 0.66, cliImportFloat64Ptr(0.04), nil,
-	),
-	"qwen3.8-max": newOpenCodeGoBuiltinCLIImportCapability(
-		// OpenCode Go docs: 1M context, 65K output, $2/$6 with cache read/write pricing.
-		"Qwen3.8 Max", "qwen3.8-max", false, true, true, true,
-		[]string{"text"}, 1000000, 65536, 2.0, 6.0, cliImportFloat64Ptr(0.25), cliImportFloat64Ptr(2.5),
-	),
-	"qwen3.8-flash": newOpenCodeGoBuiltinCLIImportCapability(
-		"Qwen3.8 Flash", "qwen3.8", true, true, true, true,
-		[]string{"text", "image", "video"}, 1000000, 131072, 0.15, 0.47, cliImportFloat64Ptr(0.016), cliImportFloat64Ptr(0.20),
-	),
-	"qwen3.7-max": newOpenCodeGoBuiltinCLIImportCapability(
-		"Qwen3.7 Max", "qwen3.7-max", false, true, true, true,
-		[]string{"text"}, 1000000, 65536, 2.5, 7.5, cliImportFloat64Ptr(0.5), cliImportFloat64Ptr(3.125),
-	),
-	"qwen3.7-plus": newOpenCodeGoBuiltinCLIImportCapability(
-		"Qwen3.7 Plus", "qwen3.7-plus", true, true, true, true,
-		[]string{"text", "image", "video"}, 1000000, 65536, 0.4, 1.6, cliImportFloat64Ptr(0.04), cliImportFloat64Ptr(0.5),
-	),
-}
-
-func getOpenCodeGoBuiltinCLIImportCapability(platform, model string) (CLIImportModelCapability, bool) {
-	if !isOpenCodeGoPricingPlatform(platform) && strings.TrimSpace(platform) != PlatformOpenCode {
-		return CLIImportModelCapability{}, false
-	}
-	cap, ok := openCodeGoBuiltinCLIImportCapabilities[strings.ToLower(strings.TrimSpace(model))]
-	if !ok {
-		return CLIImportModelCapability{}, false
-	}
-	cap.InputModalities = append([]string(nil), cap.InputModalities...)
-	cap.OutputModalities = append([]string(nil), cap.OutputModalities...)
-	return cap, true
-}
-
-func newOpenCodeGoBuiltinCLIImportCapability(name, family string, attachment, reasoning, temperature, toolCall bool, inputModalities []string, contextTokens, outputTokens int, inputCost, outputCost float64, cacheRead, cacheWrite *float64) CLIImportModelCapability {
-	input := cleanCLIImportModalities(inputModalities)
-	return CLIImportModelCapability{
-		Name:                         name,
-		Family:                       family,
-		Attachment:                   attachment,
-		SupportsReasoning:            reasoning,
-		SupportsFunctionCalling:      toolCall,
-		MaxInputTokens:               contextTokens,
-		MaxOutputTokens:              outputTokens,
-		InputModalities:              input,
-		OutputModalities:             []string{"text"},
-		InputCostPerToken:            cliImportFloat64Ptr(inputCost),
-		OutputCostPerToken:           cliImportFloat64Ptr(outputCost),
-		CacheReadCostPerToken:        cacheRead,
-		CacheWriteCostPerToken:       cacheWrite,
-		ReasoningKnown:               true,
-		AttachmentKnown:              true,
-		ToolCallKnown:                true,
-		ModalitiesKnown:              true,
-		LimitKnown:                   true,
-		CostKnown:                    true,
-		Temperature:                  temperature,
-		TemperatureKnown:             true,
-		SupportsVision:               containsString(input, "image"),
-		SupportsPDFInput:             containsString(input, "pdf"),
-		SupportsVisionKnown:          true,
-		SupportsPDFInputKnown:        true,
-		SupportsFunctionCallingKnown: true,
-	}
 }
 
 func (p *LiteLLMModelPricing) openCodeAttachmentKnown() bool {

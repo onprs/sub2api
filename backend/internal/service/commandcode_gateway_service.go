@@ -48,7 +48,7 @@ func (s *CommandCodeGatewayService) ForwardChatCompletions(
 	account *Account,
 	body []byte,
 ) (*ForwardResult, error) {
-	return s.forwardStandardRequest(ctx, c, account, body, "", "", false, protocolconv.ProtocolOpenAIChat, openCodeGoResponseChat)
+	return s.forwardStandardRequest(ctx, c, account, body, "", "", false, protocolconv.ProtocolOpenAIChat, standardGatewayResponseChat)
 }
 
 // ForwardResponses 处理 OpenAI Responses 入口请求。
@@ -59,7 +59,7 @@ func (s *CommandCodeGatewayService) ForwardResponses(
 	body []byte,
 	clientModel string,
 ) (*ForwardResult, error) {
-	return s.forwardStandardRequest(ctx, c, account, body, clientModel, "", false, protocolconv.ProtocolOpenAIResponses, openCodeGoResponseResponses)
+	return s.forwardStandardRequest(ctx, c, account, body, clientModel, "", false, protocolconv.ProtocolOpenAIResponses, standardGatewayResponseResponses)
 }
 
 // ForwardMessages 处理 Anthropic Messages 入口请求。
@@ -69,7 +69,7 @@ func (s *CommandCodeGatewayService) ForwardMessages(
 	account *Account,
 	body []byte,
 ) (*ForwardResult, error) {
-	return s.forwardStandardRequest(ctx, c, account, body, "", "", false, protocolconv.ProtocolAnthropic, openCodeGoResponseAnthropic)
+	return s.forwardStandardRequest(ctx, c, account, body, "", "", false, protocolconv.ProtocolAnthropic, standardGatewayResponseAnthropic)
 }
 
 // ForwardGoogleGenAI 处理 Google generateContent 入口请求。模型与流式模式
@@ -83,7 +83,7 @@ func (s *CommandCodeGatewayService) ForwardGoogleGenAI(
 	routingModel string,
 	stream bool,
 ) (*ForwardResult, error) {
-	return s.forwardStandardRequest(ctx, c, account, body, clientModel, routingModel, stream, protocolconv.ProtocolGoogleGenAI, openCodeGoResponseGoogle)
+	return s.forwardStandardRequest(ctx, c, account, body, clientModel, routingModel, stream, protocolconv.ProtocolGoogleGenAI, standardGatewayResponseGoogle)
 }
 
 func (s *CommandCodeGatewayService) forwardStandardRequest(
@@ -95,11 +95,11 @@ func (s *CommandCodeGatewayService) forwardStandardRequest(
 	routingModel string,
 	stream bool,
 	source protocolconv.Protocol,
-	responseMode openCodeGoResponseMode,
+	responseMode standardGatewayResponseMode,
 ) (*ForwardResult, error) {
 	format := responseMode.errorFormat()
 	if len(body) == 0 || !gjson.ValidBytes(body) {
-		writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", "Failed to parse request body")
+		writeStandardGatewayError(c, http.StatusBadRequest, format, "invalid_request_error", "Failed to parse request body")
 		return nil, fmt.Errorf("invalid Command Code %s request", source)
 	}
 	if source != protocolconv.ProtocolGoogleGenAI {
@@ -107,14 +107,14 @@ func (s *CommandCodeGatewayService) forwardStandardRequest(
 		stream = gjson.GetBytes(body, "stream").Bool()
 	}
 	if routingModel == "" {
-		writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", "model is required")
+		writeStandardGatewayError(c, http.StatusBadRequest, format, "invalid_request_error", "model is required")
 		return nil, fmt.Errorf("commandcode model is required")
 	}
 	if clientModel == "" {
 		clientModel = routingModel
 	}
 	if account == nil || !account.IsCommandCodeAPIKey() {
-		writeOpenCodeGoError(c, http.StatusBadGateway, format, "upstream_error", "Command Code account must use API key credentials")
+		writeStandardGatewayError(c, http.StatusBadGateway, format, "upstream_error", "Command Code account must use API key credentials")
 		return nil, fmt.Errorf("invalid Command Code account")
 	}
 	upstreamModel := strings.TrimSpace(account.GetMappedModel(routingModel))
@@ -123,7 +123,7 @@ func (s *CommandCodeGatewayService) forwardStandardRequest(
 	}
 	protocol, ok := account.ResolveCommandCodeModelProtocol(upstreamModel)
 	if !ok {
-		writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", "Command Code model protocol is not configured for upstream model: "+upstreamModel)
+		writeStandardGatewayError(c, http.StatusBadRequest, format, "invalid_request_error", "Command Code model protocol is not configured for upstream model: "+upstreamModel)
 		return nil, fmt.Errorf("commandcode model protocol not configured for %q", upstreamModel)
 	}
 
@@ -132,7 +132,7 @@ func (s *CommandCodeGatewayService) forwardStandardRequest(
 		var err error
 		sourceBody, err = sjson.SetBytes(sourceBody, "model", upstreamModel)
 		if err != nil {
-			writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", "Failed to rewrite model")
+			writeStandardGatewayError(c, http.StatusBadRequest, format, "invalid_request_error", "Failed to rewrite model")
 			return nil, err
 		}
 	}
@@ -144,13 +144,13 @@ func (s *CommandCodeGatewayService) forwardStandardRequest(
 	case CommandCodeProtocolMessages:
 		target = protocolconv.ProtocolAnthropic
 	default:
-		writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", "Unsupported model protocol")
+		writeStandardGatewayError(c, http.StatusBadRequest, format, "invalid_request_error", "Unsupported model protocol")
 		return nil, fmt.Errorf("unsupported Command Code model protocol %q", protocol)
 	}
 
 	pipeline, converted, err := newCommandCodePipelineRequest(sourceBody, source, target, account, clientModel, upstreamModel)
 	if err != nil {
-		writeOpenCodeGoError(c, http.StatusBadRequest, format, "invalid_request_error", "Request cannot be represented for the selected Command Code model protocol")
+		writeStandardGatewayError(c, http.StatusBadRequest, format, "invalid_request_error", "Request cannot be represented for the selected Command Code model protocol")
 		return nil, err
 	}
 	converted, err = sjson.SetBytes(converted, "stream", stream)
@@ -204,12 +204,12 @@ func (s *CommandCodeGatewayService) forwardChatBody(
 	body []byte,
 	originalModel string,
 	upstreamModel string,
-	responseMode openCodeGoResponseMode,
+	responseMode standardGatewayResponseMode,
 	pipeline *protocolconv.Pipeline,
 ) (*ForwardResult, error) {
 	targetURL, err := s.client.endpointURL(account, commandCodeChatCompletionsPath)
 	if err != nil {
-		writeOpenCodeGoError(c, http.StatusBadRequest, responseMode.errorFormat(), "invalid_request_error", err.Error())
+		writeStandardGatewayError(c, http.StatusBadRequest, responseMode.errorFormat(), "invalid_request_error", err.Error())
 		return nil, err
 	}
 	stream := gjson.GetBytes(body, "stream").Bool()
@@ -235,12 +235,12 @@ func (s *CommandCodeGatewayService) forwardMessagesBody(
 	body []byte,
 	originalModel string,
 	upstreamModel string,
-	responseMode openCodeGoResponseMode,
+	responseMode standardGatewayResponseMode,
 	pipeline *protocolconv.Pipeline,
 ) (*ForwardResult, error) {
 	targetURL, err := s.client.endpointURL(account, commandCodeMessagesPath)
 	if err != nil {
-		writeOpenCodeGoError(c, http.StatusBadRequest, responseMode.errorFormat(), "invalid_request_error", err.Error())
+		writeStandardGatewayError(c, http.StatusBadRequest, responseMode.errorFormat(), "invalid_request_error", err.Error())
 		return nil, err
 	}
 	stream := gjson.GetBytes(body, "stream").Bool()
@@ -266,12 +266,12 @@ func (s *CommandCodeGatewayService) sendUpstream(
 	targetURL string,
 	body []byte,
 	stream bool,
-	format openCodeGoErrorFormat,
+	format standardGatewayErrorFormat,
 	protocol string,
 ) (*http.Response, error) {
 	apiKey := account.GetCommandCodeAPIKey()
 	if apiKey == "" {
-		writeOpenCodeGoError(c, http.StatusBadGateway, format, "upstream_error", "Command Code account is missing api_key")
+		writeStandardGatewayError(c, http.StatusBadGateway, format, "upstream_error", "Command Code account is missing api_key")
 		return nil, fmt.Errorf("commandcode account %d missing api_key", account.ID)
 	}
 
@@ -279,7 +279,7 @@ func (s *CommandCodeGatewayService) sendUpstream(
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	releaseUpstreamCtx()
 	if err != nil {
-		writeOpenCodeGoError(c, http.StatusBadGateway, format, "upstream_error", "Failed to build upstream request")
+		writeStandardGatewayError(c, http.StatusBadGateway, format, "upstream_error", "Failed to build upstream request")
 		return nil, err
 	}
 	upstreamReq.Header.Set("Content-Type", "application/json")
@@ -321,7 +321,7 @@ func (s *CommandCodeGatewayService) handleUpstreamError(
 	resp *http.Response,
 	requestedModel string,
 	actualProtocol protocolconv.Protocol,
-	format openCodeGoErrorFormat,
+	format standardGatewayErrorFormat,
 ) error {
 	if resp.StatusCode < http.StatusBadRequest {
 		return nil
@@ -372,7 +372,7 @@ func (s *CommandCodeGatewayService) handleUpstreamError(
 			ResponseHeaders: upstream.Headers,
 		}
 	}
-	writeOpenCodeGoUpstreamResponse(c, upstream, s.responseHeaderFilter, format)
+	writeStandardGatewayUpstreamResponse(c, upstream, s.responseHeaderFilter, format)
 	return fmt.Errorf("commandcode upstream returned status %d", upstream.StatusCode)
 }
 
@@ -391,7 +391,7 @@ func (s *CommandCodeGatewayService) bufferResponse(
 	if err != nil {
 		return nil, s.preCommitFailure(c, account, resp, "response_read_error", err)
 	}
-	usage := openCodeGoUsageFromBody(body, actualProtocol)
+	usage := standardGatewayUsageFromBody(body, actualProtocol)
 	structured := protocoltransport.Response{
 		StatusCode:     resp.StatusCode,
 		Headers:        responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter),
@@ -415,7 +415,7 @@ func (s *CommandCodeGatewayService) bufferResponse(
 	if err := renderer.RenderJSON(c.Writer, structured.StatusCode, structured.Headers, converted.Body); err != nil {
 		return nil, err
 	}
-	return openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, actualProtocol, false, startTime), nil
+	return standardGatewayForwardResult(resp, usage, originalModel, upstreamModel, actualProtocol, false, startTime), nil
 }
 
 var errCommandCodeEmptyStream = errors.New("commandcode upstream stream completed without output or usage")
@@ -594,10 +594,10 @@ func (s *CommandCodeGatewayService) streamResponse(
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
-		mergeOpenCodeGoStreamUsage(&usage, payload, actualProtocol)
+		mergeStandardGatewayStreamUsage(&usage, payload, actualProtocol)
 	}
 	clientDisconnected, err := s.convertStream(c, resp, pipeline, actualProtocol, sourceProtocol, observe, observation)
-	out := openCodeGoForwardResult(resp, usage, originalModel, upstreamModel, actualProtocol, true, startTime)
+	out := standardGatewayForwardResult(resp, usage, originalModel, upstreamModel, actualProtocol, true, startTime)
 	out.ClientDisconnect = clientDisconnected
 	out.FirstTokenMs = firstTokenMs
 	if errors.Is(err, errCommandCodeEmptyStream) {

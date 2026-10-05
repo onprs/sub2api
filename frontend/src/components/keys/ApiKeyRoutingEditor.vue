@@ -275,7 +275,7 @@ const platformOrder: GroupPlatform[] = [
   'gemini',
   'antigravity',
   'grok',
-  'opencode',
+  'opencode_go',
   'clinepass',
   'openrouter',
   'commandcode'

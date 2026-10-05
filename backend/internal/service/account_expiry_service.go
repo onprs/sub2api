@@ -9,12 +9,11 @@ import (
 
 // AccountExpiryService periodically pauses expired accounts and checks rate-limited accounts.
 type AccountExpiryService struct {
-	accountRepo         AccountRepository
-	accountUsageService *AccountUsageService
-	interval            time.Duration
-	stopCh              chan struct{}
-	stopOnce            sync.Once
-	wg                  sync.WaitGroup
+	accountRepo AccountRepository
+	interval    time.Duration
+	stopCh      chan struct{}
+	stopOnce    sync.Once
+	wg          sync.WaitGroup
 }
 
 func NewAccountExpiryService(accountRepo AccountRepository, interval time.Duration) *AccountExpiryService {
@@ -22,12 +21,6 @@ func NewAccountExpiryService(accountRepo AccountRepository, interval time.Durati
 		accountRepo: accountRepo,
 		interval:    interval,
 		stopCh:      make(chan struct{}),
-	}
-}
-
-func (s *AccountExpiryService) SetAccountUsageService(usageSvc *AccountUsageService) {
-	if s != nil {
-		s.accountUsageService = usageSvc
 	}
 }
 
@@ -72,9 +65,5 @@ func (s *AccountExpiryService) runOnce() {
 		log.Printf("[AccountExpiry] Auto pause expired accounts failed: %v", err)
 	} else if updated > 0 {
 		log.Printf("[AccountExpiry] Auto paused %d expired accounts", updated)
-	}
-
-	if s.accountUsageService != nil {
-		s.accountUsageService.SyncRateLimitedOpenCodeGoAccounts(ctx)
 	}
 }

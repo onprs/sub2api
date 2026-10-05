@@ -136,7 +136,7 @@ func (s *OpenAIGatewayService) nativeAnthropicTargetURL(account *Account) (strin
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
-	if account.IsOpenCode() {
+	if account.IsOpenCodeGo() {
 		// OpenCode base URLs are mode-specific. Version-aware URL joining avoids
 		return buildOpenAIEndpointURL(validatedURL, "/v1/messages"), nil
 	}

@@ -30,7 +30,7 @@ const apiKeyRecord = {
   group: {
     id: 3,
     name: 'OpenCode Go',
-    platform: 'opencode',
+    platform: 'opencode_go',
     default_mapped_model: 'gpt-5.5'
   }
 }
@@ -41,7 +41,7 @@ function mountModal() {
       show: true,
       apiKey: 'sk-test',
       baseUrl: 'https://example.com/v1',
-      platform: 'opencode',
+      platform: 'opencode_go',
       apiKeyRecord
     } as any,
     global: {

@@ -33,8 +33,6 @@ class VerifyReleaseBinaryTest(unittest.TestCase):
                 "api/provider/claim-badge/1420",
                 "opencode_go",
                 "https://opencode.ai/zen/go/v1",
-                "https://opencode.ai/docs/go/",
-                "channel_monitor_provider_opencode",
                 "clinepass",
                 "https://api.cline.bot/api/v1",
                 "channel_monitor_provider_clinepass",
@@ -121,14 +119,6 @@ class VerifyReleaseBinaryTest(unittest.TestCase):
         self.assertTrue(any("opencode_go" in error for error in result.errors), result.errors)
         self.assertTrue(
             any("https://opencode.ai/zen/go/v1" in error for error in result.errors),
-            result.errors,
-        )
-        self.assertTrue(
-            any("https://opencode.ai/docs/go/" in error for error in result.errors),
-            result.errors,
-        )
-        self.assertTrue(
-            any("channel_monitor_provider_opencode" in error for error in result.errors),
             result.errors,
         )
 

@@ -78,7 +78,7 @@ func resolveAccountStatsCostWithPlatform(
 
 	// 优先级 1：自定义规则（始终尝试）
 	if cost := tryCustomRules(channel, accountID, groupID, groupPlatform, upstreamModel, tokens, requestCount, reasoningEffort); cost != nil {
-		return applyOpenCodeGoQuotaCostToAccountStats(billingService, pricingPlatform, upstreamModel, cost)
+		return cost
 	}
 
 	// 优先级 2：渠道开启"应用模型定价到账号统计"时，直接使用账号基础成本
@@ -125,22 +125,7 @@ func tryModelFilePricingForPlatform(billingService *BillingService, platform, mo
 	if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
 		return nil
 	}
-	return applyOpenCodeGoQuotaCostToAccountStats(billingService, platform, model, &breakdown.TotalCost)
-}
-
-func applyOpenCodeGoQuotaCostToAccountStats(billingService *BillingService, platform, model string, cost *float64) *float64 {
-	if cost == nil || !isOpenCodeGoPricingPlatform(platform) {
-		return cost
-	}
-	if billingService == nil {
-		return nil
-	}
-	quotaCost, ok := billingService.GetOpenCodeGoQuotaCost(model)
-	if !ok {
-		return nil
-	}
-	weightedCost := *cost * quotaCost.Multiplier
-	return &weightedCost
+	return &breakdown.TotalCost
 }
 
 // tryCustomRules 遍历自定义规则，按数组顺序先命中为准。

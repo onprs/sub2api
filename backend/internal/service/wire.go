@@ -443,9 +443,8 @@ func ProvideUsageCleanupService(repo UsageCleanupRepository, timingWheel *Timing
 }
 
 // ProvideAccountExpiryService creates and starts AccountExpiryService.
-func ProvideAccountExpiryService(accountRepo AccountRepository, accountUsageService *AccountUsageService) *AccountExpiryService {
+func ProvideAccountExpiryService(accountRepo AccountRepository) *AccountExpiryService {
 	svc := NewAccountExpiryService(accountRepo, time.Minute)
-	svc.SetAccountUsageService(accountUsageService)
 	svc.Start()
 	return svc
 }
@@ -921,7 +920,6 @@ var ProviderSet = wire.NewSet(
 	NewAdminService,
 	NewGatewayService,
 	NewOpenAIGatewayService,
-	NewOpenCodeGoGatewayService,
 	NewClinePassClient,
 	NewClinePassGatewayService,
 	NewOpenRouterClient,

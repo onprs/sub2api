@@ -537,7 +537,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
 			account.ID, *apiKey.GroupID, result.UpstreamModel, result.Model,
 			tokens, costBeforeGroupMultiplier(cost), pricingAt,
-			accountStatsLongContextPricingEnabled(longContextBillingGate), pricingPlatformForAccount(account),
+			accountStatsLongContextPricingEnabled(longContextBillingGate), account.Platform,
 		)
 	}
 
@@ -1024,7 +1024,7 @@ func groupMediaPricingLooksIncomplete(group *Group) bool {
 // 运营者的修复手段是配置账号级 model_mapping（映射到已定价的 CN 模型）或
 // 分组/渠道显式定价。
 func (s *OpenAIGatewayService) filterCNProviderBillingModelCandidates(ctx context.Context, account *Account, apiKey *APIKey, candidates []string) []string {
-	if account == nil || (!account.IsCNProvider() && !account.IsOpenCode()) {
+	if account == nil || (!account.IsCNProvider() && !account.IsOpenCodeGo()) {
 		return candidates
 	}
 	out := make([]string, 0, len(candidates))

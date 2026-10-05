@@ -655,7 +655,7 @@ func lockAndMergeAccountProbeExtra(
 				(
 					-- OpenCode Go 模式分支：新旧都是 opencode 平台且处于 Go 模式（account_mode
 					-- 未设置/非 zen 均按 Go 兼容），不校验 base_url。
-					(platform = 'opencode' AND $2 = 'opencode'
+					(platform = 'opencode_go' AND $2 = 'opencode_go'
 						AND COALESCE(btrim(credentials ->> 'account_mode') <> 'zen', true)
 						AND COALESCE(btrim($4::jsonb ->> 'account_mode') <> 'zen', true))
 					-- 挂载白名单分支：新旧平台都在白名单内且 base_url 均为官方
@@ -883,7 +883,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 					AND credentials IS DISTINCT FROM $1::jsonb
 					AND (
 						-- 旧行按新谓词属于 OpenCode 用量身份
-						(platform = 'opencode'
+						(platform = 'opencode_go'
 							AND COALESCE(btrim(credentials ->> 'account_mode') <> 'zen', true))
 						OR (platform IN (`+opencodeGoUsageMountPlatformsSQL+`)
 							AND `+opencodeGoBaseURLMatchSQLPrefix+`credentials ->> 'base_url'`+opencodeGoBaseURLMatchSQLSuffix+`)
@@ -895,7 +895,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 						-- 域之外，否则挂载行的 FALSE IS NOT TRUE 会误判为已变化）；
 						-- 挂载行 base_url 不再指向官方 Go 基址。NULL-safe：
 						-- regex(NULL) 为 NULL 时 IS NOT TRUE 把 NULL 视为不匹配。
-						OR (platform = 'opencode'
+						OR (platform = 'opencode_go'
 							AND COALESCE(btrim($1::jsonb ->> 'account_mode') <> 'zen', true) IS NOT TRUE)
 						OR (platform IN (`+opencodeGoUsageMountPlatformsSQL+`)
 							AND (`+opencodeGoBaseURLMatchSQLPrefix+`$1::jsonb ->> 'base_url'`+opencodeGoBaseURLMatchSQLSuffix+`) IS NOT TRUE)
@@ -3180,7 +3180,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	// 旧行 OpenCode 用量身份谓词（与 opencodeGoUsageEligibleSQL 的行侧条件镜像；
 	// type 由 opencodeEligibleAccount 统一携带）。account_mode 未设置/为 null/非
 	// zen 均视为 Go 订阅，与 GetOpenCodeAccountMode 默认兼容一致。
-	opencodeOldUsageIdentity := "((platform = 'opencode' AND COALESCE(btrim(credentials ->> 'account_mode') <> 'zen', true))" +
+	opencodeOldUsageIdentity := "((platform = 'opencode_go' AND COALESCE(btrim(credentials ->> 'account_mode') <> 'zen', true))" +
 		" OR (platform IN (" + opencodeGoUsageMountPlatformsSQL + ") AND " + opencodeOldBaseURL + "))"
 	if _, ok := updates.Credentials["api_key"]; ok {
 		opencodeGroupIdentityChanges = append(opencodeGroupIdentityChanges,
@@ -3199,7 +3199,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		// 仅 OpenCode Go 模式账号身份钉在 Go 订阅上（挂载行的 account_mode 与 OpenCode
 		// 资格无关，不由此子句清理）。模式转 Zen 即不再 eligible。
 		opencodeGroupIdentityChanges = append(opencodeGroupIdentityChanges,
-			"platform = 'opencode' AND COALESCE(btrim(credentials ->> 'account_mode') <> 'zen', true)"+
+			"platform = 'opencode_go' AND COALESCE(btrim(credentials ->> 'account_mode') <> 'zen', true)"+
 				" AND COALESCE(btrim("+credentialPlaceholder+"::jsonb ->> 'account_mode') <> 'zen', true) IS NOT TRUE")
 	}
 

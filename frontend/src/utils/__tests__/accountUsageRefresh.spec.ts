@@ -142,37 +142,6 @@ describe('buildAPIKeyBalanceRefreshKey', () => {
     expect(buildAccountUsageRefreshKey(base)).not.toBe(buildAccountUsageRefreshKey(next))
   })
 
-  it('OpenCode Go 官方 Console 快照变化时生成不同账号 usage key', () => {
-    const base = {
-      id: 4,
-      platform: 'opencode',
-      type: 'apikey',
-      updated_at: '2026-06-22T10:00:00Z',
-      last_used_at: null,
-      rate_limit_reset_at: null,
-      extra: {
-        opencode_go_console_auth_status: 'ready',
-        opencode_go_usage_source: 'estimated',
-        opencode_go_usage_updated_at: '2026-06-22T10:00:00Z',
-        opencode_go_usage_5h_used_percent: 51
-      }
-    } as any
-
-    const next = {
-      ...base,
-      extra: {
-        ...base.extra,
-        opencode_go_usage_source: 'official_console',
-        opencode_go_usage_updated_at: '2026-06-22T10:05:00Z',
-        opencode_go_usage_5h_used_percent: 19,
-        opencode_go_usage_5h_resets_at: '2026-06-22T11:30:00Z',
-        opencode_go_usage_7d_used_percent: 7,
-        opencode_go_usage_30d_used_percent: 10
-      }
-    }
-
-    expect(buildAccountUsageRefreshKey(base)).not.toBe(buildAccountUsageRefreshKey(next))
-  })
 
   it('OpenRouter official usage snapshot changes the account usage key', () => {
     const base = {

@@ -287,8 +287,8 @@ func TestBulkUpdateOpenCodeGoIdentityCleanupIsValueConditional(t *testing.T) {
 	require.NotEmpty(t, exec.execQueries)
 	query := normalizeSQLWhitespace(exec.execQueries[0])
 	// OpenCode 分支必须出现在 Ollama 分支之前，且 eligible 判定按新谓词同时覆盖
-	// OpenCode 平台 Go 模式与挂载白名单平台 + 官方 OpenCode Go 基址。
-	require.Contains(t, query, "platform = 'opencode'")
+	// opencode_go 平台（Go 订阅）与挂载白名单平台 + opencode 基址。
+	require.Contains(t, query, "platform = 'opencode_go'")
 	require.Contains(t, query, "platform IN ("+opencodeGoUsageMountPlatformsSQL+")")
 	require.Contains(t, query, "- 'opencode_go_usage_auto_refresh' - 'opencode_go_usage_snapshot'")
 	opencodeBranch := strings.Index(query, "opencode_go_usage_auto_refresh")
@@ -322,8 +322,8 @@ func TestBulkUpdateOpenCodeGoEligiblePredicateIncludesBaseURL(t *testing.T) {
 	require.Less(t, caseStart, firstThen)
 	firstWhen := query[caseStart:firstThen]
 	// 第一个 WHEN 分支是 OpenCode 快照失效分支（代理变化），其 eligible 判定必须
-	// 覆盖 OpenCode 平台 Go 模式与挂载白名单的 OpenCode 基址，使 Ollama 行无法命中。
-	require.Contains(t, firstWhen, "platform = 'opencode'")
+	// 覆盖 opencode_go 平台与挂载白名单的 opencode 基址，使 Ollama 行无法命中。
+	require.Contains(t, firstWhen, "platform = 'opencode_go'")
 	require.Contains(t, firstWhen, "[oO][pP][eE][nN][cC][oO][dD][eE]")
 	require.Contains(t, firstWhen, "credentials ->> 'base_url'")
 	require.NotContains(t, firstWhen, "[oO][lL][lL][aA][mM][aA]")
@@ -453,12 +453,12 @@ func TestInvalidateProxyProbeSnapshotsClearsOpenCodeGoSnapshot(t *testing.T) {
 // 分支前移，挂载行的 api_key 变化会先命中 Ollama 分支，OpenCode THEN 才清除的
 // opencode_go_usage_snapshot / opencode_go_usage_auto_refresh 残留，陈旧快照跟着
 // 新 api_key 走，跨 key 组污染。本测试用正则钉死 OpenCode 分支的 WHEN 标记
-// （platform = 'opencode'，只出现在 OpenCode 分支）文本上先于 Ollama 分支的
+// （platform = 'opencode_go'，只出现在 OpenCode 分支）文本上先于 Ollama 分支的
 // WHEN 标记（ollama.com 基址正则片段）。
 func TestUpdateCredentialsOpenCodeBranchPrecedesOllamaBranch(t *testing.T) {
 	client, mock := newOllamaCloudUsageRepositoryTestClient(t)
 	mock.ExpectBegin()
-	mock.ExpectExec(`(?s)UPDATE accounts.*platform = 'opencode'.*\[oO\]\[lL\]\[lL\]\[aA\]\[mM\]\[aA\]`).
+	mock.ExpectExec(`(?s)UPDATE accounts.*platform = 'opencode_go'.*\[oO\]\[lL\]\[lL\]\[aA\]\[mM\]\[aA\]`).
 		WithArgs(`{"api_key":"new-key","base_url":"https://opencode.ai/zen/go/v1"}`, int64(17)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).
@@ -475,9 +475,9 @@ func TestUpdateCredentialsOpenCodeBranchPrecedesOllamaBranch(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// SQL 侧「默认 Go」语义的常量级护栏：OpenCode 平台 account_mode 缺失/为
+// SQL 侧「默认 Go」语义的常量级护栏：opencode_go 平台行 account_mode 缺失/为
 // JSON null 时，COALESCE 兜底必须落 true（视为 Go 订阅，与 GetOpenCodeAccountMode
-// 的默认兼容逻辑一致）。若误改成 false，旧 Go 模式账号在 SQL 侧集体失去
+// 的默认兼容逻辑一致）。若误改成 false，存量 opencode_go 账号在 SQL 侧集体失去
 // 资格（组查询漏行、身份清理漏清、RunDue 自动刷新停摆），而 Go 侧仍判合格，
 // 两侧不一致；唯一的行为级覆盖在需要 Docker 的 integration 测试，无 Docker 的
 // unit 通道此前完全拦不住，这里以文本形态钉死该 COALESCE 表达式。
@@ -517,7 +517,7 @@ func TestOpenCodeAccountModeOnlyTrimmedZenIsZen(t *testing.T) {
 			require.Equal(t, tt.wantMode, account.GetOpenCodeAccountMode())
 			require.Equal(t, tt.wantGoPlan, account.IsOpenCodeGoPlan())
 			require.Equal(t, !tt.wantGoPlan, account.IsOpenCodeZen())
-			// OpenCode 平台 Go 模式账号的用量资格即 Go 订阅判定，与 SQL 侧
+			// opencode_go 平台行的用量资格即 Go 订阅判定，与 SQL 侧
 			// opencodeGoUsageEligibleSQL 的「默认 Go、仅 trim 后等于 zen 排除」
 			// 互为镜像。
 			require.Equal(t, tt.wantGoPlan, service.IsOpenCodeGoUsageAccount(account))

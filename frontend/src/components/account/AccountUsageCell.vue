@@ -912,7 +912,7 @@ let visibilityObserver: IntersectionObserver | null = null
 
 // Go subscription accounts use the dedicated usage snapshot; an absent mode retains legacy Go behavior.
 const isOpenCodeGoAccountFor = (account: Account) =>
-  account.platform === 'opencode' &&
+  account.platform === 'opencode_go' &&
   account.type === 'apikey' &&
   account.credentials?.account_mode !== 'zen'
 const isOpenCodeGoAccount = computed(() => isOpenCodeGoAccountFor(props.account))

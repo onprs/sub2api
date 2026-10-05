@@ -290,19 +290,7 @@ func defaultModelsListCandidateIDs(platform string) []string {
 	case PlatformGrok:
 		return xai.DefaultModelIDs()
 	case PlatformOpenCodeGo:
-		ids := append([]string(nil), DefaultOpenCodeGoModelIDs()...)
-		seen := make(map[string]struct{}, len(ids))
-		for _, id := range ids {
-			seen[id] = struct{}{}
-		}
-		for _, id := range OpenCodeGoDefaultModelIDs() {
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			ids = append(ids, id)
-		}
-		return ids
+		return DefaultOpenCodeGoModelIDs()
 	case PlatformClinePass:
 		return ClinePassDefaultModelIDs()
 	case PlatformOpenRouter:
