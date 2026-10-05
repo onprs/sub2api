@@ -64,4 +64,13 @@ describe('ZCode OAuth 管理界面', () => {
     expect(wrapper.text()).toContain('100')
     wrapper.unmount()
   })
+
+  it('有进度条时以进度为主，精确剩余仅在悬浮提示中', async () => {
+    const wrapper = mount(ZCodeQuotaCell, { props: { account: account({ zcode_quota: { plan: 'start', balances: [{ name: 'GLM-5.3-Flash', remaining: 99998232, total: 100000000, used_percent: 0, unit: 'token', expires_at: 1791216000 }], updated_at: 1700000000 } }) }, global: { plugins: [makeI18n()] } })
+    expect(wrapper.find('[data-test="zcode-remaining"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('99,998,232')
+    expect(wrapper.get('[title]').attributes('title')).toContain('剩余: 99,998,232 / 100,000,000 token')
+    expect(wrapper.text()).toContain('GLM-5.3-Flash')
+    wrapper.unmount()
+  })
 })
