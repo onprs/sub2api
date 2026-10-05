@@ -138,19 +138,6 @@ func TestGatewayRoutesGoogleV1GenerationPathIsRegistered(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"status":"UNAUTHENTICATED"`)
 }
 
-func TestGatewayRoutesOpenCodeGoResponsesSubpathsRemainSpecialized(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformOpenCodeGo)
-	for _, path := range []string{"/v1/responses/compact", "/responses/compact", "/backend-api/codex/responses/compact"} {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"qwen3.7-plus","input":"hi"}`))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-
-		router.ServeHTTP(w, req)
-		require.Equal(t, http.StatusNotFound, w.Code, "path=%s", path)
-		require.Contains(t, w.Body.String(), "Responses subpath", "path=%s", path)
-	}
-}
-
 func TestGatewayRoutesOpenCodeGoModelsUsesOpenCodeGoHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

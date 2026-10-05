@@ -3,10 +3,8 @@ package handler
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -39,8 +37,6 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 		{"/v1/videos/generations", EndpointVideosGenerations},
 		{"/v1/videos/req_123", EndpointVideos},
 		{"/v1beta/models", EndpointGeminiModels},
-		{"/v1/models/gemini-3.1-pro:generateContent", EndpointGeminiV1Models},
-		{"/v1/models/gemini-3.1-pro:streamGenerateContent", EndpointGeminiV1Models},
 
 		// Prefixed paths (antigravity, openai) — root Responses.
 		{"/antigravity/v1/messages", EndpointMessages},
@@ -91,71 +87,6 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 // ──────────────────────────────────────────────────────────
 // DeriveUpstreamEndpoint
 // ──────────────────────────────────────────────────────────
-
-func TestOpenCodeGoEnsureForwardErrorResponse_ResponsesRouteAfterWrittenEmitsResponseFailed(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, EndpointResponses, nil)
-	_, _ = c.Writer.WriteString(":\n\n")
-
-	h := &OpenCodeGoGatewayHandler{}
-	require.True(t, h.ensureForwardErrorResponse(c, openCodeGoHandlerErrorResponses, false))
-
-	body := recorder.Body.String()
-	require.Contains(t, body, ":\n\n")
-	require.Contains(t, body, "event: response.failed\n")
-	require.Contains(t, body, `"type":"response.failed"`)
-	require.Contains(t, body, `"status":"failed"`)
-	require.NotContains(t, body, "event: error\n")
-}
-
-func TestOpenCodeGoEnsureForwardErrorResponse_SkipsCommittedResponse(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, EndpointResponses, nil)
-	_, _ = c.Writer.WriteString("event: response.failed\ndata: {\"type\":\"response.failed\"}\n\n")
-	service.MarkResponseCommitted(c)
-
-	h := &OpenCodeGoGatewayHandler{}
-	require.False(t, h.ensureForwardErrorResponse(c, openCodeGoHandlerErrorResponses, true))
-	require.Equal(t, 1, strings.Count(recorder.Body.String(), `"type":"response.failed"`))
-}
-
-func TestOpenCodeGoActualUpstreamEndpoint(t *testing.T) {
-	require.Equal(t, "", openCodeGoActualUpstreamEndpoint(nil))
-	require.Equal(t, "", openCodeGoActualUpstreamEndpoint(&service.ForwardResult{}))
-	require.Equal(t, EndpointChatCompletions, openCodeGoActualUpstreamEndpoint(&service.ForwardResult{ActualProtocol: protocolconv.ProtocolOpenAIChat}))
-	require.Equal(t, EndpointResponses, openCodeGoActualUpstreamEndpoint(&service.ForwardResult{ActualProtocol: protocolconv.ProtocolOpenAIResponses}))
-	require.Equal(t, EndpointMessages, openCodeGoActualUpstreamEndpoint(&service.ForwardResult{ActualProtocol: protocolconv.ProtocolAnthropic}))
-}
-
-func TestGetUpstreamEndpointForResultUsesActualProtocol(t *testing.T) {
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-
-	tests := []struct {
-		name    string
-		account *service.Account
-		result  *service.ForwardResult
-		want    string
-	}{
-		{name: "legacy fallback", account: &service.Account{Platform: service.PlatformAnthropic}, result: &service.ForwardResult{}, want: EndpointMessages},
-		{name: "actual chat fallback", account: &service.Account{Platform: service.PlatformOpenAI}, result: &service.ForwardResult{ActualProtocol: protocolconv.ProtocolOpenAIChat}, want: EndpointChatCompletions},
-		{name: "actual responses", account: &service.Account{Platform: service.PlatformOpenAI}, result: &service.ForwardResult{ActualProtocol: protocolconv.ProtocolOpenAIResponses}, want: EndpointResponses},
-		{name: "actual anthropic", account: &service.Account{Platform: service.PlatformOpenCodeGo}, result: &service.ForwardResult{ActualProtocol: protocolconv.ProtocolAnthropic}, want: EndpointMessages},
-		{name: "actual google", account: &service.Account{Platform: service.PlatformGemini}, result: &service.ForwardResult{ActualProtocol: protocolconv.ProtocolGoogleGenAI}, want: EndpointGeminiModels},
-		{name: "antigravity vendor google", account: &service.Account{Platform: service.PlatformAntigravity, Type: service.AccountTypeOAuth}, result: &service.ForwardResult{ActualProtocol: protocolconv.ProtocolGoogleGenAI}, want: EndpointAntigravityStreamGenerateContent},
-		{name: "antigravity api key google", account: &service.Account{Platform: service.PlatformAntigravity, Type: service.AccountTypeAPIKey}, result: &service.ForwardResult{ActualProtocol: protocolconv.ProtocolGoogleGenAI}, want: EndpointGeminiModels},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, GetUpstreamEndpointForResult(c, tt.account, tt.result))
-		})
-	}
-}
 
 func TestDeriveUpstreamEndpoint(t *testing.T) {
 	tests := []struct {
@@ -210,11 +141,6 @@ func TestDeriveUpstreamEndpoint(t *testing.T) {
 		// Antigravity — uses inbound to pick Claude vs Gemini upstream.
 		{"antigravity claude", EndpointMessages, "/antigravity/v1/messages", service.PlatformAntigravity, EndpointMessages},
 		{"antigravity gemini", EndpointGeminiModels, "/antigravity/v1beta/models", service.PlatformAntigravity, EndpointGeminiModels},
-
-		// OpenCode Go — preserves the supported OpenAI-compatible and Anthropic-style surfaces.
-		{"opencode go messages", EndpointMessages, "/v1/messages", service.PlatformOpenCodeGo, EndpointMessages},
-		{"opencode go chat completions", EndpointChatCompletions, "/v1/chat/completions", service.PlatformOpenCodeGo, EndpointChatCompletions},
-		{"opencode go responses source is resolved from actual protocol by handler", EndpointResponses, "/v1/responses", service.PlatformOpenCodeGo, EndpointResponses},
 
 		// Unknown platform — passthrough.
 		{"unknown platform", "/v1/embeddings", "/v1/embeddings", "unknown", "/v1/embeddings"},

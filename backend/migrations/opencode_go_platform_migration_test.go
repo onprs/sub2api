@@ -124,3 +124,51 @@ func TestUnifiedOpenCodePlatformMigrationRenamesPersistedIdentifiersAndModes(t *
 		require.Contains(t, normalizedSQL, fragment)
 	}
 }
+
+func TestRevertOpenCodePlatformMigrationRestoresPersistedIdentifiers(t *testing.T) {
+	content, err := FS.ReadFile("243_revert_opencode_platform.sql")
+	require.NoError(t, err)
+	normalizedSQL := strings.Join(strings.Fields(string(content)), " ")
+
+	updateRoutes := strings.Index(normalizedSQL, "UPDATE composite_model_routes SET target_platform = 'opencode_go'")
+	dropRoutesCheck := strings.Index(normalizedSQL, "ALTER TABLE composite_model_routes DROP CONSTRAINT IF EXISTS composite_model_routes_target_platform_check")
+	addRoutesCheck := strings.Index(normalizedSQL, "ALTER TABLE composite_model_routes ADD CONSTRAINT composite_model_routes_target_platform_check")
+	require.GreaterOrEqual(t, dropRoutesCheck, 0)
+	require.Greater(t, updateRoutes, dropRoutesCheck, "drop the canonical check before rewriting route values")
+	require.Greater(t, addRoutesCheck, updateRoutes, "restore the opencode_go check after rewriting route values")
+
+	quotaContract := migrationCheckList(t, normalizedSQL, "CHECK (platform IN (")
+	routeContract := migrationCheckList(t, normalizedSQL, "CHECK (target_platform IN (")
+	providerContract := migrationCheckList(t, normalizedSQL, "CHECK (provider IN (")
+	for _, contract := range []string{quotaContract, routeContract, providerContract} {
+		require.Contains(t, contract, "'opencode_go'")
+		require.NotContains(t, contract, "'opencode'")
+	}
+	require.Contains(t, quotaContract, "'clinepass'")
+	require.Contains(t, quotaContract, "'typesafe'")
+	require.Contains(t, routeContract, "'typesafe'")
+	require.Contains(t, providerContract, "'commandcode'")
+
+	for _, fragment := range []string{
+		"UPDATE accounts SET platform = 'opencode_go'",
+		"UPDATE groups SET platform = 'opencode_go'",
+		"UPDATE api_keys SET routing_platform = 'opencode_go'",
+		"UPDATE channel_model_pricing SET platform = 'opencode_go'",
+		"UPDATE channel_account_stats_model_pricing SET platform = 'opencode_go'",
+		"UPDATE channels AS channel_row",
+		"UPDATE error_passthrough_rules AS rule",
+		"channel_monitor_v2_config",
+		"UPDATE channel_monitor_v2_metrics_1m SET platform = 'opencode_go'",
+		"UPDATE ops_error_logs SET platform = 'opencode_go'",
+		"UPDATE ops_metrics_hourly SET platform = 'opencode_go'",
+		"UPDATE ops_metrics_daily SET platform = 'opencode_go'",
+		"UPDATE ops_alert_rules",
+		"UPDATE ops_alert_events",
+		"UPDATE channel_monitors SET provider = 'opencode_go'",
+		"UPDATE channel_monitor_request_templates SET provider = 'opencode_go'",
+		"document - 'opencode'",
+		"'{opencode_go}'",
+	} {
+		require.Contains(t, normalizedSQL, fragment)
+	}
+}

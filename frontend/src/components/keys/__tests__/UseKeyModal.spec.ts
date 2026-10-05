@@ -800,7 +800,7 @@ describe('UseKeyModal', () => {
         show: true,
         apiKey: 'sk-test',
         baseUrl: 'https://example.com/v1',
-        platform: 'opencode'
+        platform: 'opencode_go'
       },
       global: {
         stubs: {

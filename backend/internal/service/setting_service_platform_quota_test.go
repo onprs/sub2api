@@ -92,10 +92,6 @@ func TestGetDefaultPlatformQuotas_ReturnsAllowedPlatforms(t *testing.T) {
 	if v := got["antigravity"].DailyLimitUSD; v != nil {
 		t.Errorf("antigravity daily want nil (not configured), got %v", *v)
 	}
-	// opencode_go 无配置 → daily = nil
-	if v := got[PlatformOpenCodeGo].DailyLimitUSD; v != nil {
-		t.Errorf("opencode_go daily want nil (not configured), got %v", *v)
-	}
 }
 
 func TestGetAuthSourcePlatformQuotas_OnlyConfiguredReturned(t *testing.T) {

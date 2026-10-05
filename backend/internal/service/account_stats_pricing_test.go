@@ -877,37 +877,6 @@ func TestResolveAccountStatsCost_HitsCustomRule(t *testing.T) {
 	require.InDelta(t, 2.0, *result, 1e-12)
 }
 
-func TestResolveAccountStatsCost_OpenCodeGoCustomRuleAppliesQuotaCostMultiplier(t *testing.T) {
-	channel := &Channel{
-		ID:     1,
-		Status: StatusActive,
-		AccountStatsPricingRules: []AccountStatsPricingRule{
-			{
-				GroupIDs: []int64{10},
-				Pricing: []ChannelModelPricing{
-					{
-						Models:      []string{"glm-5.3"},
-						InputPrice:  testPtrFloat64(0.01),
-						OutputPrice: testPtrFloat64(0.02),
-					},
-				},
-			},
-		},
-	}
-	cs := newTestChannelServiceForStats(t, channel, 10, PlatformOpenCode)
-	billingService := NewBillingService(nil, nil)
-
-	result := resolveAccountStatsCostWithPlatform(
-		context.Background(),
-		cs, billingService,
-		1, 10, "glm-5.3",
-		UsageTokens{InputTokens: 100, OutputTokens: 50}, 1, 999, "", time.Time{}, OpenCodeGoPricingPlatform, true,
-	)
-
-	require.NotNil(t, result)
-	require.InDelta(t, (100*0.01+50*0.02)*4, *result, 1e-12)
-}
-
 func TestResolveAccountStatsCost_ApplyPricingToAccountStats_UsesTotalCost(t *testing.T) {
 	channel := &Channel{
 		ID:                         1,
@@ -973,39 +942,6 @@ func TestResolveAccountStatsCost_FallsBackToLiteLLM(t *testing.T) {
 	require.NotNil(t, result)
 	// 100*0.001 + 50*0.002 = 0.1 + 0.1 = 0.2
 	require.InDelta(t, 0.2, *result, 1e-12)
-}
-
-func TestResolveAccountStatsCost_OpenCodeGoFallbackAppliesQuotaCostMultiplier(t *testing.T) {
-	channel := &Channel{
-		ID:                         1,
-		Status:                     StatusActive,
-		ApplyPricingToAccountStats: false,
-	}
-	cs := newTestChannelServiceForStats(t, channel, 10, PlatformOpenCode)
-	pricingSvc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{
-			"glm-5.3": {
-				InputCostPerToken:       99e-6,
-				OutputCostPerToken:      99e-6,
-				LiteLLMProvider:         "unrelated-provider",
-				InputCostPerTokenKnown:  true,
-				OutputCostPerTokenKnown: true,
-			},
-		},
-	}
-	bs := NewBillingService(nil, pricingSvc)
-	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 500_000}
-
-	result := resolveAccountStatsCostWithPlatform(
-		context.Background(),
-		cs, bs,
-		1, 10, "glm-5.3",
-		tokens, 1, 999.0, "", time.Time{}, OpenCodeGoPricingPlatform, true,
-	)
-
-	require.NotNil(t, result)
-	expected := (1.4 + 0.5*4.4) * 4
-	require.InDelta(t, expected, *result, 1e-12)
 }
 
 func TestResolveAccountStatsCost_FallbackHonorsAnthropicFast(t *testing.T) {

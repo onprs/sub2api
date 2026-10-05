@@ -577,7 +577,7 @@
           </template>
 
           <template #cell-usage_opencode_go="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'opencode')" />
+            <PlatformCostCell :usage="getPlatformUsage(row.id, 'opencode_go')" />
           </template>
 
           <template #cell-usage_clinepass="{ row }">
@@ -1047,7 +1047,7 @@ const USAGE_COLUMN_PLATFORMS: Record<string, string | null> = {
   usage_openai: 'openai',
   usage_gemini: 'gemini',
   usage_antigravity: 'antigravity',
-  usage_opencode_go: 'opencode',
+  usage_opencode_go: 'opencode_go',
   usage_clinepass: 'clinepass',
   usage_openrouter: 'openrouter',
   usage_commandcode: 'commandcode'

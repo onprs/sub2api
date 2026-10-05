@@ -220,7 +220,7 @@ func TestOpenCodeGoUsageEligibleSQLAcceptsDefaultPort443(t *testing.T) {
 	require.Equal(t, account.ID, groups[0].ID)
 }
 
-// 用 OpenCode 平台 Go 模式账号（不依赖 base_url，未设置
+// 资格泛化回归：opencode_go 平台 Go 订阅账号（不依赖 base_url，未设置
 // account_mode 默认 Go）与 Anthropic 基址（/zen/go）挂载行都必须命中
 // opencodeGoUsageEligibleSQL；同 key 的 Zen 模式行必须被 SQL 排除。
 func TestOpenCodeGoUsageEligibleSQLOpencodePlatformAndAnthropicBaseURL(t *testing.T) {
@@ -290,7 +290,7 @@ func TestUpdateCredentialsOpenCodeGoUnrelatedCredentialChangeKeepsManagedState(t
 	require.NoError(t, repo.UpdateCredentials(ctx, anthropicMount.ID, map[string]any{
 		"api_key": "mount-key", "base_url": "https://opencode.ai/zen/go", "remark": "unrelated",
 	}))
-	// OpenCode 平台账号：api_key 未变、account_mode 仍为 Go，仅新增无关凭证键。
+	// opencode_go 行：api_key 未变、模式仍为 Go，仅新增无关凭证键。
 	require.NoError(t, repo.UpdateCredentials(ctx, platformGo.ID, map[string]any{
 		"api_key": "platform-key", "account_mode": service.AccountModeGo, "remark": "unrelated",
 	}))

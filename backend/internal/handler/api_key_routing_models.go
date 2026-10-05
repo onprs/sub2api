@@ -89,7 +89,7 @@ func compositeAvailableModelsForGroup(ctx context.Context, gateway *service.Gate
 		service.PlatformZhipu,
 		service.PlatformDeepseek,
 		service.PlatformMiniMax,
-		service.PlatformOpenCode,
+		service.PlatformOpenCodeGo,
 		service.PlatformTypeSafe,
 	} {
 		if platform == service.PlatformTypeSafe && !includeSystemOne {

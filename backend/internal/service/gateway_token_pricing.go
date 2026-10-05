@@ -11,7 +11,7 @@ import (
 // especially important for providers with open-ended model catalogs, which
 // must not silently fall back to zero-cost billing for unknown models.
 func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Context, apiKey *APIKey, account *Account, requestedModel string, mapping ChannelMappingResult) error {
-	if s == nil || account == nil || (!account.IsOpenCode() && !account.IsClinePass() && !account.IsOpenRouter() && !account.IsCommandCode()) {
+	if s == nil || account == nil || (!account.IsClinePass() && !account.IsOpenRouter() && !account.IsCommandCode()) {
 		return nil
 	}
 
@@ -32,20 +32,13 @@ func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Contex
 	if billingService == nil {
 		billingService = NewBillingService(s.cfg, nil)
 	}
-	var quotaCostErr error
 	if s.resolver != nil && apiKey != nil && apiKey.GroupID != nil {
 		for _, candidate := range candidates {
 			candidate = strings.TrimSpace(candidate)
 			if candidate == "" {
 				continue
 			}
-			if account.IsOpenCodeGo() {
-				if _, ok := billingService.GetOpenCodeGoQuotaCost(candidate); !ok {
-					quotaCostErr = openCodeGoQuotaCostUnavailableError(candidate)
-					continue
-				}
-			}
-			resolved := s.resolver.Resolve(ctx, PricingInput{Model: candidate, GroupID: apiKey.GroupID, Platform: pricingPlatformForAccount(account)})
+			resolved := s.resolver.Resolve(ctx, PricingInput{Model: candidate, GroupID: apiKey.GroupID, Platform: account.Platform})
 			if resolved == nil {
 				continue
 			}
@@ -57,30 +50,18 @@ func (s *GatewayService) ValidateGatewayTokenPricingAvailable(ctx context.Contex
 				return nil
 			}
 		}
-		if quotaCostErr != nil {
-			return quotaCostErr
-		}
 		return tokenPricingUnavailableError(billingModel)
 	}
 
 	for _, candidate := range candidates {
-		if account.IsOpenCodeGo() {
-			if _, ok := billingService.GetOpenCodeGoQuotaCost(candidate); !ok {
-				quotaCostErr = openCodeGoQuotaCostUnavailableError(candidate)
-				continue
-			}
-		}
-		pricing, err := billingService.GetModelPricingForPlatform(pricingPlatformForAccount(account), candidate)
+		pricing, err := billingService.GetModelPricingForPlatform(account.Platform, candidate)
 		if err == nil && hasBillableTokenPricing(pricing) {
 			return nil
 		}
 	}
-	if quotaCostErr != nil {
-		return quotaCostErr
-	}
 	return tokenPricingUnavailableError(billingModel)
 }
 
-func openCodeGoQuotaCostUnavailableError(model string) error {
-	return fmt.Errorf("%w: OpenCode Go quota cost multiplier unavailable for model: %s", ErrModelPricingUnavailable, strings.ToLower(strings.TrimSpace(model)))
+func quotaCostUnavailableError(model string) error {
+	return fmt.Errorf("%w: quota cost multiplier unavailable for model: %s", ErrModelPricingUnavailable, strings.ToLower(strings.TrimSpace(model)))
 }

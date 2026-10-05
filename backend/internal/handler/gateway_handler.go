@@ -1272,7 +1272,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 
 	if platform == service.PlatformOpenCodeGo {
-		writeModelsList(c, platform, service.OpenCodeGoDefaultModelIDs())
+		writeModelsList(c, platform, service.DefaultOpenCodeGoModelIDs())
 		return
 	}
 
@@ -1562,7 +1562,7 @@ func defaultModelIDsForPlatform(platform string) []string {
 		}
 		return ids
 	case service.PlatformOpenCodeGo:
-		return service.OpenCodeGoDefaultModelIDs()
+		return service.DefaultOpenCodeGoModelIDs()
 	case service.PlatformClinePass:
 		return service.ClinePassDefaultModelIDs()
 	case service.PlatformOpenRouter:

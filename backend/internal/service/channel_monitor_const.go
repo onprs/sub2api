@@ -57,12 +57,8 @@ const (
 	providerAnthropicPath = "/v1/messages"
 	// providerGeminiPathTemplate Gemini generateContent 路径模板（含 model 占位）。
 	providerGeminiPathTemplate = "/v1beta/models/%s:generateContent"
-	// providerOpenCodeGoChatPath OpenCode Go OpenAI-compatible Chat Completions path.
-	providerOpenCodeGoChatPath = "/chat/completions"
-	// providerOpenCodeGoMessagesPath OpenCode Go Anthropic-style Messages path.
-	providerOpenCodeGoMessagesPath = "/messages"
-	// providerOpenCodeGoResponsesPath OpenCode Go OpenAI Responses path.
-	providerOpenCodeGoResponsesPath = "/responses"
+	// providerAnthropicMessagesPath Anthropic-style Messages 路径（Command Code 等云兼容端点）。
+	providerAnthropicMessagesPath = "/messages"
 	// providerClinePassChatPath works with both the local gateway root and Cline's /api/v1 root.
 	providerClinePassChatPath = "/chat/completions"
 	// providerOpenRouterChatPath works with both the local gateway root and OpenRouter's /api/v1 root.
@@ -75,8 +71,7 @@ const (
 	MonitorProviderAnthropic         = "anthropic"
 	MonitorProviderGemini            = "gemini"
 	MonitorProviderGrok              = "grok"
-	MonitorProviderOpenCode          = "opencode"
-	MonitorProviderOpenCodeGo        = MonitorProviderOpenCode // Deprecated: use MonitorProviderOpenCode.
+	MonitorProviderOpenCodeGo        = "opencode_go"
 	MonitorProviderClinePass         = "clinepass"
 	MonitorProviderOpenRouter        = "openrouter"
 	MonitorProviderCommandCode       = "commandcode"
@@ -143,8 +138,8 @@ const (
 	monitorGemma4ChallengeMaxTokens = 512
 	// monitorGemma4ThinkingLevel 关闭 Gemma 4 的扩展思考，降低探活延迟和输出消耗。
 	monitorGemma4ThinkingLevel = "MINIMAL"
-	// monitorOpenCodeGoChallengeMaxTokens 为 OpenCode Go 推理/转换链路保留更宽的输出预算，避免 final content 偶发为空。
-	monitorOpenCodeGoChallengeMaxTokens = 512
+	// monitorAnthropicMessagesChallengeMaxTokens 为 Messages 端点链路保留更宽的输出预算，避免 final content 偶发为空。
+	monitorAnthropicMessagesChallengeMaxTokens = 512
 	// monitorClinePassChallengeMaxTokens 为 ClinePass reasoning 模型保留最终答案预算。
 	// 官方 SDK 默认输出上限为 32k；探活使用 4k，在控制额度消耗的同时避免 reasoning 挤占全部输出。
 	monitorClinePassChallengeMaxTokens = 4096

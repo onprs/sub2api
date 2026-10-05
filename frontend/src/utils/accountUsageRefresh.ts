@@ -64,36 +64,6 @@ export const buildOpenAIUsageRefreshKey = (account: Pick<Account, 'id' | 'platfo
   ].map(normalizeUsageRefreshValue).join('|')
 }
 
-export const buildOpenCodeGoUsageRefreshKey = (account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'extra' | 'credentials'>): string => {
-  if (
-    account.platform !== 'opencode' ||
-    account.type !== 'apikey' ||
-    account.credentials?.account_mode === 'zen'
-  ) {
-    return ''
-  }
-
-  const extra = account.extra ?? {}
-  return [
-    account.id,
-    account.updated_at,
-    extra.console_workspace_id,
-    extra.opencode_go_console_auth_status,
-    extra.opencode_go_console_auth_checked_at,
-    extra.opencode_go_usage_source,
-    extra.opencode_go_usage_updated_at,
-    extra.opencode_go_usage_5h_used_percent,
-    extra.opencode_go_usage_5h_reset_in_sec,
-    extra.opencode_go_usage_5h_resets_at,
-    extra.opencode_go_usage_7d_used_percent,
-    extra.opencode_go_usage_7d_reset_in_sec,
-    extra.opencode_go_usage_7d_resets_at,
-    extra.opencode_go_usage_30d_used_percent,
-    extra.opencode_go_usage_30d_reset_in_sec,
-    extra.opencode_go_usage_30d_resets_at
-  ].map(normalizeUsageRefreshValue).join('|')
-}
-
 export const buildClinePassUsageRefreshKey = (account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'extra'>): string => {
   if (account.platform !== 'clinepass' || account.type !== 'apikey') return ''
 
@@ -179,7 +149,6 @@ export const buildAccountUsageRefreshKey = (
 ): string => {
   return buildOpenAIUsageRefreshKey(account) ||
     buildAPIKeyBalanceRefreshKey(account) ||
-    buildOpenCodeGoUsageRefreshKey(account) ||
     buildClinePassUsageRefreshKey(account) ||
     buildOpenRouterUsageRefreshKey(account) ||
     buildCommandCodeUsageRefreshKey(account) ||

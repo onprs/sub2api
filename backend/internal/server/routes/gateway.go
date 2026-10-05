@@ -60,7 +60,7 @@ func RegisterGatewayRoutes(
 	}
 	isStandardProtocolGatewayPlatform := func(c *gin.Context) bool {
 		platform := getGroupPlatform(c)
-		return platform == service.PlatformOpenCodeGo || platform == service.PlatformClinePass || platform == service.PlatformOpenRouter || platform == service.PlatformCommandCode
+		return platform == service.PlatformClinePass || platform == service.PlatformOpenRouter || platform == service.PlatformCommandCode
 	}
 	countTokensHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {

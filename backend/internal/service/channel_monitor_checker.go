@@ -228,7 +228,6 @@ var providerAdapters = map[string]providerAdapter{
 		},
 		textPath: "candidates.0.content.parts.0.text",
 	},
-	MonitorProviderOpenCodeGo:  providerOpenCodeGoChatAdapter,
 	MonitorProviderClinePass:   providerClinePassChatAdapter,
 	MonitorProviderOpenRouter:  providerOpenRouterChatAdapter,
 	MonitorProviderCommandCode: providerCommandCodeChatAdapter,
@@ -305,28 +304,6 @@ func newOpenAICompatibleChatAdapter(path string) providerAdapter {
 		},
 		textPath: "choices.0.message.content",
 	}
-}
-
-//nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
-var providerOpenCodeGoChatAdapter = providerAdapter{
-	buildPath: func(string) string { return providerOpenCodeGoChatPath },
-	buildBody: func(model, prompt string) ([]byte, error) {
-		return json.Marshal(map[string]any{
-			"model": model,
-			"messages": []map[string]string{
-				{"role": "system", "content": "Return only the requested check code. Do not explain or use tools."},
-				{"role": "user", "content": prompt},
-			},
-			"max_tokens":  monitorOpenCodeGoChallengeMaxTokens,
-			"temperature": 0,
-			"stream":      false,
-		})
-	},
-	buildHeaders: func(apiKey string) map[string]string {
-		return map[string]string{"Authorization": "Bearer " + apiKey}
-	},
-	textPath:           "choices.0.message.content",
-	releaseGuardMarker: "channel_monitor_provider_opencode",
 }
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
@@ -426,8 +403,8 @@ var providerCommandCodeMessagesAdapter = providerAdapter{
 }
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
-var providerOpenCodeGoMessagesAdapter = providerAdapter{
-	buildPath: func(string) string { return providerOpenCodeGoMessagesPath },
+var providerAnthropicMessagesAdapter = providerAdapter{
+	buildPath: func(string) string { return providerAnthropicMessagesPath },
 	buildBody: func(model, prompt string) ([]byte, error) {
 		return json.Marshal(map[string]any{
 			"model":  model,
@@ -435,7 +412,7 @@ var providerOpenCodeGoMessagesAdapter = providerAdapter{
 			"messages": []map[string]string{
 				{"role": "user", "content": prompt},
 			},
-			"max_tokens":  monitorOpenCodeGoChallengeMaxTokens,
+			"max_tokens":  monitorAnthropicMessagesChallengeMaxTokens,
 			"temperature": 0,
 		})
 	},
@@ -446,24 +423,6 @@ var providerOpenCodeGoMessagesAdapter = providerAdapter{
 		}
 	},
 	textPath: "content.0.text",
-}
-
-//nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
-var providerOpenCodeGoResponsesAdapter = providerAdapter{
-	buildPath: func(string) string { return providerOpenCodeGoResponsesPath },
-	buildBody: func(model, prompt string) ([]byte, error) {
-		return json.Marshal(map[string]any{
-			"model":             model,
-			"instructions":      "Return only the requested check code. Do not explain or use tools.",
-			"input":             prompt,
-			"max_output_tokens": monitorOpenCodeGoChallengeMaxTokens,
-			"stream":            false,
-		})
-	},
-	buildHeaders: func(apiKey string) map[string]string {
-		return map[string]string{"Authorization": "Bearer " + apiKey}
-	},
-	textPath: "output.0.content.0.text",
 }
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
@@ -489,14 +448,6 @@ func providerAdapterFor(provider, apiMode string) (providerAdapter, string, bool
 	mode := defaultAPIMode(apiMode)
 	if provider == MonitorProviderOpenAI && mode == MonitorAPIModeResponses {
 		return providerOpenAIResponsesAdapter, MonitorAPIModeResponses, true
-	}
-	if provider == MonitorProviderOpenCodeGo {
-		switch mode {
-		case MonitorAPIModeMessages:
-			return providerOpenCodeGoMessagesAdapter, MonitorAPIModeMessages, true
-		case MonitorAPIModeResponses:
-			return providerOpenCodeGoResponsesAdapter, MonitorAPIModeResponses, true
-		}
 	}
 	// Command Code 的 claude-* 模型只能走 Anthropic Messages 端点。
 	if provider == MonitorProviderCommandCode && mode == MonitorAPIModeMessages {
@@ -530,17 +481,11 @@ func callProviderWithClient(
 	if err != nil {
 		return "", "", status, err
 	}
-	if (provider == MonitorProviderOpenAI || provider == MonitorProviderOpenCodeGo) && apiMode == MonitorAPIModeResponses {
+	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
 		return extractOpenAIResponsesText(respBytes), string(respBytes), status, nil
 	}
 	if provider == MonitorProviderGemini || provider == MonitorProviderAntigravityGemini {
 		return extractGeminiGenerateContentText(respBytes), string(respBytes), status, nil
-	}
-	if provider == MonitorProviderOpenCodeGo {
-		if apiMode == MonitorAPIModeMessages {
-			return extractOpenCodeGoMessagesText(respBytes), string(respBytes), status, nil
-		}
-		return extractOpenCodeGoChatText(respBytes), string(respBytes), status, nil
 	}
 	if provider == MonitorProviderClinePass {
 		if status < http.StatusOK || status >= http.StatusMultipleChoices {
@@ -551,10 +496,10 @@ func callProviderWithClient(
 	}
 	if provider == MonitorProviderCommandCode {
 		if apiMode == MonitorAPIModeMessages {
-			return extractOpenCodeGoMessagesText(respBytes), string(respBytes), status, nil
+			return extractAnthropicMessagesText(respBytes), string(respBytes), status, nil
 		}
 		// Command Code 的 chat 响应 content 可能是字符串或数组，复用能处理两种格式的抽取。
-		return extractOpenCodeGoChatText(respBytes), string(respBytes), status, nil
+		return extractGatewayChatText(respBytes), string(respBytes), status, nil
 	}
 	if provider == MonitorProviderOpenRouter {
 		return extractOpenRouterChatText(respBytes), string(respBytes), status, nil
@@ -738,7 +683,7 @@ func extractClinePassChatJSONText(respBytes []byte) (string, error) {
 			return "", fmt.Errorf("ClinePass returned a successful 2xx envelope without data")
 		}
 	}
-	return extractOpenCodeGoChatText(clinePassMonitorResponsePayload(respBytes)), nil
+	return extractGatewayChatText(clinePassMonitorResponsePayload(respBytes)), nil
 }
 
 func firstNonEmptyGJSON(values ...gjson.Result) string {
@@ -759,13 +704,6 @@ func clinePassMonitorResponsePayload(respBytes []byte) []byte {
 }
 
 func emptyMonitorResponseMessage(provider, rawBody string) string {
-	if provider == MonitorProviderOpenCodeGo && openCodeGoMonitorResponseFailed([]byte(rawBody)) {
-		message := strings.TrimSpace(extractUpstreamErrorMessage([]byte(rawBody)))
-		if message != "" {
-			return "OpenCode Go Responses failed: " + message
-		}
-		return "OpenCode Go Responses returned status=failed"
-	}
 	if provider == MonitorProviderClinePass {
 		finishReason, reasoning := clinePassMonitorResponseMetadata([]byte(rawBody))
 		if finishReason == "length" {
@@ -834,14 +772,6 @@ func openRouterMonitorResponseMetadata(respBytes []byte) (string, string) {
 	return finishReason, strings.Join(reasoning, "")
 }
 
-func openCodeGoMonitorResponseFailed(body []byte) bool {
-	status := strings.TrimSpace(gjson.GetBytes(body, "status").String())
-	if status == "" {
-		status = strings.TrimSpace(gjson.GetBytes(body, "response.status").String())
-	}
-	return strings.EqualFold(status, "failed")
-}
-
 func clinePassMonitorResponseMetadata(respBytes []byte) (string, string) {
 	payloads := [][]byte{respBytes}
 	if events, ok := clinePassSSEData(respBytes); ok {
@@ -868,7 +798,7 @@ func clinePassMonitorResponseMetadata(respBytes []byte) (string, string) {
 	return finishReason, strings.Join(reasoning, "")
 }
 
-func extractOpenCodeGoChatText(respBytes []byte) string {
+func extractGatewayChatText(respBytes []byte) string {
 	if text := strings.TrimSpace(gjson.GetBytes(respBytes, "output_text").String()); text != "" {
 		return text
 	}
@@ -888,10 +818,10 @@ func extractOpenCodeGoChatText(respBytes []byte) string {
 	if len(texts) > 0 {
 		return strings.Join(texts, "")
 	}
-	return gjson.GetBytes(respBytes, providerOpenCodeGoChatAdapter.textPath).String()
+	return gjson.GetBytes(respBytes, "choices.0.message.content").String()
 }
 
-func extractOpenCodeGoMessagesText(respBytes []byte) string {
+func extractAnthropicMessagesText(respBytes []byte) string {
 	if text := strings.TrimSpace(gjson.GetBytes(respBytes, "output_text").String()); text != "" {
 		return text
 	}
@@ -902,7 +832,7 @@ func extractOpenCodeGoMessagesText(respBytes []byte) string {
 	if len(texts) > 0 {
 		return strings.Join(texts, "")
 	}
-	return gjson.GetBytes(respBytes, providerOpenCodeGoMessagesAdapter.textPath).String()
+	return gjson.GetBytes(respBytes, providerAnthropicMessagesAdapter.textPath).String()
 }
 
 func collectMonitorVisibleTexts(content gjson.Result) []string {
@@ -1072,9 +1002,6 @@ var bodyMergeKeyDenyList = map[string]map[string]bool{
 	MonitorProviderGrok:      {"model": true, "messages": true, "stream": true},
 	MonitorProviderAnthropic: {"model": true, "messages": true},
 	MonitorProviderGemini:    {"contents": true},
-	MonitorProviderOpenCodeGo + ":" + MonitorAPIModeChatCompletions:  {"model": true, "messages": true, "stream": true},
-	MonitorProviderOpenCodeGo + ":" + MonitorAPIModeMessages:         {"model": true, "messages": true},
-	MonitorProviderOpenCodeGo + ":" + MonitorAPIModeResponses:        {"model": true, "instructions": true, "input": true, "stream": true},
 	MonitorProviderClinePass + ":" + MonitorAPIModeChatCompletions:   {"model": true, "messages": true, "stream": true},
 	MonitorProviderCommandCode + ":" + MonitorAPIModeChatCompletions: {"model": true, "messages": true, "stream": true},
 	MonitorProviderCommandCode + ":" + MonitorAPIModeMessages:        {"model": true, "messages": true},
@@ -1095,7 +1022,7 @@ func checkAPIMode(opts *CheckOptions) string {
 }
 
 func bodyMergeDenyKey(provider, apiMode string) string {
-	if provider == MonitorProviderOpenAI || provider == MonitorProviderOpenCodeGo || provider == MonitorProviderClinePass || provider == MonitorProviderCommandCode {
+	if provider == MonitorProviderOpenAI || provider == MonitorProviderClinePass || provider == MonitorProviderCommandCode {
 		return provider + ":" + defaultAPIMode(apiMode)
 	}
 	return provider
@@ -1105,7 +1032,7 @@ func bodyMergeDenyKey(provider, apiMode string) string {
 // Completions 同构（replace 模式的 body 校验按 messages 必填处理）。
 func isOpenAICompatibleChatProvider(provider string) bool {
 	switch provider {
-	case MonitorProviderOpenAI, MonitorProviderGrok, MonitorProviderOpenCodeGo,
+	case MonitorProviderOpenAI, MonitorProviderGrok,
 		MonitorProviderClinePass, MonitorProviderOpenRouter, MonitorProviderCommandCode,
 		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek, MonitorProviderMiniMax:
 		return true
@@ -1120,7 +1047,7 @@ func validateReplaceRequestBody(provider, apiMode string, body map[string]any) e
 	}
 	switch defaultAPIMode(apiMode) {
 	case MonitorAPIModeResponses:
-		if provider != MonitorProviderOpenAI && provider != MonitorProviderOpenCodeGo {
+		if provider != MonitorProviderOpenAI {
 			return nil
 		}
 		if strings.TrimSpace(stringFromAny(body["instructions"])) == "" || !hasNonEmptyBodyValue(body["input"]) {
@@ -1131,7 +1058,7 @@ func validateReplaceRequestBody(provider, apiMode string, body map[string]any) e
 			return fmt.Errorf("replace mode chat_completions body: messages are required")
 		}
 	case MonitorAPIModeMessages:
-		if provider != MonitorProviderOpenCodeGo && provider != MonitorProviderCommandCode {
+		if provider != MonitorProviderCommandCode {
 			return nil
 		}
 		if !hasNonEmptyBodyValue(body["messages"]) {

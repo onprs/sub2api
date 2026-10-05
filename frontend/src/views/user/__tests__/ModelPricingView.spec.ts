@@ -159,12 +159,12 @@ function makeChannel(): UserAvailableChannel[] {
       description: 'Primary channel',
       platforms: [
         {
-          platform: 'opencode',
+          platform: 'opencode_go',
           groups: [
             {
               id: 20,
               name: 'Enterprise',
-              platform: 'opencode',
+              platform: 'opencode_go',
               subscription_type: 'subscription',
               rate_multiplier: 2,
               peak_rate_enabled: true,
@@ -178,7 +178,7 @@ function makeChannel(): UserAvailableChannel[] {
           supported_models: [
             {
               name: 'deepseek-v4-flash',
-              platform: 'opencode',
+              platform: 'opencode_go',
               model_specific_multiplier: 1,
               usage_offer: {
                 code: 'opencode_go_usage_offer',
@@ -279,7 +279,7 @@ function mountView() {
 
 async function selectPricingScope(
   wrapper: ReturnType<typeof mountView>,
-  platform = 'opencode',
+  platform = 'opencode_go',
   groupId = 20,
 ) {
   const [platformSelect, groupSelect] = wrapper.findAllComponents({ name: 'Select' })
@@ -410,7 +410,7 @@ describe('ModelPricingView', () => {
     getUserGroupRates.mockResolvedValue({})
     const wrapper = mountView()
     await flushPromises()
-    await selectPricingScope(wrapper, 'opencode', 20)
+    await selectPricingScope(wrapper, 'opencode_go', 20)
 
     const firstRow = wrapper.get('tbody tr')
     const chipTexts = firstRow.findAll('.model-meta-chip').map((chip) => chip.text())
@@ -455,7 +455,7 @@ describe('ModelPricingView', () => {
     getUserGroupRates.mockResolvedValue({})
     const wrapper = mountView()
     await flushPromises()
-    await selectPricingScope(wrapper, 'opencode', 20)
+    await selectPricingScope(wrapper, 'opencode_go', 20)
 
     const row = wrapper.get('tbody tr')
     const chips = row.findAll('.model-meta-chip')
@@ -490,13 +490,13 @@ describe('ModelPricingView', () => {
     const [platformSelect, groupSelect] = wrapper.findAllComponents({ name: 'Select' })
     expect(platformSelect.props('options')).toEqual([
       { value: 'gemini', label: 'Gemini' },
-      { value: 'opencode', label: 'OpenCode' },
+      { value: 'opencode_go', label: 'OpenCode' },
     ])
     expect(groupSelect.props('disabled')).toBe(true)
     expect(wrapper.find('table').exists()).toBe(false)
     expect(wrapper.find('[data-test="pricing-search"]').exists()).toBe(false)
 
-    platformSelect.vm.$emit('update:modelValue', 'opencode')
+    platformSelect.vm.$emit('update:modelValue', 'opencode_go')
     await wrapper.vm.$nextTick()
 
     expect(groupSelect.props('disabled')).toBe(false)
@@ -504,7 +504,7 @@ describe('ModelPricingView', () => {
       {
         value: 20,
         label: 'Enterprise',
-        platform: 'opencode',
+        platform: 'opencode_go',
         subscriptionType: 'subscription',
         defaultMultiplier: 2,
         userMultiplier: 0.5,
@@ -583,13 +583,13 @@ describe('ModelPricingView', () => {
     await flushPromises()
 
     const [platformSelect, groupSelect] = wrapper.findAllComponents({ name: 'Select' })
-    expect(platformSelect.props('modelValue')).toBe('opencode')
+    expect(platformSelect.props('modelValue')).toBe('opencode_go')
     expect(groupSelect.props('modelValue')).toBeNull()
     expect(groupSelect.props('options')).toEqual([
       {
         value: 22,
         label: 'Replacement',
-        platform: 'opencode',
+        platform: 'opencode_go',
         subscriptionType: 'subscription',
         defaultMultiplier: 2,
         userMultiplier: null,

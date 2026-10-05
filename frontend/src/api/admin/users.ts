@@ -335,7 +335,7 @@ export async function bindUserAuthIdentity(
  */
 // Keep aligned with backend/internal/service/domain_constants.go AllowedQuotaPlatforms.
 export const PLATFORM_QUOTA_PLATFORMS = [
-  'anthropic', 'openai', 'opencode', 'clinepass', 'openrouter', 'commandcode',
+  'anthropic', 'openai', 'opencode_go', 'clinepass', 'openrouter', 'commandcode',
   'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'typesafe',
 ] as const
 export type PlatformQuotaPlatform = typeof PLATFORM_QUOTA_PLATFORMS[number]

@@ -32,7 +32,6 @@ type standardProtocolGateway interface {
 // OpenCodeGoGatewayHandler handles standard protocol gateway requests for
 // OpenCode Go and ClinePass groups.
 type OpenCodeGoGatewayHandler struct {
-	openCodeGoService         *service.OpenCodeGoGatewayService
 	clinePassService          *service.ClinePassGatewayService
 	openRouterService         *service.OpenRouterGatewayService
 	commandCodeService        *service.CommandCodeGatewayService
@@ -51,7 +50,6 @@ type OpenCodeGoGatewayHandler struct {
 
 // NewOpenCodeGoGatewayHandler creates an OpenCode Go gateway handler.
 func NewOpenCodeGoGatewayHandler(
-	openCodeGoService *service.OpenCodeGoGatewayService,
 	clinePassService *service.ClinePassGatewayService,
 	openRouterService *service.OpenRouterGatewayService,
 	commandCodeService *service.CommandCodeGatewayService,
@@ -74,7 +72,6 @@ func NewOpenCodeGoGatewayHandler(
 		}
 	}
 	return &OpenCodeGoGatewayHandler{
-		openCodeGoService:         openCodeGoService,
 		clinePassService:          clinePassService,
 		openRouterService:         openRouterService,
 		commandCodeService:        commandCodeService,
@@ -113,7 +110,7 @@ func (h *OpenCodeGoGatewayHandler) GoogleGenAI(c *gin.Context) {
 
 // Models handles GET /v1/models for OpenCode Go groups.
 func (h *OpenCodeGoGatewayHandler) Models(c *gin.Context) {
-	platform := service.PlatformOpenCodeGo
+	platform := ""
 	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil {
 		platform = apiKey.Group.Platform
 	}
@@ -172,7 +169,7 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 		zap.Int64("api_key_id", apiKey.ID),
 		zap.Any("group_id", apiKey.GroupID),
 	)
-	platform := service.PlatformOpenCodeGo
+	platform := ""
 	if apiKey.Group != nil {
 		platform = apiKey.Group.Platform
 	}
@@ -249,9 +246,6 @@ func (h *OpenCodeGoGatewayHandler) handle(c *gin.Context, inbound openCodeGoInbo
 
 	parsedReq := h.buildParsedRequest(body, reqModel, reqStream, apiKey, inbound, c)
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
-	if inbound == openCodeGoInboundChat && platform == service.PlatformOpenCodeGo {
-		sessionHash = h.gatewayService.GenerateOpenCodeGoCacheAffinityHash(parsedReq)
-	}
 	fs := NewFailoverState(h.maxAccountSwitches, false)
 	routingStart := time.Now()
 
@@ -591,8 +585,6 @@ func (h *OpenCodeGoGatewayHandler) gatewayForPlatform(platform string) standardP
 		return h.clinePassService
 	case service.PlatformOpenRouter:
 		return h.openRouterService
-	case service.PlatformOpenCodeGo:
-		return h.openCodeGoService
 	case service.PlatformCommandCode:
 		return h.commandCodeService
 	default:

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent, nextTick } from 'vue'
+import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 
 const {
@@ -186,7 +186,7 @@ function buildOpenCodeGoAccount() {
     ...account,
     id: 5,
     name: 'OpenCode Go Key',
-    platform: 'opencode',
+    platform: 'opencode_go',
     credentials: {
       api_key: 'sk-opencode-go-test',
       base_url: 'https://opencode.ai/zen/go/v1',
@@ -235,18 +235,6 @@ function buildOpenRouterAccount() {
   } as any
 }
 
-function buildOpenCodeGoConsoleSummary() {
-  return {
-    authorized: true,
-    auth_status: '已授权',
-    workspace_id: 'wrk_test',
-    usage_source: 'console',
-    usage: {},
-    referral: {},
-    rewards: [],
-    error: ''
-  }
-}
 
 function buildOpenAISparkShadowAccount() {
   const account = buildAccount()
@@ -583,7 +571,7 @@ describe('EditAccountModal', () => {
 
   it('preserves OpenCode Zen account type and endpoints on submit', async () => {
     const account = buildAccount()
-    account.platform = 'opencode'
+    account.platform = 'opencode_go'
     account.credentials = {
       api_key: 'sk-opencode',
       account_mode: 'zen',
@@ -630,7 +618,7 @@ describe('EditAccountModal', () => {
 
   it('treats a legacy OpenCode account without account_mode as GO', async () => {
     const account = buildAccount()
-    account.platform = 'opencode'
+    account.platform = 'opencode_go'
     account.credentials = {
       api_key: 'sk-opencode',
       api_protocol: 'adaptive',
@@ -1715,85 +1703,7 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('openai_responses_mode')
   })
 
-  it('does not display or submit nil OpenCode Go Console workspace metadata', async () => {
-    const account = buildOpenCodeGoAccount()
-    getByIdMock.mockReset()
-    getOpenCodeGoConsoleSummaryMock.mockReset()
-    createOpenCodeGoConsoleAuthTicketMock.mockReset()
-    getByIdMock.mockResolvedValue(account)
-    getOpenCodeGoConsoleSummaryMock.mockResolvedValue({
-      authorized: false,
-      auth_status: '<nil>',
-      workspace_id: '<nil>',
-      usage_source: '',
-      usage: {},
-      referral: {},
-      rewards: [],
-      error: 'opencode go console auth expired'
-    })
 
-    const wrapper = mountModal(account)
-    await flushPromises()
-
-    const workspaceInput = wrapper.findAll('input').find((input) =>
-      (input.attributes('placeholder') || '').includes('wrk_')
-    )
-    expect(workspaceInput).toBeDefined()
-    expect((workspaceInput!.element as HTMLInputElement).value).toBe('')
-    expect(wrapper.text()).toContain('状态：未授权')
-    expect(wrapper.text()).not.toContain('<nil>')
-
-    const generateButton = wrapper.findAll('button').find((button) =>
-      button.text().includes('生成授权命令')
-    )
-    expect(generateButton).toBeDefined()
-    await generateButton!.trigger('click')
-    await flushPromises()
-
-    expect(createOpenCodeGoConsoleAuthTicketMock).not.toHaveBeenCalled()
-  })
-
-  it('keeps OpenCode Go Console summary visible when the same account row is refreshed', async () => {
-    const account = buildOpenCodeGoAccount()
-    const updatedAccount = {
-      ...account,
-      credentials: {
-        ...account.credentials,
-        console_workspace_id: 'wrk_01KVMQWHB1B2V3BPSEXN3QA7Z1'
-      },
-      extra: {
-        opencode_go_console_auth_status: 'ready',
-        opencode_go_usage_source: 'official_console',
-        opencode_go_usage_updated_at: '2026-06-22T12:29:09Z',
-        opencode_go_usage_5h_used_percent: 0,
-        opencode_go_usage_5h_resets_at: '2026-06-22T17:29:41Z',
-        opencode_go_usage_7d_used_percent: 0,
-        opencode_go_usage_7d_resets_at: '2026-06-29T00:00:01Z',
-        opencode_go_usage_30d_used_percent: 0,
-        opencode_go_usage_30d_resets_at: '2026-07-22T06:04:05Z'
-      },
-      updated_at: '2026-06-22T12:29:09Z'
-    }
-    getByIdMock.mockReset()
-    getOpenCodeGoConsoleSummaryMock.mockReset()
-    getByIdMock.mockResolvedValue(updatedAccount)
-    getOpenCodeGoConsoleSummaryMock.mockResolvedValue(buildOpenCodeGoConsoleSummary())
-
-    const wrapper = mountModal(account)
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('状态：已授权')
-    expect(wrapper.text()).not.toContain('状态：未授权')
-
-    getOpenCodeGoConsoleSummaryMock.mockClear()
-
-    await wrapper.setProps({ account: updatedAccount })
-    await nextTick()
-
-    expect(wrapper.text()).toContain('状态：已授权')
-    expect(wrapper.text()).not.toContain('状态：未授权')
-    expect(getOpenCodeGoConsoleSummaryMock).not.toHaveBeenCalled()
-  })
 
   it('blocks apikey save when neither credentials_status nor legacy api_key indicates existence', async () => {
     const account = buildAccount()

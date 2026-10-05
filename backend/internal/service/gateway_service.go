@@ -965,56 +965,6 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 	return ""
 }
 
-// GenerateOpenCodeGoCacheAffinityHash computes a sticky-routing key for
-// OpenCode Go chat/completions models whose upstream prompt cache is account
-// local. Ordinary chat history grows each turn, so the generic full-message
-// hash changes and can route later turns to a different OpenCode Go account.
-func (s *GatewayService) GenerateOpenCodeGoCacheAffinityHash(parsed *ParsedRequest) string {
-	if parsed == nil {
-		return ""
-	}
-
-	if parsed.MetadataUserID != "" {
-		uid := ParseMetadataUserID(parsed.MetadataUserID)
-		if uid != nil && uid.SessionID != "" {
-			return uid.SessionID
-		}
-	}
-
-	if cacheableContent := s.extractCacheableContent(parsed); cacheableContent != "" {
-		return s.hashContent("opencode_go_cache|" + cacheableContent)
-	}
-
-	var combined strings.Builder
-	if parsed.SessionContext != nil {
-		_, _ = combined.WriteString(parsed.SessionContext.ClientIP)
-		_, _ = combined.WriteString(":")
-		_, _ = combined.WriteString(NormalizeSessionUserAgent(parsed.SessionContext.UserAgent))
-		_, _ = combined.WriteString(":")
-		_, _ = combined.WriteString(strconv.FormatInt(parsed.SessionContext.APIKeyID, 10))
-		_, _ = combined.WriteString("|")
-	}
-	if parsed.Model != "" {
-		_, _ = combined.WriteString("model:")
-		_, _ = combined.WriteString(parsed.Model)
-		_, _ = combined.WriteString("|")
-	}
-	if systemText := extractTextFromSystemRaw(parsed.SystemRaw()); systemText != "" {
-		_, _ = combined.WriteString("system:")
-		_, _ = combined.WriteString(systemText)
-		_, _ = combined.WriteString("|")
-	}
-	if messagePrefix := extractOpenCodeGoCacheAffinityMessagesTextFromRaw(parsed.MessagesRaw()); messagePrefix != "" {
-		_, _ = combined.WriteString("messages:")
-		_, _ = combined.WriteString(messagePrefix)
-	}
-	if combined.Len() > 0 {
-		return s.hashContent(combined.String())
-	}
-
-	return s.GenerateSessionHash(parsed)
-}
-
 // BindStickySession sets session -> account binding with standard TTL.
 func (s *GatewayService) BindStickySession(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
 	if sessionHash == "" || accountID <= 0 || s.cache == nil {
@@ -1253,49 +1203,6 @@ func appendResponsesContentText(builder *strings.Builder, content gjson.Result) 
 		}
 		return true
 	})
-}
-
-func extractOpenCodeGoCacheAffinityMessagesTextFromRaw(raw []byte) string {
-	messages := parseRawJSONView(raw)
-	if !messages.IsArray() {
-		return ""
-	}
-	var builder strings.Builder
-	appendPart := func(role string, text string) {
-		if text == "" {
-			return
-		}
-		if builder.Len() > 0 {
-			_, _ = builder.WriteString("|")
-		}
-		_, _ = builder.WriteString(role)
-		_, _ = builder.WriteString(":")
-		_, _ = builder.WriteString(text)
-	}
-	included := false
-	messages.ForEach(func(_, msg gjson.Result) bool {
-		role := strings.ToLower(strings.TrimSpace(msg.Get("role").String()))
-		text := extractTextFromContentRaw(msg.Get("content"))
-		if text == "" {
-			return true
-		}
-		switch role {
-		case "system", "developer":
-			appendPart(role, text)
-			included = true
-			return true
-		case "user":
-			appendPart(role, text)
-			return false
-		default:
-			if !included {
-				appendPart(role, text)
-				return false
-			}
-		}
-		return true
-	})
-	return builder.String()
 }
 
 func extractCacheableTextFromSystemRaw(raw []byte) string {
@@ -1639,7 +1546,7 @@ func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64,
 			case PlatformCommandCode:
 				models = CommandCodeDefaultModelIDs()
 			default:
-				models = OpenCodeGoDefaultModelIDs()
+				models = DefaultOpenCodeGoModelIDs()
 			}
 			if s.modelsListCache != nil {
 				s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)

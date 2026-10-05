@@ -143,7 +143,7 @@ func TestOpenCodeGoUsageStateEmbeddedInListAndDetail(t *testing.T) {
 			service.OpenCodeGoUsageAutoRefreshExtraKey: true,
 			service.OpenCodeGoUsageSnapshotExtraKey: &service.OpenCodeGoUsageSnapshot{
 				Status: service.OpenCodeGoUsageStatusOK, Data: &service.OpenCodeGoUsageData{
-					Rolling: service.OpenCodeGoAPIUsageWindow{Status: "ok", Percent: 6},
+					Rolling: service.OpenCodeGoUsageWindow{Status: "ok", Percent: 6},
 				},
 				LastAttemptAt: now, NextRefreshAt: now.Add(time.Hour),
 			},

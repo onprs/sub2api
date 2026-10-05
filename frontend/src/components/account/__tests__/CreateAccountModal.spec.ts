@@ -203,7 +203,7 @@ beforeEach(() => {
   createAccountMock.mockResolvedValue({
     id: 42,
     name: 'OpenCode Go Key',
-    platform: 'opencode',
+    platform: 'opencode_go',
     type: 'apikey',
     credentials: {},
     extra: {},
@@ -298,7 +298,7 @@ describe('CreateAccountModal', () => {
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     const payload = createAccountMock.mock.calls[0]?.[0]
-    expect(payload.platform).toBe('opencode')
+    expect(payload.platform).toBe('opencode_go')
     expect(payload.type).toBe('apikey')
     expect(payload.credentials).toMatchObject({
       base_url: 'https://opencode.ai/zen/v1',
@@ -341,33 +341,6 @@ describe('CreateAccountModal', () => {
     expect(createOpenCodeGoConsoleAuthTicketMock).not.toHaveBeenCalled()
   })
 
-  it('shows OpenCode Go official usage sync step after creation and generates helper command', async () => {
-    const wrapper = mountModal()
-
-    await selectButtonByText(wrapper, 'OpenCode')
-    await selectButtonByText(wrapper, 'admin.accounts.opencodeGo.accountMode.go')
-    await wrapper.get('[data-tour="account-form-name"]').setValue('OpenCode Go Key')
-    const keyInput = wrapper.findAll('input[type="password"]').find((input) =>
-      (input.attributes('placeholder') || '').includes('sk-')
-    )
-    await keyInput!.setValue('sk-opencode-go')
-
-    await wrapper.get('form#create-account-form').trigger('submit.prevent')
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('官方用量同步')
-    expect(wrapper.text()).toContain('OpenCode Go Key')
-
-    await wrapper.get('[data-testid="opencode-go-console-workspace"]').setValue('https://opencode.ai/workspace/wrk_01KVD1MSEZ20TGGWZTPS4M9TCZ/go')
-    await wrapper.get('[data-testid="opencode-go-console-ticket-button"]').trigger('click')
-    await flushPromises()
-
-    expect(createOpenCodeGoConsoleAuthTicketMock).toHaveBeenCalledWith(
-      42,
-      'https://opencode.ai/workspace/wrk_01KVD1MSEZ20TGGWZTPS4M9TCZ/go'
-    )
-    expect(wrapper.text()).toContain('powershell -NoProfile')
-  })
 
   it('creates Command Code with the default billing probe setting', async () => {
     const wrapper = mountModal()

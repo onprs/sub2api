@@ -345,13 +345,6 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 		cost, err := s.calculateRecordUsageCost(ctx, result, apiKey, candidate, multiplier, imageMultiplier, independentMultiplier, pricingAt, opts)
 		if err == nil && opts != nil {
 			switch opts.PricingPlatform {
-			case OpenCodeGoPricingPlatform:
-				quotaCost, ok := s.billingService.GetOpenCodeGoQuotaCost(candidate)
-				if !ok {
-					err = openCodeGoQuotaCostUnavailableError(candidate)
-				} else {
-					applyModelSpecificMultiplierToCost(cost, quotaCost.Multiplier)
-				}
 			case PlatformCommandCode:
 				if cost.AllowZeroRate {
 					// 免费模型按 $0 计费，不消耗 GOAT 额度池，无需模型倍率。
@@ -360,7 +353,7 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 				}
 				quotaCost, ok := s.billingService.GetCommandCodeQuotaCostAt(candidate, pricingAt)
 				if !ok {
-					err = openCodeGoQuotaCostUnavailableError(candidate)
+					err = quotaCostUnavailableError(candidate)
 				} else {
 					applyModelSpecificMultiplierToCost(cost, quotaCost.Multiplier)
 				}
@@ -965,8 +958,8 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	user := input.User
 	account := input.Account
 	subscription := input.Subscription
-	if account != nil && (account.IsOpenCode() || account.IsClinePass() || account.IsOpenRouter() || account.IsCommandCode()) {
-		opts.PricingPlatform = pricingPlatformForAccount(account)
+	if account != nil && (account.IsClinePass() || account.IsOpenRouter() || account.IsCommandCode()) {
+		opts.PricingPlatform = account.Platform
 	}
 	ApplyForwardImageBillingResolution(result)
 	logServiceTierBillingDowngrade("service.gateway", account, result.RequestID, ApplyForwardServiceTierBillingResolution(result))
@@ -1070,7 +1063,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		ctx, result, apiKey, billingModels, multiplier, imageMultiplier, ratePlan.StaticMultiplier, pricingAt, opts,
 	)
 	if costErr != nil {
-		if account != nil && (account.IsOpenCode() || account.IsClinePass() || account.IsOpenRouter() || account.IsCommandCode()) && isUsagePricingUnavailableError(costErr) {
+		if account != nil && (account.IsOpenCodeGo() || account.IsClinePass() || account.IsOpenRouter() || account.IsCommandCode()) && isUsagePricingUnavailableError(costErr) {
 			return costErr
 		}
 		logger.LegacyPrintf("service.gateway", "Calculate cost failed for billing models %s: %v", strings.Join(billingModels, ","), costErr)
@@ -1131,13 +1124,8 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 				CacheReadTokens:     result.Usage.CacheReadInputTokens,
 				ImageOutputTokens:   result.Usage.ImageOutputTokens,
 			},
-			accountStatsBaseCost, pricingAt, accountStatsLongContextPricingEnabled(nil), pricingPlatformForAccount(account),
+			accountStatsBaseCost, pricingAt, accountStatsLongContextPricingEnabled(nil), account.Platform,
 		)
-	}
-	// 没有关联渠道时 resolver 会返回 nil；显式写入模型倍率后的成本，避免账号 A $ 回退到原价。
-	if account.IsOpenCodeGo() && usageLog.AccountStatsCost == nil && accountStatsBaseCost > 0 {
-		accountStatsCost := accountStatsBaseCost
-		usageLog.AccountStatsCost = &accountStatsCost
 	}
 
 	simpleModeKeyRateLimitOnly := simpleModeKeyRateLimitBillingEnabled(s.cfg, apiKey)

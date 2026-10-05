@@ -1051,15 +1051,6 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown: false,
 	}
 
-	// OpenCode Go Qwen3.8 Max 官方价格（USD/token）。
-	s.fallbackPrices["qwen3.8-max"] = &ModelPricing{
-		InputPricePerToken:         2e-6,
-		OutputPricePerToken:        6e-6,
-		CacheReadPricePerToken:     0.25e-6,
-		CacheCreationPricePerToken: 2.5e-6,
-		SupportsCacheBreakdown:     false,
-	}
-
 	// ---- 火山方舟 豆包 Embedding（多模态向量化）----
 	// doubao-embedding-vision 图文向量化：上游 usage 回传 prompt_tokens_details.{text_tokens,image_tokens}，
 	// 按量付费官方价 文本 ¥0.7/MTok、图片 ¥1.8/MTok；汇率口径 ÷7.14（与本表其他国产模型一致，¥1≈$0.14）。
@@ -1360,11 +1351,6 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 		return s.fallbackPrices["minimax-m2"]
 	}
 
-	// OpenCode Go Qwen 型号保持精确白名单，避免未知 Qwen SKU 被误计价。
-	if modelLower == "qwen3.8-max" {
-		return s.fallbackPrices["qwen3.8-max"]
-	}
-
 	// 火山方舟 豆包 Embedding（多模态向量化）。
 	// most-specific-first：放在未来任何 doubao-embedding / doubao 宽匹配之前。
 	// 覆盖带版本后缀的别名（如 doubao-embedding-vision-251215）。
@@ -1435,66 +1421,10 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 }
 
 // GetModelPricingForPlatform 在需要平台隔离时解析模型价格。
-// OpenCode Go 优先接受官方动态目录/持久化缓存中的精确条目，再回落到平台限定参考价与补充动态条目；
 // OpenRouter 优先匹配专属免费与标准参考价，再回落到通用目录；
-// 其他平台保持通用解析行为。
+// Command Code 使用平台隔离参考价；其他平台保持通用解析行为。
 func (s *BillingService) GetModelPricingForPlatform(platform, model string) (*ModelPricing, error) {
 	return s.getModelPricingForPlatformAt(platform, model, time.Now())
-}
-
-// GetOpenCodeGoQuotaCost 返回模型当前有效月可用额度对应的额度成本乘数。
-// 官方动态 Usage 列优先，内置表仅作为同一官方价格表的离线回退；
-// 有效期内的官方 usage offer 会扩大月可用额度，并相应降低额度成本乘数。
-func (s *BillingService) GetOpenCodeGoQuotaCost(model string) (OpenCodeGoQuotaCost, bool) {
-	model = strings.ToLower(strings.TrimSpace(model))
-	candidates := billingModelPricingCandidates(model)
-	now := time.Now()
-	if s != nil && s.pricingService != nil {
-		for _, candidate := range candidates {
-			pricing := s.pricingService.GetOpenCodeGoModelPricingExact(candidate)
-			if pricing == nil || !isOpenCodeGoPricingPlatform(pricing.LiteLLMProvider) ||
-				pricing.OpenCodeGoPricingAuthority != openCodeGoPricingAuthorityOfficial {
-				continue
-			}
-			if pricing.OpenCodeGoExplicitZeroRate {
-				return OpenCodeGoQuotaCost{Multiplier: 1}, true
-			}
-			if quotaCost, ok := openCodeGoQuotaCostFromMonthlyUsage(pricing.OpenCodeGoMonthlyUsageUSD); ok {
-				return s.adjustOpenCodeGoQuotaCostForUsageOffer(candidates, quotaCost, now), true
-			}
-
-		}
-	}
-	for _, candidate := range candidates {
-		if quotaCost, ok := openCodeGoReferenceQuotaCost(candidate); ok {
-			return s.adjustOpenCodeGoQuotaCostForUsageOffer(candidates, quotaCost, now), true
-		}
-	}
-	return OpenCodeGoQuotaCost{}, false
-}
-
-func (s *BillingService) adjustOpenCodeGoQuotaCostForUsageOffer(
-	candidates []string,
-	quotaCost OpenCodeGoQuotaCost,
-	now time.Time,
-) OpenCodeGoQuotaCost {
-	if s == nil || s.pricingService == nil || quotaCost.IncludedMonthlyUsageUSD <= 0 {
-		return quotaCost
-	}
-	for _, candidate := range candidates {
-		usageMultiplier := s.pricingService.OpenCodeGoUsageOfferMultiplier(candidate, now)
-		if usageMultiplier <= 1 {
-			continue
-		}
-		adjusted, ok := openCodeGoQuotaCostFromMonthlyUsage(
-			quotaCost.IncludedMonthlyUsageUSD * usageMultiplier,
-		)
-		if ok {
-			return adjusted
-		}
-		return quotaCost
-	}
-	return quotaCost
 }
 
 func (s *BillingService) getModelPricingForPlatformAt(platform, model string, now time.Time) (*ModelPricing, error) {
@@ -1516,29 +1446,7 @@ func (s *BillingService) getModelPricingForPlatformAt(platform, model string, no
 		}
 		return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
 	}
-	if !isOpenCodeGoPricingPlatform(platform) {
-		return s.GetModelPricing(model)
-	}
-	model = strings.ToLower(strings.TrimSpace(model))
-	// 1. 优先匹配官方动态定价（官方 docs 实时爬取或本地持久化缓存中的 official 条目）
-	for _, candidate := range billingModelPricingCandidates(model) {
-		if pricing, ok := s.getOpenCodeGoOfficialDynamicModelPricingExactAt(candidate, now); ok {
-			return pricing, nil
-		}
-	}
-	// 2. 回退到内置标准参考定价
-	for _, candidate := range billingModelPricingCandidates(model) {
-		if pricing, ok := openCodeGoReferencePricingAt(candidate, now); ok {
-			return s.applyModelSpecificPricingPolicyEx(candidate, pricing, false, now), nil
-		}
-	}
-	// 3. 回退到 models.dev 等补充动态定价
-	for _, candidate := range billingModelPricingCandidates(model) {
-		if pricing, ok := s.getOpenCodeGoDynamicModelPricingExact(candidate); ok {
-			return pricing, nil
-		}
-	}
-	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
+	return s.GetModelPricing(model)
 }
 
 func (s *BillingService) grokUnknownTextFamilyFallback(model string) *ModelPricing {
@@ -1631,7 +1539,7 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 	// belongs to a platform-isolated catalog.
 	if s.pricingService != nil {
 		litellmPricing := s.pricingService.GetModelPricing(model)
-		if litellmPricing != nil && (litellmPricing.TokenPricingAbsent || isOpenCodeGoPricingPlatform(litellmPricing.LiteLLMProvider)) {
+		if litellmPricing != nil && litellmPricing.TokenPricingAbsent {
 			litellmPricing = nil
 		}
 		if litellmPricing != nil {
@@ -1684,43 +1592,10 @@ func (s *BillingService) getDynamicModelPricingExactAt(model string, now time.Ti
 		return nil, false
 	}
 	pricing := s.pricingService.GetModelPricing(model)
-	if pricing != nil && isOpenCodeGoPricingPlatform(pricing.LiteLLMProvider) {
-		return nil, false
-	}
 	return s.modelPricingFromLiteLLMAt(model, pricing, now)
-}
-
-func (s *BillingService) getOpenCodeGoOfficialDynamicModelPricingExactAt(model string, now time.Time) (*ModelPricing, bool) {
-	if s.pricingService == nil {
-		return nil, false
-	}
-	pricing := s.pricingService.GetOpenCodeGoModelPricingExact(model)
-	if pricing == nil || !isOpenCodeGoPricingPlatform(pricing.LiteLLMProvider) {
-		return nil, false
-	}
-	if pricing.OpenCodeGoPricingAuthority != openCodeGoPricingAuthorityOfficial {
-		return nil, false
-	}
-	return s.modelPricingFromLiteLLMAt(model, pricing, now)
-}
-
-func (s *BillingService) getOpenCodeGoDynamicModelPricingExact(model string) (*ModelPricing, bool) {
-	if s.pricingService == nil {
-		return nil, false
-	}
-	pricing := s.pricingService.GetOpenCodeGoModelPricingExact(model)
-	if pricing == nil || !isOpenCodeGoPricingPlatform(pricing.LiteLLMProvider) {
-		return nil, false
-	}
-	return s.modelPricingFromLiteLLM(model, pricing)
-}
-
-func (s *BillingService) modelPricingFromLiteLLM(model string, litellmPricing *LiteLLMModelPricing) (*ModelPricing, bool) {
-	return s.modelPricingFromLiteLLMAt(model, litellmPricing, time.Now())
 }
 
 func (s *BillingService) modelPricingFromLiteLLMAt(model string, litellmPricing *LiteLLMModelPricing, now time.Time) (*ModelPricing, bool) {
-	litellmPricing = openCodeGoPricingAt(litellmPricing, now)
 	// 仅有图片价、无 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
 	// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 fallback，
 	// 无 fallback 则 fail-closed（ErrModelPricingUnavailable）。
@@ -1739,10 +1614,7 @@ func (s *BillingService) modelPricingFromLiteLLMAt(model string, litellmPricing 
 	price5m := litellmPricing.CacheCreationInputTokenCost
 	price1h := litellmPricing.CacheCreationInputTokenCostAbove1hr
 	enableBreakdown := price1h > 0 && price1h > price5m
-	allowZeroRate := litellmPricing.OpenCodeGoExplicitZeroRate &&
-		isOpenCodeGoPricingPlatform(litellmPricing.LiteLLMProvider) &&
-		litellmPricing.OpenCodeGoPricingAuthority == openCodeGoPricingAuthorityOfficial
-	forceDeepSeekRates := !isOpenCodeGoPricingPlatform(litellmPricing.LiteLLMProvider)
+	forceDeepSeekRates := true
 	return s.applyModelSpecificPricingPolicyEx(model, &ModelPricing{
 		InputPricePerToken:                 litellmPricing.InputCostPerToken,
 		InputPricePerTokenPriority:         litellmPricing.InputCostPerTokenPriority,
@@ -1762,7 +1634,6 @@ func (s *BillingService) modelPricingFromLiteLLMAt(model string, litellmPricing 
 		ImageInputPricePerToken:            litellmPricing.InputCostPerImageToken,
 		ImageCacheReadPricePerToken:        litellmPricing.CacheReadInputImageTokenCost,
 		ImageOutputPricePerToken:           litellmPricing.OutputCostPerImageToken,
-		AllowZeroRate:                      allowZeroRate,
 	}, forceDeepSeekRates, now), true
 }
 
@@ -1951,9 +1822,9 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 		pricingAt = timezone.Now()
 	}
 
-	// 默认通用价卡应用 DeepSeek 官方价强制覆盖；OpenCode Go 已按平台专属峰谷价选档，
+	// 默认通用价卡应用 DeepSeek 官方价强制覆盖，
 	// 分组/渠道自定义定价保留运营者配置。
-	forceDeepSeekRates := resolved.Source == PricingSourceLiteLLM && !isOpenCodeGoPricingPlatform(input.PricingPlatform)
+	forceDeepSeekRates := resolved.Source == PricingSourceLiteLLM
 	pricing = s.applyModelSpecificPricingPolicyEx(input.Model, pricing, forceDeepSeekRates, pricingAt)
 
 	// DeepSeek 通用默认价卡按官方峰谷口径调整：高峰时段（01:00–04:00 与

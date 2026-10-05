@@ -87,8 +87,8 @@ type OpenCodeGoUsageSettings struct {
 	DebounceMinutes int  `json:"debounce_minutes"` // trailing quiet period after last request
 }
 
-// OpenCodeGoAPIUsageWindow is a narrow, sanitized view of one official usage window.
-type OpenCodeGoAPIUsageWindow struct {
+// OpenCodeGoUsageWindow is a narrow, sanitized view of one official usage window.
+type OpenCodeGoUsageWindow struct {
 	Status   string    `json:"status"`
 	Percent  float64   `json:"percent"`
 	ResetsAt time.Time `json:"resets_at"`
@@ -96,9 +96,9 @@ type OpenCodeGoAPIUsageWindow struct {
 
 // OpenCodeGoUsageData intentionally excludes raw upstream payload details.
 type OpenCodeGoUsageData struct {
-	Rolling OpenCodeGoAPIUsageWindow `json:"rolling"`
-	Weekly  OpenCodeGoAPIUsageWindow `json:"weekly"`
-	Monthly OpenCodeGoAPIUsageWindow `json:"monthly"`
+	Rolling OpenCodeGoUsageWindow `json:"rolling"`
+	Weekly  OpenCodeGoUsageWindow `json:"weekly"`
+	Monthly OpenCodeGoUsageWindow `json:"monthly"`
 }
 
 // OpenCodeGoUsageSnapshot is the only usage observation persisted in account extra.
@@ -872,7 +872,7 @@ func OpenCodeGoUsageStateFromAccount(account *Account) *OpenCodeGoUsageState {
 // isOpenCodeGoUsageMountPlatform 收敛允许以 base_url 挂载 OpenCode Go 用量身份的
 // 平台白名单，与 ollama 的 isOllamaCloudUsagePlatform 对齐。repository 侧 SQL
 // 白名单（opencodeGoUsageMountPlatformsSQL）是本列表的镜像，两侧必须同步修改。
-// OpenCode 平台本身不在挂载名单内：平台账号走 IsOpenCodeGoPlan 判定，不依赖
+// opencode_go 平台本身不在名单内：平台账号走 IsOpenCodeGoPlan 判定，不依赖
 // base_url。
 func isOpenCodeGoUsageMountPlatform(platform string) bool {
 	switch platform {
@@ -884,9 +884,9 @@ func isOpenCodeGoUsageMountPlatform(platform string) bool {
 }
 
 // IsOpenCodeGoUsageAccount 判定账号是否参与 OpenCode Go 用量窗口，资格来源分派：
-//   - platform == opencode：平台字段表示 OpenCode，Go 订阅资格由 IsOpenCodeGoPlan 判定；
+//   - platform == opencode_go：平台字段是权威来源，以 IsOpenCodeGoPlan 为准（必须是
 //     Go 订阅；Zen 按量付费无订阅配额窗口，上游 CN 配额链路同样排除）。此分支不要求
-//     base_url 匹配——Go 账号的 base_url 可能是 CC/Responses 基址
+//     base_url 匹配——opencode_go 账号的 base_url 可能是 CC/Responses 基址
 //     （/zen/go/v1）或 Anthropic 基址（/zen/go），甚至为空。这是有意取舍：平台 +
 //     模式已是权威来源，且账号指向自建代理/中转时 key 仍是官方 OpenCode key，从
 //     官方端点取用量恰恰是正确数据源，强制要求官方 host 会破坏这类合法用法；
@@ -937,7 +937,7 @@ func isOpenCodeGoBaseURL(raw string) bool {
 
 // openCodeGoUsageIdentity 返回 OpenCode Go 用量组的身份。host 固定为 opencode.ai、
 // 以 api_key 聚合是平台无关的有意设计：同一个 OpenCode Go 订阅 key 无论以
-// opencode 平台 Go 模式账号存在，还是挂在 openai/anthropic 等挂载平台下，都属于
+// opencode_go 平台账号存在，还是挂在 openai/anthropic 等挂载平台下，都属于
 // 同一组、共享一次外呼与同一份快照。
 func openCodeGoUsageIdentity(account *Account) map[string]any {
 	if !IsOpenCodeGoUsageAccount(account) {
@@ -951,8 +951,8 @@ func openCodeGoUsageIdentity(account *Account) map[string]any {
 }
 
 // openCodeGoUsageGroupFingerprint 是组身份的指纹（sha256("opencode.ai\x00"+apiKey)）。
-// 与 openCodeGoUsageIdentity 一样保持平台无关：同一订阅 key 跨平台（opencode 平台 Go
-// 模式账号与挂载平台账号）必须得到相同指纹，才会被归入同一刷新组。
+// 与 openCodeGoUsageIdentity 一样保持平台无关：同一订阅 key 跨平台（opencode_go
+// 平台账号与挂载平台账号）必须得到相同指纹，才会被归入同一刷新组。
 func openCodeGoUsageGroupFingerprint(account *Account) (string, bool) {
 	identity := openCodeGoUsageIdentity(account)
 	if identity == nil {
@@ -1086,8 +1086,8 @@ func parseOpenCodeGoUsageJSON(body []byte) (*OpenCodeGoUsageData, error) {
 	return data, nil
 }
 
-func openCodeGoUsageWindowFromAPI(window *openCodeGoUsageAPIWindow) OpenCodeGoAPIUsageWindow {
-	out := OpenCodeGoAPIUsageWindow{Status: window.Status, Percent: window.Percent}
+func openCodeGoUsageWindowFromAPI(window *openCodeGoUsageAPIWindow) OpenCodeGoUsageWindow {
+	out := OpenCodeGoUsageWindow{Status: window.Status, Percent: window.Percent}
 	if resetsAt, err := time.Parse(time.RFC3339, window.ResetsAt); err == nil {
 		out.ResetsAt = resetsAt.UTC()
 	}

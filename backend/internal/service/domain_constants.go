@@ -40,8 +40,7 @@ const (
 const (
 	PlatformAnthropic   = domain.PlatformAnthropic
 	PlatformOpenAI      = domain.PlatformOpenAI
-	PlatformOpenCode    = domain.PlatformOpenCode
-	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo // Deprecated: use PlatformOpenCode.
+	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
 	PlatformClinePass   = domain.PlatformClinePass
 	PlatformOpenRouter  = domain.PlatformOpenRouter
 	PlatformCommandCode = domain.PlatformCommandCode
@@ -86,6 +85,8 @@ const (
 	DefaultDeepseekBaseURL    = "https://api.deepseek.com"
 	// MiniMax 按量付费与 Coding/Token Plan 共用推理域名，靠 API Key 区分套餐。
 	DefaultMiniMaxBaseURL = "https://api.minimaxi.com/v1"
+	// OpenCode Go：Chat Completions / Responses / models 共用 /v1 基址。
+	DefaultOpenCodeGoBaseURL = "https://opencode.ai/zen/go/v1"
 	// OpenCode Zen：按量付费网关，模型列表为 /zen/v1/models。
 	DefaultOpenCodeZenBaseURL = "https://opencode.ai/zen/v1"
 )
@@ -113,14 +114,8 @@ func IsCNProvider(platform string) bool {
 	}
 }
 
-func IsOpenCode(platform string) bool {
-	return platform == PlatformOpenCode
-}
-
-// IsOpenCodeGo is deprecated: persisted platform IDs no longer encode OpenCode mode.
-// Use Account.IsOpenCodeGoPlan for account behavior or compare OpenCodeGoPricingPlatform for pricing.
-func IsOpenCodeGo(value string) bool {
-	return isOpenCodeGoPricingPlatform(value)
+func IsOpenCodeGo(platform string) bool {
+	return platform == PlatformOpenCodeGo
 }
 
 // IsMultiProtocolAPIKeyProvider 报告 platform 是否为多协议 API Key 网关

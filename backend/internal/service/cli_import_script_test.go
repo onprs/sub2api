@@ -14,6 +14,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type pricingTestRemoteClient struct {
+	pricingBodies map[string][]byte
+	pricingErrs   map[string]error
+	hashText      string
+	fetchedURLs   []string
+}
+
+func (c *pricingTestRemoteClient) FetchPricingJSON(_ context.Context, url string) ([]byte, error) {
+	c.fetchedURLs = append(c.fetchedURLs, url)
+	if err, ok := c.pricingErrs[url]; ok {
+		return nil, err
+	}
+	if err, ok := c.pricingErrs[strings.TrimRight(url, "/")]; ok {
+		return nil, err
+	}
+	if body, ok := c.pricingBodies[url]; ok {
+		return body, nil
+	}
+	if body, ok := c.pricingBodies[strings.TrimRight(url, "/")]; ok {
+		return body, nil
+	}
+	return c.pricingBodies[strings.TrimRight(url, "/")+"/"], nil
+}
+
+func (c *pricingTestRemoteClient) FetchHashText(_ context.Context, _ string) (string, error) {
+	return c.hashText, nil
+}
+
 type cliImportAPIKeyRepoStub struct {
 	APIKeyRepository
 	key *APIKey
@@ -493,146 +521,6 @@ func TestBuildCLIImportWindowsBatWrapperExecutesHelper(t *testing.T) {
 	require.Contains(t, readTestFile(t, filepath.Join(home, ".codex", "config.toml")), envName)
 }
 
-func TestBuildCLIImportScript_WindowsSupportsCodexForOpenCodeGo(t *testing.T) {
-	groupID := int64(8)
-	input := CLIImportScriptInput{
-		OS:         CLIImportOSWindows,
-		APIBaseURL: "https://api.example.com/",
-		APIKey: &APIKey{
-			ID:      99,
-			UserID:  1001,
-			Key:     "sk-user-opencode-go",
-			GroupID: &groupID,
-			Status:  StatusAPIKeyActive,
-			Group: &Group{
-				ID:                 groupID,
-				Name:               "OpenCode Go",
-				Platform:           PlatformOpenCodeGo,
-				Status:             StatusActive,
-				DefaultMappedModel: "qwen3.7-plus",
-			},
-		},
-		Models: []string{"qwen3.7-plus"},
-		Capabilities: map[string]CLIImportModelCapability{
-			"qwen3.7-plus": knownOpenCodeCapability("Qwen3.7 Plus"),
-		},
-	}
-
-	result, err := BuildCLIImportScript(input)
-	require.NoError(t, err)
-	require.Equal(t, "sub2api-cli-import.bat", result.Filename)
-
-	body := string(result.Body)
-	require.Contains(t, body, "@echo off")
-	require.Contains(t, body, "SUB2API_KEY_99")
-	require.Contains(t, body, "https://api.example.com/v1")
-	require.NotContains(t, body, "codex_supported")
-	require.NotContains(t, body, "Codex CLI import is skipped")
-	require.Contains(t, body, `wire_api = "responses"`)
-	require.NotContains(t, body, `wire_api = "chat"`)
-}
-
-func TestBuildCLIImportShellHelperWritesOpenCodeGoModelsInTempHome(t *testing.T) {
-	pythonPath := findPythonForCLIImportTest(t)
-	groupID := int64(7)
-	result, err := BuildCLIImportScript(CLIImportScriptInput{
-		OS:         CLIImportOSLinux,
-		APIBaseURL: "https://api.example.com",
-		APIKey: &APIKey{
-			ID:      42,
-			UserID:  1001,
-			Key:     "sk-user-opencode-go",
-			Name:    "opencode go key",
-			GroupID: &groupID,
-			Status:  StatusAPIKeyActive,
-			Group: &Group{
-				ID:                 groupID,
-				Name:               "OpenCode Go",
-				Platform:           PlatformOpenCodeGo,
-				Status:             StatusActive,
-				DefaultMappedModel: "kimi-k2.6",
-			},
-		},
-		Models: []string{"kimi-k2.6", "kimi-k2.7-code", "minimax-m3"},
-		Capabilities: map[string]CLIImportModelCapability{
-			"kimi-k2.6":      knownOpenCodeCapabilityWithNameFamilyAndRelease("Kimi K2.6", "kimi-k2", "2026-04-21"),
-			"kimi-k2.7-code": knownOpenCodeCapabilityWithNameFamilyAndRelease("Kimi K2.7 Code", "kimi-k2", "2026-06-12"),
-			"minimax-m3": knownOpenCodeCapabilityWithNameAndFamily(
-				"MiniMax M3 (3x usage)",
-				"minimax-m3",
-			),
-		},
-	})
-	require.NoError(t, err)
-	require.Contains(t, string(result.Body), `"provider_name":"OnprsCodexApi"`)
-	require.Contains(t, string(result.Body), `"id":"kimi-k2.6"`)
-	require.Contains(t, string(result.Body), `"name":"MiniMax M3"`)
-	require.NotContains(t, string(result.Body), "MiniMax M3 (3x usage)")
-
-	helper := extractShellPythonHelper(t, string(result.Body))
-	home := t.TempDir()
-	cmd := exec.Command(pythonPath, "-c", helper)
-	cmd.Env = append(os.Environ(), "HOME="+home, "USERPROFILE="+home, "SHELL=/bin/bash", "SUB2API_SKIP_OPENCODE_DESKTOP_REFRESH=1")
-	cmd.Stdin = strings.NewReader("2\nn\n")
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, string(out))
-
-	var opencode map[string]any
-	require.NoError(t, json.Unmarshal([]byte(readTestFile(t, filepath.Join(home, ".config", "opencode", "opencode.jsonc"))), &opencode))
-	providers, ok := opencode["provider"].(map[string]any)
-	require.True(t, ok)
-	provider, ok := providers["sub2api_opencode_42"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "OnprsCodexApi", provider["name"])
-	models, ok := provider["models"].(map[string]any)
-	require.True(t, ok)
-	require.Contains(t, models, "kimi-k2.6")
-	require.Contains(t, models, "kimi-k2.7-code")
-	require.Contains(t, models, "minimax-m3")
-	kimi26, ok := models["kimi-k2.6"].(map[string]any)
-	require.True(t, ok)
-	kimi27, ok := models["kimi-k2.7-code"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "Kimi K2.6", kimi26["name"])
-	require.Equal(t, "Kimi K2.7 Code", kimi27["name"])
-	require.Equal(t, "kimi-k2", kimi26["family"])
-	require.Equal(t, "kimi-k2", kimi27["family"])
-	require.NotContains(t, kimi26, "release_date")
-	require.NotContains(t, kimi27, "release_date")
-	minimaxM3, ok := models["minimax-m3"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "MiniMax M3", minimaxM3["name"])
-}
-
-func TestBuildCLIImportScriptRequiresKnownOpenCodeCapabilitiesForEveryModel(t *testing.T) {
-	groupID := int64(7)
-	input := CLIImportScriptInput{
-		OS:         CLIImportOSLinux,
-		APIBaseURL: "https://api.example.com",
-		APIKey: &APIKey{
-			ID:      42,
-			UserID:  1001,
-			Key:     "sk-user-test-key",
-			GroupID: &groupID,
-			Status:  StatusAPIKeyActive,
-			Group: &Group{
-				ID:       groupID,
-				Name:     "Pro Coding",
-				Platform: PlatformOpenAI,
-				Status:   StatusActive,
-			},
-		},
-		Models: []string{"known-model", "unknown-model"},
-		Capabilities: map[string]CLIImportModelCapability{
-			"known-model": knownOpenCodeCapability("Known Model"),
-		},
-	}
-
-	_, err := BuildCLIImportScript(input)
-	require.ErrorIs(t, err, ErrCLIImportModelCapabilityUnknown)
-	require.Contains(t, err.Error(), "unknown-model")
-}
-
 func TestValidateCLIImportAPIKeyRejectsUnsafeStates(t *testing.T) {
 	groupID := int64(7)
 	future := time.Now().Add(time.Hour)
@@ -737,7 +625,7 @@ func TestResolveCLIImportModelListUsesCustomThenProviderThenDefault(t *testing.T
 	models = resolveCLIImportModelList([]string{"z-model", "a-model", "a-model"}, group)
 	require.Equal(t, []string{"z-model", "a-model"}, models)
 
-	models = resolveCLIImportModelList(nil, &Group{Platform: PlatformOpenCode})
+	models = resolveCLIImportModelList(nil, &Group{Platform: PlatformOpenCodeGo})
 	require.True(t, len(models) > 0)
 	require.True(t, strings.Contains(strings.Join(models, ","), "qwen3.7-plus"))
 }
@@ -847,216 +735,6 @@ func TestPricingServiceGetCLIImportModelCapabilityUsesModelsDevCatalog(t *testin
 	require.Equal(t, 10.0, *capability.OutputCostPerToken)
 	require.Equal(t, 0.125, *capability.CacheReadCostPerToken)
 	require.Equal(t, 1.25, *capability.CacheWriteCostPerToken)
-}
-
-func TestPricingServiceGetCLIImportModelCapabilityUsesOpenCodeGoModelsDevProvider(t *testing.T) {
-	const catalog = `{
-		"opencode": {
-			"models": {
-				"qwen3.6-plus": {
-					"id": "qwen3.6-plus",
-					"name": "Wrong provider sentinel",
-					"attachment": true,
-					"reasoning": true,
-					"tool_call": true,
-					"modalities": {"input": ["text"], "output": ["text"]},
-					"limit": {"context": 1000, "output": 1000},
-					"cost": {"input": 99, "output": 99}
-				}
-			}
-		},
-		"opencode-go": {
-			"models": {
-				"kimi-k2.7-code": {
-					"id": "kimi-k2.7-code",
-					"name": "Kimi K2.7 Code",
-					"family": "kimi-k2",
-					"release_date": "2026-06-12",
-					"attachment": true,
-					"reasoning": true,
-					"temperature": false,
-					"tool_call": true,
-					"modalities": {"input": ["text", "image", "video"], "output": ["text"]},
-					"limit": {"context": 262144, "output": 262144},
-					"cost": {"input": 0.95, "output": 4, "cache_read": 0.19}
-				},
-				"mimo-v2.5": {
-					"id": "mimo-v2.5",
-					"name": "MiMo V2.5",
-					"family": "mimo-v2.5",
-					"release_date": "2026-04-22",
-					"attachment": true,
-					"reasoning": true,
-					"temperature": true,
-					"tool_call": true,
-					"modalities": {"input": ["text", "image", "audio", "video"], "output": ["text"]},
-					"limit": {"context": 1000000, "output": 128000},
-					"cost": {"input": 0.14, "output": 0.28, "cache_read": 0.0028}
-				},
-				"mimo-v2.5-pro": {
-					"id": "mimo-v2.5-pro",
-					"name": "MiMo V2.5 Pro",
-					"family": "mimo-v2.5-pro",
-					"release_date": "2026-04-22",
-					"attachment": true,
-					"reasoning": true,
-					"temperature": true,
-					"tool_call": true,
-					"modalities": {"input": ["text"], "output": ["text"]},
-					"limit": {"context": 1048576, "output": 128000},
-					"cost": {"input": 1.74, "output": 3.48, "cache_read": 0.0145}
-				},
-				"minimax-m3": {
-					"id": "minimax-m3",
-					"name": "MiniMax M3 (3x usage)",
-					"family": "minimax-m3",
-					"release_date": "2026-05-31",
-					"attachment": false,
-					"reasoning": true,
-					"temperature": true,
-					"tool_call": true,
-					"modalities": {"input": ["text", "image", "video"], "output": ["text"]},
-					"limit": {"context": 512000, "output": 131072},
-					"cost": {"input": 0.1, "output": 0.4, "cache_read": 0.02}
-				},
-				"qwen3.7-max": {
-					"id": "qwen3.7-max",
-					"name": "Qwen3.7 Max",
-					"family": "qwen3.7-max",
-					"release_date": "2026-05-21",
-					"attachment": false,
-					"reasoning": true,
-					"temperature": true,
-					"tool_call": true,
-					"modalities": {"input": ["text"], "output": ["text"]},
-					"limit": {"context": 1000000, "output": 65536},
-					"cost": {"input": 2.5, "output": 7.5, "cache_read": 0.5, "cache_write": 3.125}
-				},
-				"qwen3.7-plus": {
-					"id": "qwen3.7-plus",
-					"name": "Qwen3.7 Plus",
-					"family": "qwen3.7-plus",
-					"release_date": "2026-06-02",
-					"attachment": true,
-					"reasoning": true,
-					"temperature": true,
-					"tool_call": true,
-					"modalities": {"input": ["text", "image", "video"], "output": ["text"]},
-					"limit": {"context": 1000000, "output": 65536},
-					"cost": {"input": 0.4, "output": 1.6, "cache_read": 0.04, "cache_write": 0.5}
-				}
-			}
-		}
-	}`
-	svc := &PricingService{
-		remoteClient: &pricingTestRemoteClient{
-			pricingBodies: map[string][]byte{
-				cliImportModelsDevAPIURL: []byte(catalog),
-			},
-		},
-	}
-
-	for _, model := range []string{
-		"kimi-k2.7-code",
-		"mimo-v2.5",
-		"mimo-v2.5-pro",
-		"minimax-m3",
-		"qwen3.7-max",
-		"qwen3.7-plus",
-	} {
-		t.Run(model, func(t *testing.T) {
-			capability, ok := svc.GetCLIImportModelCapability(context.Background(), OpenCodeGoPricingPlatform, model)
-			require.True(t, ok)
-			require.True(t, capability.openCodeComplete())
-			require.NotEqual(t, "Wrong provider sentinel", capability.Name)
-
-			pricing, ok := openCodeGoReferencePricing(model)
-			require.True(t, ok)
-			require.InDelta(t, pricing.InputPricePerToken*1_000_000, *capability.InputCostPerToken, 1e-12)
-			require.InDelta(t, pricing.OutputPricePerToken*1_000_000, *capability.OutputCostPerToken, 1e-12)
-		})
-	}
-
-	qwen, ok := svc.GetCLIImportModelCapability(context.Background(), OpenCodeGoPricingPlatform, "qwen3.7-plus")
-	require.True(t, ok)
-	require.Equal(t, "Qwen3.7 Plus", qwen.Name)
-	require.Equal(t, 1000000, qwen.MaxInputTokens)
-	require.Equal(t, 65536, qwen.MaxOutputTokens)
-	require.InDelta(t, 0.4, *qwen.InputCostPerToken, 1e-12)
-	require.InDelta(t, 1.6, *qwen.OutputCostPerToken, 1e-12)
-	require.InDelta(t, 0.04, *qwen.CacheReadCostPerToken, 1e-12)
-	require.InDelta(t, 0.5, *qwen.CacheWriteCostPerToken, 1e-12)
-
-	minimax, ok := svc.GetCLIImportModelCapability(context.Background(), OpenCodeGoPricingPlatform, "minimax-m3")
-	require.True(t, ok)
-	require.Equal(t, "MiniMax M3 (3x usage)", minimax.Name)
-	require.InDelta(t, 0.3, *minimax.InputCostPerToken, 1e-12)
-	require.InDelta(t, 1.2, *minimax.OutputCostPerToken, 1e-12)
-	require.InDelta(t, 0.06, *minimax.CacheReadCostPerToken, 1e-12)
-	require.Nil(t, minimax.CacheWriteCostPerToken)
-}
-
-func TestPricingServiceGetCLIImportModelCapabilityUsesOpenCodeGoMetadataWithoutGoPricingForCanonicalPlatform(t *testing.T) {
-	svc := &PricingService{
-		remoteClient: &pricingTestRemoteClient{pricingBodies: map[string][]byte{}},
-	}
-
-	zenCapability, ok := svc.GetCLIImportModelCapability(context.Background(), PlatformOpenCode, "kimi-k2.7-code")
-	require.True(t, ok)
-	require.Equal(t, "Kimi K2.7 Code", zenCapability.Name)
-	require.True(t, zenCapability.LimitKnown)
-	require.Nil(t, zenCapability.InputCostPerToken)
-	require.Nil(t, zenCapability.OutputCostPerToken)
-	require.False(t, zenCapability.CostKnown)
-
-	goCapability, ok := svc.GetCLIImportModelCapability(context.Background(), OpenCodeGoPricingPlatform, "kimi-k2.7-code")
-	require.True(t, ok)
-	require.NotNil(t, goCapability.InputCostPerToken)
-	require.NotNil(t, goCapability.OutputCostPerToken)
-	require.True(t, goCapability.CostKnown)
-}
-
-func TestPricingServiceGetCLIImportModelCapabilityHasBuiltinFallbackForEveryOpenCodeGoDefault(t *testing.T) {
-	svc := &PricingService{
-		remoteClient: &pricingTestRemoteClient{pricingBodies: map[string][]byte{}},
-	}
-
-	for _, model := range OpenCodeGoFallbackModelIDs() {
-		t.Run(model, func(t *testing.T) {
-			capability, ok := svc.GetCLIImportModelCapability(context.Background(), OpenCodeGoPricingPlatform, model)
-			require.True(t, ok)
-			require.True(t, capability.openCodeComplete())
-			require.NotEmpty(t, capability.Name)
-			require.NotEmpty(t, capability.Family)
-
-			pricing, ok := openCodeGoReferencePricing(model)
-			require.True(t, ok)
-			require.InDelta(t, pricing.InputPricePerToken*1_000_000, *capability.InputCostPerToken, 1e-12)
-			require.InDelta(t, pricing.OutputPricePerToken*1_000_000, *capability.OutputCostPerToken, 1e-12)
-			if pricing.CacheReadPricePerToken > 0 {
-				require.NotNil(t, capability.CacheReadCostPerToken)
-				require.InDelta(t, pricing.CacheReadPricePerToken*1_000_000, *capability.CacheReadCostPerToken, 1e-12)
-			} else {
-				require.Nil(t, capability.CacheReadCostPerToken)
-			}
-			if pricing.CacheCreationPricePerToken > 0 {
-				require.NotNil(t, capability.CacheWriteCostPerToken)
-				require.InDelta(t, pricing.CacheCreationPricePerToken*1_000_000, *capability.CacheWriteCostPerToken, 1e-12)
-			} else {
-				require.Nil(t, capability.CacheWriteCostPerToken)
-			}
-		})
-	}
-
-	glm, ok := svc.GetCLIImportModelCapability(context.Background(), OpenCodeGoPricingPlatform, "glm-5.3")
-	require.True(t, ok)
-	require.Equal(t, "GLM-5.3", glm.Name)
-	require.Equal(t, "glm", glm.Family)
-	require.Equal(t, 1000000, glm.MaxInputTokens)
-	require.Equal(t, 131072, glm.MaxOutputTokens)
-	require.True(t, glm.SupportsReasoning)
-	require.True(t, glm.SupportsFunctionCalling)
-	require.Equal(t, []string{"text"}, glm.InputModalities)
 }
 
 func TestParsePricingDataTracksCapabilityFieldPresence(t *testing.T) {
@@ -1199,10 +877,4 @@ func knownOpenCodeCapabilityWithNameAndFamily(name string, family string) CLIImp
 		SupportsFunctionCallingKnown: true,
 		SupportsToolChoiceKnown:      true,
 	}
-}
-
-func knownOpenCodeCapabilityWithNameFamilyAndRelease(name string, family string, releaseDate string) CLIImportModelCapability {
-	capability := knownOpenCodeCapabilityWithNameAndFamily(name, family)
-	capability.ReleaseDate = releaseDate
-	return capability
 }

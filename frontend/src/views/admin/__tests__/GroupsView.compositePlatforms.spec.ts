@@ -9,7 +9,7 @@ describe('GroupsView Composite route options', () => {
       'gemini',
       'antigravity',
       'grok',
-      'opencode',
+      'opencode_go',
       'kimi',
       'zhipu',
       'deepseek',
@@ -20,7 +20,7 @@ describe('GroupsView Composite route options', () => {
 
   it('keeps locally supported concrete providers available', () => {
     expect(CONCRETE_PLATFORM_OPTIONS.map((option) => option.value)).toEqual(
-      expect.arrayContaining(['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode'])
+      expect.arrayContaining(['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go'])
     )
   })
 })

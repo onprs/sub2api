@@ -352,7 +352,7 @@ func TestOpenCodeGoUsageRefreshFailureKeepsPreviousData(t *testing.T) {
 	now := time.Now().UTC()
 	account := openCodeGoUsageAccount(7)
 	account.Extra[OpenCodeGoUsageSnapshotExtraKey] = &OpenCodeGoUsageSnapshot{
-		Status: OpenCodeGoUsageStatusOK, Data: &OpenCodeGoUsageData{Rolling: OpenCodeGoAPIUsageWindow{Status: "ok", Percent: 6}},
+		Status: OpenCodeGoUsageStatusOK, Data: &OpenCodeGoUsageData{Rolling: OpenCodeGoUsageWindow{Status: "ok", Percent: 6}},
 		FetchedAt: &now, LastAttemptAt: now.Add(-30 * time.Second), NextRefreshAt: now.Add(time.Hour), FailureCount: 1,
 	}
 	repo := &openCodeGoUsageTestRepo{accounts: map[int64]*Account{7: account}}
@@ -535,7 +535,7 @@ func TestOpenCodeGoUsageGroupSharesStateAcrossSiblings(t *testing.T) {
 	source.Extra[OpenCodeGoUsageAutoRefreshExtraKey] = true
 	source.Extra[OpenCodeGoUsageSnapshotExtraKey] = &OpenCodeGoUsageSnapshot{
 		Status: OpenCodeGoUsageStatusOK,
-		Data:   &OpenCodeGoUsageData{Rolling: OpenCodeGoAPIUsageWindow{Status: "ok", Percent: 6}},
+		Data:   &OpenCodeGoUsageData{Rolling: OpenCodeGoUsageWindow{Status: "ok", Percent: 6}},
 	}
 	source.UpdatedAt = time.Now().Add(-time.Minute)
 	sibling := openCodeGoUsageAccount(72)
@@ -818,7 +818,7 @@ func TestIsOpenCodeGoUsageAccount(t *testing.T) {
 		require.False(t, IsOpenCodeGoUsageAccount(account), platform)
 	}
 
-	// OpenCode platform Go mode: eligibility comes from account_mode, not base_url
+	// opencode_go platform: eligibility comes from platform + go mode, not base_url
 	platformAccount := func() *Account {
 		return &Account{Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "k"}}
 	}
@@ -849,7 +849,7 @@ func TestOpenCodeGoUsageGroupFingerprint(t *testing.T) {
 	first.Credentials["api_key"] = "shared-key"
 	second := openCodeGoUsageAccount(2)
 	second.Credentials = map[string]any{"base_url": "HTTPS://OPENCODE.AI/ZEN/GO/V1/", "api_key": "shared-key"}
-	// 同一订阅 key 以 OpenCode 平台 Go 模式账号存在：与挂载平台账号必须同组（身份平台无关）
+	// 同一订阅 key 以 opencode_go 平台账号存在：与挂载平台账号必须同组（身份平台无关）
 	third := openCodeGoUsageAccount(3)
 	third.Platform = PlatformOpenCodeGo
 	third.Credentials = map[string]any{"account_mode": AccountModeGo, "api_key": "shared-key"}

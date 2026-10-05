@@ -11,7 +11,7 @@ const CORE_PLATFORM_OPTIONS = [
   { value: 'gemini', label: 'Gemini' },
   { value: 'antigravity', label: 'Antigravity' },
   { value: 'grok', label: 'Grok' },
-  { value: 'opencode', label: 'OpenCode' }
+  { value: 'opencode_go', label: 'OpenCode' }
 ] as const satisfies readonly PlatformOption<AccountPlatform>[]
 
 const CN_PLATFORM_OPTIONS = [

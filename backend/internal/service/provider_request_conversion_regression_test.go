@@ -81,8 +81,6 @@ func TestCommandCodeRequestSignaturePolicyScope(t *testing.T) {
 	require.Equal(t, protocolconv.CapabilitySignature, warnings[0].Capability)
 	require.Equal(t, protocolconv.WarningDroppedField, warnings[0].Code)
 
-	_, _, err = newOpenCodeGoPipelineRequest(body, protocolconv.ProtocolOpenAIResponses, protocolconv.ProtocolOpenAIChat, &Account{Platform: PlatformOpenCodeGo}, "model", "model")
-	require.Error(t, err)
 	_, converted, err = newCommandCodePipelineRequest(body, protocolconv.ProtocolOpenAIResponses, protocolconv.ProtocolAnthropic, account, "model", "model")
 	require.NoError(t, err)
 	require.Contains(t, string(converted), "test-signature")

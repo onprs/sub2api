@@ -379,7 +379,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	// OpenAI、OpenCode Go 与 Command Code 的模型可用性取决于具体账号。必须先于
 	// 整账号错误策略处理，避免单个模型不受支持时禁用整个账号或被自定义错误码过滤掉。
 	if account != nil && len(requestedModel) > 0 &&
-		(account.Platform == PlatformOpenAI || account.IsOpenCode() || account.Platform == PlatformCommandCode) &&
+		(account.Platform == PlatformOpenAI || account.IsOpenCodeGo() || account.Platform == PlatformCommandCode) &&
 		s.HandleUpstreamModelNotFound(ctx, account, requestedModel[0], statusCode, responseBody) {
 		return true
 	}
@@ -1059,7 +1059,7 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	// 国产供应商与 openai 同口径:HTML 403(CDN/代理拦截页)不构成账号失效证据,
 	// 且 403 在 failover 状态集里会被逐账号重放——直接 SetError 会让一个坏请求/
 	// 一层坏代理连环永久禁用整组账号。走 HTML 豁免 + N 次累计 + 临时冷却。
-	if account.Platform == PlatformOpenAI || IsCNProvider(account.Platform) || account.IsOpenCode() {
+	if account.Platform == PlatformOpenAI || IsCNProvider(account.Platform) || account.IsOpenCodeGo() {
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
 	}
 	// 非 Antigravity 平台：保持原有行为
@@ -2631,7 +2631,7 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	}
 	// Model capability feedback must be scoped to the requested model. These
 	// providers handle model rejection independently of the account error-code policy.
-	if !account.IsOpenAI() && !account.IsOpenCode() && account.Platform != PlatformCommandCode && !account.ShouldHandleErrorCode(statusCode) {
+	if !account.IsOpenAI() && !account.IsOpenCodeGo() && account.Platform != PlatformCommandCode && !account.ShouldHandleErrorCode(statusCode) {
 		return false
 	}
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)

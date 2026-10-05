@@ -17,7 +17,7 @@ describe('PlatformTypeBadge', () => {
     testLocale.value = 'en'
     const wrapper = mount(PlatformTypeBadge, {
       props: {
-        platform: 'opencode',
+        platform: 'opencode_go',
         type: 'apikey',
         accountMode: 'go'
       }
@@ -33,7 +33,7 @@ describe('PlatformTypeBadge', () => {
     testLocale.value = 'en'
     const wrapper = mount(PlatformTypeBadge, {
       props: {
-        platform: 'opencode',
+        platform: 'opencode_go',
         type: 'apikey',
         accountMode: 'zen'
       }

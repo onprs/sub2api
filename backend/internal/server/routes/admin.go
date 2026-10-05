@@ -20,7 +20,6 @@ func RegisterAdminRoutes(
 	settingService *service.SettingService,
 	panelRateLimiter *middleware.PanelRateLimiter,
 ) {
-	registerOpenCodeGoConsolePublicRoutes(v1, h)
 	// 插件 UI 使用短时能力 URL，仅提供经过安装校验的静态资源。
 	v1.GET("/plugin-ui/:token/*path", h.Admin.Plugin.ServeUIAsset)
 
@@ -432,12 +431,6 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/:id/recover-state", h.Admin.Account.RecoverState)
 		accounts.POST("/:id/refresh", h.Admin.Account.Refresh)
 		accounts.POST("/:id/apply-oauth-credentials", h.Admin.Account.ApplyOAuthCredentials)
-		accounts.POST("/:id/opencode-go/console-auth/ticket", h.Admin.Account.CreateOpenCodeGoConsoleAuthTicket)
-		accounts.POST("/:id/opencode-go/console-auth/test", h.Admin.Account.TestOpenCodeGoConsoleAuth)
-		accounts.DELETE("/:id/opencode-go/console-auth", h.Admin.Account.ClearOpenCodeGoConsoleAuth)
-		accounts.GET("/:id/opencode-go/console-summary", h.Admin.Account.GetOpenCodeGoConsoleSummary)
-		accounts.POST("/:id/opencode-go/referral-rewards/:reward_id/preview", h.Admin.Account.PreviewOpenCodeGoReferralReward)
-		accounts.POST("/:id/opencode-go/referral-rewards/:reward_id/apply", h.Admin.Account.ApplyOpenCodeGoReferralReward)
 		accounts.POST("/:id/set-privacy", h.Admin.Account.SetPrivacy)
 		accounts.POST("/:id/refresh-tier", h.Admin.Account.RefreshTier)
 		accounts.GET("/:id/stats", h.Admin.Account.GetStats)
@@ -480,14 +473,6 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/exchange-setup-token-code", h.Admin.OAuth.ExchangeSetupTokenCode)
 		accounts.POST("/cookie-auth", h.Admin.OAuth.CookieAuth)
 		accounts.POST("/setup-token-cookie-auth", h.Admin.OAuth.SetupTokenCookieAuth)
-	}
-}
-
-func registerOpenCodeGoConsolePublicRoutes(v1 *gin.RouterGroup, h *handler.Handlers) {
-	consoleAuth := v1.Group("/opencode-go/console-auth")
-	{
-		consoleAuth.GET("/helper.ps1", h.Admin.Account.OpenCodeGoConsoleAuthHelper)
-		consoleAuth.POST("/complete", h.Admin.Account.CompleteOpenCodeGoConsoleAuth)
 	}
 }
 

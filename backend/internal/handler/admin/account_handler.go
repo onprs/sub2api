@@ -3242,7 +3242,7 @@ func openCodeGoAvailableModels(account *service.Account) []openai.Model {
 		}
 	}
 	if len(ids) == 0 {
-		ids = service.OpenCodeGoDefaultModelIDs()
+		ids = service.DefaultOpenCodeGoModelIDs()
 	}
 	return accountTestModels(ids)
 }

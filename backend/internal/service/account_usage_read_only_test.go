@@ -127,7 +127,7 @@ func TestAccountUsageReadOnlyBatchUsesSnapshotsOnly(t *testing.T) {
 	reset := now.Add(2 * time.Hour)
 	repo := &readOnlyUsageRepo{accounts: map[int64]*Account{
 		1: {ID: 1, Platform: PlatformAnthropic, Type: AccountTypeOAuth, SessionWindowEnd: &reset, Extra: map[string]any{"session_window_utilization": 0.42, "passive_usage_sampled_at": now.Format(time.RFC3339), "passive_usage_7d_utilization": 0.7}},
-		2: {ID: 2, Platform: PlatformOpenCode, Type: AccountTypeAPIKey, Credentials: map[string]any{"account_mode": "go"}, Extra: map[string]any{"opencode_go_usage_source": "official_console", "opencode_go_usage_5h_used_percent": 90.0}},
+		2: {ID: 2, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Credentials: map[string]any{"account_mode": "go"}, Extra: map[string]any{"opencode_go_usage_source": "official_console", "opencode_go_usage_5h_used_percent": 90.0}},
 		3: {ID: 3, Platform: PlatformAnthropic, Type: AccountTypeSetupToken, SessionWindowEnd: &reset, Extra: map[string]any{"session_window_utilization": 0.1}},
 		4: {ID: 4, Platform: PlatformAnthropic, Type: AccountTypeOAuth},
 		5: {ID: 5, Platform: PlatformAnthropic, Type: AccountTypeAPIKey},
@@ -135,14 +135,14 @@ func TestAccountUsageReadOnlyBatchUsesSnapshotsOnly(t *testing.T) {
 	svc := &AccountUsageService{accountRepo: repo}
 	usage, failures, err := svc.GetReadOnlyUsageBatch(t.Context(), []int64{1, 2, 3, 4, 5, 99, 1, -1, 0})
 	require.NoError(t, err)
-	require.Len(t, usage, 3)
-	require.Len(t, failures, 3)
+	require.Len(t, usage, 2)
+	require.Len(t, failures, 4)
+	require.Contains(t, failures, int64(2))
 	require.Contains(t, failures, int64(4))
 	require.Contains(t, failures, int64(5))
 	require.Contains(t, failures, int64(99))
 	require.Equal(t, 42.0, usage[1].FiveHour.Utilization)
 	require.Equal(t, now, *usage[1].UpdatedAt)
-	require.Equal(t, 90.0, usage[2].FiveHour.Utilization)
 	require.Equal(t, 10.0, usage[3].FiveHour.Utilization)
 	require.Zero(t, repo.writes)
 	// 没有配置任何上游查询器、奖励兑换器或统计查询器，批量查询仍可完成。

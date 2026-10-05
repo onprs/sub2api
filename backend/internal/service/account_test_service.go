@@ -410,7 +410,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if account.IsCommandCode() {
 		return s.testCommandCodeAccountConnection(c, account, modelID)
 	}
-	if account.IsOpenCode() {
+	if account.IsOpenCodeGo() {
 		return s.testOpenCodeGoAccountConnection(c, account, modelID, prompt)
 	}
 	if account.IsCNProvider() {
@@ -474,7 +474,7 @@ func (s *AccountTestService) testClinePassAccountConnection(c *gin.Context, acco
 	if _, err := gateway.ForwardChatCompletions(c.Request.Context(), probe, account, payload); err != nil {
 		return s.sendErrorAndEnd(c, "ClinePass generation test failed: "+accountGenerationProbeError(err, recorder.Body.Bytes()))
 	}
-	text := strings.TrimSpace(extractOpenCodeGoChatText(recorder.Body.Bytes()))
+	text := strings.TrimSpace(extractGatewayChatText(recorder.Body.Bytes()))
 	if text == "" {
 		return s.sendErrorAndEnd(c, "ClinePass generation test returned no visible response text")
 	}
@@ -509,7 +509,7 @@ func (s *AccountTestService) testOpenRouterAccountConnection(c *gin.Context, acc
 	if _, err := gateway.ForwardChatCompletions(c.Request.Context(), probe, account, payload); err != nil {
 		return s.sendErrorAndEnd(c, "OpenRouter generation test failed: "+accountGenerationProbeError(err, recorder.Body.Bytes()))
 	}
-	text := strings.TrimSpace(extractOpenCodeGoChatText(recorder.Body.Bytes()))
+	text := strings.TrimSpace(extractGatewayChatText(recorder.Body.Bytes()))
 	if text == "" {
 		return s.sendErrorAndEnd(c, "OpenRouter generation test returned no visible response text")
 	}
@@ -575,7 +575,7 @@ func (s *AccountTestService) testCommandCodeAccountConnection(c *gin.Context, ac
 	if useMessages {
 		text = strings.TrimSpace(gjson.GetBytes(recorder.Body.Bytes(), "content.0.text").String())
 	} else {
-		text = strings.TrimSpace(extractOpenCodeGoChatText(recorder.Body.Bytes()))
+		text = strings.TrimSpace(extractGatewayChatText(recorder.Body.Bytes()))
 	}
 	if text == "" {
 		return s.sendErrorAndEnd(c, "Command Code generation test returned no visible response text")
@@ -632,14 +632,6 @@ func accountGenerationTestModel(account *Account, requestedModel string) (string
 		}
 		return "", fmt.Errorf("no OpenRouter model is available for generation testing")
 	}
-	if account.IsOpenCode() {
-		for _, model := range OpenCodeGoDefaultModelIDs() {
-			if _, ok := account.ResolveOpenCodeGoModelProtocol(model); ok {
-				return model, nil
-			}
-		}
-		return "", fmt.Errorf("no OpenCode Go model with a configured protocol is available for generation testing")
-	}
 	return "", fmt.Errorf("real generation testing is not supported for platform %s", account.Platform)
 }
 
@@ -656,19 +648,12 @@ func createAccountGenerationTestPayload(modelID string) ([]byte, error) {
 
 // testOpenCodeGoAccountConnection probes the native endpoint for the selected
 // model. Adaptive accounts (the default) follow OpenCodeGoModelProtocol:
-// grok/gpt/muse-spark -> Responses, minimax/qwen -> Anthropic, everything else
-// (including deepseek-v4-flash) -> Chat Completions. A pinned api_protocol
-// overrides that catalog. Accounts created before the explicit protocol field
-// was introduced keep the gateway-backed generation probe so their non-streaming
-// JSON response remains compatible with the existing admin test contract.
+// grok/gpt/muse-spark → Responses, minimax/qwen → Anthropic, everything else
+// (including deepseek-v4-flash) → Chat Completions. A pinned api_protocol
+// overrides that catalog. Falling through to the generic Claude tester used
+// credentials.base_url + /v1/messages?beta=true, which 404s as HTML on
+// https://opencode.ai/zen/go/v1/v1/messages.
 func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
-	if account == nil || !account.IsOpenCodeAPIKey() {
-		return s.sendErrorAndEnd(c, "OpenCode accounts must use API key credentials")
-	}
-	if strings.TrimSpace(account.GetCredential("api_protocol")) == "" {
-		return s.testOpenCodeGoGenerationConnection(c, account, modelID)
-	}
-
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = DefaultOpenCodeGoTestModel
@@ -688,41 +673,6 @@ func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, acc
 	default:
 		return s.testCNProviderChatCompletionsConnection(c, account, testModelID, prompt)
 	}
-}
-
-// testOpenCodeGoGenerationConnection 保留显式协议字段引入前的管理员生成探测。
-// OpenCode Go 网关会按 model_protocols 或模型目录选择实际上游端点，并将
-// 非流式原生响应转换回 Chat Completions JSON，便于统一检查可见文本。
-func (s *AccountTestService) testOpenCodeGoGenerationConnection(c *gin.Context, account *Account, requestedModel string) error {
-	if s.httpUpstream == nil {
-		return s.sendErrorAndEnd(c, "OpenCode Go HTTP client is not configured")
-	}
-	modelID, err := accountGenerationTestModel(account, requestedModel)
-	if err != nil {
-		return s.sendErrorAndEnd(c, err.Error())
-	}
-
-	prepareAccountTestEventStream(c)
-	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过模型生成接口发起真实 OpenCode Go 请求"})
-	s.sendEvent(c, TestEvent{Type: "test_start", Model: modelID})
-
-	payload, err := createAccountGenerationTestPayload(modelID)
-	if err != nil {
-		return s.sendErrorAndEnd(c, "Failed to create OpenCode Go generation test payload")
-	}
-	probe, recorder := newAccountGenerationProbeContext(c.Request.Context(), payload)
-	gateway := NewOpenCodeGoGatewayService(s.httpUpstream, s.cfg, s.tlsFPProfileService, nil)
-	if _, err := gateway.ForwardChatCompletions(c.Request.Context(), probe, account, payload); err != nil {
-		return s.sendErrorAndEnd(c, "OpenCode Go generation test failed: "+accountGenerationProbeError(err, recorder.Body.Bytes()))
-	}
-	text := strings.TrimSpace(extractOpenCodeGoChatText(recorder.Body.Bytes()))
-	if text == "" {
-		return s.sendErrorAndEnd(c, "OpenCode Go generation test returned no visible response text")
-	}
-
-	s.sendEvent(c, TestEvent{Type: "content", Text: text})
-	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-	return nil
 }
 
 func (s *AccountTestService) testOpenCodeGoResponsesConnection(c *gin.Context, account *Account, testModelID string) error {

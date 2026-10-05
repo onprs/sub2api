@@ -553,7 +553,7 @@ export function getModelsByPlatform(platform: string, context: ModelCatalogConte
     case 'claude': return claudeModels
     case 'gemini': return isGeminiAIStudioFreeContext(context) ? geminiAIStudioFreeModels : geminiModels
     case 'antigravity': return antigravityModels
-    case 'opencode': return opencodeGoModels
+    case 'opencode_go': return opencodeGoModels
     case 'clinepass': return clinePassModels
     case 'openrouter': return openRouterModels
     case 'commandcode': return commandCodeModels
@@ -585,7 +585,7 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'grok' || platform === 'xai') return grokPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings
-  if (platform === 'opencode') return opencodeGoPresetMappings
+  if (platform === 'opencode_go') return opencodeGoPresetMappings
   if (platform === 'clinepass') return clinePassPresetMappings
   if (platform === 'openrouter') return openRouterPresetMappings
   if (platform === 'commandcode') return commandCodePresetMappings

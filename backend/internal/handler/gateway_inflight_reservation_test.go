@@ -163,45 +163,6 @@ func TestWrapUsageRecordTaskContext_HandsReservationToBillingTask(t *testing.T) 
 	require.Equal(t, 0, cache.count())
 }
 
-func TestOpenCodeGoGatewayHandlerSubmitUsageRecordTask_DroppedTaskReleasesReservation(t *testing.T) {
-	pool := service.NewUsageRecordWorkerPoolWithOptions(service.UsageRecordWorkerPoolOptions{
-		WorkerCount: 1, QueueSize: 1, TaskTimeout: time.Minute,
-		OverflowPolicy: config.UsageRecordOverflowPolicyDrop,
-	})
-	t.Cleanup(pool.Stop)
-	started := make(chan struct{})
-	blocked := make(chan struct{})
-	t.Cleanup(func() { close(blocked) })
-	require.Equal(t, service.UsageRecordSubmitModeEnqueued, pool.Submit(func(context.Context) {
-		close(started)
-		<-blocked
-	}))
-	<-started
-	require.Equal(t, service.UsageRecordSubmitModeEnqueued, pool.Submit(func(context.Context) { <-blocked }))
-
-	cache := newHandlerInflightCache(1)
-	cfg := &config.Config{}
-	cfg.Billing.InflightReservation = config.InflightReservationConfig{Enabled: true, TTLSeconds: 60}
-	billing := service.NewBillingCacheService(cache, nil, nil, nil, nil, nil, cfg, nil)
-	t.Cleanup(billing.Stop)
-	c := newInflightTestGinContext()
-	apiKey := &service.APIKey{User: &service.User{ID: 6}}
-	done, err := reserveInflightBalance(c, billing, &countingEstimator{cost: 0.9, priced: true}, apiKey, nil, tokenInflightEstimate("m", nil))
-	require.NoError(t, err)
-	t.Cleanup(done)
-
-	ran := make(chan struct{}, 1)
-	h := &OpenCodeGoGatewayHandler{usageRecordWorkerPool: pool}
-	h.submitUsageRecordTask(c.Request.Context(), func(context.Context) { ran <- struct{}{} })
-	done()
-	require.Zero(t, cache.count(), "被丢弃的任务必须归还预留引用")
-	select {
-	case <-ran:
-		t.Fatal("显式丢弃策略不应执行任务")
-	default:
-	}
-}
-
 // 新接入的端点（独立 web_search）：在途预留超过余额时拒绝，且不残留预留。
 func TestWebSearch_RejectsWhenInflightExceedsBalance(t *testing.T) {
 	cache := newHandlerInflightCache(1.5)

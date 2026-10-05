@@ -253,9 +253,9 @@ describe('ModelWhitelistSelector', () => {
 
   it('shows the upstream sync button for OpenCode Go create-account credentials', () => {
     const wrapper = mountSelector({
-      platform: 'opencode',
+      platform: 'opencode_go',
       syncCredentials: {
-        platform: 'opencode',
+        platform: 'opencode_go',
         type: 'apikey',
         base_url: 'https://opencode.ai/zen/go/v1',
         api_key: 'sk-test',

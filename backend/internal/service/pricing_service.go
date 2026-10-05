@@ -9,9 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	stdhtml "html"
 	"maps"
-	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,7 +25,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"go.uber.org/zap"
-	xhtml "golang.org/x/net/html"
 )
 
 var (
@@ -36,14 +33,7 @@ var (
 	// aboveTierPricePattern 匹配 LiteLLM 长上下文绝对价字段名。
 	aboveTierPricePattern = regexp.MustCompile(`^(input|output)_cost_per_token_above_(\d+)k_tokens$`)
 	// cacheTierPricePattern 匹配 cache 侧长上下文绝对价字段名及其时长、服务档变体。
-	cacheTierPricePattern       = regexp.MustCompile(`^(cache_(?:creation|read)_input_token_cost)(_above_1hr)?_above_\d+k_tokens((?:_[a-z]+)?)$`)
-	htmlTableRowPattern         = regexp.MustCompile(`(?is)<tr[^>]*>(.*?)</tr>`)
-	htmlTableCellPattern        = regexp.MustCompile(`(?is)<t[dh][^>]*>(.*?)</t[dh]>`)
-	htmlTagPattern              = regexp.MustCompile(`(?is)<[^>]+>`)
-	openCodeGoPricePattern      = regexp.MustCompile(`^\$([0-9]+(?:\.[0-9]+)?)$`)
-	openCodeGoThresholdPattern  = regexp.MustCompile(`(?i)(?:<=|≤|>|>=|≥)\s*([0-9]+)\s*([km])\b`)
-	openCodeGoModelIDPattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*$`)
-	openCodeGoUsageOfferPattern = regexp.MustCompile(`(?i)(?:^|[^0-9a-z])([0-9]+(?:\.[0-9]+)?)\s*x\s+usage(?:\s+limits?)?(?:$|[^a-z])`)
+	cacheTierPricePattern = regexp.MustCompile(`^(cache_(?:creation|read)_input_token_cost)(_above_1hr)?_above_\d+k_tokens((?:_[a-z]+)?)$`)
 	// GPT Image 2.5 token fallback pricing.
 	openAIGPTImage25FallbackPricing = &LiteLLMModelPricing{
 		InputCostPerToken:       5e-06,
@@ -204,19 +194,6 @@ var (
 	}
 )
 
-const (
-	openCodeGoUsageOfferRefreshInterval = 10 * time.Minute
-	openCodeGoUsageOfferEvidenceTTL     = time.Hour
-	openCodeGoZeroRateEvidenceTTL       = time.Hour
-	openCodeGoPricingAuthorityOfficial  = "official"
-	openCodeGoPricingAuthorityModelsDev = "models_dev"
-)
-
-type openCodeGoUsageOffer struct {
-	usageMultiplier float64
-	confirmedAt     time.Time
-}
-
 // LiteLLMModelPricing LiteLLM价格数据结构
 // 只保留我们需要的字段，使用指针来处理可能缺失的值
 type LiteLLMModelPricing struct {
@@ -260,15 +237,6 @@ type LiteLLMModelPricing struct {
 	SupportsToolChoiceKnown                  bool    `json:"-"`
 	MaxInputTokensKnown                      bool    `json:"-"`
 	MaxOutputTokensKnown                     bool    `json:"-"`
-	OpenCodeGoPricingAuthority               string  `json:"opencode_go_pricing_authority,omitempty"`
-	OpenCodeGoMonthlyUsageUSD                float64 `json:"opencode_go_monthly_usage_usd,omitempty"`
-	OpenCodeGoPeakPricingKnown               bool    `json:"opencode_go_peak_pricing_known,omitempty"`
-	OpenCodeGoPeakInputCostPerToken          float64 `json:"opencode_go_peak_input_cost_per_token,omitempty"`
-	OpenCodeGoPeakOutputCostPerToken         float64 `json:"opencode_go_peak_output_cost_per_token,omitempty"`
-	OpenCodeGoPeakCacheCreationCostPerToken  float64 `json:"opencode_go_peak_cache_creation_cost_per_token,omitempty"`
-	OpenCodeGoPeakCacheReadCostPerToken      float64 `json:"opencode_go_peak_cache_read_cost_per_token,omitempty"`
-	// OpenCodeGoExplicitZeroRate 只由官方价格表中的明确零价生成，不能由缺失字段推导。
-	OpenCodeGoExplicitZeroRate bool `json:"opencode_go_explicit_zero_rate,omitempty"`
 
 	// TokenPricingAbsent 表示源数据中 input/output token 价格均缺失（仅有图片价）。
 	// 此类条目只可用于图片计费，token 计费必须回退到 fallback 或 fail-closed，
@@ -315,22 +283,18 @@ type LiteLLMRawEntry struct {
 
 // PricingService 动态价格服务
 type PricingService struct {
-	cfg                          *config.Config
-	remoteClient                 PricingRemoteClient
-	mu                           sync.RWMutex
-	pricingData                  map[string]*LiteLLMModelPricing
-	openCodeGoPricing            map[string]*LiteLLMModelPricing
-	customFilesHash              string
-	openCodeGoPricingConfirmedAt time.Time
-	lastUpdated                  time.Time
-	localHash                    string
-	cliImportCatalogMu           sync.RWMutex
-	cliImportCatalogLoaded       bool
-	cliImportCatalog             map[string]map[string]CLIImportModelCapability
-	modelCapabilities            *modelCapabilityCatalog
-	usageOfferMu                 sync.RWMutex
-	openCodeGoUsageOffers        map[string]openCodeGoUsageOffer
-	commandCodeCatalog           *CommandCodeCatalog
+	cfg                    *config.Config
+	remoteClient           PricingRemoteClient
+	mu                     sync.RWMutex
+	pricingData            map[string]*LiteLLMModelPricing
+	customFilesHash        string
+	lastUpdated            time.Time
+	localHash              string
+	cliImportCatalogMu     sync.RWMutex
+	cliImportCatalogLoaded bool
+	cliImportCatalog       map[string]map[string]CLIImportModelCapability
+	modelCapabilities      *modelCapabilityCatalog
+	commandCodeCatalog     *CommandCodeCatalog
 
 	// 停止信号
 	stopCh                   chan struct{}
@@ -346,8 +310,6 @@ func NewPricingService(cfg *config.Config, remoteClient PricingRemoteClient) *Pr
 		cfg:                      cfg,
 		remoteClient:             remoteClient,
 		pricingData:              make(map[string]*LiteLLMModelPricing),
-		openCodeGoPricing:        make(map[string]*LiteLLMModelPricing),
-		openCodeGoUsageOffers:    make(map[string]openCodeGoUsageOffer),
 		commandCodeCatalog:       defaultCommandCodeCatalog,
 		stopCh:                   make(chan struct{}),
 		commandCodeCatalogCtx:    commandCodeCatalogCtx,
@@ -372,12 +334,6 @@ func (s *PricingService) Initialize() error {
 			return fmt.Errorf("failed to load pricing data: %w", err)
 		}
 	}
-	// 启动时优先从本地缓存加载 OpenCode Go 定价，确保离线或网络波动时价格立即可用
-	if err := s.loadOpenCodeGoPricingData(s.getOpenCodeGoPricingFilePath()); err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go cache file not loaded (will fetch from upstream): %v", err)
-	}
-	s.refreshOpenCodeGoPricingBestEffortWithTimeout()
-	s.refreshOpenCodeGoUsageOffersBestEffortWithTimeout()
 
 	// Command Code 启动时先恢复最后成功快照，再由独立后台任务校验双官方源。
 	commandCodeCatalogPath := s.getCommandCodeCatalogFilePath()
@@ -474,9 +430,7 @@ func (s *PricingService) startUpdateScheduler() {
 	go func() {
 		defer s.wg.Done()
 		pricingTicker := time.NewTicker(hashInterval)
-		usageOfferTicker := time.NewTicker(openCodeGoUsageOfferRefreshInterval)
 		defer pricingTicker.Stop()
-		defer usageOfferTicker.Stop()
 
 		for {
 			select {
@@ -489,8 +443,6 @@ func (s *PricingService) startUpdateScheduler() {
 				if watchCustom {
 					s.reloadIfCustomFilesChanged()
 				}
-			case <-usageOfferTicker.C:
-				s.refreshOpenCodeGoUsageOffersBestEffortWithTimeout()
 			case <-s.stopCh:
 				return
 			}
@@ -564,7 +516,6 @@ func (s *PricingService) syncWithRemote() error {
 		remoteHash, err := s.fetchRemoteHash()
 		if err != nil {
 			logger.LegacyPrintf("service.pricing", "[Pricing] Failed to fetch remote hash: %v", err)
-			s.refreshOpenCodeGoPricingBestEffortWithTimeout()
 			return nil // 哈希获取失败不影响正常使用
 		}
 
@@ -575,10 +526,9 @@ func (s *PricingService) syncWithRemote() error {
 		if localHash == "" || remoteHash != localHash {
 			logger.LegacyPrintf("service.pricing", "[Pricing] Remote hash differs (local=%s remote=%s), downloading new version...",
 				localHash[:min(8, len(localHash))], remoteHash[:min(8, len(remoteHash))])
-			return s.downloadPricingDataAndRefreshOpenCodeGo()
+			return s.downloadPricingData()
 		}
 		logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Hash check passed, no update needed")
-		s.refreshOpenCodeGoPricingBestEffortWithTimeout()
 		return nil
 	}
 
@@ -586,7 +536,7 @@ func (s *PricingService) syncWithRemote() error {
 	pricingFile := s.getPricingFilePath()
 	info, err := os.Stat(pricingFile)
 	if err != nil {
-		return s.downloadPricingDataAndRefreshOpenCodeGo()
+		return s.downloadPricingData()
 	}
 
 	fileAge := time.Since(info.ModTime())
@@ -594,9 +544,8 @@ func (s *PricingService) syncWithRemote() error {
 
 	if fileAge > maxAge {
 		logger.LegacyPrintf("service.pricing", "[Pricing] File is %v old, downloading...", fileAge.Round(time.Hour))
-		return s.downloadPricingDataAndRefreshOpenCodeGo()
+		return s.downloadPricingData()
 	}
-	s.refreshOpenCodeGoPricingBestEffortWithTimeout()
 
 	return nil
 }
@@ -782,14 +731,6 @@ func (s *PricingService) downloadPricingData() error {
 	return nil
 }
 
-func (s *PricingService) downloadPricingDataAndRefreshOpenCodeGo() error {
-	if err := s.downloadPricingData(); err != nil {
-		return err
-	}
-	s.refreshOpenCodeGoPricingBestEffortWithTimeout()
-	return nil
-}
-
 // parsePricingData 解析价格数据（处理各种格式）
 func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModelPricing, error) {
 	// 首先解析为 map[string]json.RawMessage
@@ -940,803 +881,6 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 	}
 
 	return result, nil
-}
-
-type openCodeGoDocPriceRow struct {
-	Name            string
-	Key             string
-	Input           float64
-	Output          float64
-	CacheRead       float64
-	CacheWrite      float64
-	MonthlyUsageUSD float64
-	Threshold       int
-	Above           bool
-	Peak            bool
-	ZeroTokenPrices bool
-}
-
-func parseOpenCodeGoPricingDocument(body []byte) (map[string]*LiteLLMModelPricing, error) {
-	rows := extractHTMLTableRows(body)
-	if len(rows) == 0 {
-		return nil, fmt.Errorf("opencode go pricing document contains no tables")
-	}
-
-	modelIDs := make(map[string]string)
-	baseRows := make(map[string]openCodeGoDocPriceRow)
-	aboveRows := make(map[string]openCodeGoDocPriceRow)
-	peakRows := make(map[string]openCodeGoDocPriceRow)
-	explicitFreeModels := parseOpenCodeGoExplicitFreeModelKeys(body)
-	priceRows := 0
-
-	for _, cells := range rows {
-		if len(cells) < 2 {
-			continue
-		}
-		if len(cells) >= 3 && isOpenCodeGoModelID(cells[1]) && strings.Contains(cells[2], "opencode.ai/zen/go/v1") {
-			modelIDs[normalizeOpenCodeGoDocModelKey(cells[0])] = strings.ToLower(strings.TrimSpace(cells[1]))
-			continue
-		}
-		if len(cells) < 5 {
-			continue
-		}
-		input, okInput := parseOpenCodeGoMillionTokenPrice(cells[1])
-		output, okOutput := parseOpenCodeGoMillionTokenPrice(cells[2])
-		if !okInput || !okOutput {
-			continue
-		}
-		cacheRead, _ := parseOpenCodeGoMillionTokenPrice(cells[3])
-		cacheWrite, _ := parseOpenCodeGoMillionTokenPrice(cells[4])
-		monthlyUsageUSD := 0.0
-		if len(cells) >= 6 {
-			monthlyUsageUSD, _ = parseOpenCodeGoUsageUSD(cells[5])
-		}
-		threshold, above := parseOpenCodeGoContextThreshold(cells[0])
-		row := openCodeGoDocPriceRow{
-			Name:            cells[0],
-			Key:             normalizeOpenCodeGoDocModelKey(cells[0]),
-			Input:           input,
-			Output:          output,
-			CacheRead:       cacheRead,
-			CacheWrite:      cacheWrite,
-			MonthlyUsageUSD: monthlyUsageUSD,
-			Threshold:       threshold,
-			Above:           above,
-			Peak:            isOpenCodeGoPeakPriceRow(cells[0]),
-			ZeroTokenPrices: isOpenCodeGoExplicitZeroPrice(cells[1]) &&
-				isOpenCodeGoExplicitZeroPrice(cells[2]) &&
-				isOpenCodeGoExplicitZeroPrice(cells[3]) &&
-				isOpenCodeGoExplicitZeroPrice(cells[4]),
-		}
-		if row.Key == "" {
-			continue
-		}
-		priceRows++
-		switch {
-		case row.Peak:
-			peakRows[row.Key] = row
-		case row.Above:
-			aboveRows[row.Key] = row
-		default:
-			baseRows[row.Key] = row
-		}
-	}
-	if priceRows == 0 {
-		return nil, fmt.Errorf("opencode go pricing document contains no model price rows")
-	}
-
-	result := make(map[string]*LiteLLMModelPricing, len(baseRows))
-	for key, row := range baseRows {
-		modelID := modelIDs[key]
-		if modelID == "" {
-			modelID = openCodeGoFallbackModelID(row.Name)
-		}
-		if modelID == "" {
-			continue
-		}
-		pricing := &LiteLLMModelPricing{
-			InputCostPerToken:                row.Input,
-			OutputCostPerToken:               row.Output,
-			CacheReadInputTokenCost:          row.CacheRead,
-			CacheCreationInputTokenCost:      row.CacheWrite,
-			LiteLLMProvider:                  OpenCodeGoPricingPlatform,
-			Mode:                             "chat",
-			SupportsPromptCaching:            row.CacheRead > 0 || row.CacheWrite > 0,
-			InputCostPerTokenKnown:           true,
-			OutputCostPerTokenKnown:          true,
-			CacheReadInputTokenCostKnown:     row.CacheRead > 0,
-			CacheCreationInputTokenCostKnown: row.CacheWrite > 0,
-			OpenCodeGoPricingAuthority:       openCodeGoPricingAuthorityOfficial,
-			OpenCodeGoMonthlyUsageUSD:        row.MonthlyUsageUSD,
-			OpenCodeGoExplicitZeroRate:       row.ZeroTokenPrices && explicitFreeModels[row.Key],
-		}
-		if peak, ok := peakRows[key]; ok {
-			pricing.OpenCodeGoPeakPricingKnown = true
-			pricing.OpenCodeGoPeakInputCostPerToken = peak.Input
-			pricing.OpenCodeGoPeakOutputCostPerToken = peak.Output
-			pricing.OpenCodeGoPeakCacheReadCostPerToken = peak.CacheRead
-			pricing.OpenCodeGoPeakCacheCreationCostPerToken = peak.CacheWrite
-		}
-		if above, ok := aboveRows[key]; ok && row.Threshold > 0 {
-			pricing.LongContextInputTokenThreshold = row.Threshold
-			if row.Input > 0 && above.Input > row.Input {
-				pricing.LongContextInputCostMultiplier = above.Input / row.Input
-			}
-			if row.Output > 0 && above.Output > row.Output {
-				pricing.LongContextOutputCostMultiplier = above.Output / row.Output
-			}
-		}
-		result[modelID] = pricing
-	}
-	if len(result) == 0 {
-		return nil, fmt.Errorf("opencode go pricing document contains no usable model prices")
-	}
-	return result, nil
-}
-
-func parseOpenCodeGoModelsDevPricingDocument(body []byte) (map[string]*LiteLLMModelPricing, error) {
-	var raw map[string]cliImportModelsDevProvider
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, err
-	}
-	provider, ok := raw["opencode-go"]
-	if !ok || len(provider.Models) == 0 {
-		return nil, fmt.Errorf("models.dev catalog does not contain opencode-go provider")
-	}
-
-	result := make(map[string]*LiteLLMModelPricing, len(provider.Models))
-	for modelKey, model := range provider.Models {
-		modelID := strings.ToLower(strings.TrimSpace(model.ID))
-		if modelID == "" {
-			modelID = strings.ToLower(strings.TrimSpace(modelKey))
-		}
-		if modelID == "" || strings.Contains(modelID, "*") || !isOpenCodeGoModelID(modelID) {
-			continue
-		}
-		if model.Cost == nil || model.Cost.Input == nil || model.Cost.Output == nil {
-			continue
-		}
-		input := *model.Cost.Input / 1_000_000
-		output := *model.Cost.Output / 1_000_000
-		if input <= 0 && output <= 0 {
-			continue
-		}
-		pricing := &LiteLLMModelPricing{
-			InputCostPerToken:          input,
-			OutputCostPerToken:         output,
-			LiteLLMProvider:            OpenCodeGoPricingPlatform,
-			Mode:                       "chat",
-			InputCostPerTokenKnown:     true,
-			OutputCostPerTokenKnown:    true,
-			OpenCodeGoPricingAuthority: openCodeGoPricingAuthorityModelsDev,
-		}
-		if model.Cost.CacheRead != nil {
-			pricing.CacheReadInputTokenCost = *model.Cost.CacheRead / 1_000_000
-			pricing.CacheReadInputTokenCostKnown = true
-		}
-		if model.Cost.CacheWrite != nil {
-			pricing.CacheCreationInputTokenCost = *model.Cost.CacheWrite / 1_000_000
-			pricing.CacheCreationInputTokenCostKnown = true
-		}
-		pricing.SupportsPromptCaching = pricing.CacheReadInputTokenCost > 0 || pricing.CacheCreationInputTokenCost > 0
-		if model.Reasoning != nil {
-			pricing.SupportsReasoning = *model.Reasoning
-			pricing.SupportsReasoningKnown = true
-		}
-		if model.ToolCall != nil {
-			pricing.SupportsFunctionCalling = *model.ToolCall
-			pricing.SupportsToolChoice = *model.ToolCall
-			pricing.SupportsFunctionCallingKnown = true
-			pricing.SupportsToolChoiceKnown = true
-		}
-		if model.Modalities != nil {
-			inputModalities := cleanCLIImportModalities(model.Modalities.Input)
-			pricing.SupportsVision = containsString(inputModalities, "image")
-			pricing.SupportsPDFInput = containsString(inputModalities, "pdf")
-			pricing.SupportsVisionKnown = true
-			pricing.SupportsPDFInputKnown = true
-		}
-		if model.Limit != nil {
-			if model.Limit.Context != nil {
-				pricing.MaxInputTokens = *model.Limit.Context
-				pricing.MaxInputTokensKnown = true
-			}
-			if model.Limit.Output != nil {
-				pricing.MaxOutputTokens = *model.Limit.Output
-				pricing.MaxOutputTokensKnown = true
-			}
-		}
-		result[modelID] = pricing
-	}
-	if len(result) == 0 {
-		return nil, fmt.Errorf("models.dev opencode-go provider contains no usable model prices")
-	}
-	return result, nil
-}
-
-func extractHTMLTableRows(body []byte) [][]string {
-	rowMatches := htmlTableRowPattern.FindAllSubmatch(body, -1)
-	rows := make([][]string, 0, len(rowMatches))
-	for _, rowMatch := range rowMatches {
-		if len(rowMatch) < 2 {
-			continue
-		}
-		cellMatches := htmlTableCellPattern.FindAllSubmatch(rowMatch[1], -1)
-		if len(cellMatches) == 0 {
-			continue
-		}
-		cells := make([]string, 0, len(cellMatches))
-		for _, cellMatch := range cellMatches {
-			if len(cellMatch) < 2 {
-				continue
-			}
-			cells = append(cells, cleanHTMLCellText(cellMatch[1]))
-		}
-		rows = append(rows, cells)
-	}
-	return rows
-}
-
-func cleanHTMLCellText(raw []byte) string {
-	text := htmlTagPattern.ReplaceAllString(string(raw), "")
-	text = stdhtml.UnescapeString(text)
-	text = strings.ReplaceAll(text, "\u00a0", " ")
-	return strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
-}
-
-func parseOpenCodeGoMillionTokenPrice(value string) (float64, bool) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" || trimmed == "-" {
-		return 0, true
-	}
-	match := openCodeGoPricePattern.FindStringSubmatch(trimmed)
-	if len(match) != 2 {
-		return 0, false
-	}
-	price, err := strconv.ParseFloat(match[1], 64)
-	if err != nil {
-		return 0, false
-	}
-	return price / 1_000_000, true
-}
-
-func parseOpenCodeGoUsageUSD(value string) (float64, bool) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" || trimmed == "-" {
-		return 0, false
-	}
-	match := openCodeGoPricePattern.FindStringSubmatch(trimmed)
-	if len(match) != 2 {
-		return 0, false
-	}
-	usageUSD, err := strconv.ParseFloat(match[1], 64)
-	if err != nil || usageUSD <= 0 {
-		return 0, false
-	}
-	return usageUSD, true
-}
-
-func isOpenCodeGoPeakPriceRow(name string) bool {
-	normalized := strings.ToLower(stdhtml.UnescapeString(name))
-	return strings.Contains(normalized, "(peak)")
-}
-
-func openCodeGoPricingAt(pricing *LiteLLMModelPricing, now time.Time) *LiteLLMModelPricing {
-	if pricing == nil || !pricing.OpenCodeGoPeakPricingKnown {
-		return pricing
-	}
-	if !isOpenCodeGoPeakTime(now) {
-		return pricing
-	}
-	selected := *pricing
-	selected.InputCostPerToken = pricing.OpenCodeGoPeakInputCostPerToken
-	selected.OutputCostPerToken = pricing.OpenCodeGoPeakOutputCostPerToken
-	selected.CacheCreationInputTokenCost = pricing.OpenCodeGoPeakCacheCreationCostPerToken
-	selected.CacheReadInputTokenCost = pricing.OpenCodeGoPeakCacheReadCostPerToken
-	return &selected
-}
-
-func parseOpenCodeGoExplicitFreeModelKeys(body []byte) map[string]bool {
-	result := make(map[string]bool)
-	doc, err := xhtml.Parse(bytes.NewReader(body))
-	if err != nil {
-		return result
-	}
-	collectOpenCodeGoExplicitFreeModelKeys(doc, result)
-	return result
-}
-
-func collectOpenCodeGoExplicitFreeModelKeys(node *xhtml.Node, result map[string]bool) {
-	if node == nil {
-		return
-	}
-	if node.Type == xhtml.ElementNode && (strings.EqualFold(node.Data, "p") || strings.EqualFold(node.Data, "li")) {
-		const suffix = ": free for a limited time"
-		text := strings.TrimSuffix(normalizeOpenCodeGoVisibleText(openCodeGoVisibleText(node)), ".")
-		if strings.HasSuffix(text, suffix) {
-			name := strings.TrimSpace(strings.TrimSuffix(text, suffix))
-			if key := normalizeOpenCodeGoDocModelKey(name); key != "" {
-				result[key] = true
-			}
-		}
-	}
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		collectOpenCodeGoExplicitFreeModelKeys(child, result)
-	}
-}
-
-func isOpenCodeGoExplicitZeroPrice(value string) bool {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return false
-	}
-	price, ok := parseOpenCodeGoMillionTokenPrice(trimmed)
-	return ok && price == 0
-}
-
-func parseOpenCodeGoContextThreshold(name string) (int, bool) {
-	normalized := stdhtml.UnescapeString(strings.ToLower(name))
-	match := openCodeGoThresholdPattern.FindStringSubmatch(normalized)
-	if len(match) != 3 {
-		return 0, false
-	}
-	value, err := strconv.Atoi(match[1])
-	if err != nil {
-		return 0, false
-	}
-	switch strings.ToLower(match[2]) {
-	case "m":
-		value *= 1_000_000
-	default:
-		value *= 1_000
-	}
-	return value, strings.Contains(normalized, ">") || strings.Contains(normalized, "≥")
-}
-
-func normalizeOpenCodeGoDocModelKey(name string) string {
-	normalized := strings.ToLower(stdhtml.UnescapeString(name))
-	if idx := strings.Index(normalized, "("); idx >= 0 {
-		normalized = strings.TrimSpace(normalized[:idx])
-	}
-	normalized = strings.ReplaceAll(normalized, "-", " ")
-	normalized = strings.Join(strings.Fields(normalized), " ")
-	if strings.HasPrefix(normalized, "kimi ") && strings.HasSuffix(normalized, " code") {
-		normalized = strings.TrimSpace(strings.TrimSuffix(normalized, " code"))
-	}
-	return normalized
-}
-
-func isOpenCodeGoModelID(value string) bool {
-	return openCodeGoModelIDPattern.MatchString(strings.ToLower(strings.TrimSpace(value)))
-}
-
-func openCodeGoFallbackModelID(name string) string {
-	key := normalizeOpenCodeGoDocModelKey(name)
-	if key == "" {
-		return ""
-	}
-	return strings.ReplaceAll(key, " ", "-")
-}
-
-func openCodeGoVisibleText(node *xhtml.Node) string {
-	if node == nil {
-		return ""
-	}
-	if node.Type == xhtml.ElementNode {
-		switch strings.ToLower(node.Data) {
-		case "script", "style", "template":
-			return ""
-		}
-	}
-	var parts []string
-	if node.Type == xhtml.TextNode {
-		if text := strings.TrimSpace(node.Data); text != "" {
-			parts = append(parts, text)
-		}
-	}
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if text := openCodeGoVisibleText(child); text != "" {
-			parts = append(parts, text)
-		}
-	}
-	return strings.Join(parts, " ")
-}
-
-func normalizeOpenCodeGoVisibleText(text string) string {
-	text = stdhtml.UnescapeString(text)
-	text = strings.ReplaceAll(text, "×", "x")
-	return strings.ToLower(strings.Join(strings.Fields(text), " "))
-}
-
-func openCodeGoHTMLAttribute(node *xhtml.Node, name string) (string, bool) {
-	if node == nil || node.Type != xhtml.ElementNode {
-		return "", false
-	}
-	for _, attr := range node.Attr {
-		if strings.EqualFold(attr.Key, name) {
-			return attr.Val, true
-		}
-	}
-	return "", false
-}
-
-func isOpenCodeGoHiddenUsageOfferNode(node *xhtml.Node) bool {
-	if node == nil || node.Type != xhtml.ElementNode {
-		return false
-	}
-	switch strings.ToLower(node.Data) {
-	case "script", "style", "template":
-		return true
-	default:
-		return false
-	}
-}
-
-func findOpenCodeGoUsageOffersMain(node *xhtml.Node) *xhtml.Node {
-	if node == nil || isOpenCodeGoHiddenUsageOfferNode(node) {
-		return nil
-	}
-	if node.Type == xhtml.ElementNode && strings.EqualFold(node.Data, "main") {
-		if page, ok := openCodeGoHTMLAttribute(node, "data-page"); ok && strings.EqualFold(strings.TrimSpace(page), "go") {
-			return node
-		}
-	}
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if match := findOpenCodeGoUsageOffersMain(child); match != nil {
-			return match
-		}
-	}
-	return nil
-}
-
-func openCodeGoFindDescendantWithAttribute(node *xhtml.Node, name string) *xhtml.Node {
-	if node == nil || isOpenCodeGoHiddenUsageOfferNode(node) {
-		return nil
-	}
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if isOpenCodeGoHiddenUsageOfferNode(child) {
-			continue
-		}
-		if _, ok := openCodeGoHTMLAttribute(child, name); ok {
-			return child
-		}
-		if match := openCodeGoFindDescendantWithAttribute(child, name); match != nil {
-			return match
-		}
-	}
-	return nil
-}
-
-func parseOpenCodeGoUsageOffersDocument(body []byte) (map[string]float64, error) {
-	if len(body) == 0 {
-		return nil, fmt.Errorf("opencode go usage offers page is empty")
-	}
-	doc, err := xhtml.Parse(bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("parse opencode go usage offers page: %w", err)
-	}
-	main := findOpenCodeGoUsageOffersMain(doc)
-	if main == nil {
-		return nil, fmt.Errorf("opencode go usage offers page marker is missing")
-	}
-
-	offers := make(map[string]float64)
-	var parseErr error
-	var walk func(*xhtml.Node)
-	walk = func(node *xhtml.Node) {
-		if node == nil || parseErr != nil || isOpenCodeGoHiddenUsageOfferNode(node) {
-			return
-		}
-		model, hasModel := openCodeGoHTMLAttribute(node, "data-model")
-		bonus := openCodeGoFindDescendantWithAttribute(node, "data-bonus")
-		if hasModel {
-			model = billingModelAliasLookupKey(model)
-			if model != "" && openCodeGoModelIDPattern.MatchString(model) {
-				text := normalizeOpenCodeGoVisibleText(openCodeGoVisibleText(node))
-				if bonus != nil {
-					text = normalizeOpenCodeGoVisibleText(openCodeGoVisibleText(bonus))
-				}
-				match := openCodeGoUsageOfferPattern.FindStringSubmatch(text)
-				if len(match) == 2 {
-					multiplier, multiplierErr := strconv.ParseFloat(match[1], 64)
-					if multiplierErr == nil && multiplier > 1 && !math.IsNaN(multiplier) && !math.IsInf(multiplier, 0) {
-						if existing, exists := offers[model]; exists && existing != multiplier {
-							parseErr = fmt.Errorf("opencode go usage offer for %s is ambiguous", model)
-							return
-						}
-						offers[model] = multiplier
-					}
-				}
-			}
-		}
-		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			walk(child)
-		}
-	}
-	walk(main)
-	if parseErr != nil {
-		return nil, parseErr
-	}
-	return offers, nil
-}
-
-func (s *PricingService) replaceOpenCodeGoUsageOffers(offers map[string]float64, confirmedAt time.Time) {
-	if s == nil {
-		return
-	}
-	if confirmedAt.IsZero() {
-		confirmedAt = time.Now()
-	}
-	next := make(map[string]openCodeGoUsageOffer, len(offers))
-	for model, multiplier := range offers {
-		model = billingModelAliasLookupKey(model)
-		if model == "" || multiplier <= 1 || math.IsNaN(multiplier) || math.IsInf(multiplier, 0) {
-			continue
-		}
-		next[model] = openCodeGoUsageOffer{usageMultiplier: multiplier, confirmedAt: confirmedAt}
-	}
-	s.usageOfferMu.Lock()
-	s.openCodeGoUsageOffers = next
-	s.usageOfferMu.Unlock()
-}
-
-func (s *PricingService) expireOpenCodeGoUsageOffers(now time.Time) {
-	if s == nil {
-		return
-	}
-	if now.IsZero() {
-		now = time.Now()
-	}
-	s.usageOfferMu.Lock()
-	for model, offer := range s.openCodeGoUsageOffers {
-		age := now.Sub(offer.confirmedAt)
-		if offer.confirmedAt.IsZero() || age < 0 || age > openCodeGoUsageOfferEvidenceTTL {
-			delete(s.openCodeGoUsageOffers, model)
-		}
-	}
-	s.usageOfferMu.Unlock()
-}
-
-func (s *PricingService) OpenCodeGoUsageOfferMultiplier(model string, now time.Time) float64 {
-	if s == nil {
-		return 1
-	}
-	model = strings.ToLower(strings.TrimSpace(model))
-	model = trimOpenCodeGoModelProviderPrefix(model)
-	model = strings.TrimPrefix(model, "models/")
-	model = trimOpenCodeGoModelProviderPrefix(model)
-	if model == "" {
-		return 1
-	}
-	if now.IsZero() {
-		now = time.Now()
-	}
-	s.usageOfferMu.RLock()
-	offer, ok := s.openCodeGoUsageOffers[model]
-	s.usageOfferMu.RUnlock()
-	age := now.Sub(offer.confirmedAt)
-	if !ok || offer.usageMultiplier <= 1 || math.IsNaN(offer.usageMultiplier) || math.IsInf(offer.usageMultiplier, 0) ||
-		offer.confirmedAt.IsZero() || age < 0 || age > openCodeGoUsageOfferEvidenceTTL {
-		return 1
-	}
-	return offer.usageMultiplier
-}
-
-func (s *PricingService) refreshOpenCodeGoUsageOffersBestEffortWithTimeout() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	s.refreshOpenCodeGoUsageOffersBestEffort(ctx)
-}
-
-func (s *PricingService) refreshOpenCodeGoUsageOffersBestEffort(ctx context.Context) {
-	if s == nil {
-		return
-	}
-	if s.cfg == nil || s.remoteClient == nil {
-		s.expireOpenCodeGoUsageOffers(time.Now())
-		return
-	}
-	promotionsURL := strings.TrimSpace(s.cfg.Pricing.OpenCodeGoPromotionsURL)
-	if promotionsURL == "" {
-		s.replaceOpenCodeGoUsageOffers(nil, time.Now())
-		return
-	}
-	validatedURL, err := s.validatePricingURL(promotionsURL)
-	if err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go usage offers URL invalid: %v", err)
-		s.expireOpenCodeGoUsageOffers(time.Now())
-		return
-	}
-	body, err := s.remoteClient.FetchPricingJSON(ctx, validatedURL)
-	if err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go usage offers fetch failed: %v", err)
-		s.expireOpenCodeGoUsageOffers(time.Now())
-		return
-	}
-	offers, err := parseOpenCodeGoUsageOffersDocument(body)
-	if err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go usage offers parse failed: %v", err)
-		s.expireOpenCodeGoUsageOffers(time.Now())
-		return
-	}
-	s.replaceOpenCodeGoUsageOffers(offers, time.Now())
-	logger.LegacyPrintf("service.pricing", "[Pricing] Refreshed %d OpenCode Go official usage offers", len(offers))
-}
-
-func (s *PricingService) mergeOpenCodeGoPricingBestEffort(ctx context.Context, pricingData map[string]*LiteLLMModelPricing) int {
-	if s == nil || s.cfg == nil || s.remoteClient == nil || pricingData == nil {
-		return 0
-	}
-	docsURL := strings.TrimSpace(s.cfg.Pricing.OpenCodeGoDocsURL)
-	if docsURL == "" {
-		return 0
-	}
-	merged := 0
-	validatedURL, err := s.validatePricingURL(docsURL)
-	if err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go pricing URL invalid: %v", err)
-		return 0
-	}
-	body, err := s.remoteClient.FetchPricingJSON(ctx, validatedURL)
-	if err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go pricing fetch failed: %v", err)
-	} else {
-		if openCodeGoPricing, pricingErr := parseOpenCodeGoPricingDocument(body); pricingErr != nil {
-			logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go pricing parse failed: %v", pricingErr)
-		} else {
-			for model, pricing := range openCodeGoPricing {
-				pricingData[model] = pricing
-				merged++
-			}
-			logger.LegacyPrintf("service.pricing", "[Pricing] Merged %d OpenCode Go official prices", len(openCodeGoPricing))
-		}
-	}
-
-	modelsDevURL, err := s.validateSupplementalPricingURL(cliImportModelsDevAPIURL, []string{"models.dev"})
-	if err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go models.dev pricing URL invalid: %v", err)
-		return merged
-	}
-	body, err = s.remoteClient.FetchPricingJSON(ctx, modelsDevURL)
-	if err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go models.dev pricing fetch failed: %v", err)
-		return merged
-	}
-	modelsDevPricing, err := parseOpenCodeGoModelsDevPricingDocument(body)
-	if err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] OpenCode Go models.dev pricing parse failed: %v", err)
-		return merged
-	}
-	modelsDevMerged := 0
-	for model, pricing := range modelsDevPricing {
-		if !isOpenCodeGoModelsDevSupplementalModel(model) {
-			continue
-		}
-		if _, exists := pricingData[model]; exists {
-			continue
-		}
-		pricingData[model] = pricing
-		modelsDevMerged++
-	}
-	merged += modelsDevMerged
-	logger.LegacyPrintf("service.pricing", "[Pricing] Merged %d OpenCode Go models.dev supplemental prices", modelsDevMerged)
-	return merged
-}
-
-func (s *PricingService) refreshOpenCodeGoPricingBestEffortWithTimeout() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	s.refreshOpenCodeGoPricingBestEffort(ctx)
-}
-
-func (s *PricingService) refreshOpenCodeGoPricingBestEffort(ctx context.Context) {
-	if s == nil {
-		return
-	}
-	current := make(map[string]*LiteLLMModelPricing)
-	if s.mergeOpenCodeGoPricingBestEffort(ctx, current) == 0 || !hasOpenCodeGoOfficialPricing(current) {
-		// 若抓取失败且当前内存中尚无定价数据，尝试从本地缓存文件恢复
-		s.mu.RLock()
-		hasMemoryPricing := len(s.openCodeGoPricing) > 0
-		s.mu.RUnlock()
-		if !hasMemoryPricing {
-			_ = s.loadOpenCodeGoPricingData(s.getOpenCodeGoPricingFilePath())
-		}
-		return
-	}
-	confirmedAt := time.Now()
-	s.mu.Lock()
-	s.openCodeGoPricing = current
-	s.openCodeGoPricingConfirmedAt = confirmedAt
-	s.lastUpdated = confirmedAt
-	s.mu.Unlock()
-	_ = s.saveOpenCodeGoPricingData(current)
-}
-
-func (s *PricingService) getOpenCodeGoPricingFilePath() string {
-	if s == nil || s.cfg == nil {
-		return ""
-	}
-	return filepath.Join(s.cfg.Pricing.DataDir, "opencode_go_pricing.json")
-}
-
-func (s *PricingService) loadOpenCodeGoPricingData(filePath string) error {
-	if filePath == "" {
-		return fmt.Errorf("empty file path")
-	}
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return err
-	}
-	confirmedAt := time.Time{}
-	if info, statErr := os.Stat(filePath); statErr == nil {
-		confirmedAt = info.ModTime()
-	}
-	var pricingData map[string]*LiteLLMModelPricing
-	if err := json.Unmarshal(data, &pricingData); err != nil {
-		return fmt.Errorf("unmarshal opencode_go pricing: %w", err)
-	}
-	if len(pricingData) == 0 {
-		return fmt.Errorf("no opencode_go pricing entries in cache file")
-	}
-	for _, p := range pricingData {
-		if p != nil {
-			if p.LiteLLMProvider == "" {
-				p.LiteLLMProvider = OpenCodeGoPricingPlatform
-			}
-			if p.InputCostPerToken > 0 {
-				p.InputCostPerTokenKnown = true
-			}
-			if p.OutputCostPerToken > 0 {
-				p.OutputCostPerTokenKnown = true
-			}
-			if p.CacheCreationInputTokenCost > 0 {
-				p.CacheCreationInputTokenCostKnown = true
-			}
-			if p.CacheReadInputTokenCost > 0 {
-				p.CacheReadInputTokenCostKnown = true
-			}
-		}
-	}
-	s.mu.Lock()
-	if len(s.openCodeGoPricing) == 0 {
-		s.openCodeGoPricing = pricingData
-		s.openCodeGoPricingConfirmedAt = confirmedAt
-	}
-	s.mu.Unlock()
-	logger.LegacyPrintf("service.pricing", "[Pricing] Loaded %d OpenCode Go cached models from %s", len(pricingData), filePath)
-	return nil
-}
-
-func (s *PricingService) saveOpenCodeGoPricingData(data map[string]*LiteLLMModelPricing) error {
-	if s == nil || len(data) == 0 {
-		return nil
-	}
-	filePath := s.getOpenCodeGoPricingFilePath()
-	if filePath == "" {
-		return nil
-	}
-	encoded, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to marshal OpenCode Go pricing: %v", err)
-		return err
-	}
-	if err := os.WriteFile(filePath, encoded, 0644); err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to save OpenCode Go pricing file: %v", err)
-		return err
-	}
-	logger.LegacyPrintf("service.pricing", "[Pricing] Saved %d OpenCode Go models to %s", len(data), filePath)
-	return nil
-}
-
-func hasOpenCodeGoOfficialPricing(data map[string]*LiteLLMModelPricing) bool {
-	for _, pricing := range data {
-		if pricing != nil && isOpenCodeGoPricingPlatform(pricing.LiteLLMProvider) &&
-			pricing.OpenCodeGoPricingAuthority == openCodeGoPricingAuthorityOfficial {
-			return true
-		}
-	}
-	return false
 }
 
 // deriveLongContextFromAboveTierFields 把 LiteLLM 目录的 *_above_XXXk_tokens 绝对价字段
@@ -2185,38 +1329,6 @@ func (s *PricingService) GetModelPricingExact(modelName string) *LiteLLMModelPri
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.getModelPricingExactLocked(s.pricingData, modelName)
-}
-
-// GetOpenCodeGoModelPricingExact 从平台隔离快照精确读取 OpenCode Go 价格。
-func openCodeGoZeroRateEvidenceFresh(confirmedAt, now time.Time) bool {
-	if confirmedAt.IsZero() {
-		return false
-	}
-	if now.IsZero() {
-		now = time.Now()
-	}
-	age := now.Sub(confirmedAt)
-	return age >= 0 && age <= openCodeGoZeroRateEvidenceTTL
-}
-
-func (s *PricingService) GetOpenCodeGoModelPricingExact(modelName string) *LiteLLMModelPricing {
-	if s == nil || strings.TrimSpace(modelName) == "" {
-		return nil
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	pricing := s.getModelPricingExactLocked(s.openCodeGoPricing, modelName)
-	// 旧缓存会把 DeepSeek 的 Peak 行覆盖为全天价格。缺少完整两档证据时拒绝该条目，
-	// 让调用方回退到经过核实的静态 Peak/Off-Peak 目录。
-	if pricing != nil && pricing.OpenCodeGoPricingAuthority == openCodeGoPricingAuthorityOfficial &&
-		openCodeGoRequiresTimeBandPricing(modelName) && !pricing.OpenCodeGoPeakPricingKnown {
-		return nil
-	}
-	if pricing != nil && pricing.OpenCodeGoExplicitZeroRate &&
-		!openCodeGoZeroRateEvidenceFresh(s.openCodeGoPricingConfirmedAt, time.Now()) {
-		return nil
-	}
-	return pricing
 }
 
 func (s *PricingService) getModelPricingExactLocked(data map[string]*LiteLLMModelPricing, modelName string) *LiteLLMModelPricing {
@@ -2732,7 +1844,7 @@ func (s *PricingService) GetStatus() map[string]any {
 
 // ForceUpdate 强制更新
 func (s *PricingService) ForceUpdate() error {
-	return s.downloadPricingDataAndRefreshOpenCodeGo()
+	return s.downloadPricingData()
 }
 
 // getPricingFilePath 获取价格文件路径

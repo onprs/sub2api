@@ -91,7 +91,7 @@ const props = defineProps<Props>()
 
 const platformLabel = computed(() => {
   const label = sharedPlatformLabel(props.platform)
-  if (props.platform !== 'opencode') return label
+  if (props.platform !== 'opencode_go') return label
   const mode = typeof props.accountMode === 'string' ? props.accountMode.trim().toLowerCase() : ''
   return `${label} ${mode === 'zen' ? 'Zen' : 'Go'}`
 })
@@ -185,7 +185,7 @@ const platformClass = computed(() => {
   if (props.platform === 'grok') {
     return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
   }
-  if (props.platform === 'opencode') {
+  if (props.platform === 'opencode_go') {
     return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
   }
   if (props.platform === 'clinepass') {
@@ -225,7 +225,7 @@ const typeClass = computed(() => {
   if (props.platform === 'grok') {
     return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
   }
-  if (props.platform === 'opencode') {
+  if (props.platform === 'opencode_go') {
     return 'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-300'
   }
   if (props.platform === 'clinepass') {
