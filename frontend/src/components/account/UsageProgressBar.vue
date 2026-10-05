@@ -35,8 +35,8 @@
 
     <!-- Progress bar row -->
     <div class="flex items-center gap-1">
-      <!-- Label badge (label-width: fixed = 定宽居中, auto = 限宽截断左对齐) -->
-      <span :class="[labelSizeClass, labelClass]">
+      <!-- Label badge (label-width: fixed = 定宽居中, auto = 限宽截断左对齐)；无标签时不渲染徽章 -->
+      <span v-if="label" :class="[labelSizeClass, labelClass]">
         {{ label }}
       </span>
 
