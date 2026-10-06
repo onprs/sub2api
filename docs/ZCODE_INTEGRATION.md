@@ -10,6 +10,15 @@
 - 既有智谱 API Key 账号（payg / coding）行为完全不变；ZCode 只在 `auth_mode=zcode_oauth` 时进入专用路径。
 - 请求协议转换继续由既有协议 Pipeline 负责；ZCode 模块只处理认证、身份头、端点路由、CAPTCHA 与出站封装。
 
+## GLM-5.3 家族的转发约定
+
+ZCode 账号的上游是标准 Anthropic 格式，请求与响应均按标准事件处理；GLM-5.3 家族（`glm-5.3` 与 `glm-5.3-flash` 等同族型号）额外遵守以下约定：
+
+- 思考强度只认 `output_config.effort`（low/high/max），并与 `thinking.budget_tokens` 成对出现（8000/16000/32000）；缺少配对预算时上游的思考量会退化。
+- 服务端在 Anthropic 直通与 Chat/Responses 入站路径统一补齐该配对；协议桥为桥接生成的默认预算会被替换为配对值，客户端显式给出的预算原样保留。
+- 思考开启时请求不携带 temperature/top_p/top_k。
+- 历史轮次的思考不以文本形式回传：服务端不会把 `reasoning_content` 折成 `<thinking>…</thinking>` 的 assistant 正文（该形式会被模型通过上下文学习模仿，导致思考写进可见正文）；无结构化承载通道时历史思考按丢弃处理。
+
 ## 账号数据约定
 
 `credentials` 由服务端在授权会话完成后写入：

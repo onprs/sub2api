@@ -101,6 +101,11 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 	anthropicBody = StripEmptyTextBlocks(anthropicBody)
 	anthropicBody = FilterWebSearchHistoryBlocks(anthropicBody, upstreamModel)
 	anthropicBody = enforceCacheControlLimit(anthropicBody)
+	// GLM-5.3 家族经 OpenAI 客户端入口进来时同样需要 effort/预算配对与采样
+	// 参数清理；否则上游按 near-zero 思考预算运行或行为偏离真实客户端。
+	if normalized, changed := NormalizeGLM53AnthropicThinking(anthropicBody, upstreamModel); changed {
+		anthropicBody = normalized
+	}
 
 	apiKey := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
 	if apiKey == "" {

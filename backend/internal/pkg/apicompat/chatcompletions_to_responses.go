@@ -13,15 +13,38 @@ type chatMessageContent struct {
 	Parts []ChatContentPart
 }
 
+// chatConversionOptions controls Chat → Responses bridge details.
+type chatConversionOptions struct {
+	// reasoningAsItem emits assistant reasoning_content as a structured
+	// reasoning input item instead of folding it into the assistant text as a
+	// "<thinking>…</thinking>" prefix. The text form leaks prior reasoning
+	// into assistant prose for upstreams that have no dedicated reasoning
+	// history channel; models learn the injected shape by in-context learning
+	// and start writing reasoning into visible text (zai-org/GLM-5#92). The
+	// structured item lets each downstream protocol drop or map it explicitly.
+	reasoningAsItem bool
+}
+
 // ChatCompletionsToResponses converts a Chat Completions request into a
 // Responses API request. The upstream always streams, so Stream is forced to
 // true. store is always false and reasoning.encrypted_content is always
 // included so that the response translator has full context.
 func ChatCompletionsToResponses(req *ChatCompletionsRequest) (*ResponsesRequest, error) {
+	return chatCompletionsToResponses(req, chatConversionOptions{})
+}
+
+// ChatCompletionsToResponsesWithReasoningItems converts a Chat Completions
+// request into a Responses API request with reasoning history carried as
+// structured reasoning items rather than "<thinking>…</thinking>" text.
+func ChatCompletionsToResponsesWithReasoningItems(req *ChatCompletionsRequest) (*ResponsesRequest, error) {
+	return chatCompletionsToResponses(req, chatConversionOptions{reasoningAsItem: true})
+}
+
+func chatCompletionsToResponses(req *ChatCompletionsRequest, options chatConversionOptions) (*ResponsesRequest, error) {
 	if err := openai.ValidateGPT61SolReasoningEffort(req.Model, req.ReasoningEffort); err != nil {
 		return nil, err
 	}
-	input, err := convertChatMessagesToResponsesInput(req.Messages)
+	input, err := convertChatMessagesToResponsesInput(req.Messages, options)
 	if err != nil {
 		return nil, err
 	}
@@ -105,10 +128,10 @@ func ChatCompletionsToResponses(req *ChatCompletionsRequest) (*ResponsesRequest,
 
 // convertChatMessagesToResponsesInput converts the Chat Completions messages
 // array into a Responses API input items array.
-func convertChatMessagesToResponsesInput(msgs []ChatMessage) ([]ResponsesInputItem, error) {
+func convertChatMessagesToResponsesInput(msgs []ChatMessage, options chatConversionOptions) ([]ResponsesInputItem, error) {
 	var out []ResponsesInputItem
 	for _, m := range msgs {
-		items, err := chatMessageToResponsesItems(m)
+		items, err := chatMessageToResponsesItems(m, options)
 		if err != nil {
 			return nil, err
 		}
@@ -119,7 +142,7 @@ func convertChatMessagesToResponsesInput(msgs []ChatMessage) ([]ResponsesInputIt
 
 // chatMessageToResponsesItems converts a single ChatMessage into one or more
 // ResponsesInputItem values.
-func chatMessageToResponsesItems(m ChatMessage) ([]ResponsesInputItem, error) {
+func chatMessageToResponsesItems(m ChatMessage, options chatConversionOptions) ([]ResponsesInputItem, error) {
 	switch m.Role {
 	case "system":
 		return chatInstructionToResponses(m, "system")
@@ -128,7 +151,7 @@ func chatMessageToResponsesItems(m ChatMessage) ([]ResponsesInputItem, error) {
 	case "user":
 		return chatUserToResponses(m)
 	case "assistant":
-		return chatAssistantToResponses(m)
+		return chatAssistantToResponses(m, options)
 	case "tool":
 		return chatToolToResponses(m)
 	case "function":
@@ -168,12 +191,21 @@ func chatUserToResponses(m ChatMessage) ([]ResponsesInputItem, error) {
 // text content and tool_calls, the text is emitted as an assistant message
 // first, then each tool_call becomes a function_call item. If the content is
 // empty/nil and there are tool_calls, only function_call items are emitted.
-func chatAssistantToResponses(m ChatMessage) ([]ResponsesInputItem, error) {
+// Reasoning_content is either emitted as a structured reasoning item or folded
+// into the assistant text as a "<thinking>…</thinking>" prefix, per options.
+func chatAssistantToResponses(m ChatMessage, options chatConversionOptions) ([]ResponsesInputItem, error) {
 	var items []ResponsesInputItem
 	content := ""
 
 	if m.ReasoningContent != "" {
-		content = "<thinking>" + m.ReasoningContent + "</thinking>"
+		if options.reasoningAsItem {
+			items = append(items, ResponsesInputItem{
+				Type:    "reasoning",
+				Summary: []ResponsesSummary{{Type: "summary_text", Text: m.ReasoningContent}},
+			})
+		} else {
+			content = "<thinking>" + m.ReasoningContent + "</thinking>"
+		}
 	}
 
 	// Emit assistant message with output_text if content is non-empty.

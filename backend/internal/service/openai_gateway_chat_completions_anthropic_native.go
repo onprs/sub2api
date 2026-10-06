@@ -58,7 +58,10 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 	clientStream := ccReq.Stream
 
 	// 2. Convert CC → Responses → Anthropic (chained conversion)
-	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
+	// 历史 reasoning 以结构化 reasoning item 传递，不再以 <thinking> 文本
+	// 折进 assistant 正文：GLM 等上游会通过 in-context learning 模仿正文中
+	// 的推理标签，把思考输出到可见正文（zai-org/GLM-5#92）。
+	responsesReq, err := apicompat.ChatCompletionsToResponsesWithReasoningItems(&ccReq)
 	if err != nil {
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "Failed to convert request")
 		return nil, fmt.Errorf("convert chat completions to responses: %w", err)
@@ -99,6 +102,11 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 	anthropicBody = StripEmptyTextBlocks(anthropicBody)
 	anthropicBody = FilterWebSearchHistoryBlocks(anthropicBody, upstreamModel)
 	anthropicBody = enforceCacheControlLimit(anthropicBody)
+	// GLM-5.3 家族经 OpenAI 客户端入口进来时同样需要 effort/预算配对与采样
+	// 参数清理；否则上游按 near-zero 思考预算运行或行为偏离真实客户端。
+	if normalized, changed := NormalizeGLM53AnthropicThinking(anthropicBody, upstreamModel); changed {
+		anthropicBody = normalized
+	}
 
 	apiKey := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
 	if apiKey == "" {
