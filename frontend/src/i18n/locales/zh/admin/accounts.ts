@@ -313,7 +313,7 @@ export default {
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         grok: 'Grok',
-        opencode: 'OpenCode',
+        opencode_go: 'OpenCode',
         clinepass: 'ClinePass',
         openrouter: 'OpenRouter',
         commandcode: 'Command Code',
