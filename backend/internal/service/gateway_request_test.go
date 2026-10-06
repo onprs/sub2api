@@ -1677,6 +1677,21 @@ func TestNormalizeGLMOpenAIReasoningEffort(t *testing.T) {
 			wantUnchanged: true,
 		},
 		{
+			name:          "glm 5.3-flash native low unchanged",
+			model:         "glm-5.3-flash",
+			input:         `{"model":"glm-5.3-flash","reasoning_effort":"low","messages":[]}`,
+			wantApplied:   false,
+			wantUnchanged: true,
+		},
+		{
+			name:          "glm 5.30 is outside the glm-5.3 family",
+			model:         "glm-5.30",
+			input:         `{"model":"glm-5.30","reasoning_effort":"low","messages":[]}`,
+			wantApplied:   true,
+			wantPath:      "reasoning_effort",
+			wantValue:     "high",
+		},
+		{
 			name:          "unknown effort unchanged",
 			model:         "glm-5.2",
 			input:         `{"model":"glm-5.2","reasoning_effort":"banana","messages":[]}`,
@@ -1696,4 +1711,129 @@ func TestNormalizeGLMOpenAIReasoningEffort(t *testing.T) {
 			require.Equal(t, tt.wantValue, gjson.GetBytes(got, tt.wantPath).String())
 		})
 	}
+}
+
+// GLM-5.3 家族（含 glm-5.3-flash）的 Anthropic 请求规范化：effort 映射到
+// low/high/max，并搭配 ZCode 客户端的配对预算（8000/16000/32000）；
+// 思考开启时清理上游不接受的采样参数。
+func TestNormalizeGLM53AnthropicThinking(t *testing.T) {
+	tests := []struct {
+		name          string
+		model         string
+		input         string
+		wantApplied   bool
+		wantEffort    string
+		wantBudget    int64
+		wantUnchanged bool
+	}{
+		{
+			name:        "flash enabled pairs high budget",
+			model:       "glm-5.3-flash",
+			input:       `{"model":"glm-5.3-flash","thinking":{"type":"enabled"},"messages":[]}`,
+			wantApplied: true,
+			wantEffort:  "high",
+			wantBudget:  16000,
+		},
+		{
+			name:        "flash max replaces synthesized bridge budget",
+			model:       "GLM-5.3-Flash",
+			input:       `{"model":"GLM-5.3-Flash","thinking":{"type":"enabled","budget_tokens":32768},"output_config":{"effort":"max"},"messages":[]}`,
+			wantApplied: true,
+			wantEffort:  "max",
+			wantBudget:  32000,
+		},
+		{
+			name:        "explicit client budget is preserved",
+			model:       "glm-5.3",
+			input:       `{"model":"glm-5.3","thinking":{"type":"enabled","budget_tokens":12000},"output_config":{"effort":"high"},"messages":[]}`,
+			wantApplied: true,
+			wantEffort:  "high",
+			wantBudget:  12000,
+		},
+		{
+			name:        "anthropic sdk floor budget is preserved",
+			model:       "glm-5.3-flash",
+			input:       `{"model":"glm-5.3-flash","thinking":{"type":"enabled","budget_tokens":1024},"messages":[]}`,
+			wantApplied: true,
+			wantEffort:  "high",
+			wantBudget:  1024,
+		},
+		{
+			name:        "bridge synthesized high budget is replaced",
+			model:       "glm-5.3-flash",
+			input:       `{"model":"glm-5.3-flash","thinking":{"type":"enabled","budget_tokens":10240},"output_config":{"effort":"high"},"messages":[]}`,
+			wantApplied: true,
+			wantEffort:  "high",
+			wantBudget:  16000,
+		},
+		{
+			name:        "disabled maps to low with floor",
+			model:       "glm-5.3",
+			input:       `{"model":"glm-5.3","thinking":{"type":"disabled"},"messages":[]}`,
+			wantApplied: true,
+			wantEffort:  "low",
+			wantBudget:  8000,
+		},
+		{
+			name:        "xhigh maps to max",
+			model:       "glm-5.3-flash",
+			input:       `{"model":"glm-5.3-flash","output_config":{"effort":"x-high"},"messages":[]}`,
+			wantApplied: true,
+			wantEffort:  "max",
+			wantBudget:  32000,
+		},
+		{
+			name:        "medium maps to high",
+			model:       "glm-5.3",
+			input:       `{"model":"glm-5.3","output_config":{"effort":"medium"},"messages":[]}`,
+			wantApplied: true,
+			wantEffort:  "high",
+			wantBudget:  16000,
+		},
+		{
+			name:          "glm-5.30 is outside the family",
+			model:         "glm-5.30",
+			input:         `{"model":"glm-5.30","thinking":{"type":"enabled"},"messages":[]}`,
+			wantApplied:   false,
+			wantUnchanged: true,
+		},
+		{
+			name:          "other model untouched",
+			model:         "glm-5.2",
+			input:         `{"model":"glm-5.2","thinking":{"type":"disabled"},"messages":[]}`,
+			wantApplied:   false,
+			wantUnchanged: true,
+		},
+		{
+			name:          "no preference leaves upstream default",
+			model:         "glm-5.3-flash",
+			input:         `{"model":"glm-5.3-flash","messages":[]}`,
+			wantApplied:   false,
+			wantUnchanged: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, applied := NormalizeGLM53AnthropicThinking([]byte(tt.input), tt.model)
+			require.Equal(t, tt.wantApplied, applied)
+			if tt.wantUnchanged {
+				require.Equal(t, tt.input, string(got))
+				return
+			}
+			require.Equal(t, "enabled", gjson.GetBytes(got, "thinking.type").String())
+			require.Equal(t, tt.wantEffort, gjson.GetBytes(got, "output_config.effort").String())
+			require.Equal(t, tt.wantBudget, gjson.GetBytes(got, "thinking.budget_tokens").Int())
+		})
+	}
+}
+
+func TestNormalizeGLM53AnthropicThinkingRemovesSamplingParams(t *testing.T) {
+	input := `{"model":"glm-5.3-flash","temperature":0.7,"top_p":0.9,"top_k":40,"thinking":{"type":"enabled"},"messages":[]}`
+	got, applied := NormalizeGLM53AnthropicThinking([]byte(input), "glm-5.3-flash")
+	require.True(t, applied)
+	require.False(t, gjson.GetBytes(got, "temperature").Exists())
+	require.False(t, gjson.GetBytes(got, "top_p").Exists())
+	require.False(t, gjson.GetBytes(got, "top_k").Exists())
+	require.Equal(t, "high", gjson.GetBytes(got, "output_config.effort").String())
 }

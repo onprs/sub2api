@@ -1647,7 +1647,15 @@ func normalizeEffortToken(raw string) string {
 }
 
 func isGLM53Model(model string) bool {
-	return strings.EqualFold(strings.TrimSpace(model), "glm-5.3")
+	value := strings.ToLower(strings.TrimSpace(model))
+	const family = "glm-5.3"
+	if !strings.HasPrefix(value, family) {
+		return false
+	}
+	// 家族成员包括 glm-5.3 与 glm-5.3-flash 等后缀变体；拒绝 glm-5.30 这类
+	// 之后追加数字的型号（与 ZCode 客户端的 glm-5\.3(?![0-9]) 等价）。
+	rest := value[len(family):]
+	return rest == "" || strings.HasPrefix(rest, "-")
 }
 
 func normalizeGLMOpenAIReasoningEffort(raw string) string {
@@ -1669,6 +1677,10 @@ func normalizeGLMOpenAIReasoningEffort(raw string) string {
 // NormalizeGLM53AnthropicThinking maps explicit client thinking effort onto the
 // GLM-5.3 Anthropic-compatible scale. Requests without an effort or thinking
 // preference are left unchanged so the upstream default remains in effect.
+//
+// ZCode 客户端契约（src/provider/reasoning.ts）：上游只认 output_config.effort，
+// 且必须搭配匹配档位的 thinking.budget_tokens，否则该档思考量会退化；
+// 思考开启时上游不接受 temperature/top_p/top_k。
 func NormalizeGLM53AnthropicThinking(body []byte, mappedModel string) ([]byte, bool) {
 	if !isGLM53Model(mappedModel) {
 		return body, false
@@ -1695,11 +1707,53 @@ func NormalizeGLM53AnthropicThinking(body []byte, mappedModel string) ([]byte, b
 	if err != nil {
 		return body, false
 	}
+	// 客户端未给出预算，或只有协议桥合成的默认预算时，补上与该 effort 配对
+	// 的厂商预算；客户端显式给出的预算原样保留。
+	budget := gjson.GetBytes(body, "thinking.budget_tokens")
+	_, synthesized := glm53SynthesizedThinkingBudgets[budget.Int()]
+	if !budget.Exists() || budget.Int() <= 0 || synthesized {
+		modified, err = sjson.SetBytes(modified, "thinking.budget_tokens", glm53ThinkingBudgets[effort])
+		if err != nil {
+			return body, false
+		}
+	}
 	modified, err = sjson.SetBytes(modified, "output_config.effort", effort)
 	if err != nil {
 		return body, false
 	}
+	modified = removeGLM53AnthropicSamplingParams(modified)
 	return modified, true
+}
+
+// GLM-5.3 家族的 effort → thinking 预算配对值（来源：ZCode glm-5.3 model
+// catalog，low/high/max = 8000/16000/32000）。
+var glm53ThinkingBudgets = map[string]int{
+	"low":  8000,
+	"high": 16000,
+	"max":  32000,
+}
+
+// 协议桥合成的默认预算：apicompat.defaultThinkingBudget 在 medium/high/max
+// 档位生成的 4096/10240/32768。它们不代表客户端显式意图，在 GLM-5.3 家族上
+// 应替换为配对预算。1024 不在集合内：Anthropic 客户端可能显式使用该值，
+// 且桥在 low 档不生成 thinking 预算，保留显式值不会遗漏合成场景。
+var glm53SynthesizedThinkingBudgets = map[int64]struct{}{
+	4096: {}, 10240: {}, 32768: {},
+}
+
+// removeGLM53AnthropicSamplingParams 删除与 thinking 不兼容的采样参数。
+func removeGLM53AnthropicSamplingParams(body []byte) []byte {
+	for _, path := range []string{"temperature", "top_p", "top_k"} {
+		if !gjson.GetBytes(body, path).Exists() {
+			continue
+		}
+		modified, err := sjson.DeleteBytes(body, path)
+		if err != nil {
+			continue
+		}
+		body = modified
+	}
+	return body
 }
 
 // =========================
