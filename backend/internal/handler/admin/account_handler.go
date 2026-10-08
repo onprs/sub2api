@@ -3119,6 +3119,11 @@ func (h *AccountHandler) antigravityAccountModels(ctx context.Context, account *
 	if account == nil {
 		return nil
 	}
+	// 显式 model_mapping 的请求侧名字优先：管理端连通性测试要选择配置的模型，
+	// 默认目录/实时目录里可能没有这些别名。
+	if models := antigravityAccountMappingModels(account); len(models) > 0 {
+		return models
+	}
 	if account.IsOAuth() {
 		if h.accountTestService != nil {
 			models, err := h.accountTestService.FetchAntigravityAccountCatalog(ctx, account)
@@ -3158,25 +3163,45 @@ func (h *AccountHandler) antigravityAccountModels(ctx context.Context, account *
 		}
 	}
 
+	return nil
+}
+
+// antigravityAccountMappingModels 把显式 model_mapping 转成管理端目录条目。
+// 已知默认模型保留显示名和创建时间，自定义别名使用请求侧名字。
+func antigravityAccountMappingModels(account *service.Account) []antigravity.CatalogModel {
 	mapping := account.GetExplicitModelMapping()
+	if len(mapping) == 0 {
+		return nil
+	}
+	defaultByID := make(map[string]antigravity.ClaudeModel)
+	for _, model := range antigravity.DefaultModels() {
+		defaultByID[model.ID] = model
+	}
+
 	ids := make([]string, 0, len(mapping))
 	for id := range mapping {
-		if !strings.Contains(id, "*") {
-			ids = append(ids, id)
+		if strings.Contains(id, "*") || strings.TrimSpace(id) == "" {
+			continue
 		}
+		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	models := make([]antigravity.CatalogModel, 0, len(ids))
 	for _, id := range ids {
 		wireModel, _ := account.ResolveExplicitMappedModel(id)
-		models = append(models, antigravity.CatalogModel{
+		model := antigravity.CatalogModel{
 			ID:          id,
 			CatalogID:   id,
 			Type:        "model",
 			DisplayName: id,
 			WireModel:   strings.TrimSpace(wireModel),
 			Source:      antigravity.CatalogSourceMapping,
-		})
+		}
+		if known, ok := defaultByID[id]; ok {
+			model.DisplayName = known.DisplayName
+			model.CreatedAt = known.CreatedAt
+		}
+		models = append(models, model)
 	}
 	return models
 }

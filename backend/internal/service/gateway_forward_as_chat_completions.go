@@ -229,7 +229,7 @@ readLoop:
 				finalResp.Content = append(finalResp.Content, *event.ContentBlock)
 			}
 		case "content_block_delta":
-			if event.Delta != nil && finalResp != nil && event.Index != nil && *event.Index < len(finalResp.Content) {
+			if event.Delta != nil && finalResp != nil && event.Index != nil && *event.Index >= 0 && *event.Index < len(finalResp.Content) {
 				switch event.Delta.Type {
 				case "text_delta":
 					finalResp.Content[*event.Index].Text += event.Delta.Text
@@ -331,7 +331,6 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 				return nil
 			}
 		}
-		c.Writer.Flush()
 		return nil
 	}
 
@@ -345,6 +344,9 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			if err := writePayloads(completed); err != nil {
 				return resultWithUsage(), err
 			}
+			if headersWritten && !clientDisconnected {
+				c.Writer.Flush()
+			}
 			break
 		}
 		if err != nil {
@@ -355,6 +357,22 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			return resultWithUsage(), fmt.Errorf("decode anthropic stream event: %w", err)
 		}
 		if event.Type == "ping" {
+			// 上游 keepalive ping 以 SSE 注释转发，保持长转换期间客户端连接存活。
+			// 首个真实数据前可能先收到 ping，需先写入流式响应头再发送注释。
+			if !headersWritten && !clientDisconnected {
+				if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
+					return resultWithUsage(), err
+				}
+				headersWritten = true
+			}
+			if _, err := c.Writer.Write([]byte(": ping\n\n")); err != nil {
+				clientDisconnected = true
+				return resultWithUsage(), nil
+			}
+			c.Writer.Flush()
+			continue
+		}
+		if isNegativeAnthropicBlockIndexEvent(&event) {
 			continue
 		}
 		if firstTokenMs == nil {
@@ -381,6 +399,11 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		}
 		if err := writePayloads(converted); err != nil {
 			return resultWithUsage(), err
+		}
+		// 每个上游事件后都向客户端 flush：事件可能没有下游数据
+		// （如 content_block_start），客户端仍需及时观察到流进度。
+		if headersWritten && !clientDisconnected {
+			c.Writer.Flush()
 		}
 		if event.Type == "message_stop" {
 			break

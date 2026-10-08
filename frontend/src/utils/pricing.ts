@@ -27,7 +27,7 @@ export function formatScaled(
     typeof minFractionDigitsOrCurrencySymbol === 'string'
       ? minFractionDigitsOrCurrencySymbol
       : currencySymbol
-  let formatted = (value * scale).toPrecision(10).replace(/\.?0+$/, '')
+  let formatted = Number((value * scale).toPrecision(10)).toString()
   if (minFractionDigits > 0 && !formatted.includes('e')) {
     const dot = formatted.indexOf('.')
     const digits = dot === -1 ? 0 : formatted.length - dot - 1

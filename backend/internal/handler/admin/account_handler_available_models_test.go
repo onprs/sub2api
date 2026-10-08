@@ -696,6 +696,68 @@ func TestAccountHandlerGetAvailableModels_GeminiGoogleOneUsesConservativeCatalog
 	require.NotContains(t, ids, "gemini-2.5-flash-image")
 }
 
+func TestAccountHandlerGetAvailableModels_Antigravity(t *testing.T) {
+	defaults := antigravity.DefaultModels()
+	known := defaults[0]
+	custom := antigravity.ClaudeModel{ID: "claude-custom-alias", Type: "model", DisplayName: "claude-custom-alias"}
+	fallback := antigravity.FallbackCatalogModels()
+	fallbackModels := make([]antigravity.ClaudeModel, 0, len(fallback))
+	for _, model := range fallback {
+		fallbackModels = append(fallbackModels, antigravity.ClaudeModel{
+			ID:          model.ID,
+			Type:        model.Type,
+			DisplayName: model.DisplayName,
+			CreatedAt:   model.CreatedAt,
+		})
+	}
+
+	cases := []struct {
+		name        string
+		credentials map[string]any
+		wantOAuth   []antigravity.ClaudeModel
+		wantAPIKey  []antigravity.ClaudeModel
+	}{
+		// 没有显式模型映射时，OAuth 账号回退到聚合用户目录，
+		// API-Key 账号没有上游目录来源时返回空列表。
+		{name: "nil credentials", wantOAuth: fallbackModels},
+		{name: "missing mapping", credentials: map[string]any{}, wantOAuth: fallbackModels},
+		{name: "empty JSON mapping", credentials: map[string]any{"model_mapping": map[string]any{}}, wantOAuth: fallbackModels},
+		{name: "empty string mapping", credentials: map[string]any{"model_mapping": map[string]string{}}, wantOAuth: fallbackModels},
+		{name: "blank key", credentials: map[string]any{"model_mapping": map[string]any{" ": "upstream-model"}}, wantOAuth: fallbackModels},
+		// 显式映射优先，已知默认模型保留其展示元数据。
+		{name: "JSON mapping keys and metadata", credentials: map[string]any{"model_mapping": map[string]any{
+			known.ID: known.ID, custom.ID: "upstream-model",
+		}}, wantOAuth: []antigravity.ClaudeModel{custom, known}, wantAPIKey: []antigravity.ClaudeModel{custom, known}},
+		{name: "string mapping keys and metadata", credentials: map[string]any{"model_mapping": map[string]string{
+			known.ID: known.ID, custom.ID: "upstream-model",
+		}}, wantOAuth: []antigravity.ClaudeModel{custom, known}, wantAPIKey: []antigravity.ClaudeModel{custom, known}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			wantByType := map[string][]antigravity.ClaudeModel{
+				service.AccountTypeOAuth:  tc.wantOAuth,
+				service.AccountTypeAPIKey: tc.wantAPIKey,
+			}
+			for _, accountType := range []string{service.AccountTypeOAuth, service.AccountTypeAPIKey} {
+				t.Run(accountType, func(t *testing.T) {
+					svc := &availableModelsAdminService{
+						stubAdminService: newStubAdminService(),
+						account:          service.Account{ID: 51, Platform: service.PlatformAntigravity, Type: accountType, Credentials: tc.credentials},
+					}
+					rec := httptest.NewRecorder()
+					setupAvailableModelsRouter(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/51/models", nil))
+					require.Equal(t, http.StatusOK, rec.Code)
+					var resp struct {
+						Data []antigravity.ClaudeModel `json:"data"`
+					}
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+					require.Equal(t, wantByType[accountType], resp.Data)
+				})
+			}
+		})
+	}
+}
+
 func TestAccountHandlerSyncUpstreamModels_ConfigErrorReturnsBadRequest(t *testing.T) {
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),

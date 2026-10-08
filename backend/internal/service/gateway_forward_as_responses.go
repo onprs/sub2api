@@ -281,6 +281,12 @@ func normalizeAnthropicEventUsageForResponses(event *apicompat.AnthropicStreamEv
 	}
 }
 
+// isNegativeAnthropicBlockIndexEvent 报告事件引用了畸形的负内容块索引。
+// 负索引事件必须忽略，避免转换层把它们并入可见输出或越界访问。
+func isNegativeAnthropicBlockIndexEvent(event *apicompat.AnthropicStreamEvent) bool {
+	return event != nil && event.Index != nil && *event.Index < 0
+}
+
 func marshalNormalizedAnthropicEvent(event *apicompat.AnthropicStreamEvent, usage ClaudeUsage, mappedModel string) ([]byte, error) {
 	if event.Type == "message_start" && event.Message != nil && isClaude55SignedThinkingModel(mappedModel) {
 		event.Message.Model = mappedModel
@@ -355,6 +361,9 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 			return nil, fmt.Errorf("decode anthropic stream event: %w", err)
 		}
 		if event.Type == "ping" {
+			continue
+		}
+		if isNegativeAnthropicBlockIndexEvent(&event) {
 			continue
 		}
 		if event.Type == "message_start" && event.Message != nil {
@@ -519,6 +528,9 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			return resultWithUsage(), fmt.Errorf("decode anthropic stream event: %w", err)
 		}
 		if event.Type == "ping" {
+			continue
+		}
+		if isNegativeAnthropicBlockIndexEvent(&event) {
 			continue
 		}
 		if firstTokenMs == nil {

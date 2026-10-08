@@ -355,8 +355,10 @@ JWT_SECRET=your_jwt_secret_here
 TOTP_ENCRYPTION_KEY=your_totp_key_here
 
 # オプション: 管理者アカウント
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=your_admin_password
+# 空欄の場合、初回起動時にランダムなメールアドレス（ログインユーザー名）とパスワードが自動生成され、ログに出力されます。
+# admin@example.com のような推測されやすい値は総当たり攻撃の標的になるため避けてください。
+ADMIN_EMAIL=
+ADMIN_PASSWORD=
 
 # オプション: カスタムポート
 SERVER_PORT=8080
@@ -404,6 +406,11 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 #### アクセス
 
 ブラウザで `http://YOUR_SERVER_IP:8080` を開いてください。
+
+管理者メールアドレス（ログインユーザー名）が自動生成された場合は、ログで確認できます:
+```bash
+docker compose -f docker-compose.local.yml logs sub2api | grep "Generated admin"
+```
 
 管理者パスワードが自動生成された場合は、モード 0600 のファイルを一度だけ読み取り、すぐに削除してください。パスワードはログには出力されません:
 ```bash

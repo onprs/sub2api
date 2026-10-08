@@ -37,7 +37,11 @@ func dynamicAPIKeyModels(ctx context.Context, gateway *service.GatewayService, a
 		groupID := group.ID
 		var available []string
 		if groupPlatform == service.PlatformComposite {
-			available = compositeAvailableModelsForGroup(ctx, gateway, &groupID, !codex)
+			endpoint := ""
+			if codex {
+				endpoint = service.CompositeRouteEndpointResponses
+			}
+			available = compositeAvailableModelsForGroup(ctx, gateway, &groupID, endpoint, !codex)
 		} else {
 			available = gateway.GetAvailableModels(ctx, &groupID, groupPlatform)
 		}
@@ -72,7 +76,7 @@ func appendExplicitGroupAllowlistModels(models, allowlist []string) []string {
 	return mergeModelIDs(models, explicit)
 }
 
-func compositeAvailableModelsForGroup(ctx context.Context, gateway *service.GatewayService, groupID *int64, includeSystemOne bool) []string {
+func compositeAvailableModelsForGroup(ctx context.Context, gateway *service.GatewayService, groupID *int64, endpoint string, includeSystemOne bool) []string {
 	if gateway == nil {
 		return nil
 	}
@@ -112,6 +116,15 @@ func compositeAvailableModelsForGroup(ctx context.Context, gateway *service.Gate
 			}
 			seen[model] = struct{}{}
 			models = append(models, model)
+		}
+	}
+	// 路由可以暴露账号映射里不存在的公开 ID；查询失败时只保留账号目录。
+	if routeModels, err := gateway.GetCompositeRouteModels(ctx, groupID, endpoint, includeSystemOne); err == nil {
+		for _, model := range routeModels {
+			if _, ok := seen[model]; !ok {
+				seen[model] = struct{}{}
+				models = append(models, model)
+			}
 		}
 	}
 	return models

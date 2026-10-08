@@ -1218,7 +1218,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		if apiKey != nil && apiKey.UsesDynamicGroupRouting() {
 			availableModels = dynamicAPIKeyAvailableModels(c.Request.Context(), h.gatewayService, apiKey, platform)
 		} else if platform == service.PlatformComposite {
-			availableModels = h.compositeAvailableModels(c.Request.Context(), groupID, true)
+			availableModels = h.compositeAvailableModels(c.Request.Context(), groupID, "", true)
 		} else {
 			availableModels = h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
 		}
@@ -1359,19 +1359,19 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 		platform = group.Platform
 	}
 	if platform == service.PlatformComposite {
-		availableModels := h.compositeAvailableModels(ctx, groupID, false)
+		availableModels := h.compositeAvailableModels(ctx, groupID, service.CompositeRouteEndpointResponses, false)
 		fallbackModels := defaultCodexModelIDsForPlatform(service.PlatformComposite)
+		models := availableModels
+		if len(models) == 0 {
+			models = fallbackModels
+		}
 		if group.ModelAllowlistEnabled() {
-			source := availableModels
-			if len(source) == 0 {
-				source = fallbackModels
-			}
-			return group.ModelAllowlist.FilterForListing(source)
+			models = group.ModelAllowlist.FilterForListing(models)
 		}
-		if len(availableModels) > 0 {
-			return availableModels
+		if filtered, err := h.gatewayService.FilterCompositeCodexModels(ctx, group.ID, models); err == nil {
+			return filtered
 		}
-		return fallbackModels
+		return models
 	}
 
 	availableModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
@@ -1386,11 +1386,11 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 }
 
 // includeSystemOne 控制是否列出仅支持 /v1/systemone 的 TypeSafe 模型。
-func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64, includeSystemOne bool) []string {
+func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64, endpoint string, includeSystemOne bool) []string {
 	if h == nil {
 		return nil
 	}
-	return compositeAvailableModelsForGroup(ctx, h.gatewayService, groupID, includeSystemOne)
+	return compositeAvailableModelsForGroup(ctx, h.gatewayService, groupID, endpoint, includeSystemOne)
 }
 
 func writeModelsList(c *gin.Context, platform string, modelIDs []string) {
