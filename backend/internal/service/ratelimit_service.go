@@ -1056,6 +1056,13 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 		s.handleCNProviderQuotaExhausted403(ctx, account, upstreamMsg)
 		return true
 	}
+	// Command Code 的反滥用 403 语义见 handleCommandCode403：上游对短时高并发
+	// 流量返回的 permission_error/认证失败并不代表凭据失效（解除风控后同一 Key
+	// 立即恢复）；且 403 在 failover 状态集里会被逐账号重放，一次风控足以连锁
+	// 禁用整组账号（2026-10-09 事故）。
+	if account.Platform == PlatformCommandCode {
+		return s.handleCommandCode403(ctx, account, upstreamMsg, responseBody)
+	}
 	// 国产供应商与 openai 同口径:HTML 403(CDN/代理拦截页)不构成账号失效证据,
 	// 且 403 在 failover 状态集里会被逐账号重放——直接 SetError 会让一个坏请求/
 	// 一层坏代理连环永久禁用整组账号。走 HTML 豁免 + N 次累计 + 临时冷却。
@@ -1071,6 +1078,76 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	)
 	s.handleAuthError(ctx, account, msg)
 	return true
+}
+
+// commandCodeAntiAbuse403Message 是 Command Code 反滥用 403 的稳定文案片段。
+const commandCodeAntiAbuse403Message = "authentication failed"
+
+// commandCodeAntiAbuse403ReasonPrefix 是反滥用 403 临时停调 reason 的稳定前缀。
+const commandCodeAntiAbuse403ReasonPrefix = "commandcode_anti_abuse_403"
+
+// isCommandCodeAntiAbuse403 识别 Command Code 对短时高并发流量返回的反滥用 403。
+//
+// 上游用 permission_error + "Authentication failed. Please check your credentials."
+// 表达风控拦截（响应体为结构化 JSON，经 Cloudflare，非 WAF 拦截页）；账号凭据
+// 并未失效，解除风控后同一 Key 立即恢复（2026-10-09 事故已核实）。
+func isCommandCodeAntiAbuse403(upstreamMsg string, responseBody []byte) bool {
+	if !strings.Contains(strings.ToLower(strings.TrimSpace(upstreamMsg)), commandCodeAntiAbuse403Message) {
+		return false
+	}
+	return strings.EqualFold(
+		strings.TrimSpace(gjson.GetBytes(responseBody, "error.type").String()),
+		"permission_error",
+	)
+}
+
+// handleCommandCode403 处理 Command Code 的 403：
+//   - HTML / Cloudflare 指纹响应是链路级噪声，不处罚账号（与 openai 口径一致）；
+//   - 反滥用 403 只做临时冷却、不累计永久禁用，避免上游一次风控连锁禁用整组账号；
+//   - 其它 403 沿用 handleOpenAI403 的计数 + 冷却升级路径；计数器不可用时也
+//     退化为临时冷却（Command Code 的 403 语义不确定，宁可不写 error 状态）。
+func (s *RateLimitService) handleCommandCode403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+	// 上游代理 / CDN 在请求到达 Command Code 之前拦下时回的是 HTML 页面。
+	if isHTMLResponse(responseBody) || isCloudflareBotBlockResponse(responseBody) {
+		slog.Warn(
+			"commandcode_403_edge_response_skips_account_penalty",
+			"account_id", account.ID,
+			"upstream_message", upstreamMsg,
+		)
+		return false
+	}
+
+	// 非反滥用 403（结构化但语义不明）保留升级能力，但必须有计数器可供升级；
+	// 计数器缺失时不得退回首次即永久禁用。
+	if !isCommandCodeAntiAbuse403(upstreamMsg, responseBody) && s.openAI403CounterCache != nil {
+		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
+	}
+
+	s.handleCommandCode403TempUnschedulable(ctx, account, upstreamMsg)
+	return true
+}
+
+func (s *RateLimitService) handleCommandCode403TempUnschedulable(ctx context.Context, account *Account, upstreamMsg string) {
+	until := time.Now().Add(time.Duration(openAI403CooldownMinutesDefault) * time.Minute)
+	reason := commandCodeAntiAbuse403ReasonPrefix
+	if msg := strings.TrimSpace(upstreamMsg); msg != "" {
+		reason += ": " + msg
+	}
+	s.notifyAccountSchedulingBlocked(account, until, commandCodeAntiAbuse403ReasonPrefix)
+	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
+		slog.Warn(
+			"commandcode_403_set_temp_unschedulable_failed",
+			"account_id", account.ID,
+			"error", err,
+		)
+		return
+	}
+	slog.Warn(
+		"commandcode_403_temp_unschedulable",
+		"account_id", account.ID,
+		"until", until,
+		"upstream_message", upstreamMsg,
+	)
 }
 
 func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
