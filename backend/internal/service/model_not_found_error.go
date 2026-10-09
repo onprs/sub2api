@@ -3,6 +3,8 @@ package service
 import (
 	"net/http"
 	"strings"
+
+	"github.com/tidwall/gjson"
 )
 
 var upstreamModelNotFoundKeywords = []string{"model not found", "unknown model", "not found"}
@@ -35,9 +37,11 @@ func isUpstreamModelNotFoundErrorForAccount(account *Account, statusCode int, bo
 	}
 	// Command Code 400 unsupported_model：模型不在目录中，属于确定性的
 	// 账号×模型能力反馈，与 OpenCode Go 的模型不支持同构。
+	// 判定必须与 model 参数/模型不支持文案互证，避免其它参数错误被错误
+	// 分类为 unsupported_model 时冷却模型（2026-10-10 排查要求）。
 	if account != nil && account.Platform == PlatformCommandCode &&
 		statusCode == http.StatusBadRequest &&
-		strings.EqualFold(strings.TrimSpace(extractUpstreamErrorCode(body)), "unsupported_model") {
+		isCommandCodeUnsupportedModelError(body) {
 		return true
 	}
 	// Command Code 403 MODEL_NOT_IN_PLAN：模型不在当前账号套餐内。同样是确定性的
@@ -47,6 +51,27 @@ func isUpstreamModelNotFoundErrorForAccount(account *Account, statusCode int, bo
 		return true
 	}
 	return false
+}
+
+// isCommandCodeUnsupportedModelError 判定 Command Code 的 unsupported_model 错误
+// 确实指向模型本身（而不是被错误分类的其它请求参数错误）。
+//
+// 实测响应（2026-10-10）：
+//
+//	400 {"error":{"message":"Model \"xxx\" is not supported on this endpoint.",
+//	"type":"invalid_request_error","param":"model","code":"unsupported_model"}}
+//
+// 错误码为 unsupported_model 但 param/消息并不指向模型时，说明是请求参数级失败，
+// 不能按模型能力反馈冷却模型。
+func isCommandCodeUnsupportedModelError(body []byte) bool {
+	if !strings.EqualFold(strings.TrimSpace(extractUpstreamErrorCode(body)), "unsupported_model") {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(gjson.GetBytes(body, "error.param").String()), "model") {
+		return true
+	}
+	message := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(body)))
+	return strings.Contains(message, "model") && strings.Contains(message, "not supported")
 }
 
 // commandCodeModelNotInPlanMarker 是 Command Code「模型不在当前套餐」错误的稳定标识。

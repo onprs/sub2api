@@ -210,3 +210,50 @@ func TestIsUpstreamModelNotFoundErrorForAccount_CommandCodeModelNotInPlan(t *tes
 		t.Fatal("识别只应作用于 Command Code 平台")
 	}
 }
+
+func TestIsCommandCodeUnsupportedModelError(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{
+			name: "model param rejection",
+			body: `{"error":{"message":"Model \"__invalid_model__\" is not supported on this endpoint.","type":"invalid_request_error","param":"model","code":"unsupported_model"}}`,
+			want: true,
+		},
+		{
+			name: "model message without param",
+			body: `{"error":{"message":"The model gpt-9 is not supported on this endpoint.","code":"unsupported_model"}}`,
+			want: true,
+		},
+		{
+			name: "miscategorized param error is not model capability feedback",
+			body: `{"error":{"message":"Invalid value for temperature","type":"invalid_request_error","param":"temperature","code":"unsupported_model"}}`,
+			want: false,
+		},
+		{
+			name: "miscategorized message without model wording",
+			body: `{"error":{"message":"Invalid input","param":"max_tokens","code":"unsupported_model"}}`,
+			want: false,
+		},
+		{
+			name: "missing code",
+			body: `{"error":{"message":"Model \"x\" is not supported on this endpoint.","param":"model"}}`,
+			want: false,
+		},
+		{
+			name: "empty body",
+			body: "",
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isCommandCodeUnsupportedModelError([]byte(tt.body)); got != tt.want {
+				t.Fatalf("isCommandCodeUnsupportedModelError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

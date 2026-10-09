@@ -727,3 +727,46 @@ func TestRateLimitService_HandleUpstreamError_CommandCodeInvalidParameterDoesNot
 	require.Zero(t, repo.setErrorCalls)
 	require.Empty(t, repo.modelRateLimitCalls)
 }
+
+// 错误码被错误分类为 unsupported_model 的参数错误不得冷却模型（2026-10-10）。
+func TestRateLimitService_HandleUpstreamError_CommandCodeMiscategorizedParamErrorDoesNotCoolModel(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := &Account{ID: 9203, Platform: PlatformCommandCode, Type: AccountTypeAPIKey}
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusBadRequest,
+		http.Header{},
+		[]byte(`{"error":{"message":"Invalid value for temperature","type":"invalid_request_error","param":"temperature","code":"unsupported_model"}}`),
+		"deepseek/deepseek-v4-flash",
+	)
+
+	require.False(t, handled, "参数错误不得冷却模型")
+	require.Zero(t, repo.tempCalls)
+	require.Zero(t, repo.setErrorCalls)
+	require.Empty(t, repo.modelRateLimitCalls)
+}
+
+// 真实的模型不支持仍按模型级冷却，收紧判定不得放走真正的模型能力反馈。
+func TestRateLimitService_HandleUpstreamError_CommandCodeUnsupportedModelStillCoolsModel(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := &Account{ID: 9204, Platform: PlatformCommandCode, Type: AccountTypeAPIKey}
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusBadRequest,
+		http.Header{},
+		[]byte(`{"error":{"message":"Model \"__invalid_model__\" is not supported on this endpoint.","type":"invalid_request_error","param":"model","code":"unsupported_model"}}`),
+		"__invalid_model__",
+	)
+
+	require.True(t, handled)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, upstreamModelNotFoundReason, repo.modelRateLimitCalls[0].reason)
+	require.Zero(t, repo.tempCalls)
+	require.Zero(t, repo.setErrorCalls)
+}
