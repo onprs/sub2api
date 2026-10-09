@@ -393,7 +393,7 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.False(t, ok)
 	_, ok = svc.GetCommandCodeQuotaCost("stealth/pixel-canary")
 	require.False(t, ok)
-	_, ok = svc.GetCommandCodeQuotaCost("stealth/space-bunny-alpha")
+	_, ok = svc.GetCommandCodeQuotaCost("stealth/glyph-cluster:free")
 	require.False(t, ok)
 	_, ok = svc.GetCommandCodeQuotaCost("poolside/laguna-s-2.1-free")
 	require.False(t, ok)

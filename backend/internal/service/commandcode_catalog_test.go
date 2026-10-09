@@ -467,7 +467,9 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 	require.Contains(t, ids, "deepseek/deepseek-v4.1-flash-fast")
 	require.Contains(t, ids, "inclusionai/ling-3.1-flash:free")
 	require.NotContains(t, ids, "stealth/pixel-canary")
-	require.Contains(t, ids, "stealth/space-bunny-alpha")
+	require.Contains(t, ids, "stealth/glyph-cluster:free")
+	require.Contains(t, ids, "claude-haiku-5-5")
+	require.Contains(t, ids, "mistral/mistral-large-4")
 	require.Contains(t, ids, "deepseek/deepseek-v4-flash-fast")
 	require.Contains(t, ids, "deepseek/deepseek-v4.1-flash")
 	require.Contains(t, ids, "google/gemini-3.8-flash")
@@ -517,14 +519,16 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 func TestCommandCodeFallbackCatalogHasAllPricedModels(t *testing.T) {
 	entries := commandCodeFallbackCatalogEntries()
 	ids := CommandCodeFallbackModelIDs()
-	require.Len(t, entries, 62)
+	require.Len(t, entries, 64)
 	require.Len(t, entries, len(commandCodeFallbackModels))
 	for _, model := range []string{
 		"gpt-6-luna",
 		"claude-sonnet-5-5",
+		"claude-haiku-5-5",
 		"deepseek/deepseek-v4.1-flash-fast",
 		"inclusionai/ling-3.1-flash:free",
-		"stealth/space-bunny-alpha",
+		"stealth/glyph-cluster:free",
+		"mistral/mistral-large-4",
 		"google/gemini-3.8-flash",
 		"z-ai/glm-5.3-flashx",
 		"Qwen/Qwen3.8-Omni-Flash",
@@ -575,7 +579,9 @@ func TestCommandCodeCatalogExposesFallbackWhenRefreshFails(t *testing.T) {
 	require.Contains(t, models, "deepseek/deepseek-v4.1-flash-fast")
 	require.Contains(t, models, "inclusionai/ling-3.1-flash:free")
 	require.NotContains(t, models, "stealth/pixel-canary")
-	require.Contains(t, models, "stealth/space-bunny-alpha")
+	require.Contains(t, models, "stealth/glyph-cluster:free")
+	require.Contains(t, models, "claude-haiku-5-5")
+	require.Contains(t, models, "mistral/mistral-large-4")
 	require.Contains(t, models, "gpt-5.6-sol")
 	require.Contains(t, models, "google/gemini-3.8-flash")
 	require.Contains(t, models, "deepseek/deepseek-v4-flash-fast")
