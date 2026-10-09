@@ -2683,6 +2683,7 @@ const upstreamModelUnsupportedReason = "upstream_model_not_supported"
 const upstreamModelNotFound401Reason = "upstream_401_model_not_found"
 const upstreamCodexPlanGatedModelCooldown = 30 * time.Minute
 const upstreamCodexPlanGatedModelReason = "upstream_400_codex_plan_gated_model"
+const commandCodeModelNotInPlanReason = "commandcode_model_not_in_plan"
 const tempUnschedBodyMaxBytes = 64 << 10
 const tempUnschedMessageMaxBytes = 2048
 
@@ -2721,6 +2722,9 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	case account.IsOpenCodeGo():
 		cooldown = openCodeGoModelUnsupportedCooldown
 		reason = upstreamModelUnsupportedReason
+	case account.Platform == PlatformCommandCode && statusCode == http.StatusForbidden:
+		// 模型不在套餐（MODEL_NOT_IN_PLAN）：模型级冷却，不冷却账号。
+		reason = commandCodeModelNotInPlanReason
 	case statusCode == http.StatusUnauthorized && account.Type == AccountTypeAPIKey && account.IsOpenAICompatible() && isOpenAICompatibleModelNotFoundBody(responseBody):
 		reason = upstreamModelNotFound401Reason
 	case planGated:

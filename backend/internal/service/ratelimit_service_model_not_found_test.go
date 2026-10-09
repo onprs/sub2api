@@ -678,3 +678,52 @@ func TestRateLimitService_HandleUpstreamError_ModelNotFoundImageModelStillCoolsD
 	require.Len(t, repo.modelRateLimitCalls, 1, "守卫只作用于 codex plan-gated 分支")
 	require.Equal(t, upstreamModelNotFoundReason, repo.modelRateLimitCalls[0].reason)
 }
+
+// Command Code 403 MODEL_NOT_IN_PLAN：模型不在当前账号套餐内。必须按模型级冷却，
+// 不能把一次套餐外请求放大成账号级 403（连续 3 次会永久禁用账号）。
+func TestRateLimitService_HandleUpstreamError_CommandCodeModelNotInPlanUsesModelRateLimit(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := &Account{ID: 9201, Platform: PlatformCommandCode, Type: AccountTypeAPIKey}
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(`{"error":{"message":"MODEL_NOT_IN_PLAN: GPT-5.4 available in Pro and above plans or extra on demand usage","type":"permission_error","code":"FORBIDDEN"}}`),
+		"gpt-5.4",
+	)
+
+	require.True(t, handled)
+	require.Zero(t, repo.tempCalls, "模型不在套餐不得冷却整个账号")
+	require.Zero(t, repo.setErrorCalls, "模型不在套餐不得永久禁用账号")
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, account.ID, call.accountID)
+	require.Equal(t, "gpt-5.4", call.scope)
+	require.Equal(t, commandCodeModelNotInPlanReason, call.reason)
+	require.WithinDuration(t, time.Now().Add(upstreamModelNotFoundCooldown), call.resetAt, 5*time.Second)
+}
+
+// 参数错误的 400（实测上游 invalid_request_error）只是请求级错误：
+// 不得冷却账号，也不得写入模型级冷却。
+func TestRateLimitService_HandleUpstreamError_CommandCodeInvalidParameterDoesNotCoolModel(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := &Account{ID: 9202, Platform: PlatformCommandCode, Type: AccountTypeAPIKey}
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusBadRequest,
+		http.Header{},
+		[]byte(`{"error":{"message":"{\"message\":\"invalid request error trace_id: abc\",\"type\":\"invalid_request_error\"}\n","type":"invalid_request_error"}}`),
+		"deepseek/deepseek-v4-flash",
+	)
+
+	require.False(t, handled, "普通参数错误不得触发账号或模型级处罚")
+	require.Zero(t, repo.tempCalls)
+	require.Zero(t, repo.setErrorCalls)
+	require.Empty(t, repo.modelRateLimitCalls)
+}

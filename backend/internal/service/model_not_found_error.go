@@ -35,9 +35,40 @@ func isUpstreamModelNotFoundErrorForAccount(account *Account, statusCode int, bo
 	}
 	// Command Code 400 unsupported_model：模型不在目录中，属于确定性的
 	// 账号×模型能力反馈，与 OpenCode Go 的模型不支持同构。
-	return account != nil && account.Platform == PlatformCommandCode &&
+	if account != nil && account.Platform == PlatformCommandCode &&
 		statusCode == http.StatusBadRequest &&
-		strings.EqualFold(strings.TrimSpace(extractUpstreamErrorCode(body)), "unsupported_model")
+		strings.EqualFold(strings.TrimSpace(extractUpstreamErrorCode(body)), "unsupported_model") {
+		return true
+	}
+	// Command Code 403 MODEL_NOT_IN_PLAN：模型不在当前账号套餐内。同样是确定性的
+	// 账号×模型能力反馈，必须按模型级冷却处理：否则每次请求套餐外模型都会给账号
+	// 记一次 403（连续 3 次永久禁用账号），把模型能力问题放大成整账号处罚。
+	if account != nil && account.Platform == PlatformCommandCode && isCommandCodeModelNotInPlanError(statusCode, body) {
+		return true
+	}
+	return false
+}
+
+// commandCodeModelNotInPlanMarker 是 Command Code「模型不在当前套餐」错误的稳定标识。
+//
+// 实测响应（2026-10-10）：
+//
+//	403 {"error":{"message":"MODEL_NOT_IN_PLAN: GPT-5.4 available in Pro and above
+//	plans or extra on demand usage","type":"permission_error","code":"FORBIDDEN"}}
+//
+// 该错误只说明当前账号的套餐不含该模型，账号本身完全可用；按模型级冷却即可。
+const commandCodeModelNotInPlanMarker = "model_not_in_plan"
+
+func isCommandCodeModelNotInPlanError(statusCode int, body []byte) bool {
+	if statusCode != http.StatusForbidden {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(body)))
+	if strings.Contains(message, commandCodeModelNotInPlanMarker) {
+		return true
+	}
+	// 文案变体兜底：描述模型在某个套餐档位可用。
+	return strings.Contains(message, "available in") && strings.Contains(message, "plans")
 }
 
 func isOpenCodeGoModelUnsupportedError(statusCode int, body []byte) bool {
