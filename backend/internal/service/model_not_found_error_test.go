@@ -139,3 +139,74 @@ func TestIsOpenAICompatibleModelNotFound400(t *testing.T) {
 		})
 	}
 }
+
+func TestIsCommandCodeModelNotInPlanError(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       []byte
+		want       bool
+	}{
+		{
+			name:       "403 MODEL_NOT_IN_PLAN marker",
+			statusCode: http.StatusForbidden,
+			body:       []byte(`{"error":{"message":"MODEL_NOT_IN_PLAN: GPT-5.4 available in Pro and above plans or extra on demand usage","type":"permission_error","code":"FORBIDDEN"}}`),
+			want:       true,
+		},
+		{
+			name:       "403 lowercase marker",
+			statusCode: http.StatusForbidden,
+			body:       []byte(`{"error":{"message":"model_not_in_plan"}}`),
+			want:       true,
+		},
+		{
+			name:       "403 plan wording fallback",
+			statusCode: http.StatusForbidden,
+			body:       []byte(`{"error":{"message":"GPT-5.4 is available in Pro and above plans"}}`),
+			want:       true,
+		},
+		{
+			name:       "403 anti-abuse permission error does not match",
+			statusCode: http.StatusForbidden,
+			body:       []byte(`{"error":{"message":"Authentication failed. Please check your credentials.","type":"permission_error"}}`),
+			want:       false,
+		},
+		{
+			name:       "403 generic forbidden does not match",
+			statusCode: http.StatusForbidden,
+			body:       []byte(`{"error":{"message":"Access denied","code":"FORBIDDEN"}}`),
+			want:       false,
+		},
+		{
+			name:       "400 with marker does not match",
+			statusCode: http.StatusBadRequest,
+			body:       []byte(`MODEL_NOT_IN_PLAN`),
+			want:       false,
+		},
+		{
+			name:       "403 empty body does not match",
+			statusCode: http.StatusForbidden,
+			body:       nil,
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isCommandCodeModelNotInPlanError(tt.statusCode, tt.body); got != tt.want {
+				t.Fatalf("isCommandCodeModelNotInPlanError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsUpstreamModelNotFoundErrorForAccount_CommandCodeModelNotInPlan(t *testing.T) {
+	body := []byte(`{"error":{"message":"MODEL_NOT_IN_PLAN: GPT-5.4 available in Pro and above plans or extra on demand usage","type":"permission_error","code":"FORBIDDEN"}}`)
+
+	if !isUpstreamModelNotFoundErrorForAccount(&Account{Platform: PlatformCommandCode, Type: AccountTypeAPIKey}, http.StatusForbidden, body) {
+		t.Fatal("Command Code 模型不在套餐应识别为模型级错误")
+	}
+	if isUpstreamModelNotFoundErrorForAccount(&Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, http.StatusForbidden, body) {
+		t.Fatal("识别只应作用于 Command Code 平台")
+	}
+}
