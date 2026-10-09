@@ -11,10 +11,11 @@ import (
 // 在线快照会按官方 minPlanName=Go/GOAT 自动替换这些条目。
 var commandCodeFallbackModels = []string{
 	"claude-sonnet-5-5",
+	"claude-haiku-5-5",
 	"gpt-5.6-sol",
 	"gpt-5.6-luna",
 	"gpt-6-luna",
-	"stealth/space-bunny-alpha",
+	"stealth/glyph-cluster:free",
 	"google/gemini-3.8-flash",
 	"google/gemini-3.7-flash",
 	"xai/grok-4.7",
@@ -66,6 +67,7 @@ var commandCodeFallbackModels = []string{
 	"tencent/hy3-paid",
 	"tencent/hy4-preview",
 	"meituan/LongCat-2.0",
+	"mistral/mistral-large-4",
 	"inclusionai/ling-3.0-flash-sante:free",
 	"inclusionai/ling-3.1-flash:free",
 	"nvidia/nemotron-3-ultra-550b-a55b",
@@ -84,11 +86,12 @@ type commandCodePriceEntry struct {
 
 // commandCodeReferencePrices 是当前官方 GOAT 价格的内置降级副本，单位为 USD / 1M token。
 var commandCodeReferencePrices = map[string]commandCodePriceEntry{
-	"claude-sonnet-5-5":                     {input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5},
+	"claude-sonnet-5-5":                     {input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5},
+	"claude-haiku-5-5":                      {input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125},
 	"gpt-5.6-sol":                           {input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25},
 	"gpt-5.6-luna":                          {input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25},
 	"gpt-6-luna":                            {input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125},
-	"stealth/space-bunny-alpha":             {allowZero: true},
+	"stealth/glyph-cluster:free":            {allowZero: true},
 	"google/gemini-3.8-flash":               {input: 1.5, output: 7.5, cacheRead: 0.15},
 	"google/gemini-3.7-flash":               {input: 1.5, output: 7.5, cacheRead: 0.15, cacheWrite: 0.08334},
 	"xai/grok-4.7":                          {input: 2, output: 6, cacheRead: 0.5},
@@ -140,6 +143,7 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"tencent/hy3-paid":                      {input: 0.14, output: 0.58, cacheRead: 0.035},
 	"tencent/hy4-preview":                   {input: 0.834, output: 2.501, cacheRead: 0.042},
 	"meituan/longcat-2.0":                   {input: 0.3, output: 1.2, cacheRead: 0.006},
+	"mistral/mistral-large-4":               {input: 1.36, output: 4.18, cacheRead: 0.14},
 	"inclusionai/ling-3.0-flash-sante:free": {allowZero: true},
 	"inclusionai/ling-3.1-flash:free":       {allowZero: true},
 	"nvidia/nemotron-3-ultra-550b-a55b":     {input: 0.6, output: 2.4, cacheRead: 0.12},
@@ -152,9 +156,10 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 // 来源：https://commandcode.ai/docs/plans/goat，2026-10-01 核对。
 var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 	"claude-sonnet-5-5": 10,
+	"claude-haiku-5-5":  20,
 	"gpt-5.6-sol":       70, "gpt-5.6-luna": 20, "gpt-6-luna": 20,
-	"stealth/space-bunny-alpha": 0,
-	"google/gemini-3.8-flash":   40, "google/gemini-3.7-flash": 40,
+	"stealth/glyph-cluster:free": 0,
+	"google/gemini-3.8-flash":    40, "google/gemini-3.7-flash": 40,
 	"xai/grok-4.7": 20, "xai/grok-4.6": 20, "xai/grok-4.5": 20,
 	"meta/muse-spark-1.3": 20, "meta/muse-spark-1.3-contributor": 20,
 	"meta/muse-spark-1.2": 20, "meta/muse-spark-1.2-contributor": 20,
@@ -179,6 +184,7 @@ var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 	"stepfun/step-5-preview": 20, "stepfun/step-3.7-flash": 20, "stepfun/step-3.5-flash": 20,
 	"tencent/hy3-paid": 70, "tencent/hy4-preview": 20,
 	"meituan/longcat-2.0":                   50,
+	"mistral/mistral-large-4":               20,
 	"inclusionai/ling-3.0-flash-sante:free": 0,
 	"inclusionai/ling-3.1-flash:free":       0,
 	"nvidia/nemotron-3-ultra-550b-a55b":     20,
@@ -188,9 +194,10 @@ var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 
 var commandCodeFallbackContextWindows = map[string]int{
 	"claude-sonnet-5-5": 1_000_000,
+	"claude-haiku-5-5":  1_000_000,
 	"gpt-5.6-sol":       1_050_000, "gpt-5.6-luna": 1_050_000, "gpt-6-luna": 1_050_000,
-	"stealth/space-bunny-alpha": 1_000_000,
-	"google/gemini-3.8-flash":   1_000_000, "google/gemini-3.7-flash": 1_048_576,
+	"stealth/glyph-cluster:free": 256_000,
+	"google/gemini-3.8-flash":    1_000_000, "google/gemini-3.7-flash": 1_048_576,
 	"xai/grok-4.7": 500_000, "xai/grok-4.6": 500_000, "xai/grok-4.5": 500_000,
 	"meta/muse-spark-1.3": 1_048_576, "meta/muse-spark-1.3-contributor": 1_048_576,
 	"meta/muse-spark-1.2": 1_048_576, "meta/muse-spark-1.2-contributor": 1_048_576,
@@ -215,6 +222,7 @@ var commandCodeFallbackContextWindows = map[string]int{
 	"stepfun/step-5-preview": 1_000_000, "stepfun/step-3.7-flash": 256_000, "stepfun/step-3.5-flash": 262_144,
 	"tencent/hy3-paid": 262_144, "tencent/hy4-preview": 1_048_576,
 	"meituan/longcat-2.0":                   1_048_576,
+	"mistral/mistral-large-4":               524_288,
 	"inclusionai/ling-3.0-flash-sante:free": 262_144,
 	"inclusionai/ling-3.1-flash:free":       262_144,
 	"nvidia/nemotron-3-ultra-550b-a55b":     1_000_000,
@@ -264,6 +272,10 @@ var commandCodeModelAliases = map[string]string{
 	"muse-spark-1.3": "meta/muse-spark-1.3", "muse-spark-1.3-contributor": "meta/muse-spark-1.3-contributor",
 	"muse-spark-1.2": "meta/muse-spark-1.2", "muse-spark-1.2-contributor": "meta/muse-spark-1.2-contributor",
 	"grok-4.5": "xai/grok-4.5", "grok-4.6": "xai/grok-4.6", "grok-4.7": "xai/grok-4.7",
+	"haiku-5-5":          "claude-haiku-5-5",
+	"mistral-large-4":    "mistral/mistral-large-4",
+	"glyph-cluster:free": "stealth/glyph-cluster:free",
+	"glyph-cluster":      "stealth/glyph-cluster:free",
 }
 
 func commandCodeCanonicalModelID(model string) string {
@@ -305,14 +317,24 @@ func commandCodeFallbackCatalogEntries() map[string]commandCodeCatalogEntry {
 	setCommandCodeFallbackTiers(entries)
 	setCommandCodeFallbackDeals(entries)
 	setCommandCodeFallbackTimeBands(entries)
-	// Kimi K3 官方 creditDeal：单价不变，2026-09-30 至 10-07 的月额度为 $60。
+	// Kimi K3 官方 creditDeal（through Oct 7th）活动过期后已回到基础值 $20；
+	// 目录跟随官方当前数据（活动期间的历史值 $60 仅存于官方 tip 文案）。
 	kimi := entries["moonshotai/kimi-k3"]
-	startsAt := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
-	expiresAt := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
+	kimiStarts := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	kimiExpires := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
 	kimi.MonthlyQuota.Periods = []MonthlyQuotaPeriod{{
-		CreditsUSD: 60, StartsAt: &startsAt, ExpiresAt: &expiresAt, Term: "through Oct 7th",
+		CreditsUSD: 20, StartsAt: &kimiStarts, ExpiresAt: &kimiExpires, Term: "through Oct 7th",
 	}}
 	entries["moonshotai/kimi-k3"] = kimi
+
+	// Mistral Large 4 官方 creditDeal：2026-10-06 至 10-20 月额度 $40（基础 $20）。
+	mistral := entries["mistral/mistral-large-4"]
+	mistralStarts := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
+	mistralExpires := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	mistral.MonthlyQuota.Periods = []MonthlyQuotaPeriod{{
+		CreditsUSD: 40, StartsAt: &mistralStarts, ExpiresAt: &mistralExpires, Term: "through Oct 20th",
+	}}
+	entries["mistral/mistral-large-4"] = mistral
 	return entries
 }
 
@@ -358,6 +380,10 @@ func setCommandCodeFallbackTiers(entries map[string]commandCodeCatalogEntry) {
 	set("gpt-6-luna", []commandCodeCatalogTier{
 		commandCodeTier(0, commandCodeInt(272_000), commandCodeRates(0.1, 0.5, 0.01, 0.125)),
 		commandCodeTier(272_000, nil, commandCodeRates(0.2, 0.75, 0.02, 0.25)),
+	})
+	set("claude-haiku-5-5", []commandCodeCatalogTier{
+		commandCodeTier(0, commandCodeInt(100_000), commandCodeRates(0.1, 0.5, 0.01, 0.125)),
+		commandCodeTier(100_000, nil, commandCodeRates(0.5, 2.5, 0.05, 0.625)),
 	})
 	set("xai/grok-4.7", []commandCodeCatalogTier{
 		commandCodeTier(0, commandCodeInt(200_000), commandCodeRates(2, 6, 0.5)),
@@ -413,8 +439,8 @@ func setCommandCodeFallbackDeals(entries map[string]commandCodeCatalogEntry) {
 		Term: "99% off. See the deal for details.",
 	})
 	setListRates("xiaomi/mimo-v2.5-pro", commandCodeRates(2, 6, 0.4))
-	set("stealth/space-bunny-alpha", commandCodeCatalogDeal{
-		Code: "space-bunny-alpha-free", Label: "Free", DiscountPercent: 100, Free: true,
+	set("stealth/glyph-cluster:free", commandCodeCatalogDeal{
+		Code: "glyph-cluster-free", Label: "Free", DiscountPercent: 100, Free: true,
 		Term: "while the stealth preview lasts",
 	})
 	set("inclusionai/ling-3.0-flash-sante:free", commandCodeCatalogDeal{
