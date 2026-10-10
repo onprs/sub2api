@@ -60,7 +60,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		h.writeStandardGoogleIngressModels(c, apiKeyGroupIDFromContext(c), routingPlatform)
 		return
 	}
-	if !hasForcePlatform && (isStandardGeminiIngressProvider(routingPlatform) || routingPlatform == service.PlatformOpenCodeGo || routingPlatform == service.PlatformClinePass || routingPlatform == service.PlatformOpenRouter || routingPlatform == service.PlatformCommandCode) {
+	if !hasForcePlatform && (isStandardGeminiIngressProvider(routingPlatform) || routingPlatform == service.PlatformOpenCodeGo || routingPlatform == service.PlatformCline || routingPlatform == service.PlatformOpenRouter || routingPlatform == service.PlatformCommandCode) {
 		h.writeStandardGoogleIngressModels(c, apiKeyGroupIDFromContext(c), routingPlatform)
 		return
 	}
@@ -450,7 +450,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		c.JSON(http.StatusOK, antigravity.FallbackGeminiModel(modelName))
 		return
 	}
-	if !hasForcePlatform && (isStandardGeminiIngressProvider(effectivePlatform) || effectivePlatform == service.PlatformOpenCodeGo || effectivePlatform == service.PlatformClinePass || effectivePlatform == service.PlatformOpenRouter || effectivePlatform == service.PlatformCommandCode) {
+	if !hasForcePlatform && (isStandardGeminiIngressProvider(effectivePlatform) || effectivePlatform == service.PlatformOpenCodeGo || effectivePlatform == service.PlatformCline || effectivePlatform == service.PlatformOpenRouter || effectivePlatform == service.PlatformCommandCode) {
 		if !h.standardGoogleIngressModelAvailable(c, apiKeyGroupIDFromContext(c), effectivePlatform, modelName) {
 			googleError(c, http.StatusNotFound, "Model not found")
 			return
@@ -1010,7 +1010,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 
 func supportsStandardGeminiIngress(platform string) bool {
 	switch platform {
-	case service.PlatformGemini, service.PlatformOpenAI, service.PlatformAnthropic, service.PlatformAntigravity, service.PlatformOpenCodeGo, service.PlatformClinePass, service.PlatformOpenRouter, service.PlatformCommandCode:
+	case service.PlatformGemini, service.PlatformOpenAI, service.PlatformAnthropic, service.PlatformAntigravity, service.PlatformOpenCodeGo, service.PlatformCline, service.PlatformOpenRouter, service.PlatformCommandCode:
 		return true
 	default:
 		return false

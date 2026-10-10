@@ -47,10 +47,10 @@ describe('PlatformTypeBadge', () => {
   it('renders ClinePass as an independent API key platform', () => {
     testLocale.value = 'en'
     const wrapper = mount(PlatformTypeBadge, {
-      props: { platform: 'clinepass', type: 'apikey' }
+      props: { platform: 'cline', type: 'apikey' }
     })
 
-    expect(wrapper.text()).toContain('ClinePass')
+    expect(wrapper.text()).toContain('Cline')
     expect(wrapper.text()).toContain('API Key')
     expect(wrapper.text()).not.toContain('OpenCode Go')
     expect(wrapper.find('svg[viewBox="0 0 466.73 487.04"]').exists()).toBe(true)
@@ -59,7 +59,7 @@ describe('PlatformTypeBadge', () => {
 
   it('renders the official Command Code Symbol for Command Code', () => {
     const wrapper = mount(PlatformTypeBadge, {
-      props: { platform: 'commandcode', type: 'apikey' }
+      props: { platform: 'command_code', type: 'apikey' }
     })
 
     expect(wrapper.text()).toContain('Command Code')

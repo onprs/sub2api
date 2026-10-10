@@ -18,9 +18,9 @@ export const PROVIDER_ANTIGRAVITY: Provider = 'antigravity'
 export const PROVIDER_ANTIGRAVITY_CLAUDE: Provider = 'antigravity_claude'
 export const PROVIDER_ANTIGRAVITY_GEMINI: Provider = 'antigravity_gemini'
 export const PROVIDER_OPENCODE_GO: Provider = 'opencode_go'
-export const PROVIDER_CLINEPASS: Provider = 'clinepass'
+export const PROVIDER_CLINEPASS: Provider = 'cline'
 export const PROVIDER_OPENROUTER: Provider = 'openrouter'
-export const PROVIDER_COMMANDCODE: Provider = 'commandcode'
+export const PROVIDER_COMMANDCODE: Provider = 'command_code'
 export const PROVIDER_KIMI: Provider = 'kimi'
 export const PROVIDER_ZHIPU: Provider = 'zhipu'
 export const PROVIDER_DEEPSEEK: Provider = 'deepseek'
@@ -101,9 +101,9 @@ const MONITOR_PROVIDER_KEY_GROUP_PLATFORM: Record<Provider, GroupPlatform> = {
   antigravity_claude: 'antigravity',
   antigravity_gemini: 'antigravity',
   opencode_go: 'opencode_go',
-  clinepass: 'clinepass',
+  cline: 'cline',
   openrouter: 'openrouter',
-  commandcode: 'commandcode',
+  command_code: 'command_code',
   kimi: 'kimi',
   zhipu: 'zhipu',
   deepseek: 'deepseek',

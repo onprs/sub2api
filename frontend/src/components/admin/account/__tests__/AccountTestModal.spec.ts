@@ -266,7 +266,7 @@ describe('AccountTestModal', () => {
     const wrapper = mountModal({
       id: 52,
       name: 'ClinePass Account',
-      platform: 'clinepass',
+      platform: 'cline',
       type: 'apikey',
       status: 'active'
     })

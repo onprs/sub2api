@@ -645,7 +645,7 @@ func TestGatewayModels_CompositeExcludesUnrelatedProviderCatalogs(t *testing.T) 
 			groupID: {{ID: 1, Platform: service.PlatformOpenAI}},
 		},
 	})
-	for _, platform := range []string{service.PlatformOpenCodeGo, service.PlatformClinePass, service.PlatformOpenRouter, service.PlatformCommandCode} {
+	for _, platform := range []string{service.PlatformOpenCodeGo, service.PlatformCline, service.PlatformOpenRouter, service.PlatformCommandCode} {
 		t.Run(platform, func(t *testing.T) {
 			require.Empty(t, h.gatewayService.GetAvailableModelsForComposite(context.Background(), &groupID, platform))
 		})

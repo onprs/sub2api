@@ -153,9 +153,7 @@ func ProvideOpenAIGatewayHandler(
 }
 
 func ProvideOpenCodeGoGatewayHandler(
-	clinePassService *service.ClinePassGatewayService,
 	openRouterService *service.OpenRouterGatewayService,
-	commandCodeService *service.CommandCodeGatewayService,
 	gatewayService *service.GatewayService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
@@ -167,7 +165,7 @@ func ProvideOpenCodeGoGatewayHandler(
 	cfg *config.Config,
 	coordinator *securityaudit.Coordinator,
 ) *OpenCodeGoGatewayHandler {
-	h := NewOpenCodeGoGatewayHandler(clinePassService, openRouterService, commandCodeService,
+	h := NewOpenCodeGoGatewayHandler(openRouterService,
 		gatewayService, concurrencyService, billingCacheService, billingEligibilityService, apiKeyService,
 		usageRecordWorkerPool, errorPassthroughService, contentModerationService, cfg)
 	h.securityAuditCoordinator = coordinator

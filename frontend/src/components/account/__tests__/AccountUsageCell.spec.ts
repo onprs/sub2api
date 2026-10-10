@@ -140,6 +140,17 @@ describe('AccountUsageCell', () => {
     })
   })
 
+  it.each(['cline', 'command_code', 'opencode_go'] as const)('%s 使用官方配额和余额组件', async (platform) => {
+    const wrapper = mount(AccountUsageCell, {
+      props: { account: makeAccount({ platform, type: 'apikey' }) },
+      global: { stubs: cnUsageCellStubs }
+    })
+    await flushPromises()
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(true)
+    expect(getUsage).not.toHaveBeenCalled()
+  })
+
   it('OpenAI API Key 会实时展示 sub2api 钱包余额并支持手动刷新', async () => {
     getUsage
       .mockResolvedValueOnce({
@@ -465,37 +476,6 @@ describe('AccountUsageCell', () => {
     expect(getUsage).toHaveBeenCalledTimes(2)
   })
 
-  it('renders ClinePass official 5h/7d/30d windows without an estimated label', async () => {
-    getUsage.mockResolvedValue({
-      source: 'official_api',
-      five_hour: { utilization: 18.5, resets_at: null, source: 'official_api' },
-      seven_day: { utilization: 42, resets_at: '2026-07-29T00:00:00Z', source: 'official_api' },
-      thirty_day: { utilization: 67, resets_at: null, source: 'official_api' }
-    })
-    const wrapper = mount(AccountUsageCell, {
-      props: {
-        account: makeAccount({ id: 7001, platform: 'clinepass', type: 'apikey', extra: {} })
-      },
-      global: {
-        stubs: {
-          UsageProgressBar: {
-            props: ['label', 'utilization', 'resetsAt'],
-            template: '<div>{{ label }}|{{ utilization }}|{{ resetsAt }}</div>'
-          },
-          AccountQuotaInfo: true
-        }
-      }
-    })
-    await flushPromises()
-
-    expect(getUsage).toHaveBeenCalledWith(7001)
-    expect(wrapper.text()).toContain('5h|18.5|')
-    expect(wrapper.text()).toContain('7d|42|2026-07-29T00:00:00Z')
-    expect(wrapper.text()).toContain('30d|67|')
-    expect(wrapper.text()).toContain('official')
-    expect(wrapper.text()).not.toContain('admin.accounts.usageWindow.estimatedData')
-  })
-
   it('renders eligible Ollama Cloud state, fetches local usage, and forwards query updates', async () => {
     const wrapper = mount(AccountUsageCell, {
       props: {
@@ -708,6 +688,71 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).not.toContain('-')
   })
 
+  it('Command Code 账号渲染额度与积分余额单元格', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 9103,
+          platform: 'command_code',
+          type: 'apikey',
+          credentials: { api_key: 'user_test_key', account_mode: 'payg' }
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('-')
+  })
+
+  it('自定义中转的 Command Code 账号没有可查的用量接口，显示占位符', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 9105,
+          platform: 'command_code',
+          type: 'apikey',
+          credentials: { api_key: 'user_test_key', account_mode: 'payg', base_url: 'https://relay.example.com/v1' }
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('div[title="admin.accounts.cnProviders.noBalanceEndpoint"]').exists()).toBe(true)
+  })
+
+  it('Cline 账号渲染 ClinePass 窗口与积分余额单元格', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 9104,
+          platform: 'cline',
+          type: 'apikey',
+          credentials: { api_key: 'sk-cline' }
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(true)
+    // 子单元格可见时不显示 `-` 占位符（按量账号与订阅账号用同一套单元格）。
+    expect(wrapper.text()).not.toContain('-')
+  })
+
   it('Antigravity 图片用量会聚合新旧 image 模型', async () => {
     getUsage.mockResolvedValue({
       antigravity_quota: {
@@ -907,150 +952,6 @@ describe('AccountUsageCell', () => {
     // 单一数据源：始终使用 /usage API 返回值，忽略 codex 快照
     expect(wrapper.text()).toContain('5h|18|900')
     expect(wrapper.text()).toContain('7d|36|900')
-  })
-
-  it('OpenCode Go API key 会展示估算的 5h/7d/30d 用量并支持刷新', async () => {
-    const usagePayload = {
-      five_hour: {
-        utilization: 25,
-        resets_at: null,
-        remaining_seconds: 0,
-        estimated: true,
-        source: 'estimated',
-        source_label: 'Based on Sub2API logs',
-        window_stats: {
-          requests: 4,
-          tokens: 600,
-          cost: 3,
-          standard_cost: 3,
-          user_cost: 3
-        }
-      },
-      seven_day: {
-        utilization: 50,
-        resets_at: null,
-        remaining_seconds: 0,
-        estimated: true,
-        source: 'estimated',
-        source_label: 'Based on Sub2API logs',
-        window_stats: {
-          requests: 8,
-          tokens: 1200,
-          cost: 15,
-          standard_cost: 15,
-          user_cost: 15
-        }
-      },
-      thirty_day: {
-        utilization: 75,
-        resets_at: null,
-        remaining_seconds: 0,
-        estimated: true,
-        source: 'estimated',
-        source_label: 'Based on Sub2API logs',
-        window_stats: {
-          requests: 12,
-          tokens: 2400,
-          cost: 45,
-          standard_cost: 45,
-          user_cost: 45
-        }
-      }
-    }
-    getUsage.mockResolvedValue(usagePayload)
-
-    const wrapper = mount(AccountUsageCell, {
-      props: {
-        account: makeAccount({
-          id: 5001,
-          platform: 'opencode_go',
-          type: 'apikey',
-          extra: {}
-        })
-      },
-      global: {
-        stubs: {
-          UsageProgressBar: {
-            props: ['label', 'utilization', 'windowStats'],
-            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ windowStats?.tokens }}</div>'
-          },
-          AccountQuotaInfo: true
-        }
-      }
-    })
-
-    await flushPromises()
-
-    expect(getUsage).toHaveBeenCalledWith(5001)
-    expect(wrapper.text()).toContain('5h|25|600')
-    expect(wrapper.text()).toContain('7d|50|1200')
-    expect(wrapper.text()).toContain('30d|75|2400')
-    expect(wrapper.text()).toContain('admin.accounts.usageWindow.estimatedData')
-    expect(wrapper.find('span[title="Based on Sub2API logs"]').exists()).toBe(true)
-
-    await wrapper.find('button').trigger('click')
-    await flushPromises()
-
-    expect(getUsage).toHaveBeenLastCalledWith(5001, 'active', true)
-  })
-
-  it('OpenCode Go API key 会展示官方 Console 用量来源和 reset 时间', async () => {
-    getUsage.mockResolvedValue({
-      five_hour: {
-        utilization: 19,
-        resets_at: '2026-06-22T05:43:10Z',
-        remaining_seconds: 5590,
-        source: 'official_console',
-        source_label: 'OpenCode official Console',
-        window_stats: null
-      },
-      seven_day: {
-        utilization: 7,
-        resets_at: '2026-06-29T05:43:10Z',
-        remaining_seconds: 588490,
-        source: 'official_console',
-        source_label: 'OpenCode official Console',
-        window_stats: null
-      },
-      thirty_day: {
-        utilization: 10,
-        resets_at: '2026-07-22T05:43:10Z',
-        remaining_seconds: 2265176,
-        source: 'official_console',
-        source_label: 'OpenCode official Console',
-        window_stats: null
-      }
-    })
-
-    const wrapper = mount(AccountUsageCell, {
-      props: {
-        account: makeAccount({
-          id: 5002,
-          platform: 'opencode_go',
-          type: 'apikey',
-          extra: {}
-        })
-      },
-      global: {
-        stubs: {
-          UsageProgressBar: {
-            props: ['label', 'utilization', 'resetsAt'],
-            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ resetsAt }}</div>'
-          },
-          AccountQuotaInfo: true
-        }
-      }
-    })
-
-    await flushPromises()
-
-    expect(getUsage).toHaveBeenCalledWith(5002)
-    expect(wrapper.text()).toContain('5h|19|2026-06-22T05:43:10Z')
-    expect(wrapper.text()).toContain('7d|7|2026-06-29T05:43:10Z')
-    expect(wrapper.text()).toContain('30d|10|2026-07-22T05:43:10Z')
-    expect(wrapper.text()).toContain('official')
-    expect(wrapper.find('span[title="OpenCode official Console"]').exists()).toBe(true)
-    expect(wrapper.text()).not.toContain('admin.accounts.usageWindow.estimatedData')
   })
 
 

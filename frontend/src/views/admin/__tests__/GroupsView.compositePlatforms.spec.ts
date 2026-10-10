@@ -3,19 +3,7 @@ import { COMPOSITE_ROUTE_PLATFORM_OPTIONS, CONCRETE_PLATFORM_OPTIONS } from '@/c
 
 describe('GroupsView Composite route options', () => {
   it('offers exactly the backend-supported route targets', () => {
-    expect(COMPOSITE_ROUTE_PLATFORM_OPTIONS.map((option) => option.value)).toEqual([
-      'anthropic',
-      'openai',
-      'gemini',
-      'antigravity',
-      'grok',
-      'opencode_go',
-      'kimi',
-      'zhipu',
-      'deepseek',
-      'minimax',
-      'typesafe'
-    ])
+    expect(COMPOSITE_ROUTE_PLATFORM_OPTIONS.map((option) => option.value)).toEqual(['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe', 'command_code', 'cline', 'openrouter'])
   })
 
   it('keeps locally supported concrete providers available', () => {

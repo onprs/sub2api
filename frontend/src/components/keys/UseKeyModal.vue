@@ -421,9 +421,9 @@ const defaultClientTab = computed(() => {
     case 'antigravity':
       return 'claude'
     case 'opencode_go':
-    case 'clinepass':
+    case 'cline':
     case 'openrouter':
-    case 'commandcode':
+    case 'command_code':
       return 'opencode'
     case 'typesafe':
       return 'systemone'
@@ -548,9 +548,9 @@ const clientTabs = computed((): TabConfig[] => {
       ]
     case 'antigravity':
     case 'opencode_go':
-    case 'clinepass':
+    case 'cline':
     case 'openrouter':
-    case 'commandcode':
+    case 'command_code':
       return [
         { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
         { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
@@ -635,9 +635,9 @@ const platformDescription = computed(() => {
       return t('keys.useKeyModal.gemini.description')
     case 'antigravity':
     case 'opencode_go':
-    case 'clinepass':
+    case 'cline':
     case 'openrouter':
-    case 'commandcode':
+    case 'command_code':
       if (activeClientTab.value === 'codex') {
         return t('keys.useKeyModal.openai.description')
       }
@@ -707,9 +707,9 @@ const platformNote = computed(() => {
         ? t('keys.useKeyModal.openai.noteWindows')
         : t('keys.useKeyModal.openai.note')
     case 'opencode_go':
-    case 'clinepass':
+    case 'cline':
     case 'openrouter':
-    case 'commandcode':
+    case 'command_code':
       if (activeClientTab.value === 'gemini') {
         return t('keys.useKeyModal.gemini.note')
       }
@@ -918,7 +918,7 @@ const currentFiles = computed((): FileConfig[] => {
         ]
       case 'opencode_go':
         return [generateOpenCodeConfig('opencode', apiBase, apiKey)]
-      case 'clinepass':
+      case 'cline':
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
       case 'grok':
         return [generateOpenCodeConfig('grok', apiBase, apiKey)]
@@ -957,9 +957,9 @@ const currentFiles = computed((): FileConfig[] => {
       }
       return generateAnthropicFiles(baseUrl, apiKey)
     case 'opencode_go':
-    case 'clinepass':
+    case 'cline':
     case 'openrouter':
-    case 'commandcode':
+    case 'command_code':
       if (activeClientTab.value === 'codex') {
         return generateRoutedCodexFiles(apiBase, apiKey, props.platform)
       }
@@ -1485,9 +1485,9 @@ function generateRoutedCodexFiles(
     antigravity: 'claude-sonnet-4-6',
     grok: 'grok-4.5',
     opencode_go: 'gpt-5.6-luna',
-    clinepass: 'cline-pass/glm-5.2',
+    cline: 'cline-pass/glm-5.2',
     openrouter: 'openrouter/free',
-    commandcode: 'gpt-5.6-sol',
+    command_code: 'gpt-5.6-sol',
     kimi: 'kimi-k2.5',
     zhipu: 'glm-4.7',
     deepseek: 'deepseek-v4-pro',
@@ -1503,14 +1503,14 @@ function generateRoutedCodexFiles(
     antigravity: 'Antigravity',
     grok: 'Grok',
     opencode_go: 'OpenCode',
-    clinepass: 'ClinePass',
     openrouter: 'OpenRouter',
-    commandcode: 'Command Code',
     kimi: 'Kimi',
     zhipu: 'Zhipu',
     deepseek: 'DeepSeek',
     minimax: 'MiniMax',
     typesafe: 'TypeSafe / Jev',
+    command_code: 'Command Code',
+    cline: 'Cline',
     composite: 'Composite'
   }
   const label = labels[platform]

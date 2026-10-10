@@ -1281,7 +1281,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
-	if platform == service.PlatformClinePass {
+	if platform == service.PlatformCline {
 		writeModelsList(c, platform, service.ClinePassDefaultModelIDs())
 		return
 	}
@@ -1563,7 +1563,7 @@ func defaultModelIDsForPlatform(platform string) []string {
 		return ids
 	case service.PlatformOpenCodeGo:
 		return service.DefaultOpenCodeGoModelIDs()
-	case service.PlatformClinePass:
+	case service.PlatformCline:
 		return service.ClinePassDefaultModelIDs()
 	case service.PlatformOpenRouter:
 		return service.OpenRouterDefaultModelIDs()
@@ -1580,10 +1580,13 @@ func defaultModelIDsForPlatform(platform string) []string {
 	case service.PlatformComposite:
 		ids := make([]string, 0)
 		seen := make(map[string]struct{})
-		// TypeSafe is deliberately absent: jev-latest only works through
-		// /v1/systemone, so the static fallback never advertises it to LLM
-		// clients. compositeAvailableModels lists it when the group can serve it.
-		for _, concretePlatform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo} {
+		for _, concretePlatform := range domain.CompositePrecedencePlatformIDs() {
+			// TypeSafe is deliberately skipped: jev-latest only works through
+			// /v1/systemone, so the static fallback never advertises it to LLM
+			// clients. compositeAvailableModels lists it when the group can serve it.
+			if concretePlatform == service.PlatformTypeSafe {
+				continue
+			}
 			for _, id := range defaultModelIDsForPlatform(concretePlatform) {
 				if _, ok := seen[id]; ok {
 					continue

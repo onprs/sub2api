@@ -126,7 +126,7 @@ const isOverloaded = computed(() => props.account?.overload_until && new Date(pr
 const isTempUnschedulable = computed(() => props.account?.temp_unschedulable_until && new Date(props.account.temp_unschedulable_until) > new Date())
 const hasRecoverableState = computed(() => {
   return (
-    (props.account?.platform === 'commandcode' && props.account?.type === 'apikey') ||
+    (props.account?.platform === 'command_code' && props.account?.type === 'apikey') ||
     props.account?.status === 'error' ||
     Boolean(isRateLimited.value) ||
     Boolean(isOverloaded.value) ||

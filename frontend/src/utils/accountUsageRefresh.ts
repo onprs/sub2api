@@ -64,8 +64,8 @@ export const buildOpenAIUsageRefreshKey = (account: Pick<Account, 'id' | 'platfo
   ].map(normalizeUsageRefreshValue).join('|')
 }
 
-export const buildClinePassUsageRefreshKey = (account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'extra'>): string => {
-  if (account.platform !== 'clinepass' || account.type !== 'apikey') return ''
+export const buildClineUsageRefreshKey = (account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'extra'>): string => {
+  if (account.platform !== 'cline' || account.type !== 'apikey') return ''
 
   const extra = account.extra ?? {}
   return [
@@ -74,13 +74,13 @@ export const buildClinePassUsageRefreshKey = (account: Pick<Account, 'id' | 'pla
     extra.clinepass_usage_auth_status,
     extra.clinepass_usage_last_error_at,
     extra.clinepass_usage_source,
-    extra.clinepass_usage_updated_at,
-    extra.clinepass_usage_5h_used_percent,
-    extra.clinepass_usage_5h_resets_at,
-    extra.clinepass_usage_7d_used_percent,
-    extra.clinepass_usage_7d_resets_at,
-    extra.clinepass_usage_30d_used_percent,
-    extra.clinepass_usage_30d_resets_at
+    extra.cline_usage_updated_at,
+    extra.cline_5h_used_percent,
+    extra.cline_5h_reset_at,
+    extra.cline_weekly_used_percent,
+    extra.cline_weekly_reset_at,
+    extra.cline_monthly_used_percent,
+    extra.cline_monthly_reset_at
   ].map(normalizeUsageRefreshValue).join('|')
 }
 
@@ -104,7 +104,7 @@ export const buildOpenRouterUsageRefreshKey = (account: Pick<Account, 'id' | 'pl
 }
 
 export const buildCommandCodeUsageRefreshKey = (account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'extra'>): string => {
-  if (account.platform !== 'commandcode' || account.type !== 'apikey') return ''
+  if (account.platform !== 'command_code' || account.type !== 'apikey') return ''
 
   const extra = account.extra ?? {}
   return [
@@ -113,16 +113,16 @@ export const buildCommandCodeUsageRefreshKey = (account: Pick<Account, 'id' | 'p
     extra.commandcode_usage_auth_status,
     extra.commandcode_usage_last_error_at,
     extra.commandcode_usage_source,
-    extra.commandcode_usage_updated_at,
+    extra.command_code_usage_updated_at,
     extra.commandcode_usage_plan_id,
     extra.commandcode_usage_period_end,
     extra.commandcode_usage_balance_usd,
-    extra.commandcode_usage_5h_used_percent,
-    extra.commandcode_usage_5h_resets_at,
-    extra.commandcode_usage_7d_used_percent,
-    extra.commandcode_usage_7d_resets_at,
-    extra.commandcode_usage_30d_used_percent,
-    extra.commandcode_usage_30d_resets_at
+    extra.command_code_5h_used_percent,
+    extra.command_code_5h_reset_at,
+    extra.command_code_weekly_used_percent,
+    extra.command_code_weekly_reset_at,
+    extra.command_code_monthly_used_percent,
+    extra.command_code_monthly_reset_at
   ].map(normalizeUsageRefreshValue).join('|')
 }
 
@@ -149,7 +149,7 @@ export const buildAccountUsageRefreshKey = (
 ): string => {
   return buildOpenAIUsageRefreshKey(account) ||
     buildAPIKeyBalanceRefreshKey(account) ||
-    buildClinePassUsageRefreshKey(account) ||
+    buildClineUsageRefreshKey(account) ||
     buildOpenRouterUsageRefreshKey(account) ||
     buildCommandCodeUsageRefreshKey(account) ||
     buildGrokUsageRefreshKey(account)

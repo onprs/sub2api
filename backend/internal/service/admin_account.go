@@ -70,30 +70,6 @@ func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 	return accounts, nil
 }
 
-func normalizeAndValidateClinePassAccount(platform, accountType string, credentials map[string]any) error {
-	if platform != PlatformClinePass {
-		return nil
-	}
-	if accountType != AccountTypeAPIKey {
-		return infraerrors.BadRequest("CLINEPASS_ACCOUNT_TYPE_INVALID", "ClinePass accounts must use type=apikey")
-	}
-	apiKey, _ := credentials["api_key"].(string)
-	if strings.TrimSpace(apiKey) == "" {
-		return infraerrors.BadRequest("CLINEPASS_API_KEY_REQUIRED", "ClinePass api_key is required")
-	}
-	baseURL := strings.TrimSpace(fmt.Sprint(credentials["base_url"]))
-	if baseURL == "" || baseURL == "<nil>" {
-		credentials["base_url"] = DefaultClinePassBaseURL
-		return nil
-	}
-	normalized, err := validateClinePassBaseURL(nil, baseURL)
-	if err != nil {
-		return infraerrors.BadRequest("CLINEPASS_BASE_URL_INVALID", err.Error())
-	}
-	credentials["base_url"] = strings.TrimRight(normalized, "/")
-	return nil
-}
-
 func normalizeAndValidateOpenRouterAccount(platform, accountType string, credentials map[string]any) error {
 	if platform != PlatformOpenRouter {
 		return nil
@@ -113,30 +89,6 @@ func normalizeAndValidateOpenRouterAccount(platform, accountType string, credent
 	normalized, err := validateOpenRouterBaseURL(nil, baseURL)
 	if err != nil {
 		return infraerrors.BadRequest("OPENROUTER_BASE_URL_INVALID", err.Error())
-	}
-	credentials["base_url"] = strings.TrimRight(normalized, "/")
-	return nil
-}
-
-func normalizeAndValidateCommandCodeAccount(platform, accountType string, credentials map[string]any) error {
-	if platform != PlatformCommandCode {
-		return nil
-	}
-	if accountType != AccountTypeAPIKey {
-		return infraerrors.BadRequest("COMMANDCODE_ACCOUNT_TYPE_INVALID", "Command Code accounts must use type=apikey")
-	}
-	apiKey, _ := credentials["api_key"].(string)
-	if strings.TrimSpace(apiKey) == "" {
-		return infraerrors.BadRequest("COMMANDCODE_API_KEY_REQUIRED", "Command Code api_key is required")
-	}
-	baseURL := strings.TrimSpace(fmt.Sprint(credentials["base_url"]))
-	if baseURL == "" || baseURL == "<nil>" {
-		credentials["base_url"] = DefaultCommandCodeBaseURL
-		return nil
-	}
-	normalized, err := validateCommandCodeBaseURL(nil, baseURL)
-	if err != nil {
-		return infraerrors.BadRequest("COMMANDCODE_BASE_URL_INVALID", err.Error())
 	}
 	credentials["base_url"] = strings.TrimRight(normalized, "/")
 	return nil
@@ -396,7 +348,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
-	if err := NormalizeOpenCodeGoProtocolRulesCredentials(input.Credentials); err != nil {
+	if err := NormalizeProtocolRulesCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
 	duplicate, err := buildAccountForCreate(input, accountExtra)
@@ -482,6 +434,11 @@ var accountUsageSnapshotExtraKeyPrefixes = []string{
 }
 
 func isAccountUsageSnapshotExtraKey(key string) bool {
+	for _, profile := range providerProfiles {
+		if strings.HasPrefix(key, profile.Platform+"_") {
+			return true
+		}
+	}
 	switch key {
 	case "codex_usage_updated_at", "session_window_utilization", "grok_usage_snapshot":
 		return true
@@ -602,13 +559,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if input == nil {
 		return nil, ErrAccountNilInput
 	}
-	if err := normalizeAndValidateClinePassAccount(input.Platform, input.Type, input.Credentials); err != nil {
-		return nil, err
-	}
 	if err := normalizeAndValidateOpenRouterAccount(input.Platform, input.Type, input.Credentials); err != nil {
-		return nil, err
-	}
-	if err := normalizeAndValidateCommandCodeAccount(input.Platform, input.Type, input.Credentials); err != nil {
 		return nil, err
 	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
@@ -654,7 +605,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
-	if err := NormalizeOpenCodeGoProtocolRulesCredentials(input.Credentials); err != nil {
+	if err := NormalizeProtocolRulesCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
 	// Never persist ephemeral SSO/password secrets after OAuth conversion.
@@ -795,7 +746,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if err := NormalizeHeaderOverrideCredentials(account.Credentials); err != nil {
 			return nil, err
 		}
-		if err := NormalizeOpenCodeGoProtocolRulesCredentials(account.Credentials); err != nil {
+		if err := NormalizeProtocolRulesCredentials(account.Credentials); err != nil {
 			return nil, err
 		}
 		// Strip SSO/password residue that must never sit next to OAuth tokens.
@@ -983,13 +934,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if input.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *input.AutoPauseOnExpired
 	}
-	if err := normalizeAndValidateClinePassAccount(account.Platform, account.Type, account.Credentials); err != nil {
-		return nil, err
-	}
 	if err := normalizeAndValidateOpenRouterAccount(account.Platform, account.Type, account.Credentials); err != nil {
-		return nil, err
-	}
-	if err := normalizeAndValidateCommandCodeAccount(account.Platform, account.Type, account.Credentials); err != nil {
 		return nil, err
 	}
 
@@ -1403,7 +1348,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
-	if err := NormalizeOpenCodeGoProtocolRulesCredentials(input.Credentials); err != nil {
+	if err := NormalizeProtocolRulesCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
 	// Bulk may mix platforms; always drop ephemeral SSO/password keys (cookie

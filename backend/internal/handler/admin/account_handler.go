@@ -1279,7 +1279,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 // 网关会按"现状即证据"默认走 Responses。
 func (h *AccountHandler) scheduleOpenAIResponsesProbe(account *service.Account) {
 	if account == nil || account.Type != service.AccountTypeAPIKey ||
-		(account.Platform != service.PlatformOpenAI && !service.IsCNProvider(account.Platform)) {
+		(account.Platform != service.PlatformOpenAI && !account.RoutesProtocolByInbound()) {
 		return
 	}
 	if h.accountTestService == nil {
@@ -1395,17 +1395,6 @@ func (h *AccountHandler) RecoverState(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
-	}
-	if account != nil && account.IsCommandCodeAPIKey() && h.accountUsageService != nil {
-		if err := h.accountUsageService.RefreshCommandCodeUsage(c.Request.Context(), accountID); err != nil {
-			response.ErrorFrom(c, err)
-			return
-		}
-		account, err = h.adminService.GetAccount(c.Request.Context(), accountID)
-		if err != nil {
-			response.ErrorFrom(c, err)
-			return
-		}
 	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
@@ -2998,7 +2987,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	if account.IsClinePass() {
+	if account.IsCline() {
 		response.Success(c, clinePassAvailableModels(account))
 		return
 	}

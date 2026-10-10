@@ -223,7 +223,7 @@ func TestAccountIsModelSupported(t *testing.T) {
 		},
 		{
 			name:     "clinepass bare model matches full slug mapping",
-			platform: PlatformClinePass,
+			platform: PlatformCline,
 			credentials: map[string]any{
 				"model_mapping": map[string]any{
 					"cline-pass/glm-5.2": "cline-pass/glm-5.2",
@@ -234,7 +234,7 @@ func TestAccountIsModelSupported(t *testing.T) {
 		},
 		{
 			name:     "clinepass unknown bare model stays unsupported",
-			platform: PlatformClinePass,
+			platform: PlatformCline,
 			credentials: map[string]any{
 				"model_mapping": map[string]any{
 					"cline-pass/glm-5.2": "cline-pass/glm-5.2",
@@ -418,8 +418,16 @@ func TestAccountGetMappedModel(t *testing.T) {
 			expected:       "gemini-3.1-pro-preview-customtools",
 		},
 		{
+			name:     "Cline 直接按量映射优先于订阅短名兼容",
+			platform: PlatformCline,
+			credentials: map[string]any{"model_mapping": map[string]any{
+				"glm-5.2": "glm-payg", "cline-pass/glm-5.2": "cline-pass/glm-5.2",
+			}},
+			requestedModel: "glm-5.2", expected: "glm-payg",
+		},
+		{
 			name:     "clinepass bare model resolves through full slug mapping",
-			platform: PlatformClinePass,
+			platform: PlatformCline,
 			credentials: map[string]any{
 				"model_mapping": map[string]any{
 					"cline-pass/glm-5.2": "cline-pass/glm-5.2",

@@ -581,14 +581,14 @@
           </template>
 
           <template #cell-usage_clinepass="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'clinepass')" />
+            <PlatformCostCell :usage="getPlatformUsage(row.id, 'cline')" />
           </template>
 
           <template #cell-usage_openrouter="{ row }">
             <PlatformCostCell :usage="getPlatformUsage(row.id, 'openrouter')" />
           </template>
           <template #cell-usage_commandcode="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'commandcode')" />
+            <PlatformCostCell :usage="getPlatformUsage(row.id, 'command_code')" />
           </template>
 
           <template #cell-concurrency="{ row }">
@@ -1048,9 +1048,9 @@ const USAGE_COLUMN_PLATFORMS: Record<string, string | null> = {
   usage_gemini: 'gemini',
   usage_antigravity: 'antigravity',
   usage_opencode_go: 'opencode_go',
-  usage_clinepass: 'clinepass',
+  usage_clinepass: 'cline',
   usage_openrouter: 'openrouter',
-  usage_commandcode: 'commandcode'
+  usage_commandcode: 'command_code'
 }
 const PLATFORM_USAGE_COLUMNS = USAGE_COLUMN_KEYS.filter((k) => k !== 'usage')
 const hasVisibleUsageColumn = computed(

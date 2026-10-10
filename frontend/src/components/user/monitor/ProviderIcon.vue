@@ -1,10 +1,10 @@
 <template>
   <ClineIcon
-    v-if="provider === 'clinepass'"
+    v-if="provider === 'cline'"
     :size="size"
   />
   <CommandCodeIcon
-    v-else-if="provider === 'commandcode'"
+    v-else-if="provider === 'command_code'"
     :size="size"
   />
   <svg

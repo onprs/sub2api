@@ -17,7 +17,7 @@ func TestUpstreamBillingProbeIdentityCoversAllAPIKeyPlatforms(t *testing.T) {
 	for _, platform := range []string{
 		PlatformOpenAI, PlatformGrok, PlatformAnthropic, PlatformGemini, PlatformAntigravity,
 		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax,
-		PlatformOpenCodeGo, PlatformClinePass, PlatformOpenRouter, PlatformCommandCode,
+		PlatformOpenCodeGo, PlatformCline, PlatformOpenRouter, PlatformCommandCode,
 		PlatformTypeSafe,
 	} {
 		require.True(t, IsUpstreamBillingProbeIdentity(platform, AccountTypeAPIKey), platform)
@@ -176,7 +176,7 @@ func TestUpstreamBillingProbeOfficialAPIBaseURLIsUnsupportedWithoutRequest(t *te
 		{PlatformDeepseek, "https://api.deepseek.com/anthropic"},
 		// 专用 API Key 平台的官方默认域同样不能接收 sub2api 探测请求。
 		{PlatformOpenCodeGo, DefaultOpenCodeGoBaseURL},
-		{PlatformClinePass, DefaultClinePassBaseURL},
+		{PlatformCline, DefaultClineBaseURL},
 		{PlatformOpenRouter, DefaultOpenRouterBaseURL},
 		{PlatformCommandCode, DefaultCommandCodeBaseURL},
 		{PlatformOpenCodeGo, "https://opencode.ai/zen/go/v1"},
@@ -226,7 +226,7 @@ func TestUpstreamBillingProbeOfficialAPIHostMatchingIsNormalized(t *testing.T) {
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://api.deepseek.com/anthropic"))
 	// 专用 API Key 平台官方域及子域。
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI(DefaultOpenCodeGoBaseURL))
-	require.True(t, upstreamBillingProbeTargetIsOfficialAPI(DefaultClinePassBaseURL))
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI(DefaultClineBaseURL))
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI(DefaultOpenRouterBaseURL))
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI(DefaultCommandCodeBaseURL))
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://opencode.ai/zen/go/v1"))

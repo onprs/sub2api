@@ -1,44 +1,23 @@
+import { reactive, watchSyncEffect } from 'vue'
 import type { AccountPlatform, GroupPlatform } from '@/types'
+import { listPlatforms } from './platformCatalog'
 
-export interface PlatformOption<T extends string = string> {
+// 使用类型别名以兼容通用 Select 组件的选项类型。
+export type PlatformOption<T extends string = string> = {
   value: T
   label: string
 }
 
-const CORE_PLATFORM_OPTIONS = [
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'gemini', label: 'Gemini' },
-  { value: 'antigravity', label: 'Antigravity' },
-  { value: 'grok', label: 'Grok' },
-  { value: 'opencode_go', label: 'OpenCode' }
-] as const satisfies readonly PlatformOption<AccountPlatform>[]
+/** 账号和组合路由共用官方平台清单。 */
+export const CONCRETE_PLATFORM_OPTIONS: PlatformOption<AccountPlatform>[] = reactive([])
+export const COMPOSITE_ROUTE_PLATFORM_OPTIONS = CONCRETE_PLATFORM_OPTIONS
+export const GROUP_PLATFORM_OPTIONS: PlatformOption<GroupPlatform>[] = reactive([])
 
-const CN_PLATFORM_OPTIONS = [
-  { value: 'kimi', label: 'Kimi' },
-  { value: 'zhipu', label: 'Zhipu GLM' },
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'minimax', label: 'MiniMax' },
-  { value: 'typesafe', label: 'TypeSafe / Jev' }
-] as const satisfies readonly PlatformOption<AccountPlatform>[]
-
-/** Platforms supported as Composite model route targets. */
-export const COMPOSITE_ROUTE_PLATFORM_OPTIONS = [
-  ...CORE_PLATFORM_OPTIONS,
-  ...CN_PLATFORM_OPTIONS
-] as const satisfies readonly PlatformOption<AccountPlatform>[]
-
-/** Concrete account platforms, including locally supported providers. */
-export const CONCRETE_PLATFORM_OPTIONS = [
-  ...CORE_PLATFORM_OPTIONS,
-  { value: 'clinepass', label: 'ClinePass' },
-  { value: 'openrouter', label: 'OpenRouter' },
-  { value: 'commandcode', label: 'Command Code' },
-  ...CN_PLATFORM_OPTIONS
-] as const satisfies readonly PlatformOption<AccountPlatform>[]
-
-/** Platforms that can own a group. */
-export const GROUP_PLATFORM_OPTIONS = [
-  ...CONCRETE_PLATFORM_OPTIONS,
-  { value: 'composite', label: 'Composite' }
-] as const satisfies readonly PlatformOption<GroupPlatform>[]
+watchSyncEffect(() => {
+  const concrete = listPlatforms().map(spec => ({ value: spec.id, label: spec.display_name }))
+  CONCRETE_PLATFORM_OPTIONS.splice(0, CONCRETE_PLATFORM_OPTIONS.length, ...concrete)
+  GROUP_PLATFORM_OPTIONS.splice(0, GROUP_PLATFORM_OPTIONS.length, ...concrete, {
+    value: 'composite',
+    label: 'Composite'
+  })
+})

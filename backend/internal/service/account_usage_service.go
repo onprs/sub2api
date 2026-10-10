@@ -307,9 +307,7 @@ type AccountUsageService struct {
 	cache                   *UsageCache
 	identityCache           IdentityCache
 	tlsFPProfileService     *TLSFingerprintProfileService
-	clinePassClient         *ClinePassClient
 	openRouterClient        *OpenRouterClient
-	commandCodeClient       *CommandCodeClient
 	httpUpstream            HTTPUpstream
 	cfg                     *config.Config
 	agentIdentityTaskMu     sync.Mutex
@@ -330,9 +328,7 @@ func NewAccountUsageService(
 	cache *UsageCache,
 	identityCache IdentityCache,
 	tlsFPProfileService *TLSFingerprintProfileService,
-	clinePassClient *ClinePassClient,
 	openRouterClient *OpenRouterClient,
-	commandCodeClient *CommandCodeClient,
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
 ) *AccountUsageService {
@@ -348,9 +344,7 @@ func NewAccountUsageService(
 		cache:                   cache,
 		identityCache:           identityCache,
 		tlsFPProfileService:     tlsFPProfileService,
-		clinePassClient:         clinePassClient,
 		openRouterClient:        openRouterClient,
-		commandCodeClient:       commandCodeClient,
 		httpUpstream:            httpUpstream,
 		cfg:                     cfg,
 	}
@@ -389,16 +383,12 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 		return s.getAPIKeyUpstreamBalance(ctx, account)
 	}
 
-	if account.IsClinePassAPIKey() {
-		return s.getClinePassUsage(ctx, account, forceProbe)
+	if account.IsCline() || account.IsCommandCode() {
+		return s.GetStoredUsageSnapshot(account, time.Now())
 	}
 
 	if account.IsOpenRouterAPIKey() {
 		return s.getOpenRouterUsage(ctx, account, forceProbe)
-	}
-
-	if account.IsCommandCodeAPIKey() {
-		return s.getCommandCodeUsage(ctx, account, forceProbe)
 	}
 
 	if account.Platform == PlatformOpenAI && account.Type == AccountTypeOAuth {

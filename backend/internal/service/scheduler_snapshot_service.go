@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"golang.org/x/sync/singleflight"
 )
@@ -771,10 +772,10 @@ func (s *SchedulerSnapshotService) handleBulkAccountEvent(ctx context.Context, p
 			continue
 		}
 		accountGroupIDs := s.normalizeGroupIDs(account.GroupIDs)
-		switch account.Platform {
-		case PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe:
+		switch {
+		case account.Platform != PlatformAntigravity && isConcreteRequestPlatform(account.Platform):
 			addPlatformGroups(account.Platform, accountGroupIDs)
-		case PlatformAntigravity:
+		case account.Platform == PlatformAntigravity:
 			// 批量更新可能刚关闭 mixed_scheduling，仍需清理两个兼容平台的旧快照。
 			addPlatformGroups(PlatformAntigravity, accountGroupIDs)
 			addPlatformGroups(PlatformAnthropic, accountGroupIDs)
@@ -987,23 +988,9 @@ func (s *SchedulerSnapshotService) rebuildByAccount(ctx context.Context, account
 	return s.rebuildBuckets(ctx, buckets, reason)
 }
 
-func schedulerSnapshotPlatforms() [14]string {
-	return [14]string{
-		PlatformAnthropic,
-		PlatformGemini,
-		PlatformOpenAI,
-		PlatformAntigravity,
-		PlatformGrok,
-		PlatformOpenCodeGo,
-		PlatformClinePass,
-		PlatformOpenRouter,
-		PlatformCommandCode,
-		PlatformKimi,
-		PlatformZhipu,
-		PlatformDeepseek,
-		PlatformMiniMax,
-		PlatformTypeSafe,
-	}
+// schedulerSnapshotPlatforms 返回需要维护调度快照的全部具体平台（平台清单）。
+func schedulerSnapshotPlatforms() []string {
+	return domain.CompositePrecedencePlatformIDs()
 }
 
 // 生命周期辅助函数有意排除 group0；full rebuild 构造 group0 canonical 集时必须显式调用 canonical helper。
@@ -1819,7 +1806,7 @@ func (s *SchedulerSnapshotService) fullRebuildInterval() time.Duration {
 // defaultBuckets 返回 group0 的 9 平台桶 + 活跃分组桶；simple 模式或 groupRepo 缺失时仅返回 group0。
 func (s *SchedulerSnapshotService) defaultBuckets(ctx context.Context) ([]SchedulerBucket, error) {
 	buckets := make([]SchedulerBucket, 0)
-	platforms := []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformOpenCodeGo, PlatformClinePass, PlatformOpenRouter, PlatformCommandCode}
+	platforms := []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformOpenCodeGo, PlatformCline, PlatformOpenRouter, PlatformCommandCode}
 	for _, platform := range platforms {
 		buckets = append(buckets, SchedulerBucket{GroupID: 0, Platform: platform, Mode: SchedulerModeSingle})
 		buckets = append(buckets, SchedulerBucket{GroupID: 0, Platform: platform, Mode: SchedulerModeForced})

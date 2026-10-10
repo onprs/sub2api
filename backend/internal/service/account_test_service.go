@@ -150,9 +150,7 @@ type AccountTestService struct {
 	cfg                       *config.Config
 	settingService            *SettingService
 	tlsFPProfileService       *TLSFingerprintProfileService
-	clinePassClient           *ClinePassClient
 	openRouterClient          *OpenRouterClient
-	commandCodeClient         *CommandCodeClient
 	modelMetadataRegistryMu   sync.Mutex
 	modelMetadataRegistry     map[string]modelsDevProvider
 	modelMetadataRegistryAt   time.Time
@@ -274,9 +272,7 @@ func NewAccountTestService(
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
 	tlsFPProfileService *TLSFingerprintProfileService,
-	clinePassClient *ClinePassClient,
 	openRouterClient *OpenRouterClient,
-	commandCodeClient *CommandCodeClient,
 ) *AccountTestService {
 	return &AccountTestService{
 		accountRepo:               accountRepo,
@@ -287,9 +283,7 @@ func NewAccountTestService(
 		httpUpstream:              httpUpstream,
 		cfg:                       cfg,
 		tlsFPProfileService:       tlsFPProfileService,
-		clinePassClient:           clinePassClient,
 		openRouterClient:          openRouterClient,
-		commandCodeClient:         commandCodeClient,
 	}
 }
 
@@ -403,19 +397,11 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	// Route to platform-specific test method
-	if account.IsClinePass() {
-		return s.testClinePassAccountConnection(c, account, modelID)
-	}
 	if account.IsOpenRouter() {
 		return s.testOpenRouterAccountConnection(c, account, modelID)
 	}
-	if account.IsCommandCode() {
-		return s.testCommandCodeAccountConnection(c, account, modelID)
-	}
-	if account.IsOpenCodeGo() {
-		return s.testOpenCodeGoAccountConnection(c, account, modelID, prompt)
-	}
-	if account.IsCNProvider() {
+	// 按入站协议分流的多协议供应商（国产厂商等）：按账号协议选测试路径。
+	if account.RoutesProtocolByInbound() {
 		switch account.GetAPIProtocol() {
 		case APIProtocolAdaptive:
 			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt)
@@ -444,46 +430,16 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.routeAntigravityTest(c, account, modelID, prompt)
 	}
 
+	// 按模型分流的多模型聚合平台（OpenCode、Command Code 等）。
+	if account.routesByModel() {
+		return s.testModelRoutedAccountConnection(c, account, modelID, prompt)
+	}
+
 	if account.IsTypeSafe() {
 		return s.testTypeSafeAccountConnection(c, account, prompt)
 	}
 
 	return s.testClaudeAccountConnection(c, account, modelID)
-}
-
-func (s *AccountTestService) testClinePassAccountConnection(c *gin.Context, account *Account, requestedModel string) error {
-	if account == nil || !account.IsClinePassAPIKey() {
-		return s.sendErrorAndEnd(c, "ClinePass accounts must use API key credentials")
-	}
-	if s.clinePassClient == nil {
-		return s.sendErrorAndEnd(c, "ClinePass client is not configured")
-	}
-	modelID, err := accountGenerationTestModel(account, requestedModel)
-	if err != nil {
-		return s.sendErrorAndEnd(c, err.Error())
-	}
-
-	prepareAccountTestEventStream(c)
-	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过 Chat Completions 发起真实 ClinePass 生成请求"})
-	s.sendEvent(c, TestEvent{Type: "test_start", Model: modelID})
-
-	payload, err := createAccountGenerationTestPayload(modelID)
-	if err != nil {
-		return s.sendErrorAndEnd(c, "Failed to create ClinePass generation test payload")
-	}
-	probe, recorder := newAccountGenerationProbeContext(c.Request.Context(), payload)
-	gateway := NewClinePassGatewayService(s.clinePassClient, s.cfg, nil)
-	if _, err := gateway.ForwardChatCompletions(c.Request.Context(), probe, account, payload); err != nil {
-		return s.sendErrorAndEnd(c, "ClinePass generation test failed: "+accountGenerationProbeError(err, recorder.Body.Bytes()))
-	}
-	text := strings.TrimSpace(extractGatewayChatText(recorder.Body.Bytes()))
-	if text == "" {
-		return s.sendErrorAndEnd(c, "ClinePass generation test returned no visible response text")
-	}
-
-	s.sendEvent(c, TestEvent{Type: "content", Text: text})
-	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-	return nil
 }
 
 func (s *AccountTestService) testOpenRouterAccountConnection(c *gin.Context, account *Account, requestedModel string) error {
@@ -521,83 +477,6 @@ func (s *AccountTestService) testOpenRouterAccountConnection(c *gin.Context, acc
 	return nil
 }
 
-func (s *AccountTestService) testCommandCodeAccountConnection(c *gin.Context, account *Account, requestedModel string) error {
-	if account == nil || !account.IsCommandCodeAPIKey() {
-		return s.sendErrorAndEnd(c, "Command Code accounts must use API key credentials")
-	}
-	if s.commandCodeClient == nil {
-		return s.sendErrorAndEnd(c, "Command Code client is not configured")
-	}
-	modelID, err := accountGenerationTestModel(account, requestedModel)
-	if err != nil {
-		return s.sendErrorAndEnd(c, err.Error())
-	}
-
-	// claude-* 模型必须走 Anthropic Messages 端点，其余模型走 Chat Completions。
-	protocol, protocolOK := account.ResolveCommandCodeModelProtocol(modelID)
-	useMessages := protocolOK && protocol == CommandCodeProtocolMessages
-	statusText := "正在通过 Chat Completions 发起真实 Command Code 生成请求"
-	if useMessages {
-		statusText = "正在通过 Anthropic Messages 发起真实 Command Code 生成请求"
-	}
-
-	prepareAccountTestEventStream(c)
-	s.sendEvent(c, TestEvent{Type: "status", Text: statusText})
-	s.sendEvent(c, TestEvent{Type: "test_start", Model: modelID})
-
-	var (
-		payload []byte
-	)
-	if useMessages {
-		anthropicPayload, buildErr := createCommandCodeMessagesTestPayload(modelID)
-		if buildErr != nil {
-			return s.sendErrorAndEnd(c, "Failed to create Command Code generation test payload")
-		}
-		payload = anthropicPayload
-	} else {
-		chatPayload, buildErr := createAccountGenerationTestPayload(modelID)
-		if buildErr != nil {
-			return s.sendErrorAndEnd(c, "Failed to create Command Code generation test payload")
-		}
-		payload = chatPayload
-	}
-
-	probe, recorder := newAccountGenerationProbeContext(c.Request.Context(), payload)
-	gateway := NewCommandCodeGatewayService(s.commandCodeClient, s.cfg, nil)
-	var forwardErr error
-	if useMessages {
-		_, forwardErr = gateway.ForwardMessages(c.Request.Context(), probe, account, payload)
-	} else {
-		_, forwardErr = gateway.ForwardChatCompletions(c.Request.Context(), probe, account, payload)
-	}
-	if forwardErr != nil {
-		return s.sendErrorAndEnd(c, "Command Code generation test failed: "+accountGenerationProbeError(forwardErr, recorder.Body.Bytes()))
-	}
-	var text string
-	if useMessages {
-		text = strings.TrimSpace(gjson.GetBytes(recorder.Body.Bytes(), "content.0.text").String())
-	} else {
-		text = strings.TrimSpace(extractGatewayChatText(recorder.Body.Bytes()))
-	}
-	if text == "" {
-		return s.sendErrorAndEnd(c, "Command Code generation test returned no visible response text")
-	}
-
-	s.sendEvent(c, TestEvent{Type: "content", Text: text})
-	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-	return nil
-}
-
-func createCommandCodeMessagesTestPayload(modelID string) ([]byte, error) {
-	return json.Marshal(map[string]any{
-		"model":      modelID,
-		"max_tokens": 64,
-		"messages": []map[string]string{
-			{"role": "user", "content": "Reply with exactly: ok"},
-		},
-	})
-}
-
 func accountGenerationTestModel(account *Account, requestedModel string) (string, error) {
 	if modelID := strings.TrimSpace(requestedModel); modelID != "" {
 		return modelID, nil
@@ -620,13 +499,6 @@ func accountGenerationTestModel(account *Account, requestedModel string) (string
 		}
 	}
 
-	if account.IsClinePass() {
-		models := ClinePassDefaultModelIDs()
-		if len(models) > 0 {
-			return models[0], nil
-		}
-		return "", fmt.Errorf("no ClinePass model is available for generation testing")
-	}
 	if account.IsOpenRouter() {
 		models := OpenRouterDefaultModelIDs()
 		if len(models) > 0 {
@@ -650,37 +522,43 @@ func createAccountGenerationTestPayload(modelID string) ([]byte, error) {
 
 // testOpenCodeGoAccountConnection probes the native endpoint for the selected
 // model. Adaptive accounts (the default) follow OpenCodeGoModelProtocol:
+
+// testModelRoutedAccountConnection probes the native endpoint for the selected
+// model on providers that route by model (see ProviderRoutingByModel). Adaptive
+// accounts (the default) follow the provider's protocol rules, e.g. OpenCode Go:
 // grok/gpt/muse-spark → Responses, minimax/qwen → Anthropic, everything else
 // (including deepseek-v4-flash) → Chat Completions. A pinned api_protocol
 // overrides that catalog. Falling through to the generic Claude tester used
 // credentials.base_url + /v1/messages?beta=true, which 404s as HTML on
 // https://opencode.ai/zen/go/v1/v1/messages.
-func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+func (s *AccountTestService) testModelRoutedAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
-		testModelID = DefaultOpenCodeGoTestModel
+		testModelID = account.providerDefaultTestModel()
+	}
+	if testModelID == "" {
+		testModelID = openai.DefaultTestModel
 	}
 	testModelID = account.GetMappedModel(testModelID)
-	if IsOpenCodeUnsupportedModel(testModelID) {
+	if account.IsOpenCodeGo() && IsOpenCodeUnsupportedModel(testModelID) {
 		return fmt.Errorf("model %q is not supported on OpenCode standard gateway (gemini models require Google SDK endpoint, jev models require System One endpoint)", testModelID)
 	}
-	proto := account.GetAPIProtocol()
-	switch proto {
-	case APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses:
-	default:
-		proto = openCodeGoNativeProtocol(account, testModelID)
+	// 与网关同一判定（含上游模型目录）；测试没有入站协议，取模型的首选协议。
+	protocol := account.resolveModelRoutedProtocol(testModelID)
+	if s.openaiGatewayService != nil {
+		protocol = s.openaiGatewayService.resolveUpstreamProtocolFor(c.Request.Context(), account, "", testModelID)
 	}
-	switch proto {
+	switch protocol {
 	case APIProtocolAnthropic:
 		return s.testCNProviderAnthropicConnection(c, account, testModelID)
 	case APIProtocolResponses:
-		return s.testOpenCodeGoResponsesConnection(c, account, testModelID)
+		return s.testModelRoutedResponsesConnection(c, account, testModelID)
 	default:
 		return s.testCNProviderChatCompletionsConnection(c, account, testModelID, prompt)
 	}
 }
 
-func (s *AccountTestService) testOpenCodeGoResponsesConnection(c *gin.Context, account *Account, testModelID string) error {
+func (s *AccountTestService) testModelRoutedResponsesConnection(c *gin.Context, account *Account, testModelID string) error {
 	authToken := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
 	if authToken == "" {
 		return s.sendErrorAndEnd(c, "No API key available")
@@ -730,6 +608,9 @@ func accountGenerationProbeError(probeErr error, responseBody []byte) string {
 
 func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	testModelID := strings.TrimSpace(modelID)
+	if testModelID == "" {
+		testModelID = account.providerDefaultTestModel()
+	}
 	if testModelID == "" {
 		testModelID = openai.DefaultTestModel
 	}

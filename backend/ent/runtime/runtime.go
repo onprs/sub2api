@@ -5,7 +5,6 @@ package runtime
 import (
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/ent/schema"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
 	"github.com/Wei-Shaw/sub2api/ent/announcement"
@@ -34,6 +33,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
+	"github.com/Wei-Shaw/sub2api/ent/schema"
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
@@ -935,7 +935,21 @@ func init() {
 	// compositemodelroute.DefaultTargetPlatform holds the default value on creation for the target_platform field.
 	compositemodelroute.DefaultTargetPlatform = compositemodelrouteDescTargetPlatform.Default.(string)
 	// compositemodelroute.TargetPlatformValidator is a validator for the "target_platform" field. It is called by the builders before save.
-	compositemodelroute.TargetPlatformValidator = compositemodelrouteDescTargetPlatform.Validators[0].(func(string) error)
+	compositemodelroute.TargetPlatformValidator = func() func(string) error {
+		validators := compositemodelrouteDescTargetPlatform.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(target_platform string) error {
+			for _, fn := range fns {
+				if err := fn(target_platform); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
 	// compositemodelrouteDescUpstreamModel is the schema descriptor for upstream_model field.
 	compositemodelrouteDescUpstreamModel := compositemodelrouteFields[4].Descriptor()
 	// compositemodelroute.DefaultUpstreamModel holds the default value on creation for the upstream_model field.

@@ -242,7 +242,7 @@ describe('admin AccountsView usage windows hint', () => {
         {
           id: 82,
           name: 'Command Code usage account',
-          platform: 'commandcode',
+          platform: 'command_code',
           type: 'apikey',
           status: 'active',
           schedulable: true,

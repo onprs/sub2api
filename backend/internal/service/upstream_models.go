@@ -625,7 +625,7 @@ func upstreamModelRegistryBaseURL(account *Account) string {
 		return ""
 	}
 	switch {
-	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo():
+	case account.IsOpenAI() || account.IsMultiProtocolAPIKey():
 		return account.GetOpenAIFormatBaseURL()
 	case account.IsGrok():
 		return account.GetGrokBaseURL()
@@ -736,13 +736,6 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		models, err := s.fetchAntigravityOAuthUpstreamModels(ctx, account)
 		return models, nil, err
 	}
-	if account.IsClinePassAPIKey() {
-		models := defaultClinePassCatalog.ModelIDs(ctx)
-		if len(models) == 0 {
-			return nil, nil, newUpstreamModelSyncUpstreamError("ClinePass model catalog is unavailable", nil)
-		}
-		return models, nil, nil
-	}
 	if account.IsOpenRouterAPIKey() {
 		models := defaultOpenRouterCatalog.ModelIDs(ctx)
 		if len(models) == 0 {
@@ -813,11 +806,10 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
 		return s.buildGrokUpstreamModelsRequest(ctx, account)
-	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo():
-		// 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go
-		// 复用 OpenAI /v1/models 探测。
+	case account.IsOpenAI() || account.IsMultiProtocolAPIKey():
+		// 多协议 API Key 供应商（国产厂商与聚合平台）复用 OpenAI /v1/models 探测。
 		return s.buildOpenAIUpstreamModelsRequest(ctx, account)
-	case account.IsClinePass():
+	case account.IsCline():
 		return nil, newUpstreamModelSyncUnsupportedError("ClinePass uses its dedicated public catalog", nil)
 	case account.IsOpenRouter():
 		return nil, newUpstreamModelSyncUnsupportedError("OpenRouter uses its dedicated public catalog", nil)

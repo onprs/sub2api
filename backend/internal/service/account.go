@@ -115,17 +115,11 @@ const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
 const GrokMediaEligibleExtraKey = "grok_media_eligible"
 
 const (
-	DefaultClinePassBaseURL   = "https://api.cline.bot/api/v1"
-	DefaultOpenRouterBaseURL  = "https://openrouter.ai/api/v1"
-	DefaultCommandCodeBaseURL = "https://api.commandcode.ai"
+	DefaultOpenRouterBaseURL = "https://openrouter.ai/api/v1"
 )
 
 // Command Code 上游原生协议：claude-* 模型走 Anthropic Messages，
 // 其余模型走 OpenAI Chat Completions。Provider API 不提供 Responses 入口。
-const (
-	CommandCodeProtocolChatCompletions = "chat_completions"
-	CommandCodeProtocolMessages        = "messages"
-)
 
 const (
 	OpenAIAuthModePersonalAccessToken = "personalAccessToken"
@@ -323,7 +317,7 @@ func (a *Account) IsCNProvider() bool {
 // openai/grok 原生走 OpenAI 网关；国产供应商同为 OpenAI Chat Completions
 // 兼容上游，也经 OpenAI 网关转发。OpenCode 同样经 OpenAI 网关按模型分流。
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCodeGo())
+	return a != nil && domain.UsesOpenAIGateway(a.Platform)
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -846,7 +840,8 @@ func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 		return ""
 	}
 	switch platform {
-	case PlatformClinePass:
+	case PlatformCline:
+		// 仅在显式模型映射匹配时兼容订阅模型短名，直接映射和按量模型保持优先。
 		lower := strings.ToLower(trimmed)
 		switch {
 		case strings.HasPrefix(lower, "cline-pass/"):
@@ -1461,24 +1456,12 @@ func (a *Account) IsAnthropicAPIKey() bool {
 	return a != nil && a.Platform == PlatformAnthropic && a.Type == AccountTypeAPIKey
 }
 
-func (a *Account) IsClinePass() bool {
-	return a != nil && a.Platform == PlatformClinePass
-}
-
-func (a *Account) IsClinePassAPIKey() bool {
-	return a.IsClinePass() && a.Type == AccountTypeAPIKey
-}
-
 func (a *Account) IsOpenRouter() bool {
 	return a != nil && a.Platform == PlatformOpenRouter
 }
 
 func (a *Account) IsOpenRouterAPIKey() bool {
 	return a.IsOpenRouter() && a.Type == AccountTypeAPIKey
-}
-
-func (a *Account) IsCommandCode() bool {
-	return a != nil && a.Platform == PlatformCommandCode
 }
 
 func (a *Account) IsCommandCodeAPIKey() bool {
@@ -1530,10 +1513,7 @@ func (a *Account) IsOpenAIApiKey() bool {
 // 适用 openai、国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go；
 // grok 走 GetGrokBaseURL，此处对 grok 返回 "" 以保持原有行为。
 func (a *Account) GetOpenAIBaseURL() string {
-	if a.IsZCodeOAuth() {
-		return a.zcodeBaseURL()
-	}
-	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() {
+	if !a.IsOpenAI() && !a.IsMultiProtocolAPIKey() {
 		return ""
 	}
 	if a.IsMultiProtocolAPIKey() && a.IsAdaptiveAPIProtocol() {
@@ -1548,27 +1528,11 @@ func (a *Account) GetOpenAIBaseURL() string {
 			return baseURL
 		}
 	}
-	// 平台默认 base_url：CN 供应商按 account_mode 选择 payg / coding 默认值。
-	switch a.Platform {
-	case PlatformKimi:
-		if a.GetAccountMode() == AccountModeCoding {
-			return DefaultKimiCodingBaseURL
-		}
-		return DefaultKimiPayGBaseURL
-	case PlatformZhipu:
-		if a.GetAccountMode() == AccountModeCoding {
-			return DefaultZhipuCodingBaseURL
-		}
-		return DefaultZhipuPayGBaseURL
-	case PlatformDeepseek:
-		return DefaultDeepseekBaseURL
-	case PlatformMiniMax:
-		return DefaultMiniMaxBaseURL
-	case PlatformOpenCodeGo:
-		return a.openCodeDefaultChatBaseURL()
-	default:
-		return "https://api.openai.com"
+	// 平台默认 base_url：多协议供应商按 account_mode 查 provider profile。
+	if baseURL := a.defaultProviderBaseURL(APIProtocolChatCompletions); baseURL != "" {
+		return baseURL
 	}
+	return "https://api.openai.com"
 }
 
 // GetAccountMode 返回国产供应商账号的接入模式（payg / coding）；非国产供应商或未设置时
@@ -1615,7 +1579,8 @@ func (a *Account) GetAPIProtocol() string {
 	case APIProtocolChatCompletions:
 		return APIProtocolChatCompletions
 	}
-	if a.IsOpenCodeGo() {
+	// 按模型分流的供应商（多模型聚合平台）未显式配置时默认 adaptive。
+	if a.routesByModel() {
 		return APIProtocolAdaptive
 	}
 	return APIProtocolChatCompletions
@@ -1625,15 +1590,7 @@ func (a *Account) GetAPIProtocol() string {
 // DeepSeek 官方为 /responses（无 /v1）；Kimi 按量付费与 Coding Plan 均为
 // /v1/responses（moonshot.cn / kimi.com/coding）；MiniMax 为 /v1/responses。
 func (a *Account) SupportsNativeCNResponses() bool {
-	if a == nil {
-		return false
-	}
-	switch a.Platform {
-	case PlatformDeepseek, PlatformKimi, PlatformMiniMax, PlatformOpenCodeGo:
-		return true
-	default:
-		return false
-	}
+	return a.providerSupportsProtocol(APIProtocolResponses)
 }
 
 // UsesNativeCNResponses 报告当前账号是否应按原生 Responses 协议转发
@@ -1674,48 +1631,7 @@ func (a *Account) GetCNProtocolBaseURL(protocol string) string {
 			}
 		}
 	}
-	return a.defaultCNProtocolBaseURL(protocol)
-}
-
-func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
-	switch protocol {
-	case APIProtocolAnthropic:
-		switch a.Platform {
-		case PlatformKimi:
-			if a.GetAccountMode() == AccountModeCoding {
-				return DefaultKimiCodingAnthropicBaseURL
-			}
-			return DefaultKimiPayGAnthropicBaseURL
-		case PlatformZhipu:
-			return DefaultZhipuAnthropicBaseURL
-		case PlatformDeepseek:
-			return DefaultDeepseekAnthropicBaseURL
-		case PlatformMiniMax:
-			return DefaultMiniMaxAnthropicBaseURL
-		case PlatformOpenCodeGo:
-			return a.openCodeDefaultAnthropicBaseURL()
-		}
-	case APIProtocolChatCompletions, APIProtocolResponses:
-		switch a.Platform {
-		case PlatformKimi:
-			if a.GetAccountMode() == AccountModeCoding {
-				return DefaultKimiCodingBaseURL
-			}
-			return DefaultKimiPayGBaseURL
-		case PlatformZhipu:
-			if a.GetAccountMode() == AccountModeCoding {
-				return DefaultZhipuCodingBaseURL
-			}
-			return DefaultZhipuPayGBaseURL
-		case PlatformDeepseek:
-			return DefaultDeepseekBaseURL
-		case PlatformMiniMax:
-			return DefaultMiniMaxBaseURL
-		case PlatformOpenCodeGo:
-			return a.openCodeDefaultChatBaseURL()
-		}
-	}
-	return ""
+	return a.defaultProviderBaseURL(protocol)
 }
 
 // IsAnthropicProtocol 报告账号是否以原生 Anthropic 协议接入上游
@@ -1742,23 +1658,7 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 			return baseURL
 		}
 	}
-	switch a.Platform {
-	case PlatformKimi:
-		if a.GetAccountMode() == AccountModeCoding {
-			return DefaultKimiCodingAnthropicBaseURL
-		}
-		return DefaultKimiPayGAnthropicBaseURL
-	case PlatformZhipu:
-		return DefaultZhipuAnthropicBaseURL
-	case PlatformDeepseek:
-		return DefaultDeepseekAnthropicBaseURL
-	case PlatformMiniMax:
-		return DefaultMiniMaxAnthropicBaseURL
-	case PlatformOpenCodeGo:
-		return a.openCodeDefaultAnthropicBaseURL()
-	default:
-		return ""
-	}
+	return a.defaultProviderBaseURL(APIProtocolAnthropic)
 }
 
 // GetOpenAIFormatBaseURL 返回供 OpenAI 格式端点（/v1/models、/v1/chat/completions
@@ -1770,26 +1670,10 @@ func (a *Account) GetOpenAIFormatBaseURL() string {
 	if a == nil || !a.IsAnthropicProtocol() {
 		return a.GetOpenAIBaseURL()
 	}
-	switch a.Platform {
-	case PlatformKimi:
-		if a.GetAccountMode() == AccountModeCoding {
-			return DefaultKimiCodingBaseURL
-		}
-		return DefaultKimiPayGBaseURL
-	case PlatformZhipu:
-		if a.GetAccountMode() == AccountModeCoding {
-			return DefaultZhipuCodingBaseURL
-		}
-		return DefaultZhipuPayGBaseURL
-	case PlatformDeepseek:
-		return DefaultDeepseekBaseURL
-	case PlatformMiniMax:
-		return DefaultMiniMaxBaseURL
-	case PlatformOpenCodeGo:
-		return a.openCodeDefaultChatBaseURL()
-	default:
-		return a.GetOpenAIBaseURL()
+	if baseURL := a.defaultProviderBaseURL(APIProtocolChatCompletions); baseURL != "" {
+		return baseURL
 	}
+	return a.GetOpenAIBaseURL()
 }
 
 // GetCNAPIKey 返回国产 OpenAI 兼容供应商账号的 api_key 凭据（kimi/zhipu/deepseek）。
@@ -1801,7 +1685,8 @@ func (a *Account) GetCNAPIKey() string {
 	return a.GetCredential("api_key")
 }
 
-// GetCodingPlanProvider 根据 base_url 识别 Coding Plan 供应商（kimi / zhipu / minimax），
+// GetCodingPlanProvider 根据 base_url 识别 Coding Plan 供应商（kimi / zhipu / minimax；
+// OpenCode Go 订阅与官方主机上的 Command Code、Cline 账号按平台识别），
 // 用于路由到对应的额度查询端点。非 coding 模式或无法识别时返回空串。
 // 只认官方域名：自定义中转不得把第三方 Key 发往厂商官方额度端点。
 func (a *Account) GetCodingPlanProvider() string {
@@ -1810,6 +1695,18 @@ func (a *Account) GetCodingPlanProvider() string {
 	}
 	if a.IsOpenCodeGoPlan() {
 		return PlatformOpenCodeGo
+	}
+	if a.IsCommandCode() {
+		if a.commandCodeUsageSupported() {
+			return PlatformCommandCode
+		}
+		return ""
+	}
+	if a.IsCline() {
+		if a.clineAccountAPISupported() {
+			return PlatformCline
+		}
+		return ""
 	}
 	if a.GetAccountMode() != AccountModeCoding {
 		return ""
@@ -1936,24 +1833,6 @@ func (a *Account) GetOpenAIApiKey() string {
 	return a.GetCredential("api_key")
 }
 
-func (a *Account) GetClinePassAPIKey() string {
-	if !a.IsClinePassAPIKey() {
-		return ""
-	}
-	return strings.TrimSpace(a.GetCredential("api_key"))
-}
-
-func (a *Account) GetClinePassBaseURL() string {
-	if !a.IsClinePass() {
-		return ""
-	}
-	baseURL := strings.TrimRight(strings.TrimSpace(a.GetCredential("base_url")), "/")
-	if baseURL == "" {
-		return DefaultClinePassBaseURL
-	}
-	return baseURL
-}
-
 func (a *Account) GetOpenRouterAPIKey() string {
 	if !a.IsOpenRouterAPIKey() {
 		return ""
@@ -1972,38 +1851,9 @@ func (a *Account) GetOpenRouterBaseURL() string {
 	return baseURL
 }
 
-func (a *Account) GetCommandCodeAPIKey() string {
-	if !a.IsCommandCodeAPIKey() {
-		return ""
-	}
-	return strings.TrimSpace(a.GetCredential("api_key"))
-}
-
-func (a *Account) GetCommandCodeBaseURL() string {
-	if !a.IsCommandCode() {
-		return ""
-	}
-	baseURL := strings.TrimRight(strings.TrimSpace(a.GetCredential("base_url")), "/")
-	if baseURL == "" {
-		return DefaultCommandCodeBaseURL
-	}
-	return baseURL
-}
-
 // ResolveCommandCodeModelProtocol 返回上游模型应使用的 Command Code 原生协议。
 // Command Code 严格要求 claude-* 模型走 Anthropic Messages，其余模型走 OpenAI
 // Chat Completions；错误端点会返回 400 invalid_request_error。
-func (a *Account) ResolveCommandCodeModelProtocol(upstreamModel string) (string, bool) {
-	model := strings.ToLower(strings.TrimSpace(upstreamModel))
-	if model == "" {
-		return "", false
-	}
-	model = strings.TrimPrefix(model, "commandcode/")
-	if strings.HasPrefix(model, "claude-") {
-		return CommandCodeProtocolMessages, true
-	}
-	return CommandCodeProtocolChatCompletions, true
-}
 
 // GetOpenAIProtocolAPIKey 返回 OpenAI 协议族 APIKey 账号的密钥。
 // 覆盖 openai 原生账号、国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）
@@ -3209,104 +3059,6 @@ func (a *Account) HasAnyQuotaLimit() bool {
 	return a.GetQuotaLimit() > 0 || a.GetQuotaDailyLimit() > 0 || a.GetQuotaWeeklyLimit() > 0
 }
 
-var clinePassOfficialUsageQuotaWindows = [...]string{"5h", "7d", "30d"}
-
-const clinePassMissingResetBackoff = 10 * time.Minute
-
-func (a *Account) IsClinePassOfficialUsageExhausted() bool {
-	return a.ClinePassOfficialUsageRateLimitResetAt(time.Now()) != nil
-}
-
-// IsCommandCodeOfficialUsageExhausted 报告官方快照是否显示账号当前完全无法服务。
-func (a *Account) IsCommandCodeOfficialUsageExhausted() bool {
-	return a.CommandCodeOfficialUsageRateLimitResetAt(time.Now()) != nil
-}
-
-// CommandCodeOfficialUsageRateLimitResetAt 返回账号应被限流到的最早解禁时间。
-// Command Code 语义：窗口限额只约束月度额度，充值（purchased/free）余额
-// 可绕过窗口限制；因此仅在充值余额耗尽且（任一窗口用满或月度额度耗尽）
-// 时返回解禁时间：窗口用满取窗口 resetAt，月度耗尽取订阅周期结束时间，
-// 取两者中最晚的（需所有枯竭维度都恢复后账号才能服务）。其余情况返回 nil。
-func (a *Account) CommandCodeOfficialUsageRateLimitResetAt(now time.Time) *time.Time {
-	if a == nil || !a.IsCommandCodeAPIKey() || len(a.Extra) == 0 {
-		return nil
-	}
-	if strings.TrimSpace(a.getExtraString("commandcode_usage_source")) != commandCodeUsageSourceOfficialAPI {
-		return nil
-	}
-	if now.IsZero() {
-		now = time.Now()
-	}
-	// 充值余额可绕过窗口与月度限制：余额未耗尽时不限流。
-	balance := a.getExtraFloat64("commandcode_usage_purchased_usd") + a.getExtraFloat64("commandcode_usage_free_usd")
-	if balance > commandCodeBalanceExhaustedEpsilon {
-		return nil
-	}
-
-	var latest *time.Time
-	recordLater := func(resetAt time.Time) {
-		if resetAt.IsZero() || !now.Before(resetAt) {
-			return
-		}
-		if latest == nil || resetAt.After(*latest) {
-			copyResetAt := resetAt
-			latest = &copyResetAt
-		}
-	}
-
-	windowExhausted := false
-	for _, window := range []string{"5h", "7d"} {
-		if a.getExtraFloat64("commandcode_usage_"+window+"_used_percent") < 100 {
-			continue
-		}
-		windowExhausted = true
-		if resetAt := a.getExtraTime("commandcode_usage_" + window + "_resets_at"); !resetAt.IsZero() {
-			recordLater(resetAt)
-		}
-	}
-	monthlyExhausted := a.getExtraFloat64("commandcode_usage_monthly_usd") <= commandCodeBalanceExhaustedEpsilon &&
-		a.getExtraFloat64("commandcode_usage_30d_used_percent") >= 100
-	if monthlyExhausted {
-		if periodEnd := a.getExtraTime("commandcode_usage_period_end"); !periodEnd.IsZero() {
-			recordLater(periodEnd)
-		}
-	}
-	if !windowExhausted && !monthlyExhausted {
-		return nil
-	}
-	return latest
-}
-func (a *Account) ClinePassOfficialUsageRateLimitResetAt(now time.Time) *time.Time {
-	if a == nil || !a.IsClinePassAPIKey() || len(a.Extra) == 0 {
-		return nil
-	}
-	if strings.TrimSpace(a.getExtraString("clinepass_usage_source")) != clinePassUsageSourceOfficialAPI {
-		return nil
-	}
-	if now.IsZero() {
-		now = time.Now()
-	}
-	updatedAt := a.getExtraTime("clinepass_usage_updated_at")
-	var latest *time.Time
-	for _, window := range clinePassOfficialUsageQuotaWindows {
-		if a.getExtraFloat64("clinepass_usage_"+window+"_used_percent") < 100 {
-			continue
-		}
-		resetAt := a.getExtraTime("clinepass_usage_" + window + "_resets_at")
-		if resetAt.IsZero() && !updatedAt.IsZero() {
-			resetAt = updatedAt.Add(clinePassMissingResetBackoff)
-		}
-		if resetAt.IsZero() || !now.Before(resetAt) {
-			continue
-		}
-		if latest == nil || resetAt.After(*latest) {
-			copyResetAt := resetAt
-			latest = &copyResetAt
-		}
-	}
-	return latest
-}
-
 // isPeriodExpired 检查指定周期（自 periodStart 起经过 dur）是否已过期
 func isPeriodExpired(periodStart time.Time, dur time.Duration) bool {
 	if periodStart.IsZero() {
@@ -3335,9 +3087,6 @@ func (a *Account) IsWeeklyQuotaPeriodExpired() bool {
 
 // IsQuotaExceeded 检查 API Key 账号配额是否已超限（任一维度超限即返回 true）
 func (a *Account) IsQuotaExceeded() bool {
-	if a.IsClinePassOfficialUsageExhausted() || a.IsCommandCodeOfficialUsageExhausted() {
-		return true
-	}
 	// 总额度
 	if limit := a.GetQuotaLimit(); limit > 0 && a.GetQuotaUsed() >= limit {
 		return true

@@ -5,8 +5,37 @@ vi.mock('@/api/admin/accounts', () => ({
 }))
 
 import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
+import { BUILTIN_PLATFORM_CATALOG, resetPlatformCatalog, setPlatformCatalog } from '@/constants/platformCatalog'
 
 describe('useModelWhitelist', () => {
+  it('平台清单中没有内置模型列表的多协议供应商不预填白名单', () => {
+    setPlatformCatalog({
+      ...BUILTIN_PLATFORM_CATALOG,
+      platforms: [
+        ...BUILTIN_PLATFORM_CATALOG.platforms,
+        {
+          id: 'acme_router',
+          display_name: 'Acme Router',
+          gateway: 'openai',
+          cn_provider: false,
+          multi_protocol: {
+            default_mode: 'standard',
+            routing: 'by_model',
+            modes: [{ mode: 'standard', base_urls: { chat_completions: 'https://api.acme-router.example/v1' } }]
+          }
+        }
+      ]
+    })
+    try {
+      expect(getModelsByPlatform('acme_router')).toEqual([])
+      expect(getModelsByPlatform('kimi').length).toBeGreaterThan(0)
+      // 非多协议供应商的未知平台维持原有回退。
+      expect(getModelsByPlatform('bedrock')).toEqual(getModelsByPlatform('anthropic'))
+    } finally {
+      resetPlatformCatalog()
+    }
+  })
+
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {
     const models = getModelsByPlatform('openai')
 
@@ -27,38 +56,8 @@ describe('useModelWhitelist', () => {
     expect(new Set(models).size).toBe(models.length)
   })
 
-  it('Command Code 模型列表与最新 GOAT 目录一致', () => {
-    const models = getModelsByPlatform('commandcode')
-
-    expect(models).toHaveLength(62)
-    expect(models).toEqual(expect.arrayContaining([
-      'gpt-6-luna',
-      'claude-sonnet-5-5',
-      'deepseek/deepseek-v4.1-flash-fast',
-      'inclusionai/ling-3.1-flash:free',
-      'stealth/space-bunny-alpha',
-      'z-ai/glm-5.3-flashx',
-      'Qwen/Qwen3.8-Omni-Flash',
-      'google/gemini-3.8-flash',
-      'meta/muse-spark-1.3',
-      'meta/muse-spark-1.3-contributor',
-      'deepseek/deepseek-v4-flash-fast',
-      'deepseek/deepseek-v4.1-flash',
-      'stepfun/Step-5-Preview',
-      'xai/grok-4.7',
-      'xiaomi/mimo-v2.6-flash',
-      'xiaomi/mimo-v2.6-pro',
-      'xiaomi/mimo-v2.6-pro-ultraspeed',
-      'Qwen/Qwen3.8-Max-0902',
-      'Qwen/Qwen3.8-Flash',
-      'tencent/hy4-preview',
-      'meituan/LongCat-2.0',
-      'inclusionai/ling-3.0-flash-sante:free'
-    ]))
-    expect(models).not.toContain('stealth/pixel-canary')
-    expect(models).not.toContain('typesafe/jev')
-    expect(models).not.toContain('minimax/minimax-m3-free')
-    expect(models).not.toContain('minimax/minimax-m2.7-free')
+  it.each(['command_code', 'cline'])('%s 的模型映射由官方目录和管理员选择维护', (platform) => {
+    expect(getModelsByPlatform(platform)).toEqual([])
   })
 
   it('openai 预设映射包含 GPT-6 别名和 Astra', () => {

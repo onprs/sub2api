@@ -32,9 +32,7 @@ type standardProtocolGateway interface {
 // OpenCodeGoGatewayHandler handles standard protocol gateway requests for
 // OpenCode Go and ClinePass groups.
 type OpenCodeGoGatewayHandler struct {
-	clinePassService          *service.ClinePassGatewayService
 	openRouterService         *service.OpenRouterGatewayService
-	commandCodeService        *service.CommandCodeGatewayService
 	gatewayService            *service.GatewayService
 	billingCacheService       *service.BillingCacheService
 	billingEligibilityService service.BillingEligibilityResolver
@@ -50,9 +48,7 @@ type OpenCodeGoGatewayHandler struct {
 
 // NewOpenCodeGoGatewayHandler creates an OpenCode Go gateway handler.
 func NewOpenCodeGoGatewayHandler(
-	clinePassService *service.ClinePassGatewayService,
 	openRouterService *service.OpenRouterGatewayService,
-	commandCodeService *service.CommandCodeGatewayService,
 	gatewayService *service.GatewayService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
@@ -72,9 +68,7 @@ func NewOpenCodeGoGatewayHandler(
 		}
 	}
 	return &OpenCodeGoGatewayHandler{
-		clinePassService:          clinePassService,
 		openRouterService:         openRouterService,
-		commandCodeService:        commandCodeService,
 		gatewayService:            gatewayService,
 		billingCacheService:       billingCacheService,
 		billingEligibilityService: billingEligibilityService,
@@ -581,12 +575,8 @@ func (h *OpenCodeGoGatewayHandler) gatewayForPlatform(platform string) standardP
 		return nil
 	}
 	switch platform {
-	case service.PlatformClinePass:
-		return h.clinePassService
 	case service.PlatformOpenRouter:
 		return h.openRouterService
-	case service.PlatformCommandCode:
-		return h.commandCodeService
 	default:
 		return nil
 	}

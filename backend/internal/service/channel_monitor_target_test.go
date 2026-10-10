@@ -270,7 +270,7 @@ func TestChannelMonitorCreateLegacyExternalEncryptsCredentials(t *testing.T) {
 	repo := &channelMonitorTargetRepoStub{}
 	svc := NewChannelMonitorService(repo, &channelMonitorTargetEncryptorStub{})
 	params := validMonitorCreateParams()
-	params.Provider = MonitorProviderClinePass
+	params.Provider = MonitorProviderCline
 	params.Endpoint = "https://1.1.1.1/v1/"
 	params.APIKey = "external-secret"
 
@@ -297,7 +297,7 @@ func TestChannelMonitorUpdateExternalProviderRequiresNewAPIKey(t *testing.T) {
 		BodyOverrideMode: MonitorBodyOverrideModeOff,
 	}}
 	svc := NewChannelMonitorService(repo, &channelMonitorTargetEncryptorStub{})
-	provider := MonitorProviderClinePass
+	provider := MonitorProviderCline
 
 	_, err := svc.Update(context.Background(), 44, ChannelMonitorUpdateParams{Provider: &provider})
 	require.ErrorIs(t, err, ErrChannelMonitorMissingAPIKey)
@@ -309,7 +309,7 @@ func TestChannelMonitorUpdateExternalProviderRequiresNewAPIKey(t *testing.T) {
 		APIKey:   &apiKey,
 	})
 	require.NoError(t, err)
-	require.Equal(t, MonitorProviderClinePass, monitor.Provider)
+	require.Equal(t, MonitorProviderCline, monitor.Provider)
 	require.Equal(t, "new-secret", monitor.APIKey)
 	require.Equal(t, "encrypted:new-secret", repo.existing.APIKey)
 }

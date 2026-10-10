@@ -420,7 +420,7 @@ func DefaultModelIDsForPlatform(platform string) []string {
 		return ids
 	case PlatformOpenCodeGo:
 		return DefaultOpenCodeGoModelIDs()
-	case PlatformClinePass:
+	case PlatformCline:
 		return ClinePassDefaultModelIDs()
 	case PlatformOpenRouter:
 		return OpenRouterDefaultModelIDs()

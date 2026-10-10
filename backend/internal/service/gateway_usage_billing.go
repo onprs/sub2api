@@ -958,7 +958,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	user := input.User
 	account := input.Account
 	subscription := input.Subscription
-	if account != nil && (account.IsClinePass() || account.IsOpenRouter() || account.IsCommandCode()) {
+	if account != nil && (account.IsCline() || account.IsOpenRouter() || account.IsCommandCode()) {
 		opts.PricingPlatform = account.Platform
 	}
 	ApplyForwardImageBillingResolution(result)
@@ -1063,7 +1063,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		ctx, result, apiKey, billingModels, multiplier, imageMultiplier, ratePlan.StaticMultiplier, pricingAt, opts,
 	)
 	if costErr != nil {
-		if account != nil && (account.IsOpenCodeGo() || account.IsClinePass() || account.IsOpenRouter() || account.IsCommandCode()) && isUsagePricingUnavailableError(costErr) {
+		if account != nil && (account.IsOpenCodeGo() || account.IsCline() || account.IsOpenRouter() || account.IsCommandCode()) && isUsagePricingUnavailableError(costErr) {
 			return costErr
 		}
 		logger.LegacyPrintf("service.gateway", "Calculate cost failed for billing models %s: %v", strings.Join(billingModels, ","), costErr)

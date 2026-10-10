@@ -147,7 +147,7 @@ describe('AccountActionMenu viewport positioning', () => {
         show: true,
         account: {
           id: 8287,
-          platform: 'commandcode',
+          platform: 'command_code',
           type: 'apikey',
           status: 'active',
           schedulable: true

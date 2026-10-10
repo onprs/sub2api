@@ -12,7 +12,7 @@ import (
 )
 
 func TestChannelMonitorClinePassProviderAdapter(t *testing.T) {
-	adapter, apiMode, ok := providerAdapterFor(MonitorProviderClinePass, MonitorAPIModeChatCompletions)
+	adapter, apiMode, ok := providerAdapterFor(MonitorProviderCline, MonitorAPIModeChatCompletions)
 	require.True(t, ok)
 	require.Equal(t, MonitorAPIModeChatCompletions, apiMode)
 	require.Equal(t, "/chat/completions", adapter.buildPath("cline-pass/glm-5.2"))
@@ -20,12 +20,12 @@ func TestChannelMonitorClinePassProviderAdapter(t *testing.T) {
 	require.Equal(t, "application/json", adapter.buildHeaders("cp-key")["Accept"])
 	require.Equal(t, "data.choices.0.message.content", adapter.textPath)
 	require.Equal(t, "channel_monitor_provider_clinepass", adapter.releaseGuardMarker)
-	require.ErrorIs(t, validateAPIMode(MonitorProviderClinePass, MonitorAPIModeMessages), ErrChannelMonitorInvalidAPIMode)
+	require.ErrorIs(t, validateAPIMode(MonitorProviderCline, MonitorAPIModeMessages), ErrChannelMonitorInvalidAPIMode)
 }
 
 func TestChannelMonitorClinePassLegacyCreateInfersExternalTarget(t *testing.T) {
 	params := ChannelMonitorCreateParams{
-		Provider:        MonitorProviderClinePass,
+		Provider:        MonitorProviderCline,
 		APIMode:         MonitorAPIModeChatCompletions,
 		Endpoint:        "https://1.1.1.1/v1",
 		APIKey:          "external-api-key",
@@ -78,7 +78,7 @@ func TestRunCheckForModelClinePassUsesBufferedContract(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	result := runCheckForModel(context.Background(), MonitorProviderClinePass, srv.URL, "cp-key", "cline-pass/glm-5.2", nil)
+	result := runCheckForModel(context.Background(), MonitorProviderCline, srv.URL, "cp-key", "cline-pass/glm-5.2", nil)
 	require.Equal(t, MonitorStatusOperational, result.Status, result.Message)
 }
 
@@ -118,7 +118,7 @@ func TestRunCheckForModelClinePassSurfacesSSEErrorEvent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	result := runCheckForModel(context.Background(), MonitorProviderClinePass, srv.URL, "cp-key", "cline-pass/glm-5.2", nil)
+	result := runCheckForModel(context.Background(), MonitorProviderCline, srv.URL, "cp-key", "cline-pass/glm-5.2", nil)
 	require.Equal(t, MonitorStatusError, result.Status)
 	require.Contains(t, result.Message, "Model pricing is not configured")
 }
@@ -136,7 +136,7 @@ func TestRunCheckForModelClinePassExplainsReasoningOnlyResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	result := runCheckForModel(context.Background(), MonitorProviderClinePass, srv.URL, "cp-key", "cline-pass/glm-5.2", nil)
+	result := runCheckForModel(context.Background(), MonitorProviderCline, srv.URL, "cp-key", "cline-pass/glm-5.2", nil)
 	require.Equal(t, MonitorStatusFailed, result.Status)
 	require.Contains(t, result.Message, "exhausted the output budget")
 }

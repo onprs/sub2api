@@ -763,9 +763,9 @@ const accountSupportsBatchUsage = (account: Account) => {
   if (account.platform === 'openai') return account.type === 'oauth' || account.type === 'apikey'
   if (
     (account.platform === 'opencode_go' && account.credentials?.account_mode !== 'zen') ||
-    account.platform === 'clinepass' ||
+    account.platform === 'cline' ||
     account.platform === 'openrouter' ||
-    account.platform === 'commandcode'
+    account.platform === 'command_code'
   ) {
     return account.type === 'apikey'
   }
@@ -2326,7 +2326,7 @@ const handleAccountUpdated = (updatedAccount: Account) => {
   const currentAccount = accounts.value.find(account => account.id === updatedAccount.id)
   const usageRefreshNeeded =
     (currentAccount && buildAccountUsageRefreshKey(currentAccount) !== buildAccountUsageRefreshKey(updatedAccount)) ||
-    ((updatedAccount.platform === 'opencode_go' && updatedAccount.credentials?.account_mode !== 'zen' || updatedAccount.platform === 'clinepass' || updatedAccount.platform === 'openrouter' || updatedAccount.platform === 'commandcode') && updatedAccount.type === 'apikey')
+    ((updatedAccount.platform === 'opencode_go' && updatedAccount.credentials?.account_mode !== 'zen' || updatedAccount.platform === 'cline' || updatedAccount.platform === 'openrouter' || updatedAccount.platform === 'command_code') && updatedAccount.type === 'apikey')
   patchAccountInList(updatedAccount)
   if (usageRefreshNeeded) {
     usageManualRefreshToken.value += 1

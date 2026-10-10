@@ -294,23 +294,6 @@ const timeFromExtra = (value: unknown): number | null => {
 }
 
 
-const clinePassOfficialUsageRateLimitResetMs = (account: Account): number | null => {
-  if (account.platform !== 'clinepass' || account.type !== 'apikey') return null
-  const extra = account.extra as Record<string, unknown> | undefined
-  if (!extra || String(extra.clinepass_usage_source || '').trim() !== 'official_api') return null
-
-  const updatedAt = timeFromExtra(extra.clinepass_usage_updated_at)
-  let latest: number | null = null
-  for (const window of ['5h', '7d', '30d']) {
-    const usedPercent = numberFromExtra(extra[`clinepass_usage_${window}_used_percent`])
-    if (usedPercent === null || usedPercent < 100) continue
-    const explicitReset = timeFromExtra(extra[`clinepass_usage_${window}_resets_at`])
-    const resetAtMs = explicitReset ?? (updatedAt === null ? null : updatedAt + 10 * 60 * 1000)
-    if (resetAtMs === null || resetAtMs <= Date.now()) continue
-    if (latest === null || resetAtMs > latest) latest = resetAtMs
-  }
-  return latest
-}
 
 const openRouterOfficialUsageRateLimitResetMs = (account: Account): number | null => {
   if (account.platform !== 'openrouter' || account.type !== 'apikey') return null
@@ -329,51 +312,9 @@ const openRouterOfficialUsageRateLimitResetMs = (account: Account): number | nul
   return null
 }
 
-const commandCodeOfficialUsageRateLimitResetMs = (account: Account): number | null => {
-  if (account.platform !== 'commandcode' || account.type !== 'apikey') return null
-  const extra = account.extra as Record<string, unknown> | undefined
-  if (!extra || String(extra.commandcode_usage_source || '').trim() !== 'official_api') return null
-
-  // 充值余额（purchased/free）可绕过窗口与月度限制：余额未耗尽时不视为超限。
-  const balance =
-    (numberFromExtra(extra.commandcode_usage_purchased_usd) ?? 0) +
-    (numberFromExtra(extra.commandcode_usage_free_usd) ?? 0)
-  if (balance > 0.005) return null
-
-  const windowExhausted = (window: string): number | null => {
-    const usedPercent = numberFromExtra(extra['commandcode_usage_' + window + '_used_percent'])
-    if (usedPercent === null || usedPercent < 100) return null
-    return timeFromExtra(extra['commandcode_usage_' + window + '_resets_at'])
-  }
-
-  let latest: number | null = null
-  const consider = (resetMs: number | null): void => {
-    if (resetMs === null || resetMs <= Date.now()) return
-    if (latest === null || resetMs > latest) latest = resetMs
-  }
-
-  let anyWindowExhausted = false
-  for (const window of ['5h', '7d']) {
-    const resetMs = windowExhausted(window)
-    if (resetMs !== null) anyWindowExhausted = true
-    consider(resetMs)
-  }
-
-  const monthlyRemaining = numberFromExtra(extra.commandcode_usage_monthly_usd)
-  const monthlyUsedPercent = numberFromExtra(extra.commandcode_usage_30d_used_percent)
-  const monthlyExhausted =
-    monthlyRemaining !== null && monthlyRemaining <= 0.005 &&
-    monthlyUsedPercent !== null && monthlyUsedPercent >= 100
-  if (monthlyExhausted) consider(timeFromExtra(extra.commandcode_usage_period_end))
-
-  if (!anyWindowExhausted && !monthlyExhausted) return null
-  return latest ?? ((timeFromExtra(extra.commandcode_usage_updated_at) ?? Date.now()) + 10 * 60 * 1000)
-}
 
 const isOfficialUsageExceeded = computed(() => {
-  return clinePassOfficialUsageRateLimitResetMs(props.account) !== null ||
-    openRouterOfficialUsageRateLimitResetMs(props.account) !== null ||
-    commandCodeOfficialUsageRateLimitResetMs(props.account) !== null
+  return openRouterOfficialUsageRateLimitResetMs(props.account) !== null
 })
 
 const effectiveRateLimitResetAt = computed(() => {
@@ -381,9 +322,7 @@ const effectiveRateLimitResetAt = computed(() => {
   if (accountResetMs !== null && accountResetMs > Date.now()) {
     return props.account.rate_limit_reset_at
   }
-  const providerResetMs = clinePassOfficialUsageRateLimitResetMs(props.account) ??
-    openRouterOfficialUsageRateLimitResetMs(props.account) ??
-    commandCodeOfficialUsageRateLimitResetMs(props.account)
+  const providerResetMs = openRouterOfficialUsageRateLimitResetMs(props.account)
   if (providerResetMs !== null && providerResetMs > Date.now()) {
     return new Date(providerResetMs).toISOString()
   }

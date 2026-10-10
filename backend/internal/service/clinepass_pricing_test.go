@@ -24,12 +24,12 @@ func TestGatewayTokenPricingClinePassFailsClosedAndUsesAccountMapping(t *testing
 			Mode:               "chat",
 			InputCostPerToken:  1e-6,
 			OutputCostPerToken: 2e-6,
-			LiteLLMProvider:    PlatformClinePass,
+			LiteLLMProvider:    PlatformCline,
 		},
 	}}
 	cfg := &config.Config{}
 	svc := &GatewayService{cfg: cfg, billingService: NewBillingService(cfg, pricingSvc)}
-	account := &Account{ID: 72, Platform: PlatformClinePass, Credentials: map[string]any{
+	account := &Account{ID: 72, Platform: PlatformCline, Credentials: map[string]any{
 		"model_mapping": map[string]any{"client-alias": "cline-pass/minimax-m3"},
 	}}
 

@@ -485,7 +485,6 @@ func TestBuildModelPricingChannels_RootsAtGroupsAndUsesMappedPricingCandidate(t 
 	require.NotNil(t, model.Pricing.CacheReadPrice)
 }
 
-
 func TestBuildModelPricingChannels_ClinePassIncludesEveryReferencePrice(t *testing.T) {
 	h := &AvailableChannelHandler{
 		channelService: service.NewChannelService(nil, nil, nil, nil, service.NewBillingService(&config.Config{}, nil)),
@@ -500,7 +499,7 @@ func TestBuildModelPricingChannels_ClinePassIncludesEveryReferencePrice(t *testi
 		{
 			ID:               28,
 			Name:             "ClinePass",
-			Platform:         service.PlatformClinePass,
+			Platform:         service.PlatformCline,
 			RateMultiplier:   1,
 			SubscriptionType: service.SubscriptionTypeStandard,
 		},
@@ -508,7 +507,7 @@ func TestBuildModelPricingChannels_ClinePassIncludesEveryReferencePrice(t *testi
 
 	require.Len(t, got, 1)
 	section := got[0].Platforms[0]
-	require.Equal(t, service.PlatformClinePass, section.Platform)
+	require.Equal(t, service.PlatformCline, section.Platform)
 	require.Len(t, section.SupportedModels, len(service.ClinePassFallbackModelIDs()))
 	models := make(map[string]userSupportedModel, len(section.SupportedModels))
 	for _, model := range section.SupportedModels {

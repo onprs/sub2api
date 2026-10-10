@@ -1,15 +1,11 @@
 package service
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
-	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
-	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -80,34 +76,6 @@ func (f standardGatewayErrorFormat) protocol() protocolconv.Protocol {
 	}
 }
 
-func standardGatewayUsageFromBody(body []byte, actualProtocol protocolconv.Protocol) ClaudeUsage {
-	switch actualProtocol {
-	case protocolconv.ProtocolAnthropic:
-		return claudeUsageFromAnthropicBody(body)
-	case protocolconv.ProtocolOpenAIResponses:
-		if usage, ok := extractOpenAIUsageFromJSONBytes(body); ok {
-			return claudeUsageFromOpenAIUsage(usage)
-		}
-	}
-	return claudeUsageFromChatBody(body)
-}
-
-func claudeUsageFromOpenAIUsage(usage OpenAIUsage) ClaudeUsage {
-	inputTokens := usage.InputTokens - usage.CacheReadInputTokens - usage.CacheCreationInputTokens
-	if inputTokens < 0 {
-		inputTokens = 0
-	}
-	return ClaudeUsage{
-		InputTokens:              inputTokens,
-		OutputTokens:             usage.OutputTokens,
-		CacheCreationInputTokens: usage.CacheCreationInputTokens,
-		CacheReadInputTokens:     usage.CacheReadInputTokens,
-		CacheCreation5mTokens:    usage.CacheCreation5mTokens,
-		CacheCreation1hTokens:    usage.CacheCreation1hTokens,
-		ImageOutputTokens:        usage.ImageOutputTokens,
-	}
-}
-
 func claudeUsageFromChatBody(body []byte) ClaudeUsage {
 	return normalizeGatewayChatUsage(ClaudeUsage{
 		InputTokens:              int(gjson.GetBytes(body, "usage.prompt_tokens").Int()),
@@ -116,15 +84,6 @@ func claudeUsageFromChatBody(body []byte) ClaudeUsage {
 		CacheReadInputTokens:     int(gjson.GetBytes(body, "usage.prompt_tokens_details.cached_tokens").Int()),
 		ImageOutputTokens:        int(gjson.GetBytes(body, "usage.completion_tokens_details.image_tokens").Int()),
 	})
-}
-
-func claudeUsageFromAnthropicBody(body []byte) ClaudeUsage {
-	return ClaudeUsage{
-		InputTokens:              int(gjson.GetBytes(body, "usage.input_tokens").Int()),
-		OutputTokens:             int(gjson.GetBytes(body, "usage.output_tokens").Int()),
-		CacheCreationInputTokens: int(gjson.GetBytes(body, "usage.cache_creation_input_tokens").Int()),
-		CacheReadInputTokens:     int(gjson.GetBytes(body, "usage.cache_read_input_tokens").Int()),
-	}
 }
 
 func normalizeGatewayChatUsage(usage ClaudeUsage) ClaudeUsage {
@@ -168,60 +127,4 @@ func writeStandardGatewayError(c *gin.Context, status int, format standardGatewa
 	if err != nil {
 		_ = c.Error(err)
 	}
-}
-
-func mergeStandardGatewayStreamUsage(usage *ClaudeUsage, payload []byte, actualProtocol protocolconv.Protocol) {
-	if usage == nil {
-		return
-	}
-	if actualProtocol == protocolconv.ProtocolAnthropic {
-		var event apicompat.AnthropicStreamEvent
-		if json.Unmarshal(payload, &event) != nil {
-			return
-		}
-		if event.Type == "message_start" && event.Message != nil {
-			mergeAnthropicUsage(usage, event.Message.Usage)
-		}
-		if event.Type == "message_delta" && event.Usage != nil {
-			mergeAnthropicUsage(usage, *event.Usage)
-		}
-		return
-	}
-	if actualProtocol == protocolconv.ProtocolOpenAIResponses {
-		if extracted, ok := extractOpenAIUsageFromJSONBytes(payload); ok {
-			*usage = claudeUsageFromOpenAIUsage(extracted)
-		}
-		return
-	}
-	if extracted := extractCCStreamUsage(string(payload)); extracted != nil {
-		*usage = normalizeGatewayChatUsage(ClaudeUsage{
-			InputTokens:              extracted.InputTokens,
-			OutputTokens:             extracted.OutputTokens,
-			CacheReadInputTokens:     extracted.CacheReadInputTokens,
-			CacheCreationInputTokens: extracted.CacheCreationInputTokens,
-			ImageOutputTokens:        extracted.ImageOutputTokens,
-		})
-	}
-}
-
-func writeStandardGatewayUpstreamResponse(c *gin.Context, upstream protocoltransport.Response, filter *responseheaders.CompiledHeaderFilter, format standardGatewayErrorFormat) {
-	if c == nil || c.Writer == nil {
-		return
-	}
-	if filter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), upstream.Headers, filter)
-	}
-	// Existing Chat and Messages clients depend on raw provider error bodies.
-	// New cross-protocol sources must receive their own standard error envelope.
-	if format == standardGatewayErrorFormatResponses || format == standardGatewayErrorFormatGoogle {
-		message := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(upstream.Body)))
-		if message == "" {
-			message = http.StatusText(upstream.StatusCode)
-		}
-		writeStandardGatewayError(c, upstream.StatusCode, format, "upstream_error", message)
-		return
-	}
-	c.Writer.Header().Set("Content-Type", "application/json")
-	c.Writer.WriteHeader(upstream.StatusCode)
-	_, _ = c.Writer.Write(upstream.Body)
 }

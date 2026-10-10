@@ -188,13 +188,13 @@ const platformClass = computed(() => {
   if (props.platform === 'opencode_go') {
     return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
   }
-  if (props.platform === 'clinepass') {
+  if (props.platform === 'cline') {
     return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
   }
   if (props.platform === 'openrouter') {
     return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
   }
-  if (props.platform === 'commandcode') {
+  if (props.platform === 'command_code') {
     return 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300'
   }
   if (props.platform === 'kimi') {
@@ -228,13 +228,13 @@ const typeClass = computed(() => {
   if (props.platform === 'opencode_go') {
     return 'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-300'
   }
-  if (props.platform === 'clinepass') {
+  if (props.platform === 'cline') {
     return 'bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-300'
   }
   if (props.platform === 'openrouter') {
     return 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-300'
   }
-  if (props.platform === 'commandcode') {
+  if (props.platform === 'command_code') {
     return 'bg-lime-100 text-lime-600 dark:bg-lime-900/30 dark:text-lime-300'
   }
   if (props.platform === 'kimi') {

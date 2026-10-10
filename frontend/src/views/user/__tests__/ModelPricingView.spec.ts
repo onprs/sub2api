@@ -306,9 +306,9 @@ describe('ModelPricingView', () => {
     const channels = makeChannel()
     const section = channels[0].platforms[0]
     const model = section.supported_models[0]
-    section.platform = 'commandcode'
-    section.groups[0].platform = 'commandcode'
-    model.platform = 'commandcode'
+    section.platform = 'command_code'
+    section.groups[0].platform = 'command_code'
+    model.platform = 'command_code'
     model.context_length = 1_050_000
     model.promotion = {
       code: 'official-deal',
@@ -328,7 +328,7 @@ describe('ModelPricingView', () => {
     getUserGroupRates.mockResolvedValue({})
     const wrapper = mountView()
     await flushPromises()
-    await selectPricingScope(wrapper, 'commandcode', 20)
+    await selectPricingScope(wrapper, 'command_code', 20)
 
     expect(wrapper.get('[data-test="model-context-window"]').text()).toBe('1.05M context')
     const offerCell = wrapper
@@ -345,9 +345,9 @@ describe('ModelPricingView', () => {
     const channels = makeChannel()
     const section = channels[0].platforms[0]
     const model = section.supported_models[0]
-    section.platform = 'commandcode'
-    section.groups[0].platform = 'commandcode'
-    model.platform = 'commandcode'
+    section.platform = 'command_code'
+    section.groups[0].platform = 'command_code'
+    model.platform = 'command_code'
     model.name = 'moonshotai/Kimi-K3'
     model.model_specific_multiplier = 70 / 60
     model.monthly_quota = {
@@ -369,7 +369,7 @@ describe('ModelPricingView', () => {
     getUserGroupRates.mockResolvedValue({})
     const wrapper = mountView()
     await flushPromises()
-    await selectPricingScope(wrapper, 'commandcode', 20)
+    await selectPricingScope(wrapper, 'command_code', 20)
     const offers = wrapper.findAll('span[title]').filter(span => span.text().includes('3x usage limits'))
     expect(offers).toHaveLength(2)
     for (const offer of offers) {

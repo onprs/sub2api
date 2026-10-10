@@ -81,6 +81,22 @@ func decodeOpenRouterError(status int, headers http.Header, body []byte) *OpenRo
 	return result
 }
 
+func decodeFirstJSONObject(text string) map[string]json.RawMessage {
+	for index := strings.IndexByte(text, '{'); index >= 0 && index < len(text); {
+		decoder := json.NewDecoder(bytes.NewBufferString(text[index:]))
+		var object map[string]json.RawMessage
+		if decoder.Decode(&object) == nil && object != nil {
+			return object
+		}
+		next := strings.IndexByte(text[index+1:], '{')
+		if next < 0 {
+			break
+		}
+		index += next + 1
+	}
+	return nil
+}
+
 func applyOpenRouterErrorObject(result *OpenRouterError, object map[string]json.RawMessage) {
 	if result == nil || object == nil {
 		return

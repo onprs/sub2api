@@ -120,23 +120,23 @@ describe('buildAPIKeyBalanceRefreshKey', () => {
   it('ClinePass official usage snapshot changes the account usage key', () => {
     const base = {
       id: 5,
-      platform: 'clinepass',
+      platform: 'cline',
       type: 'apikey',
       updated_at: '2026-07-22T10:00:00Z',
       last_used_at: null,
       rate_limit_reset_at: null,
       extra: {
         clinepass_usage_source: 'official_api',
-        clinepass_usage_updated_at: '2026-07-22T10:00:00Z',
-        clinepass_usage_5h_used_percent: 10
+        cline_usage_updated_at: '2026-07-22T10:00:00Z',
+        cline_5h_used_percent: 10
       }
     } as any
     const next = {
       ...base,
       extra: {
         ...base.extra,
-        clinepass_usage_updated_at: '2026-07-22T10:05:00Z',
-        clinepass_usage_5h_used_percent: 100
+        cline_usage_updated_at: '2026-07-22T10:05:00Z',
+        cline_5h_used_percent: 100
       }
     }
     expect(buildAccountUsageRefreshKey(base)).not.toBe(buildAccountUsageRefreshKey(next))
@@ -173,23 +173,23 @@ describe('buildAccountUsageRefreshKey', () => {
   it('Command Code 官方用量快照变化时生成不同账号 usage key', () => {
     const base = {
       id: 8287,
-      platform: 'commandcode',
+      platform: 'command_code',
       type: 'apikey',
       updated_at: '2026-09-14T17:58:35Z',
       extra: {
         commandcode_usage_source: 'official_api',
-        commandcode_usage_updated_at: '2026-09-14T17:58:34Z',
+        command_code_usage_updated_at: '2026-09-14T17:58:34Z',
         commandcode_usage_monthly_usd: 34.87,
-        commandcode_usage_5h_used_percent: 0.8
+        command_code_5h_used_percent: 0.8
       }
     } as any
     const next = {
       ...base,
       extra: {
         ...base.extra,
-        commandcode_usage_updated_at: '2026-09-15T18:00:00Z',
+        command_code_usage_updated_at: '2026-09-15T18:00:00Z',
         commandcode_usage_monthly_usd: 20,
-        commandcode_usage_5h_used_percent: 100
+        command_code_5h_used_percent: 100
       }
     }
 

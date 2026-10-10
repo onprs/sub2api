@@ -708,9 +708,9 @@ const platformOrder: GroupPlatform[] = [
   'antigravity',
   'grok',
   'opencode_go',
-  'clinepass',
+  'cline',
   'openrouter',
-  'commandcode',
+  'command_code',
 ]
 const platformOrderIndex = new Map<string, number>(
   platformOrder.map((platform, index) => [platform, index]),

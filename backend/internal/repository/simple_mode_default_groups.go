@@ -24,7 +24,7 @@ func ensureSimpleModeDefaultGroups(ctx context.Context, client *dbent.Client) er
 		service.PlatformAnthropic:   1,
 		service.PlatformOpenAI:      1,
 		service.PlatformOpenCodeGo:  1,
-		service.PlatformClinePass:   1,
+		service.PlatformCline:       1,
 		service.PlatformOpenRouter:  1,
 		service.PlatformCommandCode: 1,
 		service.PlatformGemini:      1,

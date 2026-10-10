@@ -90,7 +90,7 @@ describe('AccountStatusIndicator', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {
         account: makeAccount({
-          platform: 'commandcode',
+          platform: 'command_code',
           type: 'apikey',
           extra: {
             commandcode_usage_source: 'official_api',
@@ -109,11 +109,11 @@ describe('AccountStatusIndicator', () => {
     expect(wrapper.text()).not.toContain('admin.accounts.status.quotaExceeded')
   })
 
-  it('Command Code 余额和窗口均耗尽时显示限流状态', () => {
+  it('旧 Command Code 快照不会对官方账号施加全账号限流', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {
         account: makeAccount({
-          platform: 'commandcode',
+          platform: 'command_code',
           type: 'apikey',
           extra: {
             commandcode_usage_source: 'official_api',
@@ -128,7 +128,7 @@ describe('AccountStatusIndicator', () => {
       global: { stubs: { Icon: true } }
     })
 
-    expect(wrapper.text()).toContain('admin.accounts.status.rateLimited')
+    expect(wrapper.text()).not.toContain('admin.accounts.status.rateLimited')
   })
 
   it('Grok 账号额度限流时显示自动恢复时间而非临时不可调度', () => {
@@ -273,11 +273,11 @@ describe('AccountStatusIndicator', () => {
     expect(wrapper.text()).toContain('admin.accounts.status.creditsExhausted')
   })
 
-  it('ClinePass exhausted usage without resetsAt uses bounded refresh backoff', () => {
+  it('旧 ClinePass 快照不覆盖官方钱包调度状态', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {
         account: makeAccount({
-          platform: 'clinepass',
+          platform: 'cline',
           type: 'apikey',
           extra: {
             clinepass_usage_source: 'official_api',
@@ -289,8 +289,8 @@ describe('AccountStatusIndicator', () => {
       global: { stubs: { Icon: true } }
     })
 
-    expect(wrapper.text()).toContain('admin.accounts.status.rateLimited')
-    expect(wrapper.text()).not.toContain('admin.accounts.status.active')
+    expect(wrapper.text()).not.toContain('admin.accounts.status.rateLimited')
+    expect(wrapper.text()).toContain('admin.accounts.status.active')
   })
 
 })

@@ -392,14 +392,14 @@ func TestBuildCatalogSupportedModel_ClinePassUsesReferencePricingAndContextTiers
 	svc := &ChannelService{pricingService: pricingSvc, billingService: billingSvc}
 
 	for _, modelID := range ClinePassFallbackModelIDs() {
-		got := svc.BuildCatalogSupportedModel(modelID, PlatformClinePass, nil)
+		got := svc.BuildCatalogSupportedModel(modelID, PlatformCline, nil)
 		require.Equal(t, PricingSourceCatalog, got.PricingSource, modelID)
 		require.NotNil(t, got.Pricing, modelID)
 		require.NotNil(t, got.Pricing.InputPrice, modelID)
 		require.NotNil(t, got.Pricing.OutputPrice, modelID)
 	}
 
-	qwen := svc.BuildCatalogSupportedModel("cline-pass/qwen3.7-plus", PlatformClinePass, nil)
+	qwen := svc.BuildCatalogSupportedModel("cline-pass/qwen3.7-plus", PlatformCline, nil)
 	require.NotNil(t, qwen.Pricing)
 	require.Len(t, qwen.Pricing.Intervals, 2)
 	baseTier := qwen.Pricing.Intervals[0]

@@ -260,7 +260,7 @@ func TestModelCapabilityProviderForPlatform(t *testing.T) {
 		PlatformAntigravity: "google",
 		PlatformGrok:        "xai",
 		PlatformOpenCodeGo:  "opencode-go",
-		PlatformClinePass:   "cline-pass",
+		PlatformCline:       "cline-pass",
 		PlatformOpenRouter:  "openrouter",
 		PlatformCommandCode: "",
 		"COMPOSITE":         "",

@@ -11,7 +11,7 @@ import (
 )
 
 func TestAPIKeyRoutingModelFilter_RequiresEligibleAccountForRequestedModel(t *testing.T) {
-	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformOpenCodeGo, PlatformClinePass, PlatformOpenRouter, PlatformCommandCode} {
+	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformOpenCodeGo, PlatformCline, PlatformOpenRouter, PlatformCommandCode} {
 		t.Run(platform, func(t *testing.T) {
 			first, second := newAPIKeyRoutingTestGroup(11), newAPIKeyRoutingTestGroup(12)
 			first.Platform, second.Platform = platform, platform

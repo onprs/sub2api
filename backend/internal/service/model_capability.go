@@ -167,7 +167,7 @@ func modelCapabilityProviderForPlatform(platform string) string {
 		return "xai"
 	case PlatformOpenCodeGo:
 		return "opencode-go"
-	case PlatformClinePass:
+	case PlatformCline:
 		return "cline-pass"
 	case PlatformOpenRouter:
 		return "openrouter"

@@ -106,7 +106,7 @@ func TestGatewayRoutesOpenCodeGoGoogleGenerationUsesOpenCodeGoHandler(t *testing
 }
 
 func TestGatewayRoutesClinePassStandardGenerationPathsUseProviderHandler(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformClinePass)
+	router := newGatewayRoutesTestRouter(service.PlatformCline)
 	tests := []struct {
 		method string
 		path   string

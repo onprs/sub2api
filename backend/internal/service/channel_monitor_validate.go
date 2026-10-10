@@ -19,7 +19,7 @@ var monitorProviders = map[string]struct{}{
 	MonitorProviderGemini:            {},
 	MonitorProviderGrok:              {},
 	MonitorProviderOpenCodeGo:        {},
-	MonitorProviderClinePass:         {},
+	MonitorProviderCline:             {},
 	MonitorProviderOpenRouter:        {},
 	MonitorProviderCommandCode:       {},
 	MonitorProviderAntigravity:       {},
@@ -40,7 +40,7 @@ var probeCapableProviders = map[string]struct{}{
 	MonitorProviderAnthropic:         {},
 	MonitorProviderGemini:            {},
 	MonitorProviderGrok:              {},
-	MonitorProviderClinePass:         {},
+	MonitorProviderCline:             {},
 	MonitorProviderOpenRouter:        {},
 	MonitorProviderCommandCode:       {},
 	MonitorProviderAntigravityClaude: {},
@@ -177,7 +177,7 @@ func validateEndpointForProvider(provider, ep string) error {
 	}
 
 	pathAllowed := provider == "" || provider == MonitorProviderOpenCodeGo ||
-		provider == MonitorProviderClinePass || provider == MonitorProviderOpenRouter ||
+		provider == MonitorProviderCline || provider == MonitorProviderOpenRouter ||
 		provider == MonitorProviderCommandCode
 	if !pathAllowed && u.Path != "" && u.Path != "/" {
 		return ErrChannelMonitorEndpointPath

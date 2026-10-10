@@ -228,7 +228,7 @@ var providerAdapters = map[string]providerAdapter{
 		},
 		textPath: "candidates.0.content.parts.0.text",
 	},
-	MonitorProviderClinePass:   providerClinePassChatAdapter,
+	MonitorProviderCline:       providerClinePassChatAdapter,
 	MonitorProviderOpenRouter:  providerOpenRouterChatAdapter,
 	MonitorProviderCommandCode: providerCommandCodeChatAdapter,
 	MonitorProviderAntigravityClaude: {
@@ -382,7 +382,7 @@ var providerCommandCodeChatAdapter = providerAdapter{
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
 var providerCommandCodeMessagesAdapter = providerAdapter{
-	buildPath: func(string) string { return commandCodeMessagesPath },
+	buildPath: func(string) string { return "/provider/v1/messages" },
 	buildBody: func(model, prompt string) ([]byte, error) {
 		return json.Marshal(map[string]any{
 			"model":      model,
@@ -487,7 +487,7 @@ func callProviderWithClient(
 	if provider == MonitorProviderGemini || provider == MonitorProviderAntigravityGemini {
 		return extractGeminiGenerateContentText(respBytes), string(respBytes), status, nil
 	}
-	if provider == MonitorProviderClinePass {
+	if provider == MonitorProviderCline {
 		if status < http.StatusOK || status >= http.StatusMultipleChoices {
 			return "", string(respBytes), status, nil
 		}
@@ -704,7 +704,7 @@ func clinePassMonitorResponsePayload(respBytes []byte) []byte {
 }
 
 func emptyMonitorResponseMessage(provider, rawBody string) string {
-	if provider == MonitorProviderClinePass {
+	if provider == MonitorProviderCline {
 		finishReason, reasoning := clinePassMonitorResponseMetadata([]byte(rawBody))
 		if finishReason == "length" {
 			return "ClinePass exhausted the output budget before returning final text"
@@ -1002,7 +1002,7 @@ var bodyMergeKeyDenyList = map[string]map[string]bool{
 	MonitorProviderGrok:      {"model": true, "messages": true, "stream": true},
 	MonitorProviderAnthropic: {"model": true, "messages": true},
 	MonitorProviderGemini:    {"contents": true},
-	MonitorProviderClinePass + ":" + MonitorAPIModeChatCompletions:   {"model": true, "messages": true, "stream": true},
+	MonitorProviderCline + ":" + MonitorAPIModeChatCompletions:       {"model": true, "messages": true, "stream": true},
 	MonitorProviderCommandCode + ":" + MonitorAPIModeChatCompletions: {"model": true, "messages": true, "stream": true},
 	MonitorProviderCommandCode + ":" + MonitorAPIModeMessages:        {"model": true, "messages": true},
 	MonitorProviderOpenRouter:                                        {"model": true, "messages": true, "stream": true},
@@ -1022,7 +1022,7 @@ func checkAPIMode(opts *CheckOptions) string {
 }
 
 func bodyMergeDenyKey(provider, apiMode string) string {
-	if provider == MonitorProviderOpenAI || provider == MonitorProviderClinePass || provider == MonitorProviderCommandCode {
+	if provider == MonitorProviderOpenAI || provider == MonitorProviderCline || provider == MonitorProviderCommandCode {
 		return provider + ":" + defaultAPIMode(apiMode)
 	}
 	return provider
@@ -1033,7 +1033,7 @@ func bodyMergeDenyKey(provider, apiMode string) string {
 func isOpenAICompatibleChatProvider(provider string) bool {
 	switch provider {
 	case MonitorProviderOpenAI, MonitorProviderGrok,
-		MonitorProviderClinePass, MonitorProviderOpenRouter, MonitorProviderCommandCode,
+		MonitorProviderCline, MonitorProviderOpenRouter, MonitorProviderCommandCode,
 		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek, MonitorProviderMiniMax:
 		return true
 	default:

@@ -5,7 +5,7 @@ import ProviderIcon from '../ProviderIcon.vue'
 describe('ProviderIcon', () => {
   it('renders the official Command Code Symbol at the requested size', () => {
     const wrapper = mount(ProviderIcon, {
-      props: { provider: 'commandcode', size: 18 }
+      props: { provider: 'command_code', size: 18 }
     })
 
     const icon = wrapper.get('[data-command-code-icon]')
@@ -17,7 +17,7 @@ describe('ProviderIcon', () => {
 
   it('renders the official Cline Bot Icon for ClinePass', () => {
     const wrapper = mount(ProviderIcon, {
-      props: { provider: 'clinepass', size: 18 }
+      props: { provider: 'cline', size: 18 }
     })
 
     const icon = wrapper.get('svg[viewBox="0 0 466.73 487.04"]')

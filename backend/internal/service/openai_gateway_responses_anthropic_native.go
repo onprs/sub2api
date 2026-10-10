@@ -22,6 +22,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
+	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -41,6 +42,17 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 	account *Account,
 	body []byte,
 	defaultMappedModel string,
+) (*OpenAIForwardResult, error) {
+	return s.forwardResponsesViaNativeAnthropicWithOutput(ctx, c, account, body, defaultMappedModel, nil)
+}
+
+func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropicWithOutput(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	defaultMappedModel string,
+	output openAIProtocolOutput,
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
 
@@ -149,9 +161,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 	}
 
 	if clientStream {
-		return s.handleResponsesStreamingFromNativeAnthropic(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, clientToolMapping)
+		return s.handleResponsesStreamingFromNativeAnthropicWithOutput(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, clientToolMapping, output)
 	}
-	return s.handleResponsesBufferedFromNativeAnthropic(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, clientToolMapping)
+	return s.handleResponsesBufferedFromNativeAnthropicWithOutput(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, clientToolMapping, output)
 }
 
 // handleResponsesBufferedFromNativeAnthropic reads Anthropic SSE events, assembles
@@ -165,6 +177,20 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 	reasoningEffort *string,
 	startTime time.Time,
 	clientToolMapping apicompat.ResponsesClientToolMapping,
+) (*OpenAIForwardResult, error) {
+	return s.handleResponsesBufferedFromNativeAnthropicWithOutput(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, clientToolMapping, nil)
+}
+
+func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropicWithOutput(
+	resp *http.Response,
+	c *gin.Context,
+	originalModel string,
+	billingModel string,
+	upstreamModel string,
+	reasoningEffort *string,
+	startTime time.Time,
+	clientToolMapping apicompat.ResponsesClientToolMapping,
+	output openAIProtocolOutput,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 
@@ -279,6 +305,34 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 		}
 	}
 
+	result := &OpenAIForwardResult{
+		RequestID:        requestID,
+		UpstreamHeaders:  resp.Header,
+		Usage:            claudeUsageToOpenAIUsage(&usage),
+		Model:            originalModel,
+		BillingModel:     billingModel,
+		UpstreamModel:    upstreamModel,
+		UpstreamEndpoint: "/v1/messages",
+		ReasoningEffort:  reasoningEffort,
+		Stream:           false,
+		Duration:         time.Since(startTime),
+	}
+	// 将实际 Anthropic 响应交给本次请求的协议输出层，供其它客户端协议复用。
+	if output != nil {
+		responseBody, err := json.Marshal(finalResp)
+		if err != nil {
+			return nil, err
+		}
+		responseBody = reverseToolNamesIfPresent(c, responseBody)
+		if err := output.WriteResponse(protocoltransport.Response{
+			StatusCode: http.StatusOK, Headers: resp.Header, Body: responseBody,
+			ActualProtocol: protocolconv.ProtocolAnthropic, RequestID: requestID,
+		}); err != nil {
+			return result, fmt.Errorf("render native Anthropic response: %w", err)
+		}
+		return result, nil
+	}
+
 	if isClaude55SignedThinkingModel(upstreamModel) {
 		finalResp.Model = upstreamModel
 	}
@@ -301,18 +355,7 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 		c.JSON(http.StatusOK, responsesResp)
 	}
 
-	return &OpenAIForwardResult{
-		RequestID:        requestID,
-		UpstreamHeaders:  resp.Header,
-		Usage:            claudeUsageToOpenAIUsage(&usage),
-		Model:            originalModel,
-		BillingModel:     billingModel,
-		UpstreamModel:    upstreamModel,
-		UpstreamEndpoint: "/v1/messages",
-		ReasoningEffort:  reasoningEffort,
-		Stream:           false,
-		Duration:         time.Since(startTime),
-	}, nil
+	return result, nil
 }
 
 // handleResponsesStreamingFromNativeAnthropic reads Anthropic SSE events, converts
@@ -327,16 +370,36 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 	startTime time.Time,
 	clientToolMapping apicompat.ResponsesClientToolMapping,
 ) (*OpenAIForwardResult, error) {
+	return s.handleResponsesStreamingFromNativeAnthropicWithOutput(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, clientToolMapping, nil)
+}
+
+func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropicWithOutput(
+	resp *http.Response,
+	c *gin.Context,
+	originalModel string,
+	billingModel string,
+	upstreamModel string,
+	reasoningEffort *string,
+	startTime time.Time,
+	clientToolMapping apicompat.ResponsesClientToolMapping,
+	output openAIProtocolOutput,
+) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Header().Set("X-Accel-Buffering", "no")
-	c.Writer.WriteHeader(http.StatusOK)
+	if output != nil {
+		if err := output.WriteStreamHeaders(http.StatusOK, resp.Header, protocolconv.ProtocolAnthropic); err != nil {
+			return nil, err
+		}
+	} else {
+		c.Writer.Header().Set("Content-Type", "text/event-stream")
+		c.Writer.Header().Set("Cache-Control", "no-cache")
+		c.Writer.Header().Set("Connection", "keep-alive")
+		c.Writer.Header().Set("X-Accel-Buffering", "no")
+		c.Writer.WriteHeader(http.StatusOK)
+	}
 
 	state := apicompat.NewAnthropicEventToResponsesState()
 	state.Model = originalModel
@@ -347,6 +410,7 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 	var firstTokenMs *int
 	firstChunk := true
 	clientDisconnected := false
+	var outputErr error
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -414,6 +478,21 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 			mergeAnthropicUsage(&usage, event.Message.Usage)
 		}
 
+		if output != nil {
+			if clientDisconnected || outputErr != nil {
+				return
+			}
+			payload, err := json.Marshal(event)
+			if err == nil {
+				err = output.WriteStreamEvent(protocolconv.ProtocolAnthropic, reverseToolNamesIfPresent(c, payload))
+			}
+			clientDisconnected = output.ClientDisconnected()
+			if err != nil && !clientDisconnected {
+				outputErr = err
+			}
+			return
+		}
+
 		// Keep terminal Responses usage aligned with the normalized billing
 		// buckets. Normalize converter input too so raw overlapping totals cannot
 		// overwrite the state when message_start/message_delta handlers run.
@@ -479,6 +558,14 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 		}
 
 		processAnthropicEvent(&event)
+	}
+
+	if output != nil {
+		if outputErr == nil && !clientDisconnected {
+			outputErr = output.FinalizeStream(protocolconv.ProtocolAnthropic)
+		}
+		clientDisconnected = output.ClientDisconnected()
+		return resultWithUsage(), outputErr
 	}
 
 	// Finalize state machine（客户端已断开时仍推进，保证 usage 汇总完整；仅在

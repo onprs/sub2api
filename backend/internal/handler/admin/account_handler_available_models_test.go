@@ -71,19 +71,7 @@ func (u *syncUpstreamHTTPUpstream) DoWithTLS(req *http.Request, proxyURL string,
 func setupSyncUpstreamModelsRouter(adminSvc service.AdminService, upstream service.HTTPUpstream) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	accountTestSvc := service.NewAccountTestService(
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		upstream,
-		&config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
-		nil,
-		nil,
-		nil,
-		nil,
-	)
+	accountTestSvc := service.NewAccountTestService(nil, nil, nil, nil, nil, upstream, &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}, nil, nil)
 	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, accountTestSvc, nil, nil, nil, nil, nil)
 	router.POST("/api/v1/admin/accounts/:id/models/sync-upstream", handler.SyncUpstreamModels)
 	router.POST("/api/v1/admin/accounts/models/sync-upstream-preview", handler.SyncUpstreamModelsPreview)
@@ -432,7 +420,7 @@ func TestAccountHandlerGetAvailableModels_ClinePassUsesCatalogWithoutMapping(t *
 		account: service.Account{
 			ID:       46,
 			Name:     "clinepass-defaults",
-			Platform: service.PlatformClinePass,
+			Platform: service.PlatformCline,
 			Type:     service.AccountTypeAPIKey,
 			Status:   service.StatusActive,
 		},
@@ -485,7 +473,7 @@ func TestAccountHandlerGetAvailableModels_ClinePassUsesRequestedMappingModels(t 
 		account: service.Account{
 			ID:       47,
 			Name:     "clinepass-mapped",
-			Platform: service.PlatformClinePass,
+			Platform: service.PlatformCline,
 			Type:     service.AccountTypeAPIKey,
 			Status:   service.StatusActive,
 			Credentials: map[string]any{
@@ -595,7 +583,7 @@ func TestAccountHandlerGetAvailableModels_AntigravitySetupTokenUsesResolvedLiveC
 	adminSvc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
 	tokenProvider := service.NewAntigravityTokenProvider(nil, nil, nil)
 	gatewaySvc := service.NewAntigravityGatewayService(nil, nil, nil, tokenProvider, nil, nil, nil, nil)
-	accountTestSvc := service.NewAccountTestService(nil, nil, nil, nil, gatewaySvc, nil, &config.Config{}, nil, nil, nil, nil)
+	accountTestSvc := service.NewAccountTestService(nil, nil, nil, nil, gatewaySvc, nil, &config.Config{}, nil, nil)
 	router := setupAvailableModelsRouterWithAccountTest(adminSvc, accountTestSvc)
 
 	rec := httptest.NewRecorder()
@@ -639,7 +627,7 @@ func TestAccountHandlerGetAvailableModels_AntigravityAPIKeyUsesOwnUpstreamCatalo
 	adminSvc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
 	accountTestSvc := service.NewAccountTestService(nil, nil, nil, nil, nil, upstream, &config.Config{
 		Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}},
-	}, nil, nil, nil, nil)
+	}, nil, nil)
 	router := setupAvailableModelsRouterWithAccountTest(adminSvc, accountTestSvc)
 
 	rec := httptest.NewRecorder()

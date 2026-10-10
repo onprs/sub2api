@@ -20,24 +20,21 @@ const (
 
 // Platform constants
 const (
-	PlatformAnthropic = "anthropic"
-	PlatformOpenAI    = "openai"
-	// PlatformOpenCodeGo 是 OpenCode 平台（账号类型 Zen 按量 / Go 订阅）。
-	// 值保持 opencode_go 以兼容已落库的分组、配额与 Composite 路由 CHECK。
-	PlatformOpenCodeGo  = "opencode_go"
-	PlatformClinePass   = "clinepass"
-	PlatformOpenRouter  = "openrouter"
-	PlatformCommandCode = "commandcode"
+	PlatformAnthropic   = "anthropic"
+	PlatformOpenAI      = "openai"
 	PlatformGemini      = "gemini"
 	PlatformAntigravity = "antigravity"
 	PlatformGrok        = "grok"
-	// 国产 OpenAI 兼容供应商（经 OpenAI 网关转发，按 Chat Completions 协议）。
-	PlatformKimi      = "kimi"     // Kimi (月之暗面 / Moonshot)
-	PlatformZhipu     = "zhipu"    // 智谱 GLM (bigmodel)
-	PlatformDeepseek  = "deepseek" // DeepSeek
-	PlatformMiniMax   = "minimax"  // MiniMax (M 系列)
-	PlatformTypeSafe  = "typesafe" // TypeSafe 的 System One 协议（Jev）
-	PlatformComposite = "composite"
+	PlatformKimi        = "kimi"
+	PlatformZhipu       = "zhipu"
+	PlatformDeepseek    = "deepseek"
+	PlatformMiniMax     = "minimax"
+	PlatformTypeSafe    = "typesafe"
+	PlatformOpenCodeGo  = "opencode_go"
+	PlatformCommandCode = "command_code"
+	PlatformCline       = "cline"
+	PlatformOpenRouter  = "openrouter"
+	PlatformComposite   = "composite"
 )
 
 // Account mode constants 区分国产供应商的「按量付费（余额）」与「Coding Plan」两种接入方式。

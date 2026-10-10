@@ -1,4 +1,5 @@
 import { GEMINI_AI_STUDIO_FREE_MODELS } from '@/constants/geminiModels'
+import { getProviderProfile } from '@/constants/platformCatalog'
 
 // =====================
 // 模型列表（硬编码，与 new-api 一致）
@@ -79,19 +80,7 @@ const opencodeGoModels: string[] = []
 
 // ClinePass public catalog fallback. Account model sync replaces this list when
 // the official clinePass[] catalog is reachable.
-const clinePassModels = [
-  'cline-pass/glm-5.2',
-  'cline-pass/kimi-k3',
-  'cline-pass/deepseek-v4-pro',
-  'cline-pass/deepseek-v4-flash',
-  'cline-pass/kimi-k2.7-code',
-  'cline-pass/kimi-k2.6',
-  'cline-pass/mimo-v2.5-pro',
-  'cline-pass/mimo-v2.5',
-  'cline-pass/minimax-m3',
-  'cline-pass/qwen3.7-max',
-  'cline-pass/qwen3.7-plus'
-]
+
 
 // OpenRouter 首次内置模型列表
 const openRouterModels = [
@@ -414,70 +403,7 @@ const opencodeGoPresetMappings: typeof anthropicPresetMappings = []
 const clinePassPresetMappings: typeof anthropicPresetMappings = []
 const openRouterPresetMappings: typeof anthropicPresetMappings = []
 // 2026-10-01 官方 GOAT 与 Provider API 交叉核对的离线目录。
-const commandCodeModels = [
-  'claude-sonnet-5-5',
-  'gpt-5.6-sol',
-  'gpt-5.6-luna',
-  'gpt-6-luna',
-  'stealth/space-bunny-alpha',
-  'google/gemini-3.8-flash',
-  'google/gemini-3.7-flash',
-  'xai/grok-4.7',
-  'xai/grok-4.6',
-  'xai/grok-4.5',
-  'meta/muse-spark-1.3',
-  'meta/muse-spark-1.3-contributor',
-  'meta/muse-spark-1.2',
-  'meta/muse-spark-1.2-contributor',
-  'deepseek/deepseek-v4-pro',
-  'deepseek/deepseek-v4-flash',
-  'deepseek/deepseek-v4-flash-vision-exp',
-  'deepseek/deepseek-v4-flash-fast',
-  'deepseek/deepseek-v4.1-flash',
-  'deepseek/deepseek-v4.1-flash-fast',
-  'moonshotai/Kimi-K3',
-  'moonshotai/Kimi-K2.7-Code',
-  'moonshotai/Kimi-K2.7-Code-Highspeed',
-  'moonshotai/Kimi-K2.6',
-  'moonshotai/Kimi-K2.5',
-  'z-ai/glm-5.3-flash',
-  'z-ai/glm-5.3-flashx',
-  'zai-org/GLM-5.3',
-  'zai-org/GLM-5.2',
-  'zai-org/GLM-5.2-Fast',
-  'zai-org/GLM-5.1',
-  'zai-org/GLM-5',
-  'MiniMaxAI/MiniMax-M3',
-  'MiniMaxAI/MiniMax-M2.7',
-  'MiniMaxAI/MiniMax-M2.5',
-  'xiaomi/mimo-v2.6-pro',
-  'xiaomi/mimo-v2.6-pro-ultraspeed',
-  'xiaomi/mimo-v2.6-flash',
-  'xiaomi/mimo-v2.5-pro',
-  'xiaomi/mimo-v2.5',
-  'Qwen/Qwen3.8-Max-0902',
-  'Qwen/Qwen3.8-Max',
-  'Qwen/Qwen3.8-27B',
-  'Qwen/Qwen3.8-Omni-Flash',
-  'Qwen/Qwen3.8-Flash',
-  'Qwen/Qwen3.7-Max',
-  'Qwen/Qwen3.7-Plus',
-  'Qwen/Qwen3.7-Flash',
-  'Qwen/Qwen3.6-Max-Preview',
-  'Qwen/Qwen3.6-Plus',
-  'stepfun/Step-5-Preview',
-  'stepfun/Step-3.7-Flash',
-  'stepfun/Step-3.5-Flash',
-  'tencent/hy3-paid',
-  'tencent/hy4-preview',
-  'meituan/LongCat-2.0',
-  'inclusionai/ling-3.0-flash-sante:free',
-  'inclusionai/ling-3.1-flash:free',
-  'nvidia/nemotron-3-ultra-550b-a55b',
-  'thinkingmachines/inkling',
-  'thinkingmachines/inkling-small',
-  'poolside/laguna-s-2.1-free'
-]
+
 const commandCodePresetMappings: typeof anthropicPresetMappings = []
 
 // Bedrock 预设映射（与后端 DefaultBedrockModelMapping 保持一致）
@@ -554,9 +480,7 @@ export function getModelsByPlatform(platform: string, context: ModelCatalogConte
     case 'gemini': return isGeminiAIStudioFreeContext(context) ? geminiAIStudioFreeModels : geminiModels
     case 'antigravity': return antigravityModels
     case 'opencode_go': return opencodeGoModels
-    case 'clinepass': return clinePassModels
     case 'openrouter': return openRouterModels
-    case 'commandcode': return commandCodeModels
     case 'zhipu': return zhipuModels
     case 'qwen': return qwenModels
     case 'deepseek': return deepseekModels
@@ -575,7 +499,10 @@ export function getModelsByPlatform(platform: string, context: ModelCatalogConte
     case 'spark': return sparkModels
     case 'hunyuan': return hunyuanModels
     case 'perplexity': return perplexityModels
-    default: return claudeModels
+    default:
+      // 平台清单中没有内置模型列表的多协议供应商（多为多模型聚合平台，模型多且常变）
+      // 默认不预填白名单：预填 Claude 模型会让新账号只接受这些模型。
+      return getProviderProfile(platform) ? [] : claudeModels
   }
 }
 
@@ -586,9 +513,9 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'grok' || platform === 'xai') return grokPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'opencode_go') return opencodeGoPresetMappings
-  if (platform === 'clinepass') return clinePassPresetMappings
+  if (platform === 'cline') return clinePassPresetMappings
   if (platform === 'openrouter') return openRouterPresetMappings
-  if (platform === 'commandcode') return commandCodePresetMappings
+  if (platform === 'command_code') return commandCodePresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings
   return anthropicPresetMappings
 }

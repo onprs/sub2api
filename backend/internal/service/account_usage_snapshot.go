@@ -36,20 +36,14 @@ func (s *AccountUsageService) GetStoredUsageSnapshot(account *Account, now time.
 		}
 		return usage, nil
 
-	case PlatformClinePass:
-		if usage := buildClinePassUsageFromExtra(account.Extra, now); usage != nil {
-			return usage, nil
-		}
-		return nil, ErrObserverQuotaUnavailable
-
 	case PlatformOpenRouter:
 		if usage := buildOpenRouterUsageFromExtra(account.Extra, now); usage != nil {
 			return usage, nil
 		}
 		return nil, ErrObserverQuotaUnavailable
 
-	case PlatformCommandCode:
-		if usage := buildCommandCodeUsageFromExtra(account.Extra, now); usage != nil {
+	case PlatformCline, PlatformCommandCode:
+		if usage := buildProviderUsageSnapshot(account, now); usage != nil {
 			return usage, nil
 		}
 		return nil, ErrObserverQuotaUnavailable

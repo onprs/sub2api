@@ -181,13 +181,13 @@ const labelClass = computed(() => {
   if (props.platform === 'opencode_go') {
     return `${base} bg-cyan-200/60 text-cyan-800 dark:bg-cyan-800/40 dark:text-cyan-300`
   }
-  if (props.platform === 'clinepass') {
+  if (props.platform === 'cline') {
     return `${base} bg-rose-200/60 text-rose-800 dark:bg-rose-800/40 dark:text-rose-300`
   }
   if (props.platform === 'openrouter') {
     return `${base} bg-indigo-200/60 text-indigo-800 dark:bg-indigo-800/40 dark:text-indigo-300`
   }
-  if (props.platform === 'commandcode') {
+  if (props.platform === 'command_code') {
     return `${base} bg-lime-200/60 text-lime-800 dark:bg-lime-800/40 dark:text-lime-300`
   }
   if (props.platform === 'kimi') {
@@ -245,7 +245,7 @@ const badgeClass = computed(() => {
       ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
       : 'bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-300'
   }
-  if (props.platform === 'clinepass') {
+  if (props.platform === 'cline') {
     return isSubscription.value
       ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
       : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300'
@@ -255,7 +255,7 @@ const badgeClass = computed(() => {
       ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
       : 'bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-300'
   }
-  if (props.platform === 'commandcode') {
+  if (props.platform === 'command_code') {
     return isSubscription.value
       ? 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300'
       : 'bg-lime-50 text-lime-700 dark:bg-lime-900/20 dark:text-lime-300'
