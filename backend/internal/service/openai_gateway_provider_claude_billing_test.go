@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestOpenAIGatewayServiceRecordUsage_AggregatorClaudeUsesDefaultPricing(t *testing.T) {
-	for _, platform := range []string{PlatformCommandCode, PlatformCline} {
+func TestOpenAIGatewayServiceRecordUsage_ClineClaudeUsesDefaultPricing(t *testing.T) {
+	for _, platform := range []string{PlatformCline} {
 		for _, model := range []string{"claude-sonnet-4-6", "anthropic/claude-sonnet-4-6"} {
 			t.Run(platform+"/"+model, func(t *testing.T) {
 				usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}

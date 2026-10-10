@@ -1428,6 +1428,9 @@ func (s *BillingService) GetModelPricingForPlatform(platform, model string) (*Mo
 }
 
 func (s *BillingService) getModelPricingForPlatformAt(platform, model string, now time.Time) (*ModelPricing, error) {
+	if now.IsZero() {
+		now = time.Now()
+	}
 	if platform == PlatformOpenRouter {
 		for _, candidate := range billingModelPricingCandidates(model) {
 			if pricing, ok := openRouterReferencePricing(candidate); ok {
@@ -1749,7 +1752,13 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 		if input.LongContextBillingEnabled != nil {
 			applyLongContextBilling = *input.LongContextBillingEnabled
 		}
-		pricing, err := s.GetModelPricing(input.Model)
+		var pricing *ModelPricing
+		var err error
+		if input.PricingPlatform != "" {
+			pricing, err = s.getModelPricingForPlatformAt(input.PricingPlatform, input.Model, input.PricingAt)
+		} else {
+			pricing, err = s.GetModelPricing(input.Model)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -1762,10 +1771,11 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 	resolved := input.Resolved
 	if resolved == nil {
 		resolved = input.Resolver.Resolve(input.Ctx, PricingInput{
-			Model:    input.Model,
-			GroupID:  input.GroupID,
-			Platform: input.PricingPlatform,
-			Group:    input.Group,
+			Model:     input.Model,
+			GroupID:   input.GroupID,
+			Platform:  input.PricingPlatform,
+			Group:     input.Group,
+			PricingAt: input.PricingAt,
 		})
 	}
 

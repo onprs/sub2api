@@ -344,20 +344,7 @@ func (s *GatewayService) calculateRecordUsageCostFromCandidates(
 		}
 		cost, err := s.calculateRecordUsageCost(ctx, result, apiKey, candidate, multiplier, imageMultiplier, independentMultiplier, pricingAt, opts)
 		if err == nil && opts != nil {
-			switch opts.PricingPlatform {
-			case PlatformCommandCode:
-				if cost.AllowZeroRate {
-					// 免费模型按 $0 计费，不消耗 GOAT 额度池，无需模型倍率。
-					applyModelSpecificMultiplierToCost(cost, 1)
-					break
-				}
-				quotaCost, ok := s.billingService.GetCommandCodeQuotaCostAt(candidate, pricingAt)
-				if !ok {
-					err = quotaCostUnavailableError(candidate)
-				} else {
-					applyModelSpecificMultiplierToCost(cost, quotaCost.Multiplier)
-				}
-			}
+			err = s.billingService.applyPlatformQuotaCostAt(cost, opts.PricingPlatform, candidate, pricingAt)
 		}
 		if err == nil {
 			if !recordUsageCostIsZeroTokenFallback(cost, result) {

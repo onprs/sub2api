@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"maps"
 	"strings"
+	"time"
 )
 
 // PricingSource 定价来源标识
@@ -66,10 +67,11 @@ func NewModelPricingResolver(channelService *ChannelService, billingService *Bil
 
 // PricingInput 定价解析输入
 type PricingInput struct {
-	Model    string
-	GroupID  *int64 // nil 表示不检查渠道
-	Platform string // 可选；用于 OpenCode Go 等平台隔离定价
-	Group    *Group
+	Model     string
+	GroupID   *int64 // nil 表示不检查渠道
+	Platform  string // 可选；用于 OpenCode Go 等平台隔离定价
+	Group     *Group
+	PricingAt time.Time // 平台目录按请求定价时刻解析
 }
 
 // Resolve 解析模型定价。
@@ -85,7 +87,7 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 			stripped.Intervals = nil
 			groupPricing = &stripped
 		}
-		resolved := r.resolveConfiguredPricing(groupPricing, input.Platform, input.Model, PricingSourceGroup)
+		resolved := r.resolveConfiguredPricing(groupPricing, input.Platform, input.Model, PricingSourceGroup, input.PricingAt)
 		resolved.longContextPricingEnabled = longContextPricingEnabled
 		if !longContextPricingEnabled {
 			r.applyFirstTokenTier(resolved, groupPricing)
@@ -115,7 +117,7 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	}
 
 	// 1. 获取基础定价
-	basePricing, source := r.resolveBasePricing(input.Platform, input.Model)
+	basePricing, source := r.resolveBasePricing(input.Platform, input.Model, input.PricingAt)
 
 	resolved := &ResolvedPricing{
 		Mode:                   BillingModeToken,
@@ -141,7 +143,7 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	return resolved
 }
 
-func (r *ModelPricingResolver) resolveConfiguredPricing(config *ChannelModelPricing, platform, model, source string) *ResolvedPricing {
+func (r *ModelPricingResolver) resolveConfiguredPricing(config *ChannelModelPricing, platform, model, source string, pricingAt time.Time) *ResolvedPricing {
 	mode := config.BillingMode
 	if mode == "" {
 		mode = BillingModeToken
@@ -151,7 +153,7 @@ func (r *ModelPricingResolver) resolveConfiguredPricing(config *ChannelModelPric
 		r.applyRequestTierOverrides(config, resolved)
 		return resolved
 	}
-	resolved.BasePricing, _ = r.resolveBasePricing(platform, model)
+	resolved.BasePricing, _ = r.resolveBasePricing(platform, model, pricingAt)
 	resolved.SupportsCacheBreakdown = resolved.BasePricing != nil && resolved.BasePricing.SupportsCacheBreakdown
 	if resolved.BasePricing != nil && len(resolved.BasePricing.Intervals) > 0 {
 		resolved.Intervals = append([]PricingInterval(nil), resolved.BasePricing.Intervals...)
@@ -200,7 +202,14 @@ func (r *ModelPricingResolver) applyFirstTokenTier(resolved *ResolvedPricing, co
 }
 
 // resolveBasePricing 从 LiteLLM 或 Fallback 获取基础定价
-func (r *ModelPricingResolver) resolveBasePricing(platform, model string) (*ModelPricing, string) {
+func (r *ModelPricingResolver) resolveBasePricing(platform, model string, pricingAt time.Time) (*ModelPricing, string) {
+	if platform == PlatformCommandCode {
+		pricing, err := r.billingService.getModelPricingForPlatformAt(platform, model, pricingAt)
+		if err != nil {
+			return nil, PricingSourceMissing
+		}
+		return pricing, PricingSourceCatalog
+	}
 	pricing, err := r.billingService.GetModelPricingForPlatform(platform, model)
 	if err != nil {
 		slog.Debug("failed to get model pricing from LiteLLM, using fallback",
