@@ -641,6 +641,10 @@ export default {
     description: 'Inspect channel availability, latency and recent status',
     searchPlaceholder: 'Search channels...',
     allProviders: 'All Providers',
+    platformGroups: {
+      gemini: 'Gemini (Antigravity)',
+      other: 'Other'
+    },
     loadError: 'Failed to load channel status',
     detailLoadError: 'Failed to load channel detail',
     detailTitle: 'Channel Detail',
