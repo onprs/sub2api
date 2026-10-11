@@ -31,26 +31,49 @@
       :description="t('channelStatus.empty.description')"
     />
 
-    <div
-      v-else
-      class="grid gap-5 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
-    >
-      <MonitorCard
-        v-for="item in items"
-        :key="item.id"
-        :item="item"
-        :window="window"
-        :availability-value="resolveAvailability(item)"
-        :countdown-seconds="countdownSeconds"
-        @click="emit('cardClick', item)"
-      />
+    <div v-else class="divide-y divide-gray-200 dark:divide-dark-700">
+      <section
+        v-for="group in groupedItems"
+        :key="group.key"
+        :aria-labelledby="`channel-platform-${group.key}`"
+        class="py-6 first:pt-0 last:pb-0"
+      >
+        <h2
+          :id="`channel-platform-${group.key}`"
+          class="mb-4 text-sm font-semibold tracking-wide text-gray-900 dark:text-gray-100"
+        >
+          {{ t(group.titleKey) }}
+        </h2>
+        <div class="grid gap-5 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <MonitorCard
+            v-for="item in group.items"
+            :key="item.id"
+            :item="item"
+            :window="window"
+            :availability-value="resolveAvailability(item)"
+            :countdown-seconds="countdownSeconds"
+            @click="emit('cardClick', item)"
+          />
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { UserMonitorView, UserMonitorDetail } from '@/api/channelMonitor'
+import type { Provider } from '@/api/admin/channelMonitor'
+import {
+  PROVIDER_OPENAI,
+  PROVIDER_ANTHROPIC,
+  PROVIDER_GROK,
+  PROVIDER_GEMINI,
+  PROVIDER_ANTIGRAVITY,
+  PROVIDER_ANTIGRAVITY_CLAUDE,
+  PROVIDER_ANTIGRAVITY_GEMINI,
+} from '@/constants/channelMonitor'
 import EmptyState from '@/components/common/EmptyState.vue'
 import MonitorCard from './MonitorCard.vue'
 
@@ -66,7 +89,43 @@ const emit = defineEmits<{
   (e: 'cardClick', item: UserMonitorView): void
 }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+
+const platformGroups = [
+  { key: 'openai', titleKey: 'monitorCommon.providers.openai' },
+  { key: 'anthropic', titleKey: 'monitorCommon.providers.anthropic' },
+  { key: 'grok', titleKey: 'monitorCommon.providers.grok' },
+  { key: 'gemini', titleKey: 'channelStatus.platformGroups.gemini' },
+  { key: 'other', titleKey: 'channelStatus.platformGroups.other' },
+] as const
+
+type PlatformGroup = (typeof platformGroups)[number]['key']
+
+const platformByProvider: Partial<Record<Provider, PlatformGroup>> = {
+  [PROVIDER_OPENAI]: 'openai',
+  [PROVIDER_ANTHROPIC]: 'anthropic',
+  [PROVIDER_GROK]: 'grok',
+  [PROVIDER_GEMINI]: 'gemini',
+  [PROVIDER_ANTIGRAVITY]: 'gemini',
+  [PROVIDER_ANTIGRAVITY_CLAUDE]: 'gemini',
+  [PROVIDER_ANTIGRAVITY_GEMINI]: 'gemini',
+}
+
+const groupedItems = computed(() => {
+  const collator = new Intl.Collator(locale.value, { numeric: true, sensitivity: 'base' })
+  const sortedItems = [...props.items].sort((left, right) =>
+    collator.compare(left.name, right.name) || left.id - right.id,
+  )
+
+  return platformGroups
+    .map((group) => ({
+      ...group,
+      items: sortedItems.filter((item) =>
+        (platformByProvider[item.provider] ?? 'other') === group.key,
+      ),
+    }))
+    .filter((group) => group.items.length > 0)
+})
 
 function resolveAvailability(item: UserMonitorView): number | null {
   if (props.window === '7d') {
