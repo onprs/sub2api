@@ -136,6 +136,15 @@ func (s *ChannelService) fillGlobalPricingFallback(models []SupportedModel) {
 	for i := range models {
 		s.fillCommandCodeMetadataForName(&models[i], models[i].Name)
 		models[i].Pricing = withDefaultMaxReasoningEffortMultiplier(models[i].Pricing, models[i].Name)
+		if models[i].Platform == PlatformCommandCode && models[i].PricingSource == PricingSourceChannel {
+			if pricingNeedsFallback(models[i].Pricing) {
+				models[i].Pricing = nil
+				models[i].PricingSource = PricingSourceMissing
+			} else {
+				models[i].Pricing = commandCodeChannelDisplayPricingAt(models[i].Pricing, time.Now())
+			}
+			continue
+		}
 		if !pricingNeedsFallback(models[i].Pricing) {
 			if models[i].PricingSource == "" {
 				models[i].PricingSource = PricingSourceChannel
@@ -213,6 +222,11 @@ func (s *ChannelService) BuildSupportedModelForPricingGroup(
 	}
 	if model.Name == "" || s == nil {
 		return model
+	}
+	if platform == PlatformCommandCode && groupID > 0 && s.channelPricingLookupAvailable() {
+		if channelModel, found := s.buildCommandCodeChannelSupportedModel(ctx, groupID, displayName, pricingCandidates); found {
+			return channelModel
+		}
 	}
 	s.fillModelCapability(ctx, &model)
 
@@ -410,7 +424,14 @@ func (s *ChannelService) fillModelQuotaCostForNameAt(model *SupportedModel, pric
 	switch model.Platform {
 	case PlatformCommandCode:
 		var quota ModelMonthlyQuota
-		quota, ok = defaultCommandCodeCatalog.MonthlyQuotaAt(pricingModel, at)
+		if model.PricingSource == PricingSourceChannel && model.Pricing != nil {
+			if model.Pricing.MonthlyQuota == nil || commandCodeChannelPricingIsFree(model.Pricing) {
+				return true
+			}
+			quota, ok = model.Pricing.MonthlyQuota.ResolveAt(at, commandCodeSharedMonthlyQuotaUSD)
+		} else {
+			quota, ok = defaultCommandCodeCatalog.MonthlyQuotaAt(pricingModel, at)
+		}
 		if ok {
 			model.MonthlyQuota = &quota
 			quotaCost = MonthlyQuotaCost{IncludedMonthlyUsageUSD: quota.CreditsUSD, Multiplier: quota.CostMultiplier}
@@ -510,7 +531,8 @@ func (s *ChannelService) fillModelPricingTimeBandsForName(model *SupportedModel,
 	if s == nil || model == nil || model.Pricing == nil || model.Platform != PlatformCommandCode {
 		return
 	}
-	if existing != nil && (existing.BillingMode == BillingModePerRequest || existing.BillingMode == BillingModeImage || len(existing.Intervals) > 0) {
+	if existing != nil {
+		model.PricingTimeBands = commandCodeChannelPricingTimeBandsAt(existing, time.Now())
 		return
 	}
 	if model.Platform == PlatformCommandCode {

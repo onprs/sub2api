@@ -58,22 +58,23 @@ type updateChannelRequest struct {
 }
 
 type channelModelPricingRequest struct {
-	Platform                   string                     `json:"platform" binding:"omitempty,max=50"`
-	Models                     []string                   `json:"models" binding:"required,min=1,max=100"`
-	BillingMode                string                     `json:"billing_mode" binding:"omitempty,oneof=token per_request image"`
-	InputPrice                 *float64                   `json:"input_price" binding:"omitempty,min=0"`
-	OutputPrice                *float64                   `json:"output_price" binding:"omitempty,min=0"`
-	CacheWritePrice            *float64                   `json:"cache_write_price" binding:"omitempty,min=0"`
-	CacheWrite1hPrice          *float64                   `json:"cache_write_1h_price" binding:"omitempty,min=0"`
-	CacheReadPrice             *float64                   `json:"cache_read_price" binding:"omitempty,min=0"`
-	FastMultiplier             *float64                   `json:"fast_multiplier" binding:"omitempty,gt=0"`
-	FlexMultiplier             *float64                   `json:"flex_multiplier" binding:"omitempty,gt=0"`
-	ReasoningEffortMultipliers map[string]float64         `json:"reasoning_effort_multipliers"`
-	ImageInputPrice            *float64                   `json:"image_input_price" binding:"omitempty,min=0"`
-	ImageOutputPrice           *float64                   `json:"image_output_price" binding:"omitempty,min=0"`
-	PerRequestPrice            *float64                   `json:"per_request_price" binding:"omitempty,min=0"`
-	Intervals                  []pricingIntervalRequest   `json:"intervals"`
-	TimePricing                *channelTimePricingRequest `json:"time_pricing"`
+	Platform                   string                      `json:"platform" binding:"omitempty,max=50"`
+	Models                     []string                    `json:"models" binding:"required,min=1,max=100"`
+	BillingMode                string                      `json:"billing_mode" binding:"omitempty,oneof=token per_request image"`
+	InputPrice                 *float64                    `json:"input_price" binding:"omitempty,min=0"`
+	OutputPrice                *float64                    `json:"output_price" binding:"omitempty,min=0"`
+	CacheWritePrice            *float64                    `json:"cache_write_price" binding:"omitempty,min=0"`
+	CacheWrite1hPrice          *float64                    `json:"cache_write_1h_price" binding:"omitempty,min=0"`
+	CacheReadPrice             *float64                    `json:"cache_read_price" binding:"omitempty,min=0"`
+	FastMultiplier             *float64                    `json:"fast_multiplier" binding:"omitempty,gt=0"`
+	FlexMultiplier             *float64                    `json:"flex_multiplier" binding:"omitempty,gt=0"`
+	ReasoningEffortMultipliers map[string]float64          `json:"reasoning_effort_multipliers"`
+	ImageInputPrice            *float64                    `json:"image_input_price" binding:"omitempty,min=0"`
+	ImageOutputPrice           *float64                    `json:"image_output_price" binding:"omitempty,min=0"`
+	PerRequestPrice            *float64                    `json:"per_request_price" binding:"omitempty,min=0"`
+	Intervals                  []pricingIntervalRequest    `json:"intervals"`
+	TimePricing                *channelTimePricingRequest  `json:"time_pricing"`
+	MonthlyQuota               *service.MonthlyQuotaPolicy `json:"monthly_quota"`
 }
 
 type channelTimePricingRequest struct {
@@ -148,6 +149,7 @@ type channelModelPricingResponse struct {
 	PerRequestPrice            *float64                    `json:"per_request_price"`
 	Intervals                  []pricingIntervalResponse   `json:"intervals"`
 	TimePricing                *channelTimePricingResponse `json:"time_pricing"`
+	MonthlyQuota               *service.MonthlyQuotaPolicy `json:"monthly_quota"`
 }
 
 type channelTimePricingResponse struct {
@@ -278,6 +280,7 @@ func pricingToResponse(p *service.ChannelModelPricing) channelModelPricingRespon
 		PerRequestPrice:            p.PerRequestPrice,
 		Intervals:                  intervals,
 		TimePricing:                timePricingToResponse(p.TimePricing),
+		MonthlyQuota:               p.MonthlyQuota,
 	}
 }
 
@@ -376,6 +379,7 @@ func pricingRequestToService(reqs []channelModelPricingRequest, allowChannelMult
 			PerRequestPrice:            r.PerRequestPrice,
 			Intervals:                  intervals,
 			TimePricing:                timePricingRequestToService(r.TimePricing),
+			MonthlyQuota:               r.MonthlyQuota,
 		})
 	}
 	return result

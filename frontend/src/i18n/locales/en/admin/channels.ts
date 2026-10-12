@@ -88,6 +88,14 @@ export default {
           perRequestPrice: 'per-request price'
         }
       },
+      monthlyQuota: {
+        title: 'Monthly credit multiplier',
+        baseCredits: 'Base monthly credits',
+        periodCredits: 'Promotional monthly credits',
+        startsAt: 'Start time',
+        expiresAt: 'End time',
+        addPeriod: 'Add credit promotion'
+      },
       timePricingValidation: {
         timezone: 'Select a valid IANA time zone',
         format: 'Start and end times must use HH:mm:ss format',

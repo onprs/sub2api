@@ -79,6 +79,31 @@ type PricingInput struct {
 // 2. 如果指定了 GroupID，查找渠道定价并覆盖
 func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) *ResolvedPricing {
 	longContextPricingEnabled := input.Group == nil || input.Group.LongContextPricingEnabled
+	// Command Code 关联渠道后，以渠道模型规则作为完整价格来源。
+	if input.Platform == PlatformCommandCode && input.GroupID != nil && r.channelService != nil {
+		channel, err := r.channelService.lookupGroupChannel(ctx, *input.GroupID)
+		if err != nil {
+			return &ResolvedPricing{Mode: BillingModeToken, Source: PricingSourceMissing}
+		}
+		if channel != nil {
+			pricing := r.resolveChannelModelPricing(ctx, *input.GroupID, input.Model)
+			if pricing == nil || pricingNeedsFallback(pricing) {
+				return &ResolvedPricing{Mode: BillingModeToken, Source: PricingSourceMissing}
+			}
+			resolved := &ResolvedPricing{Mode: pricing.BillingMode, Source: PricingSourceChannel, channelPricing: pricing}
+			if resolved.Mode == "" {
+				resolved.Mode = BillingModeToken
+			}
+			resolved.longContextPricingEnabled = longContextPricingEnabled
+			if resolved.Mode == BillingModeToken {
+				r.applyTokenOverrides(pricing, resolved)
+				resolved.BasePricing.AllowZeroRate = commandCodeChannelPricingIsFree(pricing)
+			} else {
+				r.applyRequestTierOverrides(pricing, resolved)
+			}
+			return resolved
+		}
+	}
 	if groupPricing := matchGroupModelPricing(input.Group, input.Model); groupPricing != nil {
 		// Group token cards only override the first-tier / flat rates.
 		// Long-context ladders come from official presets, gated by the checkbox.
@@ -226,6 +251,12 @@ func (r *ModelPricingResolver) resolveChannelModelPricing(ctx context.Context, g
 		return nil
 	}
 	candidates := billingModelPricingCandidates(model)
+	if r.channelService.GetGroupPlatform(ctx, groupID) == PlatformCommandCode {
+		canonical := commandCodeCanonicalModelID(model)
+		if canonical != "" && !strings.EqualFold(canonical, model) {
+			candidates = append(candidates, canonical)
+		}
+	}
 	for _, candidate := range candidates {
 		if chPricing := r.channelService.GetChannelModelPricing(ctx, groupID, candidate); chPricing != nil {
 			return chPricing

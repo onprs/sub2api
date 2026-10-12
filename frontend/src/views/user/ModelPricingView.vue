@@ -157,7 +157,7 @@
                 class="btn btn-secondary"
                 :disabled="loading"
                 :title="t('common.refresh', 'Refresh')"
-                @click="loadPricing"
+                @click="loadPricing()"
               >
                 <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
               </button>
@@ -614,6 +614,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { CHANNEL_PRICING_UPDATED_EVENT } from '@/utils/channelPricingSync'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -737,6 +738,8 @@ const utcDateTime = ref('')
 let copyTimeout: ReturnType<typeof setTimeout> | null = null
 let utcClockTimer: ReturnType<typeof setInterval> | null = null
 let monthlyQuotaRefreshAt = Number.POSITIVE_INFINITY
+let channelPricingRefreshAt = Number.POSITIVE_INFINITY
+let pricingRefreshPending = false
 
 function updateUtcClock() {
   const now = new Date()
@@ -751,10 +754,11 @@ function updateUtcClock() {
   utcDate.value = `${parts[0]}-${parts[1]}-${parts[2]}`
   utcTime.value = `${parts[3]}:${parts[4]}:${parts[5]}`
   utcDateTime.value = now.toISOString()
-  if (!loading.value && now.getTime() >= monthlyQuotaRefreshAt) {
-    // 复用现有时钟，在服务端声明的下一次额度变更后刷新价格。
+  if (!pricingRefreshPending && document.visibilityState !== 'hidden' &&
+    (now.getTime() >= monthlyQuotaRefreshAt || now.getTime() >= channelPricingRefreshAt)) {
     monthlyQuotaRefreshAt = Number.POSITIVE_INFINITY
-    void loadPricing()
+    channelPricingRefreshAt = now.getTime() + 5000
+    void loadPricing(true)
   }
 }
 
@@ -778,6 +782,9 @@ const rows = computed(() => buildModelPricingRows(channels.value, userGroupRates
 
 const platformOptions = computed<ModelPricingPlatformOption[]>(() => {
   const platforms = new Set(rows.value.map((row) => row.platform))
+  if (channels.value.some(channel => channel.platforms.some(section => section.platform === 'command_code'))) {
+    platforms.add('command_code')
+  }
   return [...platforms]
     .sort((left, right) => {
       const leftIndex = platformOrderIndex.get(left) ?? Number.MAX_SAFE_INTEGER
@@ -809,6 +816,33 @@ const groupOptions = computed<ModelPricingGroupOption[]>(() => {
       peakRateMultiplier: row.peakRateMultiplier,
       isExclusive: row.isExclusive,
     })
+  }
+  // Command Code 暂时删空模型时保留分组选择，新增模型后直接显示。
+  if (selectedPlatform.value === 'command_code') {
+    for (const channel of channels.value) {
+      for (const section of channel.platforms) {
+        if (section.platform !== 'command_code') continue
+        for (const group of section.groups) {
+          if (groups.has(group.id)) continue
+          groups.set(group.id, {
+            value: group.id,
+            label: group.name,
+            platform: 'command_code',
+            subscriptionType: group.subscription_type as SubscriptionType,
+            defaultMultiplier: group.rate_multiplier,
+            userMultiplier: userGroupRates.value[group.id] ?? null,
+            dynamicRateEnabled: Boolean(group.dynamic_rate_enabled),
+            dynamicRateMinMultiplier: group.dynamic_rate_min_multiplier ?? group.rate_multiplier,
+            dynamicRateMaxMultiplier: group.dynamic_rate_max_multiplier ?? group.rate_multiplier,
+            peakRateEnabled: Boolean(group.peak_rate_enabled),
+            peakStart: group.peak_start ?? '',
+            peakEnd: group.peak_end ?? '',
+            peakRateMultiplier: group.peak_rate_multiplier ?? 1,
+            isExclusive: group.is_exclusive,
+          })
+        }
+      }
+    }
   }
   return [...groups.values()].sort((left, right) => left.label.localeCompare(right.label))
 })
@@ -1141,8 +1175,10 @@ function rowKey(row: ModelPricingRow): string {
   return `${row.channelName}:${row.platform}:${row.modelName}:${row.groupId}`
 }
 
-async function loadPricing() {
-  loading.value = true
+async function loadPricing(background = false) {
+  if (pricingRefreshPending) return
+  pricingRefreshPending = true
+  if (!background) loading.value = true
   try {
     const [list, rates] = await Promise.all([
       userChannelsAPI.getAvailable({ purpose: 'model_pricing' }),
@@ -1153,6 +1189,8 @@ async function loadPricing() {
     ])
     channels.value = list
     const now = Date.now()
+    channelPricingRefreshAt = list.some(channel => channel.platforms.some(section => section.platform === 'command_code'))
+      ? now + 5000 : Number.POSITIVE_INFINITY
     monthlyQuotaRefreshAt = Math.min(Number.POSITIVE_INFINITY, ...list.flatMap(channel =>
       channel.platforms.flatMap(section => section.supported_models.flatMap(model => {
         const nextChange = Date.parse(model.monthly_quota?.next_change_at || '')
@@ -1162,19 +1200,40 @@ async function loadPricing() {
     userGroupRates.value = rates
     reconcileSelection()
   } catch (err: unknown) {
-    appStore.showError(extractApiErrorMessage(err, t('common.error')))
+    if (!background) appStore.showError(extractApiErrorMessage(err, t('common.error')))
   } finally {
+    pricingRefreshPending = false
     loading.value = false
+  }
+}
+
+function handleChannelPricingUpdate(event: Event) {
+  if (event.type === 'storage' && (event as StorageEvent).key !== CHANNEL_PRICING_UPDATED_EVENT) return
+  void loadPricing(true)
+}
+
+function refreshVisiblePricing() {
+  if (document.visibilityState !== 'hidden' && channels.value.some(channel =>
+    channel.platforms.some(section => section.platform === 'command_code'))) {
+    void loadPricing(true)
   }
 }
 
 onMounted(() => {
   updateUtcClock()
   utcClockTimer = setInterval(updateUtcClock, 1000)
+  window.addEventListener('focus', refreshVisiblePricing)
+  window.addEventListener(CHANNEL_PRICING_UPDATED_EVENT, handleChannelPricingUpdate)
+  window.addEventListener('storage', handleChannelPricingUpdate)
+  document.addEventListener('visibilitychange', refreshVisiblePricing)
   void loadPricing()
 })
 
 onUnmounted(() => {
+  window.removeEventListener('focus', refreshVisiblePricing)
+  window.removeEventListener(CHANNEL_PRICING_UPDATED_EVENT, handleChannelPricingUpdate)
+  window.removeEventListener('storage', handleChannelPricingUpdate)
+  document.removeEventListener('visibilitychange', refreshVisiblePricing)
   if (utcClockTimer) clearInterval(utcClockTimer)
   if (copyTimeout) clearTimeout(copyTimeout)
 })

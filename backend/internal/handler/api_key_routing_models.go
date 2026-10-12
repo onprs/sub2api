@@ -24,7 +24,7 @@ func dynamicAPIKeyModels(ctx context.Context, gateway *service.GatewayService, a
 		return nil
 	}
 
-	var merged []string
+	merged := make([]string, 0)
 	for _, binding := range bindings {
 		group := binding.Group
 		if group == nil || !group.IsActive() || group.Platform != apiKey.RoutingPlatformValue() {
@@ -50,10 +50,13 @@ func dynamicAPIKeyModels(ctx context.Context, gateway *service.GatewayService, a
 			fallback = defaultCodexModelIDsForPlatform(groupPlatform)
 		}
 		if group.ModelAllowlistEnabled() {
+			channelControlled := groupPlatform == service.PlatformCommandCode && available != nil
 			source := modelListingSource(groupPlatform, available, fallback)
 			available = group.ModelAllowlist.FilterForListing(source)
-			available = appendExplicitGroupAllowlistModels(available, group.ModelAllowlist.Models)
-		} else if len(available) == 0 {
+			if !channelControlled {
+				available = appendExplicitGroupAllowlistModels(available, group.ModelAllowlist.Models)
+			}
+		} else if len(available) == 0 && (groupPlatform != service.PlatformCommandCode || available == nil) {
 			available = fallback
 		}
 		if codex {

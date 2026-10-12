@@ -180,10 +180,11 @@ func (h *GatewayHandler) standardGoogleIngressModelAvailable(c *gin.Context, gro
 
 func (h *GatewayHandler) standardGoogleIngressModelIDs(c *gin.Context, groupID *int64, platform string) []string {
 	if apiKey, ok := middleware.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.UsesDynamicGroupRouting() {
-		return expandGoogleIngressModelIDs(
-			dynamicAPIKeyAvailableModels(c.Request.Context(), h.gatewayService, apiKey, platform),
-			standardGoogleIngressFallbackModelIDs(platform),
-		)
+		models := dynamicAPIKeyAvailableModels(c.Request.Context(), h.gatewayService, apiKey, platform)
+		if platform == service.PlatformCommandCode && models != nil {
+			return models
+		}
+		return expandGoogleIngressModelIDs(models, standardGoogleIngressFallbackModelIDs(platform))
 	}
 	var availableModels []string
 	if h != nil && h.gatewayService != nil {
@@ -191,7 +192,7 @@ func (h *GatewayHandler) standardGoogleIngressModelIDs(c *gin.Context, groupID *
 	}
 	fallbackModels := standardGoogleIngressFallbackModelIDs(platform)
 	models := availableModels
-	if len(models) == 0 {
+	if len(models) == 0 && (platform != service.PlatformCommandCode || availableModels == nil) {
 		models = fallbackModels
 	} else {
 		models = expandGoogleIngressModelIDs(models, fallbackModels)

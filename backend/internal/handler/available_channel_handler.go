@@ -310,11 +310,11 @@ func (h *AvailableChannelHandler) buildModelPricingChannels(
 		}
 
 		modelIDs := h.modelIDsForPricingGroup(ctx, &group)
-		if len(modelIDs) == 0 {
+		if len(modelIDs) == 0 && group.Platform != service.PlatformCommandCode {
 			continue
 		}
 		supported := h.supportedModelsForPricingGroup(ctx, &group, modelIDs)
-		if len(supported) == 0 {
+		if len(supported) == 0 && group.Platform != service.PlatformCommandCode {
 			continue
 		}
 
@@ -391,7 +391,7 @@ func (h *AvailableChannelHandler) modelIDsForPricingGroup(ctx context.Context, g
 	if group.ModelAllowlistEnabled() {
 		return group.ModelAllowlist.FilterForListing(modelListingSource(group.Platform, available, fallback))
 	}
-	if len(available) > 0 {
+	if len(available) > 0 || (group.Platform == service.PlatformCommandCode && available != nil) {
 		return available
 	}
 	return fallback

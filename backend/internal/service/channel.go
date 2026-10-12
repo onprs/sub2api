@@ -107,6 +107,7 @@ type ChannelModelPricing struct {
 	PerRequestPrice              *float64            `json:"per_request_price"`
 	Intervals                    []PricingInterval   `json:"intervals"`
 	TimePricing                  *ChannelTimePricing `json:"time_pricing,omitempty"`
+	MonthlyQuota                 *MonthlyQuotaPolicy `json:"monthly_quota,omitempty"`
 	CreatedAt                    time.Time           `json:"created_at,omitempty"`
 	UpdatedAt                    time.Time           `json:"updated_at,omitempty"`
 }
@@ -221,6 +222,10 @@ func (p ChannelModelPricing) Clone() ChannelModelPricing {
 	if p.Intervals != nil {
 		cp.Intervals = make([]PricingInterval, len(p.Intervals))
 		copy(cp.Intervals, p.Intervals)
+	}
+	if p.MonthlyQuota != nil {
+		quota := p.MonthlyQuota.Clone()
+		cp.MonthlyQuota = &quota
 	}
 	if p.TimePricing != nil {
 		cp.TimePricing = &ChannelTimePricing{
