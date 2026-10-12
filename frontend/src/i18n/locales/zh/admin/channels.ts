@@ -88,6 +88,14 @@ export default {
           perRequestPrice: '单次价格'
         }
       },
+      monthlyQuota: {
+        title: '月额度折算',
+        baseCredits: '基础月额度',
+        periodCredits: '活动月额度',
+        startsAt: '开始时间',
+        expiresAt: '结束时间',
+        addPeriod: '添加额度活动'
+      },
       timePricingValidation: {
         timezone: '请选择有效的 IANA 时区',
         format: '开始时间和结束时间必须使用 HH:mm:ss 格式',

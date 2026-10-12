@@ -416,7 +416,11 @@ func (s *modelPricingGatewayStub) GetAvailableModels(_ context.Context, groupID 
 	if groupID == nil {
 		return nil
 	}
-	return append([]string(nil), s.modelsByGroup[*groupID]...)
+	models := s.modelsByGroup[*groupID]
+	if models == nil {
+		return nil
+	}
+	return append([]string{}, models...)
 }
 
 func (s *modelPricingGatewayStub) GetAvailableModelPricingCandidates(_ context.Context, groupID *int64, _ string, models []string) map[string][]string {

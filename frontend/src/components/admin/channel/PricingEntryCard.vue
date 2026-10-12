@@ -99,6 +99,12 @@
           </div>
         </div>
 
+        <MonthlyQuotaSection
+          v-if="enableMonthlyQuota && props.platform === 'command_code'"
+          :model-value="entry.monthly_quota"
+          @update:model-value="emit('update', { ...entry, monthly_quota: $event })"
+        />
+
         <!-- Token mode -->
         <div v-if="entry.billing_mode === 'token'">
           <!-- Default prices (fallback when no interval matches) -->
@@ -306,6 +312,7 @@ import Icon from '@/components/icons/Icon.vue'
 import IntervalRow from './IntervalRow.vue'
 import ModelTagInput from './ModelTagInput.vue'
 import TimePricingSection from './TimePricingSection.vue'
+import MonthlyQuotaSection from './MonthlyQuotaSection.vue'
 import type { PricingFormEntry, IntervalFormEntry } from './types'
 import { perTokenToMTok, getPlatformTagClass, isValidPositiveMultiplier, validateReasoningEffortMultipliers } from './types'
 import { REASONING_EFFORT_LEVELS, type ReasoningEffortLevel } from '@/constants/channel'
@@ -319,10 +326,12 @@ const props = withDefaults(defineProps<{
   platform?: string
   hideTokenIntervals?: boolean
   enableTimePricing?: boolean
+  enableMonthlyQuota?: boolean
   enableTierMultipliers?: boolean
 }>(), {
   hideTokenIntervals: false,
   enableTimePricing: false,
+  enableMonthlyQuota: false,
   enableTierMultipliers: false,
 })
 

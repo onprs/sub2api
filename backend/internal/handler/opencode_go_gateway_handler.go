@@ -125,7 +125,7 @@ func (h *OpenCodeGoGatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
-	if len(modelIDs) == 0 {
+	if len(modelIDs) == 0 && (platform != service.PlatformCommandCode || modelIDs == nil) {
 		modelIDs = defaultModelIDsForPlatform(platform)
 	}
 	writeModelsList(c, platform, modelIDs)

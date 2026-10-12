@@ -1218,6 +1218,9 @@ func (s *GatewayService) calculateRecordUsageCost(
 			logger.LegacyPrintf("service.gateway", "[Billing] search_price_per_1k explicit 0; search free group_model=%s count=%d", billingModel, result.SearchCount)
 		}
 		searchCost := s.billingService.CalculateSearchCost(result.SearchCount, price, independentMultiplier)
+		if tokenCost != nil && tokenCost.commandCodeQuotaApplied {
+			applyModelSpecificMultiplierToCost(searchCost, tokenCost.ModelSpecificMultiplier)
+		}
 		if searchCost != nil && (searchCost.TotalCost > 0 || searchCost.ActualCost > 0) {
 			if tokenCost == nil {
 				return searchCost, nil

@@ -1408,6 +1408,12 @@ func (s *GatewayService) GetAvailableModelsForComposite(ctx context.Context, gro
 }
 
 func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64, platform string, includeEmptyAccountDefaults bool) []string {
+	// 渠道修改会立即重建渠道缓存，Command Code 目录不再经过账号模型缓存。
+	if platform == PlatformCommandCode && groupID != nil && s.channelService != nil {
+		if models, found := s.channelService.CommandCodeChannelModelIDs(ctx, *groupID); found {
+			return models
+		}
+	}
 	cachePlatform := platform
 	if !includeEmptyAccountDefaults {
 		cachePlatform += compositeAvailableModelsCacheSuffix

@@ -302,6 +302,64 @@ describe('ModelPricingView', () => {
     vi.useRealTimers()
   })
 
+  it('渠道修改后自动同步模型 ID 和价格，删空目录后继续等待新增模型', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-12T00:00:00Z'))
+    const initial = makeChannel()
+    const section = initial[0].platforms[0]
+    section.platform = 'command_code'
+    section.groups[0].platform = 'command_code'
+    section.supported_models.forEach(model => { model.platform = 'command_code' })
+    const empty = structuredClone(initial)
+    empty[0].platforms[0].supported_models = []
+    const updated = structuredClone(initial)
+    updated[0].platforms[0].supported_models[0].name = 'command-code-updated-model'
+    updated[0].platforms[0].supported_models[0].pricing!.input_price = 0.000009
+    updated[0].platforms[0].supported_models[0].pricing!.time_bands = []
+    updated[0].platforms[0].supported_models[0].pricing!.intervals = []
+    getAvailable.mockResolvedValueOnce(initial).mockResolvedValueOnce(empty).mockResolvedValue(updated)
+    getUserGroupRates.mockResolvedValue({})
+
+    const wrapper = mountView()
+    await flushPromises()
+    await selectPricingScope(wrapper, 'command_code', 20)
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(getAvailable).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+    expect(getAvailable).toHaveBeenCalledTimes(2)
+    const selectors = wrapper.findAllComponents({ name: 'Select' })
+    expect(selectors[0].props('modelValue')).toBe('command_code')
+    expect(selectors[1].props('modelValue')).toBe(20)
+    await vi.advanceTimersByTimeAsync(5000)
+    await flushPromises()
+    expect(getAvailable).toHaveBeenCalledTimes(3)
+    expect(wrapper.text()).toContain('command-code-updated-model')
+    expect(wrapper.text()).toContain('¥54')
+    wrapper.unmount()
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(getAvailable).toHaveBeenCalledTimes(3)
+  })
+
+  it('其他标签页保存渠道后立即刷新，并在离开页面时取消订阅', async () => {
+    const channels = makeChannel()
+    getAvailable.mockResolvedValue(channels)
+    getUserGroupRates.mockResolvedValue({})
+    const wrapper = mountView()
+    await flushPromises()
+    expect(getAvailable).toHaveBeenCalledTimes(1)
+    window.dispatchEvent(new StorageEvent('storage', { key: 'unrelated-setting', newValue: '1' }))
+    await flushPromises()
+    expect(getAvailable).toHaveBeenCalledTimes(1)
+    window.dispatchEvent(new StorageEvent('storage', { key: 'sub2api:channel-pricing-updated', newValue: '2' }))
+    await flushPromises()
+    expect(getAvailable).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+    window.dispatchEvent(new Event('sub2api:channel-pricing-updated'))
+    await flushPromises()
+    expect(getAvailable).toHaveBeenCalledTimes(2)
+  })
+
   it('shows official context beside the model ID and promotion in the offer column', async () => {
     const channels = makeChannel()
     const section = channels[0].platforms[0]

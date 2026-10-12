@@ -38,6 +38,18 @@ export interface ChannelTimePricing {
   periods: ChannelTimePricingPeriod[]
 }
 
+export interface ChannelMonthlyQuotaPeriod {
+  credits_usd: number
+  starts_at?: string | null
+  expires_at?: string | null
+  term?: string
+}
+
+export interface ChannelMonthlyQuota {
+  base_credits_usd: number
+  periods?: ChannelMonthlyQuotaPeriod[]
+}
+
 export interface ChannelModelPricing {
   id?: number
   platform: string
@@ -56,6 +68,7 @@ export interface ChannelModelPricing {
   per_request_price: number | null
   intervals: PricingInterval[]
   time_pricing: ChannelTimePricing | null
+  monthly_quota?: ChannelMonthlyQuota | null
 }
 
 export interface AccountStatsPricingRule {

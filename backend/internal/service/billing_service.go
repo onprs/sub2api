@@ -330,6 +330,7 @@ type CostBreakdown struct {
 	ModelSpecificMultiplier   float64 // 活动折算后的模型额度倍率快照；0 表示未单独配置，按 1 处理
 	LongContextBillingApplied bool
 	DynamicRateExcludedCost   float64 // 不参与动态倍率缩放的按次/工具实际成本，仅供账务结算
+	commandCodeQuotaApplied   bool    // 渠道月额度已随本次价格快照结算，防止入口重复折算
 }
 
 func applyCostBreakdownMultiplier(cost *CostBreakdown, multiplier float64) {
@@ -1800,6 +1801,9 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 		if breakdown.BillingMode == "" {
 			breakdown.BillingMode = string(BillingModeToken)
 		}
+		if input.PricingPlatform == PlatformCommandCode && resolved.Source == PricingSourceChannel {
+			err = applyCommandCodeChannelQuotaCostAt(breakdown, resolved.channelPricing, input.PricingAt)
+		}
 	}
 	return breakdown, err
 }
@@ -1858,7 +1862,11 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	applyLongCtx := len(resolved.Intervals) == 0 && contextTierPricingEnabled
 
 	breakdown := s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, applyLongCtx)
-	applyCostBreakdownMultiplier(breakdown, resolvedChannelTimeMultiplier(resolved, input.PricingAt))
+	channelPricingAt := input.PricingAt
+	if input.PricingPlatform == PlatformCommandCode {
+		channelPricingAt = pricingAt
+	}
+	applyCostBreakdownMultiplier(breakdown, resolvedChannelTimeMultiplier(resolved, channelPricingAt))
 	applyCostBreakdownMultiplier(breakdown, reasoningEffortBillingMultiplier(input.ReasoningEffort, pricing.ReasoningEffortMultipliers))
 	return breakdown, nil
 }

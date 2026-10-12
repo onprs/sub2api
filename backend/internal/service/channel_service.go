@@ -703,6 +703,17 @@ func validatePricingEntries(pricing []ChannelModelPricing) error {
 	if err := validateReasoningEffortMultipliers(pricing); err != nil {
 		return err
 	}
+	for _, entry := range pricing {
+		if entry.MonthlyQuota == nil {
+			continue
+		}
+		if entry.Platform != PlatformCommandCode {
+			return infraerrors.BadRequest("MONTHLY_QUOTA_UNSUPPORTED_PLATFORM", "月额度规则仅支持 Command Code")
+		}
+		if err := entry.MonthlyQuota.Validate(); err != nil {
+			return infraerrors.BadRequest("INVALID_MONTHLY_QUOTA", err.Error())
+		}
+	}
 	return validatePricingTimePricing(pricing)
 }
 

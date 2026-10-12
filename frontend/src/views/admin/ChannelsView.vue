@@ -449,6 +449,7 @@
                   :entry="entry"
                   :platform="section.platform"
                   enable-time-pricing
+                  enable-monthly-quota
                   enable-tier-multipliers
                   @update="updatePricingEntry(sIdx, idx, $event)"
                   @remove="removePricingEntry(sIdx, idx)"
@@ -635,6 +636,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
 import type { Channel, ChannelModelPricing, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
 import type { PricingFormEntry } from '@/components/admin/channel/types'
+import { notifyChannelPricingUpdated } from '@/utils/channelPricingSync'
 import { apiIntervalsToForm, apiTimePricingToForm, createDefaultTimePricingForm, findModelConflict, formIntervalsToAPI, formReasoningEffortMultipliersToAPI, formTimePricingToAPI, isValidPositiveMultiplier, mTokToPerToken, perTokenToMTok, validateIntervals, validateReasoningEffortMultipliers, validateTimePricing } from '@/components/admin/channel/types'
 import type { AdminGroup, GroupPlatform } from '@/types'
 import type { Column } from '@/components/common/types'
@@ -1144,7 +1146,8 @@ function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[
         image_output_price: mTokToPerToken(entry.image_output_price),
         per_request_price: entry.per_request_price != null && entry.per_request_price !== '' ? Number(entry.per_request_price) : null,
         intervals: formIntervalsToAPI(entry.intervals || []),
-        time_pricing: formTimePricingToAPI(entry.time_pricing)
+        time_pricing: formTimePricingToAPI(entry.time_pricing),
+        monthly_quota: section.platform === 'command_code' ? entry.monthly_quota ?? null : null
       })
     }
   }
@@ -1247,7 +1250,8 @@ function apiToForm(channel: Channel): PlatformSection[] {
         image_output_price: perTokenToMTok(p.image_output_price),
         per_request_price: p.per_request_price,
         intervals: apiIntervalsToForm(p.intervals || []),
-        time_pricing: apiTimePricingToForm(p.time_pricing)
+        time_pricing: apiTimePricingToForm(p.time_pricing),
+        monthly_quota: p.monthly_quota ? { ...p.monthly_quota, periods: p.monthly_quota.periods?.map(period => ({ ...period })) } : null
       } as PricingFormEntry))
 
     // Read web_search_emulation from features_config
@@ -1636,6 +1640,10 @@ async function handleSubmit() {
       }
       await adminAPI.channels.create(req)
       appStore.showSuccess(t('admin.channels.createSuccess', 'Channel created'))
+    }
+    if (model_pricing.some(pricing => pricing.platform === 'command_code') ||
+      editingChannel.value?.model_pricing.some(pricing => pricing.platform === 'command_code')) {
+      notifyChannelPricingUpdated()
     }
     closeDialog()
     loadChannels()

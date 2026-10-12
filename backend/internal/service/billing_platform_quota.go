@@ -4,7 +4,7 @@ import "time"
 
 // applyPlatformQuotaCostAt 让不同协议入口共用平台月额度折算规则。
 func (s *BillingService) applyPlatformQuotaCostAt(cost *CostBreakdown, platform, model string, at time.Time) error {
-	if platform != PlatformCommandCode || cost == nil {
+	if platform != PlatformCommandCode || cost == nil || cost.commandCodeQuotaApplied {
 		return nil
 	}
 	if cost.AllowZeroRate {
