@@ -56,8 +56,8 @@ func commandCodeChannelPricingIsFree(pricing *ChannelModelPricing) bool {
 	return true
 }
 
-func (s *ChannelService) buildCommandCodeChannelSupportedModel(ctx context.Context, groupID int64, name string, candidates []string) (SupportedModel, bool) {
-	model := SupportedModel{Name: strings.TrimSpace(name), Platform: PlatformCommandCode, PricingSource: PricingSourceMissing}
+func (s *ChannelService) buildChannelSupportedModel(ctx context.Context, groupID int64, platform, name string, candidates []string) (SupportedModel, bool) {
+	model := SupportedModel{Name: strings.TrimSpace(name), Platform: platform, PricingSource: PricingSourceMissing}
 	lookup, err := s.lookupGroupChannel(ctx, groupID)
 	if err != nil {
 		return model, true
@@ -216,6 +216,6 @@ func applyCommandCodeChannelQuotaCostAt(cost *CostBreakdown, pricing *ChannelMod
 		multiplier = quota.CostMultiplier
 	}
 	applyModelSpecificMultiplierToCost(cost, multiplier)
-	cost.commandCodeQuotaApplied = true
+	cost.platformQuotaApplied = true
 	return nil
 }

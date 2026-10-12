@@ -3251,12 +3251,14 @@ func openRouterAvailableModels(account *service.Account) []openai.Model {
 func openCodeGoAvailableModels(account *service.Account) []openai.Model {
 	ids := []string{}
 	if account != nil {
-		for requestedModel := range account.GetExplicitModelMapping() {
-			ids = append(ids, requestedModel)
+		for requestedModel, upstreamModel := range account.GetExplicitModelMapping() {
+			if service.IsOpenCodeOfficiallyPricedModel(account, upstreamModel) {
+				ids = append(ids, requestedModel)
+			}
 		}
 	}
-	if len(ids) == 0 {
-		ids = service.DefaultOpenCodeGoModelIDs()
+	if len(ids) == 0 && (account == nil || len(account.GetExplicitModelMapping()) == 0) {
+		ids = service.OpenCodeDefaultModelIDs(account)
 	}
 	return accountTestModels(ids)
 }

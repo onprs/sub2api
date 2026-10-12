@@ -73,6 +73,8 @@ export interface ChannelModelPricing {
 
 export interface AccountStatsPricingRule {
   id?: number
+  pricing_source?: '' | 'channel_model_multiplier'
+  platform?: string
   name: string
   group_ids: number[]
   account_ids: number[]

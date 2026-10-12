@@ -44,6 +44,7 @@ const legacyGoRules = [
   { pattern: 'grok-*', protocol: 'responses' },
   { pattern: 'gpt-*', protocol: 'responses' },
   { pattern: 'muse-spark-*', protocol: 'responses' },
+  { pattern: 'claude-haiku-5-5', protocol: 'anthropic' },
   { pattern: 'minimax-*', protocol: 'anthropic' },
   { pattern: 'qwen*', protocol: 'anthropic' }
 ]

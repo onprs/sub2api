@@ -16,7 +16,7 @@ import (
 func (r *channelRepository) batchLoadAccountStatsPricingRules(ctx context.Context, channelIDs []int64) (map[int64][]service.AccountStatsPricingRule, error) {
 	// 1. 查询规则
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, channel_id, name, group_ids, account_ids, sort_order, created_at, updated_at
+		`SELECT id, channel_id, name, pricing_source, platform, group_ids, account_ids, sort_order, created_at, updated_at
 		 FROM channel_account_stats_pricing_rules WHERE channel_id = ANY($1) ORDER BY channel_id, sort_order, id`,
 		pq.Array(channelIDs),
 	)
@@ -30,7 +30,7 @@ func (r *channelRepository) batchLoadAccountStatsPricingRules(ctx context.Contex
 	for rows.Next() {
 		var rule service.AccountStatsPricingRule
 		if err := rows.Scan(
-			&rule.ID, &rule.ChannelID, &rule.Name,
+			&rule.ID, &rule.ChannelID, &rule.Name, &rule.PricingSource, &rule.Platform,
 			pq.Array(&rule.GroupIDs), pq.Array(&rule.AccountIDs),
 			&rule.SortOrder, &rule.CreatedAt, &rule.UpdatedAt,
 		); err != nil {
@@ -155,10 +155,16 @@ func replaceAccountStatsPricingRulesTx(ctx context.Context, tx *sql.Tx, channelI
 
 // createAccountStatsPricingRuleTx 在事务中创建单条账号统计定价规则及其模型定价
 func createAccountStatsPricingRuleTx(ctx context.Context, tx *sql.Tx, rule *service.AccountStatsPricingRule) error {
+	if rule.GroupIDs == nil {
+		rule.GroupIDs = []int64{}
+	}
+	if rule.AccountIDs == nil {
+		rule.AccountIDs = []int64{}
+	}
 	err := tx.QueryRowContext(ctx,
-		`INSERT INTO channel_account_stats_pricing_rules (channel_id, name, group_ids, account_ids, sort_order)
-		 VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at, updated_at`,
-		rule.ChannelID, rule.Name, pq.Array(rule.GroupIDs), pq.Array(rule.AccountIDs), rule.SortOrder,
+		`INSERT INTO channel_account_stats_pricing_rules (channel_id, name, pricing_source, platform, group_ids, account_ids, sort_order)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, created_at, updated_at`,
+		rule.ChannelID, rule.Name, rule.PricingSource, rule.Platform, pq.Array(rule.GroupIDs), pq.Array(rule.AccountIDs), rule.SortOrder,
 	).Scan(&rule.ID, &rule.CreatedAt, &rule.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("insert account stats pricing rule: %w", err)

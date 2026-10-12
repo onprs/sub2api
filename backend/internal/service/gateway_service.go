@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1408,7 +1409,12 @@ func (s *GatewayService) GetAvailableModelsForComposite(ctx context.Context, gro
 }
 
 func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64, platform string, includeEmptyAccountDefaults bool) []string {
-	// 渠道修改会立即重建渠道缓存，Command Code 目录不再经过账号模型缓存。
+	// 渠道修改后立即更新渠道模型目录，避免账号模型缓存保留旧列表。
+	if platform == PlatformOpenCodeGo && groupID != nil && s.channelService != nil {
+		if models, found := s.channelService.OpenCodeChannelModelIDs(ctx, *groupID); found {
+			return models
+		}
+	}
 	if platform == PlatformCommandCode && groupID != nil && s.channelService != nil {
 		if models, found := s.channelService.CommandCodeChannelModelIDs(ctx, *groupID); found {
 			return models
@@ -1423,7 +1429,7 @@ func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64,
 		if cached, found := s.modelsListCache.Get(cacheKey); found {
 			if models, ok := cached.([]string); ok {
 				modelsListCacheHitTotal.Add(1)
-				return cloneStringSlice(models)
+				return slices.Clone(models)
 			}
 		}
 	}
@@ -1497,6 +1503,12 @@ func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64,
 
 		mapping := acc.GetModelMapping()
 		if len(mapping) == 0 {
+			if includeEmptyAccountDefaults && acc.IsOpenCodeGo() {
+				hasResolvedModels = true
+				for _, model := range OpenCodeDefaultModelIDs(&acc) {
+					modelSet[model] = struct{}{}
+				}
+			}
 			if includeEmptyAccountDefaults && platform == PlatformOpenAI && acc.Platform == PlatformOpenAI {
 				hasOpenAIEmptyMappingAccount = true
 			}
@@ -1514,7 +1526,14 @@ func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64,
 		}
 
 		accountHasModel := false
+		if acc.IsOpenCodeGo() {
+			// 显式目录过滤为空时保留空列表，避免回填账号未开放的默认模型。
+			hasResolvedModels = true
+		}
 		for model := range mapping {
+			if acc.IsOpenCodeGo() && !IsOpenCodeOfficiallyPricedModel(&acc, mapping[model]) {
+				continue
+			}
 			if platform != "" && acc.Platform != platform && !mixedListingModelAllowed(platform, model) {
 				continue
 			}
@@ -1578,10 +1597,10 @@ func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64,
 	}
 
 	if s.modelsListCache != nil {
-		s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
+		s.modelsListCache.Set(cacheKey, slices.Clone(models), s.modelsListCacheTTL)
 		modelsListCacheStoreTotal.Add(1)
 	}
-	return cloneStringSlice(models)
+	return slices.Clone(models)
 }
 
 // GetAvailableModelPricingCandidates returns pricing lookup candidates for

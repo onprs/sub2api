@@ -136,7 +136,7 @@ func (s *ChannelService) fillGlobalPricingFallback(models []SupportedModel) {
 	for i := range models {
 		s.fillCommandCodeMetadataForName(&models[i], models[i].Name)
 		models[i].Pricing = withDefaultMaxReasoningEffortMultiplier(models[i].Pricing, models[i].Name)
-		if models[i].Platform == PlatformCommandCode && models[i].PricingSource == PricingSourceChannel {
+		if (models[i].Platform == PlatformCommandCode || models[i].Platform == PlatformOpenCodeGo) && models[i].PricingSource == PricingSourceChannel {
 			if pricingNeedsFallback(models[i].Pricing) {
 				models[i].Pricing = nil
 				models[i].PricingSource = PricingSourceMissing
@@ -223,8 +223,8 @@ func (s *ChannelService) BuildSupportedModelForPricingGroup(
 	if model.Name == "" || s == nil {
 		return model
 	}
-	if platform == PlatformCommandCode && groupID > 0 && s.channelPricingLookupAvailable() {
-		if channelModel, found := s.buildCommandCodeChannelSupportedModel(ctx, groupID, displayName, pricingCandidates); found {
+	if (platform == PlatformCommandCode || platform == PlatformOpenCodeGo) && groupID > 0 && s.channelPricingLookupAvailable() {
+		if channelModel, found := s.buildChannelSupportedModel(ctx, groupID, platform, displayName, pricingCandidates); found {
 			return channelModel
 		}
 	}
@@ -385,7 +385,7 @@ func (s *ChannelService) displayPricingForModelAt(platform, model string, existi
 
 func (s *ChannelService) fillModelQuotaCosts(models []SupportedModel) {
 	for i := range models {
-		if models[i].Platform != PlatformCommandCode {
+		if models[i].Platform != PlatformCommandCode && models[i].Platform != PlatformOpenCodeGo {
 			continue
 		}
 		candidates := []string{models[i].Name}
@@ -422,6 +422,24 @@ func (s *ChannelService) fillModelQuotaCostForNameAt(model *SupportedModel, pric
 	var quotaCost MonthlyQuotaCost
 	var ok bool
 	switch model.Platform {
+	case PlatformOpenCodeGo:
+		pricing := model.Pricing
+		if model.PricingSource != PricingSourceChannel {
+			pricing, _ = openCodeReferencePricing(pricingModel)
+		}
+		if pricing == nil {
+			return false
+		}
+		if pricing.MonthlyQuota == nil || commandCodeChannelPricingIsFree(pricing) {
+			return true
+		}
+		quota, available := pricing.MonthlyQuota.ResolveAt(at, openCodeSharedMonthlyQuotaUSD)
+		if !available {
+			return false
+		}
+		model.MonthlyQuota = &quota
+		quotaCost = MonthlyQuotaCost{IncludedMonthlyUsageUSD: quota.CreditsUSD, Multiplier: quota.CostMultiplier}
+		ok = true
 	case PlatformCommandCode:
 		var quota ModelMonthlyQuota
 		if model.PricingSource == PricingSourceChannel && model.Pricing != nil {
@@ -528,11 +546,17 @@ func (s *ChannelService) fillModelPricingTimeBands(models []SupportedModel) {
 }
 
 func (s *ChannelService) fillModelPricingTimeBandsForName(model *SupportedModel, pricingModel string, existing *ChannelModelPricing) {
-	if s == nil || model == nil || model.Pricing == nil || model.Platform != PlatformCommandCode {
+	if s == nil || model == nil || model.Pricing == nil || (model.Platform != PlatformCommandCode && model.Platform != PlatformOpenCodeGo) {
 		return
 	}
 	if existing != nil {
 		model.PricingTimeBands = commandCodeChannelPricingTimeBandsAt(existing, time.Now())
+		return
+	}
+	if model.Platform == PlatformOpenCodeGo {
+		if pricing, ok := openCodeReferencePricing(pricingModel); ok {
+			model.PricingTimeBands = commandCodeChannelPricingTimeBandsAt(pricing, time.Now())
+		}
 		return
 	}
 	if model.Platform == PlatformCommandCode {

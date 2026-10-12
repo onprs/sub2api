@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -107,10 +108,12 @@ type pricingIntervalRequest struct {
 }
 
 type accountStatsPricingRuleRequest struct {
-	Name       string                       `json:"name"`
-	GroupIDs   []int64                      `json:"group_ids"`
-	AccountIDs []int64                      `json:"account_ids"`
-	Pricing    []channelModelPricingRequest `json:"pricing"`
+	PricingSource string                       `json:"pricing_source"`
+	Platform      string                       `json:"platform"`
+	Name          string                       `json:"name"`
+	GroupIDs      []int64                      `json:"group_ids"`
+	AccountIDs    []int64                      `json:"account_ids"`
+	Pricing       []channelModelPricingRequest `json:"pricing"`
 }
 
 type channelResponse struct {
@@ -183,11 +186,13 @@ type pricingIntervalResponse struct {
 }
 
 type accountStatsPricingRuleResponse struct {
-	ID         int64                         `json:"id"`
-	Name       string                        `json:"name"`
-	GroupIDs   []int64                       `json:"group_ids"`
-	AccountIDs []int64                       `json:"account_ids"`
-	Pricing    []channelModelPricingResponse `json:"pricing"`
+	PricingSource string                        `json:"pricing_source"`
+	Platform      string                        `json:"platform"`
+	ID            int64                         `json:"id"`
+	Name          string                        `json:"name"`
+	GroupIDs      []int64                       `json:"group_ids"`
+	AccountIDs    []int64                       `json:"account_ids"`
+	Pricing       []channelModelPricingResponse `json:"pricing"`
 }
 
 func channelToResponse(ch *service.Channel) *channelResponse {
@@ -223,12 +228,15 @@ func channelToResponse(ch *service.Channel) *channelResponse {
 	resp.ApplyPricingToAccountStats = ch.ApplyPricingToAccountStats
 	resp.AccountStatsPricingRules = make([]accountStatsPricingRuleResponse, 0, len(ch.AccountStatsPricingRules))
 	for _, rule := range ch.AccountStatsPricingRules {
+		rule.Pricing = ch.AccountStatsRulePricingAt(rule, time.Now())
 		ruleResp := accountStatsPricingRuleResponse{
-			ID:         rule.ID,
-			Name:       rule.Name,
-			GroupIDs:   rule.GroupIDs,
-			AccountIDs: rule.AccountIDs,
-			Pricing:    make([]channelModelPricingResponse, 0, len(rule.Pricing)),
+			PricingSource: rule.PricingSource,
+			Platform:      rule.Platform,
+			ID:            rule.ID,
+			Name:          rule.Name,
+			GroupIDs:      rule.GroupIDs,
+			AccountIDs:    rule.AccountIDs,
+			Pricing:       make([]channelModelPricingResponse, 0, len(rule.Pricing)),
 		}
 		if ruleResp.GroupIDs == nil {
 			ruleResp.GroupIDs = []int64{}
@@ -406,10 +414,12 @@ func timePricingRequestToService(value *channelTimePricingRequest) *service.Chan
 
 func accountStatsPricingRuleRequestToService(r accountStatsPricingRuleRequest) service.AccountStatsPricingRule {
 	return service.AccountStatsPricingRule{
-		Name:       r.Name,
-		GroupIDs:   r.GroupIDs,
-		AccountIDs: r.AccountIDs,
-		Pricing:    pricingRequestToService(r.Pricing, false),
+		PricingSource: r.PricingSource,
+		Platform:      r.Platform,
+		Name:          r.Name,
+		GroupIDs:      r.GroupIDs,
+		AccountIDs:    r.AccountIDs,
+		Pricing:       pricingRequestToService(r.Pricing, false),
 	}
 }
 
@@ -480,12 +490,12 @@ func (h *ChannelHandler) Create(c *gin.Context) {
 
 	var statsRules []service.AccountStatsPricingRule
 	for i, r := range req.AccountStatsPricingRules {
-		if len(r.GroupIDs) == 0 && len(r.AccountIDs) == 0 {
+		if r.PricingSource != service.AccountStatsPricingSourceChannel && len(r.GroupIDs) == 0 && len(r.AccountIDs) == 0 {
 			response.ErrorFrom(c, infraerrors.BadRequest("PRICING_RULE_EMPTY_SCOPE",
 				fmt.Sprintf("pricing rule #%d must have at least one group or account", i+1)))
 			return
 		}
-		if len(r.Pricing) == 0 {
+		if r.PricingSource != service.AccountStatsPricingSourceChannel && len(r.Pricing) == 0 {
 			response.ErrorFrom(c, infraerrors.BadRequest("PRICING_RULE_EMPTY_PRICING",
 				fmt.Sprintf("pricing rule #%d must have at least one pricing entry", i+1)))
 			return
@@ -555,12 +565,12 @@ func (h *ChannelHandler) Update(c *gin.Context) {
 	if req.AccountStatsPricingRules != nil {
 		statsRules := make([]service.AccountStatsPricingRule, 0, len(*req.AccountStatsPricingRules))
 		for i, r := range *req.AccountStatsPricingRules {
-			if len(r.GroupIDs) == 0 && len(r.AccountIDs) == 0 {
+			if r.PricingSource != service.AccountStatsPricingSourceChannel && len(r.GroupIDs) == 0 && len(r.AccountIDs) == 0 {
 				response.ErrorFrom(c, infraerrors.BadRequest("PRICING_RULE_EMPTY_SCOPE",
 					fmt.Sprintf("pricing rule #%d must have at least one group or account", i+1)))
 				return
 			}
-			if len(r.Pricing) == 0 {
+			if r.PricingSource != service.AccountStatsPricingSourceChannel && len(r.Pricing) == 0 {
 				response.ErrorFrom(c, infraerrors.BadRequest("PRICING_RULE_EMPTY_PRICING",
 					fmt.Sprintf("pricing rule #%d must have at least one pricing entry", i+1)))
 				return
@@ -660,6 +670,11 @@ func (h *ChannelHandler) SyncPricingModels(c *gin.Context) {
 	if platform == "" {
 		response.ErrorFrom(c, infraerrors.BadRequest("MISSING_PARAMETER", "platform parameter is required").
 			WithMetadata(map[string]string{"param": "platform"}))
+		return
+	}
+
+	if platform == service.PlatformOpenCodeGo {
+		response.Success(c, gin.H{"models": service.DefaultOpenCodeGoModelIDs()})
 		return
 	}
 

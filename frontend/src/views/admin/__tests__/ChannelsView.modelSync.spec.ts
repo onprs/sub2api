@@ -8,8 +8,9 @@ import {
 } from '@/constants/platformCatalog'
 import ChannelsView from '@/views/admin/ChannelsView.vue'
 
-const { listChannels, getGroups, syncPricingModels, showSuccess, showError } = vi.hoisted(() => ({
+const { listChannels, createChannel, getGroups, syncPricingModels, showSuccess, showError } = vi.hoisted(() => ({
   listChannels: vi.fn(),
+  createChannel: vi.fn(),
   getGroups: vi.fn(),
   syncPricingModels: vi.fn(),
   showSuccess: vi.fn(),
@@ -18,7 +19,7 @@ const { listChannels, getGroups, syncPricingModels, showSuccess, showError } = v
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
-    channels: { list: listChannels, syncPricingModels },
+    channels: { list: listChannels, create: createChannel, syncPricingModels },
     groups: { getAll: getGroups },
     settings: { getWebSearchEmulationConfig: vi.fn().mockResolvedValue({ enabled: false }) }
   }
@@ -85,12 +86,43 @@ describe('ChannelsView pricing model sync', () => {
     vi.clearAllMocks()
     localStorage.clear()
     listChannels.mockResolvedValue({ items: [], total: 0 })
+    createChannel.mockResolvedValue({ id: 1 })
     getGroups.mockResolvedValue([])
     syncPricingModels.mockReset()
   })
 
   afterEach(() => {
     resetPlatformCatalog()
+  })
+
+  it('保存 OpenCode 规则时使用渠道定价来源，不提交重复的模型价格', async () => {
+    getGroups.mockResolvedValue([{ id: 1, name: 'OpenCode 分组', platform: 'opencode_go', rate_multiplier: 1, status: 'active' }])
+    const wrapper = mountView()
+    await openDialog(wrapper)
+    await enablePlatform(wrapper, 'opencode_go')
+    await wrapper.get('input[placeholder="admin.channels.form.namePlaceholder"]').setValue('OpenCode')
+    const group = wrapper.findAll('label').find(label => label.isVisible() && label.text().includes('OpenCode 分组'))
+    expect(group).toBeDefined()
+    await group!.get('input[type="checkbox"]').setValue(true)
+    const addRule = wrapper.findAll('button').find(button => button.isVisible() && button.text().includes('admin.channels.form.addRule'))
+    expect(addRule).toBeDefined()
+    await addRule!.trigger('click')
+    const source = wrapper.get('select')
+    expect((source.element as HTMLSelectElement).value).toBe('channel_model_multiplier')
+    expect(wrapper.text()).toContain('admin.channels.form.channelRulePricingHint')
+    await wrapper.get('#channel-form').trigger('submit')
+    await flushPromises()
+    expect(showError).not.toHaveBeenCalled()
+    expect(createChannel).toHaveBeenCalledWith(expect.objectContaining({
+      account_stats_pricing_rules: [expect.objectContaining({
+        pricing_source: 'channel_model_multiplier',
+        platform: 'opencode_go',
+        group_ids: [],
+        account_ids: [],
+        pricing: []
+      })]
+    }))
+    wrapper.unmount()
   })
 
   it.each([

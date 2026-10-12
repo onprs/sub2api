@@ -77,7 +77,7 @@ func resolveAccountStatsCostWithPlatform(
 	}
 
 	// 优先级 1：自定义规则（始终尝试）
-	if cost := tryCustomRules(channel, accountID, groupID, groupPlatform, upstreamModel, tokens, requestCount, reasoningEffort); cost != nil {
+	if cost := tryCustomRulesAt(ctx, billingService, channel, accountID, groupID, pricingPlatform, upstreamModel, tokens, requestCount, serviceTier, pricingAt, reasoningEffort); cost != nil {
 		return cost
 	}
 
@@ -128,18 +128,16 @@ func tryModelFilePricingForPlatform(billingService *BillingService, platform, mo
 	return &breakdown.TotalCost
 }
 
-// tryCustomRules 遍历自定义规则，按数组顺序先命中为准。
-func tryCustomRules(
-	channel *Channel, accountID, groupID int64,
-	platform, model string, tokens UsageTokens, requestCount int,
-	reasoningEfforts ...string,
-) *float64 {
-	reasoningEffort := ""
-	if len(reasoningEfforts) > 0 {
-		reasoningEffort = reasoningEfforts[0]
-	}
+// tryCustomRulesAt 按规则顺序计算账号费用，并保留请求的定价时刻。
+func tryCustomRulesAt(ctx context.Context, billing *BillingService, channel *Channel, accountID, groupID int64, platform, model string, tokens UsageTokens, requestCount int, serviceTier string, pricingAt time.Time, reasoningEffort string) *float64 {
 	modelLower := strings.ToLower(model)
 	for _, rule := range channel.AccountStatsPricingRules {
+		if rule.PricingSource == AccountStatsPricingSourceChannel {
+			if cost := tryChannelAccountStatsRule(ctx, billing, channel, rule, accountID, groupID, platform, modelLower, tokens, requestCount, serviceTier, reasoningEffort, pricingAt); cost != nil {
+				return cost
+			}
+			continue
+		}
 		if !matchAccountStatsRule(&rule, accountID, groupID) {
 			continue
 		}

@@ -79,8 +79,8 @@ type PricingInput struct {
 // 2. 如果指定了 GroupID，查找渠道定价并覆盖
 func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) *ResolvedPricing {
 	longContextPricingEnabled := input.Group == nil || input.Group.LongContextPricingEnabled
-	// Command Code 关联渠道后，以渠道模型规则作为完整价格来源。
-	if input.Platform == PlatformCommandCode && input.GroupID != nil && r.channelService != nil {
+	// Command Code 和 OpenCode 关联渠道后，以渠道模型规则作为完整价格来源。
+	if (input.Platform == PlatformCommandCode || input.Platform == PlatformOpenCodeGo) && input.GroupID != nil && r.channelService != nil {
 		channel, err := r.channelService.lookupGroupChannel(ctx, *input.GroupID)
 		if err != nil {
 			return &ResolvedPricing{Mode: BillingModeToken, Source: PricingSourceMissing}
@@ -156,6 +156,12 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	}
 	resolved.longContextPricingEnabled = longContextPricingEnabled
 
+	// OpenCode 的渠道定价完整决定价格，避免通用目录的阶梯或缓存价混入。
+	if input.Platform == PlatformOpenCodeGo && chPricing != nil {
+		resolved.BasePricing = nil
+		resolved.Intervals = nil
+		resolved.SupportsCacheBreakdown = false
+	}
 	// 2. 如果有 GroupID，尝试渠道覆盖
 	if chPricing != nil {
 		resolved.Source = PricingSourceChannel
@@ -183,6 +189,11 @@ func (r *ModelPricingResolver) resolveConfiguredPricing(config *ChannelModelPric
 	if resolved.BasePricing != nil && len(resolved.BasePricing.Intervals) > 0 {
 		resolved.Intervals = append([]PricingInterval(nil), resolved.BasePricing.Intervals...)
 		resolved.IntervalsRequireMatch = resolved.BasePricing.IntervalsRequireMatch
+	}
+	if platform == PlatformOpenCodeGo {
+		resolved.BasePricing = nil
+		resolved.Intervals = nil
+		resolved.SupportsCacheBreakdown = false
 	}
 	r.applyTokenOverrides(config, resolved)
 	return resolved
@@ -228,7 +239,7 @@ func (r *ModelPricingResolver) applyFirstTokenTier(resolved *ResolvedPricing, co
 
 // resolveBasePricing 从 LiteLLM 或 Fallback 获取基础定价
 func (r *ModelPricingResolver) resolveBasePricing(platform, model string, pricingAt time.Time) (*ModelPricing, string) {
-	if platform == PlatformCommandCode {
+	if platform == PlatformCommandCode || platform == PlatformOpenCodeGo {
 		pricing, err := r.billingService.getModelPricingForPlatformAt(platform, model, pricingAt)
 		if err != nil {
 			return nil, PricingSourceMissing
@@ -309,6 +320,9 @@ func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricin
 	}
 
 	applyChannelTokenPriceOverrides(resolved.BasePricing, chPricing)
+	if chPricing.Platform == PlatformOpenCodeGo {
+		resolved.BasePricing.AllowZeroRate = commandCodeChannelPricingIsFree(chPricing)
+	}
 	if chPricing.CacheWrite1hPrice != nil {
 		resolved.SupportsCacheBreakdown = true
 		resolved.BasePricing.SupportsCacheBreakdown = true
