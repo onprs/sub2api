@@ -707,8 +707,8 @@ func validatePricingEntries(pricing []ChannelModelPricing) error {
 		if entry.MonthlyQuota == nil {
 			continue
 		}
-		if entry.Platform != PlatformCommandCode {
-			return infraerrors.BadRequest("MONTHLY_QUOTA_UNSUPPORTED_PLATFORM", "月额度规则仅支持 Command Code")
+		if entry.Platform != PlatformCommandCode && entry.Platform != PlatformOpenCodeGo {
+			return infraerrors.BadRequest("MONTHLY_QUOTA_UNSUPPORTED_PLATFORM", "月额度规则仅支持 Command Code 和 OpenCode")
 		}
 		if err := entry.MonthlyQuota.Validate(); err != nil {
 			return infraerrors.BadRequest("INVALID_MONTHLY_QUOTA", err.Error())
@@ -759,6 +759,17 @@ func validatePricingTimePricing(pricing []ChannelModelPricing) error {
 
 func validateAccountStatsPricingRules(rules []AccountStatsPricingRule) error {
 	for i := range rules {
+		if rules[i].PricingSource == AccountStatsPricingSourceChannel {
+			if rules[i].Platform != PlatformOpenCodeGo && rules[i].Platform != PlatformCommandCode {
+				return infraerrors.BadRequest("ACCOUNT_STATS_CHANNEL_PLATFORM_UNSUPPORTED", "渠道同步规则仅支持 OpenCode 和 Command Code")
+			}
+			// 同步规则不保存第二份模型价格，结算和展示均读取渠道。
+			rules[i].Pricing = nil
+			continue
+		}
+		if rules[i].PricingSource != "" {
+			return infraerrors.BadRequest("INVALID_ACCOUNT_STATS_PRICING_SOURCE", "不支持的账号定价来源")
+		}
 		for _, pricing := range rules[i].Pricing {
 			if pricing.TimePricing != nil && len(pricing.TimePricing.Periods) > 0 {
 				return fmt.Errorf("account stats pricing rule #%d: %w", i+1,

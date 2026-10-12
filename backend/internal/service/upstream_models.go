@@ -793,6 +793,15 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 	if err != nil {
 		return nil, nil, newUpstreamModelSyncUpstreamError("Upstream model list response was not valid JSON", err)
 	}
+	if account.IsOpenCodeGo() {
+		filtered := make([]string, 0, len(models))
+		for _, model := range models {
+			if IsOpenCodeOfficiallyPricedModel(account, model) {
+				filtered = append(filtered, model)
+			}
+		}
+		models = filtered
+	}
 	if len(models) == 0 {
 		return nil, nil, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", nil)
 	}

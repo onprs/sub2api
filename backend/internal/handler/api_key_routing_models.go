@@ -50,13 +50,13 @@ func dynamicAPIKeyModels(ctx context.Context, gateway *service.GatewayService, a
 			fallback = defaultCodexModelIDsForPlatform(groupPlatform)
 		}
 		if group.ModelAllowlistEnabled() {
-			channelControlled := groupPlatform == service.PlatformCommandCode && available != nil
+			channelControlled := (groupPlatform == service.PlatformCommandCode || groupPlatform == service.PlatformOpenCodeGo) && available != nil
 			source := modelListingSource(groupPlatform, available, fallback)
 			available = group.ModelAllowlist.FilterForListing(source)
-			if !channelControlled {
+			if !channelControlled && groupPlatform != service.PlatformOpenCodeGo {
 				available = appendExplicitGroupAllowlistModels(available, group.ModelAllowlist.Models)
 			}
-		} else if len(available) == 0 && (groupPlatform != service.PlatformCommandCode || available == nil) {
+		} else if len(available) == 0 && ((groupPlatform != service.PlatformCommandCode && groupPlatform != service.PlatformOpenCodeGo) || available == nil) {
 			available = fallback
 		}
 		if codex {

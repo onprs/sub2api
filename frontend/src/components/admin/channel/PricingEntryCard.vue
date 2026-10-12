@@ -100,7 +100,7 @@
         </div>
 
         <MonthlyQuotaSection
-          v-if="enableMonthlyQuota && props.platform === 'command_code'"
+          v-if="enableMonthlyQuota && ['command_code', 'opencode_go'].includes(props.platform ?? '')"
           :model-value="entry.monthly_quota"
           @update:model-value="emit('update', { ...entry, monthly_quota: $event })"
         />

@@ -945,7 +945,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	user := input.User
 	account := input.Account
 	subscription := input.Subscription
-	if account != nil && (account.IsCline() || account.IsOpenRouter() || account.IsCommandCode()) {
+	if account != nil && (account.IsOpenCodeGo() || account.IsCline() || account.IsOpenRouter() || account.IsCommandCode()) {
 		opts.PricingPlatform = account.Platform
 	}
 	ApplyForwardImageBillingResolution(result)
@@ -1218,7 +1218,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 			logger.LegacyPrintf("service.gateway", "[Billing] search_price_per_1k explicit 0; search free group_model=%s count=%d", billingModel, result.SearchCount)
 		}
 		searchCost := s.billingService.CalculateSearchCost(result.SearchCount, price, independentMultiplier)
-		if tokenCost != nil && tokenCost.commandCodeQuotaApplied {
+		if tokenCost != nil && tokenCost.platformQuotaApplied {
 			applyModelSpecificMultiplierToCost(searchCost, tokenCost.ModelSpecificMultiplier)
 		}
 		if searchCost != nil && (searchCost.TotalCost > 0 || searchCost.ActualCost > 0) {

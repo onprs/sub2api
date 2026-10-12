@@ -496,6 +496,17 @@
                   </button>
                 </div>
 
+                <div v-if="['opencode_go', 'command_code'].includes(section.platform)">
+                  <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.channels.form.rulePricingSource') }}</label>
+                  <select v-model="rule.pricing_source" class="input mt-1 text-sm">
+                    <option value="">{{ t('admin.channels.form.customRulePricing') }}</option>
+                    <option value="channel_model_multiplier">{{ t('admin.channels.form.channelRulePricing') }}</option>
+                  </select>
+                  <p v-if="rule.pricing_source === 'channel_model_multiplier'" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.channels.form.channelRulePricingHint') }}
+                  </p>
+                </div>
+
                 <div>
                   <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.channels.form.ruleGroups') }}</label>
                   <div class="mt-1 flex flex-wrap gap-1">
@@ -565,7 +576,7 @@
                   </p>
                 </div>
 
-                <div>
+                <div v-if="rule.pricing_source !== 'channel_model_multiplier'">
                   <div class="mb-1 flex items-center justify-between">
                     <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.channels.form.ruleModelPricing') }}</label>
                     <button type="button" @click="addRulePricingEntry(sIdx, ruleIndex)" class="text-xs text-primary-600 hover:text-primary-700">
@@ -674,6 +685,7 @@ async function loadWebSearchGlobalState() {
 
 // ── Form-level pricing rule type (per-platform) ──
 interface FormPricingRule {
+  pricing_source: '' | 'channel_model_multiplier'
   name: string
   group_ids: number[]
   account_ids: number[]
@@ -961,6 +973,7 @@ function renameMappingKey(sectionIdx: number, oldKey: string, newKey: string) {
 // ── Account Stats Pricing helpers ──
 function addAccountStatsRule(sectionIdx: number) {
   form.platforms[sectionIdx].account_stats_pricing_rules.push({
+    pricing_source: form.platforms[sectionIdx].platform === 'opencode_go' ? 'channel_model_multiplier' : '',
     name: '',
     group_ids: [],
     account_ids: [],
@@ -1081,10 +1094,12 @@ function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
     if (!section.enabled) continue
     for (const rule of section.account_stats_pricing_rules) {
       rules.push({
+        pricing_source: rule.pricing_source,
+        platform: section.platform,
         name: rule.name,
         group_ids: rule.group_ids,
         account_ids: rule.account_ids,
-        pricing: rule.pricing
+        pricing: (rule.pricing_source === 'channel_model_multiplier' ? [] : rule.pricing)
           .filter(p => p.models.length > 0)
           .map(p => ({
             platform: section.platform,
@@ -1147,7 +1162,7 @@ function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[
         per_request_price: entry.per_request_price != null && entry.per_request_price !== '' ? Number(entry.per_request_price) : null,
         intervals: formIntervalsToAPI(entry.intervals || []),
         time_pricing: formTimePricingToAPI(entry.time_pricing),
-        monthly_quota: section.platform === 'command_code' ? entry.monthly_quota ?? null : null
+        monthly_quota: ['command_code', 'opencode_go'].includes(section.platform) ? entry.monthly_quota ?? null : null
       })
     }
   }
@@ -1411,6 +1426,7 @@ function distributeRulesToPlatforms(apiRules: AccountStatsPricingRule[]) {
   for (const apiRule of apiRules) {
     // Infer platform from group_ids
     const platforms = new Set<GroupPlatform>()
+    if (apiRule.platform) platforms.add(apiRule.platform as GroupPlatform)
     for (const gid of apiRule.group_ids || []) {
       const p = groupPlatformMap.get(gid)
       if (p && p !== 'composite') platforms.add(p)
@@ -1427,6 +1443,7 @@ function distributeRulesToPlatforms(apiRules: AccountStatsPricingRule[]) {
     if (!section) continue
 
     const formRule: FormPricingRule = {
+      pricing_source: apiRule.pricing_source || '',
       name: apiRule.name || '',
       group_ids: [...(apiRule.group_ids || [])],
       account_ids: [...(apiRule.account_ids || [])],
@@ -1555,7 +1572,7 @@ async function handleSubmit() {
   for (const section of form.platforms.filter(s => s.enabled)) {
     const entries = [
       ...section.model_pricing,
-      ...section.account_stats_pricing_rules.flatMap(rule => rule.pricing),
+      ...section.account_stats_pricing_rules.filter(rule => !rule.pricing_source).flatMap(rule => rule.pricing),
     ]
     for (const entry of entries) {
       const error = validateReasoningEffortMultipliers(entry.reasoning_effort_multipliers, t)

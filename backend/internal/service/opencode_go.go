@@ -25,40 +25,13 @@ const (
 	maxProtocolRulePatternLength = 128
 )
 
-// DefaultOpenCodeGoModelIDs 是官方文档当前公开的模型 ID 目录，
-// 供 /v1/models 在尚未同步上游列表时回退，以及账号白名单预填。
+// DefaultOpenCodeGoModelIDs 只返回官方同时公布模型 ID 和定价的 Go 模型。
 func DefaultOpenCodeGoModelIDs() []string {
-	return []string{
-		"grok-4.7",
-		"grok-4.6",
-		"gpt-5.6-luna",
-		"glm-5.3-flash",
-		"glm-5.3",
-		"glm-5.2",
-		"glm-5.1",
-		"kimi-k3",
-		"kimi-k2.7-code",
-		"kimi-k2.6",
-		"longcat-2.0",
-		"deepseek-v4-pro",
-		"deepseek-v4-flash",
-		"deepseek-v4-flash-vision-exp",
-		"mimo-v2.5",
-		"mimo-v2.5-pro",
-		"minimax-m3",
-		"minimax-m2.7",
-		"minimax-m2.5",
-		"muse-spark-1.3-contributor",
-		"muse-spark-1.2-contributor",
-		"qwen3.8-max",
-		"qwen3.8-flash",
-		"qwen3.7-max",
-		"qwen3.7-plus",
-		"qwen3.6-plus",
-		"hy4-preview",
-		"hy3",
-		"omen-alpha",
+	models := make([]string, 0, len(openCodeOfficialPricing))
+	for _, pricing := range openCodeOfficialPricing {
+		models = append(models, pricing.Models...)
 	}
+	return models
 }
 
 func normalizeOpenCodeGoModelID(model string) string {
@@ -130,6 +103,7 @@ func DefaultOpenCodeGoProtocolRules() []ProtocolRule {
 		{Pattern: "grok-*", Protocol: APIProtocolResponses},
 		{Pattern: "gpt-*", Protocol: APIProtocolResponses},
 		{Pattern: "muse-spark-*", Protocol: APIProtocolResponses},
+		{Pattern: "claude-haiku-5-5", Protocol: APIProtocolAnthropic},
 		{Pattern: "minimax-*", Protocol: APIProtocolAnthropic},
 		{Pattern: "qwen*", Protocol: APIProtocolAnthropic},
 	}

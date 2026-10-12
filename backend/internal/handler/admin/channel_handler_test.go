@@ -25,6 +25,26 @@ func intPtr(v int) *int             { return &v }
 // 1. channelToResponse
 // ---------------------------------------------------------------------------
 
+func TestChannelToResponse_ChannelAccountStatsRuleFollowsPricing(t *testing.T) {
+	channel := &service.Channel{
+		ModelPricing: []service.ChannelModelPricing{{Platform: service.PlatformOpenCodeGo, Models: []string{"glm-5.3"}, BillingMode: service.BillingModeToken,
+			InputPrice: float64Ptr(1.4e-6), OutputPrice: float64Ptr(4.4e-6), MonthlyQuota: &service.MonthlyQuotaPolicy{BaseCreditsUSD: 15}}},
+		AccountStatsPricingRules: []service.AccountStatsPricingRule{{PricingSource: service.AccountStatsPricingSourceChannel, Platform: service.PlatformOpenCodeGo}},
+	}
+	response := channelToResponse(channel)
+	rule := response.AccountStatsPricingRules[0]
+	require.Equal(t, service.AccountStatsPricingSourceChannel, rule.PricingSource)
+	require.Equal(t, service.PlatformOpenCodeGo, rule.Platform)
+	require.Equal(t, []string{"glm-5.3"}, rule.Pricing[0].Models)
+	require.InDelta(t, 5.6e-6, *rule.Pricing[0].InputPrice, 1e-15)
+	channel.ModelPricing[0].Models = []string{"glm-channel-priced"}
+	channel.ModelPricing[0].InputPrice = float64Ptr(2e-6)
+	rule = channelToResponse(channel).AccountStatsPricingRules[0]
+	require.Equal(t, []string{"glm-channel-priced"}, rule.Pricing[0].Models)
+	require.InDelta(t, 8e-6, *rule.Pricing[0].InputPrice, 1e-15)
+	require.Empty(t, channel.AccountStatsPricingRules[0].Pricing)
+}
+
 func TestChannelToResponse_NilInput(t *testing.T) {
 	require.Nil(t, channelToResponse(nil))
 }

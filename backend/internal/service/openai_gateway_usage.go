@@ -822,7 +822,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 	longContextBillingGate *bool,
 	pricingPlatform string,
 ) (*CostBreakdown, error) {
-	if pricingPlatform == PlatformCommandCode {
+	if pricingPlatform == PlatformCommandCode || pricingPlatform == PlatformOpenCodeGo {
 		return s.billingService.CalculateCostUnified(CostInput{
 			Ctx: ctx, Model: billingModel, PricingPlatform: pricingPlatform, Group: apiKey.Group,
 			GroupID: apiKey.GroupID, Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier,

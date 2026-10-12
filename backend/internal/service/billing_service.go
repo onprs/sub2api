@@ -330,7 +330,7 @@ type CostBreakdown struct {
 	ModelSpecificMultiplier   float64 // 活动折算后的模型额度倍率快照；0 表示未单独配置，按 1 处理
 	LongContextBillingApplied bool
 	DynamicRateExcludedCost   float64 // 不参与动态倍率缩放的按次/工具实际成本，仅供账务结算
-	commandCodeQuotaApplied   bool    // 渠道月额度已随本次价格快照结算，防止入口重复折算
+	platformQuotaApplied      bool    // 渠道月额度已随本次价格快照结算，防止入口重复折算
 }
 
 func applyCostBreakdownMultiplier(cost *CostBreakdown, multiplier float64) {
@@ -1423,7 +1423,7 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 
 // GetModelPricingForPlatform 在需要平台隔离时解析模型价格。
 // OpenRouter 优先匹配专属免费与标准参考价，再回落到通用目录；
-// Command Code 使用平台隔离参考价；其他平台保持通用解析行为。
+// Command Code 和 OpenCode 使用平台隔离参考价；其他平台保持通用解析行为。
 func (s *BillingService) GetModelPricingForPlatform(platform, model string) (*ModelPricing, error) {
 	return s.getModelPricingForPlatformAt(platform, model, time.Now())
 }
@@ -1431,6 +1431,12 @@ func (s *BillingService) GetModelPricingForPlatform(platform, model string) (*Mo
 func (s *BillingService) getModelPricingForPlatformAt(platform, model string, now time.Time) (*ModelPricing, error) {
 	if now.IsZero() {
 		now = time.Now()
+	}
+	if platform == PlatformOpenCodeGo {
+		if pricing, ok := openCodeReferenceModelPricingAt(model, now); ok {
+			return pricing, nil
+		}
+		return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
 	}
 	if platform == PlatformOpenRouter {
 		for _, candidate := range billingModelPricingCandidates(model) {
@@ -1801,8 +1807,13 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 		if breakdown.BillingMode == "" {
 			breakdown.BillingMode = string(BillingModeToken)
 		}
-		if input.PricingPlatform == PlatformCommandCode && resolved.Source == PricingSourceChannel {
-			err = applyCommandCodeChannelQuotaCostAt(breakdown, resolved.channelPricing, input.PricingAt)
+		if resolved.Source == PricingSourceChannel || (input.PricingPlatform == PlatformOpenCodeGo && resolved.Source == PricingSourceGroup) {
+			switch input.PricingPlatform {
+			case PlatformCommandCode:
+				err = applyCommandCodeChannelQuotaCostAt(breakdown, resolved.channelPricing, input.PricingAt)
+			case PlatformOpenCodeGo:
+				err = applyOpenCodeChannelQuotaCostAt(breakdown, resolved.channelPricing, input.PricingAt)
+			}
 		}
 	}
 	return breakdown, err

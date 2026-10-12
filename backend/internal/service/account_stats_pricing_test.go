@@ -11,6 +11,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// tryCustomRules 遍历自定义规则，按数组顺序先命中为准。
+func tryCustomRules(
+	channel *Channel, accountID, groupID int64,
+	platform, model string, tokens UsageTokens, requestCount int,
+	reasoningEfforts ...string,
+) *float64 {
+	reasoningEffort := ""
+	if len(reasoningEfforts) > 0 {
+		reasoningEffort = reasoningEfforts[0]
+	}
+	return tryCustomRulesAt(context.Background(), nil, channel, accountID, groupID, platform, model, tokens, requestCount, "", time.Now(), reasoningEffort)
+}
+
 // ---------------------------------------------------------------------------
 // matchAccountStatsRule
 // ---------------------------------------------------------------------------
