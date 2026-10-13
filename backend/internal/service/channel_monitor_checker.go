@@ -231,6 +231,9 @@ var providerAdapters = map[string]providerAdapter{
 	MonitorProviderCline:       providerClinePassChatAdapter,
 	MonitorProviderOpenRouter:  providerOpenRouterChatAdapter,
 	MonitorProviderCommandCode: providerCommandCodeChatAdapter,
+	// OpenCode Go 同一 key 下按模型分流到三种上游协议：chat 为默认表项，
+	// responses / messages 由 providerAdapterFor 按 api_mode 选择。
+	MonitorProviderOpenCodeGo: providerOpenCodeGoChatAdapter,
 	MonitorProviderAntigravityClaude: {
 		buildPath: func(string) string { return "/antigravity/v1/messages" },
 		buildBody: func(model, prompt string) ([]byte, error) {
@@ -402,6 +405,76 @@ var providerCommandCodeMessagesAdapter = providerAdapter{
 	releaseGuardMarker: "channel_monitor_provider_commandcode",
 }
 
+// providerOpenCodeGoChatAdapter OpenCode Go 的探活适配器。三种 api_mode 的路径都带
+// /v1 前缀：官方 API root 已含 /v1 时由 joinURL 去重，本站网关也能直接命中 /v1/... 路由。
+//
+//nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
+var providerOpenCodeGoChatAdapter = providerAdapter{
+	buildPath: func(string) string { return providerOpenCodeGoChatPath },
+	buildBody: func(model, prompt string) ([]byte, error) {
+		return json.Marshal(map[string]any{
+			"model": model,
+			"messages": []map[string]string{
+				{"role": "system", "content": "Return only the requested check code. Do not explain or use tools."},
+				{"role": "user", "content": prompt},
+			},
+			"max_tokens":  monitorOpenCodeGoChallengeMaxTokens,
+			"temperature": 0,
+			"stream":      false,
+		})
+	},
+	buildHeaders: func(apiKey string) map[string]string {
+		return map[string]string{"Authorization": "Bearer " + apiKey}
+	},
+	textPath:           "choices.0.message.content",
+	releaseGuardMarker: "channel_monitor_provider_opencode",
+}
+
+//nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
+var providerOpenCodeGoMessagesAdapter = providerAdapter{
+	buildPath: func(string) string { return providerOpenCodeGoMessagesPath },
+	buildBody: func(model, prompt string) ([]byte, error) {
+		return json.Marshal(map[string]any{
+			"model":  model,
+			"system": "Return only the requested check code. Do not explain or use tools.",
+			"messages": []map[string]string{
+				{"role": "user", "content": prompt},
+			},
+			"max_tokens":  monitorOpenCodeGoChallengeMaxTokens,
+			"temperature": 0,
+		})
+	},
+	// Authorization 供本站网关鉴权，x-api-key 供 OpenCode Anthropic 兼容端点鉴权。
+	buildHeaders: func(apiKey string) map[string]string {
+		return map[string]string{
+			"Authorization":     "Bearer " + apiKey,
+			"x-api-key":         apiKey,
+			"anthropic-version": monitorAnthropicAPIVersion,
+		}
+	},
+	textPath:           "content.0.text",
+	releaseGuardMarker: "channel_monitor_provider_opencode",
+}
+
+//nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
+var providerOpenCodeGoResponsesAdapter = providerAdapter{
+	buildPath: func(string) string { return providerOpenCodeGoResponsesPath },
+	buildBody: func(model, prompt string) ([]byte, error) {
+		return json.Marshal(map[string]any{
+			"model":             model,
+			"instructions":      "Return only the requested check code. Do not explain or use tools.",
+			"input":             prompt,
+			"max_output_tokens": monitorOpenCodeGoChallengeMaxTokens,
+			"stream":            false,
+		})
+	},
+	buildHeaders: func(apiKey string) map[string]string {
+		return map[string]string{"Authorization": "Bearer " + apiKey}
+	},
+	textPath:           "output.0.content.0.text",
+	releaseGuardMarker: "channel_monitor_provider_opencode",
+}
+
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
 var providerAnthropicMessagesAdapter = providerAdapter{
 	buildPath: func(string) string { return providerAnthropicMessagesPath },
@@ -453,6 +526,15 @@ func providerAdapterFor(provider, apiMode string) (providerAdapter, string, bool
 	if provider == MonitorProviderCommandCode && mode == MonitorAPIModeMessages {
 		return providerCommandCodeMessagesAdapter, MonitorAPIModeMessages, true
 	}
+	// OpenCode Go 的 kimi/glm 等模型分别落在 Responses / Messages 端点，探活需与上游协议对齐。
+	if provider == MonitorProviderOpenCodeGo {
+		switch mode {
+		case MonitorAPIModeMessages:
+			return providerOpenCodeGoMessagesAdapter, MonitorAPIModeMessages, true
+		case MonitorAPIModeResponses:
+			return providerOpenCodeGoResponsesAdapter, MonitorAPIModeResponses, true
+		}
+	}
 	adapter, ok := providerAdapters[provider]
 	return adapter, MonitorAPIModeChatCompletions, ok
 }
@@ -481,7 +563,7 @@ func callProviderWithClient(
 	if err != nil {
 		return "", "", status, err
 	}
-	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
+	if (provider == MonitorProviderOpenAI || provider == MonitorProviderOpenCodeGo) && apiMode == MonitorAPIModeResponses {
 		return extractOpenAIResponsesText(respBytes), string(respBytes), status, nil
 	}
 	if provider == MonitorProviderGemini || provider == MonitorProviderAntigravityGemini {
@@ -493,6 +575,13 @@ func callProviderWithClient(
 		}
 		text, extractErr := extractClinePassChatText(respBytes)
 		return text, string(respBytes), status, extractErr
+	}
+	if provider == MonitorProviderOpenCodeGo {
+		if apiMode == MonitorAPIModeMessages {
+			return extractAnthropicMessagesText(respBytes), string(respBytes), status, nil
+		}
+		// chat 端点的 content 可能是字符串或文本块数组，复用能处理两种格式的抽取。
+		return extractGatewayChatText(respBytes), string(respBytes), status, nil
 	}
 	if provider == MonitorProviderCommandCode {
 		if apiMode == MonitorAPIModeMessages {
@@ -703,7 +792,24 @@ func clinePassMonitorResponsePayload(respBytes []byte) []byte {
 	return respBytes
 }
 
+// responsesEnvelopeFailed 判断 Responses API 信封是否显式声明失败：
+// OpenCode Go 等转换链路会把上游失败包成 2xx + {"status":"failed"}，
+// 此时没有可用文本，但 error.message 才是真正的失败原因。
+func responsesEnvelopeFailed(body []byte) bool {
+	status := strings.TrimSpace(gjson.GetBytes(body, "status").String())
+	if status == "" {
+		status = strings.TrimSpace(gjson.GetBytes(body, "response.status").String())
+	}
+	return strings.EqualFold(status, "failed")
+}
+
 func emptyMonitorResponseMessage(provider, rawBody string) string {
+	if provider == MonitorProviderOpenCodeGo && responsesEnvelopeFailed([]byte(rawBody)) {
+		if message := strings.TrimSpace(extractUpstreamErrorMessage([]byte(rawBody))); message != "" {
+			return "OpenCode Go Responses failed: " + message
+		}
+		return "OpenCode Go Responses returned status=failed"
+	}
 	if provider == MonitorProviderCline {
 		finishReason, reasoning := clinePassMonitorResponseMetadata([]byte(rawBody))
 		if finishReason == "length" {
@@ -1005,6 +1111,9 @@ var bodyMergeKeyDenyList = map[string]map[string]bool{
 	MonitorProviderCline + ":" + MonitorAPIModeChatCompletions:       {"model": true, "messages": true, "stream": true},
 	MonitorProviderCommandCode + ":" + MonitorAPIModeChatCompletions: {"model": true, "messages": true, "stream": true},
 	MonitorProviderCommandCode + ":" + MonitorAPIModeMessages:        {"model": true, "messages": true},
+	MonitorProviderOpenCodeGo + ":" + MonitorAPIModeChatCompletions:  {"model": true, "messages": true, "stream": true},
+	MonitorProviderOpenCodeGo + ":" + MonitorAPIModeMessages:         {"model": true, "messages": true},
+	MonitorProviderOpenCodeGo + ":" + MonitorAPIModeResponses:        {"model": true, "instructions": true, "input": true, "stream": true},
 	MonitorProviderOpenRouter:                                        {"model": true, "messages": true, "stream": true},
 	MonitorProviderAntigravityClaude:                                 {"model": true, "messages": true},
 	MonitorProviderAntigravityGemini:                                 {"contents": true},
@@ -1022,7 +1131,8 @@ func checkAPIMode(opts *CheckOptions) string {
 }
 
 func bodyMergeDenyKey(provider, apiMode string) string {
-	if provider == MonitorProviderOpenAI || provider == MonitorProviderCline || provider == MonitorProviderCommandCode {
+	if provider == MonitorProviderOpenAI || provider == MonitorProviderCline ||
+		provider == MonitorProviderCommandCode || provider == MonitorProviderOpenCodeGo {
 		return provider + ":" + defaultAPIMode(apiMode)
 	}
 	return provider
@@ -1034,6 +1144,7 @@ func isOpenAICompatibleChatProvider(provider string) bool {
 	switch provider {
 	case MonitorProviderOpenAI, MonitorProviderGrok,
 		MonitorProviderCline, MonitorProviderOpenRouter, MonitorProviderCommandCode,
+		MonitorProviderOpenCodeGo,
 		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek, MonitorProviderMiniMax:
 		return true
 	default:
@@ -1047,7 +1158,7 @@ func validateReplaceRequestBody(provider, apiMode string, body map[string]any) e
 	}
 	switch defaultAPIMode(apiMode) {
 	case MonitorAPIModeResponses:
-		if provider != MonitorProviderOpenAI {
+		if provider != MonitorProviderOpenAI && provider != MonitorProviderOpenCodeGo {
 			return nil
 		}
 		if strings.TrimSpace(stringFromAny(body["instructions"])) == "" || !hasNonEmptyBodyValue(body["input"]) {
@@ -1058,7 +1169,7 @@ func validateReplaceRequestBody(provider, apiMode string, body map[string]any) e
 			return fmt.Errorf("replace mode chat_completions body: messages are required")
 		}
 	case MonitorAPIModeMessages:
-		if provider != MonitorProviderCommandCode {
+		if provider != MonitorProviderOpenCodeGo && provider != MonitorProviderCommandCode {
 			return nil
 		}
 		if !hasNonEmptyBodyValue(body["messages"]) {

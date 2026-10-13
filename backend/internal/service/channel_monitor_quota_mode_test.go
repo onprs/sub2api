@@ -306,7 +306,7 @@ func TestValidateCreateParams_CheckModeMatrix(t *testing.T) {
 				Endpoint: "https://example.com", APIKey: "k",
 				IntervalSeconds: 60, AccountID: &accountID, PrimaryModel: "gemini-3-pro",
 			},
-			wantErr: ErrChannelMonitorInvalidCheckMode,
+			wantErr: ErrChannelMonitorProbeUnsupported,
 		},
 		{
 			name: "antigravity quota_probe unsupported",
@@ -315,7 +315,7 @@ func TestValidateCreateParams_CheckModeMatrix(t *testing.T) {
 				Endpoint: "https://example.com", APIKey: "k",
 				IntervalSeconds: 60, AccountID: &accountID, PrimaryModel: "gemini-3-pro",
 			},
-			wantErr: ErrChannelMonitorInvalidCheckMode,
+			wantErr: ErrChannelMonitorProbeUnsupported,
 		},
 		{
 			name: "unknown mode rejected",
@@ -369,7 +369,9 @@ func TestProviderProbeCapabilityMatrix(t *testing.T) {
 	require.False(t, providerSupportsProbe(MonitorProviderAntigravity))
 	for _, p := range []string{
 		MonitorProviderOpenAI, MonitorProviderAnthropic, MonitorProviderGemini,
-		MonitorProviderGrok, MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek,
+		MonitorProviderGrok, MonitorProviderOpenCodeGo, MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek,
+		MonitorProviderCline, MonitorProviderOpenRouter, MonitorProviderCommandCode,
+		MonitorProviderAntigravityClaude, MonitorProviderAntigravityGemini, MonitorProviderMiniMax,
 	} {
 		require.True(t, providerSupportsProbe(p), p)
 	}
@@ -572,7 +574,7 @@ func TestApplyMonitorUpdate_ProviderOnlyRevalidatesCheckMode(t *testing.T) {
 
 	provider := MonitorProviderAntigravity
 	err := applyMonitorUpdate(probeKimi(), ChannelMonitorUpdateParams{Provider: &provider})
-	require.ErrorIs(t, err, ErrChannelMonitorInvalidCheckMode)
+	require.ErrorIs(t, err, ErrChannelMonitorProbeUnsupported)
 
 	// 带上 check_mode/account_id 的完整切换合法。
 	accountID := int64(3)

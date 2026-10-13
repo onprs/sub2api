@@ -33,8 +33,12 @@ type monitorChallenge struct {
 	Exact    bool
 }
 
+// generateChallengeForProvider 选择 challenge 形式：上游经过协议转换/推理链路的
+// provider（Antigravity Gemini、Cline、OpenCode Go、Command Code）容易把算术
+// few-shot 当成题目展开，改用“原样回报检查码”的精确形式。
 func generateChallengeForProvider(provider string) monitorChallenge {
-	if provider == MonitorProviderAntigravityGemini || provider == MonitorProviderCline || provider == MonitorProviderCommandCode {
+	if provider == MonitorProviderAntigravityGemini || provider == MonitorProviderCline ||
+		provider == MonitorProviderOpenCodeGo || provider == MonitorProviderCommandCode {
 		return generateExactChallenge()
 	}
 	return generateChallenge()
