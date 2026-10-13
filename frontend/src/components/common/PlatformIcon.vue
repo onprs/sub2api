@@ -19,11 +19,8 @@
   <svg v-else-if="platform === 'antigravity'" :class="sizeClass" viewBox="0 0 24 24" fill="currentColor">
     <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" />
   </svg>
-  <!-- OpenCode logo (terminal/code mark) -->
-  <svg v-else-if="platform === 'opencode_go'" :class="sizeClass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-    <path stroke-linecap="round" stroke-linejoin="round" d="M4 6.75A2.75 2.75 0 0 1 6.75 4h10.5A2.75 2.75 0 0 1 20 6.75v10.5A2.75 2.75 0 0 1 17.25 20H6.75A2.75 2.75 0 0 1 4 17.25V6.75Z" />
-    <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 9 3 3-3 3M12.75 15h3" />
-  </svg>
+  <!-- OpenCode 官方图标 -->
+  <OpenCodeIcon v-else-if="platform === 'opencode_go'" :class="sizeClass" />
   <!-- Official Cline Bot Icon. -->
   <ClineIcon v-else-if="platform === 'cline'" :class="sizeClass" />
   <!-- OpenRouter logo (routing node icon) -->
@@ -83,6 +80,7 @@ import { computed } from 'vue'
 import type { GroupPlatform } from '@/types'
 import ClineIcon from '@/components/icons/ClineIcon.vue'
 import CommandCodeIcon from '@/components/icons/CommandCodeIcon.vue'
+import OpenCodeIcon from '@/components/icons/OpenCodeIcon.vue'
 
 interface Props {
   platform?: GroupPlatform
