@@ -177,6 +177,7 @@ describe('BulkEditAccountModal', () => {
     await wrapper.get('[data-testid="bulk-edit-temp-unsched-preset-request-timeout"]').trigger('click')
     await wrapper.get('[data-testid="bulk-edit-temp-unsched-preset-service-unavailable"]').trigger('click')
     await wrapper.get('[data-testid="bulk-edit-temp-unsched-move-up-1"]').trigger('click')
+    await wrapper.get('[data-testid="bulk-edit-temp-unsched-scope-0"]').setValue('account')
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
 
@@ -197,13 +198,15 @@ describe('BulkEditAccountModal', () => {
               'no healthy upstream'
             ],
             duration_minutes: 30,
-            description: 'admin.accounts.tempUnschedulable.presets.unavailableDesc'
+            description: 'admin.accounts.tempUnschedulable.presets.unavailableDesc',
+            scope: 'account'
           },
           {
             error_code: 408,
             keywords: ['request timeout', 'request_timeout', 'request timed out', 'timed out'],
             duration_minutes: 5,
-            description: 'admin.accounts.tempUnschedulable.presets.requestTimeoutDesc'
+            description: 'admin.accounts.tempUnschedulable.presets.requestTimeoutDesc',
+            scope: 'model'
           }
         ]
       }
@@ -1077,7 +1080,8 @@ describe('BulkEditAccountModal', () => {
               'quota_exceeded'
             ],
             duration_minutes: 10,
-            description: 'admin.accounts.tempUnschedulable.presets.rateLimitDesc'
+            description: 'admin.accounts.tempUnschedulable.presets.rateLimitDesc',
+            scope: 'model'
           }
         ]
       }
@@ -1116,7 +1120,8 @@ describe('BulkEditAccountModal', () => {
               'upstream service temporarily unavailable'
             ],
             duration_minutes: 10,
-            description: 'admin.accounts.tempUnschedulable.presets.badGatewayDesc'
+            description: 'admin.accounts.tempUnschedulable.presets.badGatewayDesc',
+            scope: 'model'
           }
         ]
       }

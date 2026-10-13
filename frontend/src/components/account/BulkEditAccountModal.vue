@@ -735,6 +735,22 @@
                   </div>
                   <div class="sm:col-span-2">
                     <label class="input-label">
+                      {{ t('admin.accounts.tempUnschedulable.scope') }}
+                    </label>
+                    <select
+                      v-model="rule.scope"
+                      class="input"
+                      :data-testid="`bulk-edit-temp-unsched-scope-${index}`"
+                    >
+                      <option value="model">{{ t('admin.accounts.tempUnschedulable.scopeModel') }}</option>
+                      <option value="account">{{ t('admin.accounts.tempUnschedulable.scopeAccount') }}</option>
+                    </select>
+                    <p class="input-hint">
+                      {{ t(rule.scope === 'account' ? 'admin.accounts.tempUnschedulable.scopeAccountDesc' : 'admin.accounts.tempUnschedulable.scopeModelDesc') }}
+                    </p>
+                  </div>
+                  <div class="sm:col-span-2">
+                    <label class="input-label">
                       {{ t('admin.accounts.tempUnschedulable.keywords') }}
                     </label>
                     <input
@@ -2147,7 +2163,8 @@ const addTempUnschedulableRule = (preset?: TempUnschedRuleForm) => {
     error_code: null,
     keywords: '',
     duration_minutes: 30,
-    description: ''
+    description: '',
+    scope: 'model'
   })
 }
 
@@ -2176,6 +2193,7 @@ const buildTempUnschedulableRules = (rules: TempUnschedRuleForm[]) => {
     keywords: string[]
     duration_minutes: number
     description: string
+    scope: TempUnschedRuleForm['scope']
   }> = []
 
   for (const rule of rules) {
@@ -2190,7 +2208,8 @@ const buildTempUnschedulableRules = (rules: TempUnschedRuleForm[]) => {
       error_code: Math.trunc(errorCode),
       keywords,
       duration_minutes: Math.trunc(durationMinutes),
-      description: rule.description.trim()
+      description: rule.description.trim(),
+      scope: rule.scope === 'account' ? 'account' : 'model'
     })
   }
 

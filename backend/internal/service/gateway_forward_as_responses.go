@@ -96,7 +96,7 @@ func (s *GatewayService) ForwardAsResponses(
 		return nil, fmt.Errorf("decode converted anthropic request: %w", err)
 	}
 	anthropicReq.Model = mappedModel
-	normalizeGatewayAnthropicThinking(&anthropicReq, mappedModel)
+	normalizeGatewayAnthropicThinking(&anthropicReq, mappedModel, gjson.GetBytes(adaptedBody, "reasoning.effort").String())
 	anthropicReq.Stream = true
 
 	logger.L().Debug("gateway forward_as_responses: model mapping applied",

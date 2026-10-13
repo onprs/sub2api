@@ -45,7 +45,8 @@ describe('tempUnschedPresets', () => {
         error_code: 502,
         keywords: 'bad gateway, bad_gateway, upstream error, upstream_error, upstream connect error, upstream reset, connection reset, upstream service temporarily unavailable',
         duration_minutes: 10,
-        description: 'translated:admin.accounts.tempUnschedulable.presets.badGatewayDesc'
+        description: 'translated:admin.accounts.tempUnschedulable.presets.badGatewayDesc',
+        scope: 'model'
       }
     })
   })

@@ -1,8 +1,11 @@
+import type { TempUnschedulableScope } from '@/types'
+
 export interface TempUnschedRuleForm {
   error_code: number | null
   keywords: string
   duration_minutes: number | null
   description: string
+  scope: TempUnschedulableScope
 }
 
 export interface TempUnschedPresetDefinition {
@@ -95,7 +98,8 @@ export function buildTempUnschedPresets(translate: (key: string) => string): Tem
       error_code: definition.errorCode,
       keywords: definition.keywords,
       duration_minutes: definition.durationMinutes,
-      description: translate(definition.descriptionKey)
+      description: translate(definition.descriptionKey),
+      scope: 'model'
     }
   }))
 }

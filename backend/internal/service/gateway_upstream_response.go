@@ -582,23 +582,24 @@ func (s *GatewayService) handleGatewayCollectedErrorResponse(
 	return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
 }
 
-func (s *GatewayService) handleRetryExhaustedSideEffects(ctx context.Context, resp *http.Response, account *Account) {
+// handleRetryExhaustedSideEffects 在重试耗尽后标记账号状态；requestedModel 是实际发往上游的模型，
+// 临时不可调度规则据此按模型隔离。
+func (s *GatewayService) handleRetryExhaustedSideEffects(ctx context.Context, resp *http.Response, account *Account, requestedModel ...string) {
 	body, _ := s.readUpstreamErrorBody(resp)
 	s.handleRetryExhaustedStructuredSideEffects(ctx, protocoltransport.Response{
 		StatusCode: resp.StatusCode, Headers: protocoltransport.CloneHeaders(resp.Header), Body: body,
 		ActualProtocol: protocolconv.ProtocolAnthropic, RequestID: resp.Header.Get("x-request-id"),
-	}, account)
+	}, account, requestedModel...)
 }
 
-func (s *GatewayService) handleRetryExhaustedStructuredSideEffects(ctx context.Context, upstream protocoltransport.Response, account *Account) {
+func (s *GatewayService) handleRetryExhaustedStructuredSideEffects(ctx context.Context, upstream protocoltransport.Response, account *Account, requestedModel ...string) {
 	statusCode := upstream.StatusCode
 
-	// OAuth/Setup Token 账号的 403：标记账号异常
+	// OAuth/Setup Token 账号的 403 按实际上游模型应用临时不可调度规则。
 	if account.IsOAuth() && statusCode == 403 {
-		s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, upstream.Headers, upstream.Body)
+		s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, upstream.Headers, upstream.Body, requestedModel...)
 		logger.LegacyPrintf("service.gateway", "Account %d: marked as error after %d retries for status %d", account.ID, maxRetryAttempts, statusCode)
 	} else {
-		// API Key 未配置错误码：不标记账号状态
 		logger.LegacyPrintf("service.gateway", "Account %d: upstream error %d after %d retries (not marking account)", account.ID, statusCode, maxRetryAttempts)
 	}
 }
@@ -622,17 +623,17 @@ func (s *GatewayService) handleStructuredFailoverSideEffects(ctx context.Context
 // handleRetryExhaustedError 处理重试耗尽后的错误
 // OAuth 403：标记账号异常
 // API Key 未配置错误码：仅返回错误，不标记账号
-func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *http.Response, c *gin.Context, account *Account) (*ForwardResult, error) {
+func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, requestedModel ...string) (*ForwardResult, error) {
 	respBody, _ := s.readUpstreamErrorBody(resp)
 	return s.handleRetryExhaustedStructuredError(ctx, protocoltransport.Response{
 		StatusCode: resp.StatusCode, Headers: protocoltransport.CloneHeaders(resp.Header), Body: respBody,
 		ActualProtocol: protocolconv.ProtocolAnthropic, RequestID: resp.Header.Get("x-request-id"),
-	}, c, account)
+	}, c, account, requestedModel...)
 }
 
-func (s *GatewayService) handleRetryExhaustedStructuredError(ctx context.Context, upstream protocoltransport.Response, c *gin.Context, account *Account) (*ForwardResult, error) {
+func (s *GatewayService) handleRetryExhaustedStructuredError(ctx context.Context, upstream protocoltransport.Response, c *gin.Context, account *Account, requestedModel ...string) (*ForwardResult, error) {
 	MarkResponseCommitted(c)
-	s.handleRetryExhaustedStructuredSideEffects(ctx, upstream, account)
+	s.handleRetryExhaustedStructuredSideEffects(ctx, upstream, account, requestedModel...)
 
 	respBody := upstream.Body
 	resp := &http.Response{StatusCode: upstream.StatusCode, Header: upstream.Headers}

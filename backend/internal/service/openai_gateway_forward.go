@@ -194,7 +194,7 @@ func (s *OpenAIGatewayService) forwardWithProtocolOutput(ctx context.Context, c 
 		// 账号映射未命中时以去除首尾空白的请求模型兜底，计费名与上游模型名一致。
 		return s.forwardResponsesViaNativeAnthropicWithOutput(ctx, c, account, body, reqModel, output)
 	case APIProtocolChatCompletions:
-		return s.forwardResponsesViaRawChatCompletionsWithOutput(ctx, c, account, body, output)
+		return s.forwardResponsesViaRawChatCompletionsWithOutput(ctx, c, account, body, output, startTime)
 	}
 	SetActualOpenAIUpstreamEndpoint(c, openAIResponsesUpstreamEndpoint)
 	if account.IsOpenAI() && (account.IsOpenAIApiKey() || account.IsOpenAIOAuthLike()) {

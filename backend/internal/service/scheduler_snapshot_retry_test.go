@@ -514,7 +514,7 @@ func TestGeminiSchedulingRetriesNonEmptyStaleSnapshot(t *testing.T) {
 	require.Equal(t, 1, setSnapshotCalls)
 }
 
-func TestGeminiAIStudioSchedulingRetriesNonEmptyStaleSnapshot(t *testing.T) {
+func TestGeminiModelsEndpointsSchedulingRetriesNonEmptyStaleSnapshot(t *testing.T) {
 	groupID := int64(709)
 	stale := newSchedulerSnapshotRetryAccount(7901, PlatformGemini, "")
 	stale.Credentials = map[string]any{"api_key": "stale-key"}
@@ -530,7 +530,7 @@ func TestGeminiAIStudioSchedulingRetriesNonEmptyStaleSnapshot(t *testing.T) {
 	snapshot := NewSchedulerSnapshotService(cache, nil, repo, nil, cfg)
 	svc := &GeminiMessagesCompatService{accountRepo: repo, schedulerSnapshot: snapshot, cfg: cfg}
 
-	account, err := svc.SelectAccountForAIStudioEndpoints(context.Background(), &groupID)
+	account, err := svc.SelectAccountForModelsEndpoints(context.Background(), &groupID)
 	require.NoError(t, err)
 	require.NotNil(t, account)
 	require.Equal(t, fresh.ID, account.ID)
@@ -540,7 +540,7 @@ func TestGeminiAIStudioSchedulingRetriesNonEmptyStaleSnapshot(t *testing.T) {
 	require.Equal(t, 1, setSnapshotCalls)
 }
 
-func TestGeminiAIStudioRejectsAccountsWithoutUsableCredentials(t *testing.T) {
+func TestGeminiModelsEndpointsRejectsAccountsWithoutUsableCredentials(t *testing.T) {
 	groupID := int64(710)
 	missingAPIKey := newSchedulerSnapshotRetryAccount(71001, PlatformGemini, "")
 	unknownType := newSchedulerSnapshotRetryAccount(71002, PlatformGemini, "")
@@ -552,13 +552,13 @@ func TestGeminiAIStudioRejectsAccountsWithoutUsableCredentials(t *testing.T) {
 	snapshot := NewSchedulerSnapshotService(cache, nil, repo, nil, cfg)
 	svc := &GeminiMessagesCompatService{accountRepo: repo, schedulerSnapshot: snapshot, cfg: cfg}
 
-	account, err := svc.SelectAccountForAIStudioEndpoints(context.Background(), &groupID)
+	account, err := svc.SelectAccountForModelsEndpoints(context.Background(), &groupID)
 	require.Nil(t, account)
 	require.ErrorContains(t, err, "no available Gemini accounts")
 	require.Equal(t, 1, repo.listCallCount())
 }
 
-func TestGeminiAIStudioHydrationFailureUsesAuthoritativeAccount(t *testing.T) {
+func TestGeminiModelsEndpointsHydrationFailureUsesAuthoritativeAccount(t *testing.T) {
 	groupID := int64(711)
 	cached := newSchedulerSnapshotRetryAccount(71101, PlatformGemini, "")
 	cached.Credentials = map[string]any{"api_key": "cached-key"}
@@ -575,7 +575,7 @@ func TestGeminiAIStudioHydrationFailureUsesAuthoritativeAccount(t *testing.T) {
 	snapshot := NewSchedulerSnapshotService(cache, nil, repo, nil, cfg)
 	svc := &GeminiMessagesCompatService{accountRepo: repo, schedulerSnapshot: snapshot, cfg: cfg}
 
-	account, err := svc.SelectAccountForAIStudioEndpoints(context.Background(), &groupID)
+	account, err := svc.SelectAccountForModelsEndpoints(context.Background(), &groupID)
 	require.NoError(t, err)
 	require.NotNil(t, account)
 	require.Equal(t, fresh.ID, account.ID)

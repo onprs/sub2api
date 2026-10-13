@@ -141,7 +141,7 @@ describe('AccountTestModal', () => {
       status: 'inactive'
     })
 
-    expect(chinese.text()).toContain('服务账号')
+    expect(chinese.text()).toContain('Agent Platform (Vertex)')
     expect(chinese.text()).toContain('停用')
     expect(chinese.text()).not.toContain('service_account')
   })

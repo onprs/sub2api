@@ -79,7 +79,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		return nil, fmt.Errorf("decode converted anthropic request: %w", err)
 	}
 	anthropicReq.Model = mappedModel
-	normalizeGatewayAnthropicThinking(&anthropicReq, mappedModel)
+	normalizeGatewayAnthropicThinking(&anthropicReq, mappedModel, gjson.GetBytes(body, "reasoning_effort").String())
 	anthropicReq.Stream = true
 
 	logger.L().Debug("gateway forward_as_chat_completions: model mapping applied",

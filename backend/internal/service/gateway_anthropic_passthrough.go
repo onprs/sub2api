@@ -201,7 +201,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			logger.LegacyPrintf("service.gateway", "[Anthropic Passthrough] Upstream error (retry exhausted, failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 				account.ID, account.Name, lastError.StatusCode, lastError.RequestID, truncateString(string(lastError.Body), 1000))
 
-			s.handleRetryExhaustedStructuredSideEffects(ctx, *lastError, account)
+			s.handleRetryExhaustedStructuredSideEffects(ctx, *lastError, account, input.RequestModel)
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				ProxyID:            opsUpstreamProxyID(account),
 				ProxyName:          opsUpstreamProxyName(account),
@@ -227,7 +227,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(lastError.StatusCode),
 			}
 		}
-		return s.handleRetryExhaustedStructuredError(ctx, *lastError, c, account)
+		return s.handleRetryExhaustedStructuredError(ctx, *lastError, c, account, input.RequestModel)
 	}
 
 	if lastError != nil && s.shouldFailoverUpstreamError(lastError.StatusCode) {

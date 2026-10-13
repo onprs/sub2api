@@ -31,8 +31,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	c *gin.Context,
 	account *Account,
 	body []byte,
+	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
-	return s.forwardResponsesViaRawChatCompletionsWithOutput(ctx, c, account, body, nil)
+	return s.forwardResponsesViaRawChatCompletionsWithOutput(ctx, c, account, body, nil, startTime)
 }
 
 func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletionsWithOutput(
@@ -41,8 +42,12 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletionsWithOutput(
 	account *Account,
 	body []byte,
 	output openAIProtocolOutput,
+	requestStartedAt ...time.Time,
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
+	if len(requestStartedAt) > 0 && !requestStartedAt[0].IsZero() {
+		startTime = requestStartedAt[0]
+	}
 
 	var responsesReq apicompat.ResponsesRequest
 	if err := json.Unmarshal(body, &responsesReq); err != nil {

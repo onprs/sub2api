@@ -965,6 +965,10 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 		"oauth_type",
 		"plan_type",
 		"account_scheduling_threshold",
+		// 显式缓存候选过滤需要保留认证方式和上游缓存能力声明。
+		"auth_mode",
+		service.GeminiExplicitCacheUpstreamCredentialKey,
+		service.GeminiExplicitCacheUpstreamMaxTTLCredentialKey,
 	}
 	filtered := make(map[string]any)
 	for _, key := range keys {

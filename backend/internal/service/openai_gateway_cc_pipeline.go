@@ -65,20 +65,40 @@ func (s *OpenAIGatewayService) newStreamHeaderWriter(c *gin.Context, upstream ht
 	}
 }
 
+func (s *OpenAIGatewayService) collectOpenAIStructuredUpstreamError(resp *http.Response, protocol protocolconv.Protocol, stream bool) (protocoltransport.Response, string, error) {
+	upstream, message, _, err := s.collectOpenAIStructuredUpstreamErrorWithCompleteness(resp, protocol, stream)
+	return upstream, message, err
+}
+
+// readOpenAIUpstreamErrorReaderWithCompleteness 保留截断与读取失败信息，供重放安全检查使用。
+func (s *OpenAIGatewayService) readOpenAIUpstreamErrorReaderWithCompleteness(reader io.Reader) ([]byte, bool) {
+	if reader == nil {
+		return nil, true
+	}
+	limit := int64(openAIUpstreamErrorBodyReadLimitForConfig(s.cfg))
+	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	complete := err == nil && int64(len(body)) <= limit
+	if int64(len(body)) > limit {
+		body = body[:limit]
+	}
+	return body, complete
+}
+
 // collectOpenAIStructuredUpstreamError captures a bounded Chat or Responses
 // HTTP error before source-protocol policy runs. Streaming requests transfer
 // body ownership through transport.Stream.ErrorBody; buffered requests retain
 // the caller's deferred close.
-func (s *OpenAIGatewayService) collectOpenAIStructuredUpstreamError(
+func (s *OpenAIGatewayService) collectOpenAIStructuredUpstreamErrorWithCompleteness(
 	resp *http.Response,
 	actualProtocol protocolconv.Protocol,
 	streamRequested bool,
-) (protocoltransport.Response, string, error) {
+) (protocoltransport.Response, string, bool, error) {
 	if resp == nil {
-		return protocoltransport.Response{}, "", fmt.Errorf("collect OpenAI structured upstream error: nil response")
+		return protocoltransport.Response{}, "", false, fmt.Errorf("collect OpenAI structured upstream error: nil response")
 	}
 	headers := protocoltransport.CloneHeaders(resp.Header)
 	requestID := resp.Header.Get("x-request-id")
+	var completeErrorBody bool
 	var body []byte
 	if streamRequested {
 		stream := &protocoltransport.Stream{
@@ -89,13 +109,13 @@ func (s *OpenAIGatewayService) collectOpenAIStructuredUpstreamError(
 			ErrorBody:      resp.Body,
 		}
 		if err := stream.Validate(); err != nil {
-			return protocoltransport.Response{}, "", fmt.Errorf("validate OpenAI structured upstream error stream: %w", err)
+			return protocoltransport.Response{}, "", false, fmt.Errorf("validate OpenAI structured upstream error stream: %w", err)
 		}
 		resp.Body = http.NoBody
-		body = s.readUpstreamErrorReader(stream.ErrorBody)
+		body, completeErrorBody = s.readOpenAIUpstreamErrorReaderWithCompleteness(stream.ErrorBody)
 		_ = stream.Close()
 	} else {
-		body = s.readUpstreamErrorBody(resp)
+		body, completeErrorBody = s.readOpenAIUpstreamErrorReaderWithCompleteness(resp.Body)
 	}
 	upstream := protocoltransport.Response{
 		StatusCode:     resp.StatusCode,
@@ -105,14 +125,14 @@ func (s *OpenAIGatewayService) collectOpenAIStructuredUpstreamError(
 		RequestID:      requestID,
 	}
 	if err := upstream.Validate(); err != nil {
-		return protocoltransport.Response{}, "", fmt.Errorf("validate OpenAI structured upstream error response: %w", err)
+		return protocoltransport.Response{}, "", false, fmt.Errorf("validate OpenAI structured upstream error response: %w", err)
 	}
 	if !upstream.IsError() {
-		return protocoltransport.Response{}, "", fmt.Errorf("collect OpenAI structured upstream error: status %d is not an error", upstream.StatusCode)
+		return protocoltransport.Response{}, "", false, fmt.Errorf("collect OpenAI structured upstream error: status %d is not an error", upstream.StatusCode)
 	}
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(body))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-	return upstream, upstreamMsg, nil
+	return upstream, upstreamMsg, completeErrorBody, nil
 }
 
 // failoverOpenAIStructuredUpstreamError applies the existing account and retry

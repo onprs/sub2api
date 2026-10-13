@@ -754,7 +754,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			logger.LegacyPrintf("service.gateway", "[Forward] Upstream error (retry exhausted, failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 				account.ID, account.Name, lastError.StatusCode, lastError.RequestID, truncateString(string(lastError.Body), 1000))
 
-			s.handleRetryExhaustedStructuredSideEffects(ctx, *lastError, account)
+			s.handleRetryExhaustedStructuredSideEffects(ctx, *lastError, account, reqModel)
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				ProxyID:            opsUpstreamProxyID(account),
 				ProxyName:          opsUpstreamProxyName(account),
@@ -779,7 +779,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(lastError.StatusCode),
 			}
 		}
-		return s.handleRetryExhaustedStructuredError(ctx, *lastError, c, account)
+		return s.handleRetryExhaustedStructuredError(ctx, *lastError, c, account, reqModel)
 	}
 
 	// 处理可切换账号的错误

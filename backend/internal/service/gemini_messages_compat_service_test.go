@@ -1339,6 +1339,37 @@ func TestConvertClaudeMessagesToGeminiGenerateContent_AddsThoughtSignatureForToo
 	}
 }
 
+func TestConvertClaudeMessagesToGeminiGenerateContent_ExtractsToolResultImages(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-5-5","messages":[{"role":"assistant","content":[
+		{"type":"tool_use","id":"toolu_png","name":"inspect","input":{"path":"image.png"}},
+		{"type":"tool_use","id":"toolu_jpeg","name":"inspect","input":{"path":"image.jpeg"}}
+	]},{"role":"user","content":[
+		{"type":"tool_result","tool_use_id":"toolu_png","content":[{"type":"text","text":"found it"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aGVsbG8="}}]},
+		{"type":"tool_result","tool_use_id":"toolu_jpeg","content":[{"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"d29ybGQ="}}]}
+	]}]}`)
+	converted, err := convertClaudeMessagesToGeminiGenerateContent(body)
+	require.NoError(t, err)
+
+	// 工具关联和图片内容均由统一转换层保留；原生图片另行供 Gemini 读取。
+	var results []gjson.Result
+	images := map[string]string{}
+	for _, part := range gjson.GetBytes(converted, "contents.1.parts").Array() {
+		if response := part.Get("functionResponse"); response.Exists() {
+			results = append(results, response)
+		}
+		if image := part.Get("inlineData"); image.Exists() {
+			images[image.Get("mimeType").String()] = image.Get("data").String()
+		}
+	}
+	require.Len(t, results, 2)
+	require.Equal(t, "inspect", results[0].Get("name").String())
+	require.Equal(t, "found it", results[0].Get("response.content.0.text").String())
+	require.Equal(t, "aGVsbG8=", results[0].Get("response.content.1.data").String())
+	require.Equal(t, "inspect", results[1].Get("name").String())
+	require.Equal(t, "d29ybGQ=", results[1].Get("response.content.0.data").String())
+	require.Equal(t, map[string]string{"image/png": "aGVsbG8=", "image/jpeg": "d29ybGQ="}, images)
+}
+
 func TestEnsureGeminiFunctionCallThoughtSignatures_InsertsWhenMissing(t *testing.T) {
 	geminiReq := map[string]any{
 		"contents": []any{

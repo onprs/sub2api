@@ -19,6 +19,7 @@ type Group struct {
 	ID             int64
 	Name           string
 	Description    string
+	I18n           GroupI18n // 名称与描述的界面语言译文；缺失的语言沿用 Name/Description
 	Platform       string
 	RateMultiplier float64
 	// 动态倍率按用户在滚动窗口内的累计 Token，从最高倍率线性下降到最低倍率。

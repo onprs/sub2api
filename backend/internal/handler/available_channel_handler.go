@@ -85,6 +85,9 @@ type userAvailableGroup struct {
 	PeakRateMultiplier       float64 `json:"peak_rate_multiplier"`
 	CurrentPeakMultiplier    float64 `json:"current_peak_multiplier"`
 	IsExclusive              bool    `json:"is_exclusive"`
+
+	// 仅用于按请求语言生成用户可见名称。
+	i18n service.GroupI18n
 }
 
 // userSupportedModelPricing 用户可见的定价字段白名单。
@@ -229,6 +232,7 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 			c.Request.Context(),
 			userGroups,
 			h.modelPricingChannelMeta(c.Request.Context()),
+			c.GetHeader("Accept-Language"),
 		))
 		return
 	}
@@ -239,6 +243,7 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 		return
 	}
 
+	acceptLanguage := c.GetHeader("Accept-Language")
 	out := make([]userAvailableChannel, 0, len(channels))
 	for _, ch := range channels {
 		if ch.Status != service.StatusActive {
@@ -248,6 +253,7 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 		if len(visibleGroups) == 0 {
 			continue
 		}
+		localizeUserAvailableGroups(visibleGroups, acceptLanguage)
 		sections := buildPlatformSections(ch, visibleGroups)
 		if len(sections) == 0 {
 			continue
@@ -294,6 +300,7 @@ func (h *AvailableChannelHandler) buildModelPricingChannels(
 	ctx context.Context,
 	groups []service.Group,
 	channelMeta map[int64]modelPricingChannelMeta,
+	acceptLanguage ...string,
 ) []userAvailableChannel {
 	type bucket struct {
 		name        string
@@ -301,6 +308,10 @@ func (h *AvailableChannelHandler) buildModelPricingChannels(
 		sections    []userChannelPlatformSection
 	}
 
+	language := ""
+	if len(acceptLanguage) > 0 {
+		language = acceptLanguage[0]
+	}
 	buckets := make(map[string]*bucket, len(groups))
 	pricingAt := time.Now()
 	for i := range groups {
@@ -319,8 +330,7 @@ func (h *AvailableChannelHandler) buildModelPricingChannels(
 		}
 
 		key := "group:" + strings.ToLower(group.Name)
-		name := group.Name
-		description := group.Description
+		name, description := group.I18n.Localize(language, group.Name, group.Description)
 		if meta, ok := channelMeta[group.ID]; ok && strings.TrimSpace(meta.name) != "" {
 			key = "channel:" + strings.ToLower(meta.name)
 			name = meta.name
@@ -335,9 +345,11 @@ func (h *AvailableChannelHandler) buildModelPricingChannels(
 			b = &bucket{name: name, description: description}
 			buckets[key] = b
 		}
+		visibleGroups := []userAvailableGroup{userAvailableGroupFromServiceAt(group, pricingAt)}
+		localizeUserAvailableGroups(visibleGroups, language)
 		b.sections = append(b.sections, userChannelPlatformSection{
 			Platform:        group.Platform,
-			Groups:          []userAvailableGroup{userAvailableGroupFromServiceAt(group, pricingAt)},
+			Groups:          visibleGroups,
 			SupportedModels: toUserSupportedModels(supported, map[string]struct{}{group.Platform: {}}),
 		})
 	}
@@ -445,6 +457,13 @@ func (h *AvailableChannelHandler) supportedModelsForPricingGroup(ctx context.Con
 	return out
 }
 
+// localizeUserAvailableGroups 把分组名称就地换成请求首选语言的版本。
+func localizeUserAvailableGroups(groups []userAvailableGroup, acceptLanguage string) {
+	for i := range groups {
+		groups[i].Name = groups[i].i18n.LocalizeName(acceptLanguage, groups[i].Name)
+	}
+}
+
 // buildPlatformSections 把一个渠道按 visibleGroups 的平台集合拆成有序的 section 列表：
 // 每个 section 对应一个具体平台，只包含该平台的 groups 和 supported_models。
 //
@@ -523,6 +542,7 @@ func filterUserVisibleGroups(
 		visible = append(visible, userAvailableGroup{
 			ID:                       g.ID,
 			Name:                     g.Name,
+			i18n:                     g.I18n,
 			Platform:                 g.Platform,
 			SubscriptionType:         g.SubscriptionType,
 			RateMultiplier:           g.RateMultiplier,
@@ -546,6 +566,7 @@ func userAvailableGroupFromServiceAt(g service.Group, pricingAt time.Time) userA
 	return userAvailableGroup{
 		ID:                       g.ID,
 		Name:                     g.Name,
+		i18n:                     g.I18n,
 		Platform:                 g.Platform,
 		SubscriptionType:         g.SubscriptionType,
 		RateMultiplier:           g.RateMultiplier,

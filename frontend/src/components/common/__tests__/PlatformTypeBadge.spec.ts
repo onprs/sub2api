@@ -79,7 +79,7 @@ describe('PlatformTypeBadge', () => {
     expect(wrapper.text()).not.toContain('Gemini')
   })
 
-  it('uses Chinese account type labels without exposing the backend value', () => {
+  it('使用 Vertex 平台显示名并隐藏内部账号类型', () => {
     testLocale.value = 'zh'
     const wrapper = mount(PlatformTypeBadge, {
       props: {
@@ -88,7 +88,7 @@ describe('PlatformTypeBadge', () => {
       }
     })
 
-    expect(wrapper.text()).toContain('服务账号')
+    expect(wrapper.text()).toContain('Agent Platform (Vertex)')
     expect(wrapper.text()).not.toContain('service_account')
   })
 

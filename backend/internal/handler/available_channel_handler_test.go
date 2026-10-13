@@ -462,18 +462,24 @@ func TestBuildModelPricingChannels_RootsAtGroupsAndUsesMappedPricingCandidate(t 
 		},
 	}
 
-	got := h.buildModelPricingChannels(context.Background(), []service.Group{
+	groups := []service.Group{
 		{
-			ID:               8,
-			Name:             "Antigravity-TEST",
-			Platform:         service.PlatformAntigravity,
-			RateMultiplier:   1.2,
-			SubscriptionType: service.SubscriptionTypeStandard,
+			ID: 8, Name: "Antigravity-TEST", Description: "模型计费分组",
+			I18n:     service.GroupI18n{"en": {Name: "Model pricing group", Description: "Available model pricing"}},
+			Platform: service.PlatformAntigravity, RateMultiplier: 1.2,
+			SubscriptionType: service.SubscriptionTypeStandard, DynamicRateEnabled: true,
 		},
-	}, nil)
+	}
+	got := h.buildModelPricingChannels(context.Background(), groups, nil)
 
 	require.Len(t, got, 1)
 	require.Equal(t, "Antigravity-TEST", got[0].Name)
+	localized := h.buildModelPricingChannels(context.Background(), groups, nil, "en-US,en;q=0.9")
+	require.Equal(t, "Model pricing group", localized[0].Name)
+	require.Equal(t, "Available model pricing", localized[0].Description)
+	require.Equal(t, "Model pricing group", localized[0].Platforms[0].Groups[0].Name)
+	require.True(t, localized[0].Platforms[0].Groups[0].DynamicRateEnabled)
+	require.Equal(t, "Antigravity-TEST", groups[0].Name)
 	require.Len(t, got[0].Platforms, 1)
 	section := got[0].Platforms[0]
 	require.Equal(t, service.PlatformAntigravity, section.Platform)

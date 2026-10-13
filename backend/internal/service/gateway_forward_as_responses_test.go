@@ -662,7 +662,7 @@ func TestClaude55ResponsesSignedThinkingBufferedAndStreamed(t *testing.T) {
 		"event: message_delta\n" + `data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}`,
 		"event: message_stop\n" + `data: {"type":"message_stop"}`,
 	}, "\n\n") + "\n\n"
-	for _, model := range []string{"claude-opus-5-5", "claude-sonnet-5-5"} {
+	for _, model := range []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"} {
 		modelPayload := strings.ReplaceAll(payload, "claude-opus-5-5", model)
 		for _, stream := range []bool{false, true} {
 			rec := httptest.NewRecorder()
@@ -685,7 +685,7 @@ func TestClaude55ResponsesSignedThinkingBufferedAndStreamed(t *testing.T) {
 }
 
 func TestClaude55BridgeUsesMappedModelBeforeThinkingConversion(t *testing.T) {
-	for _, model := range []string{"claude-opus-5-5", "claude-sonnet-5-5"} {
+	for _, model := range []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"} {
 		for _, chat := range []bool{false, true} {
 			for _, forced := range []bool{false, true} {
 				rec := httptest.NewRecorder()
@@ -708,7 +708,7 @@ func TestClaude55BridgeUsesMappedModelBeforeThinkingConversion(t *testing.T) {
 				} else {
 					result, err = svc.ForwardAsResponses(context.Background(), c, account, []byte(body), nil)
 				}
-				if forced {
+				if forced && model != "claude-haiku-5-5" {
 					require.Error(t, err)
 					require.Equal(t, 400, rec.Code)
 					require.Nil(t, upstream.lastReq)
