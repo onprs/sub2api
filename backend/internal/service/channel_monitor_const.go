@@ -65,6 +65,13 @@ const (
 	providerOpenRouterChatPath = "/chat/completions"
 	// providerCommandCodeChatPath Command Code Provider API Chat Completions path.
 	providerCommandCodeChatPath = "/provider/v1/chat/completions"
+	// providerOpenCodeGoChatPath OpenCode Go Chat Completions path.
+	// 路径写全 /v1 前缀：官方 API root 自带 /v1 时由 joinURL 去重，本站网关也能直接命中。
+	providerOpenCodeGoChatPath = "/v1/chat/completions"
+	// providerOpenCodeGoResponsesPath OpenCode Go Responses path.
+	providerOpenCodeGoResponsesPath = "/v1/responses"
+	// providerOpenCodeGoMessagesPath OpenCode Go Anthropic-style Messages path.
+	providerOpenCodeGoMessagesPath = "/v1/messages"
 
 	// MonitorProvider* provider 字符串常量（也是 ent enum 的实际值）。
 	MonitorProviderOpenAI            = "openai"
@@ -147,6 +154,8 @@ const (
 	monitorOpenRouterChallengeMaxTokens = 4096
 	// monitorCommandCodeChallengeMaxTokens 为 Command Code 推理模型（如 ox-alpha）保留输出预算。
 	monitorCommandCodeChallengeMaxTokens = 4096
+	// monitorOpenCodeGoChallengeMaxTokens 为 OpenCode Go 推理/转换链路保留更宽的输出预算，避免 final content 偶发为空。
+	monitorOpenCodeGoChallengeMaxTokens = 512
 	// monitorAntigravityGeminiChallengeMaxTokens 为 Antigravity Gemini thinking/agent 模型保留更多输出预算。
 	monitorAntigravityGeminiChallengeMaxTokens = 1024
 	// monitorAntigravityGeminiThinkingLevel 渠道监控只做极简探活，Gemini 3 用 low 降低 thinking 消耗与首 token 延迟。
@@ -191,10 +200,13 @@ var (
 		"CHANNEL_MONITOR_GROUP_ALREADY_MONITORED", "the selected group already has a local monitor",
 	)
 	ErrChannelMonitorInvalidProvider = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/grok/opencode/cline/openrouter/command_code/antigravity/antigravity_claude/antigravity_gemini/kimi/zhipu/deepseek/minimax",
+		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/grok/opencode_go/cline/openrouter/command_code/antigravity/antigravity_claude/antigravity_gemini/kimi/zhipu/deepseek/minimax",
 	)
 	ErrChannelMonitorInvalidCheckMode = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_CHECK_MODE", "check_mode must be one of probe/quota/quota_probe; antigravity only supports quota",
+		"CHANNEL_MONITOR_INVALID_CHECK_MODE", "check_mode must be one of probe/quota/quota_probe",
+	)
+	ErrChannelMonitorProbeUnsupported = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_PROBE_UNSUPPORTED", "this provider has no probe endpoint and only supports check_mode=quota (antigravity)",
 	)
 	ErrChannelMonitorAccountRequired = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_ACCOUNT_REQUIRED", "account_id is required for quota-based check_mode",
@@ -206,7 +218,7 @@ var (
 		"CHANNEL_MONITOR_ACCOUNT_NOT_SUPPORTABLE", "linked account cannot serve as a quota data source (cn coding plan must be kimi/zhipu/minimax, cn payg must be kimi/deepseek, openai requires an oauth account, anthropic requires oauth or setup-token)",
 	)
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, messages, or responses; responses is supported for openai/opencode and messages is supported for opencode_go/command_code",
+		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, messages, or responses; responses is supported for openai/opencode_go and messages is supported for opencode_go/command_code",
 	)
 	ErrChannelMonitorInvalidRequestBody = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_REQUEST_BODY", "replace-mode body_override must include non-empty messages for chat_completions/messages or non-empty instructions and input for responses",

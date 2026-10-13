@@ -40,6 +40,7 @@ var probeCapableProviders = map[string]struct{}{
 	MonitorProviderAnthropic:         {},
 	MonitorProviderGemini:            {},
 	MonitorProviderGrok:              {},
+	MonitorProviderOpenCodeGo:        {},
 	MonitorProviderCline:             {},
 	MonitorProviderOpenRouter:        {},
 	MonitorProviderCommandCode:       {},
@@ -91,27 +92,29 @@ func validateCheckMode(provider, checkMode string) error {
 	default:
 		return ErrChannelMonitorInvalidCheckMode
 	}
+	// provider 没有探活端点时只允许配额模式，错误码与“模式取值非法”区分开。
 	if checkMode != MonitorCheckModeQuota && !providerSupportsProbe(provider) {
-		return ErrChannelMonitorInvalidCheckMode
+		return ErrChannelMonitorProbeUnsupported
 	}
 	return nil
 }
 
 // validateAPIMode 校验 provider 与 api_mode 的组合。
-// responses 对 OpenAI 有意义；messages 对 Command Code 有意义；
-// 其它 provider 使用 chat_completions 作为默认占位。
+// OpenCode Go 按模型把请求分流到 Chat Completions / Responses / Messages 三种
+// 上游协议，三种 api_mode 都合法；responses 另对 OpenAI 有意义，messages 另对
+// Command Code 有意义；其它 provider 使用 chat_completions 作为默认占位。
 func validateAPIMode(provider, apiMode string) error {
 	apiMode = defaultAPIMode(apiMode)
 	switch apiMode {
 	case MonitorAPIModeChatCompletions:
 		return nil
 	case MonitorAPIModeResponses:
-		if provider == "" || provider == MonitorProviderOpenAI {
+		if provider == "" || provider == MonitorProviderOpenAI || provider == MonitorProviderOpenCodeGo {
 			return nil
 		}
 		return ErrChannelMonitorInvalidAPIMode
 	case MonitorAPIModeMessages:
-		if provider == "" || provider == MonitorProviderCommandCode {
+		if provider == "" || provider == MonitorProviderOpenCodeGo || provider == MonitorProviderCommandCode {
 			return nil
 		}
 		return ErrChannelMonitorInvalidAPIMode

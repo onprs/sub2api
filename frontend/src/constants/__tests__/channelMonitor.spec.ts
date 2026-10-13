@@ -4,13 +4,17 @@ import {
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_MESSAGES,
   API_MODE_RESPONSES,
+  monitorProviderSupportsProbe,
   monitorSelectableAPIModes,
   monitorPayloadAPIMode,
   PROVIDER_ANTHROPIC,
+  PROVIDER_ANTIGRAVITY,
   PROVIDER_CLINEPASS,
   PROVIDER_OPENROUTER,
   PROVIDER_OPENCODE_GO,
   PROVIDER_OPENAI,
+  PROVIDERS,
+  QUOTA_ONLY_PROVIDERS,
 } from '../channelMonitor'
 
 describe('channel monitor constants', () => {
@@ -34,5 +38,15 @@ describe('channel monitor constants', () => {
     expect(monitorSelectableAPIModes(PROVIDER_ANTHROPIC)).toEqual([API_MODE_CHAT_COMPLETIONS])
     expect(monitorSelectableAPIModes(PROVIDER_CLINEPASS)).toEqual([API_MODE_CHAT_COMPLETIONS])
     expect(monitorSelectableAPIModes(PROVIDER_OPENROUTER)).toEqual([API_MODE_CHAT_COMPLETIONS])
+  })
+
+  // OpenCode Go 有 Chat / Responses / Messages 探活适配器，不能被当成仅配额 provider。
+  it('marks only adapter-less providers as quota-only', () => {
+    expect(QUOTA_ONLY_PROVIDERS).toEqual([PROVIDER_ANTIGRAVITY])
+    expect(monitorProviderSupportsProbe(PROVIDER_OPENCODE_GO)).toBe(true)
+    expect(monitorProviderSupportsProbe(PROVIDER_ANTIGRAVITY)).toBe(false)
+    for (const provider of PROVIDERS) {
+      expect(monitorProviderSupportsProbe(provider)).toBe(!QUOTA_ONLY_PROVIDERS.includes(provider))
+    }
   })
 })

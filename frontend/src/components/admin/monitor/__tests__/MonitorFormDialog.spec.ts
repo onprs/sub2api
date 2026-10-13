@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   listTemplates: vi.fn(),
   listClinePassModels: vi.fn(),
   listOpenRouterModels: vi.fn(),
+  listAccounts: vi.fn(),
+  getAccount: vi.fn(),
   getAllIncludingInactive: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
@@ -25,6 +27,10 @@ vi.mock('@/api/admin', () => ({
     },
     channelMonitorTemplate: {
       list: mocks.listTemplates,
+    },
+    accounts: {
+      list: mocks.listAccounts,
+      getById: mocks.getAccount,
     },
     groups: {
       getAllIncludingInactive: mocks.getAllIncludingInactive,
@@ -128,6 +134,8 @@ describe('MonitorFormDialog target fields', () => {
     mocks.listTemplates.mockResolvedValue({ items: [] })
     mocks.listClinePassModels.mockResolvedValue([])
     mocks.listOpenRouterModels.mockResolvedValue([])
+    mocks.listAccounts.mockResolvedValue({ items: [] })
+    mocks.getAccount.mockResolvedValue(null)
     mocks.getAllIncludingInactive.mockResolvedValue([
       { id: 20, name: 'Anthropic Primary', platform: 'anthropic', status: 'active' },
       { id: 21, name: 'OpenAI Primary', platform: 'openai', status: 'active' },
@@ -209,5 +217,45 @@ describe('MonitorFormDialog target fields', () => {
     await anthropicButton!.trigger('click')
 
     expect(wrapper.find('input[type="password"]').attributes('required')).toBeDefined()
+  })
+
+  it('keeps probe modes selectable for OpenCode Go and submits probe', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+
+    await wrapper.find('button[data-testid="monitor-target-external"]').trigger('click')
+    await wrapper.find('button[data-testid="monitor-provider-opencode_go"]').trigger('click')
+
+    expect(wrapper.find('button[data-testid="monitor-check-mode-probe"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('button[data-testid="monitor-check-mode-quota_probe"]').attributes('disabled')).toBeUndefined()
+
+    await wrapper.find('input[placeholder="admin.channelMonitor.form.namePlaceholder"]').setValue('OpenCode Go')
+    await wrapper.find('input[placeholder="admin.channelMonitor.form.endpointPlaceholder"]').setValue('https://opencode.ai/zen/go/v1')
+    await wrapper.find('input[placeholder="admin.channelMonitor.form.apiKeyPlaceholder"]').setValue('oc-key')
+    await wrapper.find('input[placeholder="admin.channelMonitor.form.primaryModelPlaceholder"]').setValue('glm-5.3')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(mocks.create).toHaveBeenCalledTimes(1)
+    expect(mocks.create.mock.calls[0][0]).toEqual(expect.objectContaining({
+      provider: 'opencode_go',
+      api_mode: 'chat_completions',
+      check_mode: 'probe',
+      endpoint: 'https://opencode.ai/zen/go/v1',
+      primary_model: 'glm-5.3',
+    }))
+  })
+
+  it('forces quota mode for providers without a probe endpoint', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+
+    await wrapper.find('button[data-testid="monitor-provider-antigravity"]').trigger('click')
+
+    expect(wrapper.find('button[data-testid="monitor-check-mode-probe"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('button[data-testid="monitor-check-mode-quota_probe"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('button[data-testid="monitor-check-mode-quota"]').attributes('aria-pressed')).toBe('true')
+    // quota 模式不探活，因此隐藏探活目标（本地分组 / 外部 endpoint）字段。
+    expect(wrapper.find('button[data-testid="monitor-target-external"]').exists()).toBe(false)
   })
 })

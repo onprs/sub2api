@@ -65,6 +65,14 @@ export const PROVIDERS: readonly Provider[] = [
 /** 仅支持配额模式（无探活 adapter）的 provider。 */
 export const QUOTA_ONLY_PROVIDERS: readonly Provider[] = [PROVIDER_ANTIGRAVITY]
 
+/**
+ * 该 provider 是否支持探活（probe / quota_probe）。
+ * 与后端 probeCapableProviders 一致：只有一张 quota-only 名单，其余均可探活。
+ */
+export function monitorProviderSupportsProbe(provider: Provider): boolean {
+  return !QUOTA_ONLY_PROVIDERS.includes(provider)
+}
+
 export const CHECK_MODES: readonly CheckMode[] = [
   CHECK_MODE_PROBE,
   CHECK_MODE_QUOTA,
