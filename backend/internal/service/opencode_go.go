@@ -27,8 +27,8 @@ const (
 
 // DefaultOpenCodeGoModelIDs 只返回官方同时公布模型 ID 和定价的 Go 模型。
 func DefaultOpenCodeGoModelIDs() []string {
-	models := make([]string, 0, len(openCodeOfficialPricing))
-	for _, pricing := range openCodeOfficialPricing {
+	models := make([]string, 0, len(openCodeDefaultPricing))
+	for _, pricing := range openCodeDefaultPricing {
 		models = append(models, pricing.Models...)
 	}
 	return models

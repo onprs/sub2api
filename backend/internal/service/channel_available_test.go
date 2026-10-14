@@ -506,8 +506,11 @@ func TestBuildCatalogSupportedModel_CommandCode(t *testing.T) {
 	require.True(t, free.Promotion.Free)
 	require.Equal(t, "Free", free.Promotion.Label)
 	require.NotNil(t, free.Pricing)
-	require.InDelta(t, 0.0, *free.Pricing.InputPrice, 1e-15)
-	require.InDelta(t, 0.0, *free.Pricing.OutputPrice, 1e-15)
+	require.InDelta(t, 1e-9, *free.Pricing.InputPrice, 1e-18)
+	require.InDelta(t, 1e-9, *free.Pricing.OutputPrice, 1e-18)
+	require.InDelta(t, 1e-9, *free.Pricing.CacheReadPrice, 1e-18)
+	require.InDelta(t, 1e-9, *free.Pricing.CacheWritePrice, 1e-18)
+	require.InDelta(t, 1e-9, *free.Pricing.CacheWrite1hPrice, 1e-18)
 
 	// 4. 官方促销与上下文档位
 	mimo := svc.BuildCatalogSupportedModel("xiaomi/mimo-v2.5", PlatformCommandCode, nil)

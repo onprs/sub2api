@@ -425,6 +425,9 @@ func (s *ChannelService) fillModelQuotaCostForNameAt(model *SupportedModel, pric
 	var ok bool
 	switch model.Platform {
 	case PlatformOpenCodeGo:
+		if model.PricingSource != PricingSourceChannel && isOpenCodeFreeModel(pricingModel) {
+			return true
+		}
 		pricing := model.Pricing
 		if model.PricingSource != PricingSourceChannel {
 			pricing, _ = openCodeReferencePricing(pricingModel)
@@ -686,9 +689,13 @@ func synthesizePricingFromModelPricing(mp *ModelPricing, existing *ChannelModelP
 	pricing := &ChannelModelPricing{
 		BillingMode:                  mode,
 		InputPrice:                   nonZeroPtr(mp.InputPricePerToken),
+		ImageInputPrice:              nonZeroPtr(mp.ImageInputPricePerToken),
 		OutputPrice:                  nonZeroPtr(mp.OutputPricePerToken),
 		CacheWritePrice:              nonZeroPtr(mp.CacheCreationPricePerToken),
+		CacheWrite1hPrice:            nonZeroPtr(mp.CacheCreation1hPrice),
 		CacheReadPrice:               nonZeroPtr(mp.CacheReadPricePerToken),
+		FastMultiplier:               mp.FastMultiplier,
+		FlexMultiplier:               mp.FlexMultiplier,
 		ImageOutputPrice:             nonZeroPtr(mp.ImageOutputPricePerToken),
 		MaxReasoningEffortMultiplier: mp.MaxReasoningEffortMultiplier,
 	}

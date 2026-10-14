@@ -29,7 +29,7 @@ func openCodeBillingTestServices(pricing []ChannelModelPricing) (*ChannelService
 func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
 	require.Len(t, DefaultOpenCodeGoModelIDs(), 33)
 	require.Contains(t, DefaultOpenCodeGoModelIDs(), "cat-jam-free")
-	require.NoError(t, validatePricingEntries(openCodeOfficialPricing))
+	require.NoError(t, validatePricingEntries(openCodeDefaultPricing))
 	for _, removed := range []string{"omen-alpha", "deepseek-flash", "glm-5.1", "qwen3.7-max", "qwen3.6-plus", "minimax-m2.5"} {
 		require.NotContains(t, DefaultOpenCodeGoModelIDs(), removed)
 	}
@@ -45,7 +45,7 @@ func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
 	require.Len(t, parts, 3)
 	var additions []ChannelModelPricing
 	require.NoError(t, json.Unmarshal([]byte(parts[1]), &additions))
-	require.ElementsMatch(t, openCodeOfficialPricing, append(seed, additions...))
+	require.ElementsMatch(t, openCodeDefaultPricing, applyFreeModelMigrationForTest(t, append(seed, additions...)))
 	var routes []struct {
 		Models   []string `json:"models"`
 		Protocol string   `json:"protocol"`
@@ -120,7 +120,7 @@ func TestOpenCodeAccountRuleFollowsChannelChanges(t *testing.T) {
 
 func TestOpenCodeAccountRuleUsesRequestTimeContextTiersAndFreeRates(t *testing.T) {
 	ctx := context.Background()
-	_, billing, channel := openCodeBillingTestServices(openCodeOfficialPricing)
+	_, billing, channel := openCodeBillingTestServices(openCodeDefaultPricing)
 	rule := channel.AccountStatsPricingRules[0]
 	for _, test := range []struct {
 		name   string
@@ -135,8 +135,8 @@ func TestOpenCodeAccountRuleUsesRequestTimeContextTiersAndFreeRates(t *testing.T
 		{"输出不抬高上下文档位", "claude-haiku-5-5", time.Now(), UsageTokens{InputTokens: 100_000, OutputTokens: 100_000}, (0.01 + 0.05) * 4},
 		{"超过上下文边界", "claude-haiku-5-5", time.Now(), UsageTokens{InputTokens: 100_001}, 100_001 * 0.5e-6 * 4},
 		{"缓存计入上下文", "claude-haiku-5-5", time.Now(), UsageTokens{InputTokens: 100_000, CacheReadTokens: 1}, (100_000*0.5e-6 + 0.05e-6) * 4},
-		{"官方免费模型", "step-5-preview-free", time.Now(), UsageTokens{InputTokens: 1000, OutputTokens: 500}, 0},
-		{"新增官方免费模型", "cat-jam-free", time.Now(), UsageTokens{InputTokens: 1000, OutputTokens: 500}, 0},
+		{"官方免费模型统一价", "step-5-preview-free", time.Now(), UsageTokens{InputTokens: 1000, OutputTokens: 500}, 0.0000015},
+		{"新增官方免费模型统一价", "cat-jam-free", time.Now(), UsageTokens{InputTokens: 1000, OutputTokens: 500}, 0.0000015},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cost := tryChannelAccountStatsRule(ctx, billing, channel, rule, 7, 1, PlatformOpenCodeGo, test.model, test.tokens, 1, "", "", test.at)

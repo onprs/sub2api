@@ -8,14 +8,20 @@ func (s *BillingService) applyPlatformQuotaCostAt(cost *CostBreakdown, platform,
 		return nil
 	}
 	if platform == PlatformOpenCodeGo {
+		if isOpenCodeFreeModel(model) {
+			applyModelSpecificMultiplierToCost(cost, 1)
+			cost.platformQuotaApplied = true
+			return nil
+		}
 		pricing, ok := openCodeReferencePricing(model)
 		if !ok {
 			return quotaCostUnavailableError(model)
 		}
 		return applyOpenCodeChannelQuotaCostAt(cost, pricing, at)
 	}
-	if cost.AllowZeroRate {
+	if cost.AllowZeroRate || isCommandCodeFreeModelAt(model, at) {
 		applyModelSpecificMultiplierToCost(cost, 1)
+		cost.platformQuotaApplied = true
 		return nil
 	}
 	quota, ok := s.GetCommandCodeQuotaCostAt(model, at)
