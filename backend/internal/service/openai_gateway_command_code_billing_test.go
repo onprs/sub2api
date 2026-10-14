@@ -76,8 +76,8 @@ func TestOpenAIGatewayRecordUsageCommandCodeQuotaBoundaryAndFree(t *testing.T) {
 			require.NoError(t, svc.RecordUsage(context.Background(), input))
 			require.NotNil(t, repo.lastLog)
 			if tc.free {
-				require.Zero(t, repo.lastLog.ActualCost)
-				require.Zero(t, userRepo.deductCalls)
+				require.InDelta(t, 1200*1e-9*2, repo.lastLog.ActualCost, 1e-12)
+				require.Equal(t, 1, userRepo.deductCalls)
 			} else {
 				require.InDelta(t, (1000*1.36e-6+200*4.18e-6)*2*tc.quota, repo.lastLog.ActualCost, 1e-12)
 			}
@@ -113,4 +113,35 @@ func TestOpenAIGatewayRecordUsageCommandCodeExplicitPricingAndAtomicBilling(t *t
 	require.Equal(t, 0.0023275, billingRepo.lastCmd.APIKeyQuotaCost)
 	require.Equal(t, 0.0023275, billingRepo.lastCmd.APIKeyRateLimitCost)
 	require.Zero(t, userRepo.deductCalls)
+}
+
+func TestOpenAIGatewayRecordUsageFreeModelAtomicBilling(t *testing.T) {
+	for _, test := range []struct{ platform, model string }{
+		{PlatformOpenCodeGo, "cat-jam-free"},
+		{PlatformCommandCode, "stealth/glyph-cluster:free"},
+	} {
+		t.Run(test.platform, func(t *testing.T) {
+			repo := &openAIRecordUsageLogRepoStub{inserted: true}
+			userRepo := &openAIRecordUsageUserRepoStub{}
+			svc := newOpenAIRecordUsageServiceForTest(repo, userRepo, &openAIRecordUsageSubRepoStub{}, nil)
+			billingRepo := &openAIRecordUsageBillingRepoStub{}
+			svc.usageBillingRepo = billingRepo
+			svc.resolver = NewModelPricingResolver(nil, svc.billingService)
+			group := &Group{ID: 1, Platform: test.platform, RateMultiplier: 2}
+			input := providerClaudeRecordUsageInput(test.platform, test.model, group, OpenAIUsage{InputTokens: 1000, OutputTokens: 500, CacheReadInputTokens: 100})
+			input.PricingAt = time.Date(2026, 10, 14, 5, 0, 0, 0, time.UTC)
+			input.APIKey.Quota = 20
+			input.APIKey.RateLimit5h = 10
+			input.APIKeyService = &openAIRecordUsageAPIKeyQuotaStub{}
+			require.NoError(t, svc.RecordUsage(context.Background(), input))
+			// 缓存读取已经包含在上游输入总量中，统一单价下只计一次。
+			require.InDelta(t, 1500*1e-9, repo.lastLog.TotalCost, 1e-15)
+			require.InDelta(t, 0.000003, repo.lastLog.ActualCost, 1e-15)
+			require.Equal(t, 1, billingRepo.calls)
+			require.Equal(t, 0.000003, billingRepo.lastCmd.BalanceCost)
+			require.Equal(t, 0.000003, billingRepo.lastCmd.APIKeyQuotaCost)
+			require.Equal(t, 0.000003, billingRepo.lastCmd.APIKeyRateLimitCost)
+			require.Zero(t, userRepo.deductCalls)
+		})
+	}
 }

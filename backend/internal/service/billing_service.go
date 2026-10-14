@@ -1436,6 +1436,9 @@ func (s *BillingService) getModelPricingForPlatformAt(platform, model string, no
 		now = time.Now()
 	}
 	if platform == PlatformOpenCodeGo {
+		if isOpenCodeFreeModel(model) {
+			return newFreeModelBillingPricing(), nil
+		}
 		if pricing, ok := openCodeReferenceModelPricingAt(model, now); ok {
 			return pricing, nil
 		}
@@ -1454,6 +1457,9 @@ func (s *BillingService) getModelPricingForPlatformAt(platform, model string, no
 		// 参考价表未覆盖的模型 fail-closed，避免退回通用目录后按错误价格计费。
 		for _, candidate := range billingModelPricingCandidates(model) {
 			if pricing, ok := commandCodeReferencePricingAt(candidate, now); ok {
+				if isFreeModelReferencePricing(pricing) {
+					return newFreeModelBillingPricing(), nil
+				}
 				return pricing, nil
 			}
 		}

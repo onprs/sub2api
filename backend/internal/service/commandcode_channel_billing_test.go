@@ -80,7 +80,7 @@ func commandCodeBillingSeedPricing(t *testing.T) []ChannelModelPricing {
 		}
 		pricing = append(pricing, entry)
 	}
-	return pricing
+	return applyFreeModelMigrationForTest(t, pricing)
 }
 
 func commandCodeBillingTestService(pricing []ChannelModelPricing) (*ChannelService, *BillingService, *ModelPricingResolver) {
@@ -117,8 +117,8 @@ func TestCommandCodeChannelBillingSeedPreservesPricesAndMonthlyRules(t *testing.
 			time.Date(2026, 10, 17, 12, 29, 59, 0, time.UTC),
 		} {
 			t.Run(model+"/"+at.Format(time.RFC3339), func(t *testing.T) {
-				official, ok := commandCodeCatalogPricingAt(entry, at)
-				require.True(t, ok)
+				official, err := billing.getModelPricingForPlatformAt(PlatformCommandCode, model, at)
+				require.NoError(t, err)
 				resolved := resolver.Resolve(ctx, PricingInput{Model: model, Platform: PlatformCommandCode, GroupID: &groupID, PricingAt: at})
 				require.Equal(t, PricingSourceChannel, resolved.Source)
 				contexts := []int{1000}
@@ -153,8 +153,9 @@ func TestCommandCodeChannelBillingSeedPreservesPricesAndMonthlyRules(t *testing.
 					if available {
 						require.InDelta(t, original.TotalCost*quota.CostMultiplier, cost.ActualCost, 1e-10)
 					} else {
-						require.True(t, cost.AllowZeroRate)
-						require.Zero(t, cost.ActualCost)
+						require.False(t, cost.AllowZeroRate)
+						require.Positive(t, cost.ActualCost)
+						require.InDelta(t, original.TotalCost, cost.ActualCost, 1e-12)
 					}
 				}
 			})

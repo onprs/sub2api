@@ -389,7 +389,7 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.InDelta(t, 50, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 	require.InDelta(t, 70.0/50.0, quotaCost.Multiplier, 1e-9)
 
-	// 免费模型无额度倍率，由 AllowZeroRate 路径按 $0 计费。
+	// 官方免费模型无额度倍率，本站按统一 token 单价计费。
 	_, ok = svc.GetCommandCodeQuotaCost("inclusionai/ling-3.0-flash-sante:free")
 	require.False(t, ok)
 	_, ok = svc.GetCommandCodeQuotaCost("stealth/pixel-canary")
