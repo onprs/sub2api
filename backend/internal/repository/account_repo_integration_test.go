@@ -1624,17 +1624,20 @@ func (s *AccountRepoSuite) TestUpdateExtra_SchedulerNeutralSkipsOutboxAndSyncsFr
 func (s *AccountRepoSuite) TestUpdateExtra_AnthropicThresholdRefreshesCandidateSnapshot() {
 	now := time.Now().UTC().Truncate(time.Second)
 	end := now.Add(time.Hour)
-	account := mustCreateAccount(s.T(), s.client, &service.Account{
+	account := &service.Account{
 		Name: "threshold-refresh", Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth,
 		Credentials: map[string]any{"account_scheduling_threshold": 60},
 		Extra:       map[string]any{"passive_usage_7d_utilization": .59, "passive_usage_7d_reset": end.Unix()},
-	})
+	}
+	// Redis 快照只能发布已提交状态，此处使用独立提交的仓储。
+	ctx := context.Background()
+	repo := committedAccountRepository(s.T(), account)
 	cache := NewSchedulerCache(testRedis(s.T()))
-	s.repo.schedulerCache = cache
+	repo.schedulerCache = cache
 	bucket := service.SchedulerBucket{GroupID: account.ID, Platform: service.PlatformAnthropic, Mode: service.SchedulerModeSingle}
-	token, err := cache.CaptureBucketWriteToken(s.ctx, bucket)
+	token, err := cache.CaptureBucketWriteToken(ctx, bucket)
 	s.Require().NoError(err)
-	s.Require().NoError(cache.SetSnapshot(s.ctx, bucket, token, []service.Account{*account}))
+	s.Require().NoError(cache.SetSnapshot(ctx, bucket, token, []service.Account{*account}))
 	for _, step := range []struct {
 		used   float64
 		reset  time.Time
@@ -1642,13 +1645,15 @@ func (s *AccountRepoSuite) TestUpdateExtra_AnthropicThresholdRefreshesCandidateS
 	}{
 		{.59, end, false}, {.66, end, true}, {.66, now.Add(-time.Hour), false}, {.10, end, false},
 	} {
-		s.Require().NoError(s.repo.UpdateExtra(s.ctx, account.ID, map[string]any{
+		s.Require().NoError(repo.UpdateExtra(ctx, account.ID, map[string]any{
 			"passive_usage_7d_utilization": step.used, "passive_usage_7d_reset": step.reset.Unix(),
 		}))
-		candidates, hit, err := cache.GetSnapshot(s.ctx, bucket)
+		candidates, hit, err := cache.GetSnapshot(ctx, bucket)
 		s.Require().NoError(err)
 		s.Require().True(hit)
 		s.Require().Len(candidates, 1)
+		s.Require().Equal(step.used, candidates[0].Extra["passive_usage_7d_utilization"])
+		s.Require().Equal(float64(step.reset.Unix()), candidates[0].Extra["passive_usage_7d_reset"])
 		decision := service.EvaluateAccountSchedulingThreshold(candidates[0], map[string]int{service.PlatformAnthropic: 100}, now)
 		s.Require().Equal(step.paused, decision.ShouldPause)
 	}

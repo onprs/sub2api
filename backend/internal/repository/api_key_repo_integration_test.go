@@ -283,7 +283,7 @@ func (s *APIKeyRepoSuite) TestLegacyGroupIDWriteOverridesStaleRoutingBindings() 
 		WHERE api_key_id = $1
 		ORDER BY priority, group_id`, key.ID)
 	s.Require().NoError(err)
-	defer rows.Close()
+	defer func() { s.Require().NoError(rows.Close()) }()
 	s.Require().True(rows.Next())
 	var groupID int64
 	var priority int
@@ -759,7 +759,8 @@ func (s *APIKeyRepoSuite) TestIncrementQuotaUsedAndGetState() {
 // 注意：此测试使用 testEntClient（非事务隔离），数据会真正写入数据库。
 func TestIncrementQuotaUsed_Concurrent(t *testing.T) {
 	client := testEntClient(t)
-	repo := NewAPIKeyRepository(client, integrationDB).(*apiKeyRepository)
+	repo, ok := NewAPIKeyRepository(client, integrationDB).(*apiKeyRepository)
+	require.True(t, ok)
 	ctx := context.Background()
 
 	// 创建测试用户和 API Key

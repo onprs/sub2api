@@ -104,7 +104,7 @@ func (s *GatewayCacheSuite) TestGetSessionAccountID_CorruptedValue() {
 }
 
 func (s *GatewayCacheSuite) TestAPIKeyRoutingStickyBindingIsHashedAndExpires() {
-	cache := s.cache.(*gatewayCache)
+	cache := requireConcreteType[*gatewayCache](s.T(), s.cache)
 	const sessionKey = "private-conversation-identifier"
 	const ttl = time.Hour
 
@@ -121,7 +121,7 @@ func (s *GatewayCacheSuite) TestAPIKeyRoutingStickyBindingIsHashedAndExpires() {
 }
 
 func (s *GatewayCacheSuite) TestAPIKeyRoutingHealthAggregatesFiveMinuteBucketsWithinWindow() {
-	cache := s.cache.(*gatewayCache)
+	cache := requireConcreteType[*gatewayCache](s.T(), s.cache)
 	now := time.Now().UTC()
 	groupID := int64(91)
 	latestLatency := int64(120)

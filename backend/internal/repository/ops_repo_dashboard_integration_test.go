@@ -69,7 +69,7 @@ func TestOpsOutputTPSDistribution(t *testing.T) {
 	insert(end, &group.ID, 9999, &positive, service.RequestTypeSync, 0, 0, "token")
 	insert(start, &otherGroup.ID, 9999, &positive, service.RequestTypeSync, 0, 0, "token")
 	insert(start, nil, 50, &positive, service.RequestTypeSync, 0, 0, "token")
-	repo := NewOpsRepository(integrationDB).(*opsRepository)
+	repo := requireConcreteType[*opsRepository](t, NewOpsRepository(integrationDB))
 	filter := &service.OpsDashboardFilter{StartTime: start, EndTime: end, Platform: " OpenAI ", GroupID: &group.ID}
 	assertStats := func(stats *service.OpsOutputTPS) {
 		t.Helper()
@@ -116,7 +116,7 @@ func TestOpsOutputTPSQueryDeadline(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	repo := NewOpsRepository(integrationDB).(*opsRepository)
+	repo := requireConcreteType[*opsRepository](t, NewOpsRepository(integrationDB))
 	now := time.Now().UTC()
 	stats, err := repo.queryOutputTPS(ctx, &service.OpsDashboardFilter{StartTime: now.Add(-time.Hour), EndTime: now})
 	require.ErrorIs(t, err, context.DeadlineExceeded)

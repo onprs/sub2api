@@ -28,7 +28,7 @@ func (s *UserSubscriptionRepoSuite) SetupTest() {
 	tx := testEntTx(s.T())
 	s.ctx = dbent.NewTxContext(context.Background(), tx)
 	s.client = tx.Client()
-	s.repo = NewUserSubscriptionRepository(s.client).(*userSubscriptionRepository)
+	s.repo = requireConcreteType[*userSubscriptionRepository](s.T(), NewUserSubscriptionRepository(s.client))
 }
 
 func TestUserSubscriptionRepoSuite(t *testing.T) {

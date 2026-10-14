@@ -121,7 +121,7 @@ func dynamicBillingCommands(fixture dynamicBillingFixture, requestID string, tot
 
 func TestUsageBillingRepositoryDynamicRateSerializesAndDeduplicatesAtomically(t *testing.T) {
 	ctx := context.Background()
-	repo := NewUsageBillingRepository(testEntClient(t), integrationDB).(service.DynamicUsageBillingRepository)
+	repo := requireConcreteType[service.DynamicUsageBillingRepository](t, NewUsageBillingRepository(testEntClient(t), integrationDB))
 	fixture := createDynamicBillingFixture(t)
 
 	occurredAt := time.Now().UTC()
@@ -175,7 +175,7 @@ func TestUsageBillingRepositoryDynamicRateSerializesAndDeduplicatesAtomically(t 
 
 func TestUsageBillingRepositoryDynamicRateUsesSerializedSettlementOrder(t *testing.T) {
 	ctx := context.Background()
-	repo := NewUsageBillingRepository(testEntClient(t), integrationDB).(service.DynamicUsageBillingRepository)
+	repo := requireConcreteType[service.DynamicUsageBillingRepository](t, NewUsageBillingRepository(testEntClient(t), integrationDB))
 	fixture := createDynamicBillingFixture(t)
 	now := time.Now().UTC()
 
@@ -195,7 +195,7 @@ func TestUsageBillingRepositoryDynamicRateUsesSerializedSettlementOrder(t *testi
 
 func TestUsageBillingRepositoryDynamicRateExcludesExpiredEvents(t *testing.T) {
 	ctx := context.Background()
-	repo := NewUsageBillingRepository(testEntClient(t), integrationDB).(service.DynamicUsageBillingRepository)
+	repo := requireConcreteType[service.DynamicUsageBillingRepository](t, NewUsageBillingRepository(testEntClient(t), integrationDB))
 	fixture := createDynamicBillingFixture(t)
 
 	now := time.Now().UTC()
@@ -215,7 +215,7 @@ func TestUsageBillingRepositoryDynamicRateExcludesExpiredEvents(t *testing.T) {
 func TestUsageBillingRepositoryDynamicRateBackfillsOnlyUsageBeforeLedgerWatermark(t *testing.T) {
 	ctx := context.Background()
 	client := testEntClient(t)
-	repo := NewUsageBillingRepository(client, integrationDB).(service.DynamicUsageBillingRepository)
+	repo := requireConcreteType[service.DynamicUsageBillingRepository](t, NewUsageBillingRepository(client, integrationDB))
 	fixture := createDynamicBillingFixture(t)
 
 	var watermark time.Time
@@ -266,7 +266,7 @@ func TestUsageBillingRepositoryDynamicRateBackfillsOnlyUsageBeforeLedgerWatermar
 
 func TestUsageBillingRepositoryDynamicRateFallsBackToMaximumWhenLedgerAggregationFails(t *testing.T) {
 	ctx := context.Background()
-	repo := NewUsageBillingRepository(testEntClient(t), integrationDB).(service.DynamicUsageBillingRepository)
+	repo := requireConcreteType[service.DynamicUsageBillingRepository](t, NewUsageBillingRepository(testEntClient(t), integrationDB))
 	fixture := createDynamicBillingFixture(t)
 	now := time.Now().UTC()
 
@@ -302,7 +302,7 @@ func TestUsageBillingRepositoryDynamicRateFallsBackToMaximumWhenLedgerAggregatio
 
 func TestUsageBillingRepositoryDynamicRateRollsBackEventWhenBillingFails(t *testing.T) {
 	ctx := context.Background()
-	repo := NewUsageBillingRepository(testEntClient(t), integrationDB).(service.DynamicUsageBillingRepository)
+	repo := requireConcreteType[service.DynamicUsageBillingRepository](t, NewUsageBillingRepository(testEntClient(t), integrationDB))
 	fixture := createDynamicBillingFixture(t)
 	requestID := uuid.NewString()
 	billing, dynamic := dynamicBillingCommands(fixture, requestID, 100, time.Now().UTC(), 1_000)
