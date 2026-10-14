@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,10 +28,10 @@ func openCodeBillingTestServices(pricing []ChannelModelPricing) (*ChannelService
 }
 
 func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
-	require.Len(t, DefaultOpenCodeGoModelIDs(), 33)
+	require.Len(t, DefaultOpenCodeGoModelIDs(), 31)
 	require.Contains(t, DefaultOpenCodeGoModelIDs(), "cat-jam-free")
 	require.NoError(t, validatePricingEntries(openCodeDefaultPricing))
-	for _, removed := range []string{"omen-alpha", "deepseek-flash", "glm-5.1", "qwen3.7-max", "qwen3.6-plus", "minimax-m2.5"} {
+	for _, removed := range []string{"omen-alpha", "deepseek-flash", "glm-5.1", "qwen3.7-max", "qwen3.6-plus", "minimax-m2.5", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "gemini-4-argon-contributor"} {
 		require.NotContains(t, DefaultOpenCodeGoModelIDs(), removed)
 	}
 	migration, err := os.ReadFile("../../migrations/246_opencode_channel_billing.sql")
@@ -45,7 +46,16 @@ func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
 	require.Len(t, parts, 3)
 	var additions []ChannelModelPricing
 	require.NoError(t, json.Unmarshal([]byte(parts[1]), &additions))
-	require.ElementsMatch(t, openCodeDefaultPricing, applyFreeModelMigrationForTest(t, append(seed, additions...)))
+	removal, err := os.ReadFile("../../migrations/249_refresh_opencode_priced_catalog.sql")
+	require.NoError(t, err)
+	parts = strings.Split(string(removal), "$retired_models$")
+	require.Len(t, parts, 3)
+	var retired []string
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &retired))
+	current := slices.DeleteFunc(applyFreeModelMigrationForTest(t, append(seed, additions...)), func(pricing ChannelModelPricing) bool {
+		return slices.Contains(retired, pricing.Models[0])
+	})
+	require.ElementsMatch(t, openCodeDefaultPricing, current)
 	var routes []struct {
 		Models   []string `json:"models"`
 		Protocol string   `json:"protocol"`
@@ -58,10 +68,18 @@ func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
 
 func TestOpenCodeZenCatalogExcludesRetiredAndUnpricedModels(t *testing.T) {
 	account := &Account{Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Credentials: map[string]any{"account_mode": "zen"}}
-	require.Len(t, OpenCodeDefaultModelIDs(account), 73)
+	require.Len(t, OpenCodeDefaultModelIDs(account), 72)
 	require.True(t, IsOpenCodeOfficiallyPricedModel(account, "cat-jam-free"))
-	for _, model := range []string{"test", "claude-opus-5-5-backup", "muse-spark-1.2-contributor-free", "exo-free", "deepseek-v4-flash-vision-exp", "qwen3.7-max", "qwen3.7-plus", "ling-3.0-flash-fin-free", "mimo-v2.5-free", "nemotron-3-ultra-free"} {
+	for _, model := range []string{"test", "claude-opus-5-5-backup", "muse-spark-1.2-contributor-free", "exo-free", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "qwen3.7-max", "qwen3.7-plus", "ling-3.0-flash-fin-free", "mimo-v2.5-free", "nemotron-3-ultra-free"} {
 		require.False(t, IsOpenCodeOfficiallyPricedModel(account, model), model)
+	}
+}
+
+func TestOpenCodeWithdrawnPricesDoNotUseGenericFallback(t *testing.T) {
+	billing := &BillingService{}
+	for _, model := range []string{"deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "gemini-4-argon-contributor"} {
+		_, err := billing.GetModelPricingForPlatform(PlatformOpenCodeGo, model)
+		require.ErrorIs(t, err, ErrModelPricingUnavailable, model)
 	}
 }
 
@@ -157,6 +175,7 @@ func TestGetAvailableModels_OpenCodeExcludesUnpricedModels(t *testing.T) {
 	}{
 		{"保留已定价别名", map[string]any{"priced-alias": "glm-5.3", "unpriced-model": "omen-alpha"}, []string{"priced-alias"}},
 		{"全部无价格时返回空目录", map[string]any{"unpriced-model": "omen-alpha"}, []string{}},
+		{"不再列出撤价模型别名", map[string]any{"priced-alias": "glm-5.3", "flash-alias": "deepseek-v4-flash", "vision-alias": "deepseek-v4-flash-vision-exp"}, []string{"priced-alias"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			repo := &modelsListAccountRepoStub{byGroup: map[int64][]Account{groupID: {{
@@ -173,7 +192,7 @@ func TestGetAvailableModels_OpenCodeExcludesUnpricedModels(t *testing.T) {
 
 func TestOpenCodeUpstreamSyncExcludesModelsWithoutOfficialPricing(t *testing.T) {
 	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK,
-		Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"glm-5.3"},{"id":"omen-alpha"},{"id":"step-5-preview-free"},{"id":"unknown-free"}]}`))}}
+		Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"glm-5.3"},{"id":"omen-alpha"},{"id":"step-5-preview-free"},{"id":"unknown-free"},{"id":"deepseek-v4-flash"},{"id":"deepseek-v4-flash-vision-exp"},{"id":"gemini-4-argon-contributor"}]}`))}}
 	service := &AccountTestService{httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
 	account := &Account{Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{"api_key": "fixture", "base_url": DefaultOpenCodeGoBaseURL}}
