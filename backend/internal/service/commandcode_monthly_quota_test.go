@@ -63,6 +63,31 @@ func TestCommandCodeMonthlyQuotaParsesOfficialCreditDealIndependentlyOfPrices(t 
 	}
 }
 
+func TestCommandCodeMonthlyQuotaUsesScheduledAmountBeforePromotionStarts(t *testing.T) {
+	row := commandCodeDocumentCreditRow{Name: "GLM-5.3 Flash", Credits: "$$60", CreditDeal: json.RawMessage(
+		`{"was":"$$80","now":"$$100","starts":"2026-10-14T12:30:00Z","expires":"2026-10-17T12:29:59Z","term":"through Oct 17th","liveAtBuild":false}`,
+	)}
+	policy, err := parseCommandCodeMonthlyQuota(row)
+	require.NoError(t, err)
+	starts := time.Date(2026, 10, 14, 12, 30, 0, 0, time.UTC)
+	expires := time.Date(2026, 10, 17, 12, 29, 59, 0, time.UTC)
+	for _, test := range []struct {
+		at      time.Time
+		credits float64
+	}{
+		{starts.Add(-time.Nanosecond), 60}, {starts, 100},
+		{expires.Add(-time.Nanosecond), 100}, {expires, 80},
+	} {
+		quota, ok := policy.ResolveAt(test.at, commandCodeSharedMonthlyQuotaUSD)
+		require.True(t, ok)
+		require.Equal(t, test.credits, quota.CreditsUSD)
+		require.InDelta(t, 70/test.credits, quota.CostMultiplier, 1e-12)
+	}
+	row.CreditDeal = json.RawMessage(`{"was":"$$80","now":"invalid","starts":"2026-10-14T12:30:00Z","expires":"2026-10-17T12:29:59Z"}`)
+	_, err = parseCommandCodeMonthlyQuota(row)
+	require.ErrorContains(t, err, "invalid promotional credits")
+}
+
 func TestCommandCodeMonthlyQuotaRejectsMalformedAndConflictingCreditRows(t *testing.T) {
 	for _, tt := range []struct {
 		name string

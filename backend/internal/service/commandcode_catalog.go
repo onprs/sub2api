@@ -132,8 +132,8 @@ type commandCodeCatalogDiskSnapshot struct {
 	Entries map[string]commandCodeCatalogEntry `json:"entries"`
 }
 
-// 旧快照未保存额度活动时限，不能继续用于额度计算。
-const commandCodeCatalogSnapshotVersion = 2
+// 旧快照可能误用活动开始前的显示额度，不能继续用于额度计算。
+const commandCodeCatalogSnapshotVersion = 3
 
 // CommandCodeCatalog 保存 Command Code 官方 GOAT 模型注册表的最后成功快照。
 // GOAT 文档提供价格与活动，Provider API 则用于确认模型仍可调用并校验上下文上限。
@@ -626,6 +626,7 @@ type commandCodeDocumentCreditRow struct {
 
 type commandCodeDocumentCreditDeal struct {
 	Was     string `json:"was"`
+	Now     string `json:"now"`
 	Starts  string `json:"starts"`
 	Expires string `json:"expires"`
 	Term    string `json:"term"`

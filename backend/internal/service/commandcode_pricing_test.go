@@ -327,14 +327,15 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.InDelta(t, 60, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 	require.InDelta(t, 70.0/60.0, quotaCost.Multiplier, 1e-9)
 
-	// DeepSeek V4.1 Flash：官方月额度 $60 → 倍率 70/60。
-	quotaCost, ok = svc.GetCommandCodeQuotaCost("deepseek/deepseek-v4.1-flash")
+	// DeepSeek V4.1 Flash：活动内额度 $100，官方 ID 和别名使用相同倍率。
+	active := time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
+	quotaCost, ok = svc.GetCommandCodeQuotaCostAt("deepseek/deepseek-v4.1-flash", active)
 	require.True(t, ok)
-	require.InDelta(t, 60, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
-	require.InDelta(t, 70.0/60.0, quotaCost.Multiplier, 1e-9)
-	quotaCost, ok = svc.GetCommandCodeQuotaCost("deepseek-v4.1-flash")
+	require.InDelta(t, 100, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 0.7, quotaCost.Multiplier, 1e-9)
+	quotaCost, ok = svc.GetCommandCodeQuotaCostAt("deepseek-v4.1-flash", active)
 	require.True(t, ok)
-	require.InDelta(t, 60, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 100, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 
 	// GLM-5.2：官方 credits $70 → 倍率 1x
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("zai-org/glm-5.2")

@@ -153,7 +153,7 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 }
 
 // commandCodeFallbackMonthlyCreditsUSD 是官方基础月额度；限时提升另存为时间段。
-// 来源：https://commandcode.ai/docs/plans/goat，2026-10-01 核对。
+// 来源：https://commandcode.ai/docs/plans/goat，2026-10-14 核对。
 var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 	"claude-sonnet-5-5": 10,
 	"claude-haiku-5-5":  20,
@@ -165,11 +165,11 @@ var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 	"meta/muse-spark-1.2": 20, "meta/muse-spark-1.2-contributor": 20,
 	"deepseek/deepseek-v4-pro": 20, "deepseek/deepseek-v4-flash": 60,
 	"deepseek/deepseek-v4-flash-vision-exp": 20, "deepseek/deepseek-v4-flash-fast": 20,
-	"deepseek/deepseek-v4.1-flash": 60, "deepseek/deepseek-v4.1-flash-fast": 60,
+	"deepseek/deepseek-v4.1-flash": 80, "deepseek/deepseek-v4.1-flash-fast": 60,
 	"moonshotai/kimi-k3": 20, "moonshotai/kimi-k2.7-code": 60,
 	"moonshotai/kimi-k2.7-code-highspeed": 20, "moonshotai/kimi-k2.6": 20,
 	"moonshotai/kimi-k2.5": 20,
-	"z-ai/glm-5.3-flash":   60, "z-ai/glm-5.3-flashx": 20, "zai-org/glm-5.3": 20,
+	"z-ai/glm-5.3-flash":   80, "z-ai/glm-5.3-flashx": 20, "zai-org/glm-5.3": 20,
 	"zai-org/glm-5.2": 70, "zai-org/glm-5.2-fast": 20,
 	"zai-org/glm-5.1": 20, "zai-org/glm-5": 20,
 	"minimaxai/minimax-m3": 47, "minimaxai/minimax-m2.7": 20,
@@ -317,13 +317,12 @@ func commandCodeFallbackCatalogEntries() map[string]commandCodeCatalogEntry {
 	setCommandCodeFallbackTiers(entries)
 	setCommandCodeFallbackDeals(entries)
 	setCommandCodeFallbackTimeBands(entries)
-	// Kimi K3 官方 creditDeal（through Oct 7th）活动过期后已回到基础值 $20；
-	// 目录跟随官方当前数据（活动期间的历史值 $60 仅存于官方 tip 文案）。
+	// Kimi K3 官方 creditDeal.now 保存活动额度，过期后恢复基础值 $20。
 	kimi := entries["moonshotai/kimi-k3"]
 	kimiStarts := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
 	kimiExpires := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
 	kimi.MonthlyQuota.Periods = []MonthlyQuotaPeriod{{
-		CreditsUSD: 20, StartsAt: &kimiStarts, ExpiresAt: &kimiExpires, Term: "through Oct 7th",
+		CreditsUSD: 60, StartsAt: &kimiStarts, ExpiresAt: &kimiExpires, Term: "through Oct 7th",
 	}}
 	entries["moonshotai/kimi-k3"] = kimi
 
@@ -335,6 +334,22 @@ func commandCodeFallbackCatalogEntries() map[string]commandCodeCatalogEntry {
 		CreditsUSD: 40, StartsAt: &mistralStarts, ExpiresAt: &mistralExpires, Term: "through Oct 20th",
 	}}
 	entries["mistral/mistral-large-4"] = mistral
+	// 官方活动分别按精确 UTC 时刻生效，结束后恢复基础月额度 $80。
+	deepSeek := entries["deepseek/deepseek-v4.1-flash"]
+	deepSeekStarts := time.Date(2026, 10, 13, 14, 0, 0, 0, time.UTC)
+	deepSeekExpires := time.Date(2026, 10, 16, 13, 59, 59, 0, time.UTC)
+	deepSeek.MonthlyQuota.Periods = []MonthlyQuotaPeriod{{
+		CreditsUSD: 100, StartsAt: &deepSeekStarts, ExpiresAt: &deepSeekExpires, Term: "through Oct 16th",
+	}}
+	entries["deepseek/deepseek-v4.1-flash"] = deepSeek
+	glm := entries["z-ai/glm-5.3-flash"]
+	glmStarts := time.Date(2026, 10, 14, 12, 30, 0, 0, time.UTC)
+	glmExpires := time.Date(2026, 10, 17, 12, 29, 59, 0, time.UTC)
+	glm.MonthlyQuota.Periods = []MonthlyQuotaPeriod{
+		{CreditsUSD: 60, ExpiresAt: &glmStarts},
+		{CreditsUSD: 100, StartsAt: &glmStarts, ExpiresAt: &glmExpires, Term: "through Oct 17th"},
+	}
+	entries["z-ai/glm-5.3-flash"] = glm
 	return entries
 }
 

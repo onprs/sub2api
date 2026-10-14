@@ -48,13 +48,24 @@ func parseCommandCodeMonthlyQuota(row commandCodeDocumentCreditRow) (MonthlyQuot
 	if err != nil {
 		return MonthlyQuotaPolicy{}, err
 	}
+	promotionalCredits := credits
+	if strings.TrimSpace(deal.Now) != "" {
+		promotionalCredits, err = parseCommandCodeCreditsUSD(deal.Now)
+		if err != nil {
+			return MonthlyQuotaPolicy{}, fmt.Errorf("invalid promotional credits: %w", err)
+		}
+	}
 	policy.BaseCreditsUSD = base
-	policy.Periods = []MonthlyQuotaPeriod{{
-		CreditsUSD: credits,
+	// 页面在活动开始前可能仍显示旧额度，活动金额以 creditDeal.now 为准。
+	if startsAt != nil && credits != base && credits != promotionalCredits {
+		policy.Periods = append(policy.Periods, MonthlyQuotaPeriod{CreditsUSD: credits, ExpiresAt: startsAt})
+	}
+	policy.Periods = append(policy.Periods, MonthlyQuotaPeriod{
+		CreditsUSD: promotionalCredits,
 		StartsAt:   startsAt,
 		ExpiresAt:  expiresAt,
 		Term:       strings.TrimSpace(deal.Term),
-	}}
+	})
 	if err := policy.Validate(); err != nil {
 		return MonthlyQuotaPolicy{}, err
 	}
