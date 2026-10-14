@@ -13,7 +13,7 @@ import (
 const openCodeSharedMonthlyQuotaUSD = 60.0
 
 // 官方 Go 定价快照，只收录同时公布了模型 ID 和价格的模型。
-// 来源：https://opencode.ai/docs/go/（2026-10-12）。
+// 来源：https://opencode.ai/docs/go/（2026-10-14）。
 // 快照用于初始化渠道和无渠道时的回退；渠道建立后以管理员保存的配置为准。
 //
 //go:embed opencode_channel_pricing.json
@@ -39,7 +39,7 @@ func openCodeReferencePricing(model string) (*ChannelModelPricing, bool) {
 }
 
 // Zen 目录同样只保留官方有定价且当前网关支持原生协议的模型。
-// 来源：https://opencode.ai/docs/zen/（2026-10-12）。
+// 来源：https://opencode.ai/docs/zen/（2026-10-14）。
 //
 //go:embed opencode_zen_priced_models.json
 var openCodeZenPricedModelsJSON []byte

@@ -52,6 +52,17 @@ func commandCodeBillingSeedPricing(t *testing.T) []ChannelModelPricing {
 	require.Len(t, parts, 3)
 	var seeds []commandCodeBillingSeed
 	require.NoError(t, json.Unmarshal([]byte(parts[1]), &seeds))
+	update, err := os.ReadFile("../../migrations/247_sync_official_channel_catalogs.sql")
+	require.NoError(t, err)
+	parts = strings.Split(string(update), "$commandcode_quotas$")
+	require.Len(t, parts, 3)
+	var quotas map[string]MonthlyQuotaPolicy
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &quotas))
+	for index := range seeds {
+		if quota, ok := quotas[seeds[index].Model]; ok {
+			seeds[index].MonthlyQuota = quota
+		}
+	}
 	pricing := make([]ChannelModelPricing, 0, len(seeds))
 	for _, seed := range seeds {
 		entry := seed.pricing()
@@ -98,6 +109,12 @@ func TestCommandCodeChannelBillingSeedPreservesPricesAndMonthlyRules(t *testing.
 			time.Date(2026, 10, 12, 5, 0, 0, 0, time.UTC),
 			time.Date(2026, 10, 11, 2, 0, 0, 0, time.UTC),
 			time.Date(2026, 10, 21, 2, 0, 0, 0, time.UTC),
+			time.Date(2026, 10, 14, 12, 29, 59, 0, time.UTC),
+			time.Date(2026, 10, 14, 12, 30, 0, 0, time.UTC),
+			time.Date(2026, 10, 16, 13, 59, 58, 0, time.UTC),
+			time.Date(2026, 10, 16, 13, 59, 59, 0, time.UTC),
+			time.Date(2026, 10, 17, 12, 29, 58, 0, time.UTC),
+			time.Date(2026, 10, 17, 12, 29, 59, 0, time.UTC),
 		} {
 			t.Run(model+"/"+at.Format(time.RFC3339), func(t *testing.T) {
 				official, ok := commandCodeCatalogPricingAt(entry, at)

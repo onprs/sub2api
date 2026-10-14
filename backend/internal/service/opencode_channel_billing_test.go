@@ -27,9 +27,10 @@ func openCodeBillingTestServices(pricing []ChannelModelPricing) (*ChannelService
 }
 
 func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
-	require.Len(t, DefaultOpenCodeGoModelIDs(), 32)
+	require.Len(t, DefaultOpenCodeGoModelIDs(), 33)
+	require.Contains(t, DefaultOpenCodeGoModelIDs(), "cat-jam-free")
 	require.NoError(t, validatePricingEntries(openCodeOfficialPricing))
-	for _, removed := range []string{"omen-alpha", "glm-5.1", "qwen3.7-max", "qwen3.6-plus", "minimax-m2.5"} {
+	for _, removed := range []string{"omen-alpha", "deepseek-flash", "glm-5.1", "qwen3.7-max", "qwen3.6-plus", "minimax-m2.5"} {
 		require.NotContains(t, DefaultOpenCodeGoModelIDs(), removed)
 	}
 	migration, err := os.ReadFile("../../migrations/246_opencode_channel_billing.sql")
@@ -38,7 +39,13 @@ func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
 	require.Len(t, parts, 3)
 	var seed []ChannelModelPricing
 	require.NoError(t, json.Unmarshal([]byte(parts[1]), &seed))
-	require.Equal(t, openCodeOfficialPricing, seed)
+	update, err := os.ReadFile("../../migrations/247_sync_official_channel_catalogs.sql")
+	require.NoError(t, err)
+	parts = strings.Split(string(update), "$opencode_additions$")
+	require.Len(t, parts, 3)
+	var additions []ChannelModelPricing
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &additions))
+	require.ElementsMatch(t, openCodeOfficialPricing, append(seed, additions...))
 	var routes []struct {
 		Models   []string `json:"models"`
 		Protocol string   `json:"protocol"`
@@ -46,6 +53,15 @@ func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
 	require.NoError(t, json.Unmarshal(openCodeChannelPricingJSON, &routes))
 	for _, route := range routes {
 		require.Equal(t, route.Protocol, matchProtocolRules(route.Models[0], DefaultOpenCodeGoProtocolRules()), route.Models[0])
+	}
+}
+
+func TestOpenCodeZenCatalogExcludesRetiredAndUnpricedModels(t *testing.T) {
+	account := &Account{Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Credentials: map[string]any{"account_mode": "zen"}}
+	require.Len(t, OpenCodeDefaultModelIDs(account), 73)
+	require.True(t, IsOpenCodeOfficiallyPricedModel(account, "cat-jam-free"))
+	for _, model := range []string{"test", "claude-opus-5-5-backup", "muse-spark-1.2-contributor-free", "exo-free", "deepseek-v4-flash-vision-exp", "qwen3.7-max", "qwen3.7-plus", "ling-3.0-flash-fin-free", "mimo-v2.5-free", "nemotron-3-ultra-free"} {
+		require.False(t, IsOpenCodeOfficiallyPricedModel(account, model), model)
 	}
 }
 
@@ -120,6 +136,7 @@ func TestOpenCodeAccountRuleUsesRequestTimeContextTiersAndFreeRates(t *testing.T
 		{"超过上下文边界", "claude-haiku-5-5", time.Now(), UsageTokens{InputTokens: 100_001}, 100_001 * 0.5e-6 * 4},
 		{"缓存计入上下文", "claude-haiku-5-5", time.Now(), UsageTokens{InputTokens: 100_000, CacheReadTokens: 1}, (100_000*0.5e-6 + 0.05e-6) * 4},
 		{"官方免费模型", "step-5-preview-free", time.Now(), UsageTokens{InputTokens: 1000, OutputTokens: 500}, 0},
+		{"新增官方免费模型", "cat-jam-free", time.Now(), UsageTokens{InputTokens: 1000, OutputTokens: 500}, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cost := tryChannelAccountStatsRule(ctx, billing, channel, rule, 7, 1, PlatformOpenCodeGo, test.model, test.tokens, 1, "", "", test.at)

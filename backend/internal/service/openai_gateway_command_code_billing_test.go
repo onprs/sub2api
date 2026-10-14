@@ -20,7 +20,7 @@ func TestOpenAIGatewayRecordUsageCommandCodeCatalogBilling(t *testing.T) {
 				cache  float64
 				quota  float64
 			}{
-				{"deepseek/deepseek-v4.1-flash", 0.15e-6, 0.60e-6, 0.003e-6, 70.0 / 60},
+				{"deepseek/deepseek-v4.1-flash", 0.15e-6, 0.60e-6, 0.003e-6, 70.0 / 80},
 				{"gpt-5.6-luna", 0.2e-6, 1.2e-6, 0.02e-6, 70.0 / 20},
 				{"claude-sonnet-5-5", 2e-6, 10e-6, 0.1e-6, 70.0 / 10},
 				{"mistral/mistral-large-4", 1.36e-6, 4.18e-6, 0.14e-6, 70.0 / 40},
@@ -105,12 +105,12 @@ func TestOpenAIGatewayRecordUsageCommandCodeExplicitPricingAndAtomicBilling(t *t
 	input.APIKeyService = &openAIRecordUsageAPIKeyQuotaStub{}
 	require.NoError(t, svc.RecordUsage(context.Background(), input))
 	expectedTotal := 900*inputPrice + 200*outputPrice + 100*cachePrice
-	expectedActual := expectedTotal * 2 * 70 / 60
+	expectedActual := expectedTotal * 2 * 70 / 80
 	require.InDelta(t, expectedTotal, repo.lastLog.TotalCost, 1e-12)
 	require.InDelta(t, expectedActual, repo.lastLog.ActualCost, 1e-12)
 	require.Equal(t, 1, billingRepo.calls)
-	require.Equal(t, 0.00310333, billingRepo.lastCmd.BalanceCost)
-	require.Equal(t, 0.00310333, billingRepo.lastCmd.APIKeyQuotaCost)
-	require.Equal(t, 0.00310333, billingRepo.lastCmd.APIKeyRateLimitCost)
+	require.Equal(t, 0.0023275, billingRepo.lastCmd.BalanceCost)
+	require.Equal(t, 0.0023275, billingRepo.lastCmd.APIKeyQuotaCost)
+	require.Equal(t, 0.0023275, billingRepo.lastCmd.APIKeyRateLimitCost)
 	require.Zero(t, userRepo.deductCalls)
 }
