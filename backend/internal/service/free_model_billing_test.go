@@ -102,8 +102,8 @@ func TestFreeModelBillingUsesFixedTokenAndCachePrices(t *testing.T) {
 
 func TestFreeModelBillingKeepsWhitelistAndPaidRates(t *testing.T) {
 	require.Len(t, openCodeFreeModels, 9)
-	require.Len(t, DefaultOpenCodeGoModelIDs(), 33)
-	require.Len(t, openCodeZenPricedModels, 73)
+	require.Len(t, DefaultOpenCodeGoModelIDs(), 31)
+	require.Len(t, openCodeZenPricedModels, 72)
 	migration, err := os.ReadFile("../../migrations/248_free_model_billing_price.sql")
 	require.NoError(t, err)
 	parts := strings.Split(string(migration), "$free_models$")
