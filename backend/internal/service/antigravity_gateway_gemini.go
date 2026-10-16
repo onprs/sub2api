@@ -181,6 +181,8 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 					return nil, convertErr
 				}
 			}
+			// 缺失 thoughtSignature 的历史 functionCall 会被 v1internal 拒绝，先补占位签名。
+			googleBody = ensureGeminiFunctionCallThoughtSignatures(googleBody)
 			adapterOptions := s.forwardGeminiAdapterOptions(ctx, forwardOpts, projectID, attemptRoute.ModelID, attemptRoute.WireModel)
 			adapterOptions.RectifySignatures = rectifySignatures
 			wrappedBody, _, convertErr := antigravityadapter.ConvertRequest(googleBody, protocolconv.ProtocolGoogleGenAI, adapterOptions)

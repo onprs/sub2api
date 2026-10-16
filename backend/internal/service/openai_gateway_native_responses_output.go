@@ -418,6 +418,8 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStreamWithOptions(
 	streamSeenImages := make(map[string]struct{})
 	streamSearchSeen := make(map[string]struct{})
 	searchCounter := 0
+	// 合成的 response.failed 必须与流共享同一个 created_at。
+	var createdAtStamper responsesCreatedAtStamper
 	lastDownstreamWriteAt := time.Now()
 	semanticOutputSeen := false
 	capacityFailoverSuppressedLogged := false
@@ -450,7 +452,7 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStreamWithOptions(
 			s.handleOpenAIStreamTerminalAccountSideEffects(c, account, bareErrorPayload, failedMessage, stream.Headers)
 			bareErrorAccountSideEffectsPending = false
 		}
-		_, payload, ok := extractOpenAISSETerminalEvent(buildOpenAIResponseFailedSSE(responseID, originalModel, bareErrorPayload, failedMessage))
+		_, payload, ok := extractOpenAISSETerminalEvent(buildOpenAIResponseFailedSSE(responseID, originalModel, createdAtStamper.Value(), bareErrorPayload, failedMessage))
 		if !ok {
 			return errors.New("build synthesized OpenAI response.failed event")
 		}
@@ -571,6 +573,7 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStreamWithOptions(
 		dataBytes := []byte(openAICompatPayloadWithEventType(string(record.Data), record.Event))
 		eventType := strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())
 		observer.ObserveOpenAI(dataBytes, eventType)
+		createdAtStamper.Observe(dataBytes, eventType)
 		if codexFailureTerminal && sawBareError && !sawResponseFailed &&
 			(eventType == "response.completed" || eventType == "response.done") {
 			sawBareError = false

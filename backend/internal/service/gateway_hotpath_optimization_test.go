@@ -181,6 +181,10 @@ func (s *modelsListAccountRepoStub) ListSchedulableByGroupID(ctx context.Context
 	return out, nil
 }
 
+func (s *modelsListAccountRepoStub) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, _ []string, _ bool) ([]Account, error) {
+	return s.ListSchedulableByGroupID(ctx, *groupID)
+}
+
 func (s *modelsListAccountRepoStub) ListSchedulable(ctx context.Context) ([]Account, error) {
 	s.listAllCalls.Add(1)
 	if s.err != nil {
@@ -594,7 +598,7 @@ func TestGetAvailableModels_AntigravityOAuthPublishesOnlyUserRequestIDs(t *testi
 
 			models := svc.GetAvailableModels(context.Background(), &groupID, PlatformAntigravity)
 
-			require.Len(t, models, 9)
+			require.Len(t, models, len(DefaultAntigravityRouteModelIDs()))
 			require.ElementsMatch(t, DefaultAntigravityRouteModelIDs(), models)
 			for _, hidden := range []string{
 				"claude-opus-4-6",
@@ -634,7 +638,10 @@ func TestGetAvailableModels_AntigravityNonOAuthKeepsExplicitRequestIDs(t *testin
 
 			models := svc.GetAvailableModels(context.Background(), &groupID, PlatformAntigravity)
 
-			require.Equal(t, []string{"custom-client-model"}, models)
+			// 显式映射保留请求侧名字；存量映射账号仍会补齐系统默认透传模型。
+			require.Contains(t, models, "custom-client-model")
+			require.NotContains(t, models, "upstream-model")
+			require.Contains(t, models, "gemini-3.8-flash")
 		})
 	}
 }
@@ -666,7 +673,8 @@ func TestGetAvailableModels_OpenAIEmptyMappingAccountMergesDefaultModels(t *test
 	svc := &GatewayService{accountRepo: repo}
 
 	models := svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI)
-	require.Contains(t, models, "gpt-5.5")
+	// gpt-5.5 已从 ChatGPT 登录上游退役，不再出现在默认目录中。
+	require.NotContains(t, models, "gpt-5.5")
 	require.Contains(t, models, "gpt-5.6")
 	require.Contains(t, models, "gpt-5.6-sol")
 	require.Contains(t, models, "gpt-5.6-terra")
@@ -684,7 +692,7 @@ func TestGetAvailableModels_OpenAIExplicitMappingsDoNotForceDefaultModels(t *tes
 					Type:     AccountTypeOAuth,
 					Credentials: map[string]any{
 						"model_mapping": map[string]any{
-							"gpt-5.5": "gpt-5.5",
+							"gpt-5.6": "gpt-5.6",
 						},
 					},
 				},
@@ -694,7 +702,7 @@ func TestGetAvailableModels_OpenAIExplicitMappingsDoNotForceDefaultModels(t *tes
 	svc := &GatewayService{accountRepo: repo}
 
 	models := svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI)
-	require.Equal(t, []string{"gpt-5.5"}, models)
+	require.Equal(t, []string{"gpt-5.6"}, models)
 }
 
 func TestGetAvailableModels_GeminiAPIKeyFreeEmptyMappingUsesAIStudioCatalog(t *testing.T) {

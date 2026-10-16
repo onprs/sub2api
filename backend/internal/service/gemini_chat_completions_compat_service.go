@@ -110,11 +110,14 @@ func (s *GeminiMessagesCompatService) forwardGeminiBodyAsChatCompletions(
 	if err != nil {
 		return nil, fmt.Errorf("create chat Google pipeline: %w", err)
 	}
-	convertedRequest, err := pipeline.ConvertRequest(originalChatBody)
+	// 历史推理内容不回传给 Gemini：思考连续性由 thoughtSignature 承载。
+	conversionSource := dropChatReasoningHistory(originalChatBody)
+	convertedRequest, err := pipeline.ConvertRequest(conversionSource)
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
 	geminiReq := ensureGeminiFunctionCallThoughtSignatures(convertedRequest.Body)
+	geminiReq = applyGeminiCompatThinkingForChat(geminiReq, conversionSource, mappedModel, clientStream)
 	return s.forwardGoogleProtocolRequest(ctx, c, account, googleProtocolRequest{
 		Source: protocolconv.ProtocolOpenAIChat, Pipeline: pipeline, GoogleBody: geminiReq,
 		OriginalBody: originalChatBody, OriginalModel: originalModel, MappedModel: mappedModel,
@@ -187,11 +190,17 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 
 	var resp *http.Response
 	var lastError *protocoltransport.Response
+	// checkedPolicy 是循环内对当前上游错误响应检查的错误策略结果，未检查时为 nil。
+	var checkedPolicy *ErrorPolicyResult
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
+		checkedPolicy = nil
 		upstreamReq, idHeader, err := buildReq(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
+			}
+			if failoverErr := s.handleVertexServiceAccountNotFound(ctx, c, account, err); failoverErr != nil {
+				return nil, failoverErr
 			}
 			return nil, writeError(http.StatusBadGateway, "upstream_error", err.Error())
 		}
@@ -227,7 +236,8 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 				return nil, writeError(http.StatusBadGateway, "upstream_error", "Failed to read upstream error")
 			}
 			lastError = &upstream
-			if s.checkStructuredErrorPolicyInLoop(ctx, account, upstream, mappedModel) {
+			checkedPolicy = s.checkStructuredErrorPolicyInLoop(ctx, account, upstream, mappedModel)
+			if checkedPolicy != nil && *checkedPolicy != ErrorPolicyNone {
 				break
 			}
 			if s.shouldRetryGeminiUpstreamError(account, upstream.StatusCode) {
@@ -276,9 +286,9 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 		c.Header("x-request-id", requestID)
 	}
 
-	reasoningEffort := extractGoogleCompatReasoningEffort(input.Source, input.OriginalBody)
+	reasoningEffort := extractGeminiReasoningEffortFromBody(geminiReq)
 	if reasoningEffort == nil {
-		reasoningEffort = extractGeminiReasoningEffortFromBody(geminiReq)
+		reasoningEffort = extractGoogleCompatReasoningEffort(input.Source, input.OriginalBody)
 	}
 	// Keep the same fallback policy as the OpenAI gateway path.
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, input.OriginalBody, mappedModel)
@@ -286,7 +296,7 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 	if lastError != nil {
 		policy := ErrorPolicyNone
 		if s.rateLimitService != nil {
-			policy = s.rateLimitService.CheckErrorPolicy(ctx, account, lastError.StatusCode, lastError.Body, mappedModel)
+			policy = s.finalErrorPolicy(ctx, account, lastError.StatusCode, lastError.Body, mappedModel, checkedPolicy)
 		}
 		// 只有未命中策略或已明确匹配的策略继续执行账号状态处理。
 		if policy == ErrorPolicyNone || policy == ErrorPolicyMatched {

@@ -85,8 +85,8 @@ func TestAntigravityUserModelRoutes_SeparatesCatalogWireAndFingerprint(t *testin
 	t.Parallel()
 
 	routes := AntigravityUserModelRoutes()
-	if len(routes) != 18 {
-		t.Fatalf("unexpected agy route count: got %d want 18", len(routes))
+	if len(routes) != 27 {
+		t.Fatalf("unexpected agy route count: got %d want 27", len(routes))
 	}
 
 	byID := make(map[string]AntigravityModelRoute, len(routes))
@@ -134,6 +134,32 @@ func TestDefaultAntigravityModelMapping_Gemini38FlashModels(t *testing.T) {
 	for _, model := range []string{"gemini-3.8-flash", "gemini-3.8-flash-high", "gemini-3.8-flash-low", "gemini-3.8-flash-medium", "gemini-3.8-flash-tiered"} {
 		if got := DefaultAntigravityModelMapping[model]; got != model {
 			t.Fatalf("expected %s to map to itself, got %q", model, got)
+		}
+	}
+}
+
+func TestDefaultAntigravityModelMapping_Gemini4ArgonAndClaude55Models(t *testing.T) {
+	// 聚合档位保留公开身份，具体 wire 由请求思考程度或路由解析选择。
+	if route, ok := ResolveDefaultAntigravityModelRoute("gemini-4-argon"); !ok || route.WireModel != "gemini-4-argon-high" {
+		t.Fatalf("expected gemini-4-argon to resolve to the high wire route, got %+v ok=%t", route, ok)
+	}
+	cases := map[string]string{
+		"gemini-4-argon":           "gemini-4-argon",
+		"gemini-4-argon-high":      "gemini-4-argon-high",
+		"gemini-4-argon-low":       "gemini-4-argon-low",
+		"gemini-4-argon-medium":    "gemini-4-argon-medium",
+		"claude-opus-5-5":          "claude-opus-5-5-high",
+		"claude-opus-5-5-high":     "claude-opus-5-5-high",
+		"claude-opus-5-5-low":      "claude-opus-5-5-low",
+		"claude-opus-5-5-medium":   "claude-opus-5-5-medium",
+		"claude-sonnet-5-5":        "claude-sonnet-5-5-high",
+		"claude-sonnet-5-5-high":   "claude-sonnet-5-5-high",
+		"claude-sonnet-5-5-low":    "claude-sonnet-5-5-low",
+		"claude-sonnet-5-5-medium": "claude-sonnet-5-5-medium",
+	}
+	for from, want := range cases {
+		if got := DefaultAntigravityModelMapping[from]; got != want {
+			t.Fatalf("expected %s to map to %q, got %q", from, want, got)
 		}
 	}
 }

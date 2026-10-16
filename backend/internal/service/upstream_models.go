@@ -340,7 +340,13 @@ func configuredUpstreamModelsForCapabilitySync(account *Account) []string {
 		return nil
 	}
 	models := make([]string, 0)
-	for _, mappedModel := range account.GetModelMapping() {
+	for requestedModel, mappedModel := range account.GetModelMapping() {
+		// Antigravity 运行时补齐的默认目录/默认透传不是管理员配置的目标，上游目录未列出时
+		// 不应拉低能力同步完整度。
+		if account.isAntigravityInjectedDefaultPassthrough(requestedModel, mappedModel) ||
+			account.isAntigravityInjectedDefaultMapping(requestedModel, mappedModel) {
+			continue
+		}
 		mappedModel = strings.TrimSpace(mappedModel)
 		if mappedModel == "" || strings.Contains(mappedModel, "*") {
 			continue
@@ -738,8 +744,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 	}
 
 	if account.Platform == PlatformAntigravity && account.IsOAuth() {
-		models, err := s.fetchAntigravityOAuthUpstreamModels(ctx, account)
-		return models, nil, err
+		return s.fetchAntigravityOAuthUpstreamModels(ctx, account)
 	}
 	if account.IsOpenRouterAPIKey() {
 		models := defaultOpenRouterCatalog.ModelIDs(ctx)
@@ -1305,6 +1310,7 @@ func (s *AccountTestService) buildGeminiUpstreamModelsRequest(ctx context.Contex
 	return req, nil
 }
 
+// FetchAntigravityAccountCatalog 返回 agy 用户目录（公开模型身份），供管理端模型选择使用。
 func (s *AccountTestService) FetchAntigravityAccountCatalog(ctx context.Context, account *Account) ([]antigravity.CatalogModel, error) {
 	if s == nil {
 		return nil, newUpstreamModelSyncConfigError("Account test service is not configured", nil)
@@ -1312,35 +1318,9 @@ func (s *AccountTestService) FetchAntigravityAccountCatalog(ctx context.Context,
 	if account == nil || account.Platform != PlatformAntigravity || !account.IsOAuth() {
 		return nil, newUpstreamModelSyncUnsupportedError("Antigravity live catalog requires an OAuth or setup-token account", nil)
 	}
-	if s.antigravityGatewayService == nil || s.antigravityGatewayService.GetTokenProvider() == nil {
-		return nil, newUpstreamModelSyncConfigError("Antigravity token provider is not configured", nil)
-	}
-
-	accessToken, err := s.antigravityGatewayService.GetTokenProvider().GetAccessToken(ctx, account)
+	modelsResp, raw, err := s.fetchAntigravityAvailableModels(ctx, account)
 	if err != nil {
-		return nil, newUpstreamModelSyncUpstreamError("Failed to get Antigravity access token", err)
-	}
-	accessToken = strings.TrimSpace(accessToken)
-	if accessToken == "" {
-		return nil, newUpstreamModelSyncConfigError("No Antigravity access token is available", nil)
-	}
-
-	projectID, err := resolveAntigravityProjectID(account)
-	if err != nil {
-		return nil, newUpstreamModelSyncConfigError("Antigravity project ID is required", err)
-	}
-	client, err := antigravity.NewClient(upstreamModelsProxyURL(account))
-	if err != nil {
-		return nil, newUpstreamModelSyncConfigError("Failed to configure Antigravity client", err)
-	}
-	modelsResp, raw, err := client.FetchAvailableModels(
-		ctx,
-		accessToken,
-		projectID,
-		resolveModelsListReadLimit(s.cfg),
-	)
-	if err != nil {
-		return nil, newUpstreamModelSyncUpstreamError("Failed to fetch Antigravity available models", err)
+		return nil, err
 	}
 
 	models := antigravity.CatalogModelsFromResponse(modelsResp, raw)
@@ -1373,16 +1353,64 @@ func (s *AccountTestService) FetchAntigravityAccountCatalog(ctx context.Context,
 	return models, nil
 }
 
-func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Context, account *Account) ([]string, error) {
-	catalog, err := s.FetchAntigravityAccountCatalog(ctx, account)
+// fetchAntigravityOAuthUpstreamModels 返回上游原始模型 ID 与原始 JSON：
+// 能力同步按上游目录本身核对档位与模态，公开用户目录由 FetchAntigravityAccountCatalog 负责。
+func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Context, account *Account) ([]string, []byte, error) {
+	modelsResp, raw, err := s.fetchAntigravityAvailableModels(ctx, account)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	models := make([]string, 0, len(catalog))
-	for _, model := range catalog {
-		models = append(models, model.ID)
+	if modelsResp == nil || len(modelsResp.Models) == 0 {
+		return nil, nil, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", nil)
 	}
-	return dedupeAndSortModelIDs(models), nil
+	models := make([]string, 0, len(modelsResp.Models))
+	for modelID := range modelsResp.Models {
+		models = append(models, strings.TrimSpace(modelID))
+	}
+	body, err := json.Marshal(raw)
+	if err != nil {
+		return nil, nil, newUpstreamModelSyncUpstreamError("Failed to read Antigravity model metadata", err)
+	}
+	return dedupeAndSortModelIDs(models), body, nil
+}
+
+// fetchAntigravityAvailableModels 使用与生成请求一致的端点获取原始模型目录。
+func (s *AccountTestService) fetchAntigravityAvailableModels(ctx context.Context, account *Account) (*antigravity.FetchAvailableModelsResponse, map[string]any, error) {
+	if account == nil || account.Platform != PlatformAntigravity || !account.IsOAuth() {
+		return nil, nil, newUpstreamModelSyncUnsupportedError("Antigravity live catalog requires an OAuth or setup-token account", nil)
+	}
+	if s.antigravityGatewayService == nil || s.antigravityGatewayService.GetTokenProvider() == nil {
+		return nil, nil, newUpstreamModelSyncConfigError("Antigravity token provider is not configured", nil)
+	}
+
+	accessToken, err := s.antigravityGatewayService.GetTokenProvider().GetAccessToken(ctx, account)
+	if err != nil {
+		return nil, nil, newUpstreamModelSyncUpstreamError("Failed to get Antigravity access token", err)
+	}
+	accessToken = strings.TrimSpace(accessToken)
+	if accessToken == "" {
+		return nil, nil, newUpstreamModelSyncConfigError("No Antigravity access token is available", nil)
+	}
+
+	projectID, err := resolveAntigravityProjectID(account)
+	if err != nil {
+		return nil, nil, newUpstreamModelSyncConfigError("Antigravity project ID is required", err)
+	}
+	client, err := antigravity.NewClient(upstreamModelsProxyURL(account))
+	if err != nil {
+		return nil, nil, newUpstreamModelSyncConfigError("Failed to configure Antigravity client", err)
+	}
+	modelsResp, raw, err := client.FetchAvailableModelsFromURL(
+		ctx,
+		resolveAntigravityForwardBaseURL(account),
+		accessToken,
+		projectID,
+		resolveModelsListReadLimit(s.cfg),
+	)
+	if err != nil {
+		return nil, nil, newUpstreamModelSyncUpstreamError("Failed to fetch Antigravity available models", err)
+	}
+	return modelsResp, raw, nil
 }
 
 func (s *AccountTestService) doUpstreamModelsRequest(req *http.Request, proxyURL string, account *Account) (*http.Response, error) {
@@ -1478,6 +1506,12 @@ type upstreamModelCapabilityEntry struct {
 	MaxContextWindow         int64                      `json:"max_context_window"`
 	MaxOutputTokens          int64                      `json:"max_output_tokens"`
 	Limit                    modelsDevLimit             `json:"limit"`
+	DisplayNameCamel         string                     `json:"displayName"`
+	SupportsImages           *bool                      `json:"supportsImages"`
+	SupportsThinking         *bool                      `json:"supportsThinking"`
+	ThinkingBudget           *int64                     `json:"thinkingBudget"`
+	MaxTokens                int64                      `json:"maxTokens"`
+	MaxOutputTokensCamel     int64                      `json:"maxOutputTokens"`
 }
 
 func extractUpstreamModelIDs(body []byte) ([]string, error) {
@@ -1526,12 +1560,33 @@ func extractUpstreamModelCatalog(body []byte, grok bool) ([]string, map[string]U
 func extractUpstreamModelRawEntries(body []byte) ([]json.RawMessage, error) {
 	var response struct {
 		Data   []json.RawMessage `json:"data"`
-		Models []json.RawMessage `json:"models"`
+		Models json.RawMessage   `json:"models"`
 	}
 	if err := json.Unmarshal(body, &response); err == nil && (response.Data != nil || response.Models != nil) {
-		entries := make([]json.RawMessage, 0, len(response.Data)+len(response.Models))
-		entries = append(entries, response.Data...)
-		entries = append(entries, response.Models...)
+		entries := append([]json.RawMessage{}, response.Data...)
+		if len(response.Models) > 0 && string(response.Models) != "null" {
+			var list []json.RawMessage
+			if err := json.Unmarshal(response.Models, &list); err == nil {
+				entries = append(entries, list...)
+			} else {
+				// Antigravity keys its model catalog by the exact generation model ID.
+				var models map[string]map[string]json.RawMessage
+				if err := json.Unmarshal(response.Models, &models); err != nil {
+					return nil, fmt.Errorf("parse upstream model catalog: %w", err)
+				}
+				for modelID, fields := range models {
+					if fields == nil {
+						fields = make(map[string]json.RawMessage)
+					}
+					fields["id"], _ = json.Marshal(modelID)
+					raw, err := json.Marshal(fields)
+					if err != nil {
+						return nil, fmt.Errorf("parse upstream model metadata: %w", err)
+					}
+					entries = append(entries, raw)
+				}
+			}
+		}
 		return entries, nil
 	}
 	var entries []json.RawMessage
@@ -1547,6 +1602,34 @@ func upstreamMetadataFromCapabilityEntry(modelID string, entry upstreamModelCapa
 		levels = reasoningLevelsFromModelsDevOptions(entry.ReasoningOptions)
 	}
 	reasoning := entry.Reasoning
+	if reasoning == nil {
+		reasoning = entry.SupportsThinking
+	}
+	if len(levels) == 0 && entry.SupportsThinking != nil && *entry.SupportsThinking {
+		level := "high"
+		fixedLevel := normalizeReasoningLevel(modelID[strings.LastIndex(modelID, "-")+1:])
+		if fixedLevel != "" && fixedLevel != "none" {
+			level = fixedLevel
+		} else if entry.ThinkingBudget != nil {
+			switch budget := *entry.ThinkingBudget; {
+			case budget < 0:
+			case budget <= geminiThinkingBudgetLowMax:
+				level = "low"
+			case budget <= geminiThinkingBudgetMediumMax:
+				level = "medium"
+			}
+		}
+		if fixedLevel == "" || fixedLevel == "none" {
+			// Bare and tiered AGY models accept configurable budgets. The fetched
+			// thinkingBudget is their default, not the only supported budget.
+			levels = []string{"low", "medium", "high"}
+			if entry.DefaultReasoningLevel == "" {
+				entry.DefaultReasoningLevel = level
+			}
+		} else {
+			levels = []string{level}
+		}
+	}
 	if reasoning == nil && len(levels) > 0 {
 		inferred := len(levels) != 1 || levels[0] != "none"
 		reasoning = &inferred
@@ -1555,6 +1638,13 @@ func upstreamMetadataFromCapabilityEntry(modelID string, entry upstreamModelCapa
 	if len(modalities) == 0 {
 		modalities = entry.Modalities.Input
 	}
+	if len(modalities) == 0 && (entry.SupportsImages != nil || entry.SupportsThinking != nil || entry.MaxTokens > 0) {
+		// AGY models accept text; image input requires an explicit capability.
+		modalities = []string{"text"}
+		if entry.SupportsImages != nil && *entry.SupportsImages {
+			modalities = append(modalities, "image")
+		}
+	}
 	contextWindow := entry.ContextWindow
 	if contextWindow <= 0 {
 		contextWindow = entry.MaxContextWindow
@@ -1562,15 +1652,24 @@ func upstreamMetadataFromCapabilityEntry(modelID string, entry upstreamModelCapa
 	if contextWindow <= 0 {
 		contextWindow = entry.Limit.Context
 	}
+	if contextWindow <= 0 {
+		contextWindow = entry.MaxTokens
+	}
 	maxOutputTokens := entry.MaxOutputTokens
 	if maxOutputTokens <= 0 {
 		maxOutputTokens = entry.Limit.Output
+	}
+	if maxOutputTokens <= 0 {
+		maxOutputTokens = entry.MaxOutputTokensCamel
 	}
 	defaultReasoningLevel := normalizeReasoningLevel(entry.DefaultReasoningLevel)
 	if defaultReasoningLevel == "" && len(levels) > 0 {
 		defaultReasoningLevel = levels[0]
 	}
 	displayName := strings.TrimSpace(entry.DisplayName)
+	if displayName == "" {
+		displayName = strings.TrimSpace(entry.DisplayNameCamel)
+	}
 	if displayName == "" && strings.TrimSpace(entry.Name) != "" && strings.TrimSpace(entry.Name) != modelID {
 		displayName = strings.TrimSpace(entry.Name)
 	}

@@ -9,7 +9,9 @@ import (
 
 func TestFallbackCatalogModels_MatchesAgyUserCatalog(t *testing.T) {
 	wantIDs := []string{
-		"gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-pro",
+		"gemini-3.8-flash", "gemini-4-argon", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-pro",
+		"claude-opus-5-5-high", "claude-opus-5-5-medium", "claude-opus-5-5-low",
+		"claude-sonnet-5-5-high", "claude-sonnet-5-5-medium", "claude-sonnet-5-5-low",
 		"claude-fable-5-1", "claude-sonnet-4-6", "claude-opus-4-6-thinking", "gpt-oss-120b-medium",
 	}
 	models := FallbackCatalogModels()
@@ -27,7 +29,8 @@ func TestFallbackCatalogModels_MatchesAgyUserCatalog(t *testing.T) {
 	}
 	require.Equal(t, wantIDs, gotIDs)
 	require.Equal(t, []string{"high", "medium", "low"}, models[0].ReasoningEfforts)
-	require.Equal(t, []string{"high", "low"}, models[4].ReasoningEfforts)
+	require.Equal(t, []string{"high", "medium", "low"}, models[1].ReasoningEfforts)
+	require.Equal(t, []string{"high", "low"}, models[5].ReasoningEfforts)
 }
 
 func TestFallbackCatalogModels_ReturnsIndependentSlice(t *testing.T) {

@@ -79,6 +79,18 @@ func appendExplicitGroupAllowlistModels(models, allowlist []string) []string {
 	return mergeModelIDs(models, explicit)
 }
 
+// isAuthoritativeEmptyModelCatalogPlatform 报告空目录对该平台是权威结论：这些平台的目录由
+// 账号/渠道能力实时计算，空列表表示当前确实没有可用模型，调用方不得回落到静态默认列表
+// （例如 OpenAI 退役模型过滤后的空目录）。
+func isAuthoritativeEmptyModelCatalogPlatform(platform string) bool {
+	switch platform {
+	case service.PlatformOpenAI, service.PlatformCommandCode, service.PlatformOpenCodeGo:
+		return true
+	default:
+		return false
+	}
+}
+
 func compositeAvailableModelsForGroup(ctx context.Context, gateway *service.GatewayService, groupID *int64, endpoint string, includeSystemOne bool) []string {
 	if gateway == nil {
 		return nil
@@ -103,7 +115,7 @@ func compositeAvailableModelsForGroup(ctx context.Context, gateway *service.Gate
 			continue
 		}
 		platformModels := gateway.GetAvailableModelsForComposite(ctx, groupID, platform)
-		if len(platformModels) == 0 {
+		if len(platformModels) == 0 && (!isAuthoritativeEmptyModelCatalogPlatform(platform) || platformModels == nil) {
 			// CN 供应商没有可靠的静态默认模型列表，只暴露账号映射键。
 			if _, ok := schedulablePlatforms[platform]; ok && !service.IsMultiProtocolAPIKeyProvider(platform) {
 				platformModels = defaultModelIDsForPlatform(platform)

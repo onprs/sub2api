@@ -14,8 +14,9 @@ func TestCommandCodeChannelEmptyModelListDoesNotRestoreCatalog(t *testing.T) {
 	fallback := []string{"gpt-5.6-sol"}
 	require.Empty(t, modelListingSource(service.PlatformCommandCode, []string{}, fallback))
 	require.Equal(t, fallback, modelListingSource(service.PlatformCommandCode, nil, fallback))
-	// 其他平台仍保留原生默认目录回落。
-	require.Equal(t, fallback, modelListingSource(service.PlatformOpenAI, []string{}, fallback))
+	// OpenAI 的空目录是退役过滤后的权威结论，不回落默认列表；nil 才表示使用默认目录。
+	require.Empty(t, modelListingSource(service.PlatformOpenAI, []string{}, fallback))
+	require.Equal(t, fallback, modelListingSource(service.PlatformOpenAI, nil, fallback))
 
 	handler := &AvailableChannelHandler{modelPricingModels: &modelPricingGatewayStub{
 		modelsByGroup: map[int64][]string{1: {}},

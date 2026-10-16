@@ -405,6 +405,7 @@ func antigravityStandardTestAccount() *Account {
 		Credentials: map[string]any{
 			"access_token": "antigravity-token",
 			"project_id":   "project-1",
+			"plan_type":    "pro",
 			"model_mapping": map[string]any{
 				"claude-sonnet-4-6":   "claude-sonnet-4-6",
 				"gemini-3.1-pro-high": "gemini-pro-agent",
@@ -463,5 +464,5 @@ func TestAntigravityStandardTestResponseFixtureIsValidJSON(t *testing.T) {
 	// malformed fixtures from protocol conversion regressions.
 	fixture := []byte(`{"response":{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}}`)
 	require.True(t, json.Valid(fixture))
-	require.Equal(t, antigravity.BaseURLs[0], resolveAntigravityForwardBaseURL())
+	require.Equal(t, antigravity.BaseURLs[0], resolveAntigravityForwardBaseURL(&Account{Credentials: map[string]any{"plan_type": "pro"}}))
 }

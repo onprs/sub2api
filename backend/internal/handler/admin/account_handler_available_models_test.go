@@ -522,13 +522,17 @@ func TestAccountHandlerGetAvailableModels_AntigravityOAuthFallsBackToAgyCatalog(
 		Data []antigravity.CatalogModel `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Len(t, resp.Data, 9)
+	require.Len(t, resp.Data, len(service.DefaultAntigravityRouteModelIDs()))
 
 	byID := make(map[string]antigravity.CatalogModel, len(resp.Data))
 	for _, model := range resp.Data {
 		byID[model.ID] = model
 		require.Equal(t, antigravity.CatalogSourceFallback, model.Source)
-		if model.ID == "claude-fable-5-1" || len(model.ReasoningEfforts) > 0 {
+		switch {
+		case model.ID == "claude-fable-5-1",
+			strings.HasPrefix(model.ID, "claude-opus-5-5-"),
+			strings.HasPrefix(model.ID, "claude-sonnet-5-5-"),
+			len(model.ReasoningEfforts) > 0:
 			require.Empty(t, model.InternalModel)
 			require.Nil(t, model.ThinkingBudget)
 			continue
@@ -712,12 +716,14 @@ func TestAccountHandlerGetAvailableModels_Antigravity(t *testing.T) {
 		{name: "empty JSON mapping", credentials: map[string]any{"model_mapping": map[string]any{}}, wantOAuth: fallbackModels},
 		{name: "empty string mapping", credentials: map[string]any{"model_mapping": map[string]string{}}, wantOAuth: fallbackModels},
 		{name: "blank key", credentials: map[string]any{"model_mapping": map[string]any{" ": "upstream-model"}}, wantOAuth: fallbackModels},
-		// 显式映射优先，已知默认模型保留其展示元数据。
+		// 通配符不参与连通性测试目录，只有通配符时等同无显式映射。
+		{name: "wildcard only falls back to catalog", credentials: map[string]any{"model_mapping": map[string]any{"claude-*": "claude-sonnet-4-6", "gemini-3*": "gemini-3-flash"}}, wantOAuth: fallbackModels},
+		// 显式映射优先，已知默认模型保留其展示元数据；通配符条目跳过。
 		{name: "JSON mapping keys and metadata", credentials: map[string]any{"model_mapping": map[string]any{
-			known.ID: known.ID, custom.ID: "upstream-model",
+			known.ID: known.ID, custom.ID: "upstream-model", "claude-*": "claude-sonnet-4-6",
 		}}, wantOAuth: []antigravity.ClaudeModel{custom, known}, wantAPIKey: []antigravity.ClaudeModel{custom, known}},
 		{name: "string mapping keys and metadata", credentials: map[string]any{"model_mapping": map[string]string{
-			known.ID: known.ID, custom.ID: "upstream-model",
+			known.ID: known.ID, custom.ID: "upstream-model", "gemini-*": "gemini-3-flash",
 		}}, wantOAuth: []antigravity.ClaudeModel{custom, known}, wantAPIKey: []antigravity.ClaudeModel{custom, known}},
 	}
 	for _, tc := range cases {

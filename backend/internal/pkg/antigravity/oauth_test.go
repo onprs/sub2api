@@ -3,17 +3,133 @@
 package antigravity
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+// userAgentForTest 按定制 CLI 家族构造期望的 User-Agent。
+func userAgentForTest(t *testing.T, version string) string {
+	t.Helper()
+	return fmt.Sprintf(
+		"antigravity/cli/%s (aidev_client; os_type=%s; arch=%s; cl=%s; auth_method=consumer)",
+		version,
+		runtime.GOOS,
+		runtime.GOARCH,
+		DefaultUserAgentBuild,
+	)
+}
+
+func TestBuildUserAgentUsesCLIClientFamily(t *testing.T) {
+	if got, want := BuildUserAgent(" 2.23.0 "), userAgentForTest(t, "2.23.0"); got != want {
+		t.Fatalf("CLI client family must be sent with the configured version: got %q, want %q", got, want)
+	}
+}
+
+func TestBuildUserAgentValidatesCustomVersion(t *testing.T) {
+	previous := defaultUserAgentVersion
+	defaultUserAgentVersion = "2.23.0"
+	t.Cleanup(func() { defaultUserAgentVersion = previous })
+	wantDefault := userAgentForTest(t, "2.23.0")
+	for _, tc := range []struct {
+		version string
+		want    string
+	}{
+		{version: " 3.4.5 ", want: userAgentForTest(t, "3.4.5")},
+		{version: "", want: wantDefault},
+		{version: "cli/3.4.5", want: wantDefault},
+		{version: "3.4", want: wantDefault},
+		{version: "3.4.5\r\nInjected: header", want: wantDefault},
+	} {
+		t.Run(tc.version, func(t *testing.T) {
+			if got := BuildUserAgent(tc.version); got != tc.want {
+				t.Fatalf("custom version must be validated before building the CLI user agent: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+type userAgentVersionTestContextKey struct{}
+
+func withTestUserAgentVersionResolver(t *testing.T) {
+	t.Helper()
+	userAgentVersionMu.RLock()
+	previous := userAgentVersionResolver
+	userAgentVersionMu.RUnlock()
+	SetUserAgentVersionResolver(func(ctx context.Context) string {
+		version, _ := ctx.Value(userAgentVersionTestContextKey{}).(string)
+		return version
+	})
+	t.Cleanup(func() { SetUserAgentVersionResolver(previous) })
+}
+
+func TestGetUserAgentForContextPreservesVersionOverride(t *testing.T) {
+	withTestUserAgentVersionResolver(t)
+	previous := defaultUserAgentVersion
+	defaultUserAgentVersion = "2.23.0"
+	t.Cleanup(func() { defaultUserAgentVersion = previous })
+	for _, tc := range []struct {
+		version string
+		want    string
+	}{
+		{version: " 3.4.5 ", want: userAgentForTest(t, "3.4.5")},
+		{version: "invalid", want: userAgentForTest(t, "2.23.0")},
+	} {
+		ctx := context.WithValue(context.Background(), userAgentVersionTestContextKey{}, tc.version)
+		if got := GetUserAgentForContext(ctx); got != tc.want {
+			t.Fatalf("context version override must use the CLI family: got %q, want %q", got, tc.want)
+		}
+	}
+	if got, want := GetUserAgentForContext(nil), userAgentForTest(t, "2.23.0"); got != want {
+		t.Fatalf("nil context must keep the default CLI user agent: got %q, want %q", got, want)
+	}
+}
+
+func TestGetUserAgentEnvironmentOverride(t *testing.T) {
+	const expectedVersionEnv = "SUB2API_TEST_EXPECTED_ANTIGRAVITY_VERSION"
+	if expected := os.Getenv(expectedVersionEnv); expected != "" {
+		if got := GetDefaultUserAgentVersion(); got != expected {
+			t.Fatalf("environment version must be loaded during initialization: got %q, want %q", got, expected)
+		}
+		if got, want := GetUserAgent(), userAgentForTest(t, expected); got != want {
+			t.Fatalf("environment override must keep the CLI family: got %q, want %q", got, want)
+		}
+		return
+	}
+	for _, tc := range []struct {
+		version string
+		want    string
+	}{
+		{version: " 3.4.5 ", want: "3.4.5"},
+		{version: "invalid", want: DefaultUserAgentVersion},
+	} {
+		t.Run(tc.version, func(t *testing.T) {
+			binary, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			command := exec.Command(binary, "-test.run=^TestGetUserAgentEnvironmentOverride$")
+			for _, variable := range os.Environ() {
+				if !strings.HasPrefix(variable, AntigravityUserAgentVersionEnv+"=") && !strings.HasPrefix(variable, expectedVersionEnv+"=") {
+					command.Env = append(command.Env, variable)
+				}
+			}
+			command.Env = append(command.Env, AntigravityUserAgentVersionEnv+"="+tc.version, expectedVersionEnv+"="+tc.want)
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("environment override failed: %v\n%s", err, output)
+			}
+		})
+	}
+}
 
 // ---------------------------------------------------------------------------
 // getClientSecret

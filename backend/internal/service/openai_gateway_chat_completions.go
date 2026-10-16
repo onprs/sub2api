@@ -292,6 +292,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		}
 		responsesReq.Model = upstreamModel
 		responsesReq.Stream = true
+		applyMinOutputTokensFloorToRequest(responsesReq, configuredMinOutputTokens(s.cfg))
 		normalizeResponsesRequestServiceTier(responsesReq)
 		if account.IsOpenAIApiKey() && isOpenAIGPT6Model(upstreamModel) {
 			responsesReq.PromptCacheOptions = chatReq.PromptCacheOptions

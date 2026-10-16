@@ -1552,7 +1552,7 @@ func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64,
 	// Unmapped OpenAI OAuth accounts contribute only models they report as supported.
 	if hasOpenAIEmptyMappingAccount {
 		hasResolvedModels = true
-		for _, model := range openai.DefaultModelIDs() {
+		for _, model := range filterRetiredOpenAIModelIDs(accounts, openai.DefaultModelIDs()) {
 			for i := range accounts {
 				account := &accounts[i]
 				if account.Platform == PlatformOpenAI && len(account.GetModelMapping()) == 0 && account.IsModelSupported(model) {
@@ -1565,6 +1565,17 @@ func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64,
 
 	// 没有账号产生模型目录时返回 nil，由调用方使用平台默认目录。
 	if !hasResolvedModels {
+		// 退役模型不再出现在默认目录中；过滤后确有变化时返回权威列表。
+		if platform == PlatformOpenAI {
+			models := filterRetiredOpenAIModelIDs(accounts, openai.DefaultModelIDs())
+			if len(models) != len(openai.DefaultModels) {
+				if s.modelsListCache != nil {
+					s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
+					modelsListCacheStoreTotal.Add(1)
+				}
+				return cloneStringSlice(models)
+			}
+		}
 		if platform == PlatformOpenCodeGo || platform == PlatformCline || platform == PlatformOpenRouter || platform == PlatformCommandCode {
 			var models []string
 			switch platform {
@@ -1598,6 +1609,12 @@ func (s *GatewayService) getAvailableModels(ctx context.Context, groupID *int64,
 
 	if platform == PlatformOpenAI {
 		models = supplementUnmappedOpenAIModels(accounts, models)
+		models = filterRetiredOpenAIModelIDs(accounts, models)
+		// nil means "use defaults" to listing callers; an empty filtered catalog
+		// must remain authoritative instead of resurrecting retired defaults.
+		if len(models) == 0 {
+			return models
+		}
 	}
 
 	if s.modelsListCache != nil {
@@ -1750,21 +1767,23 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 		}
 	}
 
-	accounts, err := s.accountRepo.ListSchedulableByGroupID(ctx, groupID)
+	// 归属取决于配置而非运行时健康：限流/临时不可调度不应让同一模型在
+	// 「唯一归属」与「歧义」之间来回翻转，否则配置错误只会间歇暴露。
+	accounts, err := s.accountRepo.ListModelAvailabilityCandidates(ctx, &groupID, domain.ConcretePlatformIDs(), false)
 	if err != nil {
 		return CompositeModelOwnership{}, err
 	}
 
 	platforms := make(map[string]struct{})
+	ownership := CompositeModelOwnership{}
 	for _, account := range accounts {
-		platform := strings.TrimSpace(account.Platform)
-		if !isConcreteRequestPlatform(platform) || !explicitModelMappingClaims(account, model) {
-			continue
+		if explicitModelMappingClaims(account, model) {
+			platforms[account.Platform] = struct{}{}
+			ownership.OpenAIGatewayOAuthClaimed = ownership.OpenAIGatewayOAuthClaimed ||
+				(account.IsOAuth() && domain.UsesOpenAIGateway(account.Platform))
 		}
-		platforms[platform] = struct{}{}
 	}
 
-	ownership := CompositeModelOwnership{}
 	if len(platforms) == 1 {
 		for platform := range platforms {
 			ownership.TargetPlatform = platform

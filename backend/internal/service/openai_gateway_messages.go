@@ -47,6 +47,16 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	rememberOpenCodeInboundBody(c, body)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
+	// Web Search 模拟：Chat Completions 转换会丢掉 web_search 工具，纯 web_search
+	// 请求在此直接调用搜索 API 构造 Anthropic 响应，不访问上游。
+	if groupID := getOpenAIGroupIDFromContext(c); shouldEmulateWebSearchFor(ctx, s.settingService, s.channelService, account, &groupID, body) {
+		stream := gjson.GetBytes(body, "stream").Bool()
+		res, err := writeEmulatedWebSearch(ctx, c, account, body, gjson.GetBytes(body, "model").String(), stream)
+		if err != nil {
+			return nil, err
+		}
+		return &OpenAIForwardResult{Model: res.Model, Stream: stream, Duration: res.Duration}, nil
+	}
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		SetActualOpenAIUpstreamEndpoint(c, "/v1/chat/completions")
 	}
@@ -169,7 +179,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// Codex policy runs only after standard conversion. It adds provider
 	// defaults, moves source system text into developer input, and preserves the
 	// historical continuation/cache shape without rebuilding message semantics.
-	responsesBody, err := applyOpenAICodexMessagesRequestPolicy(convertedRequest.Body, anthropicReq.System, upstreamModel)
+	pipelineBody := applyMinOutputTokensFloor(convertedRequest.Body, configuredMinOutputTokens(s.cfg))
+	responsesBody, err := applyOpenAICodexMessagesRequestPolicy(pipelineBody, anthropicReq.System, upstreamModel)
 	if err != nil {
 		return nil, err
 	}

@@ -47,7 +47,7 @@ func TestEasyPayQueryOrderUsesURLQueryParameters(t *testing.T) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
 		gotQuery = r.URL.Query()
-		if gotMethod != http.MethodGet || gotPath != "/api.php" ||
+		if gotMethod != http.MethodPost || gotPath != "/api.php" ||
 			gotQuery.Get("act") != "order" ||
 			gotQuery.Get("pid") != "pid-1" ||
 			gotQuery.Get("key") != "pkey-1" ||
@@ -67,8 +67,8 @@ func TestEasyPayQueryOrderUsesURLQueryParameters(t *testing.T) {
 	if resp == nil || resp.Status != payment.ProviderStatusPaid || resp.Amount != 8.70 {
 		t.Fatalf("QueryOrder response = %+v, want paid amount 8.70", resp)
 	}
-	if gotMethod != http.MethodGet {
-		t.Fatalf("query method = %q, want GET", gotMethod)
+	if gotMethod != http.MethodPost {
+		t.Fatalf("query method = %q, want POST", gotMethod)
 	}
 }
 

@@ -133,6 +133,7 @@ func TestAntigravityRetryLoop_Generic429FallbackPrecedesCustomErrorPolicy(t *tes
 		Credentials: map[string]any{
 			"custom_error_codes_enabled": true,
 			"custom_error_codes":         []any{float64(http.StatusTooManyRequests)},
+			"plan_type":                  "pro",
 		},
 	}
 
@@ -189,6 +190,7 @@ func TestAntigravityRetryLoop_Detailed429DoesNotFallback(t *testing.T) {
 		Schedulable: true,
 		Status:      StatusActive,
 		Concurrency: 1,
+		Credentials: map[string]any{"plan_type": "pro"},
 	}
 
 	var handleErrorCalled bool
@@ -1147,12 +1149,12 @@ func TestResolveAntigravityForwardBaseURLs_ExplicitModesDoNotFallback(t *testing
 	for _, tt := range tests {
 		t.Run(tt.mode, func(t *testing.T) {
 			t.Setenv(antigravityForwardBaseURLEnv, tt.mode)
-			require.Equal(t, []string{tt.want}, resolveAntigravityForwardBaseURLs())
+			require.Equal(t, []string{tt.want}, resolveAntigravityForwardBaseURLs(nil))
 		})
 	}
 }
 
-func TestResolveAntigravityForwardBaseURL_DefaultDaily(t *testing.T) {
+func TestResolveAntigravityForwardBaseURL(t *testing.T) {
 	t.Setenv(antigravityForwardBaseURLEnv, "")
 
 	oldBaseURLs := append([]string(nil), antigravity.BaseURLs...)
@@ -1164,8 +1166,33 @@ func TestResolveAntigravityForwardBaseURL_DefaultDaily(t *testing.T) {
 	dailyURL := "https://daily.test"
 	antigravity.BaseURLs = []string{dailyURL, prodURL}
 
-	resolved := resolveAntigravityForwardBaseURL()
-	require.Equal(t, dailyURL, resolved)
+	tests := []struct {
+		name    string
+		env     string
+		account *Account
+		want    string
+	}{
+		{name: "pro defaults to daily", account: &Account{Credentials: map[string]any{"plan_type": " Pro "}}, want: dailyURL},
+		{name: "ultra defaults to daily", account: &Account{Credentials: map[string]any{"plan_type": "ULTRA"}}, want: dailyURL},
+		{name: "stored ultra tier id defaults to daily", account: &Account{Credentials: map[string]any{"plan_type": "g1-ultra-lite-tier"}}, want: dailyURL},
+		{name: "stored pro tier id defaults to daily", account: &Account{Credentials: map[string]any{"plan_type": "g1-pro-tier"}}, want: dailyURL},
+		{name: "free tier id defaults to prod", account: &Account{Credentials: map[string]any{"plan_type": "free-tier"}}, want: prodURL},
+		{name: "free defaults to prod", account: &Account{Credentials: map[string]any{"plan_type": "free"}}, want: prodURL},
+		{name: "abnormal defaults to prod", account: &Account{Credentials: map[string]any{"plan_type": "Abnormal"}}, want: prodURL},
+		{name: "unknown defaults to prod", account: &Account{Credentials: map[string]any{"plan_type": "enterprise"}}, want: prodURL},
+		{name: "malformed defaults to prod", account: &Account{Credentials: map[string]any{"plan_type": map[string]any{"name": "pro"}}}, want: prodURL},
+		{name: "missing defaults to prod", account: &Account{Credentials: map[string]any{}}, want: prodURL},
+		{name: "nil account defaults to prod", account: nil, want: prodURL},
+		{name: "daily override wins for free tier", env: " daily ", account: &Account{Credentials: map[string]any{"plan_type": "free"}}, want: dailyURL},
+		{name: "prod override wins for paid tier", env: " PROD ", account: &Account{Credentials: map[string]any{"plan_type": "pro"}}, want: prodURL},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(antigravityForwardBaseURLEnv, tt.env)
+			require.Equal(t, tt.want, resolveAntigravityForwardBaseURL(tt.account))
+		})
+	}
 }
 
 func TestAntigravityAccountSwitchError_Error(t *testing.T) {

@@ -5,7 +5,7 @@ import "strings"
 // AntigravityReasoningModel 只聚合已核实的 Gemini 档位，不推断未知模型或自定义别名。
 func AntigravityReasoningModel(model string) (string, string) {
 	model = strings.TrimPrefix(strings.TrimSpace(model), "models/")
-	for _, base := range []string{"gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-pro"} {
+	for _, base := range []string{"gemini-4-argon", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-pro"} {
 		if model == base {
 			return base, ""
 		}

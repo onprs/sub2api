@@ -61,7 +61,7 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 	// 历史 reasoning 以结构化 reasoning item 传递，不再以 <thinking> 文本
 	// 折进 assistant 正文：GLM 等上游会通过 in-context learning 模仿正文中
 	// 的推理标签，把思考输出到可见正文（zai-org/GLM-5#92）。
-	responsesReq, err := apicompat.ChatCompletionsToResponsesWithReasoningItems(&ccReq)
+	responsesReq, err := apicompat.ChatCompletionsToResponsesWithReasoningItemsAndMinOutputTokens(&ccReq, configuredMinOutputTokens(s.cfg))
 	if err != nil {
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "Failed to convert request")
 		return nil, fmt.Errorf("convert chat completions to responses: %w", err)

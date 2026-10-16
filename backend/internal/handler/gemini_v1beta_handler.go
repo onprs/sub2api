@@ -427,6 +427,10 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 	if resolvedModel, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context()); ok && strings.TrimSpace(resolvedModel) != "" {
 		modelName = strings.TrimSpace(resolvedModel)
 	}
+	if !hasForcePlatform && servesCompositeAntigravityGemini(apiKey, effectivePlatform) && !isAntigravityGeminiModel(modelName) {
+		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
+		return
+	}
 
 	// 模型名会被拼进上游 URL 的 path，先在入口校验片段合规性，
 	// 见 service/upstream_path_guard.go。
@@ -435,18 +439,21 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		return
 	}
 	if !hasForcePlatform && effectivePlatform == service.PlatformAntigravity {
-		available := false
-		if h != nil && h.gatewayService != nil {
-			for _, model := range h.gatewayService.GetAntigravityMappedModels(c.Request.Context(), apiKeyGroupIDFromContext(c), service.AntigravityModelsProtocolGemini) {
-				if strings.TrimPrefix(strings.TrimSpace(model), "models/") == strings.TrimPrefix(modelName, "models/") {
-					available = true
-					break
+		// composite 路由已在上游解析时校验过模型归属，不再按账号映射二次判定。
+		if !servesCompositeAntigravityGemini(apiKey, effectivePlatform) {
+			available := false
+			if h != nil && h.gatewayService != nil {
+				for _, model := range h.gatewayService.GetAntigravityMappedModels(c.Request.Context(), apiKeyGroupIDFromContext(c), service.AntigravityModelsProtocolGemini) {
+					if strings.TrimPrefix(strings.TrimSpace(model), "models/") == strings.TrimPrefix(modelName, "models/") {
+						available = true
+						break
+					}
 				}
 			}
-		}
-		if !available {
-			googleError(c, http.StatusNotFound, "Model not found")
-			return
+			if !available {
+				googleError(c, http.StatusNotFound, "Model not found")
+				return
+			}
 		}
 		c.JSON(http.StatusOK, antigravity.FallbackGeminiModel(modelName))
 		return
@@ -1314,4 +1321,17 @@ func derefGroupID(groupID *int64) int64 {
 		return 0
 	}
 	return *groupID
+}
+
+func servesCompositeAntigravityGemini(apiKey *service.APIKey, effectivePlatform string) bool {
+	return apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite && effectivePlatform == service.PlatformAntigravity
+}
+
+func isAntigravityGeminiModel(model string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(model, "models/")))
+	if trimmed == "" || strings.HasPrefix(trimmed, "claude-") {
+		return false
+	}
+	detected, ok := service.DetectModelPlatform(trimmed)
+	return ok && detected == service.PlatformGemini
 }

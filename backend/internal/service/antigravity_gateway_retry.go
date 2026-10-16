@@ -86,33 +86,66 @@ type antigravityRetryLoopResult struct {
 
 // resolveAntigravityForwardBaseURLs 解析转发端点。
 //
-// 官方 CLI 当前使用 daily-cloudcode-pa.googleapis.com。默认请求先走正式 daily，
-// 仅在连接错误或 URL 级 429 时回退 production。历史上的
-// daily-cloudcode-pa.sandbox.googleapis.com 属于独立 sandbox 环境，生产 OAuth
+// 官方 CLI 当前使用 daily-cloudcode-pa.googleapis.com。付费账号（Pro/Ultra，含档位 ID）
+// 先走 daily；免费或未知档位先走 production，避免这类账号的 OAuth token 在 daily 被拒。
+// 历史上的 daily-cloudcode-pa.sandbox.googleapis.com 属于独立 sandbox 环境，生产 OAuth
 // token 可能被其拒绝，因此永远不进入默认回退链。
 //
 // GATEWAY_ANTIGRAVITY_FORWARD_BASE_URL 可显式固定为 daily、prod/production 或
 // sandbox；固定模式不会跨环境回退。
-func resolveAntigravityForwardBaseURLs() []string {
+func resolveAntigravityForwardBaseURLs(account *Account) []string {
+	baseURLs := append([]string(nil), antigravity.BaseURLs...)
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityForwardBaseURLEnv)))
 	switch mode {
 	case "daily":
-		return []string{antigravity.DailyBaseURL}
+		return []string{antigravityBaseURLForRole(baseURLs, antigravity.DailyBaseURL, 0)}
 	case "prod", "production":
-		return []string{antigravity.ProductionBaseURL}
+		return []string{antigravityBaseURLForRole(baseURLs, antigravity.ProductionBaseURL, 1)}
 	case "sandbox":
 		return []string{antigravity.SandboxBaseURL}
 	}
-	return append([]string(nil), antigravity.BaseURLs...)
+	if len(baseURLs) < 2 || accountHasAntigravityPaidTier(account) {
+		return baseURLs
+	}
+	// BaseURLs 默认 daily 优先；免费与未知档位改为生产端点优先，保持其余顺序不变。
+	ordered := make([]string, 0, len(baseURLs))
+	ordered = append(ordered, baseURLs[1:]...)
+	ordered = append(ordered, baseURLs[0])
+	return ordered
 }
 
-// resolveAntigravityForwardBaseURL 返回首选转发端点，保留给单端点调用方使用。
-func resolveAntigravityForwardBaseURL() string {
-	baseURLs := resolveAntigravityForwardBaseURLs()
+// antigravityBaseURLForRole 返回 BaseURLs 中与目标端点常量匹配的地址；未匹配时按默认位置回退，
+// 便于测试与自定义端点顺序。
+func antigravityBaseURLForRole(baseURLs []string, want string, fallbackIndex int) string {
+	for _, baseURL := range baseURLs {
+		if baseURL == want {
+			return baseURL
+		}
+	}
+	if fallbackIndex >= 0 && fallbackIndex < len(baseURLs) {
+		return baseURLs[fallbackIndex]
+	}
+	return want
+}
+
+// resolveAntigravityForwardBaseURL 返回账号的首选转发端点，保留给单端点调用方使用。
+func resolveAntigravityForwardBaseURL(account *Account) string {
+	baseURLs := resolveAntigravityForwardBaseURLs(account)
 	if len(baseURLs) == 0 {
 		return ""
 	}
 	return baseURLs[0]
+}
+
+func accountHasAntigravityPaidTier(account *Account) bool {
+	if account == nil || account.Credentials == nil {
+		return false
+	}
+	planType, ok := account.Credentials["plan_type"].(string)
+	if !ok {
+		return false
+	}
+	return antigravity.IsPaidPlanType(planType)
 }
 
 // smartRetryAction 智能重试的处理结果
@@ -545,7 +578,7 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 		}
 	}
 
-	availableURLs := resolveAntigravityForwardBaseURLs()
+	availableURLs := resolveAntigravityForwardBaseURLs(p.account)
 	if len(availableURLs) == 0 {
 		return nil, errors.New("no antigravity forward base url configured")
 	}

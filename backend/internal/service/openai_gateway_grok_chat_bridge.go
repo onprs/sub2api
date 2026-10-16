@@ -556,6 +556,7 @@ func (s *OpenAIGatewayService) forwardGrokChatCompletionsViaResponses(
 	}
 	responsesReq.Model = upstreamModel
 	responsesReq.Stream = true
+	applyMinOutputTokensFloorToRequest(&responsesReq, configuredMinOutputTokens(s.cfg))
 	// Keep Chat and native Responses paths aligned for OpenAI-compatible
 	// service_tier aliases (for example, "fast" -> "priority"). Unknown
 	// values are omitted by the shared normalizer instead of reaching xAI.

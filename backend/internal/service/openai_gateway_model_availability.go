@@ -68,6 +68,13 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 		if len(accounts[i].GetExplicitModelMapping()) == 0 && openAIModelIDContainsWhitespace(requestedModel) {
 			continue
 		}
+		if isRetiredOpenAISubscriptionModel(&accounts[i], resolveOpenAIAccountUpstreamModelForRequest(&accounts[i], requestedModel, false)) {
+			diag.HasRetiredSubscriptionModel = true
+		}
+		// Mirrors the per-candidate filter used during account selection
+		// (openai_account_scheduler.isAccountRequestCompatible): empty
+		// model_mapping accepts everything; otherwise the explicit / wildcard
+		// mapping must match.
 		if accounts[i].IsModelSupported(requestedModel) {
 			diag.HasModelSupport = true
 			return diag

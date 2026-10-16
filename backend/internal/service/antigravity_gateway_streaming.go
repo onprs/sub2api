@@ -497,6 +497,7 @@ returnResponse:
 		}
 	}
 
+	// 将收集的所有 parts 合并到最终响应中
 	if len(collectedParts) > 0 {
 		finalResponse = mergeCollectedPartsToResponse(finalResponse, collectedParts)
 	}
@@ -561,21 +562,27 @@ func mergeCollectedPartsToResponse(response map[string]any, collectedParts []map
 		return response
 	}
 
-	result, _, setParts := getOrCreateGeminiParts(response)
+	result, existingParts, setParts := getOrCreateGeminiParts(response)
 
 	// 合并策略：
 	// 1. 保持原始顺序
-	// 2. 连续的普通 text parts 合并为一个
+	// 2. 连续的普通 text parts 合并为一个，并保留关联的 thoughtSignature
 	// 3. thinking、functionCall、inlineData 等保持原样
 	var mergedParts []any
 	var textBuffer strings.Builder
+	var textSignature string
 
 	flushTextBuffer := func() {
-		if textBuffer.Len() > 0 {
-			mergedParts = append(mergedParts, map[string]any{
+		if textBuffer.Len() > 0 || textSignature != "" {
+			part := map[string]any{
 				"text": textBuffer.String(),
-			})
+			}
+			if textSignature != "" {
+				part["thoughtSignature"] = textSignature
+			}
+			mergedParts = append(mergedParts, part)
 			textBuffer.Reset()
+			textSignature = ""
 		}
 	}
 
@@ -590,6 +597,9 @@ func mergeCollectedPartsToResponse(response map[string]any, collectedParts []map
 			} else {
 				// 普通 text，累积到 buffer
 				_, _ = textBuffer.WriteString(text)
+				if sig, ok := part["thoughtSignature"].(string); ok && sig != "" {
+					textSignature = sig
+				}
 			}
 		} else {
 			// 非 text part（functionCall、inlineData 等），先刷新 text buffer，然后保留原样
@@ -600,6 +610,10 @@ func mergeCollectedPartsToResponse(response map[string]any, collectedParts []map
 
 	// 刷新剩余的 text
 	flushTextBuffer()
+
+	if len(mergedParts) == 0 {
+		mergedParts = existingParts
+	}
 
 	setParts(mergedParts)
 	return result

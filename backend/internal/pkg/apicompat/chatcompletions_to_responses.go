@@ -30,17 +30,29 @@ type chatConversionOptions struct {
 // true. store is always false and reasoning.encrypted_content is always
 // included so that the response translator has full context.
 func ChatCompletionsToResponses(req *ChatCompletionsRequest) (*ResponsesRequest, error) {
-	return chatCompletionsToResponses(req, chatConversionOptions{})
+	return ChatCompletionsToResponsesWithMinOutputTokens(req, DefaultMinMaxOutputTokens)
+}
+
+// ChatCompletionsToResponsesWithMinOutputTokens converts a Chat Completions
+// request using the supplied max_output_tokens floor.
+func ChatCompletionsToResponsesWithMinOutputTokens(req *ChatCompletionsRequest, minOutputTokens int) (*ResponsesRequest, error) {
+	return chatCompletionsToResponses(req, chatConversionOptions{}, minOutputTokens)
 }
 
 // ChatCompletionsToResponsesWithReasoningItems converts a Chat Completions
 // request into a Responses API request with reasoning history carried as
 // structured reasoning items rather than "<thinking>…</thinking>" text.
 func ChatCompletionsToResponsesWithReasoningItems(req *ChatCompletionsRequest) (*ResponsesRequest, error) {
-	return chatCompletionsToResponses(req, chatConversionOptions{reasoningAsItem: true})
+	return chatCompletionsToResponses(req, chatConversionOptions{reasoningAsItem: true}, DefaultMinMaxOutputTokens)
 }
 
-func chatCompletionsToResponses(req *ChatCompletionsRequest, options chatConversionOptions) (*ResponsesRequest, error) {
+// ChatCompletionsToResponsesWithReasoningItemsAndMinOutputTokens 同时保留结构化 reasoning 历史与
+// 可配置的 max_output_tokens 下限。
+func ChatCompletionsToResponsesWithReasoningItemsAndMinOutputTokens(req *ChatCompletionsRequest, minOutputTokens int) (*ResponsesRequest, error) {
+	return chatCompletionsToResponses(req, chatConversionOptions{reasoningAsItem: true}, minOutputTokens)
+}
+
+func chatCompletionsToResponses(req *ChatCompletionsRequest, options chatConversionOptions, minOutputTokens int) (*ResponsesRequest, error) {
 	if err := openai.ValidateGPT61SolReasoningEffort(req.Model, req.ReasoningEffort); err != nil {
 		return nil, err
 	}
@@ -85,8 +97,8 @@ func chatCompletionsToResponses(req *ChatCompletionsRequest, options chatConvers
 	}
 	if maxTokens > 0 {
 		v := maxTokens
-		if v < minMaxOutputTokens {
-			v = minMaxOutputTokens
+		if v < minOutputTokens {
+			v = minOutputTokens
 		}
 		out.MaxOutputTokens = &v
 	}
