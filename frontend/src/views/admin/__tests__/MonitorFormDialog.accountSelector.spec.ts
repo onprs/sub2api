@@ -299,9 +299,9 @@ describe('MonitorFormDialog linked account selector', () => {
     expect(payload).not.toHaveProperty('group_name')
   })
 
-  it('uses the account platform behind an Antigravity monitor variant', async () => {
+  it('查询统一 Antigravity 平台的配额账号', async () => {
     const wrapper = mountDialog()
-    await wrapper.get('[data-testid="monitor-provider-antigravity_claude"]').trigger('click')
+    await wrapper.get('[data-testid="monitor-provider-antigravity"]').trigger('click')
     await wrapper.get('[data-testid="monitor-check-mode-quota"]').trigger('click')
     await flushPromises()
 
@@ -358,8 +358,8 @@ describe('MonitorFormDialog linked account selector', () => {
     expect(accountTrigger(wrapper).text()).toContain('linkedAccountPlaceholder')
   })
 
-  // P2-7(b)：antigravity 强制的 quota 在切走时要对称还原，占位模型一并清掉。
-  it('restores probe mode and clears the quota placeholder when switching away from antigravity', async () => {
+  // 旧配额监控切为探活时，必须清除虚拟模型，要求填写实际模型。
+  it('Antigravity 配额监控切为探活时清除占位模型', async () => {
     accountsGetById.mockRejectedValue(new Error('gone'))
     const wrapper = mountDialog(makeMonitor({
       provider: 'antigravity',
@@ -370,7 +370,7 @@ describe('MonitorFormDialog linked account selector', () => {
     }))
     await flushPromises()
 
-    await wrapper.get('[data-testid="monitor-provider-anthropic"]').trigger('click')
+    await wrapper.get('[data-testid="monitor-check-mode-probe"]').trigger('click')
     await flushPromises()
 
     const primaryModel = wrapper.get('[data-testid="monitor-primary-model"]')

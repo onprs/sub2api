@@ -138,8 +138,6 @@ const regressionKeys = [
   'admin.accounts.platforms.opencode_go',
   'admin.accounts.platforms.cline',
   'admin.accounts.platforms.openrouter',
-  'monitorCommon.providers.antigravity_claude',
-  'monitorCommon.providers.antigravity_gemini',
   'monitorCommon.providers.opencode_go',
   'monitorCommon.providers.cline',
   'monitorCommon.providers.openrouter'

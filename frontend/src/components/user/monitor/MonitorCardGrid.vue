@@ -71,8 +71,6 @@ import {
   PROVIDER_GROK,
   PROVIDER_GEMINI,
   PROVIDER_ANTIGRAVITY,
-  PROVIDER_ANTIGRAVITY_CLAUDE,
-  PROVIDER_ANTIGRAVITY_GEMINI,
 } from '@/constants/channelMonitor'
 import EmptyState from '@/components/common/EmptyState.vue'
 import MonitorCard from './MonitorCard.vue'
@@ -107,8 +105,6 @@ const platformByProvider: Partial<Record<Provider, PlatformGroup>> = {
   [PROVIDER_GROK]: 'grok',
   [PROVIDER_GEMINI]: 'gemini',
   [PROVIDER_ANTIGRAVITY]: 'gemini',
-  [PROVIDER_ANTIGRAVITY_CLAUDE]: 'gemini',
-  [PROVIDER_ANTIGRAVITY_GEMINI]: 'gemini',
 }
 
 const groupedItems = computed(() => {

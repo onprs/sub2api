@@ -250,8 +250,6 @@ import {
   PROVIDER_GEMINI,
   PROVIDER_GROK,
   PROVIDER_ANTIGRAVITY,
-  PROVIDER_ANTIGRAVITY_CLAUDE,
-  PROVIDER_ANTIGRAVITY_GEMINI,
   PROVIDER_OPENCODE_GO,
   PROVIDER_CLINEPASS,
   PROVIDER_OPENROUTER,
@@ -263,6 +261,7 @@ import {
   PROVIDERS,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_MESSAGES,
+  API_MODE_GENERATE_CONTENT,
   API_MODE_RESPONSES,
   monitorPayloadAPIMode,
   monitorSelectableAPIModes,
@@ -285,8 +284,6 @@ const providerTabs = computed<{ value: Provider; label: string }[]>(() => [
   { value: PROVIDER_GEMINI, label: t('monitorCommon.providers.gemini') },
   { value: PROVIDER_GROK, label: t('monitorCommon.providers.grok') },
   { value: PROVIDER_ANTIGRAVITY, label: t('monitorCommon.providers.antigravity') },
-  { value: PROVIDER_ANTIGRAVITY_CLAUDE, label: t('monitorCommon.providers.antigravity_claude') },
-  { value: PROVIDER_ANTIGRAVITY_GEMINI, label: t('monitorCommon.providers.antigravity_gemini') },
   { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
   { value: PROVIDER_CLINEPASS, label: t('monitorCommon.providers.cline') },
   { value: PROVIDER_OPENROUTER, label: t('monitorCommon.providers.openrouter') },
@@ -511,7 +508,7 @@ function modeLabel(mode: BodyOverrideMode): string {
   return t(`admin.channelMonitor.advanced.bodyMode${mode.charAt(0).toUpperCase()}${mode.slice(1)}`)
 }
 
-const showsAPIModePicker = computed(() => form.provider === PROVIDER_OPENAI || form.provider === PROVIDER_OPENCODE_GO)
+const showsAPIModePicker = computed(() => form.provider === PROVIDER_OPENAI || form.provider === PROVIDER_OPENCODE_GO || form.provider === PROVIDER_ANTIGRAVITY)
 
 const apiModeOptions = computed<{ value: APIMode; label: string; hint: string }[]>(() =>
   monitorSelectableAPIModes(form.provider).map((mode) => ({
@@ -540,12 +537,14 @@ function apiModeButtonClass(mode: APIMode): string {
 function apiModeLabel(mode: APIMode): string {
   if (mode === API_MODE_RESPONSES) return t('admin.channelMonitor.form.apiModeResponses')
   if (mode === API_MODE_MESSAGES) return t('admin.channelMonitor.form.apiModeMessages')
+  if (mode === API_MODE_GENERATE_CONTENT) return t('admin.channelMonitor.form.apiModeGenerateContent')
   return t('admin.channelMonitor.form.apiModeChatCompletions')
 }
 
 function apiModeHint(mode: APIMode): string {
   if (mode === API_MODE_RESPONSES) return t('admin.channelMonitor.form.apiModeResponsesHint')
   if (mode === API_MODE_MESSAGES) return t('admin.channelMonitor.form.apiModeMessagesHint')
+  if (mode === API_MODE_GENERATE_CONTENT) return t('admin.channelMonitor.form.apiModeGenerateContentHint')
   return t('admin.channelMonitor.form.apiModeChatCompletionsHint')
 }
 

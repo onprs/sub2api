@@ -578,8 +578,6 @@ export default {
       anthropic: 'Anthropic',
       gemini: 'Gemini',
       grok: 'Grok',
-      antigravity_claude: 'Antigravity Claude',
-      antigravity_gemini: 'Antigravity Gemini',
       opencode_go: 'OpenCode',
       cline: 'ClinePass',
       openrouter: 'OpenRouter',

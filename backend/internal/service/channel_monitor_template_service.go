@@ -56,7 +56,7 @@ func (s *ChannelMonitorRequestTemplateService) List(ctx context.Context, params 
 	}
 	if params.APIMode != "" {
 		if params.Provider == "" {
-			if err := validateAPIMode(MonitorProviderOpenAI, params.APIMode); err != nil {
+			if err := validateAPIMode("", params.APIMode); err != nil {
 				return nil, err
 			}
 		} else if err := validateAPIMode(params.Provider, params.APIMode); err != nil {
@@ -79,7 +79,7 @@ func (s *ChannelMonitorRequestTemplateService) Create(ctx context.Context, p Cha
 	t := &ChannelMonitorRequestTemplate{
 		Name:             strings.TrimSpace(p.Name),
 		Provider:         p.Provider,
-		APIMode:          defaultAPIMode(p.APIMode),
+		APIMode:          normalizeMonitorAPIMode(p.Provider, p.APIMode),
 		Description:      strings.TrimSpace(p.Description),
 		ExtraHeaders:     emptyHeadersIfNil(p.ExtraHeaders),
 		BodyOverrideMode: defaultBodyMode(p.BodyOverrideMode),
@@ -179,9 +179,9 @@ func applyTemplateUpdate(existing *ChannelMonitorRequestTemplate, p ChannelMonit
 	if p.Description != nil {
 		existing.Description = strings.TrimSpace(*p.Description)
 	}
-	newAPIMode := defaultAPIMode(existing.APIMode)
+	newAPIMode := normalizeMonitorAPIMode(existing.Provider, existing.APIMode)
 	if p.APIMode != nil {
-		newAPIMode = defaultAPIMode(*p.APIMode)
+		newAPIMode = normalizeMonitorAPIMode(existing.Provider, *p.APIMode)
 	}
 	if err := validateAPIMode(existing.Provider, newAPIMode); err != nil {
 		return ErrChannelMonitorTemplateInvalidAPIMode
