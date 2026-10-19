@@ -314,8 +314,6 @@ import {
   PROVIDER_GEMINI,
   PROVIDER_GROK,
   PROVIDER_ANTIGRAVITY,
-  PROVIDER_ANTIGRAVITY_CLAUDE,
-  PROVIDER_ANTIGRAVITY_GEMINI,
   PROVIDER_OPENCODE_GO,
   PROVIDER_CLINEPASS,
   PROVIDER_OPENROUTER,
@@ -326,6 +324,7 @@ import {
   PROVIDER_MINIMAX,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_MESSAGES,
+  API_MODE_GENERATE_CONTENT,
   API_MODE_RESPONSES,
   CHECK_MODE_PROBE,
   CHECK_MODE_QUOTA,
@@ -523,7 +522,7 @@ const templateSelectValue = computed<string>({
   },
 })
 
-const showsAPIModePicker = computed(() => form.provider === PROVIDER_OPENAI || form.provider === PROVIDER_OPENCODE_GO)
+const showsAPIModePicker = computed(() => form.provider === PROVIDER_OPENAI || form.provider === PROVIDER_OPENCODE_GO || form.provider === PROVIDER_ANTIGRAVITY)
 
 const apiModeOptions = computed<{ value: APIMode; label: string; hint: string }[]>(() => {
   return monitorSelectableAPIModes(form.provider).map(apiModeOption)
@@ -544,12 +543,14 @@ function apiModeOption(mode: APIMode): { value: APIMode; label: string; hint: st
 function apiModeLabelKey(mode: APIMode): string {
   if (mode === API_MODE_RESPONSES) return 'admin.channelMonitor.form.apiModeResponses'
   if (mode === API_MODE_MESSAGES) return 'admin.channelMonitor.form.apiModeMessages'
+  if (mode === API_MODE_GENERATE_CONTENT) return 'admin.channelMonitor.form.apiModeGenerateContent'
   return 'admin.channelMonitor.form.apiModeChatCompletions'
 }
 
 function apiModeHintKey(mode: APIMode): string {
   if (mode === API_MODE_RESPONSES) return 'admin.channelMonitor.form.apiModeResponsesHint'
   if (mode === API_MODE_MESSAGES) return 'admin.channelMonitor.form.apiModeMessagesHint'
+  if (mode === API_MODE_GENERATE_CONTENT) return 'admin.channelMonitor.form.apiModeGenerateContentHint'
   return 'admin.channelMonitor.form.apiModeChatCompletionsHint'
 }
 
@@ -611,8 +612,6 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_GEMINI, label: t('monitorCommon.providers.gemini') },
   { value: PROVIDER_GROK, label: t('monitorCommon.providers.grok') },
   { value: PROVIDER_ANTIGRAVITY, label: t('monitorCommon.providers.antigravity') },
-  { value: PROVIDER_ANTIGRAVITY_CLAUDE, label: t('monitorCommon.providers.antigravity_claude') },
-  { value: PROVIDER_ANTIGRAVITY_GEMINI, label: t('monitorCommon.providers.antigravity_gemini') },
   { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
   { value: PROVIDER_CLINEPASS, label: t('monitorCommon.providers.cline') },
   { value: PROVIDER_OPENROUTER, label: t('monitorCommon.providers.openrouter') },
@@ -644,7 +643,7 @@ const checkModeOptions = computed<CheckModeOption[]>(() => [
     value: CHECK_MODE_PROBE,
     label: t('admin.channelMonitor.form.checkModeProbe'),
     hint: t('admin.channelMonitor.form.checkModeProbeHint'),
-    // quota-only provider（如 antigravity）无探活端点。
+    // 仅支持配额的 provider无探活端点。
     disabled: !monitorProviderSupportsProbe(form.provider),
   },
   {
@@ -657,7 +656,7 @@ const checkModeOptions = computed<CheckModeOption[]>(() => [
     value: CHECK_MODE_QUOTA_PROBE,
     label: t('admin.channelMonitor.form.checkModeQuotaProbe'),
     hint: t('admin.channelMonitor.form.checkModeQuotaProbeHint'),
-    // quota-only provider（如 antigravity）无探活端点。
+    // 仅支持配额的 provider无探活端点。
     disabled: !monitorProviderSupportsProbe(form.provider),
   },
 ])
@@ -672,6 +671,9 @@ function checkModeButtonClass(mode: CheckMode): string {
 
 function selectCheckMode(mode: CheckMode) {
   if (checkModeOptions.value.find((opt) => opt.value === mode)?.disabled) return
+  if (form.check_mode === CHECK_MODE_QUOTA && mode !== CHECK_MODE_QUOTA && form.primary_model.trim() === 'quota') {
+    form.primary_model = ''
+  }
   form.check_mode = mode
   if (!usesQuotaMode.value) form.account_id = null
 }
@@ -821,7 +823,7 @@ function selectProvider(provider: Provider) {
   form.account_id = null
   pinnedAccount.value = null
   accountHydrationFailed.value = false
-  // quota-only provider（如 antigravity）仅配额模式：切到时强制 quota（checkModeOptions 同步禁用其余项）。
+  // 仅支持配额的 provider仅配额模式：切到时强制 quota（checkModeOptions 同步禁用其余项）。
   if (!monitorProviderSupportsProbe(provider) && form.check_mode !== CHECK_MODE_QUOTA) {
     form.check_mode = CHECK_MODE_QUOTA
   }
@@ -866,7 +868,7 @@ watch(() => form.provider, (provider) => {
 
 watch(() => form.api_mode, () => {
   if (suppressFormWatchers) return
-  if (form.provider === PROVIDER_OPENAI || form.provider === PROVIDER_OPENCODE_GO) {
+  if (form.provider === PROVIDER_OPENAI || form.provider === PROVIDER_OPENCODE_GO || form.provider === PROVIDER_ANTIGRAVITY) {
     clearRequestSnapshot()
   }
 }, { flush: 'sync' })

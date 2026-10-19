@@ -15,15 +15,13 @@ export type Provider =
   | 'openrouter'
   | 'command_code'
   | 'antigravity'
-  | 'antigravity_claude'
-  | 'antigravity_gemini'
   | 'kimi'
   | 'zhipu'
   | 'deepseek'
   | 'minimax'
 export type MonitorStatus = 'operational' | 'degraded' | 'failed' | 'error'
 export type BodyOverrideMode = 'off' | 'merge' | 'replace'
-export type APIMode = 'chat_completions' | 'responses' | 'messages'
+export type APIMode = 'chat_completions' | 'responses' | 'messages' | 'generate_content'
 export type MonitorTargetType = 'local' | 'external'
 /**
  * probe = LLM 探活（默认）；quota = 仅查关联账号用量（零 LLM 成本）；

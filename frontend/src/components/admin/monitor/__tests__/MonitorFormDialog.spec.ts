@@ -246,16 +246,40 @@ describe('MonitorFormDialog target fields', () => {
     }))
   })
 
-  it('forces quota mode for providers without a probe endpoint', async () => {
+  it.each([
+    { mode: 'messages', label: 'apiModeMessages' },
+    { mode: 'generate_content', label: 'apiModeGenerateContent' },
+  ])('通过统一 Antigravity 平台提交 $mode 探测', async ({ mode, label }) => {
     const wrapper = mountDialog()
     await flushPromises()
 
+    await wrapper.find('button[data-testid="monitor-target-external"]').trigger('click')
     await wrapper.find('button[data-testid="monitor-provider-antigravity"]').trigger('click')
+    await flushPromises()
 
-    expect(wrapper.find('button[data-testid="monitor-check-mode-probe"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.find('button[data-testid="monitor-check-mode-quota_probe"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.find('button[data-testid="monitor-check-mode-quota"]').attributes('aria-pressed')).toBe('true')
-    // quota 模式不探活，因此隐藏探活目标（本地分组 / 外部 endpoint）字段。
-    expect(wrapper.find('button[data-testid="monitor-target-external"]').exists()).toBe(false)
+    expect(wrapper.findAll('button[data-testid^="monitor-provider-antigravity"]')).toHaveLength(1)
+    expect(wrapper.find('button[data-testid="monitor-check-mode-probe"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('button[data-testid="monitor-check-mode-quota_probe"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('button[data-testid="monitor-check-mode-probe"]').attributes('aria-pressed')).toBe('true')
+    const modeButton = wrapper.findAll('button').find((button) =>
+      button.text().includes('admin.channelMonitor.form.' + label)
+    )
+    expect(modeButton).toBeDefined()
+    await modeButton!.trigger('click')
+
+    await wrapper.find('input[placeholder="admin.channelMonitor.form.namePlaceholder"]').setValue('Antigravity')
+    await wrapper.find('input[placeholder="admin.channelMonitor.form.endpointPlaceholder"]').setValue('https://gateway.example.com')
+    await wrapper.find('input[placeholder="admin.channelMonitor.form.apiKeyPlaceholder"]').setValue('monitor-key')
+    await wrapper.find('input[placeholder="admin.channelMonitor.form.primaryModelPlaceholder"]').setValue('custom-model-alias')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(mocks.create).toHaveBeenCalledTimes(1)
+    expect(mocks.create.mock.calls[0][0]).toEqual(expect.objectContaining({
+      provider: 'antigravity',
+      api_mode: mode,
+      check_mode: 'probe',
+      primary_model: 'custom-model-alias',
+    }))
   })
 })

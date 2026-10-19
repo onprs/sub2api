@@ -18,8 +18,6 @@ import {
   PROVIDER_GEMINI,
   PROVIDER_GROK,
   PROVIDER_ANTIGRAVITY,
-  PROVIDER_ANTIGRAVITY_CLAUDE,
-  PROVIDER_ANTIGRAVITY_GEMINI,
   PROVIDER_OPENCODE_GO,
   PROVIDER_CLINEPASS,
   PROVIDER_OPENROUTER,
@@ -120,8 +118,6 @@ export function useChannelMonitorFormat() {
       case PROVIDER_COMMANDCODE:
         return 'bg-lime-100 text-lime-700 dark:bg-lime-500/15 dark:text-lime-300'
       case PROVIDER_ANTIGRAVITY:
-      case PROVIDER_ANTIGRAVITY_CLAUDE:
-      case PROVIDER_ANTIGRAVITY_GEMINI:
         return 'bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'
       case PROVIDER_KIMI:
         return 'bg-pink-100 text-pink-700 dark:bg-pink-500/15 dark:text-pink-300'
@@ -192,8 +188,6 @@ export function useChannelMonitorFormat() {
           ? 'border-lime-500 bg-lime-50 text-lime-700 dark:bg-lime-500/15 dark:text-lime-300 dark:border-lime-400'
           : 'border-gray-200 bg-white text-gray-600 hover:border-lime-300 hover:text-lime-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-lime-500/50'
       case PROVIDER_ANTIGRAVITY:
-      case PROVIDER_ANTIGRAVITY_CLAUDE:
-      case PROVIDER_ANTIGRAVITY_GEMINI:
         return active
           ? 'border-purple-500 bg-purple-50 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300 dark:border-purple-400'
           : 'border-gray-200 bg-white text-gray-600 hover:border-purple-300 hover:text-purple-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-purple-500/50'
@@ -292,8 +286,6 @@ export function providerGradient(provider: string): string {
     case PROVIDER_OPENCODE_GO:
       return 'bg-gradient-to-br from-cyan-50 to-teal-100 dark:from-cyan-500/10 dark:to-teal-500/20'
     case PROVIDER_ANTIGRAVITY:
-    case PROVIDER_ANTIGRAVITY_CLAUDE:
-    case PROVIDER_ANTIGRAVITY_GEMINI:
       return 'bg-gradient-to-br from-purple-50 to-fuchsia-100 dark:from-purple-500/10 dark:to-fuchsia-500/20'
     case PROVIDER_KIMI:
       return 'bg-gradient-to-br from-pink-50 to-pink-100 dark:from-pink-500/10 dark:to-pink-500/20'

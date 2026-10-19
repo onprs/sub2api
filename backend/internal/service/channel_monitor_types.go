@@ -35,6 +35,7 @@ const (
 	MonitorAPIModeChatCompletions = "chat_completions"
 	MonitorAPIModeResponses       = "responses"
 	MonitorAPIModeMessages        = "messages"
+	MonitorAPIModeGenerateContent = "generate_content"
 )
 
 // ChannelMonitor 渠道监控配置（service 层模型，不直接暴露 ent 类型）。

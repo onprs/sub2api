@@ -9,47 +9,43 @@ import (
 // 渠道监控参数校验与归一化辅助函数。
 // 校验失败一律返回 channel_monitor_const.go 中预定义的 Err* 错误，错误信息不含具体 IP/hostname，避免泄露内网拓扑。
 
-// monitorProviders 渠道监控支持的全部 provider（与迁移 226 的 CHECK 约束一致）。
-// 不再以 adapter 表为唯一来源：antigravity 没有探活 adapter，但支持配额模式。
+// monitorProviders 渠道监控支持的全部 provider。
 //
 //nolint:gochecknoglobals // 静态查表，初始化后不变。
 var monitorProviders = map[string]struct{}{
-	MonitorProviderOpenAI:            {},
-	MonitorProviderAnthropic:         {},
-	MonitorProviderGemini:            {},
-	MonitorProviderGrok:              {},
-	MonitorProviderOpenCodeGo:        {},
-	MonitorProviderCline:             {},
-	MonitorProviderOpenRouter:        {},
-	MonitorProviderCommandCode:       {},
-	MonitorProviderAntigravity:       {},
-	MonitorProviderAntigravityClaude: {},
-	MonitorProviderAntigravityGemini: {},
-	MonitorProviderKimi:              {},
-	MonitorProviderZhipu:             {},
-	MonitorProviderDeepseek:          {},
-	MonitorProviderMiniMax:           {},
+	MonitorProviderOpenAI:      {},
+	MonitorProviderAnthropic:   {},
+	MonitorProviderGemini:      {},
+	MonitorProviderGrok:        {},
+	MonitorProviderOpenCodeGo:  {},
+	MonitorProviderCline:       {},
+	MonitorProviderOpenRouter:  {},
+	MonitorProviderCommandCode: {},
+	MonitorProviderAntigravity: {},
+	MonitorProviderKimi:        {},
+	MonitorProviderZhipu:       {},
+	MonitorProviderDeepseek:    {},
+	MonitorProviderMiniMax:     {},
 }
 
 // probeCapableProviders 支持探活（probe / quota_probe）的 provider。
-// antigravity 上游无 Chat/Responses 可打（仅 IDE 代理形态），只允许配额模式。
+// Antigravity 按请求协议选择 Messages 或 Gemini 原生端点。
 //
 //nolint:gochecknoglobals // 静态查表，初始化后不变。
 var probeCapableProviders = map[string]struct{}{
-	MonitorProviderOpenAI:            {},
-	MonitorProviderAnthropic:         {},
-	MonitorProviderGemini:            {},
-	MonitorProviderGrok:              {},
-	MonitorProviderOpenCodeGo:        {},
-	MonitorProviderCline:             {},
-	MonitorProviderOpenRouter:        {},
-	MonitorProviderCommandCode:       {},
-	MonitorProviderAntigravityClaude: {},
-	MonitorProviderAntigravityGemini: {},
-	MonitorProviderKimi:              {},
-	MonitorProviderZhipu:             {},
-	MonitorProviderDeepseek:          {},
-	MonitorProviderMiniMax:           {},
+	MonitorProviderOpenAI:      {},
+	MonitorProviderAnthropic:   {},
+	MonitorProviderGemini:      {},
+	MonitorProviderGrok:        {},
+	MonitorProviderOpenCodeGo:  {},
+	MonitorProviderCline:       {},
+	MonitorProviderOpenRouter:  {},
+	MonitorProviderCommandCode: {},
+	MonitorProviderAntigravity: {},
+	MonitorProviderKimi:        {},
+	MonitorProviderZhipu:       {},
+	MonitorProviderDeepseek:    {},
+	MonitorProviderMiniMax:     {},
 }
 
 // validateProvider 校验 provider 字符串。
@@ -60,7 +56,7 @@ func validateProvider(p string) error {
 	return nil
 }
 
-// providerSupportsProbe 该 provider 是否注册了探活 adapter（antigravity 为 false）。
+// providerSupportsProbe 该 provider 是否注册了探活 adapter。
 func providerSupportsProbe(p string) bool {
 	_, ok := probeCapableProviders[p]
 	return ok
@@ -79,12 +75,7 @@ func monitorCheckModeUsesQuota(checkMode string) bool {
 	return checkMode == MonitorCheckModeQuota || checkMode == MonitorCheckModeQuotaProbe
 }
 
-// validateCheckMode 校验 check_mode 与 provider 的组合矩阵：
-//
-//	provider                | probe | quota | quota_probe
-//	------------------------+-------+-------+------------
-//	openai/anthropic/...    |  Y    |  Y    |  Y
-//	antigravity（无 adapter）|  N    |  Y    |  N
+// validateCheckMode 校验 provider 是否支持指定检测模式。
 func validateCheckMode(provider, checkMode string) error {
 	checkMode = defaultCheckMode(checkMode)
 	switch checkMode {
@@ -100,21 +91,24 @@ func validateCheckMode(provider, checkMode string) error {
 }
 
 // validateAPIMode 校验 provider 与 api_mode 的组合。
-// OpenCode Go 按模型把请求分流到 Chat Completions / Responses / Messages 三种
-// 上游协议，三种 api_mode 都合法；responses 另对 OpenAI 有意义，messages 另对
-// Command Code 有意义；其它 provider 使用 chat_completions 作为默认占位。
+// Antigravity 支持 Messages 和 Gemini 原生协议，旧默认值按 Messages 处理。
 func validateAPIMode(provider, apiMode string) error {
 	apiMode = defaultAPIMode(apiMode)
 	switch apiMode {
 	case MonitorAPIModeChatCompletions:
 		return nil
+	case MonitorAPIModeGenerateContent:
+		if provider == "" || provider == MonitorProviderAntigravity {
+			return nil
+		}
+		return ErrChannelMonitorInvalidAPIMode
 	case MonitorAPIModeResponses:
 		if provider == "" || provider == MonitorProviderOpenAI || provider == MonitorProviderOpenCodeGo {
 			return nil
 		}
 		return ErrChannelMonitorInvalidAPIMode
 	case MonitorAPIModeMessages:
-		if provider == "" || provider == MonitorProviderOpenCodeGo || provider == MonitorProviderCommandCode {
+		if provider == "" || provider == MonitorProviderOpenCodeGo || provider == MonitorProviderCommandCode || provider == MonitorProviderAntigravity {
 			return nil
 		}
 		return ErrChannelMonitorInvalidAPIMode
@@ -290,10 +284,18 @@ func defaultAPIMode(apiMode string) string {
 	return strings.TrimSpace(apiMode)
 }
 
-func defaultAPIModeForProvider(provider, apiMode string) string {
+func normalizeMonitorAPIMode(provider, apiMode string) string {
 	mode := defaultAPIMode(apiMode)
+	if provider == MonitorProviderAntigravity && mode == MonitorAPIModeChatCompletions {
+		return MonitorAPIModeMessages
+	}
+	return mode
+}
+
+func defaultAPIModeForProvider(provider, apiMode string) string {
+	mode := normalizeMonitorAPIMode(provider, apiMode)
 	if validateAPIMode(provider, mode) == nil {
 		return mode
 	}
-	return MonitorAPIModeChatCompletions
+	return normalizeMonitorAPIMode(provider, MonitorAPIModeChatCompletions)
 }

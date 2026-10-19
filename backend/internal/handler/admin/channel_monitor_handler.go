@@ -40,8 +40,8 @@ func NewChannelMonitorHandler(monitorService *service.ChannelMonitorService) *Ch
 
 type channelMonitorCreateRequest struct {
 	Name             string            `json:"name" binding:"required,max=100"`
-	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini grok opencode_go cline openrouter command_code antigravity antigravity_claude antigravity_gemini kimi zhipu deepseek minimax"`
-	APIMode          string            `json:"api_mode" binding:"omitempty,oneof=chat_completions messages responses"`
+	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini grok opencode_go cline openrouter command_code antigravity kimi zhipu deepseek minimax"`
+	APIMode          string            `json:"api_mode" binding:"omitempty,oneof=chat_completions messages responses generate_content"`
 	TargetType       string            `json:"target_type" binding:"omitempty,oneof=local external"`
 	GroupID          *int64            `json:"group_id" binding:"omitempty,min=1"`
 	Endpoint         string            `json:"endpoint" binding:"omitempty,max=500"`
@@ -66,8 +66,8 @@ type channelMonitorCreateRequest struct {
 
 type channelMonitorUpdateRequest struct {
 	Name             *string            `json:"name" binding:"omitempty,max=100"`
-	Provider         *string            `json:"provider" binding:"omitempty,oneof=openai anthropic gemini grok opencode_go cline openrouter command_code antigravity antigravity_claude antigravity_gemini kimi zhipu deepseek minimax"`
-	APIMode          *string            `json:"api_mode" binding:"omitempty,oneof=chat_completions messages responses"`
+	Provider         *string            `json:"provider" binding:"omitempty,oneof=openai anthropic gemini grok opencode_go cline openrouter command_code antigravity kimi zhipu deepseek minimax"`
+	APIMode          *string            `json:"api_mode" binding:"omitempty,oneof=chat_completions messages responses generate_content"`
 	TargetType       *string            `json:"target_type" binding:"omitempty,oneof=local external"`
 	GroupID          *int64             `json:"group_id" binding:"omitempty,min=1"`
 	Endpoint         *string            `json:"endpoint" binding:"omitempty,max=500"`

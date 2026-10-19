@@ -37,7 +37,7 @@ type monitorChallenge struct {
 // provider（Antigravity Gemini、Cline、OpenCode Go、Command Code）容易把算术
 // few-shot 当成题目展开，改用“原样回报检查码”的精确形式。
 func generateChallengeForProvider(provider string) monitorChallenge {
-	if provider == MonitorProviderAntigravityGemini || provider == MonitorProviderCline ||
+	if provider == MonitorProviderAntigravity || provider == MonitorProviderCline ||
 		provider == MonitorProviderOpenCodeGo || provider == MonitorProviderCommandCode {
 		return generateExactChallenge()
 	}

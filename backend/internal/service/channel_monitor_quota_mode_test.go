@@ -300,22 +300,22 @@ func TestValidateCreateParams_CheckModeMatrix(t *testing.T) {
 			wantErr: ErrChannelMonitorInvalidEndpoint,
 		},
 		{
-			name: "antigravity probe unsupported",
+			name: "antigravity probe supported",
 			params: ChannelMonitorCreateParams{
 				Provider: MonitorProviderAntigravity, CheckMode: MonitorCheckModeProbe,
 				Endpoint: "https://example.com", APIKey: "k",
 				IntervalSeconds: 60, AccountID: &accountID, PrimaryModel: "gemini-3-pro",
 			},
-			wantErr: ErrChannelMonitorProbeUnsupported,
+			wantErr: nil,
 		},
 		{
-			name: "antigravity quota_probe unsupported",
+			name: "antigravity quota_probe supported",
 			params: ChannelMonitorCreateParams{
 				Provider: MonitorProviderAntigravity, CheckMode: MonitorCheckModeQuotaProbe,
 				Endpoint: "https://example.com", APIKey: "k",
 				IntervalSeconds: 60, AccountID: &accountID, PrimaryModel: "gemini-3-pro",
 			},
-			wantErr: ErrChannelMonitorProbeUnsupported,
+			wantErr: nil,
 		},
 		{
 			name: "unknown mode rejected",
@@ -366,12 +366,12 @@ func TestNormalizeMonitorPrimaryModel_QuotaDefault(t *testing.T) {
 }
 
 func TestProviderProbeCapabilityMatrix(t *testing.T) {
-	require.False(t, providerSupportsProbe(MonitorProviderAntigravity))
+	require.True(t, providerSupportsProbe(MonitorProviderAntigravity))
 	for _, p := range []string{
 		MonitorProviderOpenAI, MonitorProviderAnthropic, MonitorProviderGemini,
 		MonitorProviderGrok, MonitorProviderOpenCodeGo, MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek,
 		MonitorProviderCline, MonitorProviderOpenRouter, MonitorProviderCommandCode,
-		MonitorProviderAntigravityClaude, MonitorProviderAntigravityGemini, MonitorProviderMiniMax,
+		MonitorProviderAntigravity, MonitorProviderMiniMax,
 	} {
 		require.True(t, providerSupportsProbe(p), p)
 	}
@@ -574,7 +574,7 @@ func TestApplyMonitorUpdate_ProviderOnlyRevalidatesCheckMode(t *testing.T) {
 
 	provider := MonitorProviderAntigravity
 	err := applyMonitorUpdate(probeKimi(), ChannelMonitorUpdateParams{Provider: &provider})
-	require.ErrorIs(t, err, ErrChannelMonitorProbeUnsupported)
+	require.NoError(t, err)
 
 	// 带上 check_mode/account_id 的完整切换合法。
 	accountID := int64(3)
@@ -583,7 +583,7 @@ func TestApplyMonitorUpdate_ProviderOnlyRevalidatesCheckMode(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// 存量非法行（antigravity+probe）仅改名/停用不被砖化。
+	// 原先配额专用的 Antigravity 监控可以继续编辑。
 	legacy := &ChannelMonitor{
 		Provider: MonitorProviderAntigravity, APIMode: MonitorAPIModeChatCompletions,
 		Endpoint: "https://example.com", PrimaryModel: "gemini-3-pro",

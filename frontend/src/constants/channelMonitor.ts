@@ -15,8 +15,6 @@ export const PROVIDER_ANTHROPIC: Provider = 'anthropic'
 export const PROVIDER_GEMINI: Provider = 'gemini'
 export const PROVIDER_GROK: Provider = 'grok'
 export const PROVIDER_ANTIGRAVITY: Provider = 'antigravity'
-export const PROVIDER_ANTIGRAVITY_CLAUDE: Provider = 'antigravity_claude'
-export const PROVIDER_ANTIGRAVITY_GEMINI: Provider = 'antigravity_gemini'
 export const PROVIDER_OPENCODE_GO: Provider = 'opencode_go'
 export const PROVIDER_CLINEPASS: Provider = 'cline'
 export const PROVIDER_OPENROUTER: Provider = 'openrouter'
@@ -43,6 +41,7 @@ export const CHECK_MODE_QUOTA_PROBE: CheckMode = 'quota_probe'
 export const API_MODE_CHAT_COMPLETIONS: APIMode = 'chat_completions'
 export const API_MODE_RESPONSES: APIMode = 'responses'
 export const API_MODE_MESSAGES: APIMode = 'messages'
+export const API_MODE_GENERATE_CONTENT: APIMode = 'generate_content'
 
 export const PROVIDERS: readonly Provider[] = [
   PROVIDER_OPENAI,
@@ -50,8 +49,6 @@ export const PROVIDERS: readonly Provider[] = [
   PROVIDER_GEMINI,
   PROVIDER_GROK,
   PROVIDER_ANTIGRAVITY,
-  PROVIDER_ANTIGRAVITY_CLAUDE,
-  PROVIDER_ANTIGRAVITY_GEMINI,
   PROVIDER_OPENCODE_GO,
   PROVIDER_CLINEPASS,
   PROVIDER_OPENROUTER,
@@ -63,7 +60,7 @@ export const PROVIDERS: readonly Provider[] = [
 ]
 
 /** 仅支持配额模式（无探活 adapter）的 provider。 */
-export const QUOTA_ONLY_PROVIDERS: readonly Provider[] = [PROVIDER_ANTIGRAVITY]
+export const QUOTA_ONLY_PROVIDERS: readonly Provider[] = []
 
 /**
  * 该 provider 是否支持探活（probe / quota_probe）。
@@ -83,6 +80,7 @@ export const API_MODES: readonly APIMode[] = [
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
   API_MODE_MESSAGES,
+  API_MODE_GENERATE_CONTENT,
 ]
 
 export const STATUS_OPERATIONAL: MonitorStatus = 'operational'
@@ -106,8 +104,6 @@ const MONITOR_PROVIDER_KEY_GROUP_PLATFORM: Record<Provider, GroupPlatform> = {
   gemini: 'gemini',
   grok: 'grok',
   antigravity: 'antigravity',
-  antigravity_claude: 'antigravity',
-  antigravity_gemini: 'antigravity',
   opencode_go: 'opencode_go',
   cline: 'cline',
   openrouter: 'openrouter',
@@ -123,6 +119,9 @@ export function monitorProviderKeyGroupPlatform(provider: Provider): GroupPlatfo
 }
 
 export function monitorPayloadAPIMode(provider: Provider, apiMode: APIMode): APIMode {
+  if (provider === PROVIDER_ANTIGRAVITY) {
+    return apiMode === API_MODE_GENERATE_CONTENT ? API_MODE_GENERATE_CONTENT : API_MODE_MESSAGES
+  }
   if (provider === PROVIDER_OPENAI) {
     return apiMode === API_MODE_RESPONSES ? API_MODE_RESPONSES : API_MODE_CHAT_COMPLETIONS
   }
@@ -138,6 +137,9 @@ export function monitorPayloadAPIMode(provider: Provider, apiMode: APIMode): API
 }
 
 export function monitorSelectableAPIModes(provider: Provider): readonly APIMode[] {
+  if (provider === PROVIDER_ANTIGRAVITY) {
+    return [API_MODE_MESSAGES, API_MODE_GENERATE_CONTENT]
+  }
   if (provider === PROVIDER_OPENAI) {
     return [API_MODE_CHAT_COMPLETIONS, API_MODE_RESPONSES]
   }

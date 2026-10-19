@@ -74,21 +74,19 @@ const (
 	providerOpenCodeGoMessagesPath = "/v1/messages"
 
 	// MonitorProvider* provider 字符串常量（也是 ent enum 的实际值）。
-	MonitorProviderOpenAI            = "openai"
-	MonitorProviderAnthropic         = "anthropic"
-	MonitorProviderGemini            = "gemini"
-	MonitorProviderGrok              = "grok"
-	MonitorProviderOpenCodeGo        = "opencode_go"
-	MonitorProviderCline             = "cline"
-	MonitorProviderOpenRouter        = "openrouter"
-	MonitorProviderCommandCode       = "command_code"
-	MonitorProviderAntigravity       = "antigravity"
-	MonitorProviderAntigravityClaude = "antigravity_claude"
-	MonitorProviderAntigravityGemini = "antigravity_gemini"
-	MonitorProviderKimi              = "kimi"
-	MonitorProviderZhipu             = "zhipu"
-	MonitorProviderDeepseek          = "deepseek"
-	MonitorProviderMiniMax           = "minimax"
+	MonitorProviderOpenAI      = "openai"
+	MonitorProviderAnthropic   = "anthropic"
+	MonitorProviderGemini      = "gemini"
+	MonitorProviderGrok        = "grok"
+	MonitorProviderOpenCodeGo  = "opencode_go"
+	MonitorProviderCline       = "cline"
+	MonitorProviderOpenRouter  = "openrouter"
+	MonitorProviderCommandCode = "command_code"
+	MonitorProviderAntigravity = "antigravity"
+	MonitorProviderKimi        = "kimi"
+	MonitorProviderZhipu       = "zhipu"
+	MonitorProviderDeepseek    = "deepseek"
+	MonitorProviderMiniMax     = "minimax"
 
 	// MonitorCheckMode 检测模式（channel_monitors.check_mode）。
 	//   probe       - LLM 探活（默认，原有行为）
@@ -200,13 +198,13 @@ var (
 		"CHANNEL_MONITOR_GROUP_ALREADY_MONITORED", "the selected group already has a local monitor",
 	)
 	ErrChannelMonitorInvalidProvider = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/grok/opencode_go/cline/openrouter/command_code/antigravity/antigravity_claude/antigravity_gemini/kimi/zhipu/deepseek/minimax",
+		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/grok/opencode_go/cline/openrouter/command_code/antigravity/kimi/zhipu/deepseek/minimax",
 	)
 	ErrChannelMonitorInvalidCheckMode = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_CHECK_MODE", "check_mode must be one of probe/quota/quota_probe",
 	)
 	ErrChannelMonitorProbeUnsupported = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_PROBE_UNSUPPORTED", "this provider has no probe endpoint and only supports check_mode=quota (antigravity)",
+		"CHANNEL_MONITOR_PROBE_UNSUPPORTED", "this provider has no probe endpoint and only supports check_mode=quota",
 	)
 	ErrChannelMonitorAccountRequired = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_ACCOUNT_REQUIRED", "account_id is required for quota-based check_mode",
@@ -218,7 +216,7 @@ var (
 		"CHANNEL_MONITOR_ACCOUNT_NOT_SUPPORTABLE", "linked account cannot serve as a quota data source (cn coding plan must be kimi/zhipu/minimax, cn payg must be kimi/deepseek, openai requires an oauth account, anthropic requires oauth or setup-token)",
 	)
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, messages, or responses; responses is supported for openai/opencode_go and messages is supported for opencode_go/command_code",
+		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions, messages, responses, or generate_content; generate_content is supported for antigravity",
 	)
 	ErrChannelMonitorInvalidRequestBody = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_REQUEST_BODY", "replace-mode body_override must include non-empty messages for chat_completions/messages or non-empty instructions and input for responses",

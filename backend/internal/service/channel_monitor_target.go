@@ -30,7 +30,7 @@ func validateMonitorTargetType(targetType string) error {
 
 func monitorProviderPlatform(provider string) string {
 	switch provider {
-	case MonitorProviderAntigravityClaude, MonitorProviderAntigravityGemini:
+	case MonitorProviderAntigravity:
 		return PlatformAntigravity
 	default:
 		return provider

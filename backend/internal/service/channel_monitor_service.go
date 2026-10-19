@@ -197,7 +197,7 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 	m := &ChannelMonitor{
 		Name:             strings.TrimSpace(p.Name),
 		Provider:         p.Provider,
-		APIMode:          defaultAPIMode(p.APIMode),
+		APIMode:          normalizeMonitorAPIMode(p.Provider, p.APIMode),
 		TargetType:       targetType,
 		GroupID:          groupID,
 		Group:            group,
@@ -1101,6 +1101,7 @@ func (s *ChannelMonitorService) decryptInPlace(m *ChannelMonitor) {
 // 行数稍超过 30：这是逐字段平铺的 dispatcher，每个 if 都是 1-3 行的"非 nil 则覆盖"模式，
 // 拆分反而会增加跳转噪音、影响可读性，故保留为单函数。
 func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) error {
+	previousCheckMode := defaultCheckMode(existing.CheckMode)
 	providerChanged := false
 	if p.Name != nil {
 		existing.Name = strings.TrimSpace(*p.Name)
@@ -1116,7 +1117,7 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 		existing.CheckMode = defaultCheckMode(*p.CheckMode)
 	}
 	// provider 与 check_mode 任一变化后统一复核组合矩阵：provider-only 更新
-	// （如把 probe 监控的 provider 改成 antigravity）也不得落库非法组合，否则
+	// 不得落库非法组合，否则
 	// 运行期恒 error。条件限定避免把存量非法行的 name/enabled-only 更新也判死
 	// （否则连改名/停用都无法操作）。
 	if p.Provider != nil || p.CheckMode != nil {
@@ -1140,6 +1141,11 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 		existing.PrimaryModel = primaryModel
 	} else if providerChanged && existing.Provider == MonitorProviderGrok {
 		existing.PrimaryModel = MonitorDefaultGrokModel
+	}
+	// 纯配额模式的占位名称不能进入真实探测，切换时必须指定实际模型。
+	if previousCheckMode == MonitorCheckModeQuota && defaultCheckMode(existing.CheckMode) != MonitorCheckModeQuota &&
+		strings.TrimSpace(existing.PrimaryModel) == MonitorDefaultQuotaModel {
+		return ErrChannelMonitorMissingPrimaryModel
 	}
 	if p.ExtraModels != nil {
 		existing.ExtraModels = normalizeModels(*p.ExtraModels)
@@ -1184,7 +1190,7 @@ func applyMonitorAdvancedUpdate(existing *ChannelMonitor, p ChannelMonitorUpdate
 	}
 	newAPIMode := defaultAPIModeForProvider(existing.Provider, existing.APIMode)
 	if p.APIMode != nil {
-		newAPIMode = defaultAPIMode(*p.APIMode)
+		newAPIMode = normalizeMonitorAPIMode(existing.Provider, *p.APIMode)
 	}
 	if err := validateAPIMode(existing.Provider, newAPIMode); err != nil {
 		return err

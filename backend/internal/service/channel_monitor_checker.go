@@ -41,7 +41,7 @@ func newSSRFSafeHTTPClient(timeout time.Duration) *http.Client {
 // CheckOptions 承载一次检测的自定义入参。
 // 所有字段都是可选（零值即等价于"用默认行为"）。
 type CheckOptions struct {
-	// APIMode 对 OpenAI/OpenCode Go 生效；空串等同 chat_completions。
+	// APIMode 选择请求协议；Antigravity 的旧默认值按 Messages 处理。
 	APIMode string
 	// ExtraHeaders 用户自定义 HTTP 头（merge 到 adapter 默认 headers，用户优先）。
 	ExtraHeaders map[string]string
@@ -233,44 +233,49 @@ var providerAdapters = map[string]providerAdapter{
 	MonitorProviderCommandCode: providerCommandCodeChatAdapter,
 	// OpenCode Go 同一 key 下按模型分流到三种上游协议：chat 为默认表项，
 	// responses / messages 由 providerAdapterFor 按 api_mode 选择。
-	MonitorProviderOpenCodeGo: providerOpenCodeGoChatAdapter,
-	MonitorProviderAntigravityClaude: {
-		buildPath: func(string) string { return "/antigravity/v1/messages" },
-		buildBody: func(model, prompt string) ([]byte, error) {
-			return json.Marshal(map[string]any{
-				"model":      model,
-				"messages":   []map[string]string{{"role": "user", "content": prompt}},
-				"max_tokens": monitorChallengeMaxTokens,
-			})
-		},
-		buildHeaders: func(apiKey string) map[string]string {
-			return map[string]string{
-				"Authorization":     "Bearer " + apiKey,
-				"anthropic-version": monitorAnthropicAPIVersion,
-			}
-		},
-		textPath: "content.0.text",
+	MonitorProviderOpenCodeGo:  providerOpenCodeGoChatAdapter,
+	MonitorProviderAntigravity: providerAntigravityMessagesAdapter,
+}
+
+//nolint:gochecknoglobals // 适配器初始化后不变更。
+var providerAntigravityMessagesAdapter = providerAdapter{
+	buildPath: func(string) string { return "/antigravity/v1/messages" },
+	buildBody: func(model, prompt string) ([]byte, error) {
+		return json.Marshal(map[string]any{
+			"model":      model,
+			"messages":   []map[string]string{{"role": "user", "content": prompt}},
+			"max_tokens": monitorChallengeMaxTokens,
+		})
 	},
-	MonitorProviderAntigravityGemini: {
-		buildPath: func(model string) string {
-			return fmt.Sprintf("/antigravity/v1beta/models/%s:generateContent", model)
-		},
-		buildBody: func(model, prompt string) ([]byte, error) {
-			return json.Marshal(map[string]any{
-				"contents": []map[string]any{
-					{
-						"role":  "user",
-						"parts": []map[string]any{{"text": prompt}},
-					},
+	buildHeaders: func(apiKey string) map[string]string {
+		return map[string]string{
+			"Authorization":     "Bearer " + apiKey,
+			"anthropic-version": monitorAnthropicAPIVersion,
+		}
+	},
+	extractText: extractAnthropicMonitorText,
+}
+
+//nolint:gochecknoglobals // 适配器初始化后不变更。
+var providerAntigravityGeminiAdapter = providerAdapter{
+	buildPath: func(model string) string {
+		return fmt.Sprintf("/antigravity/v1beta/models/%s:generateContent", model)
+	},
+	buildBody: func(model, prompt string) ([]byte, error) {
+		return json.Marshal(map[string]any{
+			"contents": []map[string]any{
+				{
+					"role":  "user",
+					"parts": []map[string]any{{"text": prompt}},
 				},
-				"generationConfig": antigravityGeminiMonitorGenerationConfig(model),
-			})
-		},
-		buildHeaders: func(apiKey string) map[string]string {
-			return map[string]string{"x-goog-api-key": apiKey}
-		},
-		textPath: "candidates.0.content.parts.0.text",
+			},
+			"generationConfig": antigravityGeminiMonitorGenerationConfig(model),
+		})
 	},
+	buildHeaders: func(apiKey string) map[string]string {
+		return map[string]string{"x-goog-api-key": apiKey}
+	},
+	textPath: "candidates.0.content.parts.0.text",
 }
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
@@ -519,6 +524,12 @@ var providerOpenAIResponsesAdapter = providerAdapter{
 // providerAdapterFor 按 provider + api_mode 选择具体 adapter。
 func providerAdapterFor(provider, apiMode string) (providerAdapter, string, bool) {
 	mode := defaultAPIMode(apiMode)
+	if provider == MonitorProviderAntigravity {
+		if mode == MonitorAPIModeGenerateContent {
+			return providerAntigravityGeminiAdapter, mode, true
+		}
+		return providerAntigravityMessagesAdapter, MonitorAPIModeMessages, true
+	}
 	if provider == MonitorProviderOpenAI && mode == MonitorAPIModeResponses {
 		return providerOpenAIResponsesAdapter, MonitorAPIModeResponses, true
 	}
@@ -566,7 +577,7 @@ func callProviderWithClient(
 	if (provider == MonitorProviderOpenAI || provider == MonitorProviderOpenCodeGo) && apiMode == MonitorAPIModeResponses {
 		return extractOpenAIResponsesText(respBytes), string(respBytes), status, nil
 	}
-	if provider == MonitorProviderGemini || provider == MonitorProviderAntigravityGemini {
+	if provider == MonitorProviderGemini || (provider == MonitorProviderAntigravity && apiMode == MonitorAPIModeGenerateContent) {
 		return extractGeminiGenerateContentText(respBytes), string(respBytes), status, nil
 	}
 	if provider == MonitorProviderCline {
@@ -1115,12 +1126,12 @@ var bodyMergeKeyDenyList = map[string]map[string]bool{
 	MonitorProviderOpenCodeGo + ":" + MonitorAPIModeMessages:         {"model": true, "messages": true},
 	MonitorProviderOpenCodeGo + ":" + MonitorAPIModeResponses:        {"model": true, "instructions": true, "input": true, "stream": true},
 	MonitorProviderOpenRouter:                                        {"model": true, "messages": true, "stream": true},
-	MonitorProviderAntigravityClaude:                                 {"model": true, "messages": true},
-	MonitorProviderAntigravityGemini:                                 {"contents": true},
-	MonitorProviderKimi:                                              {"model": true, "messages": true, "stream": true},
-	MonitorProviderZhipu:                                             {"model": true, "messages": true, "stream": true},
-	MonitorProviderDeepseek:                                          {"model": true, "messages": true, "stream": true},
-	MonitorProviderMiniMax:                                           {"model": true, "messages": true, "stream": true},
+	MonitorProviderAntigravity + ":" + MonitorAPIModeMessages:        {"model": true, "messages": true},
+	MonitorProviderAntigravity + ":" + MonitorAPIModeGenerateContent: {"contents": true},
+	MonitorProviderKimi:     {"model": true, "messages": true, "stream": true},
+	MonitorProviderZhipu:    {"model": true, "messages": true, "stream": true},
+	MonitorProviderDeepseek: {"model": true, "messages": true, "stream": true},
+	MonitorProviderMiniMax:  {"model": true, "messages": true, "stream": true},
 }
 
 func checkAPIMode(opts *CheckOptions) string {
@@ -1131,6 +1142,12 @@ func checkAPIMode(opts *CheckOptions) string {
 }
 
 func bodyMergeDenyKey(provider, apiMode string) string {
+	if provider == MonitorProviderAntigravity {
+		if apiMode != MonitorAPIModeGenerateContent {
+			apiMode = MonitorAPIModeMessages
+		}
+		return provider + ":" + apiMode
+	}
 	if provider == MonitorProviderOpenAI || provider == MonitorProviderCline ||
 		provider == MonitorProviderCommandCode || provider == MonitorProviderOpenCodeGo {
 		return provider + ":" + defaultAPIMode(apiMode)
@@ -1153,6 +1170,16 @@ func isOpenAICompatibleChatProvider(provider string) bool {
 }
 
 func validateReplaceRequestBody(provider, apiMode string, body map[string]any) error {
+	if provider == MonitorProviderAntigravity {
+		field := "messages"
+		if apiMode == MonitorAPIModeGenerateContent {
+			field = "contents"
+		}
+		if !hasNonEmptyBodyValue(body[field]) {
+			return fmt.Errorf("replace mode %s body: %s is required", apiMode, field)
+		}
+		return nil
+	}
 	if !isOpenAICompatibleChatProvider(provider) {
 		return nil
 	}

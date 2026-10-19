@@ -101,7 +101,7 @@ func TestRunCheckForModel_AntigravityClaude_DefaultRequest(t *testing.T) {
 	h := &antigravityCaptureHandler{}
 	endpoint := setupFakeAntigravity(t, h)
 
-	res := runCheckForModel(context.Background(), MonitorProviderAntigravityClaude, endpoint, "sk-test", "claude-sonnet-4-6", nil)
+	res := runCheckForModel(context.Background(), MonitorProviderAntigravity, endpoint, "sk-test", "claude-sonnet-4-6", nil)
 
 	if res.Status != MonitorStatusOperational {
 		t.Fatalf("antigravity claude request should pass challenge, got status=%s message=%q", res.Status, res.Message)
@@ -130,7 +130,7 @@ func TestRunCheckForModel_AntigravityGemini_DefaultRequest(t *testing.T) {
 	h := &antigravityCaptureHandler{}
 	endpoint := setupFakeAntigravity(t, h)
 
-	res := runCheckForModel(context.Background(), MonitorProviderAntigravityGemini, endpoint, "sk-test", "gemini-3.1-pro-high", nil)
+	res := runCheckForModel(context.Background(), MonitorProviderAntigravity, endpoint, "sk-test", "gemini-3.1-pro-high", &CheckOptions{APIMode: MonitorAPIModeGenerateContent})
 
 	if res.Status != MonitorStatusOperational {
 		t.Fatalf("antigravity gemini request should pass challenge, got status=%s message=%q", res.Status, res.Message)
@@ -189,7 +189,7 @@ func TestRunCheckForModel_AntigravityGemini_ExtractsAnswerFromLaterTextPart(t *t
 	}))
 	t.Cleanup(srv.Close)
 
-	res := runCheckForModel(context.Background(), MonitorProviderAntigravityGemini, srv.URL, "sk-test", "gemini-3.5-flash-high", nil)
+	res := runCheckForModel(context.Background(), MonitorProviderAntigravity, srv.URL, "sk-test", "gemini-3.5-flash-high", &CheckOptions{APIMode: MonitorAPIModeGenerateContent})
 
 	if res.Status != MonitorStatusOperational {
 		t.Fatalf("antigravity gemini request should read later text parts, got status=%s message=%q", res.Status, res.Message)
@@ -221,7 +221,7 @@ func TestRunCheckForModel_AntigravityGemini_SkipsThoughtTextParts(t *testing.T) 
 	}))
 	t.Cleanup(srv.Close)
 
-	res := runCheckForModel(context.Background(), MonitorProviderAntigravityGemini, srv.URL, "sk-test", "gemini-3.1-pro-high", nil)
+	res := runCheckForModel(context.Background(), MonitorProviderAntigravity, srv.URL, "sk-test", "gemini-3.1-pro-high", &CheckOptions{APIMode: MonitorAPIModeGenerateContent})
 
 	if res.Status != MonitorStatusOperational {
 		t.Fatalf("antigravity gemini monitor should ignore thought text parts, got status=%s message=%q", res.Status, res.Message)
@@ -254,39 +254,43 @@ func TestRunCheckForModel_AntigravityGemini_UsesEchoChallengeForAgentModels(t *t
 	}))
 	t.Cleanup(srv.Close)
 
-	res := runCheckForModel(context.Background(), MonitorProviderAntigravityGemini, srv.URL, "sk-test", "gemini-3.5-flash-high", nil)
+	res := runCheckForModel(context.Background(), MonitorProviderAntigravity, srv.URL, "sk-test", "gemini-3.5-flash-high", &CheckOptions{APIMode: MonitorAPIModeGenerateContent})
 
 	if res.Status != MonitorStatusOperational {
 		t.Fatalf("antigravity gemini agent monitor should use exact echo challenge, got status=%s message=%q", res.Status, res.Message)
 	}
 }
 
-func TestValidateProvider_AcceptsAntigravityProviders(t *testing.T) {
-	for _, provider := range []string{MonitorProviderAntigravityClaude, MonitorProviderAntigravityGemini} {
-		if err := validateProvider(provider); err != nil {
-			t.Fatalf("validateProvider(%q) returned error: %v", provider, err)
+func TestValidateProvider_UnifiedAntigravity(t *testing.T) {
+	if err := validateProvider(MonitorProviderAntigravity); err != nil {
+		t.Fatal(err)
+	}
+	for _, legacy := range []string{"antigravity_claude", "antigravity_gemini"} {
+		if err := validateProvider(legacy); err == nil {
+			t.Fatalf("旧 provider %q 应由数据迁移统一", legacy)
 		}
 	}
 }
 
-func TestChannelMonitorTemplate_AcceptsAntigravityProviders(t *testing.T) {
-	for _, provider := range []string{MonitorProviderAntigravityClaude, MonitorProviderAntigravityGemini} {
+func TestChannelMonitorTemplate_AntigravityProtocols(t *testing.T) {
+	for _, mode := range []string{MonitorAPIModeChatCompletions, MonitorAPIModeMessages, MonitorAPIModeGenerateContent} {
 		err := validateTemplateCreateParams(ChannelMonitorRequestTemplateCreateParams{
-			Name:             "Antigravity default",
-			Provider:         provider,
-			APIMode:          MonitorAPIModeChatCompletions,
+			Name: "Antigravity", Provider: MonitorProviderAntigravity, APIMode: mode,
 			BodyOverrideMode: MonitorBodyOverrideModeOff,
 		})
 		if err != nil {
-			t.Fatalf("template create params for %q returned error: %v", provider, err)
+			t.Fatalf("Antigravity 协议 %q 无法创建模板: %v", mode, err)
 		}
+	}
+	if err := validateAPIMode(MonitorProviderOpenAI, MonitorAPIModeGenerateContent); err == nil {
+		t.Fatal("Gemini 原生协议不能应用到 OpenAI 监控")
 	}
 }
 
 func TestRunCheckForModel_AntigravityMergeModeProtectsProtocolFields(t *testing.T) {
 	claudeHandler := &antigravityCaptureHandler{}
 	claudeEndpoint := setupFakeAntigravity(t, claudeHandler)
-	claudeRes := runCheckForModel(context.Background(), MonitorProviderAntigravityClaude, claudeEndpoint, "sk-test", "claude-sonnet-4-6", &CheckOptions{
+	claudeRes := runCheckForModel(context.Background(), MonitorProviderAntigravity, claudeEndpoint, "sk-test", "claude-sonnet-4-6", &CheckOptions{
 		BodyOverrideMode: MonitorBodyOverrideModeMerge,
 		BodyOverride: map[string]any{
 			"model":      "hacked-claude",
@@ -309,7 +313,7 @@ func TestRunCheckForModel_AntigravityMergeModeProtectsProtocolFields(t *testing.
 
 	geminiHandler := &antigravityCaptureHandler{}
 	geminiEndpoint := setupFakeAntigravity(t, geminiHandler)
-	geminiRes := runCheckForModel(context.Background(), MonitorProviderAntigravityGemini, geminiEndpoint, "sk-test", "gemini-3-flash", &CheckOptions{
+	geminiRes := runCheckForModel(context.Background(), MonitorProviderAntigravity, geminiEndpoint, "sk-test", "gemini-3-flash", &CheckOptions{APIMode: MonitorAPIModeGenerateContent,
 		BodyOverrideMode: MonitorBodyOverrideModeMerge,
 		BodyOverride: map[string]any{
 			"contents":         []any{},
