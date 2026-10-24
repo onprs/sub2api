@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
+	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
@@ -108,7 +109,15 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	var result *ForwardResult
 	var handleErr error
 	if clientStream {
+		writerSizeBeforeStream := c.Writer.Size()
 		result, handleErr = s.handleCCStreamingFromAnthropic(resp, c, pipeline, originalModel, mappedModel, reasoningEffort, startTime)
+		var sseErr *sseStreamErrorEventError
+		switch {
+		case errors.As(handleErr, &sseErr):
+			return nil, s.sseStreamErrorEventFailover(ctx, c, account, resp, sseErr.RawData, mappedModel, c.Writer.Size() != writerSizeBeforeStream)
+		case errors.Is(handleErr, errAnthropicNativeStreamIdle) && s.rateLimitService != nil:
+			s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
+		}
 	} else {
 		result, handleErr = s.handleCCBufferedFromAnthropic(resp, c, pipeline, originalModel, mappedModel, reasoningEffort, startTime)
 	}
@@ -268,13 +277,9 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	reasoningEffort *string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
-	stream, err := s.collectAnthropicProtocolStream(resp, startTime)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = stream.Close() }()
-	requestID := stream.RequestID
-	session, err := pipeline.NewStreamProcessor(stream.ActualProtocol)
+	requestID := resp.Header.Get("x-request-id")
+	upstreamHeaders := responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
+	session, err := pipeline.NewStreamProcessor(protocolconv.ProtocolAnthropic)
 	if err != nil {
 		return nil, err
 	}
@@ -282,18 +287,25 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	if err != nil {
 		return nil, err
 	}
+
+	writerSizeBeforeStream := c.Writer.Size()
+	stream := newAnthropicCompatStream(s.cfg, c, resp, "forward_as_cc", requestID)
+	defer stream.stop()
+	defer func() { _ = resp.Body.Close() }()
+
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	hasUsage := false
+	sawMessageStart := false
 	sawStopReason := false
+	sawMessageStop := false
 	headersWritten := false
-	clientDisconnected := false
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
 			RequestID:        requestID,
 			UpstreamHeaders:  resp.Header,
-			ActualProtocol:   stream.ActualProtocol,
+			ActualProtocol:   protocolconv.ProtocolAnthropic,
 			Usage:            usage,
 			Model:            originalModel,
 			UpstreamModel:    mappedModel,
@@ -301,8 +313,18 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			Stream:           true,
 			Duration:         time.Since(startTime),
 			FirstTokenMs:     firstTokenMs,
-			ClientDisconnect: clientDisconnected,
+			ClientDisconnect: stream.clientDisconnected,
 		}
+	}
+	writeStreamHeaders := func() error {
+		if headersWritten {
+			return nil
+		}
+		if err := renderer.WriteStreamHeaders(c.Writer, resp.StatusCode, upstreamHeaders); err != nil {
+			return err
+		}
+		headersWritten = true
+		return nil
 	}
 	writePayloads := func(payloads [][]byte) error {
 		var visible [][]byte
@@ -311,14 +333,11 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 				visible = append(visible, payload)
 			}
 		}
-		if len(visible) == 0 || clientDisconnected {
+		if len(visible) == 0 || stream.clientDisconnected {
 			return nil
 		}
-		if !headersWritten {
-			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
-				return err
-			}
-			headersWritten = true
+		if err := writeStreamHeaders(); err != nil {
+			return err
 		}
 		for _, payload := range visible {
 			payload = reverseToolNamesIfPresent(c, payload)
@@ -327,7 +346,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 				return err
 			}
 			if _, err := c.Writer.Write(framed); err != nil {
-				clientDisconnected = true
+				stream.markClientDisconnected()
 				return nil
 			}
 		}
@@ -335,39 +354,42 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	}
 
 	for {
-		record, err := stream.Events.Next(context.Background())
-		if errors.Is(err, io.EOF) || errors.Is(err, protocoltransport.ErrSSEDone) {
-			completed, stopErr := completeAnthropicStreamOnEOF(session, sawStopReason)
-			if stopErr != nil {
-				return resultWithUsage(), fmt.Errorf("complete anthropic stream: %w", stopErr)
-			}
-			if err := writePayloads(completed); err != nil {
-				return resultWithUsage(), err
-			}
-			if headersWritten && !clientDisconnected {
-				c.Writer.Flush()
-			}
+		line, ok := stream.nextLine()
+		if !ok {
 			break
 		}
-		if err != nil {
-			return resultWithUsage(), fmt.Errorf("read anthropic stream: %w", err)
+		if _, ok := extractOpenAISSEEventLine(line); !ok {
+			continue
+		}
+		dataLine, ok := stream.nextLine()
+		if !ok {
+			break
+		}
+		payload, ok := extractOpenAISSEDataLine(dataLine)
+		if !ok {
+			continue
 		}
 		var event apicompat.AnthropicStreamEvent
-		if err := json.Unmarshal(record.Data, &event); err != nil {
-			return resultWithUsage(), fmt.Errorf("decode anthropic stream event: %w", err)
+		if err := json.Unmarshal([]byte(payload), &event); err != nil {
+			continue
+		}
+		stream.observe(&event, payload)
+		if stream.upstreamErrType != "" {
+			break
 		}
 		if event.Type == "ping" {
 			// 上游 keepalive ping 以 SSE 注释转发，保持长转换期间客户端连接存活。
 			// 首个真实数据前可能先收到 ping，需先写入流式响应头再发送注释。
-			if !headersWritten && !clientDisconnected {
-				if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
-					return resultWithUsage(), err
-				}
-				headersWritten = true
+			if stream.clientDisconnected {
+				continue
+			}
+			if err := writeStreamHeaders(); err != nil {
+				return resultWithUsage(), err
 			}
 			if _, err := c.Writer.Write([]byte(": ping\n\n")); err != nil {
-				clientDisconnected = true
-				return resultWithUsage(), nil
+				// 客户端已断开：停止下游写入，继续读取上游以结算已收集用量。
+				stream.markClientDisconnected()
+				continue
 			}
 			c.Writer.Flush()
 			continue
@@ -383,9 +405,10 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			mergeAnthropicUsage(&usage, *event.Usage)
 		}
 		if event.Type == "message_start" && event.Message != nil {
+			sawMessageStart = true
 			mergeAnthropicUsage(&usage, event.Message.Usage)
 		}
-		hasUsage = hasUsage || anthropicChatStreamHasUsage(&event, string(record.Data))
+		hasUsage = hasUsage || anthropicChatStreamHasUsage(&event, payload)
 		if event.Type == "message_delta" && event.Delta != nil && event.Delta.StopReason != "" {
 			sawStopReason = true
 		}
@@ -402,31 +425,60 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		}
 		// 每个上游事件后都向客户端 flush：事件可能没有下游数据
 		// （如 content_block_start），客户端仍需及时观察到流进度。
-		if headersWritten && !clientDisconnected {
+		if headersWritten && !stream.clientDisconnected {
 			c.Writer.Flush()
 		}
 		if event.Type == "message_stop" {
+			sawMessageStop = true
 			break
 		}
 	}
-	finalPayloads, _, err := session.Finalize()
-	if err != nil {
-		return resultWithUsage(), err
+
+	if failure := stream.failure(); failure != nil {
+		return finishAnthropicCompatStreamFailure(c, writerSizeBeforeStream, failure, resultWithUsage(), func() {
+			// 读超时需要在流内明确报错；其余失败在尚未向客户端输出时交给上层换号重试。
+			if !errors.Is(failure.err, errAnthropicNativeStreamIdle) && c.Writer.Size() == writerSizeBeforeStream {
+				return
+			}
+			if err := writeStreamHeaders(); err != nil {
+				return
+			}
+			writeAnthropicCompatCCStreamFailure(c, failure)
+		})
 	}
-	if err := writePayloads(finalPayloads); err != nil {
-		return resultWithUsage(), err
+	if stream.clientDisconnected {
+		return resultWithUsage(), nil
 	}
-	if !headersWritten && !clientDisconnected {
-		if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
+	// 上游只发 keepalive 即关闭：属于真正截断，按缺少结束事件报错。
+	if !sawMessageStart && !stream.sawTerminal {
+		return resultWithUsage(), errors.New("anthropic stream ended without message_stop")
+	}
+	if !sawMessageStop && (sawStopReason || stream.sawTerminal) {
+		completed, stopErr := completeAnthropicStreamOnEOF(session, true)
+		if stopErr != nil {
+			return resultWithUsage(), fmt.Errorf("complete anthropic stream: %w", stopErr)
+		}
+		if err := writePayloads(completed); err != nil {
 			return resultWithUsage(), err
 		}
 	}
-	if !clientDisconnected {
-		if terminal := renderer.StreamTerminal(); len(terminal) > 0 {
-			_, _ = c.Writer.Write(terminal)
+	// 上游未发出 message_start 即结束：没有可转换内容，按空流收尾。
+	if sawMessageStart {
+		finalPayloads, _, err := session.Finalize()
+		if err != nil {
+			return resultWithUsage(), err
 		}
-		c.Writer.Flush()
+		if err := writePayloads(finalPayloads); err != nil {
+			return resultWithUsage(), err
+		}
 	}
+	if err := writeStreamHeaders(); err != nil {
+		return resultWithUsage(), err
+	}
+	if terminal := renderer.StreamTerminal(); len(terminal) > 0 {
+		_, _ = c.Writer.Write(terminal)
+	}
+	c.Writer.Flush()
 	return resultWithUsage(), nil
 }
 

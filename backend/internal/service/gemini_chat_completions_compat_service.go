@@ -117,6 +117,9 @@ func (s *GeminiMessagesCompatService) forwardGeminiBodyAsChatCompletions(
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
 	geminiReq := ensureGeminiFunctionCallThoughtSignatures(convertedRequest.Body)
+	if geminiImageGenerationDenied(c, geminiReq, originalModel, req.Model, mappedModel) {
+		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", ImageGenerationPermissionMessage())
+	}
 	geminiReq = applyGeminiCompatThinkingForChat(geminiReq, conversionSource, mappedModel, clientStream)
 	return s.forwardGoogleProtocolRequest(ctx, c, account, googleProtocolRequest{
 		Source: protocolconv.ProtocolOpenAIChat, Pipeline: pipeline, GoogleBody: geminiReq,
@@ -338,7 +341,8 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 
 	var usage *ClaudeUsage
 	var firstTokenMs *int
-	clientDisconnected := false
+	clientDisconnect := false
+	streamFinished := false
 	if clientStream {
 		streamRes, err := s.handleGoogleProtocolStreamingResponse(c, resp, pipeline, input.Source, startTime, account.Type == AccountTypeOAuth, input.IncludeUsage)
 		if err != nil {
@@ -346,7 +350,8 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 		}
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
-		clientDisconnected = streamRes.clientDisconnected
+		clientDisconnect = streamRes.clientDisconnect
+		streamFinished = streamRes.finished
 	} else if useUpstreamStream {
 		collected, usageObj, rawStreamBody, err := s.collectGeminiSSEWithRaw(resp.Body, account.Type == AccountTypeOAuth)
 		if err != nil {
@@ -377,6 +382,10 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 	if isImageGenerationModel(originalModel) {
 		imageCount = 1
 	}
+	// 客户端在收到结束分片前断开时只计已送达的图片：Chat 流不向客户端转发图片。
+	if clientDisconnect && !streamFinished {
+		imageCount = 0
+	}
 
 	return &ForwardResult{
 		RequestID:        requestID,
@@ -392,7 +401,7 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 		ImageCount:       imageCount,
 		ImageSize:        imageSize,
 		ImageInputSize:   imageInputSize,
-		ClientDisconnect: clientDisconnected,
+		ClientDisconnect: clientDisconnect,
 	}, nil
 }
 
@@ -667,9 +676,35 @@ func (s *GeminiMessagesCompatService) handleGoogleProtocolStreamingResponse(
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	headersWritten := false
-	clientDisconnected := false
+	clientDisconnect := false
+	streamFinished := false
+	streamResult := func() *geminiStreamResult {
+		return &geminiStreamResult{
+			usage:            &usage,
+			firstTokenMs:     firstTokenMs,
+			clientDisconnect: clientDisconnect,
+			finished:         streamFinished,
+		}
+	}
+	markFinished := func(payloads [][]byte) {
+		if streamFinished || source != protocolconv.ProtocolOpenAIChat {
+			return
+		}
+		for _, payload := range payloads {
+			var chunk apicompat.ChatCompletionsChunk
+			if err := json.Unmarshal(payload, &chunk); err != nil {
+				continue
+			}
+			for _, choice := range chunk.Choices {
+				if choice.FinishReason != nil && strings.TrimSpace(*choice.FinishReason) != "" {
+					streamFinished = true
+					return
+				}
+			}
+		}
+	}
 	writePayloads := func(payloads [][]byte) (bool, error) {
-		if clientDisconnected {
+		if clientDisconnect {
 			return true, nil
 		}
 		visible := payloads[:0]
@@ -681,6 +716,7 @@ func (s *GeminiMessagesCompatService) handleGoogleProtocolStreamingResponse(
 		if len(visible) == 0 {
 			return false, nil
 		}
+		markFinished(visible)
 		if !headersWritten {
 			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
 				return false, err
@@ -695,7 +731,7 @@ func (s *GeminiMessagesCompatService) handleGoogleProtocolStreamingResponse(
 				return false, err
 			}
 			if _, err := c.Writer.Write(framed); err != nil {
-				clientDisconnected = true
+				clientDisconnect = true
 				return true, nil
 			}
 			wrote = true
@@ -712,6 +748,11 @@ func (s *GeminiMessagesCompatService) handleGoogleProtocolStreamingResponse(
 			break
 		}
 		if err != nil {
+			if geminiStreamAbortedWithBillableOutput(c, err, &usage) {
+				clientDisconnect = true
+				logger.LegacyPrintf("service.gemini_chat_completions", "[GeminiAPI] Client disconnected during chat stream, billing collected usage: %v", err)
+				return streamResult(), nil
+			}
 			return nil, fmt.Errorf("stream read error: %w", err)
 		}
 		if firstTokenMs == nil {
@@ -733,6 +774,10 @@ func (s *GeminiMessagesCompatService) handleGoogleProtocolStreamingResponse(
 	}
 	finalPayloads, _, err := session.Finalize()
 	if err != nil {
+		// 客户端已断开时不再向上游要求完整收尾，已收集用量照常结算。
+		if clientDisconnect {
+			return streamResult(), nil
+		}
 		return nil, fmt.Errorf("finalize Google stream: %w", err)
 	}
 	disconnected, err := writePayloads(finalPayloads)
@@ -740,8 +785,8 @@ func (s *GeminiMessagesCompatService) handleGoogleProtocolStreamingResponse(
 		return nil, err
 	}
 	_ = disconnected
-	if clientDisconnected {
-		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs, clientDisconnected: true}, nil
+	if clientDisconnect {
+		return streamResult(), nil
 	}
 	if !headersWritten {
 		if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
@@ -750,7 +795,7 @@ func (s *GeminiMessagesCompatService) handleGoogleProtocolStreamingResponse(
 	}
 	_, _ = c.Writer.Write(renderer.StreamTerminal())
 	c.Writer.Flush()
-	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs, clientDisconnected: clientDisconnected}, nil
+	return streamResult(), nil
 }
 
 func (s *GeminiMessagesCompatService) writeGeminiChatCompletionsMappedError(

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/gin-gonic/gin"
@@ -627,8 +628,8 @@ func TestForwardAsAnthropic_OAuthMessagesBridgePreservesAccountIdentityShape(t *
 	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, "codex-tui", upstream.lastReq.Header.Get("originator"))
+	require.Equal(t, openai.CodexCLIOriginator, upstream.lastReq.Header.Get("originator"))
 	require.Equal(t, codexCLIVersion, upstream.lastReq.Header.Get("version"))
-	require.Equal(t, "codex-tui/"+codexCLIVersion+" (Mac OS X 14.0; arm64) iTerm", upstream.lastReq.Header.Get("User-Agent"))
+	require.Equal(t, openai.CodexCLIOriginator+"/"+codexCLIVersion+" (Mac OS X 14.0; arm64) iTerm", upstream.lastReq.Header.Get("User-Agent"))
 	require.Equal(t, "responses=experimental", upstream.lastReq.Header.Get("OpenAI-Beta"))
 }

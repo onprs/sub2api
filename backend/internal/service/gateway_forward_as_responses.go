@@ -124,7 +124,15 @@ func (s *GatewayService) ForwardAsResponses(
 	var result *ForwardResult
 	var handleErr error
 	if clientStream {
+		writerSizeBeforeStream := c.Writer.Size()
 		result, handleErr = s.handleResponsesStreamingResponse(resp, c, pipeline, originalModel, mappedModel, reasoningEffort, startTime, clientToolMapping)
+		var sseErr *sseStreamErrorEventError
+		switch {
+		case errors.As(handleErr, &sseErr):
+			return nil, s.sseStreamErrorEventFailover(ctx, c, account, resp, sseErr.RawData, mappedModel, c.Writer.Size() != writerSizeBeforeStream)
+		case errors.Is(handleErr, errAnthropicNativeStreamIdle) && s.rateLimitService != nil:
+			s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
+		}
 	} else {
 		result, handleErr = s.handleResponsesBufferedStreamingResponse(resp, c, pipeline, originalModel, mappedModel, reasoningEffort, startTime, clientToolMapping)
 	}
@@ -439,14 +447,10 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	startTime time.Time,
 	clientToolMapping apicompat.ResponsesClientToolMapping,
 ) (*ForwardResult, error) {
-	stream, err := s.collectAnthropicProtocolStream(resp, startTime)
-	if err != nil {
-		return nil, err
-	}
-	requestID := stream.RequestID
-	defer func() { _ = stream.Close() }()
+	requestID := resp.Header.Get("x-request-id")
+	upstreamHeaders := responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
 
-	session, err := pipeline.NewStreamProcessor(stream.ActualProtocol)
+	session, err := pipeline.NewStreamProcessor(protocolconv.ProtocolAnthropic)
 	if err != nil {
 		return nil, err
 	}
@@ -455,17 +459,26 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		return nil, err
 	}
 	clientToolRestorer := apicompat.NewResponsesClientToolStreamRestorer(clientToolMapping)
+
 	var usage ClaudeUsage
 	var firstTokenMs *int
+	sawMessageStart := false
 	sawStopReason := false
+	sawMessageStop := false
 	headersWritten := false
-	clientDisconnected := false
+	lastResponseID := ""
+	lastSequenceNumber := int64(-1)
+	writerSizeBeforeStream := c.Writer.Size()
+
+	stream := newAnthropicCompatStream(s.cfg, c, resp, "forward_as_responses", requestID)
+	defer stream.stop()
+	defer func() { _ = resp.Body.Close() }()
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
 			RequestID:        requestID,
 			UpstreamHeaders:  resp.Header,
-			ActualProtocol:   stream.ActualProtocol,
+			ActualProtocol:   protocolconv.ProtocolAnthropic,
 			Usage:            usage,
 			Model:            originalModel,
 			UpstreamModel:    mappedModel,
@@ -473,18 +486,25 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			Stream:           true,
 			Duration:         time.Since(startTime),
 			FirstTokenMs:     firstTokenMs,
-			ClientDisconnect: clientDisconnected,
+			ClientDisconnect: stream.clientDisconnected,
 		}
 	}
-	writePayloads := func(payloads [][]byte) error {
-		if len(payloads) == 0 || clientDisconnected {
+	writeStreamHeaders := func() error {
+		if headersWritten {
 			return nil
 		}
-		if !headersWritten {
-			if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
-				return err
-			}
-			headersWritten = true
+		if err := renderer.WriteStreamHeaders(c.Writer, resp.StatusCode, upstreamHeaders); err != nil {
+			return err
+		}
+		headersWritten = true
+		return nil
+	}
+	writePayloads := func(payloads [][]byte) error {
+		if len(payloads) == 0 || stream.clientDisconnected {
+			return nil
+		}
+		if err := writeStreamHeaders(); err != nil {
+			return err
 		}
 		for _, body := range payloads {
 			body = reverseToolNamesIfPresent(c, body)
@@ -493,13 +513,18 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 				return fmt.Errorf("restore responses client tool stream event: %w", err)
 			}
 			for _, restoredBody := range restoredBodies {
+				if id := gjson.GetBytes(restoredBody, "response.id").String(); id != "" {
+					lastResponseID = id
+				}
+				if seq := gjson.GetBytes(restoredBody, "sequence_number"); seq.Exists() {
+					lastSequenceNumber = seq.Int()
+				}
 				framed, err := renderer.FrameStreamEvent(restoredBody)
 				if err != nil {
 					return err
 				}
 				if _, err := c.Writer.Write(framed); err != nil {
-					clientDisconnected = true
-					logger.L().Info("forward_as_responses stream: client disconnected, continuing to drain upstream for billing", zap.String("request_id", requestID))
+					stream.markClientDisconnected()
 					return nil
 				}
 			}
@@ -507,25 +532,63 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		c.Writer.Flush()
 		return nil
 	}
+	writeStreamFailure := func(failure *anthropicCompatStreamFailure) {
+		if err := writeStreamHeaders(); err != nil {
+			return
+		}
+		responseID := lastResponseID
+		if responseID == "" {
+			responseID = strings.ReplaceAll(strings.TrimSpace(requestID), "-", "")
+			if responseID == "" {
+				responseID = fmt.Sprintf("resp_%d", time.Now().UnixNano())
+			} else {
+				responseID = "resp_" + responseID
+			}
+		}
+		payload, err := json.Marshal(map[string]any{
+			"type":            "response.failed",
+			"sequence_number": lastSequenceNumber + 1,
+			"response": map[string]any{
+				"id":     responseID,
+				"object": "response",
+				"status": "failed",
+				"model":  originalModel,
+				"error":  map[string]string{"code": failure.errType, "message": failure.message},
+			},
+		})
+		if err != nil {
+			return
+		}
+		frame, err := renderer.FrameStreamEvent(payload)
+		if err != nil {
+			return
+		}
+		commitAnthropicCompatStreamFailure(c, failure, string(frame))
+	}
 
 	for {
-		record, err := stream.Events.Next(context.Background())
-		if errors.Is(err, io.EOF) || errors.Is(err, protocoltransport.ErrSSEDone) {
-			completed, stopErr := completeAnthropicStreamOnEOF(session, sawStopReason)
-			if stopErr != nil {
-				return resultWithUsage(), fmt.Errorf("complete anthropic stream: %w", stopErr)
-			}
-			if err := writePayloads(completed); err != nil {
-				return resultWithUsage(), err
-			}
+		line, ok := stream.nextLine()
+		if !ok {
 			break
 		}
-		if err != nil {
-			return resultWithUsage(), fmt.Errorf("read anthropic stream: %w", err)
+		if _, ok := extractOpenAISSEEventLine(line); !ok {
+			continue
+		}
+		dataLine, ok := stream.nextLine()
+		if !ok {
+			break
+		}
+		payload, ok := extractOpenAISSEDataLine(dataLine)
+		if !ok {
+			continue
 		}
 		var event apicompat.AnthropicStreamEvent
-		if err := json.Unmarshal(record.Data, &event); err != nil {
-			return resultWithUsage(), fmt.Errorf("decode anthropic stream event: %w", err)
+		if err := json.Unmarshal([]byte(payload), &event); err != nil {
+			continue
+		}
+		stream.observe(&event, payload)
+		if stream.upstreamErrType != "" {
+			break
 		}
 		if event.Type == "ping" {
 			continue
@@ -541,6 +604,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			mergeAnthropicUsage(&usage, *event.Usage)
 		}
 		if event.Type == "message_start" && event.Message != nil {
+			sawMessageStart = true
 			mergeAnthropicUsage(&usage, event.Message.Usage)
 		}
 		if event.Type == "message_delta" && event.Delta != nil && event.Delta.StopReason != "" {
@@ -558,28 +622,53 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			return resultWithUsage(), err
 		}
 		if event.Type == "message_stop" {
+			sawMessageStop = true
 			break
 		}
 	}
 
-	converted, _, err := session.Finalize()
-	if err != nil {
-		return resultWithUsage(), err
+	if failure := stream.failure(); failure != nil {
+		return finishAnthropicCompatStreamFailure(c, writerSizeBeforeStream, failure, resultWithUsage(), func() {
+			// 读超时需要在流内明确报错；其余失败在尚未向客户端输出时交给上层换号重试。
+			if !errors.Is(failure.err, errAnthropicNativeStreamIdle) && c.Writer.Size() == writerSizeBeforeStream {
+				return
+			}
+			writeStreamFailure(failure)
+		})
 	}
-	if err := writePayloads(converted); err != nil {
-		return resultWithUsage(), err
+	if stream.clientDisconnected {
+		return resultWithUsage(), nil
 	}
-	if !headersWritten && !clientDisconnected {
-		if err := renderer.WriteStreamHeaders(c.Writer, stream.StatusCode, stream.Headers); err != nil {
+	// 上游只发 keepalive 即关闭：属于真正截断，按缺少结束事件报错。
+	if !sawMessageStart && !stream.sawTerminal {
+		return resultWithUsage(), errors.New("anthropic stream ended without message_stop")
+	}
+	if !sawMessageStop && (sawStopReason || stream.sawTerminal) {
+		completed, stopErr := completeAnthropicStreamOnEOF(session, true)
+		if stopErr != nil {
+			return resultWithUsage(), fmt.Errorf("complete anthropic stream: %w", stopErr)
+		}
+		if err := writePayloads(completed); err != nil {
 			return resultWithUsage(), err
 		}
 	}
-	if !clientDisconnected {
-		if terminal := renderer.StreamTerminal(); len(terminal) > 0 {
-			_, _ = c.Writer.Write(terminal)
+	// 上游未发出 message_start 即结束：没有可转换内容，按空流收尾。
+	if sawMessageStart {
+		converted, _, err := session.Finalize()
+		if err != nil {
+			return resultWithUsage(), err
 		}
-		c.Writer.Flush()
+		if err := writePayloads(converted); err != nil {
+			return resultWithUsage(), err
+		}
 	}
+	if err := writeStreamHeaders(); err != nil {
+		return resultWithUsage(), err
+	}
+	if terminal := renderer.StreamTerminal(); len(terminal) > 0 {
+		_, _ = c.Writer.Write(terminal)
+	}
+	c.Writer.Flush()
 	return resultWithUsage(), nil
 }
 

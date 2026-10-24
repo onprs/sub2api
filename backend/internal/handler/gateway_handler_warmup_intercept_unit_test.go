@@ -173,12 +173,30 @@ func (r *fakeWarmupAccountRepo) GetByID(_ context.Context, id int64) (*service.A
 
 func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*service.Account) (*GatewayHandler, func()) {
 	t.Helper()
+	return newTestGatewayHandlerWithSchedulerCache(t, group, &fakeSchedulerCache{accounts: accounts})
+}
 
-	schedulerCache := &fakeSchedulerCache{accounts: accounts}
+func newTestGatewayHandlerWithSchedulerCache(t *testing.T, group *service.Group, schedulerCache service.SchedulerCache) (*GatewayHandler, func()) {
+	t.Helper()
+
 	schedulerSnapshot := service.NewSchedulerSnapshotService(schedulerCache, nil, nil, nil, nil)
 
+	var accounts []*service.Account
+	switch cache := schedulerCache.(type) {
+	case *fakeSchedulerCache:
+		accounts = cache.accounts
+	case *bucketRecordingSchedulerCache:
+		if cache.fakeSchedulerCache != nil {
+			accounts = cache.fakeSchedulerCache.accounts
+		}
+	case *groupScopedSchedulerCache:
+		if cache.fakeSchedulerCache != nil {
+			accounts = cache.fakeSchedulerCache.accounts
+		}
+	}
+
 	gwSvc := service.NewGatewayService(
-		&fakeWarmupAccountRepo{accounts: accounts},
+		&fakeWarmupAccountRepo{accounts: accounts}, // 选号后终检回读账号
 		&fakeGroupRepo{group: group},
 		nil, // usageLogRepo
 		nil, // usageBillingRepo

@@ -143,6 +143,9 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 	}
 	mappedModel := route.WireModel
 	billingModel := mappedModel
+	if geminiImageGenerationDenied(c, body, originalModel, mappedModel) {
+		return nil, s.writeForwardGeminiError(c, forwardOpts, http.StatusBadRequest, ImageGenerationPermissionMessage())
+	}
 
 	// 获取 access_token
 	if s.tokenProvider == nil {

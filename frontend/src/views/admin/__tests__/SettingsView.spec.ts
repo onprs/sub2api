@@ -825,10 +825,14 @@ describe("admin SettingsView payment visible method controls", () => {
     await openSecurityTab(wrapper);
 
     const cards = wrapper.findAll(".card");
+    const accessKeysCard = cards.findIndex(card => card.text().includes("adminAccessKeys.title"));
     const adminCard = cards.findIndex(card => card.text().includes("admin.settings.adminApiKey.title"));
     const readOnlyCard = cards.findIndex(card => card.text().includes("admin.settings.adminReadOnlyApiKey.title"));
-    expect(adminCard).toBeGreaterThanOrEqual(0);
-    expect(readOnlyCard).toBe(adminCard + 1);
+    expect(accessKeysCard).toBeGreaterThanOrEqual(0);
+    expect(readOnlyCard).toBeGreaterThan(accessKeysCard);
+    if (adminCard >= 0) {
+      expect(readOnlyCard).toBe(adminCard + 1);
+    }
     expect(wrapper.get('[aria-labelledby="read-only-api-key-title"]').isVisible()).toBe(true);
     wrapper.unmount();
   });

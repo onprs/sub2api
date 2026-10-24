@@ -49,6 +49,11 @@ type UsageBillingCommand struct {
 	// 仓库用它把请求指纹归一化，并在事务内按最终动态倍率缩放用户侧扣费金额。
 	DynamicRateBasisMultiplier float64
 	DynamicRateExcludedCost    float64
+
+	// AccountQuotaHasDailyLimit / AccountQuotaHasWeeklyLimit 记录构造命令时账号是否设置了日/周上限，
+	// 只用于选择账号配额累加语句，不参与幂等指纹；实际累加哪些维度以数据库中的账号配置为准。
+	AccountQuotaHasDailyLimit  bool
+	AccountQuotaHasWeeklyLimit bool
 }
 
 func (c *UsageBillingCommand) Normalize() {
