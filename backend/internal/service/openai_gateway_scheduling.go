@@ -26,6 +26,11 @@ const (
 	openCodeSessionIDHeader       = "X-Session-Id"
 	openCodeNativeSessionHeader   = "X-OpenCode-Session"
 	codeBuddyConversationHeader   = "X-Conversation-ID"
+
+	// astrBotConversationHeader 是 AstrBot 每个请求都会携带的稳定对话标识，
+	// 取值来自其 CONVERSATION_ID_HEADER。它按轮次保持不变，可作为粘性调度与
+	// 上游会话标识，避免每轮重新生成会话 ID 而丢失 prompt cache。
+	astrBotConversationHeader = "x-astrbot-conversation-id"
 )
 
 var explicitOpenAIHeaderSessionNames = []string{
@@ -36,6 +41,7 @@ var explicitOpenAIHeaderSessionNames = []string{
 	openCodeSessionIDHeader,
 	openCodeNativeSessionHeader,
 	codeBuddyConversationHeader,
+	astrBotConversationHeader,
 }
 
 // explicitOpenAIHeaderSessionID resolves stable conversation identifiers sent
