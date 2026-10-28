@@ -32,6 +32,15 @@ func TestOpenCodeGoDefaultProtocolRules(t *testing.T) {
 	}
 }
 
+func TestOpenCodeProtocolRulesAcceptGemini(t *testing.T) {
+	err := NormalizeProtocolRulesCredentials(map[string]any{
+		protocolRulesCredentialKey: []any{
+			map[string]any{"pattern": "gemini-*", "protocol": APIProtocolGoogleGenAI},
+		},
+	})
+	require.NoError(t, err)
+}
+
 func TestOpenCodeGoModelRoutedProtocol(t *testing.T) {
 	t.Parallel()
 	adaptive := &Account{Platform: PlatformOpenCodeGo, Credentials: map[string]any{"api_protocol": APIProtocolAdaptive}}

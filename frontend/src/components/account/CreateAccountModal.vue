@@ -4449,7 +4449,8 @@ const zhipuProject = ref('')
 const adaptiveBaseUrls = ref<Record<CnNativeApiProtocol, string>>({
   chat_completions: '',
   anthropic: '',
-  responses: ''
+  responses: '',
+  google_genai: ''
 })
 const isCNPlatform = computed(() => isCNProviderPlatform(form.platform))
 const isOpenCodeGoPlatform = computed(() => form.platform === 'opencode_go')
@@ -4485,11 +4486,12 @@ const adaptivePresetPlatform = computed<string>(() => {
 const NATIVE_PROTOCOL_LABEL_KEYS: Record<CnNativeApiProtocol, string> = {
   chat_completions: 'chatCompletions',
   anthropic: 'anthropic',
-  responses: 'responses'
+  responses: 'responses',
+  google_genai: 'googleGenai'
 }
 // 当前平台与接入模式提供原生端点的协议（profile 中有默认基址的协议）。
 const cnAdaptiveProtocolOptions = computed<Array<{ value: CnNativeApiProtocol; labelKey: string }>>(() =>
-  providerNativeProtocols(form.platform, currentOpenCodeOrCNMode()).map(value => ({
+  providerNativeProtocols(form.platform, currentOpenCodeOrCNMode()).filter(value => value !== 'google_genai').map(value => ({
     value,
     labelKey: NATIVE_PROTOCOL_LABEL_KEYS[value]
   }))
@@ -5680,7 +5682,7 @@ const resetForm = () => {
   openCodeAccountMode.value = 'zen'
   apiProtocol.value = 'adaptive'
   openCodeGoProtocolRules.value = cloneOpenCodeGoProtocolRules(defaultOpenCodeProtocolRules('zen'))
-  adaptiveBaseUrls.value = { chat_completions: '', anthropic: '', responses: '' }
+  adaptiveBaseUrls.value = { chat_completions: '', anthropic: '', responses: '', google_genai: '' }
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
   upstreamRequestIdHeader.value = ''

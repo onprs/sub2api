@@ -124,7 +124,8 @@ const removeRow = (index: number) => {
 const PROTOCOL_ORDER: Array<{ value: CnNativeApiProtocol; labelKey: string }> = [
   { value: 'chat_completions', labelKey: 'chatCompletions' },
   { value: 'responses', labelKey: 'responses' },
-  { value: 'anthropic', labelKey: 'anthropic' }
+  { value: 'anthropic', labelKey: 'anthropic' },
+  { value: 'google_genai', labelKey: 'googleGenai' }
 ]
 
 // 仅列出该接入模式提供原生端点的协议；已有规则使用的协议保留，避免编辑时丢值。

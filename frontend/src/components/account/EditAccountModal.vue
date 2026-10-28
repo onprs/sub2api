@@ -3543,7 +3543,8 @@ const editZhipuProject = ref('')
 const editAdaptiveBaseUrls = ref<Record<CnNativeApiProtocol, string>>({
   chat_completions: '',
   anthropic: '',
-  responses: ''
+  responses: '',
+  google_genai: ''
 })
 // 回填窗口标志：syncFormFromAccount 会同步改写 editAccountMode / editApiProtocol，
 // 而 watcher（pre-flush）在同步代码执行完之后才触发——若不抑制，会把刚恢复的
@@ -3565,11 +3566,12 @@ const cnAccountModeOptions = computed<Array<{ value: CnAccountMode; labelKey: 'p
 const NATIVE_PROTOCOL_LABEL_KEYS: Record<CnNativeApiProtocol, string> = {
   chat_completions: 'chatCompletions',
   anthropic: 'anthropic',
-  responses: 'responses'
+  responses: 'responses',
+  google_genai: 'googleGenai'
 }
 // 当前供应商与接入模式提供原生端点的协议（profile 中有默认基址的协议）。
 const editAdaptiveProtocolOptions = computed<Array<{ value: CnNativeApiProtocol; labelKey: string }>>(() =>
-  providerNativeProtocols(props.account?.platform ?? '', currentOpenCodeOrCNMode()).map(value => ({
+  providerNativeProtocols(props.account?.platform ?? '', currentOpenCodeOrCNMode()).filter(value => value !== 'google_genai').map(value => ({
     value,
     labelKey: NATIVE_PROTOCOL_LABEL_KEYS[value]
   }))
@@ -4604,10 +4606,14 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       const storedResponsesBaseUrl = typeof storedBaseUrls.responses === 'string'
         ? storedBaseUrls.responses.trim()
         : ''
+      const storedGoogleBaseUrl = typeof storedBaseUrls.google_genai === 'string'
+        ? storedBaseUrls.google_genai.trim()
+        : ''
       const nextAdaptiveBaseUrls: Record<CnNativeApiProtocol, string> = {
         chat_completions: storedChatBaseUrl || adaptiveDefaults.chat_completions,
         anthropic: storedAnthropicBaseUrl || adaptiveDefaults.anthropic,
-        responses: storedResponsesBaseUrl || adaptiveDefaults.responses
+        responses: storedResponsesBaseUrl || adaptiveDefaults.responses,
+        google_genai: storedGoogleBaseUrl || adaptiveDefaults.google_genai
       }
       const legacyProtocol: CnNativeApiProtocol = editApiProtocol.value === 'anthropic'
         ? 'anthropic'

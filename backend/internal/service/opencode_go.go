@@ -127,7 +127,7 @@ func DefaultOpenCodeZenProtocolRules() []ProtocolRule {
 
 func isNativeUpstreamProtocol(protocol string) bool {
 	switch protocol {
-	case APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses:
+	case APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses, APIProtocolGoogleGenAI:
 		return true
 	default:
 		return false

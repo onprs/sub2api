@@ -392,6 +392,8 @@ export default {
           anthropicDesc: '直通供应商原生 Anthropic 端点，零转换，适配 Claude Code。',
           responses: 'Responses',
           responsesDesc: '供应商原生 Responses 端点，适配 Codex。',
+          googleGenai: 'Gemini',
+          googleGenaiDesc: 'Google GenAI 原生端点（/v1beta generateContent / streamGenerateContent）。',
         },
         zhipuTeam: {
           title: '团队版组织 / 项目 ID',

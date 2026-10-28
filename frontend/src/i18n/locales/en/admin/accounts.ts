@@ -189,6 +189,8 @@ export default {
           anthropicDesc: 'Native passthrough to the provider’s Anthropic endpoint — ideal for Claude Code.',
           responses: 'Responses',
           responsesDesc: 'Provider’s native Responses endpoint — ideal for Codex.',
+          googleGenai: 'Gemini',
+          googleGenaiDesc: 'Native Google GenAI endpoint (/v1beta generateContent / streamGenerateContent).',
         },
         zhipuTeam: {
           title: 'Team Plan Organization / Project ID',

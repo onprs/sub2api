@@ -110,11 +110,15 @@ function legacyDefaultCNBaseUrl(platform: string, mode: string, protocol: CnApiP
 }
 
 function legacyAdaptiveBaseUrls(platform: string, mode: string) {
-  return {
+  const urls: Record<string, string> = {
     chat_completions: legacyDefaultCNBaseUrl(platform, mode, 'chat_completions'),
     anthropic: legacyDefaultCNBaseUrl(platform, mode, 'anthropic'),
     responses: legacySupportsResponses(platform) ? legacyDefaultCNBaseUrl(platform, mode, 'responses') : ''
   }
+  if (platform === 'opencode_go') {
+    urls.google_genai = mode === 'zen' ? 'https://opencode.ai/inference/google' : 'https://opencode.ai/inference/go/google'
+  }
+  return urls
 }
 
 // 各平台在旧实现中可取到的接入模式（旧实现对未知模式回落默认模式）。

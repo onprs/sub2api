@@ -54,6 +54,13 @@ describe('OpenCodeGoProtocolRulesEditor protocol sets', () => {
     expect(rows[1]).toEqual({ pattern: 'grok-*', protocol: 'responses' })
   })
 
+  it('offers the native Gemini protocol for OpenCode routing rules', () => {
+    const wrapper = mountEditor([{ pattern: 'gemini-*', protocol: 'google_genai' }], 'opencode_go', 'go')
+    const select = wrapper.get('[data-testid="opencode-go-protocol-select-0"]')
+    expect((select.element as HTMLSelectElement).value).toBe('google_genai')
+    expect(select.findAll('option').map(option => option.element.value)).toContain('google_genai')
+  })
+
   it('describes the model-list fallback only for providers with a model catalog', () => {
     expect(mountEditor([]).get('[data-testid="opencode-go-protocol-fallback"]').text())
       .toContain('admin.accounts.opencodeGo.protocolRules.catalogFallback')

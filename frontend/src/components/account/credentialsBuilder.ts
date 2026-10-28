@@ -262,10 +262,10 @@ export type OpenCodeAccountMode = 'zen' | 'go'
 export type CnProviderPlatform = 'kimi' | 'zhipu' | 'deepseek' | 'minimax'
 
 /** adaptive 按入站协议（或按模型规则）选择原生端点。 */
-export type CnApiProtocol = 'adaptive' | 'chat_completions' | 'anthropic' | 'responses'
+export type CnApiProtocol = 'adaptive' | 'chat_completions' | 'anthropic' | 'responses' | 'google_genai'
 export type CnNativeApiProtocol = Exclude<CnApiProtocol, 'adaptive'>
 
-const NATIVE_API_PROTOCOLS: CnNativeApiProtocol[] = ['chat_completions', 'anthropic', 'responses']
+const NATIVE_API_PROTOCOLS: CnNativeApiProtocol[] = ['chat_completions', 'anthropic', 'responses', 'google_genai']
 
 export function isCNProviderPlatform(platform: string): platform is CnProviderPlatform {
   return platform === 'kimi' || platform === 'zhipu' || platform === 'deepseek' || platform === 'minimax'
@@ -525,11 +525,13 @@ export function defaultCNAdaptiveBaseUrls(
   mode: string
 ): Record<CnNativeApiProtocol, string> {
   const baseUrls = getProviderMode(platform, mode)?.base_urls ?? {}
-  return {
+  const result: Partial<Record<CnNativeApiProtocol, string>> = {
     chat_completions: baseUrls.chat_completions ?? '',
     anthropic: baseUrls.anthropic ?? '',
     responses: baseUrls.responses ?? ''
   }
+  if (baseUrls.google_genai) result.google_genai = baseUrls.google_genai
+  return result as Record<CnNativeApiProtocol, string>
 }
 
 // ===== 国产供应商用量单元格可见性（单一事实源） =====

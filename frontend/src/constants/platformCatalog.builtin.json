@@ -157,6 +157,7 @@
             "base_urls": {
               "anthropic": "https://opencode.ai/zen/go",
               "chat_completions": "https://opencode.ai/zen/go/v1",
+              "google_genai": "https://opencode.ai/inference/go/google",
               "responses": "https://opencode.ai/zen/go/v1"
             },
             "protocol_rules": [
@@ -195,6 +196,7 @@
             "base_urls": {
               "anthropic": "https://opencode.ai/zen",
               "chat_completions": "https://opencode.ai/zen/v1",
+              "google_genai": "https://opencode.ai/inference/google",
               "responses": "https://opencode.ai/zen/v1"
             },
             "protocol_rules": [
