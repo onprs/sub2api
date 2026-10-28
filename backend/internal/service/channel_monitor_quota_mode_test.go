@@ -340,6 +340,10 @@ func TestValidateCreateParams_CheckModeMatrix(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			// 此处只验证监控配置，使用公网 IP 避免依赖外部 DNS。
+			if tc.params.Endpoint != "" {
+				tc.params.Endpoint = "https://8.8.8.8"
+			}
 			err := validateCreateParams(tc.params)
 			if tc.wantErr == nil {
 				require.NoError(t, err)

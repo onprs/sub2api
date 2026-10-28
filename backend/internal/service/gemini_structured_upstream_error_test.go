@@ -171,7 +171,7 @@ func TestGeminiStructuredErrorRetryUsesSuccessfulAttempt(t *testing.T) {
 			Body:       successBody,
 		},
 	}}
-	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{Gateway: config.GatewayConfig{MaxSameAccountRetriesGemini: 1}}}
 	account := &Account{ID: 305, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
 		"api_key": "test-key", "model_mapping": map[string]any{"chat-client": "gemini-upstream"},
 	}}

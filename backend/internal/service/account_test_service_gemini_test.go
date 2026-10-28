@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -37,14 +38,14 @@ func TestGeminiAccountTestModel_SelectsTierDefault(t *testing.T) {
 			want:    "gemini-3-flash-preview",
 		},
 		{
-			name:    "Paid Tier 保留原有默认模型",
+			name:    "Paid Tier 使用官方默认模型",
 			account: &Account{Type: AccountTypeAPIKey, Credentials: map[string]any{"tier_id": "aistudio_paid"}},
-			want:    "gemini-2.0-flash",
+			want:    geminicli.DefaultTestModel,
 		},
 		{
-			name:    "OAuth 保留原有默认模型",
+			name:    "OAuth 使用官方默认模型",
 			account: &Account{Type: AccountTypeOAuth},
-			want:    "gemini-2.0-flash",
+			want:    geminicli.DefaultTestModel,
 		},
 	}
 
@@ -101,4 +102,15 @@ func TestProcessGeminiStream_EmitsImageEvent(t *testing.T) {
 	require.Contains(t, body, "\"type\":\"image\"")
 	require.Contains(t, body, "\"image_url\":\"data:image/png;base64,QUJD\"")
 	require.Contains(t, body, "\"mime_type\":\"image/png\"")
+}
+
+func TestGeminiDefaultTestModel(t *testing.T) {
+	t.Parallel()
+
+	googleOne := &Account{Platform: PlatformGemini, Type: AccountTypeOAuth, Credentials: map[string]any{"oauth_type": "google_one"}}
+	require.Equal(t, geminicli.GoogleOneModels[0].ID, geminiDefaultTestModel(googleOne))
+	require.Contains(t, googleOne.GetModelMapping(), geminiDefaultTestModel(googleOne))
+
+	apiKey := &Account{Platform: PlatformGemini, Type: AccountTypeAPIKey}
+	require.Equal(t, geminicli.DefaultTestModel, geminiDefaultTestModel(apiKey))
 }

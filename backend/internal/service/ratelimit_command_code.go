@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/tidwall/gjson"
 )
 
 // Command Code 用量超限的响应式处理，依据官方错误说明
@@ -62,6 +64,21 @@ func commandCodeSpendLimitIsModelScoped(body []byte) bool {
 	}
 	target := strings.ToLower(strings.TrimSpace(string(match[1])))
 	return target != "" && !strings.HasPrefix(target, "you")
+}
+
+// commandCodeInsufficientCredits400 识别实测的余额不足响应，避免匹配参数错误中回显的请求内容。
+func commandCodeInsufficientCredits400(statusCode int, body []byte) bool {
+	if statusCode != http.StatusBadRequest || !gjson.ValidBytes(body) {
+		return false
+	}
+	for _, path := range []string{"error.code", "error.type"} {
+		if strings.EqualFold(strings.TrimSpace(gjson.GetBytes(body, path).String()), "insufficient_credits") {
+			return true
+		}
+	}
+	message := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(body)))
+	return strings.HasPrefix(message, "you have insufficient credits to make this request.") &&
+		strings.Contains(message, "please purchase more credits")
 }
 
 func classifyCommandCodeUsageError(body []byte) commandCodeUsageErrorKind {

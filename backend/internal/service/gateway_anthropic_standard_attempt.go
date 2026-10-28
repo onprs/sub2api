@@ -104,6 +104,20 @@ func (s *GatewayService) forwardStandardProtocolToAnthropic(
 		return nil, collectErr
 	}
 	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(upstream.Body)))
+	if account.IsCommandCode() && commandCodeInsufficientCredits400(upstream.StatusCode, upstream.Body) &&
+		s.rateLimitService != nil && s.rateLimitService.HandleUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, mappedModel) {
+		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
+			Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+			UpstreamStatusCode: upstream.StatusCode, UpstreamRequestID: upstream.RequestID,
+			Kind: "failover", Message: upstreamMsg,
+		})
+		return nil, &UpstreamFailoverError{
+			StatusCode:      upstream.StatusCode,
+			ResponseBody:    upstream.Body,
+			ResponseHeaders: protocoltransport.CloneHeaders(upstream.Headers),
+		}
+	}
 	if s.shouldFailoverUpstreamError(upstream.StatusCode) {
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),

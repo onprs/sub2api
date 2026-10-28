@@ -634,7 +634,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 
-	terminal, err := s.collectOpenAICompatBufferedTerminal(resp, c, "openai messages buffered", startTime)
+	terminal, err := s.collectOpenAICompatBufferedTerminal(resp, c, "openai messages buffered", startTime, account)
 	if err != nil {
 		var readErr *openAICompatBufferedReadError
 		if errors.As(err, &readErr) && readErr != nil {
@@ -653,6 +653,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
+	terminal.Prior.apply(observer)
 	observer.Observe(finalResponse.Model, true)
 	observer.ObserveServiceTier(finalResponse.ServiceTier, true)
 
@@ -780,6 +781,7 @@ type openAICompatBufferedTerminal struct {
 	Response    *apicompat.ResponsesResponse
 	Usage       OpenAIUsage
 	Accumulator *apicompat.BufferedResponseAccumulator
+	Prior       openAICompatPriorModelAudit
 }
 
 // openAICompatBufferedReadError 只标记错误发生在上游响应体读取阶段；
@@ -845,14 +847,44 @@ func openAICompatTerminalResponse(event *apicompat.ResponsesStreamEvent, payload
 	}
 }
 
+type openAICompatPriorModelAudit struct {
+	enabled  bool
+	observer upstreamResponseModelObserver
+}
+
+func (a *openAICompatPriorModelAudit) record(event *apicompat.ResponsesStreamEvent) {
+	if a == nil || !a.enabled || event == nil || event.Response == nil || isOpenAICompatResponsesTerminalEvent(event.Type) {
+		return
+	}
+	if model := strings.TrimSpace(event.Response.Model); model != "" {
+		a.observer.Observe(model, false)
+	}
+}
+
+func (a openAICompatPriorModelAudit) apply(observer *upstreamResponseModelObserver) {
+	if !a.enabled || observer == nil {
+		return
+	}
+	if a.observer.first != "" {
+		observer.Observe(a.observer.first, false)
+	}
+	if a.observer.conflict {
+		observer.conflict = true
+	}
+}
+
 func (s *OpenAIGatewayService) collectOpenAICompatBufferedTerminal(
 	resp *http.Response,
 	c *gin.Context,
 	logPrefix string,
 	startTime time.Time,
+	accounts ...*Account,
 ) (*openAICompatBufferedTerminal, error) {
 	acc := apicompat.NewBufferedResponseAccumulator()
 	result := &openAICompatBufferedTerminal{Accumulator: acc}
+	if len(accounts) > 0 && accounts[0] != nil && accounts[0].IsGrok() {
+		result.Prior.enabled = true
+	}
 	stream, parser, err := s.collectOpenAICompatResponsesStream(resp, startTime)
 	if err != nil {
 		return result, err
@@ -923,6 +955,7 @@ func (s *OpenAIGatewayService) collectOpenAICompatBufferedTerminal(
 			}
 			s.parseSSEUsageBytesWithType(payloadBytes, parsed.Type, &result.Usage)
 			acc.ProcessEvent(&parsed)
+			result.Prior.record(&parsed)
 			response := openAICompatTerminalResponse(&parsed, payloadBytes)
 			if !isOpenAICompatResponsesTerminalEvent(parsed.Type) || response == nil {
 				continue

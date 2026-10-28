@@ -753,7 +753,7 @@ func TestGetAvailableModels_GeminiAPIKeyPaidEmptyMappingUsesExtendedCatalog(t *t
 
 	models := svc.GetAvailableModels(context.Background(), &groupID, PlatformGemini)
 	require.Len(t, models, len(geminicli.DefaultModels))
-	require.Contains(t, models, "gemini-2.5-pro")
+	require.Contains(t, models, "gemini-3.5-flash")
 	require.Contains(t, models, "gemini-3.1-flash-image")
 }
 

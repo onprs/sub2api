@@ -22,7 +22,10 @@ import (
 // 客户端断开原样返回，不换号、不摘号；
 // countTokens 重试耗尽后以本地估算兜底。
 
-const geminiTransportTestNativeBody = `{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`
+const (
+	geminiTransportTestNativeBody = `{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`
+	geminiMaxRetries              = geminiDefaultSameAccountRetries + 1
+)
 
 func newGeminiTransportErrorService(upstreamErr error) (*GeminiMessagesCompatService, *geminiCompatHTTPUpstreamStub, *transportTempUnschedRepoStub) {
 	httpStub := &geminiCompatHTTPUpstreamStub{err: upstreamErr}
@@ -32,6 +35,7 @@ func newGeminiTransportErrorService(upstreamErr error) (*GeminiMessagesCompatSer
 		httpUpstream: httpStub,
 		cfg:          &config.Config{},
 	}
+	svc.cfg.Gateway.MaxSameAccountRetriesGemini = geminiDefaultSameAccountRetries
 	return svc, httpStub, repo
 }
 

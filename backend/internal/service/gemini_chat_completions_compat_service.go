@@ -195,7 +195,8 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 	var lastError *protocoltransport.Response
 	// checkedPolicy 是循环内对当前上游错误响应检查的错误策略结果，未检查时为 nil。
 	var checkedPolicy *ErrorPolicyResult
-	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
+	maxAttempts := s.geminiMaxAttemptsPerAccount()
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		checkedPolicy = nil
 		upstreamReq, idHeader, err := buildReq(ctx)
 		if err != nil {
@@ -214,7 +215,7 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
 			}
-			if attempt < geminiMaxRetries {
+			if attempt < maxAttempts {
 				safeErr := sanitizeUpstreamErrorMessage(err.Error())
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 					ProxyID:            opsUpstreamProxyID(account),
@@ -226,7 +227,7 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 					Kind:               "request_error",
 					Message:            safeErr,
 				})
-				logger.LegacyPrintf("service.gemini_chat_completions", "Gemini account %d: upstream request failed, retry %d/%d: %v", account.ID, attempt, geminiMaxRetries, err)
+				logger.LegacyPrintf("service.gemini_chat_completions", "Gemini account %d: upstream request failed, retry %d/%d: %v", account.ID, attempt, maxAttempts, err)
 				sleepGeminiBackoff(attempt)
 				continue
 			}
@@ -250,7 +251,7 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 				if upstream.StatusCode == http.StatusTooManyRequests {
 					s.handleGeminiUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body)
 				}
-				if attempt < geminiMaxRetries {
+				if attempt < maxAttempts {
 					upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(upstream.Body)))
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 						ProxyID:            opsUpstreamProxyID(account),
@@ -263,7 +264,7 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 						Kind:               "retry",
 						Message:            upstreamMsg,
 					})
-					logger.LegacyPrintf("service.gemini_chat_completions", "Gemini account %d: upstream status %d, retry %d/%d", account.ID, upstream.StatusCode, attempt, geminiMaxRetries)
+					logger.LegacyPrintf("service.gemini_chat_completions", "Gemini account %d: upstream status %d, retry %d/%d", account.ID, upstream.StatusCode, attempt, maxAttempts)
 					lastError = nil
 					sleepGeminiBackoff(attempt)
 					continue
@@ -398,6 +399,7 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 		Duration:         time.Since(startTime),
 		FirstTokenMs:     firstTokenMs,
 		ReasoningEffort:  reasoningEffort,
+		ImageEndpoint:    imageCount > 0,
 		ImageCount:       imageCount,
 		ImageSize:        imageSize,
 		ImageInputSize:   imageInputSize,

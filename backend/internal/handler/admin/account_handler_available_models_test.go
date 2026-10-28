@@ -375,7 +375,7 @@ func TestAccountHandlerGetAvailableModels_GeminiAPIKeyPaidRetainsExtendedCatalog
 	for _, model := range resp.Data {
 		ids = append(ids, model.ID)
 	}
-	require.Contains(t, ids, "gemini-2.5-pro")
+	require.Contains(t, ids, "gemini-3.5-flash")
 	require.Contains(t, ids, "gemini-3.1-flash-image")
 }
 

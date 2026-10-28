@@ -2518,6 +2518,13 @@ func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, accoun
 	}
 }
 
+func geminiDefaultTestModel(account *Account) string {
+	if account != nil && account.IsGeminiGoogleOne() {
+		return geminicli.GoogleOneModels[0].ID
+	}
+	return geminicli.DefaultTestModel
+}
+
 func geminiAccountTestModel(account *Account, requestedModel string) string {
 	if strings.TrimSpace(requestedModel) != "" {
 		return requestedModel
@@ -2525,14 +2532,14 @@ func geminiAccountTestModel(account *Account, requestedModel string) string {
 	if account != nil && account.Type == AccountTypeAPIKey {
 		return geminicli.DefaultModelForAIStudioTier(account.GeminiTierID())
 	}
-	return geminicli.DefaultTestModel
+	return geminiDefaultTestModel(account)
 }
 
 // testGeminiAccountConnection 测试 Gemini 账户连接。
 func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	ctx := c.Request.Context()
 
-	// 根据账户等级选择未显式指定时的测试模型，Free Tier 不再回落到已下线的 2.0。
+	// 未指定模型时按账户等级及 Google One 可用模型选择。
 	testModelID := geminiAccountTestModel(account, modelID)
 
 	// For static upstream credentials with model mapping, map the model

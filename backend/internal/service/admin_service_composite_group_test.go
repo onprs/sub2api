@@ -203,7 +203,7 @@ func TestAdminService_CompositeModelsListCandidatesIncludeConcreteAccountMapping
 	require.Contains(t, candidates, "gemini-custom")
 	require.Contains(t, candidates, "kimi-custom")
 	require.Contains(t, candidates, "gpt-5.5")
-	require.Contains(t, candidates, "gemini-2.5-flash")
+	require.Contains(t, candidates, "gemini-3.5-flash")
 }
 
 // 独立 CN 分组的模型列表候选沿用 default 分支的 Claude 默认列表；

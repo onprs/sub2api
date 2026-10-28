@@ -341,6 +341,10 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 		isOpenAICompatibleModelNotFound400(upstreamBody) {
 		return true
 	}
+	if account != nil && account.IsCommandCode() && commandCodeInsufficientCredits400(statusCode, upstreamBody) &&
+		account.ShouldHandleErrorCode(statusCode) && (!account.IsPoolMode() || account.IsCustomErrorCodesEnabled()) {
+		return true
+	}
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return true
 	}

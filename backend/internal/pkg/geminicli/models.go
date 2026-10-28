@@ -28,15 +28,22 @@ var AIStudioFreeModels = []Model{
 
 // DefaultModels 保留非目标账户原有的 OAuth、付费和 Vertex 通用兜底目录。
 var DefaultModels = []Model{
-	{ID: "gemini-2.0-flash", Type: "model", DisplayName: "Gemini 2.0 Flash", CreatedAt: ""},
-	{ID: "gemini-2.5-flash", Type: "model", DisplayName: "Gemini 2.5 Flash", CreatedAt: ""},
-	{ID: "gemini-2.5-flash-image", Type: "model", DisplayName: "Gemini 2.5 Flash Image", CreatedAt: ""},
-	{ID: "gemini-2.5-pro", Type: "model", DisplayName: "Gemini 2.5 Pro", CreatedAt: ""},
-	{ID: "gemini-3.5-flash", Type: "model", DisplayName: "Gemini 3.5 Flash", CreatedAt: ""},
-	{ID: "gemini-3-flash-preview", Type: "model", DisplayName: "Gemini 3 Flash Preview", CreatedAt: ""},
-	{ID: "gemini-3-pro-preview", Type: "model", DisplayName: "Gemini 3 Pro Preview", CreatedAt: ""},
-	{ID: "gemini-3.1-pro-preview", Type: "model", DisplayName: "Gemini 3.1 Pro Preview", CreatedAt: ""},
 	{ID: "gemini-3.1-flash-image", Type: "model", DisplayName: "Gemini 3.1 Flash Image", CreatedAt: ""},
+	{ID: "gemini-3.1-flash-image-preview", Type: "model", DisplayName: "Gemini 3.1 Flash Image Preview", CreatedAt: ""},
+	{ID: "gemini-3.1-flash-lite-image", Type: "model", DisplayName: "Gemini 3.1 Flash Lite Image", CreatedAt: ""},
+	{ID: "gemini-3-pro-image", Type: "model", DisplayName: "Gemini 3 Pro Image", CreatedAt: ""},
+	{ID: "gemini-3-pro-image-preview", Type: "model", DisplayName: "Gemini 3 Pro Image Preview", CreatedAt: ""},
+	{ID: "gemini-3-flash", Type: "model", DisplayName: "Gemini 3 Flash", CreatedAt: ""},
+	{ID: "gemini-3-flash-preview", Type: "model", DisplayName: "Gemini 3 Flash Preview", CreatedAt: ""},
+	{ID: "gemini-3.1-pro-preview", Type: "model", DisplayName: "Gemini 3.1 Pro Preview", CreatedAt: ""},
+	{ID: "gemini-3.1-pro-preview-customtools", Type: "model", DisplayName: "Gemini 3.1 Pro Preview Custom Tools", CreatedAt: ""},
+	{ID: "gemini-3.1-flash-lite", Type: "model", DisplayName: "Gemini 3.1 Flash Lite", CreatedAt: ""},
+	{ID: "gemini-3.1-flash-lite-preview", Type: "model", DisplayName: "Gemini 3.1 Flash Lite Preview", CreatedAt: ""},
+	{ID: "gemini-3.5-flash", Type: "model", DisplayName: "Gemini 3.5 Flash", CreatedAt: ""},
+	{ID: "gemini-3.5-flash-lite", Type: "model", DisplayName: "Gemini 3.5 Flash Lite", CreatedAt: ""},
+	{ID: "gemini-3.6-flash", Type: "model", DisplayName: "Gemini 3.6 Flash", CreatedAt: ""},
+	{ID: "gemini-3.7-flash", Type: "model", DisplayName: "Gemini 3.7 Flash", CreatedAt: ""},
+	{ID: "gemini-3.8-flash", Type: "model", DisplayName: "Gemini 3.8 Flash", CreatedAt: ""},
 	{ID: "gemini-4-argon", Type: "model", DisplayName: "Gemini 4 Argon", CreatedAt: ""},
 }
 
@@ -53,11 +60,13 @@ func ModelsForAIStudioTier(tierID string) []Model {
 
 // DefaultModelForAIStudioTier 返回该等级未指定测试模型时使用的请求 ID。
 func DefaultModelForAIStudioTier(tierID string) string {
-	models := ModelsForAIStudioTier(tierID)
-	if len(models) == 0 {
-		return DefaultTestModel
+	switch strings.ToLower(strings.TrimSpace(tierID)) {
+	case "", "free", "aistudio_free":
+		if len(AIStudioFreeModels) > 0 {
+			return AIStudioFreeModels[0].ID
+		}
 	}
-	return models[0].ID
+	return DefaultTestModel
 }
 
 // GoogleOneModels 是旧 Google One OAuth 渠道可用的保守模型集合。
@@ -78,4 +87,4 @@ func GoogleOneModelMapping() map[string]string {
 }
 
 // DefaultTestModel 是非 Free Tier 账户测试未指定模型时使用的默认模型。
-const DefaultTestModel = "gemini-2.0-flash"
+const DefaultTestModel = "gemini-3.5-flash"

@@ -10,7 +10,7 @@ package service
 // scanner.Scan() 将永久阻塞：goroutine 钉死、resp.Body 不归还、连接池位
 // 被占用、usage 永不落库。
 //
-// 与 handleAnthropicStreamingResponse / readOpenAICompatBufferedTerminal 的
+// 与 handleAnthropicStreamingResponse / collectOpenAICompatBufferedTerminal 的
 // 同类排水一致，本泵用 gateway.stream_data_interval_timeout（默认 180s）作为
 // 逐行读间隔上限，超时即向调用方返回 errAnthropicNativeStreamIdle，由调用方
 // 关闭 resp.Body 解除阻塞的读并结束排水。
