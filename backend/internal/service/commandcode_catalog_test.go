@@ -288,6 +288,7 @@ func TestCommandCodeCatalogRefreshOnlySkipsUnlistedJev(t *testing.T) {
 		wantErr bool
 	}{
 		{id: "typesafe/jev"},
+		{id: "typesafe/jev-1.14.0"},
 		{id: "unlisted/other", wantErr: true},
 	} {
 		t.Run(tt.id, func(t *testing.T) {
@@ -465,7 +466,7 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 	require.Contains(t, ids, "gpt-6-luna")
 	require.Contains(t, ids, "claude-sonnet-5-5")
 	require.Contains(t, ids, "deepseek/deepseek-v4.1-flash-fast")
-	require.Contains(t, ids, "inclusionai/ling-3.1-flash:free")
+	require.Contains(t, ids, "inclusionai/ling-3.1-flash")
 	require.NotContains(t, ids, "stealth/pixel-canary")
 	require.Contains(t, ids, "stealth/glyph-cluster:free")
 	require.Contains(t, ids, "claude-haiku-5-5")
@@ -482,8 +483,9 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 	require.Contains(t, ids, "Qwen/Qwen3.8-Omni-Flash")
 	require.Contains(t, ids, "z-ai/glm-5.3-flashx")
 	require.Contains(t, ids, "meituan/LongCat-2.0")
-	require.Contains(t, ids, "inclusionai/ling-3.0-flash-sante:free")
+	require.Contains(t, ids, "reflection/beam:free")
 	require.NotContains(t, ids, "typesafe/jev")
+	require.NotContains(t, ids, "typesafe/jev-1.14.0")
 	require.NotContains(t, ids, "minimax/minimax-m3-free")
 	entry, ok := catalog.entry("gpt-5.6-luna")
 	require.True(t, ok)
@@ -519,14 +521,21 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 func TestCommandCodeFallbackCatalogHasAllPricedModels(t *testing.T) {
 	entries := commandCodeFallbackCatalogEntries()
 	ids := CommandCodeFallbackModelIDs()
-	require.Len(t, entries, 64)
+	require.Len(t, entries, 68)
 	require.Len(t, entries, len(commandCodeFallbackModels))
 	for _, model := range []string{
 		"gpt-6-luna",
 		"claude-sonnet-5-5",
 		"claude-haiku-5-5",
 		"deepseek/deepseek-v4.1-flash-fast",
-		"inclusionai/ling-3.1-flash:free",
+		"inclusionai/ling-3.1-flash",
+		"moonshotai/Kimi-K3.1-Pro",
+		"minimax/minimax-m3.1-flash",
+		"reflection/beam:free",
+		"meta/muse-spark-open",
+		"nvidia/nemotron-3.5-super-vl",
+		"ornith/ornith-1.5-122b",
+		"Qwen/Qwen3.8-Max-Prime",
 		"stealth/glyph-cluster:free",
 		"mistral/mistral-large-4",
 		"google/gemini-3.8-flash",
@@ -544,11 +553,11 @@ func TestCommandCodeFallbackCatalogHasAllPricedModels(t *testing.T) {
 		"Qwen/Qwen3.8-Flash",
 		"tencent/hy4-preview",
 		"meituan/LongCat-2.0",
-		"inclusionai/ling-3.0-flash-sante:free",
 	} {
 		require.Contains(t, ids, model)
 	}
 	require.NotContains(t, ids, "typesafe/jev")
+	require.NotContains(t, ids, "typesafe/jev-1.14.0")
 	require.NotContains(t, ids, "minimax/minimax-m3-free")
 	require.NotContains(t, ids, "minimax/minimax-m2.7-free")
 
@@ -577,7 +586,7 @@ func TestCommandCodeCatalogExposesFallbackWhenRefreshFails(t *testing.T) {
 	require.Contains(t, models, "gpt-6-luna")
 	require.Contains(t, models, "claude-sonnet-5-5")
 	require.Contains(t, models, "deepseek/deepseek-v4.1-flash-fast")
-	require.Contains(t, models, "inclusionai/ling-3.1-flash:free")
+	require.Contains(t, models, "inclusionai/ling-3.1-flash")
 	require.NotContains(t, models, "stealth/pixel-canary")
 	require.Contains(t, models, "stealth/glyph-cluster:free")
 	require.Contains(t, models, "claude-haiku-5-5")

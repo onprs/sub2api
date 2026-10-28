@@ -173,6 +173,10 @@
                 "protocol": "responses"
               },
               {
+                "pattern": "muse-wonder-*",
+                "protocol": "responses"
+              },
+              {
                 "pattern": "claude-haiku-5-5",
                 "protocol": "anthropic"
               },
@@ -204,6 +208,10 @@
               },
               {
                 "pattern": "muse-spark-*",
+                "protocol": "responses"
+              },
+              {
+                "pattern": "muse-wonder-*",
                 "protocol": "responses"
               },
               {

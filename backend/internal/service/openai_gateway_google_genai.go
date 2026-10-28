@@ -29,7 +29,13 @@ func (s *OpenAIGatewayService) ForwardGoogleGenAI(
 	if c == nil || c.Writer == nil {
 		return nil, errors.New("response writer is required for Google GenAI forwarding")
 	}
-	if account == nil || account.Platform != PlatformOpenAI {
+	if account == nil {
+		return nil, errors.New("an account is required for Google GenAI forwarding")
+	}
+	if account.Platform == PlatformOpenCodeGo {
+		return s.forwardOpenCodeGoogleGenAI(ctx, c, account, clientModel, routingModel, stream, body)
+	}
+	if account.Platform != PlatformOpenAI {
 		return nil, fmt.Errorf("an OpenAI account is required for Google GenAI forwarding")
 	}
 

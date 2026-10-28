@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -63,12 +64,45 @@ func commandCodeBillingSeedPricing(t *testing.T) []ChannelModelPricing {
 			seeds[index].MonthlyQuota = quota
 		}
 	}
+	// 251 同步 2026-10-27 官方目录：新增、下架与额度调整。
+	sync, err := os.ReadFile("../../migrations/251_sync_official_channel_catalogs_20261027.sql")
+	require.NoError(t, err)
+	parts = strings.Split(string(sync), "$commandcode_retired$")
+	require.Len(t, parts, 3)
+	var retired []string
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &retired))
+	parts = strings.Split(string(sync), "$commandcode_additions$")
+	require.Len(t, parts, 3)
+	var additions []commandCodeBillingSeed
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &additions))
+	parts = strings.Split(string(sync), "$commandcode_quotas$")
+	require.Len(t, parts, 3)
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &quotas))
+	retained := make([]commandCodeBillingSeed, 0, len(seeds)+len(additions))
+	for _, seed := range seeds {
+		if slices.Contains(retired, seed.Model) {
+			continue
+		}
+		if quota, ok := quotas[seed.Model]; ok {
+			seed.MonthlyQuota = quota
+		}
+		retained = append(retained, seed)
+	}
+	for _, seed := range additions {
+		if quota, ok := quotas[seed.Model]; ok {
+			seed.MonthlyQuota = quota
+		}
+		retained = append(retained, seed)
+	}
+	seeds = retained
 	pricing := make([]ChannelModelPricing, 0, len(seeds))
 	for _, seed := range seeds {
 		entry := seed.pricing()
 		entry.Models = []string{seed.Model}
-		quota := seed.MonthlyQuota.Clone()
-		entry.MonthlyQuota = &quota
+		if seed.MonthlyQuota.BaseCreditsUSD != 0 || len(seed.MonthlyQuota.Periods) != 0 {
+			quota := seed.MonthlyQuota.Clone()
+			entry.MonthlyQuota = &quota
+		}
 		entry.TimePricing = seed.TimePricing
 		for _, tier := range seed.Intervals {
 			rates := tier.pricing()

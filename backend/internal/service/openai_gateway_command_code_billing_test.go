@@ -23,7 +23,7 @@ func TestOpenAIGatewayRecordUsageCommandCodeCatalogBilling(t *testing.T) {
 				{"deepseek/deepseek-v4.1-flash", 0.15e-6, 0.60e-6, 0.003e-6, 70.0 / 80},
 				{"gpt-5.6-luna", 0.2e-6, 1.2e-6, 0.02e-6, 70.0 / 20},
 				{"claude-sonnet-5-5", 2e-6, 10e-6, 0.1e-6, 70.0 / 10},
-				{"mistral/mistral-large-4", 1.36e-6, 4.18e-6, 0.14e-6, 70.0 / 40},
+				{"mistral/mistral-large-4", 1.36e-6, 4.18e-6, 0.14e-6, 70.0 / 20},
 			} {
 				t.Run(groupPlatform+"/"+tc.model+"/resolver="+map[bool]string{false: "false", true: "true"}[resolverEnabled], func(t *testing.T) {
 					usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
@@ -61,8 +61,8 @@ func TestOpenAIGatewayRecordUsageCommandCodeQuotaBoundaryAndFree(t *testing.T) {
 		quota float64
 		free  bool
 	}{
-		{"活动内", "mistral/mistral-large-4", time.Date(2026, 10, 20, 23, 59, 59, 0, time.UTC), 70.0 / 40, false},
-		{"活动截止", "mistral/mistral-large-4", time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC), 70.0 / 20, false},
+		{"基础额度", "mistral/mistral-large-4", time.Date(2026, 10, 20, 23, 59, 59, 0, time.UTC), 70.0 / 20, false},
+		{"基础额度截止后", "mistral/mistral-large-4", time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC), 70.0 / 20, false},
 		{"官方免费", "stealth/glyph-cluster:free", time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC), 1, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -117,7 +117,7 @@ func TestOpenAIGatewayRecordUsageCommandCodeExplicitPricingAndAtomicBilling(t *t
 
 func TestOpenAIGatewayRecordUsageFreeModelAtomicBilling(t *testing.T) {
 	for _, test := range []struct{ platform, model string }{
-		{PlatformOpenCodeGo, "cat-jam-free"},
+		{PlatformOpenCodeGo, "beam-free"},
 		{PlatformCommandCode, "stealth/glyph-cluster:free"},
 	} {
 		t.Run(test.platform, func(t *testing.T) {

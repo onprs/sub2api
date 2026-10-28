@@ -43,7 +43,7 @@ func newCommandCode403TestHarness(t *testing.T, accountID int64, counts ...int64
 func (h *commandCode403TestHarness) handle(body string) bool {
 	return h.svc.HandleUpstreamError(
 		context.Background(), h.account, http.StatusForbidden, http.Header{}, []byte(body),
-		"inclusionai/ling-3.1-flash:free",
+		"inclusionai/ling-3.1-flash",
 	)
 }
 
@@ -134,7 +134,7 @@ func TestHandleUpstreamError_CommandCodeStructured403WithoutCounterUsesTempCoold
 	shouldDisable := svc.HandleUpstreamError(
 		context.Background(), account, http.StatusForbidden, http.Header{},
 		[]byte(`{"error":{"message":"Your account is not authorized","type":"forbidden_error"}}`),
-		"inclusionai/ling-3.1-flash:free",
+		"inclusionai/ling-3.1-flash",
 	)
 
 	require.True(t, shouldDisable)

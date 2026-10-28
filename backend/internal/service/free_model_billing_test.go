@@ -23,6 +23,27 @@ func applyFreeModelMigrationForTest(t *testing.T, entries []ChannelModelPricing)
 	require.Len(t, parts, 3)
 	var models map[string][]string
 	require.NoError(t, json.Unmarshal([]byte(parts[1]), &models))
+	// 251 新增的官方免费模型沿用同一固定免费价格。
+	sync, err := os.ReadFile("../../migrations/251_sync_official_channel_catalogs_20261027.sql")
+	require.NoError(t, err)
+	parts = strings.Split(string(sync), "$commandcode_additions$")
+	require.Len(t, parts, 3)
+	var commandCodeAdditions []commandCodeBillingSeed
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &commandCodeAdditions))
+	for _, entry := range commandCodeAdditions {
+		if entry.MonthlyQuota.BaseCreditsUSD == 0 && len(entry.MonthlyQuota.Periods) == 0 {
+			models["command_code"] = append(models["command_code"], entry.Model)
+		}
+	}
+	parts = strings.Split(string(sync), "$opencode_additions$")
+	require.Len(t, parts, 3)
+	var openCodeAdditions []ChannelModelPricing
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &openCodeAdditions))
+	for _, entry := range openCodeAdditions {
+		if entry.InputPrice != nil && *entry.InputPrice <= 1e-9 {
+			models["opencode_go"] = append(models["opencode_go"], entry.Models...)
+		}
+	}
 	parts = strings.Split(string(migration), "$free_price$")
 	require.Len(t, parts, 3)
 	var price float64
@@ -61,7 +82,7 @@ func TestFreeModelBillingUsesFixedTokenAndCachePrices(t *testing.T) {
 	for _, platform := range []string{PlatformOpenCodeGo, PlatformCommandCode} {
 		models := openCodeFreeModels
 		if platform == PlatformCommandCode {
-			models = []string{"inclusionai/ling-3.0-flash-sante:free", "inclusionai/ling-3.1-flash:free", "poolside/laguna-s-2.1-free", "stealth/glyph-cluster:free"}
+			models = []string{"reflection/beam:free", "poolside/laguna-s-2.1-free", "stealth/glyph-cluster:free"}
 		}
 		for _, model := range models {
 			t.Run(platform+"/"+model, func(t *testing.T) {
@@ -102,15 +123,8 @@ func TestFreeModelBillingUsesFixedTokenAndCachePrices(t *testing.T) {
 
 func TestFreeModelBillingKeepsWhitelistAndPaidRates(t *testing.T) {
 	require.Len(t, openCodeFreeModels, 9)
-	require.Len(t, DefaultOpenCodeGoModelIDs(), 31)
-	require.Len(t, openCodeZenPricedModels, 72)
-	migration, err := os.ReadFile("../../migrations/248_free_model_billing_price.sql")
-	require.NoError(t, err)
-	parts := strings.Split(string(migration), "$free_models$")
-	require.Len(t, parts, 3)
-	var migrationModels map[string][]string
-	require.NoError(t, json.Unmarshal([]byte(parts[1]), &migrationModels))
-	require.ElementsMatch(t, openCodeFreeModels, migrationModels[PlatformOpenCodeGo])
+	require.Len(t, DefaultOpenCodeGoModelIDs(), 29)
+	require.Len(t, openCodeZenPricedModels, 73)
 	var commandCodeFreeModels []string
 	for _, entry := range commandCodeFallbackCatalogEntries() {
 		pricing, available := commandCodeCatalogPricingAt(entry, time.Date(2026, 10, 14, 5, 0, 0, 0, time.UTC))
@@ -118,8 +132,8 @@ func TestFreeModelBillingKeepsWhitelistAndPaidRates(t *testing.T) {
 			commandCodeFreeModels = append(commandCodeFreeModels, entry.ID)
 		}
 	}
-	require.Len(t, commandCodeFreeModels, 4)
-	require.ElementsMatch(t, commandCodeFreeModels, migrationModels[PlatformCommandCode])
+	require.Len(t, commandCodeFreeModels, 3)
+	require.ElementsMatch(t, []string{"reflection/beam:free", "poolside/laguna-s-2.1-free", "stealth/glyph-cluster:free"}, commandCodeFreeModels)
 	for _, model := range openCodeFreeModels {
 		require.Contains(t, openCodeZenPricedModels, model)
 	}

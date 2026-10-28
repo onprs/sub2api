@@ -235,7 +235,8 @@ func TestOpenCodeGoQuotaURL(t *testing.T) {
 func TestDefaultOpenCodeGoModelIDsCoverDocumentedCatalog(t *testing.T) {
 	t.Parallel()
 	ids := DefaultOpenCodeGoModelIDs()
-	require.Contains(t, ids, "grok-4.6")
+	require.Contains(t, ids, "grok-4.7")
+	require.Contains(t, ids, "gemini-4-argon")
 	require.Contains(t, ids, "minimax-m3")
 	require.Contains(t, ids, "glm-5.3")
 	require.NotEmpty(t, ids)

@@ -14,7 +14,7 @@ const openCodeSharedMonthlyQuotaUSD = 60.0
 
 // Go 渠道默认定价，只收录官方同时公布了模型 ID 和价格的模型。
 // 付费模型沿用官方价格，官方免费模型按本站统一售价 0.001 USD / 百万 token 计费。
-// 来源：https://opencode.ai/docs/go/（2026-10-14）。
+// 来源：https://opencode.ai/docs/go/（2026-10-27）。
 // 快照用于初始化渠道和无渠道时的回退；渠道建立后以管理员保存的配置为准。
 //
 //go:embed opencode_channel_pricing.json
@@ -40,7 +40,7 @@ func openCodeReferencePricing(model string) (*ChannelModelPricing, bool) {
 }
 
 // Zen 目录同样只保留官方有定价且当前网关支持原生协议的模型。
-// 来源：https://opencode.ai/docs/zen/（2026-10-14）。
+// 来源：https://opencode.ai/docs/zen/（2026-10-27）。
 //
 //go:embed opencode_zen_priced_models.json
 var openCodeZenPricedModelsJSON []byte
@@ -54,7 +54,7 @@ var openCodeZenPricedModels = func() []string {
 }()
 
 // 官方免费模型目录独立于本站售价保存，不能将缺少价格的模型识别为免费。
-// 来源：https://opencode.ai/docs/go/、https://opencode.ai/docs/zen/（2026-10-14）。
+// 来源：https://opencode.ai/docs/go/、https://opencode.ai/docs/zen/（2026-10-27）。
 //
 //go:embed opencode_free_models.json
 var openCodeFreeModelsJSON []byte
@@ -112,6 +112,23 @@ func (s *ChannelService) OpenCodeChannelModelIDs(ctx context.Context, groupID in
 	models := make([]string, 0)
 	for _, model := range lookup.channel.SupportedModels() {
 		if model.Platform == PlatformOpenCodeGo && model.Pricing != nil && !pricingNeedsFallback(model.Pricing) && !IsOpenCodeUnsupportedModel(model.Name) {
+			models = append(models, model.Name)
+		}
+	}
+	sort.Strings(models)
+	return models, true
+}
+
+// OpenCodeGoogleModelIDs 返回 Google GenAI 入口可用的渠道模型，包含 Gemini。
+// 标准 OpenAI 兼容目录会过滤 Gemini，因此 Google SDK 的模型列表需要单独读取渠道。
+func (s *ChannelService) OpenCodeGoogleModelIDs(ctx context.Context, groupID int64) ([]string, bool) {
+	lookup, err := s.lookupGroupChannel(ctx, groupID)
+	if err != nil || lookup == nil {
+		return nil, false
+	}
+	models := make([]string, 0)
+	for _, model := range lookup.channel.SupportedModels() {
+		if model.Platform == PlatformOpenCodeGo && model.Pricing != nil && !pricingNeedsFallback(model.Pricing) {
 			models = append(models, model.Name)
 		}
 	}

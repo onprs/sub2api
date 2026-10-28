@@ -86,6 +86,9 @@ const (
 	DefaultOpenCodeGoBaseURL = "https://opencode.ai/zen/go/v1"
 	// OpenCode Zen：按量付费网关，模型列表为 /zen/v1/models。
 	DefaultOpenCodeZenBaseURL = "https://opencode.ai/zen/v1"
+	// OpenCode 官方 Gemini 端点（Google GenAI SDK）：Go 与 Zen 使用不同推理前缀。
+	DefaultOpenCodeGoGoogleBaseURL  = "https://opencode.ai/inference/go/google"
+	DefaultOpenCodeZenGoogleBaseURL = "https://opencode.ai/inference/google"
 	// Command Code Provider API：Chat Completions / Responses / models 共用 /provider/v1 基址。
 	DefaultCommandCodeBaseURL = "https://api.commandcode.ai/provider/v1"
 	// Cline API：只提供 Chat Completions（{base}/chat/completions）与模型列表。

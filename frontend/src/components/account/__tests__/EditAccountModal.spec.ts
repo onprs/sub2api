@@ -591,6 +591,7 @@ describe('EditAccountModal', () => {
         { pattern: 'grok-*', protocol: 'responses' },
         { pattern: 'gpt-*', protocol: 'responses' },
         { pattern: 'muse-spark-*', protocol: 'responses' },
+  { pattern: 'muse-wonder-*', protocol: 'responses' },
         { pattern: 'claude-*', protocol: 'anthropic' },
         { pattern: 'qwen*', protocol: 'anthropic' }
       ]
@@ -615,6 +616,7 @@ describe('EditAccountModal', () => {
         { pattern: 'grok-*', protocol: 'responses' },
         { pattern: 'gpt-*', protocol: 'responses' },
         { pattern: 'muse-spark-*', protocol: 'responses' },
+  { pattern: 'muse-wonder-*', protocol: 'responses' },
         { pattern: 'claude-*', protocol: 'anthropic' },
         { pattern: 'qwen*', protocol: 'anthropic' }
       ]

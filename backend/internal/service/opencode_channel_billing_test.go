@@ -28,10 +28,11 @@ func openCodeBillingTestServices(pricing []ChannelModelPricing) (*ChannelService
 }
 
 func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
-	require.Len(t, DefaultOpenCodeGoModelIDs(), 31)
-	require.Contains(t, DefaultOpenCodeGoModelIDs(), "cat-jam-free")
+	require.Len(t, DefaultOpenCodeGoModelIDs(), 29)
+	require.Contains(t, DefaultOpenCodeGoModelIDs(), "beam-free")
+	require.Contains(t, DefaultOpenCodeGoModelIDs(), "gemini-4-argon")
 	require.NoError(t, validatePricingEntries(openCodeDefaultPricing))
-	for _, removed := range []string{"omen-alpha", "deepseek-flash", "glm-5.1", "qwen3.7-max", "qwen3.6-plus", "minimax-m2.5", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "gemini-4-argon-contributor"} {
+	for _, removed := range []string{"omen-alpha", "deepseek-flash", "glm-5.1", "qwen3.7-max", "qwen3.6-plus", "minimax-m2.5", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "gemini-4-argon-contributor", "grok-4.6", "kimi-k2.6", "longcat-2.5-preview-free", "step-5-preview-free", "cat-jam-free", "minimax-m2.7", "space-bunny"} {
 		require.NotContains(t, DefaultOpenCodeGoModelIDs(), removed)
 	}
 	migration, err := os.ReadFile("../../migrations/246_opencode_channel_billing.sql")
@@ -55,6 +56,17 @@ func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
 	current := slices.DeleteFunc(applyFreeModelMigrationForTest(t, append(seed, additions...)), func(pricing ChannelModelPricing) bool {
 		return slices.Contains(retired, pricing.Models[0])
 	})
+	sync, err := os.ReadFile("../../migrations/251_sync_official_channel_catalogs_20261027.sql")
+	require.NoError(t, err)
+	parts = strings.Split(string(sync), "$opencode_retired$")
+	require.Len(t, parts, 3)
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &retired))
+	parts = strings.Split(string(sync), "$opencode_additions$")
+	require.Len(t, parts, 3)
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &additions))
+	current = slices.DeleteFunc(applyFreeModelMigrationForTest(t, append(current, additions...)), func(pricing ChannelModelPricing) bool {
+		return slices.Contains(retired, pricing.Models[0])
+	})
 	require.ElementsMatch(t, openCodeDefaultPricing, current)
 	var routes []struct {
 		Models   []string `json:"models"`
@@ -62,15 +74,19 @@ func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(openCodeChannelPricingJSON, &routes))
 	for _, route := range routes {
+		if route.Protocol == "google_genai" {
+			require.True(t, IsOpenCodeUnsupportedModel(route.Models[0]), route.Models[0])
+			continue
+		}
 		require.Equal(t, route.Protocol, matchProtocolRules(route.Models[0], DefaultOpenCodeGoProtocolRules()), route.Models[0])
 	}
 }
 
 func TestOpenCodeZenCatalogExcludesRetiredAndUnpricedModels(t *testing.T) {
 	account := &Account{Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Credentials: map[string]any{"account_mode": "zen"}}
-	require.Len(t, OpenCodeDefaultModelIDs(account), 72)
-	require.True(t, IsOpenCodeOfficiallyPricedModel(account, "cat-jam-free"))
-	for _, model := range []string{"test", "claude-opus-5-5-backup", "muse-spark-1.2-contributor-free", "exo-free", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "qwen3.7-max", "qwen3.7-plus", "ling-3.0-flash-fin-free", "mimo-v2.5-free", "nemotron-3-ultra-free"} {
+	require.Len(t, OpenCodeDefaultModelIDs(account), 73)
+	require.True(t, IsOpenCodeOfficiallyPricedModel(account, "beam-free"))
+	for _, model := range []string{"test", "claude-opus-5-5-backup", "muse-spark-1.2-contributor-free", "exo-free", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "qwen3.7-max", "qwen3.7-plus", "ling-3.0-flash-fin-free", "mimo-v2.5-free", "minimax-m3-free"} {
 		require.False(t, IsOpenCodeOfficiallyPricedModel(account, model), model)
 	}
 }
@@ -153,8 +169,7 @@ func TestOpenCodeAccountRuleUsesRequestTimeContextTiersAndFreeRates(t *testing.T
 		{"输出不抬高上下文档位", "claude-haiku-5-5", time.Now(), UsageTokens{InputTokens: 100_000, OutputTokens: 100_000}, (0.01 + 0.05) * 4},
 		{"超过上下文边界", "claude-haiku-5-5", time.Now(), UsageTokens{InputTokens: 100_001}, 100_001 * 0.5e-6 * 4},
 		{"缓存计入上下文", "claude-haiku-5-5", time.Now(), UsageTokens{InputTokens: 100_000, CacheReadTokens: 1}, (100_000*0.5e-6 + 0.05e-6) * 4},
-		{"官方免费模型统一价", "step-5-preview-free", time.Now(), UsageTokens{InputTokens: 1000, OutputTokens: 500}, 0.0000015},
-		{"新增官方免费模型统一价", "cat-jam-free", time.Now(), UsageTokens{InputTokens: 1000, OutputTokens: 500}, 0.0000015},
+		{"官方免费模型统一价", "beam-free", time.Now(), UsageTokens{InputTokens: 1000, OutputTokens: 500}, 0.0000015},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cost := tryChannelAccountStatsRule(ctx, billing, channel, rule, 7, 1, PlatformOpenCodeGo, test.model, test.tokens, 1, "", "", test.at)
@@ -192,13 +207,13 @@ func TestGetAvailableModels_OpenCodeExcludesUnpricedModels(t *testing.T) {
 
 func TestOpenCodeUpstreamSyncExcludesModelsWithoutOfficialPricing(t *testing.T) {
 	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK,
-		Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"glm-5.3"},{"id":"omen-alpha"},{"id":"step-5-preview-free"},{"id":"unknown-free"},{"id":"deepseek-v4-flash"},{"id":"deepseek-v4-flash-vision-exp"},{"id":"gemini-4-argon-contributor"}]}`))}}
+		Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"glm-5.3"},{"id":"omen-alpha"},{"id":"step-5-preview"},{"id":"beam-free"},{"id":"unknown-free"},{"id":"deepseek-v4-flash"},{"id":"deepseek-v4-flash-vision-exp"},{"id":"gemini-4-argon-contributor"}]}`))}}
 	service := &AccountTestService{httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
 	account := &Account{Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{"api_key": "fixture", "base_url": DefaultOpenCodeGoBaseURL}}
 	models, err := service.FetchUpstreamSupportedModels(context.Background(), account)
 	require.NoError(t, err)
-	require.Equal(t, []string{"glm-5.3", "step-5-preview-free"}, models)
+	require.Equal(t, []string{"beam-free", "glm-5.3", "step-5-preview"}, models)
 	account.Credentials["account_mode"] = AccountModeZen
 	require.True(t, IsOpenCodeOfficiallyPricedModel(account, "claude-fable-5-1"))
 	require.False(t, IsOpenCodeOfficiallyPricedModel(account, "unknown-free"))

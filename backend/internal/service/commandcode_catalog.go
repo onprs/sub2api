@@ -484,8 +484,9 @@ func (c *CommandCodeCatalog) fetch(ctx context.Context) (map[string]commandCodeC
 	for key, entry := range entries {
 		provider, ok := providerModels[key]
 		if !ok {
-			// GOAT 页面已收录 Jev，但公开 Provider API 尚未列出；不让它阻断其余已验证模型的刷新。
-			if key == "typesafe/jev" {
+			// GOAT 页面已收录 Jev 决策模型，但公开 Provider API 尚未列出；
+			// 不阻断其余已验证模型的刷新。
+			if strings.HasPrefix(key, "typesafe/jev") {
 				delete(entries, key)
 				continue
 			}

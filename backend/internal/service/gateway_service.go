@@ -1402,6 +1402,15 @@ func mixedListingAccountAllowed(groupPlatform string, account *Account) bool {
 func mixedListingModelAllowed(groupPlatform, model string) bool {
 	return groupPlatform == PlatformGemini && isAntigravityGeminiModel(model)
 }
+
+// GetOpenCodeGoogleModels 返回 OpenCode Google GenAI 入口的渠道模型目录。
+func (s *GatewayService) GetOpenCodeGoogleModels(ctx context.Context, groupID *int64) ([]string, bool) {
+	if s == nil || s.channelService == nil || groupID == nil {
+		return nil, false
+	}
+	return s.channelService.OpenCodeGoogleModelIDs(ctx, *groupID)
+}
+
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
 	return s.getAvailableModels(ctx, groupID, platform, true)
 }

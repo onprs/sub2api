@@ -149,7 +149,13 @@ func TestCommandCodeReferencePricingResolvesAliasesAndCase(t *testing.T) {
 		"hy4-preview",
 		"longcat-2.0",
 		"longcat-2.0:free",
-		"ling-3.0-flash-sante",
+		"kimi-k3.1-pro",
+		"minimax-m3.1-flash",
+		"ornith-1.5-122b",
+		"qwen3.8-max-prime",
+		"nemotron-3.5-super-vl",
+		"muse-spark-open",
+		"beam-free",
 		"muse-spark-1.3-contributor",
 		"laguna-s-2.1",
 	} {
@@ -248,8 +254,9 @@ func TestCommandCodeCatalogPricingUsesListRatesAfterPromotionExpiry(t *testing.T
 func TestCommandCodeCurrentFreeModelsAndRemovedDeals(t *testing.T) {
 	now := nowForTest()
 	for _, model := range []string{
-		"inclusionai/ling-3.0-flash-sante:free",
+		"reflection/beam:free",
 		"poolside/laguna-s-2.1-free",
+		"stealth/glyph-cluster:free",
 	} {
 		free, ok := commandCodeReferencePricingAt(model, now)
 		require.True(t, ok, model)
@@ -259,10 +266,17 @@ func TestCommandCodeCurrentFreeModelsAndRemovedDeals(t *testing.T) {
 	longCat, ok := commandCodeReferencePricingAt("meituan/LongCat-2.0", now)
 	require.True(t, ok)
 	require.False(t, longCat.AllowZeroRate)
+	ling, ok := commandCodeReferencePricingAt("inclusionai/ling-3.1-flash", now)
+	require.True(t, ok)
+	require.False(t, ling.AllowZeroRate)
 
 	for _, removed := range []string{
 		"minimax/minimax-m3-free",
 		"minimax/minimax-m2.7-free",
+		"inclusionai/ling-3.0-flash-sante:free",
+		"inclusionai/ling-3.1-flash:free",
+		"xiaomi/mimo-v2.5",
+		"xiaomi/mimo-v2.5-pro",
 	} {
 		_, ok := commandCodeReferencePricingAt(removed, now)
 		require.False(t, ok, removed)
@@ -327,15 +341,14 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.InDelta(t, 60, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 	require.InDelta(t, 70.0/60.0, quotaCost.Multiplier, 1e-9)
 
-	// DeepSeek V4.1 Flash：活动内额度 $100，官方 ID 和别名使用相同倍率。
-	active := time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
-	quotaCost, ok = svc.GetCommandCodeQuotaCostAt("deepseek/deepseek-v4.1-flash", active)
+	// DeepSeek V4.1 Flash：活动已结束，官方基础额度 $80。
+	quotaCost, ok = svc.GetCommandCodeQuotaCost("deepseek/deepseek-v4.1-flash")
 	require.True(t, ok)
-	require.InDelta(t, 100, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
-	require.InDelta(t, 0.7, quotaCost.Multiplier, 1e-9)
-	quotaCost, ok = svc.GetCommandCodeQuotaCostAt("deepseek-v4.1-flash", active)
+	require.InDelta(t, 80, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 70.0/80.0, quotaCost.Multiplier, 1e-9)
+	quotaCost, ok = svc.GetCommandCodeQuotaCost("deepseek-v4.1-flash")
 	require.True(t, ok)
-	require.InDelta(t, 100, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 80, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 
 	// GLM-5.2：官方 credits $70 → 倍率 1x
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("zai-org/glm-5.2")
@@ -390,7 +403,7 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.InDelta(t, 70.0/50.0, quotaCost.Multiplier, 1e-9)
 
 	// 官方免费模型无额度倍率，本站按统一 token 单价计费。
-	_, ok = svc.GetCommandCodeQuotaCost("inclusionai/ling-3.0-flash-sante:free")
+	_, ok = svc.GetCommandCodeQuotaCost("reflection/beam:free")
 	require.False(t, ok)
 	_, ok = svc.GetCommandCodeQuotaCost("stealth/pixel-canary")
 	require.False(t, ok)
@@ -420,12 +433,12 @@ func TestCommandCodePricingMetadataMatchesCurrentOfficialPromotions(t *testing.T
 	require.Equal(t, 500_000, contextWindow)
 	require.Nil(t, promotion)
 
-	contextWindow, promotion, ok = commandCodeReferenceMetadataAt("xiaomi/mimo-v2.5", nowForTest())
+	contextWindow, promotion, ok = commandCodeReferenceMetadataAt("MiniMaxAI/MiniMax-M3", nowForTest())
 	require.True(t, ok)
 	require.Equal(t, 1_000_000, contextWindow)
 	require.NotNil(t, promotion)
-	require.Equal(t, "98% off", promotion.Label)
-	require.Equal(t, float64(98), promotion.DiscountPercent)
+	require.Equal(t, "50% off", promotion.Label)
+	require.Equal(t, float64(50), promotion.DiscountPercent)
 	require.Nil(t, promotion.ExpiresAt)
 
 	contextWindow, promotion, ok = commandCodeReferenceMetadataAt("google/gemini-3.7-flash", nowForTest())

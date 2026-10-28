@@ -10,27 +10,12 @@ import (
 // Command Code 内置目录只作为官方 GOAT 文档暂时不可用时的启动降级。
 // 在线快照会按官方 minPlanName=Go/GOAT 自动替换这些条目。
 var commandCodeFallbackModels = []string{
-	"claude-sonnet-5-5",
-	"claude-haiku-5-5",
-	"gpt-5.6-sol",
-	"gpt-5.6-luna",
-	"gpt-6-luna",
+	"poolside/laguna-s-2.1-free",
 	"stealth/glyph-cluster:free",
-	"google/gemini-3.8-flash",
-	"google/gemini-3.7-flash",
-	"xai/grok-4.7",
-	"xai/grok-4.6",
-	"xai/grok-4.5",
-	"meta/muse-spark-1.3",
-	"meta/muse-spark-1.3-contributor",
-	"meta/muse-spark-1.2",
-	"meta/muse-spark-1.2-contributor",
-	"deepseek/deepseek-v4-pro",
-	"deepseek/deepseek-v4-flash",
-	"deepseek/deepseek-v4-flash-vision-exp",
-	"deepseek/deepseek-v4-flash-fast",
-	"deepseek/deepseek-v4.1-flash",
-	"deepseek/deepseek-v4.1-flash-fast",
+	"reflection/beam:free",
+	"tencent/hy4-preview",
+	"tencent/hy3-paid",
+	"moonshotai/Kimi-K3.1-Pro",
 	"moonshotai/Kimi-K3",
 	"moonshotai/Kimi-K2.7-Code",
 	"moonshotai/Kimi-K2.7-Code-Highspeed",
@@ -43,37 +28,56 @@ var commandCodeFallbackModels = []string{
 	"zai-org/GLM-5.2-Fast",
 	"zai-org/GLM-5.1",
 	"zai-org/GLM-5",
+	"minimax/minimax-m3.1-flash",
 	"MiniMaxAI/MiniMax-M3",
 	"MiniMaxAI/MiniMax-M2.7",
 	"MiniMaxAI/MiniMax-M2.5",
-	"xiaomi/mimo-v2.6-pro",
-	"xiaomi/mimo-v2.6-pro-ultraspeed",
-	"xiaomi/mimo-v2.6-flash",
-	"xiaomi/mimo-v2.5-pro",
-	"xiaomi/mimo-v2.5",
+	"ornith/ornith-1.5-122b",
+	"deepseek/deepseek-v4-pro",
+	"deepseek/deepseek-v4-flash",
+	"deepseek/deepseek-v4-flash-vision-exp",
+	"deepseek/deepseek-v4-flash-fast",
+	"deepseek/deepseek-v4.1-flash",
+	"deepseek/deepseek-v4.1-flash-fast",
+	"Qwen/Qwen3.8-Omni-Flash",
+	"Qwen/Qwen3.8-Max-Prime",
 	"Qwen/Qwen3.8-Max-0902",
 	"Qwen/Qwen3.8-Max",
 	"Qwen/Qwen3.8-27B",
-	"Qwen/Qwen3.8-Omni-Flash",
-	"Qwen/Qwen3.8-Flash",
-	"Qwen/Qwen3.7-Max",
-	"Qwen/Qwen3.7-Plus",
-	"Qwen/Qwen3.7-Flash",
 	"Qwen/Qwen3.6-Max-Preview",
 	"Qwen/Qwen3.6-Plus",
+	"Qwen/Qwen3.7-Max",
+	"Qwen/Qwen3.7-Plus",
+	"Qwen/Qwen3.8-Flash",
+	"Qwen/Qwen3.7-Flash",
+	"meituan/LongCat-2.0",
+	"inclusionai/ling-3.1-flash",
 	"stepfun/Step-5-Preview",
 	"stepfun/Step-3.7-Flash",
 	"stepfun/Step-3.5-Flash",
-	"tencent/hy3-paid",
-	"tencent/hy4-preview",
-	"meituan/LongCat-2.0",
-	"mistral/mistral-large-4",
-	"inclusionai/ling-3.0-flash-sante:free",
-	"inclusionai/ling-3.1-flash:free",
+	"xiaomi/mimo-v2.6-pro",
+	"xiaomi/mimo-v2.6-pro-ultraspeed",
+	"xiaomi/mimo-v2.6-flash",
 	"nvidia/nemotron-3-ultra-550b-a55b",
+	"nvidia/nemotron-3.5-super-vl",
+	"claude-sonnet-5-5",
+	"claude-haiku-5-5",
+	"gpt-6-luna",
+	"gpt-5.6-sol",
+	"gpt-5.6-luna",
+	"google/gemini-3.8-flash",
+	"google/gemini-3.7-flash",
+	"meta/muse-spark-1.3",
+	"meta/muse-spark-1.3-contributor",
+	"meta/muse-spark-open",
+	"meta/muse-spark-1.2",
+	"meta/muse-spark-1.2-contributor",
+	"xai/grok-4.7",
+	"xai/grok-4.6",
+	"xai/grok-4.5",
+	"mistral/mistral-large-4",
 	"thinkingmachines/inkling",
 	"thinkingmachines/inkling-small",
-	"poolside/laguna-s-2.1-free",
 }
 
 type commandCodePriceEntry struct {
@@ -125,8 +129,6 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"xiaomi/mimo-v2.6-pro":                  {input: 0.435, output: 0.87, cacheRead: 0.0036},
 	"xiaomi/mimo-v2.6-pro-ultraspeed":       {input: 4.35, output: 8.7, cacheRead: 0.036},
 	"xiaomi/mimo-v2.6-flash":                {input: 0.14, output: 0.28, cacheRead: 0.0028},
-	"xiaomi/mimo-v2.5-pro":                  {input: 0.435, output: 0.87, cacheRead: 0.0036},
-	"xiaomi/mimo-v2.5":                      {input: 0.14, output: 0.28, cacheRead: 0.0028},
 	"qwen/qwen3.8-omni-flash":               {input: 0.15, output: 0.47, cacheRead: 0.016},
 	"qwen/qwen3.8-max-0902":                 {input: 2, output: 6, cacheRead: 0.25},
 	"qwen/qwen3.8-max":                      {input: 2, output: 6, cacheRead: 0.25, cacheWrite: 2.5},
@@ -144,20 +146,26 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"tencent/hy4-preview":                   {input: 0.834, output: 2.501, cacheRead: 0.042},
 	"meituan/longcat-2.0":                   {input: 0.3, output: 1.2, cacheRead: 0.006},
 	"mistral/mistral-large-4":               {input: 1.36, output: 4.18, cacheRead: 0.14},
-	"inclusionai/ling-3.0-flash-sante:free": {allowZero: true},
-	"inclusionai/ling-3.1-flash:free":       {allowZero: true},
 	"nvidia/nemotron-3-ultra-550b-a55b":     {input: 0.6, output: 2.4, cacheRead: 0.12},
 	"thinkingmachines/inkling":              {input: 1, output: 4.05, cacheRead: 0.17},
 	"thinkingmachines/inkling-small":        {input: 0.5, output: 1.2, cacheRead: 0.1},
 	"poolside/laguna-s-2.1-free":            {allowZero: true},
+	"reflection/beam:free":                  {allowZero: true},
+	"moonshotai/kimi-k3.1-pro":              {input: 2, output: 10, cacheRead: 0.2},
+	"minimax/minimax-m3.1-flash":            {input: 0.15, output: 0.6, cacheRead: 0.015},
+	"ornith/ornith-1.5-122b":                {input: 0.16, output: 0.64, cacheRead: 0.02},
+	"qwen/qwen3.8-max-prime":                {input: 4, output: 12, cacheRead: 0.5, cacheWrite: 5},
+	"nvidia/nemotron-3.5-super-vl":          {input: 0.2, output: 0.5, cacheRead: 0.04},
+	"meta/muse-spark-open":                  {input: 1.25, output: 4.25, cacheRead: 0.15},
+	"inclusionai/ling-3.1-flash":            {input: 0.3, output: 0.9, cacheRead: 0.06},
 }
 
 // commandCodeFallbackMonthlyCreditsUSD 是官方基础月额度；限时提升另存为时间段。
-// 来源：https://commandcode.ai/docs/plans/goat，2026-10-14 核对。
+// 来源：https://commandcode.ai/docs/plans/goat，2026-10-27 核对。
 var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 	"claude-sonnet-5-5": 10,
 	"claude-haiku-5-5":  20,
-	"gpt-5.6-sol":       70, "gpt-5.6-luna": 20, "gpt-6-luna": 20,
+	"gpt-5.6-sol":       20, "gpt-5.6-luna": 20, "gpt-6-luna": 20,
 	"stealth/glyph-cluster:free": 0,
 	"google/gemini-3.8-flash":    40, "google/gemini-3.7-flash": 40,
 	"xai/grok-4.7": 20, "xai/grok-4.6": 20, "xai/grok-4.5": 20,
@@ -175,7 +183,6 @@ var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 	"minimaxai/minimax-m3": 47, "minimaxai/minimax-m2.7": 20,
 	"minimaxai/minimax-m2.5": 20,
 	"xiaomi/mimo-v2.6-pro":   20, "xiaomi/mimo-v2.6-pro-ultraspeed": 10, "xiaomi/mimo-v2.6-flash": 20,
-	"xiaomi/mimo-v2.5-pro": 20, "xiaomi/mimo-v2.5": 30,
 	"qwen/qwen3.8-omni-flash": 20, "qwen/qwen3.8-max-0902": 20, "qwen/qwen3.8-max": 20,
 	"qwen/qwen3.8-27b": 70, "qwen/qwen3.8-flash": 20,
 	"qwen/qwen3.7-max": 33, "qwen/qwen3.7-plus": 33,
@@ -183,13 +190,19 @@ var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 	"qwen/qwen3.6-plus":      33,
 	"stepfun/step-5-preview": 20, "stepfun/step-3.7-flash": 20, "stepfun/step-3.5-flash": 20,
 	"tencent/hy3-paid": 70, "tencent/hy4-preview": 20,
-	"meituan/longcat-2.0":                   50,
-	"mistral/mistral-large-4":               20,
-	"inclusionai/ling-3.0-flash-sante:free": 0,
-	"inclusionai/ling-3.1-flash:free":       0,
-	"nvidia/nemotron-3-ultra-550b-a55b":     20,
-	"thinkingmachines/inkling":              20, "thinkingmachines/inkling-small": 20,
-	"poolside/laguna-s-2.1-free": 0,
+	"meituan/longcat-2.0":               50,
+	"mistral/mistral-large-4":           20,
+	"nvidia/nemotron-3-ultra-550b-a55b": 20,
+	"thinkingmachines/inkling":          20, "thinkingmachines/inkling-small": 20,
+	"reflection/beam:free":         0,
+	"moonshotai/kimi-k3.1-pro":     20,
+	"minimax/minimax-m3.1-flash":   20,
+	"ornith/ornith-1.5-122b":       20,
+	"qwen/qwen3.8-max-prime":       20,
+	"nvidia/nemotron-3.5-super-vl": 20,
+	"meta/muse-spark-open":         20,
+	"inclusionai/ling-3.1-flash":   100,
+	"poolside/laguna-s-2.1-free":   0,
 }
 
 var commandCodeFallbackContextWindows = map[string]int{
@@ -213,7 +226,6 @@ var commandCodeFallbackContextWindows = map[string]int{
 	"minimaxai/minimax-m3": 1_000_000, "minimaxai/minimax-m2.7": 200_000,
 	"minimaxai/minimax-m2.5": 200_000,
 	"xiaomi/mimo-v2.6-pro":   1_048_576, "xiaomi/mimo-v2.6-pro-ultraspeed": 1_048_576, "xiaomi/mimo-v2.6-flash": 1_048_576,
-	"xiaomi/mimo-v2.5-pro": 1_000_000, "xiaomi/mimo-v2.5": 1_000_000,
 	"qwen/qwen3.8-omni-flash": 1_000_000, "qwen/qwen3.8-max-0902": 1_000_000, "qwen/qwen3.8-max": 1_000_000,
 	"qwen/qwen3.8-27b": 262_144, "qwen/qwen3.8-flash": 1_000_000,
 	"qwen/qwen3.7-max": 1_000_000, "qwen/qwen3.7-plus": 1_000_000,
@@ -221,13 +233,19 @@ var commandCodeFallbackContextWindows = map[string]int{
 	"qwen/qwen3.6-plus":      200_000,
 	"stepfun/step-5-preview": 1_000_000, "stepfun/step-3.7-flash": 256_000, "stepfun/step-3.5-flash": 262_144,
 	"tencent/hy3-paid": 262_144, "tencent/hy4-preview": 1_048_576,
-	"meituan/longcat-2.0":                   1_048_576,
-	"mistral/mistral-large-4":               524_288,
-	"inclusionai/ling-3.0-flash-sante:free": 262_144,
-	"inclusionai/ling-3.1-flash:free":       262_144,
-	"nvidia/nemotron-3-ultra-550b-a55b":     1_000_000,
-	"thinkingmachines/inkling":              256_000, "thinkingmachines/inkling-small": 1_000_000,
-	"poolside/laguna-s-2.1-free": 256_000,
+	"meituan/longcat-2.0":               1_048_576,
+	"mistral/mistral-large-4":           524_288,
+	"nvidia/nemotron-3-ultra-550b-a55b": 1_000_000,
+	"thinkingmachines/inkling":          256_000, "thinkingmachines/inkling-small": 1_000_000,
+	"reflection/beam:free":         1_048_576,
+	"moonshotai/kimi-k3.1-pro":     1_048_576,
+	"minimax/minimax-m3.1-flash":   1_000_000,
+	"ornith/ornith-1.5-122b":       262_144,
+	"qwen/qwen3.8-max-prime":       1_000_000,
+	"nvidia/nemotron-3.5-super-vl": 262_144,
+	"meta/muse-spark-open":         1_048_576,
+	"inclusionai/ling-3.1-flash":   262_144,
+	"poolside/laguna-s-2.1-free":   256_000,
 }
 
 var commandCodeModelAliases = map[string]string{
@@ -239,16 +257,19 @@ var commandCodeModelAliases = map[string]string{
 	"kimi-k3":                      "moonshotai/kimi-k3", "kimi-k2.7-code": "moonshotai/kimi-k2.7-code",
 	"kimi-k2.7-code-highspeed": "moonshotai/kimi-k2.7-code-highspeed", "kimi-k2.6": "moonshotai/kimi-k2.6",
 	"kimi-k2.5":     "moonshotai/kimi-k2.5",
+	"kimi-k3.1-pro": "moonshotai/kimi-k3.1-pro",
 	"glm-5.3-flash": "z-ai/glm-5.3-flash", "glm-5.3-flashx": "z-ai/glm-5.3-flashx", "glm-5.3": "zai-org/glm-5.3",
 	"glm-5.2": "zai-org/glm-5.2", "glm-5.2-fast": "zai-org/glm-5.2-fast",
 	"glm-5.1": "zai-org/glm-5.1", "glm-5": "zai-org/glm-5",
 	"minimax-m3": "minimaxai/minimax-m3", "minimax-m2.7": "minimaxai/minimax-m2.7",
-	"minimax-m2.5":  "minimaxai/minimax-m2.5",
-	"mimo-v2.6-pro": "xiaomi/mimo-v2.6-pro", "mimo-v2.6-pro-ultraspeed": "xiaomi/mimo-v2.6-pro-ultraspeed", "mimo-v2.6-flash": "xiaomi/mimo-v2.6-flash",
-	"mimo-v2.5-pro": "xiaomi/mimo-v2.5-pro", "mimo-v2.5": "xiaomi/mimo-v2.5",
+	"minimax-m2.5":       "minimaxai/minimax-m2.5",
+	"minimax-m3.1-flash": "minimax/minimax-m3.1-flash",
+	"ornith-1.5-122b":    "ornith/ornith-1.5-122b",
+	"mimo-v2.6-pro":      "xiaomi/mimo-v2.6-pro", "mimo-v2.6-pro-ultraspeed": "xiaomi/mimo-v2.6-pro-ultraspeed", "mimo-v2.6-flash": "xiaomi/mimo-v2.6-flash",
 	"qwen3.8-omni-flash": "qwen/qwen3.8-omni-flash", "qwen-3.8-omni-flash": "qwen/qwen3.8-omni-flash",
 	"qwen3.8-max-0902": "qwen/qwen3.8-max-0902", "qwen-3.8-max-0902": "qwen/qwen3.8-max-0902",
 	"qwen3.8-max": "qwen/qwen3.8-max", "qwen-3.8-max": "qwen/qwen3.8-max",
+	"qwen3.8-max-prime": "qwen/qwen3.8-max-prime", "qwen-3.8-max-prime": "qwen/qwen3.8-max-prime",
 	"qwen3.8-27b": "qwen/qwen3.8-27b", "qwen3.8-flash": "qwen/qwen3.8-flash",
 	"qwen-3.8-flash": "qwen/qwen3.8-flash", "qwen3.7-max": "qwen/qwen3.7-max",
 	"qwen-3.7-max": "qwen/qwen3.7-max", "qwen3.7-plus": "qwen/qwen3.7-plus",
@@ -261,14 +282,15 @@ var commandCodeModelAliases = map[string]string{
 	"gemini-3.8-flash": "google/gemini-3.8-flash", "gemini-3.7-flash": "google/gemini-3.7-flash",
 	"nemotron-3-ultra-550b-a55b": "nvidia/nemotron-3-ultra-550b-a55b",
 	"nemotron-3-ultra":           "nvidia/nemotron-3-ultra-550b-a55b",
+	"nemotron-3.5-super-vl":      "nvidia/nemotron-3.5-super-vl",
+	"muse-spark-open":            "meta/muse-spark-open",
+	"beam-free":                  "reflection/beam:free",
+	"beam:free":                  "reflection/beam:free",
 	"inkling":                    "thinkingmachines/inkling", "inkling-small": "thinkingmachines/inkling-small",
 	"longcat-2.0:free": "meituan/longcat-2.0", "longcat-2.0-free": "meituan/longcat-2.0",
-	"longcat-2.0":               "meituan/longcat-2.0",
-	"ling-3.0-flash-sante:free": "inclusionai/ling-3.0-flash-sante:free",
-	"ling-3.0-flash-sante":      "inclusionai/ling-3.0-flash-sante:free",
-	"ling-3.1-flash":            "inclusionai/ling-3.1-flash:free",
-	"ling-3.1-flash:free":       "inclusionai/ling-3.1-flash:free",
-	"laguna-s-2.1-free":         "poolside/laguna-s-2.1-free", "laguna-s-2.1": "poolside/laguna-s-2.1-free",
+	"longcat-2.0":       "meituan/longcat-2.0",
+	"ling-3.1-flash":    "inclusionai/ling-3.1-flash",
+	"laguna-s-2.1-free": "poolside/laguna-s-2.1-free", "laguna-s-2.1": "poolside/laguna-s-2.1-free",
 	"muse-spark-1.3": "meta/muse-spark-1.3", "muse-spark-1.3-contributor": "meta/muse-spark-1.3-contributor",
 	"muse-spark-1.2": "meta/muse-spark-1.2", "muse-spark-1.2-contributor": "meta/muse-spark-1.2-contributor",
 	"grok-4.5": "xai/grok-4.5", "grok-4.6": "xai/grok-4.6", "grok-4.7": "xai/grok-4.7",
@@ -317,39 +339,6 @@ func commandCodeFallbackCatalogEntries() map[string]commandCodeCatalogEntry {
 	setCommandCodeFallbackTiers(entries)
 	setCommandCodeFallbackDeals(entries)
 	setCommandCodeFallbackTimeBands(entries)
-	// Kimi K3 官方 creditDeal.now 保存活动额度，过期后恢复基础值 $20。
-	kimi := entries["moonshotai/kimi-k3"]
-	kimiStarts := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
-	kimiExpires := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
-	kimi.MonthlyQuota.Periods = []MonthlyQuotaPeriod{{
-		CreditsUSD: 60, StartsAt: &kimiStarts, ExpiresAt: &kimiExpires, Term: "through Oct 7th",
-	}}
-	entries["moonshotai/kimi-k3"] = kimi
-
-	// Mistral Large 4 官方 creditDeal：2026-10-06 至 10-20 月额度 $40（基础 $20）。
-	mistral := entries["mistral/mistral-large-4"]
-	mistralStarts := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
-	mistralExpires := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
-	mistral.MonthlyQuota.Periods = []MonthlyQuotaPeriod{{
-		CreditsUSD: 40, StartsAt: &mistralStarts, ExpiresAt: &mistralExpires, Term: "through Oct 20th",
-	}}
-	entries["mistral/mistral-large-4"] = mistral
-	// 官方活动分别按精确 UTC 时刻生效，结束后恢复基础月额度 $80。
-	deepSeek := entries["deepseek/deepseek-v4.1-flash"]
-	deepSeekStarts := time.Date(2026, 10, 13, 14, 0, 0, 0, time.UTC)
-	deepSeekExpires := time.Date(2026, 10, 16, 13, 59, 59, 0, time.UTC)
-	deepSeek.MonthlyQuota.Periods = []MonthlyQuotaPeriod{{
-		CreditsUSD: 100, StartsAt: &deepSeekStarts, ExpiresAt: &deepSeekExpires, Term: "through Oct 16th",
-	}}
-	entries["deepseek/deepseek-v4.1-flash"] = deepSeek
-	glm := entries["z-ai/glm-5.3-flash"]
-	glmStarts := time.Date(2026, 10, 14, 12, 30, 0, 0, time.UTC)
-	glmExpires := time.Date(2026, 10, 17, 12, 29, 59, 0, time.UTC)
-	glm.MonthlyQuota.Periods = []MonthlyQuotaPeriod{
-		{CreditsUSD: 60, ExpiresAt: &glmStarts},
-		{CreditsUSD: 100, StartsAt: &glmStarts, ExpiresAt: &glmExpires, Term: "through Oct 17th"},
-	}
-	entries["z-ai/glm-5.3-flash"] = glm
 	return entries
 }
 
@@ -435,36 +424,17 @@ func setCommandCodeFallbackDeals(entries map[string]commandCodeCatalogEntry) {
 		entry.Deal = &deal
 		entries[key] = entry
 	}
-	setListRates := func(key string, listRates commandCodeCatalogRates) {
-		entry := entries[key]
-		entry.Tiers[0].ListRates = &listRates
-		entries[key] = entry
-	}
 	set("minimaxai/minimax-m3", commandCodeCatalogDeal{
 		Code: "minimax-m3-2x-usage", Label: "50% off", DiscountPercent: 50,
 		Term: "50% off. See the deal for details.",
 	})
-	set("xiaomi/mimo-v2.5", commandCodeCatalogDeal{
-		Code: "mimo-v2.5-98-off", Label: "98% off", DiscountPercent: 98,
-		Term: "98% off. See the deal for details.",
+	set("reflection/beam:free", commandCodeCatalogDeal{
+		Code: "beam-free", Label: "Free", DiscountPercent: 100, Free: true,
+		Term: "while capacity lasts",
 	})
-	setListRates("xiaomi/mimo-v2.5", commandCodeRates(0.8, 4, 0.16))
-	set("xiaomi/mimo-v2.5-pro", commandCodeCatalogDeal{
-		Code: "mimo-v2.5-pro-99-off", Label: "99% off", DiscountPercent: 99,
-		Term: "99% off. See the deal for details.",
-	})
-	setListRates("xiaomi/mimo-v2.5-pro", commandCodeRates(2, 6, 0.4))
 	set("stealth/glyph-cluster:free", commandCodeCatalogDeal{
 		Code: "glyph-cluster-free", Label: "Free", DiscountPercent: 100, Free: true,
 		Term: "while the stealth preview lasts",
-	})
-	set("inclusionai/ling-3.0-flash-sante:free", commandCodeCatalogDeal{
-		Code: "ling-3.0-flash-sante-free", Label: "Free", DiscountPercent: 100, Free: true,
-		Term: "while it lasts",
-	})
-	set("inclusionai/ling-3.1-flash:free", commandCodeCatalogDeal{
-		Code: "ling-3.1-flash-free", Label: "Free", DiscountPercent: 100, Free: true,
-		Term: "while it lasts",
 	})
 	set("poolside/laguna-s-2.1-free", commandCodeCatalogDeal{
 		Code: "laguna-s-2.1-free", Label: "Free", DiscountPercent: 100, Free: true,

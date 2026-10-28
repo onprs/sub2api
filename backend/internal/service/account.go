@@ -1687,6 +1687,21 @@ func (a *Account) GetOpenAIBaseURL() string {
 	return "https://api.openai.com"
 }
 
+// GetOpenCodeGoogleBaseURL 解析 OpenCode 官方 Gemini（Google GenAI）基址。
+// 官方 Go 与 Zen 使用不同的推理前缀；自定义中转可用 credentials.google_base_url 覆盖。
+func (a *Account) GetOpenCodeGoogleBaseURL() string {
+	if a == nil || !a.IsOpenCodeGo() {
+		return ""
+	}
+	if baseURL := strings.TrimSpace(a.GetCredential("google_base_url")); baseURL != "" {
+		return baseURL
+	}
+	if a.IsOpenCodeZen() {
+		return DefaultOpenCodeZenGoogleBaseURL
+	}
+	return DefaultOpenCodeGoGoogleBaseURL
+}
+
 // GetAccountMode 返回国产供应商账号的接入模式（payg / coding）；非国产供应商或未设置时
 // 返回空串。存储于 credentials["account_mode"]。
 func (a *Account) GetAccountMode() string {

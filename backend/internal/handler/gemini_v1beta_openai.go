@@ -33,8 +33,8 @@ func (h *GatewayHandler) forwardGeminiIngressToStandardProvider(
 		googleError(c, http.StatusBadRequest, "API key group platform does not support standard Gemini ingress")
 		return
 	}
-	if platform == service.PlatformOpenAI && h.openAIGatewayService == nil {
-		googleError(c, http.StatusBadGateway, "OpenAI compatibility service is not configured")
+	if (platform == service.PlatformOpenAI || platform == service.PlatformOpenCodeGo) && h.openAIGatewayService == nil {
+		googleError(c, http.StatusBadGateway, "Provider compatibility service is not configured")
 		return
 	}
 	if h.gatewayService == nil || h.concurrencyHelper == nil || h.billingCacheService == nil {
@@ -154,7 +154,7 @@ func (h *GatewayHandler) forwardGeminiIngressToStandardProvider(
 		var openAIResult *service.OpenAIForwardResult
 		var anthropicResult *service.ForwardResult
 		var forwardErr error
-		if platform == service.PlatformOpenAI {
+		if platform == service.PlatformOpenAI || platform == service.PlatformOpenCodeGo {
 			openAIResult, forwardErr = h.openAIGatewayService.ForwardGoogleGenAI(
 				c.Request.Context(), c, account, reqModel, routedModel, stream, body,
 			)
@@ -210,7 +210,9 @@ func (h *GatewayHandler) forwardGeminiIngressToStandardProvider(
 		}
 		upstreamEndpoint := GetUpstreamEndpointForActualProtocol(c, account.Platform, actualProtocol)
 		if openAIResult != nil {
-			h.openAIGatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(routedModel), true, openAIResult.FirstTokenMs)
+			if platform == service.PlatformOpenAI {
+				h.openAIGatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(routedModel), true, openAIResult.FirstTokenMs)
+			}
 			cyberBlocked := service.GetOpsCyberPolicy(c) != nil
 			h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 				if err := h.openAIGatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{

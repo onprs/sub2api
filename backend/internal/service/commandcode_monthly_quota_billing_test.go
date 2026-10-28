@@ -2,20 +2,46 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
+// patchCommandCodeFallbackEntry 为验证额度活动语义注入静态活动，
+// 不依赖官方页面当前是否仍在进行该活动。
+func patchCommandCodeFallbackEntry(t *testing.T, model string, mutate func(*commandCodeCatalogEntry)) {
+	t.Helper()
+	original, ok := commandCodeFallbackCatalogEntries()[strings.ToLower(model)]
+	require.True(t, ok)
+	patched := original
+	mutate(&patched)
+	defaultCommandCodeCatalog.mu.Lock()
+	defaultCommandCodeCatalog.entries[strings.ToLower(model)] = patched
+	defaultCommandCodeCatalog.lastSuccess = time.Now()
+	defaultCommandCodeCatalog.mu.Unlock()
+	t.Cleanup(func() {
+		defaultCommandCodeCatalog.mu.Lock()
+		defaultCommandCodeCatalog.entries[strings.ToLower(model)] = original
+		defaultCommandCodeCatalog.lastSuccess = time.Time{}
+		defaultCommandCodeCatalog.mu.Unlock()
+	})
+}
+
 func TestCommandCodeMonthlyQuotaBillingAndDisplayUseRequestInstant(t *testing.T) {
 	billing := &BillingService{}
 	gateway := &GatewayService{billingService: billing}
 	channel := &ChannelService{billingService: billing}
-	// Kimi K3 的活动（through Oct 7th）已过期，官方页面数据回落到基础 $20；
-	// 活动机制改用进行中的 Mistral Large 4 creditDeal（10-06 至 10-20，$40）验证。
+	// 官方当前没有进行中的额度活动；注入固定的 Mistral Large 4 creditDeal
+	// （10-06 至 10-20，$40）验证活动窗口的请求时刻语义。
 	start := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	patchCommandCodeFallbackEntry(t, "mistral/mistral-large-4", func(entry *commandCodeCatalogEntry) {
+		entry.MonthlyQuota.Periods = []MonthlyQuotaPeriod{{
+			CreditsUSD: 40, StartsAt: &start, ExpiresAt: &end, Term: "through Oct 20th",
+		}}
+	})
 	for _, tt := range []struct {
 		name    string
 		at      time.Time
@@ -60,6 +86,13 @@ func TestCommandCodeMonthlyQuotaBillingAndDisplayUseRequestInstant(t *testing.T)
 }
 
 func TestCommandCodeMonthlyQuotaRefreshClearsExpiredOffer(t *testing.T) {
+	start := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	patchCommandCodeFallbackEntry(t, "mistral/mistral-large-4", func(entry *commandCodeCatalogEntry) {
+		entry.MonthlyQuota.Periods = []MonthlyQuotaPeriod{{
+			CreditsUSD: 40, StartsAt: &start, ExpiresAt: &end, Term: "through Oct 20th",
+		}}
+	})
 	channel := &ChannelService{billingService: &BillingService{}}
 	model := SupportedModel{Name: "mistral-large-4", Platform: PlatformCommandCode, PricingSource: PricingSourceCatalog}
 	inside := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
@@ -106,5 +139,5 @@ func TestCommandCodeOfficialDeepSeekWeekendsAndFastModelPricing(t *testing.T) {
 	require.Equal(t, 7.0, quota.Multiplier)
 	quota, ok = (&BillingService{}).GetCommandCodeQuotaCostAt("glm-5.3-flash", monday)
 	require.True(t, ok)
-	require.Equal(t, 60.0, quota.IncludedMonthlyUsageUSD)
+	require.Equal(t, 80.0, quota.IncludedMonthlyUsageUSD)
 }

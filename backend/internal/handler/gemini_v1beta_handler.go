@@ -190,9 +190,23 @@ func (h *GatewayHandler) standardGoogleIngressModelIDs(c *gin.Context, groupID *
 	if h != nil && h.gatewayService != nil {
 		availableModels = h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
 	}
+	openCodeGoogleChannel := false
+	if platform == service.PlatformOpenCodeGo && h != nil && h.gatewayService != nil {
+		if googleModels, ok := h.gatewayService.GetOpenCodeGoogleModels(c.Request.Context(), groupID); ok {
+			availableModels = googleModels
+			openCodeGoogleChannel = true
+		}
+	}
 	fallbackModels := standardGoogleIngressFallbackModelIDs(platform)
 	models := availableModels
-	if len(models) == 0 && (platform != service.PlatformCommandCode || availableModels == nil) {
+	useFallback := len(models) == 0
+	if platform == service.PlatformCommandCode || platform == service.PlatformOpenCodeGo {
+		useFallback = availableModels == nil
+	}
+	if platform == service.PlatformOpenCodeGo && openCodeGoogleChannel {
+		useFallback = false
+	}
+	if useFallback {
 		models = fallbackModels
 	} else {
 		models = expandGoogleIngressModelIDs(models, fallbackModels)
@@ -1081,7 +1095,7 @@ func supportsStandardGeminiIngress(platform string) bool {
 }
 
 func isStandardGeminiIngressProvider(platform string) bool {
-	return platform == service.PlatformOpenAI || platform == service.PlatformAnthropic
+	return platform == service.PlatformOpenAI || platform == service.PlatformAnthropic || platform == service.PlatformOpenCodeGo
 }
 
 func shouldRouteGeminiIngressToStandardProvider(hasForcePlatform bool, platform string) bool {
