@@ -104,6 +104,7 @@ func openCodeReferenceModelPricingAt(model string, at time.Time) (*ModelPricing,
 }
 
 // OpenCodeChannelModelIDs 让模型列表跟随渠道增删，避免使用账号中的陈旧目录。
+// Google SDK 专属模型（gemini-*）也按官方统一模型列表展示；实际请求仍须走 /v1beta。
 func (s *ChannelService) OpenCodeChannelModelIDs(ctx context.Context, groupID int64) ([]string, bool) {
 	lookup, err := s.lookupGroupChannel(ctx, groupID)
 	if err != nil || lookup == nil {
@@ -111,7 +112,7 @@ func (s *ChannelService) OpenCodeChannelModelIDs(ctx context.Context, groupID in
 	}
 	models := make([]string, 0)
 	for _, model := range lookup.channel.SupportedModels() {
-		if model.Platform == PlatformOpenCodeGo && model.Pricing != nil && !pricingNeedsFallback(model.Pricing) && !IsOpenCodeUnsupportedModel(model.Name) {
+		if model.Platform == PlatformOpenCodeGo && model.Pricing != nil && !pricingNeedsFallback(model.Pricing) {
 			models = append(models, model.Name)
 		}
 	}

@@ -28,9 +28,10 @@ func openCodeBillingTestServices(pricing []ChannelModelPricing) (*ChannelService
 }
 
 func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
-	require.Len(t, DefaultOpenCodeGoModelIDs(), 29)
+	require.Len(t, DefaultOpenCodeGoModelIDs(), 30)
 	require.Contains(t, DefaultOpenCodeGoModelIDs(), "beam-free")
 	require.Contains(t, DefaultOpenCodeGoModelIDs(), "gemini-4-argon")
+	require.Contains(t, DefaultOpenCodeGoModelIDs(), "iceman-contributor-free")
 	require.NoError(t, validatePricingEntries(openCodeDefaultPricing))
 	for _, removed := range []string{"omen-alpha", "deepseek-flash", "glm-5.1", "qwen3.7-max", "qwen3.6-plus", "minimax-m2.5", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "gemini-4-argon-contributor", "grok-4.6", "kimi-k2.6", "longcat-2.5-preview-free", "step-5-preview-free", "cat-jam-free", "minimax-m2.7", "space-bunny"} {
 		require.NotContains(t, DefaultOpenCodeGoModelIDs(), removed)
@@ -53,7 +54,7 @@ func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
 	require.Len(t, parts, 3)
 	var retired []string
 	require.NoError(t, json.Unmarshal([]byte(parts[1]), &retired))
-	current := slices.DeleteFunc(applyFreeModelMigrationForTest(t, append(seed, additions...)), func(pricing ChannelModelPricing) bool {
+	current := slices.DeleteFunc(applyFreeModelMigrationForTest(t, append(slices.Clone(seed), slices.Clone(additions)...)), func(pricing ChannelModelPricing) bool {
 		return slices.Contains(retired, pricing.Models[0])
 	})
 	sync, err := os.ReadFile("../../migrations/251_sync_official_channel_catalogs_20261027.sql")
@@ -64,9 +65,23 @@ func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
 	parts = strings.Split(string(sync), "$opencode_additions$")
 	require.Len(t, parts, 3)
 	require.NoError(t, json.Unmarshal([]byte(parts[1]), &additions))
-	current = slices.DeleteFunc(applyFreeModelMigrationForTest(t, append(current, additions...)), func(pricing ChannelModelPricing) bool {
+	current = slices.DeleteFunc(applyFreeModelMigrationForTest(t, append(slices.Clone(current), slices.Clone(additions)...)), func(pricing ChannelModelPricing) bool {
 		return slices.Contains(retired, pricing.Models[0])
 	})
+	geminiSync, err := os.ReadFile("../../migrations/252_sync_opencode_gemini_catalog.sql")
+	require.NoError(t, err)
+	parts = strings.Split(string(geminiSync), "$opencode_additions$")
+	require.Len(t, parts, 3)
+	var geminiAdditions []ChannelModelPricing
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &geminiAdditions))
+	for _, entry := range geminiAdditions {
+		if !slices.ContainsFunc(current, func(pricing ChannelModelPricing) bool {
+			return slices.Equal(pricing.Models, entry.Models)
+		}) {
+			current = append(slices.Clone(current), entry.Clone())
+		}
+	}
+	current = applyFreeModelMigrationForTest(t, current)
 	require.ElementsMatch(t, openCodeDefaultPricing, current)
 	var routes []struct {
 		Models   []string `json:"models"`
@@ -75,7 +90,7 @@ func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
 	require.NoError(t, json.Unmarshal(openCodeChannelPricingJSON, &routes))
 	for _, route := range routes {
 		if route.Protocol == "google_genai" {
-			require.True(t, IsOpenCodeUnsupportedModel(route.Models[0]), route.Models[0])
+			require.Equal(t, APIProtocolGoogleGenAI, matchProtocolRules(route.Models[0], DefaultOpenCodeGoProtocolRules()), route.Models[0])
 			continue
 		}
 		require.Equal(t, route.Protocol, matchProtocolRules(route.Models[0], DefaultOpenCodeGoProtocolRules()), route.Models[0])
@@ -150,6 +165,19 @@ func TestOpenCodeAccountRuleFollowsChannelChanges(t *testing.T) {
 	require.Empty(t, channel.AccountStatsRulePricingAt(channel.AccountStatsPricingRules[0], at))
 	resolved := resolver.Resolve(ctx, PricingInput{Model: "glm-5.3", Platform: PlatformOpenCodeGo, GroupID: &groupID, Group: group})
 	require.Equal(t, PricingSourceMissing, resolved.Source, "渠道删除模型后不能回填分组旧价格或内置参考价")
+}
+
+func TestOpenCodeChannelModelIDsIncludesGemini(t *testing.T) {
+	ctx := context.Background()
+	channels := &ChannelService{}
+	channel := &Channel{ID: 1, Status: StatusActive, GroupIDs: []int64{1}, ModelPricing: []ChannelModelPricing{{
+		Platform: PlatformOpenCodeGo, Models: []string{"gemini-4-argon"}, BillingMode: BillingModeToken,
+		InputPrice: floatPtr(2e-6), OutputPrice: floatPtr(1e-5), CacheReadPrice: floatPtr(1e-7),
+	}}}
+	channels.cache.Store(populateChannelCache([]Channel{*channel}, map[int64]string{1: PlatformOpenCodeGo}))
+	models, found := channels.OpenCodeChannelModelIDs(ctx, int64(1))
+	require.True(t, found)
+	require.Equal(t, []string{"gemini-4-argon"}, models)
 }
 
 func TestOpenCodeAccountRuleUsesRequestTimeContextTiersAndFreeRates(t *testing.T) {

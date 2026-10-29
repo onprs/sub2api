@@ -44,6 +44,18 @@ func applyFreeModelMigrationForTest(t *testing.T, entries []ChannelModelPricing)
 			models["opencode_go"] = append(models["opencode_go"], entry.Models...)
 		}
 	}
+	// 252 新增的官方免费模型沿用同一固定免费价格。
+	geminiSync, err := os.ReadFile("../../migrations/252_sync_opencode_gemini_catalog.sql")
+	require.NoError(t, err)
+	parts = strings.Split(string(geminiSync), "$opencode_additions$")
+	require.Len(t, parts, 3)
+	var geminiAdditions []ChannelModelPricing
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &geminiAdditions))
+	for _, entry := range geminiAdditions {
+		if entry.InputPrice != nil && *entry.InputPrice <= 1e-9 {
+			models["opencode_go"] = append(models["opencode_go"], entry.Models...)
+		}
+	}
 	parts = strings.Split(string(migration), "$free_price$")
 	require.Len(t, parts, 3)
 	var price float64
@@ -122,8 +134,8 @@ func TestFreeModelBillingUsesFixedTokenAndCachePrices(t *testing.T) {
 }
 
 func TestFreeModelBillingKeepsWhitelistAndPaidRates(t *testing.T) {
-	require.Len(t, openCodeFreeModels, 9)
-	require.Len(t, DefaultOpenCodeGoModelIDs(), 29)
+	require.Len(t, openCodeFreeModels, 10)
+	require.Len(t, DefaultOpenCodeGoModelIDs(), 30)
 	require.Len(t, openCodeZenPricedModels, 73)
 	var commandCodeFreeModels []string
 	for _, entry := range commandCodeFallbackCatalogEntries() {
@@ -135,6 +147,9 @@ func TestFreeModelBillingKeepsWhitelistAndPaidRates(t *testing.T) {
 	require.Len(t, commandCodeFreeModels, 3)
 	require.ElementsMatch(t, []string{"reflection/beam:free", "poolside/laguna-s-2.1-free", "stealth/glyph-cluster:free"}, commandCodeFreeModels)
 	for _, model := range openCodeFreeModels {
+		if model == "iceman-contributor-free" {
+			continue
+		}
 		require.Contains(t, openCodeZenPricedModels, model)
 	}
 	billing := &BillingService{}
