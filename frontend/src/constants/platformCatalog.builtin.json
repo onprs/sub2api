@@ -178,6 +178,10 @@
                 "protocol": "responses"
               },
               {
+                "pattern": "gemini-*",
+                "protocol": "google_genai"
+              },
+              {
                 "pattern": "claude-haiku-5-5",
                 "protocol": "anthropic"
               },

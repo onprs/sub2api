@@ -355,7 +355,7 @@ export interface OpenCodeGoProtocolRule {
 }
 
 function isNativeOpenCodeGoProtocol(value: unknown): value is CnNativeApiProtocol {
-  return value === 'chat_completions' || value === 'anthropic' || value === 'responses'
+  return value === 'chat_completions' || value === 'anthropic' || value === 'responses' || value === 'google_genai'
 }
 
 /** 从 protocols 列表中取出首选协议以外的原生协议（去重、保持顺序）。 */

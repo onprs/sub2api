@@ -145,6 +145,16 @@ describe('openCodeGo protocol rules', () => {
     ])
   })
 
+  it('round-trips Gemini routing rules for OpenCode', () => {
+    const parsed = parseOpenCodeGoProtocolRules([{ pattern: 'gemini-*', protocol: 'google_genai' }])
+    expect(parsed).toEqual([{ pattern: 'gemini-*', protocol: 'google_genai' }])
+
+    const creds: Record<string, unknown> = {}
+    applyOpenCodeGoProtocolRules(creds, parsed!, 'create')
+    expect(creds[OPENCODE_GO_PROTOCOL_RULES_KEY]).toEqual([{ pattern: 'gemini-*', protocol: 'google_genai' }])
+    expect(defaultOpenCodeProtocolRules('go')).toContainEqual({ pattern: 'gemini-*', protocol: 'google_genai' })
+  })
+
   it('round-trips protocol sets with the preferred protocol first', () => {
     const parsed = parseOpenCodeGoProtocolRules([
       { pattern: 'gpt-*', protocol: 'responses', protocols: ['responses', 'chat_completions', 'adaptive', 'chat_completions'] },

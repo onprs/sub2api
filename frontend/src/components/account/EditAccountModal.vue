@@ -3734,8 +3734,8 @@ watch(editApiProtocol, (protocol, previousProtocol) => {
   if (!isCNApiKeyAccount.value || syncingForm.value) return
   if (protocol === 'adaptive') {
     const defaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, currentOpenCodeOrCNMode())
-    for (const item of editAdaptiveProtocolOptions.value) {
-      if (!editAdaptiveBaseUrls.value[item.value]) editAdaptiveBaseUrls.value[item.value] = defaults[item.value]
+    for (const protocol of providerNativeProtocols(props.account?.platform ?? '', currentOpenCodeOrCNMode())) {
+      if (!editAdaptiveBaseUrls.value[protocol]) editAdaptiveBaseUrls.value[protocol] = defaults[protocol] || ''
     }
     if (previousProtocol !== 'adaptive' && editBaseUrl.value.trim()) {
       editAdaptiveBaseUrls.value[previousProtocol] = editBaseUrl.value.trim()
@@ -3770,9 +3770,9 @@ watch(editAccountMode, (mode, previousMode) => {
   if (editApiProtocol.value === 'adaptive') {
     const previousDefaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, previousMode)
     const nextDefaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, mode)
-    for (const item of editAdaptiveProtocolOptions.value) {
-      if (!editAdaptiveBaseUrls.value[item.value] || editAdaptiveBaseUrls.value[item.value] === previousDefaults[item.value]) {
-        editAdaptiveBaseUrls.value[item.value] = nextDefaults[item.value]
+    for (const protocol of providerNativeProtocols(props.account?.platform ?? '', mode)) {
+      if (!editAdaptiveBaseUrls.value[protocol] || editAdaptiveBaseUrls.value[protocol] === previousDefaults[protocol]) {
+        editAdaptiveBaseUrls.value[protocol] = nextDefaults[protocol] || ''
       }
     }
     editBaseUrl.value = editAdaptiveBaseUrls.value.chat_completions
@@ -3785,9 +3785,9 @@ watch(editOpenCodeAccountMode, (mode, previousMode) => {
   if (editApiProtocol.value === 'adaptive') {
     const previousDefaults = defaultCNAdaptiveBaseUrls('opencode_go', previousMode)
     const nextDefaults = defaultCNAdaptiveBaseUrls('opencode_go', mode)
-    for (const item of editAdaptiveProtocolOptions.value) {
-      if (!editAdaptiveBaseUrls.value[item.value] || editAdaptiveBaseUrls.value[item.value] === previousDefaults[item.value]) {
-        editAdaptiveBaseUrls.value[item.value] = nextDefaults[item.value]
+    for (const protocol of providerNativeProtocols('opencode_go', mode)) {
+      if (!editAdaptiveBaseUrls.value[protocol] || editAdaptiveBaseUrls.value[protocol] === previousDefaults[protocol]) {
+        editAdaptiveBaseUrls.value[protocol] = nextDefaults[protocol] || ''
       }
     }
     editBaseUrl.value = editAdaptiveBaseUrls.value.chat_completions
@@ -4880,13 +4880,14 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         editAccountMode.value = resolveProviderAccountMode(newAccount.platform, credentials.account_mode)
       }
       const storedProtocol = credentials.api_protocol
+      const fallbackProtocol: CnApiProtocol = providerRoutesByModel(newAccount.platform) ? 'adaptive' : 'chat_completions'
       editApiProtocol.value =
         storedProtocol === 'adaptive' ||
         storedProtocol === 'chat_completions' ||
         storedProtocol === 'anthropic' ||
         storedProtocol === 'responses'
           ? storedProtocol
-          : 'chat_completions'
+          : fallbackProtocol
       if (!cnSupportsNativeResponses(newAccount.platform, currentOpenCodeOrCNMode()) && editApiProtocol.value === 'responses') {
         editApiProtocol.value = 'chat_completions'
       }
@@ -5733,8 +5734,8 @@ const handleSubmit = async () => {
         if (editApiProtocol.value === 'adaptive') {
           const defaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, currentOpenCodeOrCNMode())
           const protocolBaseUrls: Record<string, string> = {}
-          for (const item of editAdaptiveProtocolOptions.value) {
-            protocolBaseUrls[item.value] = (editAdaptiveBaseUrls.value[item.value] || defaults[item.value]).trim()
+          for (const protocol of providerNativeProtocols(props.account.platform, currentOpenCodeOrCNMode())) {
+            protocolBaseUrls[protocol] = (editAdaptiveBaseUrls.value[protocol] || defaults[protocol] || '').trim()
           }
           newCredentials.api_base_urls = protocolBaseUrls
           newCredentials.base_url = protocolBaseUrls.chat_completions

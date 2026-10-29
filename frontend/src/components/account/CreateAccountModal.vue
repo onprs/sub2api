@@ -4583,9 +4583,9 @@ watch(openCodeAccountMode, (mode, previousMode) => {
   if (apiProtocol.value === 'adaptive') {
     const previousDefaults = defaultCNAdaptiveBaseUrls('opencode_go', previousMode)
     const nextDefaults = defaultCNAdaptiveBaseUrls('opencode_go', mode)
-    for (const item of cnAdaptiveProtocolOptions.value) {
-      if (!adaptiveBaseUrls.value[item.value] || adaptiveBaseUrls.value[item.value] === previousDefaults[item.value]) {
-        adaptiveBaseUrls.value[item.value] = nextDefaults[item.value]
+    for (const protocol of providerNativeProtocols('opencode_go', mode)) {
+      if (!adaptiveBaseUrls.value[protocol] || adaptiveBaseUrls.value[protocol] === previousDefaults[protocol]) {
+        adaptiveBaseUrls.value[protocol] = nextDefaults[protocol] || ''
       }
     }
     apiKeyBaseUrl.value = adaptiveBaseUrls.value.chat_completions
@@ -4608,9 +4608,9 @@ watch(accountMode, (mode, previousMode) => {
   if (apiProtocol.value === 'adaptive') {
     const previousDefaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, previousMode)
     const nextDefaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, mode)
-    for (const item of cnAdaptiveProtocolOptions.value) {
-      if (!adaptiveBaseUrls.value[item.value] || adaptiveBaseUrls.value[item.value] === previousDefaults[item.value]) {
-        adaptiveBaseUrls.value[item.value] = nextDefaults[item.value]
+    for (const protocol of providerNativeProtocols(form.platform, mode)) {
+      if (!adaptiveBaseUrls.value[protocol] || adaptiveBaseUrls.value[protocol] === previousDefaults[protocol]) {
+        adaptiveBaseUrls.value[protocol] = nextDefaults[protocol] || ''
       }
     }
     apiKeyBaseUrl.value = adaptiveBaseUrls.value.chat_completions
@@ -4622,8 +4622,8 @@ watch(apiProtocol, (protocol) => {
   if (!isMultiProtocolPlatform.value) return
   if (protocol === 'adaptive') {
     const defaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, currentOpenCodeOrCNMode())
-    for (const item of cnAdaptiveProtocolOptions.value) {
-      if (!adaptiveBaseUrls.value[item.value]) adaptiveBaseUrls.value[item.value] = defaults[item.value]
+    for (const protocol of providerNativeProtocols(form.platform, currentOpenCodeOrCNMode())) {
+      if (!adaptiveBaseUrls.value[protocol]) adaptiveBaseUrls.value[protocol] = defaults[protocol] || ''
     }
     apiKeyBaseUrl.value = adaptiveBaseUrls.value.chat_completions
     return
@@ -6210,8 +6210,8 @@ const handleSubmit = async () => {
         form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
       )
       const protocolBaseUrls: Record<string, string> = {}
-      for (const item of cnAdaptiveProtocolOptions.value) {
-        protocolBaseUrls[item.value] = (adaptiveBaseUrls.value[item.value] || defaults[item.value]).trim()
+      for (const protocol of providerNativeProtocols(form.platform, currentOpenCodeOrCNMode())) {
+        protocolBaseUrls[protocol] = (adaptiveBaseUrls.value[protocol] || defaults[protocol] || '').trim()
       }
       credentials.api_base_urls = protocolBaseUrls
       credentials.base_url = protocolBaseUrls.chat_completions

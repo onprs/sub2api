@@ -650,6 +650,21 @@ describe('EditAccountModal', () => {
     })
   })
 
+  it('treats an OpenCode account without api_protocol as adaptive', async () => {
+    const account = buildOpenCodeGoAccount()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
+      account_mode: 'go',
+      api_protocol: 'adaptive'
+    })
+  })
+
   describe('providers using the generic form', () => {
     beforeEach(() => {
       setPlatformCatalog({

@@ -841,13 +841,15 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       api_base_urls: {
         chat_completions: 'https://opencode.ai/zen/go/v1',
         anthropic: 'https://opencode.ai/zen/go',
-        responses: 'https://opencode.ai/zen/go/v1'
+        responses: 'https://opencode.ai/zen/go/v1',
+        google_genai: 'https://opencode.ai/inference/go/google'
       },
       protocol_rules: [
         { pattern: 'grok-*', protocol: 'responses' },
         { pattern: 'gpt-*', protocol: 'responses' },
         { pattern: 'muse-spark-*', protocol: 'responses' },
   { pattern: 'muse-wonder-*', protocol: 'responses' },
+        { pattern: 'gemini-*', protocol: 'google_genai' },
         { pattern: 'claude-haiku-5-5', protocol: 'anthropic' },
         { pattern: 'minimax-*', protocol: 'anthropic' },
         { pattern: 'qwen*', protocol: 'anthropic' }

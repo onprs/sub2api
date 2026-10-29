@@ -45,6 +45,7 @@ const legacyGoRules = [
   { pattern: 'gpt-*', protocol: 'responses' },
   { pattern: 'muse-spark-*', protocol: 'responses' },
   { pattern: 'muse-wonder-*', protocol: 'responses' },
+  { pattern: 'gemini-*', protocol: 'google_genai' },
   { pattern: 'claude-haiku-5-5', protocol: 'anthropic' },
   { pattern: 'minimax-*', protocol: 'anthropic' },
   { pattern: 'qwen*', protocol: 'anthropic' }

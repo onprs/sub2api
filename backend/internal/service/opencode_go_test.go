@@ -15,6 +15,8 @@ func TestOpenCodeGoDefaultProtocolRules(t *testing.T) {
 		{"grok-4.6", APIProtocolResponses},
 		{"opencode-go/gpt-5.6-luna", APIProtocolResponses},
 		{"muse-spark-1.3-contributor", APIProtocolResponses},
+		{"gemini-4-argon", APIProtocolGoogleGenAI},
+		{"opencode-go/gemini-4-argon", APIProtocolGoogleGenAI},
 		{"minimax-m3", APIProtocolAnthropic},
 		{"qwen3.8-max", APIProtocolAnthropic},
 		{"qwen3.7-plus", APIProtocolAnthropic},

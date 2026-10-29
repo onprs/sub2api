@@ -104,6 +104,7 @@ func DefaultOpenCodeGoProtocolRules() []ProtocolRule {
 		{Pattern: "gpt-*", Protocol: APIProtocolResponses},
 		{Pattern: "muse-spark-*", Protocol: APIProtocolResponses},
 		{Pattern: "muse-wonder-*", Protocol: APIProtocolResponses},
+		{Pattern: "gemini-*", Protocol: APIProtocolGoogleGenAI},
 		{Pattern: "claude-haiku-5-5", Protocol: APIProtocolAnthropic},
 		{Pattern: "minimax-*", Protocol: APIProtocolAnthropic},
 		{Pattern: "qwen*", Protocol: APIProtocolAnthropic},
