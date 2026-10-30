@@ -29,6 +29,16 @@ func (c *Client) OriginURL() string {
 	return DefaultOrigin
 }
 func (c *Client) request(ctx context.Context, method, url string, headers http.Header, body any, timeout time.Duration) (json.RawMessage, error) {
+	return c.requestJSON(ctx, method, url, headers, body, timeout, false)
+}
+
+// requestOptionalData 与 request 相同，但允许成功响应省略 data 字段。
+// 上游领取预览在无活动时返回 200 + code=0 且不带 data，不能当作格式错误。
+func (c *Client) requestOptionalData(ctx context.Context, method, url string, headers http.Header, body any, timeout time.Duration) (json.RawMessage, error) {
+	return c.requestJSON(ctx, method, url, headers, body, timeout, true)
+}
+
+func (c *Client) requestJSON(ctx context.Context, method, url string, headers http.Header, body any, timeout time.Duration, allowEmptyData bool) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var data []byte
@@ -68,6 +78,9 @@ func (c *Client) request(ctx context.Context, method, url string, headers http.H
 		return nil, &Error{Kind: Classify(resp.StatusCode, code), Status: resp.StatusCode, Code: code, RetryAt: retryAt(resp.Header, raw, time.Now())}
 	}
 	if len(env.Data) == 0 {
+		if allowEmptyData {
+			return nil, nil
+		}
 		return nil, &Error{Kind: ErrFormat, Status: resp.StatusCode}
 	}
 	return env.Data, nil

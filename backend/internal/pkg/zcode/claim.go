@@ -179,9 +179,13 @@ func (c *Client) Preview(ctx context.Context, jwt string) (Preview, error) {
 	if c.Identity.DeviceMid != "" {
 		headers.Set("X-Device-Mid", c.Identity.DeviceMid)
 	}
-	data, err := c.request(ctx, "GET", endpoint, headers, nil, 15*time.Second)
+	data, err := c.requestOptionalData(ctx, "GET", endpoint, headers, nil, 15*time.Second)
 	if err != nil {
 		return Preview{}, err
+	}
+	if len(data) == 0 {
+		// 无活动时上游省略 data：这是正常的"没有可领取活动"。
+		return Preview{Blocked: "none"}, nil
 	}
 	return ParsePreview(data)
 }

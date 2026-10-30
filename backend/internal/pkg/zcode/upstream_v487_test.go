@@ -200,3 +200,26 @@ func TestParsePreviewFormats(t *testing.T) {
 		require.False(t, preview.Claimable)
 	})
 }
+
+// 上游无活动时返回 200 + code=0 且省略 data；必须视为"没有活动"而不是格式错误。
+func TestPreviewWithoutDataField(t *testing.T) {
+	client := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/zcode-plan/billing/preview", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"msg":"","logid":"synthetic-logid"}`))
+	})
+	preview, err := client.Preview(context.Background(), "synthetic-jwt")
+	require.NoError(t, err)
+	require.Equal(t, "none", preview.Blocked)
+	require.Nil(t, preview.Campaign)
+	require.False(t, preview.Claimable)
+}
+
+func TestPreviewStillRejectsMalformedEnvelope(t *testing.T) {
+	client := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`not-json`))
+	})
+	_, err := client.Preview(context.Background(), "synthetic-jwt")
+	require.Error(t, err)
+}
