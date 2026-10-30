@@ -12,7 +12,6 @@ import (
 	"os"
 	"strconv"
 	"testing"
-	"time"
 )
 
 func TestSigningCrossLanguageVectors(t *testing.T) {
@@ -42,15 +41,15 @@ func TestSigningHeadersAndProofOfWork(t *testing.T) {
 	client := &Client{Identity: DefaultIdentity("", "synthetic-device")}
 	key := "synthetic-id.synthetic-secret"
 	origin := "https://api.z.ai"
-	signer.states[signingID(origin, key)] = &signingState{enabled: true, gateUntil: time.Now().Add(time.Hour), key: private}
+	signer.states[signingID(origin, key)] = &signingState{key: private}
 	request, _ := http.NewRequest("POST", origin+"/api/anthropic/v1/messages", nil)
 	request.Header.Set("X-Session-Id", "synthetic-session")
-	signed, e := signer.Sign(context.Background(), client, request, key)
+	signed, e := signer.Sign(context.Background(), client, request, SigningCredential{Key: key, Provider: ZAI})
 	require.NoError(t, e)
 	require.True(t, signed)
 	signature, e := base64.StdEncoding.DecodeString(request.Header.Get("X-Client-Sig"))
 	require.NoError(t, e)
-	message := "synthetic-id\n" + request.Header.Get("X-Client-Ts") + "\n3.14.0\nsynthetic-session\n" + request.Header.Get("X-Client-Nonce")
+	message := "synthetic-id\n" + request.Header.Get("X-Client-Ts") + "\n3.16.3\nsynthetic-session\n" + request.Header.Get("X-Client-Nonce")
 	publicKey, ok := private.Public().(ed25519.PublicKey)
 	require.True(t, ok)
 	require.True(t, ed25519.Verify(publicKey, []byte(message), signature))

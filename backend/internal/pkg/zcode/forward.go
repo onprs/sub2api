@@ -38,6 +38,35 @@ func SessionID(body []byte, device string) string {
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:16])
 }
+
+// acquireCaptcha 在预算内重试获取验证参数；nil 表示服务端已关闭验证码。
+// 上游 3.16.3 要求获取失败时不能裸发请求，必须有界重试，失败由上层返回错误。
+func acquireCaptcha(ctx context.Context, pool *CaptchaPool, c *Client, proxy string) (*CaptchaToken, error) {
+	if pool == nil {
+		return nil, &Error{Kind: ErrConfiguration}
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		token, err := pool.Token(ctx, c, proxy)
+		if err == nil {
+			return token, nil
+		}
+		if kind := KindOf(err); kind != ErrCaptcha && kind != ErrNetwork && kind != ErrUnavailable {
+			return nil, err
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if time.Now().After(deadline) {
+			return nil, &Error{Kind: ErrCaptcha}
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
+	}
+}
 func (c *Client) Forward(ctx context.Context, input *http.Request, body []byte, o ForwardOptions) (*http.Response, *Error, error) {
 	if !o.Provider.Valid() || (o.Plan != PlanStart && o.Plan != PlanCoding) {
 		return nil, &Error{Kind: ErrConfiguration}, nil
@@ -61,14 +90,20 @@ func (c *Client) Forward(ctx context.Context, input *http.Request, body []byte, 
 	if err != nil {
 		return nil, nil, err
 	}
+	routedHeaders := http.Header{}
 	if o.Resolver != nil {
-		endpoint = o.Resolver.Resolve(ctx, c, endpoint, credential)
+		routed := o.Resolver.Resolve(ctx, c, endpoint, credential, o.Tokens.JWT)
+		endpoint = routed.URL
+		routedHeaders = routed.Headers
 	}
 	parsed, err := url.Parse(endpoint)
 	if err != nil {
 		return nil, &Error{Kind: ErrConfiguration}, nil
 	}
 	headers := c.Identity.Headers(true)
+	for k, v := range routedHeaders {
+		headers[k] = v
+	}
 	headers.Set("User-Agent", headers.Get("User-Agent")+" ai-sdk/anthropic/3.0.81")
 	headers.Set("Content-Type", "application/json")
 	headers.Set("Anthropic-Version", "2023-06-01")
@@ -88,15 +123,17 @@ func (c *Client) Forward(ctx context.Context, input *http.Request, body []byte, 
 		if o.Captcha == nil {
 			return nil, &Error{Kind: ErrConfiguration}, nil
 		}
-		token, err := o.Captcha.Take(ctx, c, o.Proxy)
+		token, err := acquireCaptcha(ctx, o.Captcha, c, o.Proxy)
 		if err != nil {
 			if e, ok := err.(*Error); ok {
 				return nil, e, nil
 			}
 			return nil, nil, err
 		}
-		headers.Set(CaptchaHeader, token.Param)
-		headers.Set(CaptchaRegionHeader, token.Region)
+		if token != nil {
+			headers.Set(CaptchaHeader, token.Param)
+			headers.Set(CaptchaRegionHeader, token.Region)
+		}
 	}
 	captchaRetry, signingRetry := 0, 0
 	for {
@@ -107,7 +144,7 @@ func (c *Client) Forward(ctx context.Context, input *http.Request, body []byte, 
 		req.Header = headers.Clone()
 		signed := false
 		if o.Plan == PlanCoding && o.Signer != nil {
-			signed, err = o.Signer.Sign(ctx, c, req, credential)
+			signed, err = o.Signer.Sign(ctx, c, req, SigningCredential{Key: credential, OAuth: o.Tokens.AccessToken, Provider: o.Provider})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -150,8 +187,8 @@ func (c *Client) Forward(ctx context.Context, input *http.Request, body []byte, 
 		}
 		if o.Plan == PlanStart && captchaRetry == 0 && IsCaptchaChallenge(resp.StatusCode, resp.Header, peek) {
 			captchaRetry++
-			token, err := o.Captcha.Take(ctx, c, o.Proxy)
-			if err != nil {
+			token, err := acquireCaptcha(ctx, o.Captcha, c, o.Proxy)
+			if err != nil || token == nil {
 				return nil, &Error{Kind: ErrCaptcha}, nil
 			}
 			headers.Set(CaptchaHeader, token.Param)

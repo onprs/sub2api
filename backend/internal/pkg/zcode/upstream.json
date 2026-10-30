@@ -2,9 +2,9 @@
   "schema_version": 1,
   "upstream_repo": "TriDefender/zcode-api",
   "upstream_url": "https://github.com/TriDefender/zcode-api",
-  "pinned_tag": "v4.7.6",
-  "pinned_commit": "0f8788ae02d3a2432b96276f200e7c41bf8f64d7",
-  "synced_at": "2026-10-03",
+  "pinned_tag": "v4.8.7",
+  "pinned_commit": "cdf9f5e1d7b38dc3bb240dd0bb2175ff1d4a16f2",
+  "synced_at": "2026-10-29",
   "source_mapping": [
     {
       "category": "oauth",
@@ -139,11 +139,17 @@
     }
   ],
   "license": {
-    "declaration": "MIT",
-    "declaration_file": "README.md",
+    "declaration": "CC BY-NC-SA 4.0",
+    "declaration_file": "LICENSE",
     "declaration_heading": "License",
-    "standalone_license_file": null,
-    "github_license_metadata": null,
+    "standalone_license_file": "LICENSE",
+    "github_license_metadata": "NOASSERTION",
+    "previous_baseline": {
+      "tag": "v4.7.6",
+      "commit": "0f8788ae02d3a2432b96276f200e7c41bf8f64d7",
+      "declaration": "MIT",
+      "standalone_license_file": null
+    },
     "notice": "backend/internal/pkg/zcode/NOTICE.md"
   },
   "known_differences": [
@@ -151,11 +157,15 @@
     "OAuth 仅实现上游当前默认的服务端 init/poll；上游传统 localhost callback CLI 流程不作为远端管理后台入口。",
     "JWT 不存为 api_key；通过 Sub2API AES-GCM 加密凭据保存，并使用加密 Redis 会话。",
     "CAPTCHA 在受控 Chromium 中执行官方动态 Aliyun SDK，不移植 Happy DOM/polyfill；需要 Chromium，可取消，保留 sandbox。带用户名密码的浏览器代理当前明确拒绝。",
-    "自动领取默认关闭；账号开启后使用 Redis 分布式周期锁、持久化 next_attempt 和 jitter。",
+    "验证码配置按上游 3.16.3 视为 1h 成功快照；enabled=false 是合法状态，此时不发验证头。原生实现额外保留 last-good 兜底，避免刷新失败时整站不可用。",
+    "自动领取默认关闭；账号开启后使用 Redis 分布式周期锁、持久化 next_attempt 和 jitter。领取平面是否需要验证码读取 agent/configs 的 configs.captcha，未下发时保守为需要。",
     "额度通过持久化快照与跨实例缓存/限频展示；页面挂载不查询上游。",
     "动态 endpoint mapping 仅接受 HTTPS、明确允许的公共主机；不跟随重定向。",
-    "固定默认客户端版本 3.14.0，可通过 gateway.zcode.app_version 覆盖；身份平台和 OS 版本可集中配置。",
-    "Start Plan 保留上游官方 system 数据块，同时保留客户端原始 system 文本，使用既有协议 Pipeline。",
+    "端点路由支持 zcodeAuthorizationHeader，但仅对官方 /api/v1/ultra 与 /api/v1/ultra-zai 目标注入 X-ZCode-Authorization。",
+    "固定默认客户端版本 3.16.3（对齐真实客户端；上游代理模板仍为 3.15.1），可通过 gateway.zcode.app_version 覆盖；身份平台和 OS 版本可集中配置。",
+    "Start Plan 固定 3 块 system：首块不带 cache_control，客户端 system 整段替换第三块；不注入 ZCode Desktop Context。",
+    "签名不再探测 agent/configs，按 3.15.1 静态规则只对 coding-plan 请求签名；bigmodel OAuth 账号通过 access_tokens 铸造 project JWT，失败回退 apiKey 形态。",
+    "未实现上游自有功能：highspeed 加速卡、MCP 聚合、云控 config、网页面板与 Android。",
     "不修改 Ent schema 和历史迁移；平台仍为 zhipu，auth 与 plan 独立。"
   ]
 }

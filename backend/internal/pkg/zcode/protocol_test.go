@@ -185,12 +185,12 @@ func TestClaimPreviewAndResultParity(t *testing.T) {
 	for code, result := range map[int]string{1001: "none", 1002: "not_in_window", 1003: "already_claimed", 1004: "not_eligible", 1005: "quota_exhausted", 3001: "version_too_low", 3007: "captcha", 3012: "login_required"} {
 		c := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
 			require.Equal(t, "Bearer synthetic-jwt", r.Header.Get("Authorization"))
-			require.Equal(t, "3.14.0", r.Header.Get("X-ZCode-App-Version"))
+			require.Equal(t, "3.16.3", r.Header.Get("X-ZCode-App-Version"))
 			require.NotEmpty(t, r.Header.Get(CaptchaHeader))
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": code, "msg": "synthetic-sensitive", "data": map[string]int64{"next_available_at": 2000000000}})
 		})
-		resultData, e := c.Claim(context.Background(), "synthetic-jwt", "synthetic-plan", CaptchaToken{Param: captchaParam("1"), Region: "cn"})
+		resultData, e := c.Claim(context.Background(), "synthetic-jwt", "synthetic-plan", &CaptchaToken{Param: captchaParam("1"), Region: "cn"})
 		require.NoError(t, e)
 		require.Equal(t, result, resultData.Result)
 		require.Equal(t, int64(2000000000), resultData.RetryAt)
@@ -212,16 +212,16 @@ func TestEndpointRoutingUpdateAndFallback(t *testing.T) {
 		return errors.New("拒绝非官方主机")
 	})
 	original := DefaultOrigin + StartMessagesPath
-	require.Equal(t, "https://api.z.ai/api/v1/off-peak/anthropic/v1/messages", resolver.Resolve(context.Background(), c, original, "synthetic"))
-	require.Equal(t, "https://api.z.ai/api/v1/off-peak/anthropic/v1/messages?test=1", resolver.Resolve(context.Background(), c, original+"?test=1", "synthetic"))
+	require.Equal(t, "https://api.z.ai/api/v1/off-peak/anthropic/v1/messages", resolver.Resolve(context.Background(), c, original, "synthetic", "").URL)
+	require.Equal(t, "https://api.z.ai/api/v1/off-peak/anthropic/v1/messages?test=1", resolver.Resolve(context.Background(), c, original+"?test=1", "synthetic", "").URL)
 	require.Equal(t, int64(1), calls.Load())
 	resolver.mu.Lock()
 	resolver.expires = time.Time{}
 	resolver.mu.Unlock()
 	c.Send = func(*http.Request) (*http.Response, error) { return nil, errors.New("synthetic-network") }
-	require.Equal(t, "https://api.z.ai/api/v1/off-peak/anthropic/v1/messages", resolver.Resolve(context.Background(), c, original, "synthetic"))
+	require.Equal(t, "https://api.z.ai/api/v1/off-peak/anthropic/v1/messages", resolver.Resolve(context.Background(), c, original, "synthetic", "").URL)
 	fresh := NewResolver(nil)
-	require.Equal(t, original, fresh.Resolve(context.Background(), c, original, "synthetic"))
+	require.Equal(t, original, fresh.Resolve(context.Background(), c, original, "synthetic", "").URL)
 }
 func TestCaptchaCacheExpiryConcurrencyAndFailure(t *testing.T) {
 	var configs atomic.Int64

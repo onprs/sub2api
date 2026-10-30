@@ -13,7 +13,7 @@ import (
 func TestClaimDesktopPreviewContract(t *testing.T) {
 	client := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/v1/zcode-plan/billing/preview", r.URL.Path)
-		require.Equal(t, "3.14.0", r.URL.Query().Get("app_version"))
+		require.Equal(t, "3.16.3", r.URL.Query().Get("app_version"))
 		require.Equal(t, "Bearer synthetic-jwt", r.Header.Get("Authorization"))
 		require.Equal(t, "synthetic-device", r.Header.Get("X-Device-Mid"))
 		require.Empty(t, r.Header.Get("X-ZCode-App-Version"))
@@ -51,7 +51,7 @@ func TestClaimDesktopResultPlanAliases(t *testing.T) {
 		require.Equal(t, "trial-plan", payload["plan_id"])
 		respond(w, map[string]any{"plan": map[string]any{"plan_id": "trial-plan", "name": "体验套餐", "starts_at": 2000000000, "ends_at": 2000100000}})
 	})
-	result, err := client.Claim(context.Background(), "synthetic-jwt", "trial-plan", CaptchaToken{Param: captchaParam("contract"), Region: "cn"})
+	result, err := client.Claim(context.Background(), "synthetic-jwt", "trial-plan", &CaptchaToken{Param: captchaParam("contract"), Region: "cn"})
 	require.NoError(t, err)
 	require.True(t, result.OK)
 	require.Equal(t, "trial-plan", result.Plan.ID)

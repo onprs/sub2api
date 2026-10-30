@@ -335,3 +335,72 @@ func TestZCodeForwardFailureSanitizedAndBounded(t *testing.T) {
 	require.Equal(t, StatusActive, stored.Status)
 	require.False(t, stored.IsSchedulable())
 }
+
+// 上游 3.16.3：领取平面是否需要验证码由 agent/configs 的 configs.captcha 决定。
+func TestZCodeClaimCaptchaGate(t *testing.T) {
+	claimCampaign := func(r *http.Request) (*http.Response, error) {
+		return zcodeTestEnvelope(map[string]any{"campaign": map[string]any{"id": "synthetic-campaign", "name": "合成活动", "starts_at": 1, "ends_at": 2000000000, "min_app_version": "3.14.0", "plans": []any{map[string]any{"id": "synthetic-plan", "show_name": "合成套餐", "starts_at": 1, "ends_at": 2000000000}}}, "claimable": true}), nil
+	}
+	claimedPlan := func(r *http.Request) (*http.Response, error) {
+		return zcodeTestEnvelope(map[string]any{"plan": map[string]any{"id": "synthetic-plan", "show_name": "合成套餐", "starts_at": time.Now().Add(time.Hour).Unix(), "ends_at": 2000000000}}), nil
+	}
+	t.Run("skip_model_request", func(t *testing.T) {
+		var claims, withCaptcha atomic.Int64
+		svc, repo, _ := newZCodeTestService(t, func(r *http.Request) (*http.Response, error) {
+			switch {
+			case strings.Contains(r.URL.Path, "agent/configs"):
+				return zcodeTestEnvelope(map[string]any{
+					"proxyEndpoint": map[string]any{"mapping": []any{}},
+					"configs":       map[string]any{"captcha": map[string]any{"enabled": true, "skip_model_request": true}},
+				}), nil
+			case strings.Contains(r.URL.Path, "client/configs"):
+				return zcodeTestEnvelope(map[string]any{"configs": map[string]any{"captcha": map[string]any{"enabled": true, "skip_model_request": true, "prefix": "prefix", "sceneId": "scene", "region": "cn"}}}), nil
+			case strings.HasSuffix(r.URL.Path, "/preview"):
+				return claimCampaign(r)
+			case strings.HasSuffix(r.URL.Path, "/claim"):
+				claims.Add(1)
+				if r.Header.Get(zcode.CaptchaHeader) != "" {
+					withCaptcha.Add(1)
+				}
+				return claimedPlan(r)
+			default:
+				return nil, errors.New("非预期 endpoint")
+			}
+		})
+		state, err := svc.CheckClaim(context.Background(), 91, true)
+		require.NoError(t, err)
+		require.Equal(t, "claimed", state.Result)
+		require.Equal(t, int64(1), claims.Load())
+		require.Equal(t, int64(0), withCaptcha.Load())
+		a, _ := repo.GetByID(context.Background(), 91)
+		persisted := ZCodeClaimState{}
+		require.NoError(t, decodeZCodeExtra(a.Extra[zcodeClaimKey], &persisted))
+		require.Equal(t, "claimed", persisted.Result)
+	})
+	t.Run("config_block_absent_requires_captcha", func(t *testing.T) {
+		var claims, withCaptcha atomic.Int64
+		svc, _, _ := newZCodeTestService(t, func(r *http.Request) (*http.Response, error) {
+			switch {
+			case strings.Contains(r.URL.Path, "agent/configs"):
+				return zcodeTestEnvelope(map[string]any{"proxyEndpoint": map[string]any{"mapping": []any{}}}), nil
+			case strings.Contains(r.URL.Path, "client/configs"):
+				return zcodeTestEnvelope(map[string]any{"configs": map[string]any{"captcha": map[string]any{"enabled": true, "prefix": "prefix", "sceneId": "scene", "region": "cn"}}}), nil
+			case strings.HasSuffix(r.URL.Path, "/preview"):
+				return claimCampaign(r)
+			case strings.HasSuffix(r.URL.Path, "/claim"):
+				claims.Add(1)
+				if r.Header.Get(zcode.CaptchaHeader) != "" {
+					withCaptcha.Add(1)
+				}
+				return claimedPlan(r)
+			default:
+				return nil, errors.New("非预期 endpoint")
+			}
+		})
+		state, err := svc.CheckClaim(context.Background(), 91, true)
+		require.NoError(t, err)
+		require.Equal(t, "claimed", state.Result)
+		require.Equal(t, int64(1), claims.Load())
+		require.Equal(t, int64(1), withCaptcha.Load())
+	})
+}

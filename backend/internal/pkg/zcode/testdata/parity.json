@@ -1,5 +1,5 @@
 {
-  "upstream_commit": "0f8788ae02d3a2432b96276f200e7c41bf8f64d7",
+  "upstream_commit": "cdf9f5e1d7b38dc3bb240dd0bb2175ff1d4a16f2",
   "source_paths": [
     "src/proxy/upstream.ts",
     "src/server/routes-quota.ts",
@@ -7,10 +7,10 @@
     "src/proxy/endpoint-routing.ts"
   ],
   "identity": {
-    "User-Agent": "ZCode/3.14.0",
+    "User-Agent": "ZCode/3.16.3",
     "HTTP-Referer": "https://zcode.z.ai",
     "X-Title": "Z Code@cli",
-    "X-ZCode-App-Version": "3.14.0",
+    "X-ZCode-App-Version": "3.16.3",
     "X-Platform": "linux-x64",
     "X-Os-Category": "linux",
     "X-ZCode-Agent": "glm",

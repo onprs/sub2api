@@ -146,7 +146,8 @@ func (s *ZCodeService) CheckClaim(ctx context.Context, id int64, execute bool) (
 	if err := s.available(); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 55*time.Second)
+	// 单次领取包含验证码获取（最多 30s）、preview 与 claim，预留 100s。
+	ctx, cancel := context.WithTimeout(ctx, 100*time.Second)
 	defer cancel()
 	a, err := s.loadAccount(ctx, id)
 	if err != nil {
@@ -246,9 +247,16 @@ func (s *ZCodeService) CheckClaim(ctx context.Context, id int64, execute bool) (
 	if planID == "" {
 		return s.finishClaim(ctx, a, state, "plan_unavailable", nil)
 	}
-	token, err := s.pool(proxy).Take(ctx, client, proxy)
-	if err != nil {
-		return s.finishClaim(ctx, a, state, "captcha", err)
+	credential := tokens.CodingKey
+	if credential == "" {
+		credential = tokens.JWT
+	}
+	var token *zcode.CaptchaToken
+	if s.resolver == nil || s.resolver.ClaimNeedsCaptcha(ctx, client, credential) {
+		token, err = s.pool(proxy).Token(ctx, client, proxy)
+		if err != nil {
+			return s.finishClaim(ctx, a, state, "captcha", err)
+		}
 	}
 	result, err := client.Claim(ctx, tokens.JWT, planID, token)
 	if err != nil {
@@ -362,9 +370,9 @@ func (s *ZCodeService) Stop() {
 	})
 }
 func (s *ZCodeService) runCycle(parent context.Context) {
-	ctx, cancel := context.WithTimeout(parent, 50*time.Second)
-	defer cancel()
-	accounts, err := s.repo.ListByPlatform(ctx, PlatformZhipu)
+	scanCtx, scanCancel := context.WithTimeout(parent, 20*time.Second)
+	accounts, err := s.repo.ListByPlatform(scanCtx, PlatformZhipu)
+	scanCancel()
 	if err != nil {
 		slog.Warn("zcode_account_scan_failed")
 		return
@@ -384,6 +392,17 @@ func (s *ZCodeService) runCycle(parent context.Context) {
 		s.workerCursor = 0
 		return
 	}
+	// 领取内部预算 100 秒，且两个 worker 并行；外层预算必须能覆盖最慢一轮，
+	// 否则 captcha 求解和领取会被父 ctx 提前取消。
+	budget := time.Duration((len(eligible)+1)/2) * 110 * time.Second
+	if budget < 2*time.Minute {
+		budget = 2 * time.Minute
+	}
+	if budget > 10*time.Minute {
+		budget = 10 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(parent, budget)
+	defer cancel()
 	s.workerCursor %= len(eligible)
 	jobs := make(chan int64, 2)
 	var workers sync.WaitGroup

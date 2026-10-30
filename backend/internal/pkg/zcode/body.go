@@ -14,6 +14,36 @@ import (
 //go:embed zcode_system.json
 var systemData []byte
 
+// customSystemText 把客户端 system 归一为一个字符串：字符串 trim 后使用，
+// 数组按块顺序以空行拼接，空白内容视为未提供。
+func customSystemText(system any) string {
+	switch value := system.(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case []any:
+		parts := []string{}
+		for _, item := range value {
+			switch block := item.(type) {
+			case string:
+				if strings.TrimSpace(block) != "" {
+					parts = append(parts, block)
+				}
+			case map[string]any:
+				if block["type"] != "text" {
+					continue
+				}
+				if text, ok := block["text"].(string); ok && strings.TrimSpace(text) != "" {
+					parts = append(parts, text)
+				}
+			}
+		}
+		if len(parts) == 0 {
+			return ""
+		}
+		return strings.Join(parts, "\n\n")
+	}
+	return ""
+}
 func TransformAnthropic(body []byte, start bool, p Provider, id Identity, session string, now time.Time) ([]byte, error) {
 	var obj map[string]any
 	if json.Unmarshal(body, &obj) != nil {
@@ -84,22 +114,18 @@ func TransformAnthropic(body []byte, start bool, p Provider, id Identity, sessio
 		ephemeral := func(text string) map[string]any {
 			return map[string]any{"type": "text", "text": text, "cache_control": map[string]string{"type": "ephemeral"}}
 		}
-		blocks := []any{ephemeral(data.Prefix), ephemeral(strings.Join(data.Stable, "\n\n")), ephemeral("\n\n" + strings.Join([]string{data.Dynamic.Before, strings.Join(env, "\n"), data.Dynamic.After}, "\n\n"))}
-		switch existing := obj["system"].(type) {
-		case string:
-			if strings.TrimSpace(existing) != "" {
-				blocks = append(blocks, map[string]any{"type": "text", "text": existing})
-			}
-		case []any:
-			for _, item := range existing {
-				if b, ok := item.(map[string]any); ok && b["type"] == "text" {
-					if text, ok := b["text"].(string); ok {
-						blocks = append(blocks, map[string]any{"type": "text", "text": text})
-					}
-				}
-			}
+		// 上游 3.15.1 起 block1 不再带 cache_control；客户端 system 存在时整段替换
+		// block3（动态三件套），block2 保持字节精确的 stable 文本。
+		stable := strings.Join(data.Stable, "\n\n")
+		dynamic := strings.Join([]string{data.Dynamic.Before, strings.Join(env, "\n"), data.Dynamic.After}, "\n\n")
+		if custom := customSystemText(obj["system"]); custom != "" {
+			dynamic = custom
 		}
-		obj["system"] = blocks
+		obj["system"] = []any{
+			map[string]any{"type": "text", "text": data.Prefix},
+			ephemeral(stable),
+			ephemeral("\n\n" + dynamic),
+		}
 		if messages, ok := obj["messages"].([]any); ok && len(messages) > 0 {
 			text := "<system-reminder>" + strings.Join([]string{data.Context.Intro, data.Context.Heading + "\n" + strings.ReplaceAll(data.Context.Line, "{date}", now.Format("2006-01-02")), "", data.Context.Outro}, "\n") + "</system-reminder>"
 			prefix := map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": text}}}

@@ -15,10 +15,11 @@ import (
 )
 
 type CaptchaConfig struct {
-	Enabled bool   `json:"enabled"`
-	Prefix  string `json:"prefix"`
-	SceneID string `json:"sceneId"`
-	Region  string `json:"region"`
+	Enabled          bool   `json:"enabled"`
+	SkipModelRequest bool   `json:"skip_model_request"`
+	Prefix           string `json:"prefix"`
+	SceneID          string `json:"sceneId"`
+	Region           string `json:"region"`
 }
 type CaptchaToken struct {
 	Param    string
@@ -30,15 +31,15 @@ type CaptchaSolver interface {
 	Solve(context.Context, CaptchaConfig, string) (string, error)
 }
 type CaptchaPool struct {
-	solver   CaptchaSolver
-	mu       sync.Mutex
-	config   CaptchaConfig
-	expires  time.Time
-	negative time.Time
-	tokens   []CaptchaToken
-	seen     map[string]time.Time
-	slots    chan struct{}
-	flight   singleflight.Group
+	solver  CaptchaSolver
+	mu      sync.Mutex
+	config  CaptchaConfig
+	known   bool
+	expires time.Time
+	tokens  []CaptchaToken
+	seen    map[string]time.Time
+	slots   chan struct{}
+	flight  singleflight.Group
 }
 
 func NewCaptchaPool(solver CaptchaSolver) *CaptchaPool {
@@ -63,12 +64,27 @@ func ValidateCaptcha(param string) (string, error) {
 	}
 	return v.CertifyID, nil
 }
-func (p *CaptchaPool) configuration(ctx context.Context, c *Client) (CaptchaConfig, error) {
-	p.mu.Lock()
-	if time.Now().Before(p.negative) {
-		p.mu.Unlock()
+func (p *CaptchaPool) fetchConfiguration(ctx context.Context, c *Client) (CaptchaConfig, error) {
+	data, err := c.request(ctx, "GET", c.OriginURL()+"/api/v1/client/configs?app_version="+url.QueryEscape(c.Identity.Version())+"&platform=win32-x64", nil, nil, 5*time.Second)
+	if err != nil {
+		return CaptchaConfig{}, err
+	}
+	var env struct {
+		Configs struct {
+			Captcha *CaptchaConfig `json:"captcha"`
+		} `json:"configs"`
+	}
+	if json.Unmarshal(data, &env) != nil || env.Configs.Captcha == nil {
 		return CaptchaConfig{}, &Error{Kind: ErrCaptcha}
 	}
+	return *env.Configs.Captcha, nil
+}
+
+// configuration 返回验证码配置快照。enabled=false 是服务端下发的合法状态，不当作错误。
+// 上游 3.16.3 使用 1h 成功快照与 in-flight 复用，失败不写负缓存；这里在首次成功前
+// 直接返回错误，已有快照时短暂沿用 last-good 后重试。
+func (p *CaptchaPool) configuration(ctx context.Context, c *Client) (CaptchaConfig, error) {
+	p.mu.Lock()
 	if time.Now().Before(p.expires) {
 		cfg := p.config
 		p.mu.Unlock()
@@ -76,32 +92,23 @@ func (p *CaptchaPool) configuration(ctx context.Context, c *Client) (CaptchaConf
 	}
 	p.mu.Unlock()
 	result := p.flight.DoChan("config", func() (any, error) {
-		data, err := c.request(ctx, "GET", c.OriginURL()+"/api/v1/client/configs?app_version="+url.QueryEscape(c.Identity.Version())+"&platform=win32-x64", nil, nil, 5*time.Second)
-		var env struct {
-			Configs struct {
-				Captcha CaptchaConfig `json:"captcha"`
-			} `json:"configs"`
-		}
-		if err == nil {
-			err = json.Unmarshal(data, &env)
-		}
-		cfg := env.Configs.Captcha
-		if err == nil && (!cfg.Enabled || cfg.Prefix == "" || cfg.SceneID == "" || cfg.Region == "") {
-			err = &Error{Kind: ErrCaptcha}
-		}
+		cfg, err := p.fetchConfiguration(ctx, c)
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		if err != nil {
-			p.negative = time.Now().Add(15 * time.Second)
-			return CaptchaConfig{}, &Error{Kind: ErrCaptcha}
+			if p.known {
+				p.expires = time.Now().Add(30 * time.Second)
+				return nil, nil
+			}
+			return nil, err
 		}
 		if configKey(p.config) != configKey(cfg) {
 			p.tokens = nil
 		}
 		p.config = cfg
-		p.expires = time.Now().Add(time.Minute)
-		p.negative = time.Time{}
-		return cfg, nil
+		p.known = true
+		p.expires = time.Now().Add(time.Hour)
+		return nil, nil
 	})
 	select {
 	case <-ctx.Done():
@@ -110,11 +117,12 @@ func (p *CaptchaPool) configuration(ctx context.Context, c *Client) (CaptchaConf
 		if result.Err != nil {
 			return CaptchaConfig{}, result.Err
 		}
-		cfg, ok := result.Val.(CaptchaConfig)
-		if !ok {
-			return CaptchaConfig{}, &Error{Kind: ErrFormat}
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if !p.known {
+			return CaptchaConfig{}, &Error{Kind: ErrCaptcha}
 		}
-		return cfg, nil
+		return p.config, nil
 	}
 }
 func (p *CaptchaPool) consume(token CaptchaToken) (CaptchaToken, error) {
@@ -136,11 +144,33 @@ func (p *CaptchaPool) consume(token CaptchaToken) (CaptchaToken, error) {
 	p.seen[certify] = now
 	return token, nil
 }
-func (p *CaptchaPool) Take(ctx context.Context, c *Client, proxy string) (CaptchaToken, error) {
+
+// Token 取一个可用验证参数。返回 nil 表示服务端已关闭验证码，调用方不应发送验证头。
+func (p *CaptchaPool) Token(ctx context.Context, c *Client, proxy string) (*CaptchaToken, error) {
 	cfg, err := p.configuration(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	if !cfg.Enabled || cfg.Prefix == "" || cfg.SceneID == "" {
+		return nil, nil
+	}
+	token, err := p.take(ctx, cfg, proxy)
+	if err != nil {
+		return nil, err
+	}
+	return &token, nil
+}
+func (p *CaptchaPool) Take(ctx context.Context, c *Client, proxy string) (CaptchaToken, error) {
+	token, err := p.Token(ctx, c, proxy)
 	if err != nil {
 		return CaptchaToken{}, err
 	}
+	if token == nil {
+		return CaptchaToken{}, &Error{Kind: ErrCaptcha}
+	}
+	return *token, nil
+}
+func (p *CaptchaPool) take(ctx context.Context, cfg CaptchaConfig, proxy string) (CaptchaToken, error) {
 	p.mu.Lock()
 	for len(p.tokens) > 0 {
 		token := p.tokens[0]
@@ -174,9 +204,6 @@ func (p *CaptchaPool) solve(ctx context.Context, cfg CaptchaConfig, proxy string
 		if ctx.Err() != nil {
 			return CaptchaToken{}, ctx.Err()
 		}
-		p.mu.Lock()
-		p.negative = time.Now().Add(15 * time.Second)
-		p.mu.Unlock()
 		return CaptchaToken{}, &Error{Kind: ErrCaptcha}
 	}
 	if _, err = ValidateCaptcha(param); err != nil {
@@ -189,6 +216,10 @@ func (p *CaptchaPool) Warm(ctx context.Context, c *Client, proxy string) error {
 		cfg, err := p.configuration(ctx, c)
 		if err != nil {
 			return nil, err
+		}
+		if !cfg.Enabled || cfg.Prefix == "" || cfg.SceneID == "" {
+			// 服务端已关闭验证码：无需预热。
+			return nil, nil
 		}
 		p.mu.Lock()
 		valid := false

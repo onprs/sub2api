@@ -164,12 +164,14 @@ func (c *Client) Preview(ctx context.Context, jwt string) (Preview, error) {
 	}
 	return ParsePreview(data)
 }
-func (c *Client) Claim(ctx context.Context, jwt, planID string, captcha CaptchaToken) (ClaimResult, error) {
+func (c *Client) Claim(ctx context.Context, jwt, planID string, captcha *CaptchaToken) (ClaimResult, error) {
 	h := claimHeaders(c.Identity, jwt)
 	h.Set("Content-Type", "application/json")
-	h.Set(CaptchaHeader, captcha.Param)
-	if captcha.Region != "" {
-		h.Set(CaptchaRegionHeader, captcha.Region)
+	if captcha != nil {
+		h.Set(CaptchaHeader, captcha.Param)
+		if captcha.Region != "" {
+			h.Set(CaptchaRegionHeader, captcha.Region)
+		}
 	}
 	data, err := c.request(ctx, "POST", c.OriginURL()+"/api/v1/zcode-plan/billing/claim", h, map[string]string{"plan_id": planID}, 15*time.Second)
 	if err != nil {
