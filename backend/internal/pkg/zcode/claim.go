@@ -94,7 +94,8 @@ func VersionAtLeast(version, minimum string) bool {
 }
 func ParsePreview(data []byte) (Preview, error) {
 	var desktop struct {
-		Plans json.RawMessage `json:"plans"`
+		Plans    json.RawMessage `json:"plans"`
+		Campaign json.RawMessage `json:"campaign"`
 	}
 	if json.Unmarshal(data, &desktop) != nil {
 		return Preview{}, &Error{Kind: ErrFormat}
@@ -114,29 +115,49 @@ func ParsePreview(data []byte) (Preview, error) {
 			return Preview{Blocked: "none"}, nil
 		}
 		sort.SliceStable(valid, func(i, j int) bool { return valid[i].Priority > valid[j].Priority })
-		// starts_at 是套餐生效时间，活动门槛只采用服务端明确给出的字段。
-		return Preview{Campaign: &Campaign{Plans: valid}, Claimable: true}, nil
+		// 顶层 plans 与 campaign 元信息可能同时出现：保留活动窗口与最低版本。
+		campaign := &Campaign{Plans: valid}
+		if len(desktop.Campaign) > 0 {
+			var base Campaign
+			if json.Unmarshal(desktop.Campaign, &base) == nil {
+				if len(base.Plans) == 0 {
+					base.Plans = valid
+				}
+				campaign = &base
+			}
+		}
+		return Preview{Campaign: campaign, Claimable: true}, nil
 	}
 	var raw struct {
 		Campaign  *Campaign `json:"campaign"`
 		Claimable *bool     `json:"claimable"`
+		CanClaim  *bool     `json:"can_claim"`
 		Reason    string    `json:"reason"`
+		Blocked   string    `json:"blocked"`
 		Plan      *Plan     `json:"plan"`
 		RetryAt   int64     `json:"next_available_at"`
 	}
 	if json.Unmarshal(data, &raw) != nil {
 		return Preview{}, &Error{Kind: ErrFormat}
 	}
+	reason := raw.Reason
+	if reason == "" {
+		reason = raw.Blocked
+	}
 	result := Preview{Campaign: raw.Campaign, Plan: raw.Plan, RetryAt: raw.RetryAt}
-	if raw.Claimable != nil {
+	switch {
+	case raw.Claimable != nil:
 		result.Claimable = *raw.Claimable
-	} else if raw.Campaign != nil {
-		return Preview{}, &Error{Kind: ErrFormat}
+	case raw.CanClaim != nil:
+		result.Claimable = *raw.CanClaim
+	case raw.Campaign != nil && reason == "":
+		// 新活动格式省略 claimable；窗口内且未给出阻塞原因时按可领取处理。
+		result.Claimable = true
 	}
 	// 只存固定枚举，避免 unknown reason 携带敏感值进入状态与日志。
-	switch raw.Reason {
+	switch reason {
 	case "none", "not_in_window", "version_too_low", "already_claimed", "quota_exhausted", "not_eligible":
-		result.Blocked = raw.Reason
+		result.Blocked = reason
 	case "":
 	default:
 		result.Blocked = "unavailable"

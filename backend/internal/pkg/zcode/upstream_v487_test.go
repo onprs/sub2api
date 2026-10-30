@@ -159,3 +159,44 @@ func TestSigningCredentialForms(t *testing.T) {
 	_, ok = parseSigningCredential(regular)
 	require.False(t, ok)
 }
+
+// 上游 preview 在不同活动下返回 plans 数组、campaign 对象或两者并存；
+// claimable 字段可能缺失，不能据此判定为格式错误。
+func TestParsePreviewFormats(t *testing.T) {
+	t.Run("plans_only", func(t *testing.T) {
+		preview, err := ParsePreview([]byte(`{"plans":[{"plan_id":"p1","name":"体验","priority":2,"starts_at":1,"ends_at":2},{"plan_id":"p2","name":"体验二","priority":1,"starts_at":1,"ends_at":2}]}`))
+		require.NoError(t, err)
+		require.True(t, preview.Claimable)
+		require.NotNil(t, preview.Campaign)
+		require.Equal(t, "p1", preview.Campaign.Plans[0].ID)
+	})
+	t.Run("campaign_without_claimable", func(t *testing.T) {
+		preview, err := ParsePreview([]byte(`{"campaign":{"id":"c1","name":"周末活动","starts_at":1,"ends_at":2000000000,"min_app_version":"3.14.0","plans":[{"plan_id":"p1","name":"体验","starts_at":1,"ends_at":2}]}}`))
+		require.NoError(t, err)
+		require.True(t, preview.Claimable)
+		require.NotNil(t, preview.Campaign)
+		require.Equal(t, "3.14.0", preview.Campaign.MinimumVersion)
+		require.Empty(t, preview.Blocked)
+	})
+	t.Run("campaign_with_blocked_reason", func(t *testing.T) {
+		preview, err := ParsePreview([]byte(`{"campaign":{"id":"c1","plans":[{"plan_id":"p1"}]},"reason":"not_eligible"}`))
+		require.NoError(t, err)
+		require.False(t, preview.Claimable)
+		require.Equal(t, "not_eligible", preview.Blocked)
+	})
+	t.Run("campaign_and_plans", func(t *testing.T) {
+		preview, err := ParsePreview([]byte(`{"campaign":{"id":"c1","name":"活动","starts_at":10,"ends_at":20,"min_app_version":"3.16.3"},"plans":[{"plan_id":"p9","name":"体验","priority":5,"starts_at":10,"ends_at":20}]}`))
+		require.NoError(t, err)
+		require.True(t, preview.Claimable)
+		require.Equal(t, "c1", preview.Campaign.ID)
+		require.Equal(t, int64(10), preview.Campaign.StartsAt)
+		require.Equal(t, "3.16.3", preview.Campaign.MinimumVersion)
+		require.Equal(t, "p9", preview.Campaign.Plans[0].ID)
+	})
+	t.Run("empty_plans", func(t *testing.T) {
+		preview, err := ParsePreview([]byte(`{"plans":[]}`))
+		require.NoError(t, err)
+		require.Equal(t, "none", preview.Blocked)
+		require.False(t, preview.Claimable)
+	})
+}
