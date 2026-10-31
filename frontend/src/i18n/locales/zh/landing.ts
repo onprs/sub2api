@@ -36,7 +36,7 @@ export default {
       editorialModels: '多源模型。\n统一接入。',
       editorialEndingTitle: '让下一条请求，\n抵达更多可能。',
       editorialCatalogCount: '模型精选',
-      editorialCatalogDescription: '六大来源的精选模型目录。实际可调用模型取决于账号分组与模型映射。',
+      editorialCatalogDescription: '按来源分组的精选模型目录。实际可调用模型取决于账号分组与模型映射。',
       editorialNavigation: {
         sections: '页面章节',
         protocols: '协议接入',

@@ -36,7 +36,7 @@ export default {
       editorialModels: 'Many models.\nOne connection.',
       editorialEndingTitle: 'Your next request.\nMore possibilities.',
       editorialCatalogCount: 'Model Selection',
-      editorialCatalogDescription: 'A curated selection from six model sources. Models available to each request depend on your account group and model mapping.',
+      editorialCatalogDescription: 'A curated model directory grouped by source. Models available to each request depend on your account group and model mapping.',
       editorialNavigation: {
         sections: 'Page sections',
         protocols: 'Connectivity',

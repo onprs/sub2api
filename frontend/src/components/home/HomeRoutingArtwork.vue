@@ -36,7 +36,7 @@ function draw() {
   const signal = props.dark ? '#f5f5f6' : '#315be8'
   const shift = reducedMotion ? 0 : Math.min(props.progress / 0.28, 1) * unit * 0.12
 
-  // 四束输入穿过统一路由节点，再分发至六个模型来源。
+  // 四束输入穿过统一路由节点，再分发至多个模型来源。
   context.lineCap = 'butt'
   context.lineJoin = 'bevel'
   for (let group = 0; group < 4; group++) {

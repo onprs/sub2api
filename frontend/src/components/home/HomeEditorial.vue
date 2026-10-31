@@ -210,12 +210,14 @@ const errorViewEnabled = computed(() => publicCapabilityEnabled(appStore.cachedP
 
 // 精选目录，不作为实时可用性或完整上游模型清单。
 const providerGroups = [
-  { key: 'openai', code: '01', name: 'OpenAI', displayName: 'GPT', models: ['gpt-6-astra', 'gpt-5.6', 'gpt-5.6-sol', 'gpt-5.4-mini'] },
-  { key: 'google', code: '02', name: 'Google', displayName: 'GEMINI', models: ['google/gemini-3.8-flash', 'google/gemini-3.7-flash', 'google/gemini-3.6-flash', 'gemini-3.1-pro-preview'] },
-  { key: 'deepseek', code: '03', name: 'DeepSeek', displayName: 'DEEPSEEK', models: ['deepseek/deepseek-v4-pro', 'deepseek/deepseek-v4-flash'] },
-  { key: 'zhipu', code: '04', name: 'Zhipu AI', displayName: 'GLM', models: ['zai-org/GLM-5.3'] },
-  { key: 'meta', code: '05', name: 'Meta', displayName: 'MUSE-SPARK', models: ['meta/muse-spark-1.3', 'meta/muse-spark-1.2'] },
-  { key: 'moonshot', code: '06', name: 'Moonshot', displayName: 'KIMI', models: ['moonshotai/Kimi-K3', 'moonshotai/Kimi-K2.7-Code'] },
+  { key: 'openai', code: '01', name: 'OpenAI', displayName: 'GPT', models: ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'] },
+  { key: 'deepseek', code: '02', name: 'DeepSeek', displayName: 'DEEPSEEK', models: ['deepseek-v4.1-flash', 'deepseek-v4-pro'] },
+  { key: 'zhipu', code: '03', name: 'Zhipu AI', displayName: 'GLM', models: ['glm-5.3', 'glm-5.3-flash'] },
+  { key: 'moonshot', code: '04', name: 'Moonshot', displayName: 'KIMI', models: ['kimi-k3.1-pro', 'kimi-k3', 'kimi-k2.7-code'] },
+  { key: 'qwen', code: '05', name: 'Alibaba Cloud', displayName: 'QWEN', models: ['qwen-3.8-max', 'qwen-3.8-flash'] },
+  { key: 'meta', code: '06', name: 'Meta', displayName: 'MUSE-SPARK', models: ['muse-spark-1.3', 'muse-spark-1.2'] },
+  { key: 'google', code: '07', name: 'Google', displayName: 'GEMINI', models: ['gemini-4-argon', 'gemini-3.8-flash'] },
+  { key: 'xiaomi', code: '08', name: 'Xiaomi', displayName: 'MIMO', models: ['mimo-v2.6-pro', 'mimo-v2.6-flash'] },
 ]
 const totalModelsCount = providerGroups.reduce((count, group) => count + group.models.length, 0)
 const protocolChannels = [
@@ -369,14 +371,14 @@ const chapterLabels = [
 .act-route .section-foot { margin-top: 0; }
 .act-fleet { padding-top: 32px; }
 .model-directory { display: grid; grid-template-columns: minmax(0, 0.42fr) minmax(0, 0.58fr); gap: 80px; margin-top: 88px; }
-.model-intro { position: sticky; top: 112px; align-self: start; padding-bottom: 32px; }
+.model-intro { position: sticky; top: 112px; align-self: start; padding-bottom: 12px; }
 .eyebrow { font-size: 11px; color: var(--muted); }
 .model-intro h2 { margin-top: 24px; max-width: 420px; font-size: 48px; line-height: 1.22; font-weight: 500; white-space: pre-line; }
 .catalog-total { font-size: 144px; font-weight: 400; line-height: 1; margin: 36px 0 24px; }
 .catalog-total > span { display: inline-block; margin-left: 16px; font-size: 34px; color: var(--muted); }
 .model-intro p { max-width: 320px; font-size: 13px; line-height: 1.8; color: var(--muted); }
 .provider-index { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 360px; margin-top: 32px; gap: 0 24px; }
-.provider-index a { display: flex; align-items: center; gap: 8px; min-height: 38px; border-bottom: 1px solid var(--rule); color: var(--ink); font-size: 10px; }
+.provider-index a { display: flex; align-items: center; gap: 8px; min-height: 36px; border-bottom: 1px solid var(--rule); color: var(--ink); font-size: 10px; }
 .provider-index a > span { color: var(--muted); }
 .provider-index a > svg { margin-left: auto; flex: 0 0 auto; }
 .provider-index a:hover { color: var(--accent); }
@@ -498,7 +500,6 @@ const chapterLabels = [
   .protocol-path code { font-size: 12px; }
   .model-directory { grid-template-columns: minmax(0, 0.4fr) minmax(0, 0.6fr); gap: 36px; }
   .model-intro h2 { font-size: 34px; }
-  .provider-index { grid-template-columns: minmax(0, 1fr); }
   .provider-identity { font-size: 48px; }
   .provider-identity.long-name { font-size: 38px; }
   .provider-meta { flex-wrap: wrap; }

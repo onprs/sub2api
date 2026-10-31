@@ -63,7 +63,7 @@ export function useHomeJourney(isDark: () => boolean, contentKey: () => unknown)
       }
       let coreBox = box(scene.querySelector(nodeSelectors[index] || 'h1'))
       let lines: JourneyShape['lines'] = []
-      const label = ['/v1', '/v1', scene.querySelector('.catalog-primary')?.textContent ?? '15', 'IR', '', '', ''][index] ?? ''
+      const label = ['/v1', '/v1', scene.querySelector('.catalog-primary')?.textContent ?? '', 'IR', '', '', ''][index] ?? ''
       let fontSize = parseFloat(getComputedStyle(scene.querySelector(nodeSelectors[index] || 'h1') ?? scene).fontSize)
       if (index === 0) {
         const compact = mobile && heights[0]! < 680
