@@ -326,6 +326,9 @@ func encodeRequestTools(tools []ir.ToolDefinition) []toolWire {
 	var out []toolWire
 	for _, tool := range tools {
 		switch tool.ProviderType {
+		case "function":
+			// OpenAI 的 function 标签不属于 Anthropic 工具类型。
+			out = append(out, toolWire{Name: tool.Name, Description: tool.Description, InputSchema: functionToolSchema(tool.Parameters), CacheControl: cloneRaw(tool.CacheHint)})
 		case "namespace":
 			for _, child := range tool.Children {
 				out = append(out, toolWire{

@@ -65,9 +65,10 @@ func TestChannelMonitorOpenCodeGoCheckModeMatrix(t *testing.T) {
 // 创建参数：OpenCode Go 探活模式走外站 endpoint + key，配额模式走关联账号。
 func TestChannelMonitorOpenCodeGoValidateCreateParams(t *testing.T) {
 	accountID := int64(9)
+	// 固定公网 IP 使参数校验用例独立于外部 DNS。
 	base := ChannelMonitorCreateParams{
 		Provider:        MonitorProviderOpenCodeGo,
-		Endpoint:        "https://opencode.ai/zen/go/v1",
+		Endpoint:        "https://1.1.1.1/zen/go/v1",
 		APIKey:          "oc-key",
 		PrimaryModel:    "glm-5.3",
 		IntervalSeconds: 60,
