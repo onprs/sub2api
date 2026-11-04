@@ -2,9 +2,9 @@
   "schema_version": 1,
   "upstream_repo": "TriDefender/zcode-api",
   "upstream_url": "https://github.com/TriDefender/zcode-api",
-  "pinned_tag": "v4.8.7",
-  "pinned_commit": "cdf9f5e1d7b38dc3bb240dd0bb2175ff1d4a16f2",
-  "synced_at": "2026-10-29",
+  "pinned_tag": "v4.8.8",
+  "pinned_commit": "e47f44e82204772339fa2ce59e19f47afdf20f4d",
+  "synced_at": "2026-11-04",
   "source_mapping": [
     {
       "category": "oauth",
@@ -71,6 +71,7 @@
       "category": "claim",
       "upstream_files": [
         "src/claim/client.ts",
+        "src/claim/runtime.ts",
         "src/claim/scheduler.ts",
         "src/claim/types.ts"
       ],
@@ -162,10 +163,12 @@
     "额度通过持久化快照与跨实例缓存/限频展示；页面挂载不查询上游。",
     "动态 endpoint mapping 仅接受 HTTPS、明确允许的公共主机；不跟随重定向。",
     "端点路由支持 zcodeAuthorizationHeader，但仅对官方 /api/v1/ultra 与 /api/v1/ultra-zai 目标注入 X-ZCode-Authorization。",
-    "固定默认客户端版本 3.16.3（对齐真实客户端；上游代理模板仍为 3.15.1），可通过 gateway.zcode.app_version 覆盖；身份平台和 OS 版本可集中配置。",
     "Start Plan 固定 3 块 system：首块不带 cache_control，客户端 system 整段替换第三块；不注入 ZCode Desktop Context。",
     "签名不再探测 agent/configs，按 3.15.1 静态规则只对 coding-plan 请求签名；bigmodel OAuth 账号通过 access_tokens 铸造 project JWT，失败回退 apiKey 形态。",
     "未实现上游自有功能：highspeed 加速卡、MCP 聚合、云控 config、网页面板与 Android。",
-    "不修改 Ent schema 和历史迁移；平台仍为 zhipu，auth 与 plan 独立。"
+    "不修改 Ent schema 和历史迁移；平台仍为 zhipu，auth 与 plan 独立。",
+    "默认客户端版本 3.17.2（官方 changelog 最新版本），可通过 gateway.zcode.app_version 或账号 zcode_app_version 覆盖；营销横幅与领取均按该版本发送。",
+    "领取枚举同时读取 billing preview 与营销横幅 marketing/touch；横幅计划按按钮 action=claim_zcode_plan 的 plan_id 提取，preview 计划优先。",
+    "Start Plan 额度快照同时解析 data.plans 与 data.balances；生效前 balances 为空时记录计划与 effective_at 并按 scheduled 展示，不判定为 no_plan 或额度耗尽。"
   ]
 }

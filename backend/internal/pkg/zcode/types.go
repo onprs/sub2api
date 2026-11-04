@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-const UpstreamCommit = "cdf9f5e1d7b38dc3bb240dd0bb2175ff1d4a16f2"
-const DefaultAppVersion = "3.16.3"
+const UpstreamCommit = "e47f44e82204772339fa2ce59e19f47afdf20f4d"
+const DefaultAppVersion = "3.17.2"
 const DefaultOrigin = "https://zcode.z.ai"
 const StartBase = DefaultOrigin + "/api/v1/zcode-plan/anthropic"
 const StartMessagesPath = "/api/v1/zcode-plan/anthropic/v1/messages"

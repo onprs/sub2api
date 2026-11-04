@@ -65,12 +65,24 @@ describe('ZCode OAuth 管理界面', () => {
     wrapper.unmount()
   })
 
+  it('展示已领取但尚未生效的套餐计划', async () => {
+    const effective = Math.floor(Date.now() / 1000) + 1800
+    const wrapper = mount(ZCodeQuotaCell, { props: { account: account({ zcode_quota: { plan: 'start', status: 'scheduled', next_available_at: effective, plans: [{ id: 'synthetic-global-build', name: 'ZCODE GLOBAL BUILD', status: 'active', starts_at: 1700000000, ends_at: 2000000000, entitlements: [{ name: 'GLM-5.3-Flash', unit: 'token', units: 300000000, effective_at: effective }] }], balances: [], updated_at: 1700000000 } }) }, global: { plugins: [makeI18n()] } })
+    expect(wrapper.get('[data-test="zcode-plan"]').text()).toContain('ZCODE GLOBAL BUILD')
+    expect(wrapper.text()).toContain('待生效')
+    expect(wrapper.text()).toContain('生效时间')
+    expect(wrapper.text()).toContain('300.0M')
+    expect(wrapper.text()).not.toContain('额度尚未获取')
+    wrapper.unmount()
+  })
+
   it('有进度条时以进度为主，精确剩余收纳于名字旁的信息提示', async () => {
     const wrapper = mount(ZCodeQuotaCell, { props: { account: account({ zcode_quota: { plan: 'start', balances: [{ name: 'GLM-5.3-Flash', remaining: 99998232, total: 100000000, used_percent: 0, unit: 'token', expires_at: 1791216000 }], updated_at: 1700000000 } }) }, global: { plugins: [makeI18n()] } })
     expect(wrapper.find('[data-test="zcode-remaining"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('99,998,232')
     expect(wrapper.find('svg.cursor-help').exists()).toBe(true)
-    const tooltip = document.querySelector('[role="tooltip"]')
+    const tooltips = Array.from(document.querySelectorAll('[role="tooltip"]'))
+    const tooltip = tooltips.find(element => element.textContent?.includes('剩余:'))
     expect(tooltip?.textContent).toContain('剩余: 99,998,232 / 100,000,000 token')
     expect(tooltip?.textContent).toContain('到期时间')
     expect(tooltip?.textContent).toContain('额度更新时间')

@@ -1,6 +1,6 @@
 package zcode
 
-// 上游 v4.8.7 协议差异的回归：验证码开关、领取平面可选验证码、
+// 上游 v4.8.7/v4.8.8 协议差异的回归：验证码开关、领取平面可选验证码、
 // 端点路由的 X-ZCode-Authorization、start-plan 三块 system 与签名凭据形态。
 import (
 	"context"
@@ -45,7 +45,7 @@ func TestClaimWithoutCaptchaOmitsVerificationHeaders(t *testing.T) {
 	client := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
 		require.Empty(t, r.Header.Get(CaptchaHeader))
 		require.Empty(t, r.Header.Get(CaptchaRegionHeader))
-		require.Equal(t, "3.16.3", r.Header.Get("X-ZCode-App-Version"))
+		require.Equal(t, DefaultAppVersion, r.Header.Get("X-ZCode-App-Version"))
 		respond(w, map[string]any{"plan": map[string]any{"plan_id": "trial-plan", "name": "体验套餐", "starts_at": 1, "ends_at": 2}})
 	})
 	result, err := client.Claim(context.Background(), "synthetic-jwt", "trial-plan", nil)
@@ -222,4 +222,38 @@ func TestPreviewStillRejectsMalformedEnvelope(t *testing.T) {
 	})
 	_, err := client.Preview(context.Background(), "synthetic-jwt")
 	require.Error(t, err)
+}
+
+// 3.17.1 默认 system：block3 为空，date attachment 不带 currentDate 标题与上下文包裹。
+func TestStartPlanSystemDefaultAndDateAttachment(t *testing.T) {
+	identity := DefaultIdentity("", "synthetic-device")
+	body, _ := json.Marshal(map[string]any{
+		"model":    "glm-5.3",
+		"messages": []any{map[string]any{"role": "user", "content": "合成协议测试"}},
+	})
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	out, err := TransformAnthropic(body, true, ZAI, identity, "synthetic-session", now)
+	require.NoError(t, err)
+	var transformed map[string]any
+	require.NoError(t, json.Unmarshal(out, &transformed))
+	blocks, ok := transformed["system"].([]any)
+	require.True(t, ok)
+	require.Len(t, blocks, 3)
+	first, ok := blocks[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "You are ZCode, an interactive agent", first["text"])
+	third, ok := blocks[2].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "", third["text"])
+	messages, ok := transformed["messages"].([]any)
+	require.True(t, ok)
+	require.Len(t, messages, 2)
+	prefix, ok := messages[0].(map[string]any)
+	require.True(t, ok)
+	content, ok := prefix["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, content, 1)
+	block, ok := content[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "<system-reminder>Today's date is 2026-11-04.</system-reminder>", block["text"])
 }

@@ -198,7 +198,7 @@ func (s *ZCodeService) CheckClaim(ctx context.Context, id int64, execute bool) (
 		return s.finishClaim(ctx, a, state, "configuration", err)
 	}
 	client := s.client(a, proxy)
-	preview, err := client.Preview(ctx, tokens.JWT)
+	preview, err := client.ListPlans(ctx, tokens.JWT)
 	if err != nil {
 		return s.finishClaim(ctx, a, state, string(zcode.KindOf(err)), err)
 	}
@@ -209,19 +209,23 @@ func (s *ZCodeService) CheckClaim(ctx context.Context, id int64, execute bool) (
 	if preview.RetryAt > state.NextAttempt {
 		state.NextAttempt = preview.RetryAt
 	}
-	if preview.Campaign == nil {
+	if preview.Campaign == nil || len(preview.Campaign.Plans) == 0 {
 		return s.finishClaim(ctx, a, state, "none", nil)
 	}
 	campaign := preview.Campaign
-	if campaign.MinimumVersion != "" && !zcode.VersionAtLeast(client.Identity.Version(), campaign.MinimumVersion) {
-		return s.finishClaim(ctx, a, state, "version_too_low", nil)
-	}
-	if campaign.StartsAt > now.Unix() {
-		state.NextAttempt = campaign.StartsAt + int64(accountJitter(id, now)/time.Second)
-		return s.finishClaim(ctx, a, state, "not_in_window", nil)
-	}
-	if (campaign.EndsAt > 0 && campaign.EndsAt <= now.Unix()) || (campaign.ClaimUntil > 0 && campaign.ClaimUntil <= now.Unix()) {
-		return s.finishClaim(ctx, a, state, "not_in_window", nil)
+	// 营销横幅只会在当前可领取时下发计划，此时活动窗口与最低版本以横幅为准；
+	// preview 的旧活动窗口不能阻断横幅计划。
+	if !preview.Marketing {
+		if campaign.MinimumVersion != "" && !zcode.VersionAtLeast(client.Identity.Version(), campaign.MinimumVersion) {
+			return s.finishClaim(ctx, a, state, "version_too_low", nil)
+		}
+		if campaign.StartsAt > now.Unix() {
+			state.NextAttempt = campaign.StartsAt + int64(accountJitter(id, now)/time.Second)
+			return s.finishClaim(ctx, a, state, "not_in_window", nil)
+		}
+		if (campaign.EndsAt > 0 && campaign.EndsAt <= now.Unix()) || (campaign.ClaimUntil > 0 && campaign.ClaimUntil <= now.Unix()) {
+			return s.finishClaim(ctx, a, state, "not_in_window", nil)
+		}
 	}
 	if !preview.Claimable {
 		result := preview.Blocked
@@ -233,20 +237,33 @@ func (s *ZCodeService) CheckClaim(ctx context.Context, id int64, execute bool) (
 		}
 		return s.finishClaim(ctx, a, state, result, nil)
 	}
-	if !execute {
-		return s.finishClaim(ctx, a, state, "available", nil)
-	}
-	planID := ""
 	preferred := a.GetCredential("zcode_claim_plan_id")
-	for _, plan := range campaign.Plans {
+	var selected *zcode.Plan
+	var fallback *zcode.Plan
+	for i := range campaign.Plans {
+		plan := &campaign.Plans[i]
+		if plan.ID == "" || (plan.EndsAt > 0 && plan.EndsAt <= now.Unix()) {
+			continue
+		}
+		if fallback == nil {
+			fallback = plan
+		}
 		if preferred == "" || plan.ID == preferred {
-			planID = plan.ID
+			selected = plan
 			break
 		}
 	}
-	if planID == "" {
+	if selected == nil {
+		selected = fallback
+	}
+	if selected == nil {
 		return s.finishClaim(ctx, a, state, "plan_unavailable", nil)
 	}
+	state.Plan = selected
+	if !execute {
+		return s.finishClaim(ctx, a, state, "available", nil)
+	}
+	planID := selected.ID
 	credential := tokens.CodingKey
 	if credential == "" {
 		credential = tokens.JWT
@@ -271,7 +288,7 @@ func (s *ZCodeService) CheckClaim(ctx context.Context, id int64, execute bool) (
 	if result.OK {
 		state.ClaimedAt = time.Now().Unix()
 		state.Result = "claimed"
-		if result.Plan.StartsAt > time.Now().Unix() {
+		if result.Plan != nil && result.Plan.StartsAt > time.Now().Unix() {
 			state.NextAttempt = result.Plan.StartsAt + int64(accountJitter(id, now)/time.Second)
 		}
 		if err = s.persistClaim(ctx, id, state); err != nil {

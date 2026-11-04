@@ -22,7 +22,29 @@ export interface ZCodeBalance {
   reset_at?: number
   effective_at?: number
 }
-export interface ZCodeQuota { plan: ZCodePlan; balances: ZCodeBalance[]; updated_at: number }
+export interface ZCodeQuotaEntitlement {
+  name?: string
+  unit?: string
+  units?: number
+  effective_at?: number
+  period?: string
+}
+export interface ZCodeQuotaPlan {
+  id: string
+  name: string
+  status?: string
+  starts_at?: number
+  ends_at?: number
+  entitlements?: ZCodeQuotaEntitlement[]
+}
+export interface ZCodeQuota {
+  plan: ZCodePlan
+  status?: string
+  next_available_at?: number
+  plans?: ZCodeQuotaPlan[]
+  balances: ZCodeBalance[]
+  updated_at: number
+}
 export interface ZCodeClaimState {
   checked_at: number
   claimed_at?: number

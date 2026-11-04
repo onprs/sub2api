@@ -16,8 +16,8 @@
       <ZCodeQuotaCell :account="account" />
       <div class="space-y-1 text-xs text-gray-600 dark:text-gray-300">
         <p>{{ t('admin.accounts.zcode.claimStatus') }}: {{ claimLabel(claimState?.result) }}</p>
-        <p v-if="claimState?.campaign">{{ t('admin.accounts.zcode.campaign') }}: {{ claimState.campaign.name }}</p>
-        <p v-if="claimState?.plan">{{ t('admin.accounts.zcode.claimedPlan') }}: {{ claimState.plan.show_name }}<span v-if="claimState.plan.starts_at"> · {{ t('admin.accounts.zcode.effectiveAt') }} {{ date(claimState.plan.starts_at) }}</span></p>
+        <p v-if="claimState?.campaign?.name">{{ t('admin.accounts.zcode.campaign') }}: {{ claimState.campaign.name }}</p>
+        <p v-if="claimState?.plan">{{ t(claimState.result === 'available' ? 'admin.accounts.zcode.availablePlan' : 'admin.accounts.zcode.claimedPlan') }}: {{ claimState.plan.show_name }}<span v-if="claimState.plan.starts_at"> · {{ t('admin.accounts.zcode.effectiveAt') }} {{ date(claimState.plan.starts_at) }}</span></p>
         <p v-if="claimState?.checked_at">{{ t('admin.accounts.zcode.lastChecked') }}: {{ date(claimState.checked_at) }}</p>
         <p v-if="claimState?.claimed_at">{{ t('admin.accounts.zcode.lastClaimed') }}: {{ date(claimState.claimed_at) }}</p>
         <p v-if="claimState?.next_attempt">{{ t('admin.accounts.zcode.nextAttempt') }}: {{ date(claimState.next_attempt) }}</p>

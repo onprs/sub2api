@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -25,11 +26,30 @@ type Balance struct {
 	EffectiveAt int64    `json:"effective_at,omitempty"`
 }
 type Quota struct {
-	Status          string    `json:"status,omitempty"`
-	NextAvailableAt int64     `json:"next_available_at,omitempty"`
-	Plan            string    `json:"plan"`
-	Balances        []Balance `json:"balances"`
-	UpdatedAt       int64     `json:"updated_at"`
+	Status          string      `json:"status,omitempty"`
+	NextAvailableAt int64       `json:"next_available_at,omitempty"`
+	Plan            string      `json:"plan"`
+	Plans           []QuotaPlan `json:"plans,omitempty"`
+	Balances        []Balance   `json:"balances"`
+	UpdatedAt       int64       `json:"updated_at"`
+}
+
+// QuotaPlan 是 Start Plan 的已领取计划；生效时间在 entitlement 上，
+// 余额列表在生效前可能为空，不能据此把账号判为无套餐或额度耗尽。
+type QuotaPlan struct {
+	ID           string             `json:"id"`
+	Name         string             `json:"name"`
+	Status       string             `json:"status,omitempty"`
+	StartsAt     int64              `json:"starts_at,omitempty"`
+	EndsAt       int64              `json:"ends_at,omitempty"`
+	Entitlements []QuotaEntitlement `json:"entitlements,omitempty"`
+}
+type QuotaEntitlement struct {
+	Name        string   `json:"name,omitempty"`
+	Unit        string   `json:"unit,omitempty"`
+	Units       *float64 `json:"units,omitempty"`
+	EffectiveAt int64    `json:"effective_at,omitempty"`
+	Period      string   `json:"period,omitempty"`
 }
 
 func number(v any) *float64 {
@@ -76,6 +96,177 @@ func epoch(v any) int64 {
 	}
 	return seconds
 }
+func hasQuotaPlans(d map[string]any) bool {
+	raw, exists := d["plans"]
+	if !exists || raw == nil {
+		return false
+	}
+	_, ok := raw.([]any)
+	return ok
+}
+func parseQuotaPlans(d map[string]any) []QuotaPlan {
+	rows, ok := d["plans"].([]any)
+	if !ok {
+		return nil
+	}
+	plans := make([]QuotaPlan, 0, len(rows))
+	for _, row := range rows {
+		m, ok := row.(map[string]any)
+		if !ok {
+			continue
+		}
+		id := firstString(m, "plan_id", "planId", "id")
+		name := firstString(m, "name", "show_name", "showName")
+		if id == "" && name == "" {
+			continue
+		}
+		if name == "" {
+			name = id
+		}
+		plan := QuotaPlan{
+			ID:       id,
+			Name:     name,
+			Status:   strings.ToLower(strings.TrimSpace(firstString(m, "status"))),
+			StartsAt: epoch(value(m, "starts_at", "startsAt")),
+			EndsAt:   epoch(value(m, "ends_at", "endsAt")),
+		}
+		if entitlements, ok := m["entitlements"].([]any); ok {
+			for _, item := range entitlements {
+				entitlement, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				plan.Entitlements = append(plan.Entitlements, QuotaEntitlement{
+					Name:        firstString(entitlement, "show_name", "showName", "name"),
+					Unit:        firstString(entitlement, "unit_type", "unitType", "unit"),
+					Units:       number(value(entitlement, "grant_units", "grantUnits")),
+					EffectiveAt: epoch(value(entitlement, "effective_at", "effectiveAt")),
+					Period:      firstString(entitlement, "period"),
+				})
+			}
+		}
+		plans = append(plans, plan)
+	}
+	return plans
+}
+func (q *Quota) deriveStartStatus(now int64, rowCount int) {
+	if len(q.Plans) > 0 {
+		q.deriveStartStatusFromPlans(now)
+		return
+	}
+	q.Status = "unknown"
+	if rowCount == 0 {
+		q.Status = "no_plan"
+		return
+	}
+	if len(q.Balances) == 0 {
+		return
+	}
+	active := false
+	future := false
+	remaining := false
+	known := false
+	for _, b := range q.Balances {
+		if b.ExpiresAt > 0 && b.ExpiresAt <= now {
+			continue
+		}
+		if b.EffectiveAt > now {
+			future = true
+			if q.NextAvailableAt == 0 || b.EffectiveAt < q.NextAvailableAt {
+				q.NextAvailableAt = b.EffectiveAt
+			}
+			continue
+		}
+		active = true
+		if b.Remaining != nil {
+			known = true
+			remaining = remaining || *b.Remaining > 0
+		}
+	}
+	switch {
+	case remaining:
+		q.Status = "active"
+	case active && known:
+		q.Status = "exhausted"
+	case !active && future:
+		q.Status = "scheduled"
+	case !active:
+		q.Status = "expired"
+	}
+}
+func (q *Quota) deriveStartStatusFromPlans(now int64) {
+	live := false
+	effective := false
+	known := false
+	remaining := false
+	var next int64
+	for _, plan := range q.Plans {
+		if plan.Status == "expired" || (plan.EndsAt > 0 && plan.EndsAt <= now) {
+			continue
+		}
+		live = true
+		planEffective := false
+		var planNext int64
+		if len(plan.Entitlements) == 0 {
+			if plan.StartsAt == 0 || plan.StartsAt <= now {
+				planEffective = true
+			} else {
+				planNext = plan.StartsAt
+			}
+		} else {
+			for _, entitlement := range plan.Entitlements {
+				if entitlement.EffectiveAt == 0 || entitlement.EffectiveAt <= now {
+					planEffective = true
+				} else if planNext == 0 || entitlement.EffectiveAt < planNext {
+					planNext = entitlement.EffectiveAt
+				}
+			}
+			if plan.StartsAt > now && planNext == 0 {
+				planNext = plan.StartsAt
+			}
+		}
+		if planEffective {
+			effective = true
+		}
+		if planNext > 0 && (next == 0 || planNext < next) {
+			next = planNext
+		}
+	}
+	for _, b := range q.Balances {
+		if b.ExpiresAt > 0 && b.ExpiresAt <= now {
+			continue
+		}
+		if b.EffectiveAt > now {
+			continue
+		}
+		if b.Remaining != nil {
+			known = true
+			remaining = remaining || *b.Remaining > 0
+		}
+		if b.Percent != nil {
+			known = true
+			remaining = remaining || *b.Percent < 100
+		}
+	}
+	switch {
+	case effective && remaining:
+		q.Status = "active"
+	case effective && known:
+		q.Status = "exhausted"
+		if next > 0 {
+			q.NextAvailableAt = next
+		}
+	case effective:
+		q.Status = "active"
+	case live:
+		q.Status = "scheduled"
+		q.NextAvailableAt = next
+	case len(q.Plans) > 0:
+		q.Status = "expired"
+	default:
+		q.Status = "no_plan"
+	}
+}
 func ParseQuota(data []byte, plan string) (Quota, error) {
 	var d map[string]any
 	if json.Unmarshal(data, &d) != nil {
@@ -86,8 +277,16 @@ func ParseQuota(data []byte, plan string) (Quota, error) {
 	if plan == PlanCoding {
 		key = "limits"
 	}
-	rows, ok := d[key].([]any)
-	if !ok {
+	rawRows, exists := d[key]
+	var rows []any
+	if exists && rawRows != nil {
+		parsed, ok := rawRows.([]any)
+		if !ok {
+			return Quota{}, &Error{Kind: ErrFormat}
+		}
+		rows = parsed
+	} else if plan == PlanCoding || !hasQuotaPlans(d) {
+		// Coding Plan 必须读取 limits；Start Plan 只在同时没有 plans 时视为格式错误。
 		return Quota{}, &Error{Kind: ErrFormat}
 	}
 	for _, row := range rows {
@@ -133,42 +332,8 @@ func ParseQuota(data []byte, plan string) (Quota, error) {
 		q.Balances = append(q.Balances, out)
 	}
 	if plan == PlanStart {
-		q.Status = "unknown"
-		if len(rows) == 0 {
-			q.Status = "no_plan"
-		}
-		if len(q.Balances) > 0 {
-			active := false
-			future := false
-			remaining := false
-			known := false
-			for _, b := range q.Balances {
-				if b.ExpiresAt > 0 && b.ExpiresAt <= time.Now().Unix() {
-					continue
-				}
-				if b.EffectiveAt > time.Now().Unix() {
-					future = true
-					if q.NextAvailableAt == 0 || b.EffectiveAt < q.NextAvailableAt {
-						q.NextAvailableAt = b.EffectiveAt
-					}
-					continue
-				}
-				active = true
-				if b.Remaining != nil {
-					known = true
-					remaining = remaining || *b.Remaining > 0
-				}
-			}
-			if remaining {
-				q.Status = "active"
-			} else if active && known {
-				q.Status = "exhausted"
-			} else if !active && future {
-				q.Status = "scheduled"
-			} else if !active {
-				q.Status = "expired"
-			}
-		}
+		q.Plans = parseQuotaPlans(d)
+		q.deriveStartStatus(time.Now().Unix(), len(rows))
 	}
 	if plan == PlanCoding {
 		tokens := []Balance{}
@@ -210,8 +375,20 @@ func ParseQuota(data []byte, plan string) (Quota, error) {
 	return q, nil
 }
 func (q Quota) Exhausted(now time.Time) bool {
+	if q.Plan == PlanStart {
+		switch q.Status {
+		case "scheduled":
+			return false
+		case "no_plan", "expired":
+			return true
+		case "exhausted":
+			if len(q.Balances) == 0 {
+				return true
+			}
+		}
+	}
 	if len(q.Balances) == 0 {
-		return q.Plan == PlanStart && q.Status == "no_plan"
+		return false
 	}
 	if q.Plan == PlanCoding {
 		for _, b := range q.Balances {

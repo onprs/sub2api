@@ -13,7 +13,7 @@ import (
 func TestClaimDesktopPreviewContract(t *testing.T) {
 	client := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/v1/zcode-plan/billing/preview", r.URL.Path)
-		require.Equal(t, "3.16.3", r.URL.Query().Get("app_version"))
+		require.Equal(t, DefaultAppVersion, r.URL.Query().Get("app_version"))
 		require.Equal(t, "Bearer synthetic-jwt", r.Header.Get("Authorization"))
 		require.Equal(t, "synthetic-device", r.Header.Get("X-Device-Mid"))
 		require.Empty(t, r.Header.Get("X-ZCode-App-Version"))
@@ -56,4 +56,94 @@ func TestClaimDesktopResultPlanAliases(t *testing.T) {
 	require.True(t, result.OK)
 	require.Equal(t, "trial-plan", result.Plan.ID)
 	require.Equal(t, int64(2000000000), result.Plan.StartsAt)
+}
+
+func TestClaimMarketingPlansEnumeration(t *testing.T) {
+	var marketingCalls int
+	client := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/zcode-plan/billing/preview":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"code":0,"msg":"","logid":"synthetic"}`))
+		case "/api/v1/marketing/touch":
+			marketingCalls++
+			require.NotEmpty(t, r.URL.Query().Get("seq"))
+			require.Equal(t, "Bearer synthetic-jwt", r.Header.Get("Authorization"))
+			require.Equal(t, "synthetic-device", r.Header.Get("X-Device-Mid"))
+			require.Equal(t, "zh-CN", r.Header.Get("X-Client-Language"))
+			require.Equal(t, DefaultAppVersion, r.Header.Get("X-ZCode-App-Version"))
+			require.Equal(t, "linux-x64", r.Header.Get("X-Platform"))
+			respond(w, map[string]any{"deliveries": []any{
+				map[string]any{
+					"campaign_id": "synthetic-campaign",
+					"banner": map[string]any{
+						"buttons": []any{map[string]any{"action": map[string]any{"type": "claim_zcode_plan", "args": map[string]any{"plan_id": "synthetic-weekend"}}}},
+						"background": map[string]any{"args": map[string]any{"zcode_plan": map[string]any{
+							"plan_id": "synthetic-weekend", "name": "ZCODE WEEKEND BUILD", "priority": 101,
+							"starts_at": 100, "ends_at": 2000000000,
+						}}},
+					},
+				},
+			}})
+		default:
+			t.Errorf("非预期路径 %s", r.URL.Path)
+		}
+	})
+	preview, err := client.ListPlans(context.Background(), "synthetic-jwt")
+	require.NoError(t, err)
+	require.True(t, preview.Marketing)
+	require.True(t, preview.Claimable)
+	require.NotNil(t, preview.Campaign)
+	require.Len(t, preview.Campaign.Plans, 1)
+	require.Equal(t, "synthetic-weekend", preview.Campaign.Plans[0].ID)
+	require.Equal(t, "ZCODE WEEKEND BUILD", preview.Campaign.Plans[0].Name)
+	require.Equal(t, 101, preview.Campaign.Plans[0].Priority)
+	require.Equal(t, int64(2000000000), preview.Campaign.Plans[0].EndsAt)
+	require.Equal(t, 1, marketingCalls)
+}
+
+func TestClaimMarketingMergePreviewWins(t *testing.T) {
+	client := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/zcode-plan/billing/preview":
+			respond(w, map[string]any{"plans": []any{
+				map[string]any{"plan_id": "shared-plan", "name": "preview-name", "priority": 5},
+				map[string]any{"plan_id": "preview-only", "name": "preview-only", "priority": 1},
+			}})
+		case "/api/v1/marketing/touch":
+			respond(w, map[string]any{"deliveries": []any{map[string]any{
+				"banner": map[string]any{
+					"buttons": []any{
+						map[string]any{"action": map[string]any{"type": "claim_zcode_plan", "args": map[string]any{"plan_id": "shared-plan"}}},
+						map[string]any{"action": map[string]any{"type": "claim_zcode_plan", "args": map[string]any{"plan_id": "banner-only"}}},
+					},
+					"background": map[string]any{"args": map[string]any{"zcode_plan": map[string]any{"plan_id": "shared-plan", "name": "banner-name"}}},
+				},
+			}}})
+		default:
+			t.Errorf("非预期路径 %s", r.URL.Path)
+		}
+	})
+	preview, err := client.ListPlans(context.Background(), "synthetic-jwt")
+	require.NoError(t, err)
+	require.Len(t, preview.Campaign.Plans, 3)
+	require.Equal(t, "shared-plan", preview.Campaign.Plans[0].ID)
+	require.Equal(t, "preview-name", preview.Campaign.Plans[0].Name)
+	require.Equal(t, "preview-only", preview.Campaign.Plans[1].ID)
+	require.Equal(t, "banner-only", preview.Campaign.Plans[2].ID)
+}
+
+func TestClaimMarketingPlansFallbackWithoutDevice(t *testing.T) {
+	client := &Client{Origin: "https://zcode.z.ai", Identity: Identity{AppVersion: "3.17.2", Platform: "linux-x64"}}
+	require.Empty(t, client.marketingPlans(context.Background(), "synthetic-jwt"))
+}
+
+func TestParseMarketingPlansShapes(t *testing.T) {
+	require.Nil(t, ParseMarketingPlans([]byte(`not-json`)))
+	require.Empty(t, ParseMarketingPlans([]byte(`{"deliveries":[]}`)))
+	plans := ParseMarketingPlans([]byte(`{"deliveries":[{"popup":{"buttons":[{"action":{"type":"claim_zcode_plan","args":{"plan_id":"nested-plan"}}}]}},{"banner":{"buttons":[{"action":{"type":"claim_zcode_plan","args":{"plan_id":"nested-plan"}}},{"action":{"type":"claim_zcode_plan","args":{"plan_id":"plain-plan"}}}]}}]}`))
+	require.Len(t, plans, 2)
+	require.Equal(t, "nested-plan", plans[0].ID)
+	require.Equal(t, "nested-plan", plans[0].Name)
+	require.Equal(t, "plain-plan", plans[1].ID)
 }

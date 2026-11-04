@@ -404,3 +404,76 @@ func TestZCodeClaimCaptchaGate(t *testing.T) {
 		require.Equal(t, int64(1), withCaptcha.Load())
 	})
 }
+
+func TestZCodeQuotaScheduledPlanNotMarkedExhausted(t *testing.T) {
+	now := time.Now().Unix()
+	svc, repo, _ := newZCodeTestService(t, func(r *http.Request) (*http.Response, error) {
+		return zcodeTestEnvelope(map[string]any{
+			"server_time": now,
+			"plans": []any{map[string]any{
+				"plan_id": "synthetic-global-build", "name": "ZCODE GLOBAL BUILD", "status": "active",
+				"starts_at": now - 600, "ends_at": now + 36000,
+				"entitlements": []any{map[string]any{
+					"show_name": "GLM-5.3-Flash", "unit_type": "token", "grant_units": 300000000,
+					"effective_at": now + 1800, "period": "one_time",
+				}},
+			}},
+			"balances": []any{},
+		}), nil
+	})
+	quota, e := svc.QueryQuota(context.Background(), 91)
+	require.NoError(t, e)
+	require.Equal(t, "scheduled", quota.Status)
+	require.False(t, quota.Exhausted(time.Now()))
+	require.Len(t, quota.Plans, 1)
+	a, _ := repo.GetByID(context.Background(), 91)
+	require.False(t, a.IsSchedulable())
+	require.Empty(t, a.TempUnschedulableReason)
+	require.NotNil(t, zcodeQuotaFromAccount(a))
+}
+
+func TestZCodeClaimMarketingBanner(t *testing.T) {
+	var claims atomic.Int64
+	svc, repo, _ := newZCodeTestService(t, func(r *http.Request) (*http.Response, error) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/agent/configs"):
+			return zcodeTestEnvelope(map[string]any{"configs": map[string]any{"captcha": map[string]any{"enabled": false}}}), nil
+		case strings.HasSuffix(r.URL.Path, "/preview"):
+			return zcodeTestEnvelope(nil), nil
+		case strings.HasSuffix(r.URL.Path, "/marketing/touch"):
+			require.Equal(t, "synthetic-device", r.Header.Get("X-Device-Mid"))
+			require.Equal(t, zcode.DefaultAppVersion, r.Header.Get("X-ZCode-App-Version"))
+			return zcodeTestEnvelope(map[string]any{"deliveries": []any{map[string]any{
+				"campaign_id": "synthetic-campaign",
+				"banner": map[string]any{
+					"buttons": []any{map[string]any{"action": map[string]any{"type": "claim_zcode_plan", "args": map[string]any{"plan_id": "synthetic-weekend"}}}},
+					"background": map[string]any{"args": map[string]any{"zcode_plan": map[string]any{
+						"plan_id": "synthetic-weekend", "name": "ZCODE WEEKEND BUILD", "priority": 101,
+						"starts_at": time.Now().Add(-time.Hour).Unix(), "ends_at": time.Now().Add(24 * time.Hour).Unix(),
+					}}},
+				},
+			}}}), nil
+		case strings.HasSuffix(r.URL.Path, "/claim"):
+			claims.Add(1)
+			var payload map[string]string
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+			require.Equal(t, "synthetic-weekend", payload["plan_id"])
+			return zcodeTestEnvelope(map[string]any{"plan": map[string]any{"plan_id": "synthetic-weekend", "name": "ZCODE WEEKEND BUILD"}}), nil
+		default:
+			return nil, errors.New("非预期 endpoint")
+		}
+	})
+	preview, e := svc.CheckClaim(context.Background(), 91, false)
+	require.NoError(t, e)
+	require.Equal(t, "available", preview.Result)
+	require.NotNil(t, preview.Plan)
+	claimed, e := svc.CheckClaim(context.Background(), 91, true)
+	require.NoError(t, e)
+	require.Equal(t, "claimed", claimed.Result)
+	require.Equal(t, int64(1), claims.Load())
+	a, _ := repo.GetByID(context.Background(), 91)
+	state := ZCodeClaimState{}
+	require.NoError(t, decodeZCodeExtra(a.Extra[zcodeClaimKey], &state))
+	require.Equal(t, "claimed", state.Result)
+	require.Equal(t, "synthetic-weekend", state.Plan.ID)
+}

@@ -5,8 +5,6 @@ package zcode
 import (
 	_ "embed"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -66,68 +64,34 @@ func TransformAnthropic(body []byte, start bool, p Provider, id Identity, sessio
 		var data struct {
 			Prefix  string   `json:"cliPrefix"`
 			Stable  []string `json:"stableSections"`
-			Dynamic struct {
-				Before string `json:"beforeEnvironment"`
-				After  string `json:"afterEnvironment"`
-			} `json:"dynamicSections"`
-			Env struct {
-				Heading  string `json:"heading"`
-				Invoked  string `json:"invokedLine"`
-				Cwd      string `json:"cwdLabel"`
-				Git      string `json:"gitLabel"`
-				GitNo    string `json:"gitNo"`
-				Platform string `json:"platformLabel"`
-				Shell    string `json:"shellLabel"`
-				OS       string `json:"osVersionLabel"`
-				Powered  string `json:"poweredByLine"`
-			} `json:"environment"`
-			Context struct {
-				Intro   string `json:"intro"`
-				Outro   string `json:"outro"`
-				Heading string `json:"currentDateHeading"`
-				Line    string `json:"currentDateLine"`
-			} `json:"contextPrefix"`
+			Current struct {
+				Line string `json:"line"`
+			} `json:"currentDate"`
+			Reminder struct {
+				Open  string `json:"open"`
+				Close string `json:"close"`
+			} `json:"systemReminder"`
 		}
 		if json.Unmarshal(systemData, &data) != nil {
 			return nil, &Error{Kind: ErrConfiguration}
 		}
-		cwd, _ := os.Getwd()
-		shell := os.Getenv("SHELL")
-		if shell == "" {
-			shell = os.Getenv("ComSpec")
-		}
-		shell = filepath.Base(shell)
-		if shell == "." || shell == "" {
-			shell = "unknown"
-		}
-		platform := strings.Split(id.Platform, "-")[0]
-		osVersion := strings.TrimSpace(platform + " " + id.OSVersion + " " + strings.TrimPrefix(id.Platform, platform+"-"))
-		providerID := "zai-api"
-		if p == BigModel {
-			providerID = "bigmodel-api"
-		}
-		model, _ := obj["model"].(string)
-		env := []string{data.Env.Heading, data.Env.Invoked, "- " + data.Env.Cwd + ": " + cwd, "- " + data.Env.Git + ": " + data.Env.GitNo, "- " + data.Env.Platform + ": " + platform, "- " + data.Env.Shell + ": " + shell, "- " + data.Env.OS + ": " + osVersion}
-		if model != "" {
-			env = append(env, "- "+strings.ReplaceAll(strings.ReplaceAll(data.Env.Powered, "{provider}", providerID), "{model}", model))
-		}
 		ephemeral := func(text string) map[string]any {
 			return map[string]any{"type": "text", "text": text, "cache_control": map[string]string{"type": "ephemeral"}}
 		}
-		// 上游 3.15.1 起 block1 不再带 cache_control；客户端 system 存在时整段替换
-		// block3（动态三件套），block2 保持字节精确的 stable 文本。
+		// 3.17.1：block1 使用新的 cliPrefix；客户端 system 存在时以 "\n\n" 前缀
+		// 整段替换 block3，未提供时 block3 为空。block2 保持字节精确的 stable 文本。
 		stable := strings.Join(data.Stable, "\n\n")
-		dynamic := strings.Join([]string{data.Dynamic.Before, strings.Join(env, "\n"), data.Dynamic.After}, "\n\n")
+		dynamic := ""
 		if custom := customSystemText(obj["system"]); custom != "" {
-			dynamic = custom
+			dynamic = "\n\n" + custom
 		}
 		obj["system"] = []any{
 			map[string]any{"type": "text", "text": data.Prefix},
 			ephemeral(stable),
-			ephemeral("\n\n" + dynamic),
+			ephemeral(dynamic),
 		}
 		if messages, ok := obj["messages"].([]any); ok && len(messages) > 0 {
-			text := "<system-reminder>" + strings.Join([]string{data.Context.Intro, data.Context.Heading + "\n" + strings.ReplaceAll(data.Context.Line, "{date}", now.Format("2006-01-02")), "", data.Context.Outro}, "\n") + "</system-reminder>"
+			text := data.Reminder.Open + strings.ReplaceAll(data.Current.Line, "{date}", now.Format("2006-01-02")) + data.Reminder.Close
 			prefix := map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": text}}}
 			obj["messages"] = append([]any{prefix}, messages...)
 		}

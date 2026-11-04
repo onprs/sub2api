@@ -1,18 +1,18 @@
 {
-  "upstream_commit": "cdf9f5e1d7b38dc3bb240dd0bb2175ff1d4a16f2",
+  "upstream_commit": "e47f44e82204772339fa2ce59e19f47afdf20f4d",
   "id": "synthetic-id",
   "secret": "synthetic-secret",
   "ts": "1700000000123",
   "nonce": "00112233445566778899aabbccddeeff",
   "session": "synthetic-session",
-  "version": "3.16.3",
+  "version": "3.17.2",
   "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
   "hkdf_private_hex": "dce15c0dc25248bc06b672db2a37deea3850d71dc0ce5cd63f6d4273298c7cda",
   "handshake_hmac": "WHk5DYXYRqxAhyJjKsnWHqFWMQCX+n+OK/o8ujF/MmI=",
   "private_cipher": "AAECAwQFBgcICQoLW/ytCdTMNVcZbdfFD6ajvJtt+LtZL5lrG4lN/WHI0ZjAbSo8an3coc+vNuGG2MHt1gPJEA5NvhZOugrZeaJ7Cw1Norbh18yKZFhTnrxdqn4=",
-  "message": "synthetic-id\n1700000000123\n3.16.3\nsynthetic-session\n00112233445566778899aabbccddeeff",
-  "signature": "uxI/6EhnI4bKBGapWzBbJnCIzZes/ceSvpE5r36tQ7oWKhXZkLObUeAbIKMIHjsdxwx8Gc6vegNkL5QQEW/gBQ==",
+  "message": "synthetic-id\n1700000000123\n3.17.2\nsynthetic-session\n00112233445566778899aabbccddeeff",
+  "signature": "tIJs9sAYkiWMxUS0GmE0DvEYMr8/SXcCNBMUcr75Q2dspJ0uChPuIa6vVFtu3vgOKEPmf3GopVWS7Agm4PS+BQ==",
   "pow_seed": "3ee218754c65d93dcd08332ff9a7cb76",
   "pow": "00112233445566778899aabb0000008c",
-  "note": "由 tools/zcode_parity_reference.mjs 生成；v4.8.7 的 KDF/AES-GCM/Ed25519/PoW 常量与 v4.7.6 一致。"
+  "note": "由 tools/zcode_parity_reference.mjs 生成；v4.8.8 的 KDF/AES-GCM/Ed25519/PoW 常量与 v4.7.6 一致。"
 }

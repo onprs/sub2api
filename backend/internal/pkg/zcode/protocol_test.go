@@ -185,7 +185,7 @@ func TestClaimPreviewAndResultParity(t *testing.T) {
 	for code, result := range map[int]string{1001: "none", 1002: "not_in_window", 1003: "already_claimed", 1004: "not_eligible", 1005: "quota_exhausted", 3001: "version_too_low", 3007: "captcha", 3012: "login_required"} {
 		c := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
 			require.Equal(t, "Bearer synthetic-jwt", r.Header.Get("Authorization"))
-			require.Equal(t, "3.16.3", r.Header.Get("X-ZCode-App-Version"))
+			require.Equal(t, DefaultAppVersion, r.Header.Get("X-ZCode-App-Version"))
 			require.NotEmpty(t, r.Header.Get(CaptchaHeader))
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": code, "msg": "synthetic-sensitive", "data": map[string]int64{"next_available_at": 2000000000}})

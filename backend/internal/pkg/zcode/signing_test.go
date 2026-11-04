@@ -49,7 +49,7 @@ func TestSigningHeadersAndProofOfWork(t *testing.T) {
 	require.True(t, signed)
 	signature, e := base64.StdEncoding.DecodeString(request.Header.Get("X-Client-Sig"))
 	require.NoError(t, e)
-	message := "synthetic-id\n" + request.Header.Get("X-Client-Ts") + "\n3.16.3\nsynthetic-session\n" + request.Header.Get("X-Client-Nonce")
+	message := "synthetic-id\n" + request.Header.Get("X-Client-Ts") + "\n" + DefaultAppVersion + "\nsynthetic-session\n" + request.Header.Get("X-Client-Nonce")
 	publicKey, ok := private.Public().(ed25519.PublicKey)
 	require.True(t, ok)
 	require.True(t, ed25519.Verify(publicKey, []byte(message), signature))

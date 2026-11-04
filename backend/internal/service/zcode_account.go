@@ -78,6 +78,10 @@ func (a *Account) zcodeSchedulable(now time.Time) bool {
 		}
 	}
 	if quota := zcodeQuotaFromAccount(a); quota != nil && now.Unix()-quota.UpdatedAt <= 300 {
+		// 已领取但尚未生效的计划没有可用额度；到生效时间后即使快照未刷新也允许调度。
+		if quota.Status == "scheduled" && (quota.NextAvailableAt == 0 || quota.NextAvailableAt > now.Unix()) {
+			return false
+		}
 		return !quota.Exhausted(now)
 	}
 	return true

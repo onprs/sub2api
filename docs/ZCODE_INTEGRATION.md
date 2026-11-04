@@ -43,7 +43,7 @@ ZCode 账号的上游是标准 Anthropic 格式，请求与响应均按标准事
 `extra` 使用的键：
 
 - `zcode_state`：授权状态（如 `login_required`）与最近检查时间。
-- `zcode_quota`：额度快照（余额、窗口、到期/重置时间）。
+- `zcode_quota`：额度快照（已领取计划、生效时间、余额、窗口、到期/重置时间）。
 - `zcode_claim`：领取状态（结果、活动、下次尝试时间）。
 
 ## 模块划分
@@ -57,8 +57,8 @@ ZCode 账号的上游是标准 Anthropic 格式，请求与响应均按标准事
 | `oauth.go` | 服务端 init/poll、授权 URL 官方域名校验、Z.AI / BigModel 分支 |
 | `identity.go` | App Version、User-Agent、ZCode 头与平台/OS 头 |
 | `routing.go` | 端点映射缓存、singleflight、失败保留旧映射；目标必须 https 且在域名白名单内；映射项可要求附带 `X-ZCode-Authorization`（仅官方 ultra 路径） |
-| `quota.go` | Start Plan 余额、Coding Plan 多窗口、remaining/total/percent、套餐状态 |
-| `claim.go` | 活动 preview、claim、starts_at、最低版本与固定结果分类；验证码可选 |
+| `quota.go` | Start Plan 计划与余额、Coding Plan 多窗口、remaining/total/percent、套餐状态与生效时间 |
+| `claim.go` | billing preview 与营销横幅枚举、claim、starts_at、最低版本与固定结果分类；验证码可选 |
 | `captcha.go` / `captcha_browser.go` | CAPTCHA 配置快照（1h，`enabled=false` 合法）、并发上限；受控 Chromium 执行官方动态 SDK（可取消、匿名、拒绝带用户名密码的代理） |
 | `signing.go` | Coding Plan 的 HKDF、AES-GCM、Ed25519、PoW 与签名缓存；支持 `{apiKeyId}.{secret}` 与 `project_access` JWT 两种凭据 |
 | `body.go` / `zcode_system.json` | Start Plan system 固定 3 块；客户端 system 整段替换第三块 |
@@ -70,20 +70,22 @@ Chromium 的用户目录、配置目录、缓存和 crashpad 均使用一次性�
 
 上游来源与同步：
 
-- 上游仓库 `TriDefender/zcode-api`，当前 pin `v4.8.7` / `cdf9f5e1d7b38dc3bb240dd0bb2175ff1d4a16f2`，记录在 `upstream.json`（含 commit 与文件映射）。
+- 上游仓库 `TriDefender/zcode-api`，当前 pin `v4.8.8` / `e47f44e82204772339fa2ce59e19f47afdf20f4d`，记录在 `upstream.json`（含 commit 与文件映射）。
 - 上游自 2026-10-21 起把许可从 README 的 MIT 声明改为 CC BY-NC-SA 4.0 并新增 LICENSE；v4.7.6 的 MIT 授权按上游说明不被追溯撤销。`NOTICE.md` 同时记录当前许可与历史基线。
 - `tools/check_zcode_upstream.py` 对 pinned ref 做分类比对并输出审查清单；只有显式 `--update-pin --reviewed` 才更新 pin，不自动修改本地实现。
 - `NOTICE.md` 记录上游许可声明核查结果。
 - `tools/zcode_parity_reference.mjs` 生成 Node/Go 签名对照向量，测试数据在 `testdata/`。
 
-### 协议行为（对齐 v4.8.7）
+### 协议行为（对齐 v4.8.8）
 
-- 客户端版本默认 `3.16.3`（对齐真实客户端；上游代理模板仍为 3.15.1），`gateway.zcode.app_version` 可覆盖。活动 `min_app_version` 高于此值时会得到 `version_too_low`，升级前先核对账号当前活动要求。
+- 客户端版本默认 `3.17.2`（与官方 changelog 当前版本和 3.17 客户端行为对齐），`gateway.zcode.app_version` 或账号 `zcode_app_version` 可覆盖。营销横幅按该版本下发；活动 `min_app_version` 高于此值时会得到 `version_too_low`。
 - 签名只用于 Coding Plan 请求，启动阶段不再探测 `agent/configs` 的 `codingPlanSignature`；Start Plan 与 off-peak 路径永不签名。
 - bigmodel OAuth 账号优先用 `access_tokens` 铸造的 `project_access` JWT 签名，铸造失败或缓存过期回退 `{apiKeyId}.{secret}` 形态，不影响请求发送。
-- Start Plan 的 system 恒为 3 块：首块不带 `cache_control`；客户端自带 system 时整段替换第三块，客户端 `cache_control` 一律丢弃。
+- Start Plan 的 system 恒为 3 块：首块不带 `cache_control`；客户端自带 system 时整段替换第三块，客户端 `cache_control` 一律丢弃；未提供客户端 system 时第三块为空。首个 user 轮附带无标题的 `<system-reminder>Today's date is …</system-reminder>`。
 - `client/configs` 的 `enabled=false` 表示服务端关闭验证码，此时不发送验证头；配置拉取失败保留 last-good 快照并在 30 秒后重试。
 - 领取平面是否需要验证码读取 `agent/configs` 的 `configs.captcha`：`enabled !== false && skipModelRequest !== true`；该块未下发时保守要求验证码。
+- 领取枚举先读 `billing/preview`，再读 `marketing/touch?seq=N` 的营销横幅；横幅按钮 `claim_zcode_plan` 的 `plan_id` 与 `banner.background.args.zcode_plan` 合并，preview 计划优先。缺少设备标识或横幅失败时保留 preview 结果。
+- Start Plan 额度读取 `billing/balance` 的 `plans[]` 与 `balances[]`。套餐已领取但 entitlement 的 `effective_at` 未到时，`balances` 为空属于正常状态：记录计划并按 `scheduled` 展示，`next_available_at` 取最近生效时间，不标记 `no_plan` 或额度耗尽；生效前账号保持动态不可调度，到达 `next_available_at` 后即使快照未刷新也恢复调度。
 
 ### 业务接入 `backend/internal/service/zcode_*.go`
 
