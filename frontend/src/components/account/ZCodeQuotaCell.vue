@@ -1,27 +1,24 @@
 <template>
-  <div data-test="zcode-quota" class="min-w-0 space-y-1.5 text-xs text-gray-600 dark:text-gray-300">
-    <div class="flex flex-wrap items-center gap-2"><span class="font-medium">{{ quota?.plan === 'coding' || account.credentials?.account_mode === 'coding' ? 'Coding Plan' : 'Start Plan' }}</span><button type="button" data-test="zcode-quota-refresh" class="text-primary-600 disabled:opacity-50 dark:text-primary-400" :disabled="loading" @click="refresh">{{ t('admin.accounts.cnProviders.probe') }}</button></div>
-    <div v-for="(plan, planIndex) in quota?.plans || []" :key="plan.id || planIndex" data-test="zcode-plan" class="space-y-1.5">
-      <div class="flex min-w-0 items-center gap-2">
-        <span class="truncate font-medium">{{ plan.name }}</span>
-        <span v-if="planStatusLabel(plan)" class="shrink-0 rounded bg-gray-100 px-1 text-gray-500 dark:bg-dark-700 dark:text-gray-400">{{ planStatusLabel(plan) }}</span>
-        <HelpTooltip v-if="planDetails(plan).length">
-          <div v-for="(line, lineIndex) in planDetails(plan)" :key="lineIndex">{{ line }}</div>
-        </HelpTooltip>
-      </div>
-      <div v-if="planSummary(plan)" class="text-gray-500">{{ planSummary(plan) }}</div>
-      <div v-if="planPending(plan) && planEffectiveAt(plan)" class="text-gray-500">{{ t('admin.accounts.zcode.effectiveAt') }}: {{ date(planEffectiveAt(plan)) }}</div>
+  <div data-test="zcode-quota" class="min-w-0 space-y-1 text-xs text-gray-600 dark:text-gray-300">
+    <div class="flex flex-wrap items-center gap-2"><span class="font-medium">{{ planLabel }}</span><button type="button" data-test="zcode-quota-refresh" class="text-primary-600 disabled:opacity-50 dark:text-primary-400" :disabled="loading" @click="refresh">{{ t('admin.accounts.cnProviders.probe') }}</button></div>
+    <!-- 计划行只保留名称与状态；权益明细、生效与到期时间收纳到信息提示。 -->
+    <div v-for="(plan, planIndex) in quota?.plans || []" :key="plan.id || planIndex" data-test="zcode-plan" class="flex min-w-0 items-center gap-1.5">
+      <span class="truncate font-medium">{{ plan.name }}</span>
+      <span v-if="planStatusLabel(plan)" class="shrink-0 rounded bg-gray-100 px-1 text-gray-500 dark:bg-dark-700 dark:text-gray-400">{{ planStatusLabel(plan) }}</span>
+      <HelpTooltip v-if="planDetails(plan).length">
+        <div v-for="(line, lineIndex) in planDetails(plan)" :key="lineIndex">{{ line }}</div>
+      </HelpTooltip>
     </div>
     <div v-if="!quota || (!quota.balances.length && !hasScheduledPlan)" class="text-gray-400">{{ t('admin.accounts.zcode.quotaUnknown') }}</div>
-    <div v-for="(balance, index) in quota?.balances || []" :key="index" class="space-y-1.5">
-      <div class="flex min-w-0 items-center">
-        <span class="truncate font-medium">{{ balance.name }}</span>
-        <HelpTooltip v-if="detailLines(balance).length">
-          <div v-for="(line, lineIndex) in detailLines(balance)" :key="lineIndex">{{ line }}</div>
-        </HelpTooltip>
-      </div>
-      <UsageProgressBar v-if="balance.used_percent != null" :label="windowLabel(balance)" :utilization="balance.used_percent" :resets-at="balance.reset_at ? new Date(balance.reset_at * 1000).toISOString() : undefined" color="indigo" />
-      <div v-else-if="balance.remaining != null" data-test="zcode-remaining">{{ remainingLine(balance, true) }}</div>
+    <!-- 余额行一行呈现模型名与百分比；额度数值与各类时间都在信息提示中。 -->
+    <div v-for="(balance, index) in quota?.balances || []" :key="index" data-test="zcode-balance" class="flex min-w-0 items-center gap-1.5">
+      <span class="truncate font-medium">{{ balance.name }}</span>
+      <span v-if="windowLabel(balance)" class="shrink-0 text-[10px] text-gray-400">{{ windowLabel(balance) }}</span>
+      <span v-if="balance.used_percent != null" data-test="zcode-percent" :class="['shrink-0 text-[10px] font-medium', percentClass(balance.used_percent)]">{{ percentLabel(balance.used_percent) }}</span>
+      <span v-else-if="balance.remaining != null" data-test="zcode-remaining" class="shrink-0 text-[10px] text-gray-500">{{ remainingCompact(balance) }}</span>
+      <HelpTooltip v-if="detailLines(balance).length">
+        <div v-for="(line, lineIndex) in detailLines(balance)" :key="lineIndex">{{ line }}</div>
+      </HelpTooltip>
     </div>
     <div v-if="state?.oauth_status === 'login_required'" class="text-red-600 dark:text-red-400">{{ t('admin.accounts.zcode.loginRequired') }}</div>
     <div v-if="error" class="break-words text-red-600 dark:text-red-400" role="alert">{{ error }}</div>
@@ -35,13 +32,13 @@ import type { Account } from '@/types'
 import { zcodeAPI, type ZCodeQuota, type ZCodeQuotaPlan } from '@/api/admin/zcode'
 import { formatCompactNumber } from '@/utils/format'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
-import UsageProgressBar from './UsageProgressBar.vue'
 const props = defineProps<{ account: Account }>()
 const { t } = useI18n()
 const quota = ref<ZCodeQuota | null>(null)
 const loading = ref(false)
 const error = ref('')
 const now = ref(Math.floor(Date.now() / 1000))
+const planLabel = computed(() => quota.value?.plan === 'coding' || props.account.credentials?.account_mode === 'coding' ? 'Coding Plan' : 'Start Plan')
 const hasScheduledPlan = computed(() => (quota.value?.plans || []).some(planPending))
 type ZCodeBalance = ZCodeQuota['balances'][number]
 // 套餐状态只在需要提示时展示；active 不额外占用行内空间。
@@ -57,20 +54,6 @@ function planStatusLabel(plan: ZCodeQuotaPlan) {
   if (quotaExhausted) return t('admin.accounts.zcode.planExhausted')
   return ''
 }
-// 计划的生效时间在 entitlement 上；尚未生效时展示最近一次生效时间。
-function planEffectiveAt(plan: ZCodeQuotaPlan) {
-  const times = (plan.entitlements || []).map(item => item.effective_at || 0).filter(value => value > now.value)
-  if (plan.starts_at && plan.starts_at > now.value) times.push(plan.starts_at)
-  return times.length ? Math.min(...times) : 0
-}
-function planSummary(plan: ZCodeQuotaPlan) {
-  return (plan.entitlements || []).map(item => {
-    const parts: string[] = []
-    if (item.name) parts.push(item.name)
-    if (item.units != null) parts.push(`${formatCompactNumber(item.units)}${item.unit ? ` ${item.unit}` : ''}`)
-    return parts.join(' · ')
-  }).filter(Boolean).join(', ')
-}
 function planDetails(plan: ZCodeQuotaPlan) {
   const lines: string[] = []
   if (plan.starts_at) lines.push(`${t('admin.accounts.zcode.planStartsAt')}: ${date(plan.starts_at)}`)
@@ -84,17 +67,30 @@ function planDetails(plan: ZCodeQuotaPlan) {
   }
   return lines
 }
-// 进度条徽章只承载短窗口标签；模型名称已在各自行内展示，避免重复与折行错乱。
+// Coding Plan 的多个窗口共用同一名称，窗口标签用于区分同名的余额行。
 function windowLabel(balance: ZCodeBalance) {
   if (balance.window === '5h') return t('admin.accounts.cnProviders.window5h')
   if (balance.window === 'weekly') return t('admin.accounts.cnProviders.windowWeekly')
   return ''
 }
-// 默认只展示进度条与百分比；精确数值仅在悬浮提示中给出，避免长数字撑破窄列。
-function remainingLine(balance: ZCodeBalance, compact = false) {
-  const fmt = (value: number) => (compact ? formatCompactNumber(value) : number(value))
-  let text = `${t('admin.accounts.zcode.remaining')}: ${fmt(balance.remaining ?? 0)}`
-  if (balance.total != null) text += ` / ${fmt(balance.total)}`
+// 行内百分比沿用用量进度条的阈值配色，确保接近耗尽时仍能被快速识别。
+function percentLabel(value: number) {
+  const percent = Math.round(value)
+  return percent > 999 ? '>999%' : `${percent}%`
+}
+function percentClass(value: number) {
+  if (value >= 90) return 'text-red-600 dark:text-red-400'
+  if (value >= 75) return 'text-amber-600 dark:text-amber-400'
+  return 'text-gray-600 dark:text-gray-400'
+}
+// 无百分比时（如剩余积分）用紧凑数值代替，精确额度与时间仍在悬浮提示中。
+function remainingCompact(balance: ZCodeBalance) {
+  const value = formatCompactNumber(balance.remaining ?? 0)
+  return balance.unit ? `${value} ${balance.unit}` : value
+}
+function remainingLine(balance: ZCodeBalance) {
+  let text = `${t('admin.accounts.zcode.remaining')}: ${number(balance.remaining ?? 0)}`
+  if (balance.total != null) text += ` / ${number(balance.total)}`
   if (balance.unit) text += ` ${balance.unit}`
   return text
 }

@@ -65,19 +65,25 @@ describe('ZCode OAuth 管理界面', () => {
     wrapper.unmount()
   })
 
-  it('展示已领取但尚未生效的套餐计划', async () => {
+  it('已领取但尚未生效的计划只展示名称与状态，明细收纳于信息提示', async () => {
     const effective = Math.floor(Date.now() / 1000) + 1800
     const wrapper = mount(ZCodeQuotaCell, { props: { account: account({ zcode_quota: { plan: 'start', status: 'scheduled', next_available_at: effective, plans: [{ id: 'synthetic-global-build', name: 'ZCODE GLOBAL BUILD', status: 'active', starts_at: 1700000000, ends_at: 2000000000, entitlements: [{ name: 'GLM-5.3-Flash', unit: 'token', units: 300000000, effective_at: effective }] }], balances: [], updated_at: 1700000000 } }) }, global: { plugins: [makeI18n()] } })
     expect(wrapper.get('[data-test="zcode-plan"]').text()).toContain('ZCODE GLOBAL BUILD')
-    expect(wrapper.text()).toContain('待生效')
-    expect(wrapper.text()).toContain('生效时间')
-    expect(wrapper.text()).toContain('300.0M')
+    expect(wrapper.get('[data-test="zcode-plan"]').text()).toContain('待生效')
+    expect(wrapper.text()).not.toContain('生效时间')
+    expect(wrapper.text()).not.toContain('300.0M')
+    const tooltip = document.querySelector('[role="tooltip"]')
+    expect(tooltip?.textContent).toContain('300.0M')
+    expect(tooltip?.textContent).toContain('生效时间')
     expect(wrapper.text()).not.toContain('额度尚未获取')
     wrapper.unmount()
   })
 
-  it('有进度条时以进度为主，精确剩余收纳于名字旁的信息提示', async () => {
+  it('余额行以模型名与百分比为主，数值与时间收纳于信息提示', async () => {
     const wrapper = mount(ZCodeQuotaCell, { props: { account: account({ zcode_quota: { plan: 'start', balances: [{ name: 'GLM-5.3-Flash', remaining: 99998232, total: 100000000, used_percent: 0, unit: 'token', expires_at: 1791216000 }], updated_at: 1700000000 } }) }, global: { plugins: [makeI18n()] } })
+    const row = wrapper.get('[data-test="zcode-balance"]')
+    expect(row.get('[data-test="zcode-percent"]').text()).toBe('0%')
+    expect(row.text().indexOf('GLM-5.3-Flash')).toBeLessThan(row.text().indexOf('0%'))
     expect(wrapper.find('[data-test="zcode-remaining"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('99,998,232')
     expect(wrapper.find('svg.cursor-help').exists()).toBe(true)
@@ -87,6 +93,18 @@ describe('ZCode OAuth 管理界面', () => {
     expect(tooltip?.textContent).toContain('到期时间')
     expect(tooltip?.textContent).toContain('额度更新时间')
     expect(wrapper.text()).toContain('GLM-5.3-Flash')
+    wrapper.unmount()
+  })
+
+  it('Coding Plan 同名余额以窗口标签区分并按阈值着色百分比', async () => {
+    const wrapper = mount(ZCodeQuotaCell, { props: { account: account({ zcode_quota: { plan: 'coding', balances: [{ name: 'TOKENS_LIMIT', window: '5h', used_percent: 92.4 }, { name: 'TOKENS_LIMIT', window: 'weekly', used_percent: 40 }], updated_at: 1700000000 } }) }, global: { plugins: [makeI18n()] } })
+    const rows = wrapper.findAll('[data-test="zcode-balance"]')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].text()).toContain('5h')
+    expect(rows[0].get('[data-test="zcode-percent"]').text()).toBe('92%')
+    expect(rows[0].get('[data-test="zcode-percent"]').classes()).toContain('text-red-600')
+    expect(rows[1].text()).toContain('7d')
+    expect(rows[1].get('[data-test="zcode-percent"]').text()).toBe('40%')
     wrapper.unmount()
   })
 })
