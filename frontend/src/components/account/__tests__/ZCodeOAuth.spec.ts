@@ -79,10 +79,11 @@ describe('ZCode OAuth 管理界面', () => {
     wrapper.unmount()
   })
 
-  it('余额行以模型名与百分比为主，数值与时间收纳于信息提示', async () => {
+  it('余额行以模型名、进度条与百分比为主，数值与时间收纳于信息提示', async () => {
     const wrapper = mount(ZCodeQuotaCell, { props: { account: account({ zcode_quota: { plan: 'start', balances: [{ name: 'GLM-5.3-Flash', remaining: 99998232, total: 100000000, used_percent: 0, unit: 'token', expires_at: 1791216000 }], updated_at: 1700000000 } }) }, global: { plugins: [makeI18n()] } })
     const row = wrapper.get('[data-test="zcode-balance"]')
-    expect(row.get('[data-test="zcode-percent"]').text()).toBe('0%')
+    expect(row.get('[data-test="zcode-usage"]').text()).toBe('0%')
+    expect(row.get('[data-test="zcode-usage"]').find('.h-1\\.5').exists()).toBe(true)
     expect(row.text().indexOf('GLM-5.3-Flash')).toBeLessThan(row.text().indexOf('0%'))
     expect(wrapper.find('[data-test="zcode-remaining"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('99,998,232')
@@ -101,10 +102,10 @@ describe('ZCode OAuth 管理界面', () => {
     const rows = wrapper.findAll('[data-test="zcode-balance"]')
     expect(rows).toHaveLength(2)
     expect(rows[0].text()).toContain('5h')
-    expect(rows[0].get('[data-test="zcode-percent"]').text()).toBe('92%')
-    expect(rows[0].get('[data-test="zcode-percent"]').classes()).toContain('text-red-600')
+    expect(rows[0].get('[data-test="zcode-usage"]').text()).toBe('92%')
+    expect(rows[0].get('[data-test="zcode-usage"]').html()).toContain('text-red-600')
     expect(rows[1].text()).toContain('7d')
-    expect(rows[1].get('[data-test="zcode-percent"]').text()).toBe('40%')
+    expect(rows[1].get('[data-test="zcode-usage"]').text()).toBe('40%')
     wrapper.unmount()
   })
 })

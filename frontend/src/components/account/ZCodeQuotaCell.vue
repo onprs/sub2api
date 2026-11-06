@@ -10,11 +10,11 @@
       </HelpTooltip>
     </div>
     <div v-if="!quota || (!quota.balances.length && !hasScheduledPlan)" class="text-gray-400">{{ t('admin.accounts.zcode.quotaUnknown') }}</div>
-    <!-- 余额行一行呈现模型名与百分比；额度数值与各类时间都在信息提示中。 -->
+    <!-- 余额行一行呈现模型名、进度条与百分比；额度数值与各类时间都在信息提示中。 -->
     <div v-for="(balance, index) in quota?.balances || []" :key="index" data-test="zcode-balance" class="flex min-w-0 items-center gap-1.5">
       <span class="truncate font-medium">{{ balance.name }}</span>
       <span v-if="windowLabel(balance)" class="shrink-0 text-[10px] text-gray-400">{{ windowLabel(balance) }}</span>
-      <span v-if="balance.used_percent != null" data-test="zcode-percent" :class="['shrink-0 text-[10px] font-medium', percentClass(balance.used_percent)]">{{ percentLabel(balance.used_percent) }}</span>
+      <UsageProgressBar v-if="balance.used_percent != null" data-test="zcode-usage" class="shrink-0" label="" :utilization="balance.used_percent" color="indigo" />
       <span v-else-if="balance.remaining != null" data-test="zcode-remaining" class="shrink-0 text-[10px] text-gray-500">{{ remainingCompact(balance) }}</span>
       <HelpTooltip v-if="detailLines(balance).length">
         <div v-for="(line, lineIndex) in detailLines(balance)" :key="lineIndex">{{ line }}</div>
@@ -32,6 +32,7 @@ import type { Account } from '@/types'
 import { zcodeAPI, type ZCodeQuota, type ZCodeQuotaPlan } from '@/api/admin/zcode'
 import { formatCompactNumber } from '@/utils/format'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
+import UsageProgressBar from './UsageProgressBar.vue'
 const props = defineProps<{ account: Account }>()
 const { t } = useI18n()
 const quota = ref<ZCodeQuota | null>(null)
@@ -72,16 +73,6 @@ function windowLabel(balance: ZCodeBalance) {
   if (balance.window === '5h') return t('admin.accounts.cnProviders.window5h')
   if (balance.window === 'weekly') return t('admin.accounts.cnProviders.windowWeekly')
   return ''
-}
-// 行内百分比沿用用量进度条的阈值配色，确保接近耗尽时仍能被快速识别。
-function percentLabel(value: number) {
-  const percent = Math.round(value)
-  return percent > 999 ? '>999%' : `${percent}%`
-}
-function percentClass(value: number) {
-  if (value >= 90) return 'text-red-600 dark:text-red-400'
-  if (value >= 75) return 'text-amber-600 dark:text-amber-400'
-  return 'text-gray-600 dark:text-gray-400'
 }
 // 无百分比时（如剩余积分）用紧凑数值代替，精确额度与时间仍在悬浮提示中。
 function remainingCompact(balance: ZCodeBalance) {
