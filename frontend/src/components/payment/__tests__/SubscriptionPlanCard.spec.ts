@@ -112,8 +112,8 @@ describe("SubscriptionPlanCard", () => {
       global: { plugins: [i18n, createPinia()] },
     }).text();
 
-    expect(text).toContain("payment.subscribeNow");
-    expect(text).not.toContain("payment.renewNow");
+    expect(text).toContain("Subscribe now");
+    expect(text).not.toContain("Renew\n");
   });
 
   it("shows renewal when the same plan is active", () => {
@@ -159,7 +159,7 @@ describe("SubscriptionPlanCard", () => {
       global: { plugins: [i18n, createPinia()] },
     }).text();
 
-    expect(text).toContain("payment.renewNow");
+    expect(text).toContain("Renew");
   });
 
   it("shows discounted renewal price only when the same plan is renewal eligible", () => {
@@ -211,7 +211,7 @@ describe("SubscriptionPlanCard", () => {
 
     expect(text).toContain("7.4");
     expect(text).toContain("$8.7");
-    expect(text).toContain("payment.renewalDiscount");
+    expect(text).toContain("Renewal -");
   });
 
   it("does not show renewal discount for another plan in the same group", () => {
@@ -364,7 +364,7 @@ describe("SubscriptionPlanCard", () => {
       global: { plugins: [i18n, createPinia()] },
     }).text();
 
-    expect(text).toContain("payment.stock.unlimited");
+    expect(text).toContain("Unlimited stock");
   });
 
   it("shows remaining stock for positive stock values", () => {
@@ -388,7 +388,7 @@ describe("SubscriptionPlanCard", () => {
       global: { plugins: [i18n, createPinia()] },
     }).text();
 
-    expect(text).toContain("payment.stock.remaining");
+    expect(text).toContain("remaining");
   });
 
   it("disables sold-out plans and does not emit select", async () => {
@@ -415,14 +415,17 @@ describe("SubscriptionPlanCard", () => {
 
     const button = wrapper.find("button");
     expect(button.attributes("disabled")).toBeDefined();
-    expect(button.text()).toContain("payment.stock.soldOut");
+    expect(button.text()).toContain("Sold out");
 
     await button.trigger("click");
 
     expect(wrapper.emitted("select")).toBeUndefined();
   });
 
-  it("renders normalized month, week, and day validity units", () => {
+  // #4607：管理端保存的单位是复数（months/weeks），此前用户侧只匹配单数
+  // 'month'，「1 个月」的套餐卡片被显示成「1天」。按上方测试消息渲染出的
+  // 单位文案断言各分支。
+  it("renders plural admin-form validity units instead of mislabeled days (#4607)", () => {
     expect(mountPlanCard("openai", { validity_days: 1, validity_unit: "months" }).text()).toContain("/ month");
     expect(mountPlanCard("openai", { validity_days: 3, validity_unit: "months" }).text()).toContain("/ 3months");
     expect(mountPlanCard("openai", { validity_days: 2, validity_unit: "weeks" }).text()).toContain("/ 2weeks");
@@ -481,7 +484,7 @@ describe("SubscriptionPlanCard", () => {
     expect(badge?.element.parentElement?.parentElement?.classList).toContain("shrink-0");
     expect(price?.element.parentElement?.parentElement?.classList).toContain("shrink-0");
     expect(wrapper.get("p").text()).toBe("Includes advanced models and priority support.");
-    expect(wrapper.get("button").text()).toBe("payment.subscribeNow");
+    expect(wrapper.get("button").text()).toBe("Subscribe now");
   });
 
   it("keeps short plan titles compact and aligned", () => {

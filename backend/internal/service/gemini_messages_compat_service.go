@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -2428,8 +2427,8 @@ func (r *geminiSSERecordingReadCloser) Close() error {
 }
 
 //nolint:unused // 兼容 unit 构建中的无 raw 聚合测试入口。
-func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, error) {
-	collected, usage, _, err := collectGeminiSSEObserved(body, isOAuth, nil)
+func collectGeminiSSE(cfg *config.Config, body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, error) {
+	collected, usage, _, err := collectGeminiSSEObserved(cfg, body, isOAuth, nil)
 	return collected, usage, err
 }
 
@@ -2444,8 +2443,8 @@ type geminiSSECollectStats struct {
 // collectGeminiSSEObserved 在聚合的同时把每个解包后的事件原文交给 observe（可为 nil）。
 //
 //nolint:unused // 兼容 unit 构建中的逐事件聚合测试。
-func collectGeminiSSEObserved(body io.Reader, isOAuth bool, observe func(rawBytes []byte)) (map[string]any, *ClaudeUsage, geminiSSECollectStats, error) {
-	reader := bufio.NewReader(body)
+func collectGeminiSSEObserved(cfg *config.Config, body io.Reader, isOAuth bool, observe func(rawBytes []byte)) (map[string]any, *ClaudeUsage, geminiSSECollectStats, error) {
+	reader := newBoundedSSELineReader(body, cfg)
 	var last map[string]any
 	var lastWithParts map[string]any
 	var collectedTextParts []string
@@ -2453,7 +2452,7 @@ func collectGeminiSSEObserved(body io.Reader, isOAuth bool, observe func(rawByte
 	stats := geminiSSECollectStats{fallback: &geminiSSEFallbackBody{}}
 
 	for {
-		line, err := reader.ReadString('\n')
+		line, err := reader.ReadLineString()
 		if len(line) > 0 {
 			trimmed := strings.TrimRight(line, "\r\n")
 			if !strings.HasPrefix(trimmed, "data:") {
@@ -2661,6 +2660,40 @@ func estimateGeminiCountTokens(reqBody []byte) int {
 		return 0
 	}
 	return total
+}
+
+// geminiTextDelta tracks the text already emitted for one stream block. Only the
+// storage differs from concatenating strings: appends are amortized, so
+// delta-mode streams no longer copy the whole prefix on every chunk.
+type geminiTextDelta struct {
+	seen strings.Builder
+}
+
+// next returns the part of incoming that has not been emitted yet.
+func (d *geminiTextDelta) next(incoming string) string {
+	incoming = strings.TrimSuffix(incoming, "\u0000")
+	if incoming == "" {
+		return ""
+	}
+	seen := d.seen.String()
+
+	// Cumulative mode: incoming contains full text so far.
+	if strings.HasPrefix(incoming, seen) {
+		delta := incoming[len(seen):]
+		_, _ = d.seen.WriteString(delta)
+		return delta
+	}
+	// Duplicate/rewind: ignore.
+	if strings.HasPrefix(seen, incoming) {
+		return ""
+	}
+	// Delta mode: treat incoming as incremental chunk.
+	_, _ = d.seen.WriteString(incoming)
+	return incoming
+}
+
+func (d *geminiTextDelta) reset() {
+	d.seen.Reset()
 }
 
 func estimateTokensForText(s string) int {
@@ -3384,6 +3417,17 @@ func extractGeminiParts(geminiResp map[string]any) []map[string]any {
 func convertClaudeMessagesToGeminiGenerateContent(body []byte) ([]byte, error) {
 	model := gjson.GetBytes(body, "model").String()
 	_, converted, err := newClaudeMessagesGooglePipeline(nil, body, model, model)
+	return converted, err
+}
+
+// convertClaudeMessagesToGeminiGenerateContentForModel 允许调用方显式指定上游模型
+// （如 Antigravity 兼容路径已解析出 mappedModel）；缺省时回退请求体中的 model 字段。
+func convertClaudeMessagesToGeminiGenerateContentForModel(body []byte, mappedModel string) ([]byte, error) {
+	model := mappedModel
+	if strings.TrimSpace(model) == "" {
+		model = gjson.GetBytes(body, "model").String()
+	}
+	_, converted, err := newClaudeMessagesGooglePipeline(nil, body, gjson.GetBytes(body, "model").String(), model)
 	return converted, err
 }
 

@@ -702,6 +702,7 @@ func (s *OpenAIGatewayService) handleStructuredResponsesStreamWithOptions(
 			return fmt.Errorf("restore OpenAI namespace response: %w", restoreErr)
 		}
 		restoredData = restoreCodexToolNamesFromSSEContext(c, restoredData, eventType)
+		restoredData = restoreOpenAIResponsesInstructionsEchoInEvent(c, restoredData)
 		if !bytes.Equal(restoredData, dataBytes) {
 			dataBytes = restoredData
 			eventType = strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())

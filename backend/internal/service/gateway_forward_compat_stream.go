@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
@@ -57,6 +58,7 @@ type anthropicCompatStreamFailure struct {
 }
 
 // newAnthropicCompatStream 启动上游行泵；调用方 defer stop()。
+// newAnthropicCompatStream 启动上游行泵；调用方 defer stop()。
 func newAnthropicCompatStream(cfg *config.Config, c *gin.Context, resp *http.Response, logPrefix, requestID string) *anthropicCompatStream {
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -64,8 +66,9 @@ func newAnthropicCompatStream(cfg *config.Config, c *gin.Context, resp *http.Res
 		maxLineSize = cfg.Gateway.MaxLineSize
 	}
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
+	scanner.Split(newBoundedSSESplit(cfg, maxLineSize, nil))
 	stream := &anthropicCompatStream{
-		pump:        newAnthropicNativeLinePump(scanner, anthropicNativeStreamInterval(cfg)),
+		pump:        newAnthropicNativeLinePump(scanner, anthropicNativeStreamInterval(cfg), cfg),
 		body:        resp.Body,
 		maxLineSize: maxLineSize,
 		logPrefix:   logPrefix,
@@ -241,6 +244,43 @@ func writeAnthropicCompatCCStreamFailure(c *gin.Context, failure *anthropicCompa
 		},
 	})
 	commitAnthropicCompatStreamFailure(c, failure, "data: "+string(payload)+"\n\n")
+}
+
+// writeAnthropicCompatResponsesStreamFailure 向 Responses 流写出 response.failed
+// 终止事件，沿用流内的 response id；sequence_number 经 restorer 与已写出的事件
+// 保持连续。写出后标记响应已提交。
+func writeAnthropicCompatResponsesStreamFailure(c *gin.Context, state *apicompat.AnthropicEventToResponsesState, restorer *apicompat.ResponsesClientToolStreamRestorer, failure *anthropicCompatStreamFailure) {
+	responseID := state.ResponseID
+	if responseID == "" {
+		responseID = "resp_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	}
+	evt := apicompat.ResponsesStreamEvent{
+		Type:           "response.failed",
+		SequenceNumber: state.SequenceNumber,
+		Response: &apicompat.ResponsesResponse{
+			ID:        responseID,
+			Object:    "response",
+			CreatedAt: state.Created,
+			Model:     state.Model,
+			Status:    "failed",
+			Output:    []apicompat.ResponsesOutput{},
+			Error:     &apicompat.ResponsesError{Code: failure.errType, Message: failure.message},
+		},
+	}
+	state.SequenceNumber++
+	payload, err := json.Marshal(evt)
+	if err != nil {
+		return
+	}
+	payloads, _, err := restorer.RestoreEvent(payload)
+	if err != nil {
+		return
+	}
+	var frames strings.Builder
+	for _, restored := range payloads {
+		fmt.Fprintf(&frames, "event: %s\ndata: %s\n\n", gjson.GetBytes(restored, "type").String(), restored)
+	}
+	commitAnthropicCompatStreamFailure(c, failure, frames.String())
 }
 
 func commitAnthropicCompatStreamFailure(c *gin.Context, failure *anthropicCompatStreamFailure, frame string) {

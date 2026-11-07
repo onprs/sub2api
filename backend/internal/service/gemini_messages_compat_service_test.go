@@ -1546,7 +1546,7 @@ func TestConvertClaudeMessagesToGeminiGenerateContent_AddsThoughtSignatureForToo
 	}
 	b, _ := json.Marshal(claudeReq)
 
-	out, err := convertClaudeMessagesToGeminiGenerateContent(b)
+	out, err := convertClaudeMessagesToGeminiGenerateContentForModel(b, "gemini-2.5-flash")
 	if err != nil {
 		t.Fatalf("convert failed: %v", err)
 	}
@@ -1567,7 +1567,7 @@ func TestConvertClaudeMessagesToGeminiGenerateContent_ExtractsToolResultImages(t
 		{"type":"tool_result","tool_use_id":"toolu_png","content":[{"type":"text","text":"found it"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aGVsbG8="}}]},
 		{"type":"tool_result","tool_use_id":"toolu_jpeg","content":[{"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"d29ybGQ="}}]}
 	]}]}`)
-	converted, err := convertClaudeMessagesToGeminiGenerateContent(body)
+	converted, err := convertClaudeMessagesToGeminiGenerateContentForModel(body, "gemini-2.5-flash")
 	require.NoError(t, err)
 
 	// 工具关联和图片内容均由统一转换层保留；原生图片另行供 Gemini 读取。

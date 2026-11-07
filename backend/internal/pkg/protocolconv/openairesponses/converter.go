@@ -227,6 +227,14 @@ func (*Converter) DecodeResponse(body []byte, _ protocolconv.Options) (*ir.Respo
 			for _, summary := range item.Summary {
 				_, _ = text.WriteString(summary.Text)
 			}
+			if text.Len() == 0 {
+				// summary 为空时回退到原始 reasoning_text（vLLM 等兼容上游只回 content）。
+				for _, part := range item.Content {
+					if part.Type == "reasoning_text" {
+						_, _ = text.WriteString(part.Text)
+					}
+				}
+			}
 			message.Content = append(message.Content, ir.ContentPart{Type: ir.ContentReasoning, Reasoning: text.String(), Signature: item.EncryptedContent, Status: item.Status})
 		case "function_call", "custom_tool_call", "tool_search_call":
 			args := decodeToolArguments(item.Type, item.Arguments, item.Input)

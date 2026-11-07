@@ -362,11 +362,24 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 			break
 		}
 		if nextErr != nil {
-			return nil, fmt.Errorf("read anthropic stream: %w", nextErr)
+			// 上游已观测到的 usage 随错误返回，供 handler 结算已产生 tokens。
+			return &ForwardResult{
+				RequestID: requestID, UpstreamHeaders: resp.Header, Usage: usage,
+				Model: originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort,
+				Duration: time.Since(startTime),
+			}, fmt.Errorf("read anthropic stream: %w", nextErr)
 		}
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal(record.Data, &event); err != nil {
 			return nil, fmt.Errorf("decode anthropic stream event: %w", err)
+		}
+		// 上游流内 error 事件：结束读取，由调用方按未完成流处理。
+		if event.Type == "error" || strings.EqualFold(strings.TrimSpace(record.Event), "error") {
+			return &ForwardResult{
+				RequestID: requestID, UpstreamHeaders: resp.Header, Usage: usage,
+				Model: originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort,
+				Duration: time.Since(startTime),
+			}, fmt.Errorf("anthropic stream error event: %s", string(record.Data))
 		}
 		if event.Type == "ping" {
 			continue
@@ -407,7 +420,11 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	}
 	if len(finalBody) == 0 {
 		writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream stream ended without a response")
-		return nil, fmt.Errorf("upstream stream ended without response")
+		return &ForwardResult{
+			RequestID: requestID, UpstreamHeaders: resp.Header, Usage: usage,
+			Model: originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort,
+			Duration: time.Since(startTime),
+		}, fmt.Errorf("upstream stream ended without response")
 	}
 	finalBody = reverseToolNamesIfPresent(c, finalBody)
 	finalBody, _, err = apicompat.RestoreResponsesClientToolPayload(finalBody, clientToolMapping)

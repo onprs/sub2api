@@ -171,7 +171,16 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		if !isBedrockAnthropicStreamError(err) {
 			writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream stream ended without a response")
 		}
-		return nil, err
+		// 上游已观测到的 usage 随错误返回，供 handler 结算已产生 tokens。
+		return &ForwardResult{
+			RequestID:       requestID,
+			UpstreamHeaders: resp.Header,
+			Usage:           usage,
+			Model:           originalModel,
+			UpstreamModel:   mappedModel,
+			ReasoningEffort: reasoningEffort,
+			Duration:        time.Since(startTime),
+		}, err
 	}
 	anthropicResponseBody, err := json.Marshal(finalResp)
 	if err != nil {
@@ -219,6 +228,11 @@ readLoop:
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal(record.Data, &event); err != nil {
 			return nil, usage, fmt.Errorf("decode anthropic stream event: %w", err)
+		}
+		// 上游流内 error 事件（与 /v1/messages 流式语义一致）：结束读取，由调用方按
+		// 未完成流处理，不把它聚合为正常响应。
+		if event.Type == "error" || strings.EqualFold(strings.TrimSpace(record.Event), "error") {
+			return nil, usage, &sseStreamErrorEventError{RawData: string(record.Data)}
 		}
 		switch event.Type {
 		case "message_start":

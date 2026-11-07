@@ -100,7 +100,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// 2. Model mapping
 	billingModel := resolveOpenAIForwardModel(account, normalizedModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
-	if err := validateGPT61SolCompatRequest(body, upstreamModel); err != nil {
+	if err := validateGPT61CompatRequest(body, upstreamModel); err != nil {
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
@@ -893,13 +893,18 @@ func (s *OpenAIGatewayService) collectOpenAICompatBufferedTerminal(
 
 	events := make(chan openAICompatStreamEvent, 16)
 	done := make(chan struct{})
+	queueBudget := newSSEQueueBudget(s.cfg)
 	go func() {
 		defer close(events)
 		for {
 			record, nextErr := stream.Events.Next(context.Background())
+			if !queueBudget.acquire(len(record.Data), done) {
+				return
+			}
 			select {
 			case events <- openAICompatStreamEvent{record: record, err: nextErr}:
 			case <-done:
+				queueBudget.release(len(record.Data))
 				return
 			}
 			if nextErr != nil {
@@ -925,24 +930,27 @@ func (s *OpenAIGatewayService) collectOpenAICompatBufferedTerminal(
 
 	for {
 		select {
-		case event, ok := <-events:
+		case ev, ok := <-events:
+			if ok {
+				queueBudget.release(len(ev.record.Data))
+			}
 			if !ok {
 				return result, nil
 			}
-			if event.err != nil {
-				if errors.Is(event.err, protocoltransport.ErrSSEDone) || errors.Is(event.err, io.EOF) {
+			if ev.err != nil {
+				if errors.Is(ev.err, protocoltransport.ErrSSEDone) || errors.Is(ev.err, io.EOF) {
 					return result, nil
 				}
-				if !errors.Is(event.err, context.Canceled) && !errors.Is(event.err, context.DeadlineExceeded) {
+				if !errors.Is(ev.err, context.Canceled) && !errors.Is(ev.err, context.DeadlineExceeded) {
 					logger.L().Warn(logPrefix+": read error",
-						zap.Error(event.err),
+						zap.Error(ev.err),
 						zap.String("request_id", stream.RequestID),
 					)
 				}
-				return result, &openAICompatBufferedReadError{cause: event.err}
+				return result, &openAICompatBufferedReadError{cause: ev.err}
 			}
 
-			payloadBytes := []byte(openAICompatPayloadWithEventType(string(event.record.Data), event.record.Event))
+			payloadBytes := []byte(openAICompatPayloadWithEventType(string(ev.record.Data), ev.record.Event))
 			payloadBytes = restoreCodexToolNamesFromContext(c, payloadBytes)
 			payload := string(payloadBytes)
 			var parsed apicompat.ResponsesStreamEvent
@@ -1338,13 +1346,18 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 
 	events := make(chan openAICompatStreamEvent, 16)
 	done := make(chan struct{})
+	queueBudget := newSSEQueueBudget(s.cfg)
 	go func() {
 		defer close(events)
 		for {
 			record, nextErr := stream.Events.Next(context.Background())
+			if !queueBudget.acquire(len(record.Data), done) {
+				return
+			}
 			select {
 			case events <- openAICompatStreamEvent{record: record, err: nextErr}:
 			case <-done:
+				queueBudget.release(len(record.Data))
 				return
 			}
 			if nextErr != nil {
@@ -1371,33 +1384,36 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 
 	for {
 		select {
-		case event, ok := <-events:
+		case ev, ok := <-events:
+			if ok {
+				queueBudget.release(len(ev.record.Data))
+			}
 			if !ok {
 				return missingTerminalErr()
 			}
-			if event.err != nil {
-				if errors.Is(event.err, protocoltransport.ErrSSEDone) || errors.Is(event.err, io.EOF) {
+			if ev.err != nil {
+				if errors.Is(ev.err, protocoltransport.ErrSSEDone) || errors.Is(ev.err, io.EOF) {
 					return missingTerminalErr()
 				}
-				if errors.Is(event.err, context.Canceled) || errors.Is(event.err, context.DeadlineExceeded) {
-					return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", event.err)
+				if errors.Is(ev.err, context.Canceled) || errors.Is(ev.err, context.DeadlineExceeded) {
+					return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", ev.err)
 				}
 				logger.L().Warn("openai messages stream: read error",
-					zap.Error(event.err),
+					zap.Error(ev.err),
 					zap.String("request_id", requestID),
 				)
 				if clientDisconnected {
-					return resultWithUsage(), fmt.Errorf("stream usage incomplete after disconnect: %w", event.err)
+					return resultWithUsage(), fmt.Errorf("stream usage incomplete after disconnect: %w", ev.err)
 				}
 				if !clientOutputStarted {
-					message := "OpenAI messages stream disconnected before completion: " + sanitizeStreamError(event.err)
+					message := "OpenAI messages stream disconnected before completion: " + sanitizeStreamError(ev.err)
 					return resultWithUsage(), s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, message)
 				}
-				s.recordOpenAIMessagesStreamUpstreamError(c, account, requestID, "stream_read_error", event.err.Error())
-				return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", event.err)
+				s.recordOpenAIMessagesStreamUpstreamError(c, account, requestID, "stream_read_error", ev.err.Error())
+				return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", ev.err)
 			}
 			lastDataAt = time.Now()
-			payload := openAICompatPayloadWithEventType(string(event.record.Data), event.record.Event)
+			payload := openAICompatPayloadWithEventType(string(ev.record.Data), ev.record.Event)
 			if processDataLine(payload) {
 				return finalizeStream()
 			}

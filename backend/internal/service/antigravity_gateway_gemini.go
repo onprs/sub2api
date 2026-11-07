@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/antigravityadapter"
@@ -609,6 +610,45 @@ handleSuccess:
 		ImageSize:                     imageSize,
 		ImageInputSize:                imageInputSize,
 	}, nil
+}
+
+// cleanGeminiRequest 清理 Gemini 请求体中的 Schema（官方测试入口）。
+// 定制实现统一走 cleanAntigravityCompatGeminiRequest（含 responseJsonSchema 改写）。
+//
+//nolint:unused // 官方 antigravity_gemini_response_schema_test 直接引用。
+func cleanGeminiRequest(body []byte) ([]byte, error) {
+	return cleanAntigravityCompatGeminiRequest(body)
+}
+
+// normalizeGeminiResponseSchema 将 generationConfig.responseJsonSchema 改写为 responseSchema。
+// Antigravity 上游接受 responseJsonSchema 字段但静默忽略（返回普通文本而非 JSON），只有 responseSchema 生效；
+// 而 @ai-sdk/google >= 4.0.70 等客户端只发送 responseJsonSchema。已有 responseSchema 时以其为准。
+func normalizeGeminiResponseSchema(payload map[string]any) bool {
+	changed := false
+	for _, configKey := range []string{"generationConfig", "generation_config"} {
+		config, ok := payload[configKey].(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, schemaKey := range []string{"responseJsonSchema", "response_json_schema"} {
+			raw, exists := config[schemaKey]
+			if !exists {
+				continue
+			}
+			delete(config, schemaKey)
+			changed = true
+			_, hasSchema := config["responseSchema"]
+			_, hasSnakeSchema := config["response_schema"]
+			if hasSchema || hasSnakeSchema {
+				continue
+			}
+			if schema, ok := raw.(map[string]any); ok {
+				antigravity.DeepCleanUndefined(schema)
+				config["responseSchema"] = antigravity.CleanJSONSchema(schema)
+			}
+		}
+	}
+	return changed
 }
 
 // filterEmptyPartsFromGeminiRequest 过滤掉 parts 为空的消息

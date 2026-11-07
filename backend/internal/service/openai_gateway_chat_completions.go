@@ -213,7 +213,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	// derive a stable seed from the final upstream model family.
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
-	if err := validateGPT61SolCompatRequest(body, upstreamModel); err != nil {
+	if err := validateGPT61CompatRequest(body, upstreamModel); err != nil {
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
@@ -1334,13 +1334,18 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 
 	events := make(chan openAICompatStreamEvent, 16)
 	done := make(chan struct{})
+	queueBudget := newSSEQueueBudget(s.cfg)
 	go func() {
 		defer close(events)
 		for {
 			record, nextErr := stream.Events.Next(context.Background())
+			if !queueBudget.acquire(len(record.Data), done) {
+				return
+			}
 			select {
 			case events <- openAICompatStreamEvent{record: record, err: nextErr}:
 			case <-done:
+				queueBudget.release(len(record.Data))
 				return
 			}
 			if nextErr != nil {
@@ -1367,22 +1372,25 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 
 	for {
 		select {
-		case event, ok := <-events:
+		case ev, ok := <-events:
+			if ok {
+				queueBudget.release(len(ev.record.Data))
+			}
 			if !ok {
 				return missingTerminalErr()
 			}
-			if event.err != nil {
-				if errors.Is(event.err, protocoltransport.ErrSSEDone) || errors.Is(event.err, io.EOF) {
+			if ev.err != nil {
+				if errors.Is(ev.err, protocoltransport.ErrSSEDone) || errors.Is(ev.err, io.EOF) {
 					return missingTerminalErr()
 				}
-				handleScanErr(event.err)
-				if clientDisconnected || errors.Is(event.err, context.Canceled) || errors.Is(event.err, context.DeadlineExceeded) {
-					return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", event.err)
+				handleScanErr(ev.err)
+				if clientDisconnected || errors.Is(ev.err, context.Canceled) || errors.Is(ev.err, context.DeadlineExceeded) {
+					return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", ev.err)
 				}
-				return resultWithUsage(), newOpenAIUpstreamStreamReadError(event.err)
+				return resultWithUsage(), newOpenAIUpstreamStreamReadError(ev.err)
 			}
 			lastDataAt = time.Now()
-			payload := openAICompatPayloadWithEventType(string(event.record.Data), event.record.Event)
+			payload := openAICompatPayloadWithEventType(string(ev.record.Data), ev.record.Event)
 			if processDataLine(payload) {
 				return finalizeStream()
 			}

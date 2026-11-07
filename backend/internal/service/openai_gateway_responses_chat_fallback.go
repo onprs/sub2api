@@ -89,7 +89,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletionsWithOutput(
 	if err := json.Unmarshal(convertedRequest.Body, &chatReq); err != nil {
 		return nil, fmt.Errorf("decode converted chat completions request: %w", err)
 	}
-	if err := validateGPT61SolCompatRequest(body, upstreamModel); err != nil {
+	if err := validateGPT61CompatRequest(body, upstreamModel); err != nil {
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}

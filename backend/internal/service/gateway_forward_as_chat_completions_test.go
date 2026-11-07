@@ -163,7 +163,8 @@ func TestHandleCCBufferedFromAnthropic_RejectsMissingTerminal(t *testing.T) {
 
 	result, err := (&GatewayService{}).handleCCBufferedFromAnthropic(resp, c, chatAnthropicTestPipeline(t, false, false), "gpt-5", "upstream-model", nil, time.Now())
 	require.ErrorContains(t, err, "without message_stop")
-	require.Nil(t, result)
+	// 定制错误路径返回已观测 usage 的结果供结算；这里只断言错误本体。
+	_ = result
 }
 
 func TestHandleCCBufferedFromAnthropic_TerminalWithoutUpstreamCloseReturns(t *testing.T) {

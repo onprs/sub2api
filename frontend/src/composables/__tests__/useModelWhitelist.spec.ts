@@ -54,6 +54,8 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gpt-6.1-terra')
     expect(models).toContain('gpt-6-sol')
     expect(models).toContain('gpt-6-luna')
+    expect(models).toContain('gpt-image-2.6-flare')
+    expect(models).toContain('gpt-image-2.6-sunburst')
     expect(new Set(models).size).toBe(models.length)
   })
 
