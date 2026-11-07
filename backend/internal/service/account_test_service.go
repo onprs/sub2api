@@ -2487,6 +2487,11 @@ func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, accoun
 	if s == nil || s.accountRepo == nil || account == nil {
 		return
 	}
+	// ZCode 原生 transport 已按额度快照管理停调；429 是上游临时限流，测试探活
+	// 不能把它写成通用 RateLimitResetAt，否则额度未耗尽也会被暂停调度。
+	if account.IsZCodeOAuth() {
+		return
+	}
 
 	persistOpenAI429PlanType(ctx, s.accountRepo, account, body)
 

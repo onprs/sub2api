@@ -405,6 +405,40 @@ func TestZCodeClaimCaptchaGate(t *testing.T) {
 	})
 }
 
+func TestZCodeRateLimitDoesNotPauseSchedulingWithRemainingQuota(t *testing.T) {
+	svc, repo, _ := newZCodeTestService(t, func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("非预期上游请求")
+	})
+	now := time.Now()
+	remaining := 100.0
+	require.NoError(t, repo.UpdateExtra(context.Background(), 91, map[string]any{zcodeQuotaKey: zcode.Quota{
+		Plan: zcode.PlanStart, Status: "active", UpdatedAt: now.Unix(),
+		Balances: []zcode.Balance{{Name: "GLM-5.3", Remaining: &remaining}},
+	}}))
+	a, err := repo.GetByID(context.Background(), 91)
+	require.NoError(t, err)
+	require.True(t, a.IsSchedulable())
+	svc.stateError(context.Background(), a, &zcode.Error{Kind: zcode.ErrRateLimit, RetryAt: now.Add(5 * time.Minute).Unix()})
+	stored, err := repo.GetByID(context.Background(), 91)
+	require.NoError(t, err)
+	require.Nil(t, stored.TempUnschedulableUntil)
+	require.Empty(t, stored.TempUnschedulableReason)
+	require.True(t, stored.IsSchedulable())
+
+	zero := 0.0
+	require.NoError(t, repo.UpdateExtra(context.Background(), 91, map[string]any{zcodeQuotaKey: zcode.Quota{
+		Plan: zcode.PlanStart, Status: "exhausted", UpdatedAt: now.Unix(),
+		Balances: []zcode.Balance{{Name: "GLM-5.3", Remaining: &zero}},
+	}}))
+	a, err = repo.GetByID(context.Background(), 91)
+	require.NoError(t, err)
+	svc.stateError(context.Background(), a, &zcode.Error{Kind: zcode.ErrRateLimit})
+	stored, err = repo.GetByID(context.Background(), 91)
+	require.NoError(t, err)
+	require.NotNil(t, stored.TempUnschedulableUntil)
+	require.Contains(t, stored.TempUnschedulableReason, "zcode_rate_limited")
+}
+
 func TestZCodeQuotaScheduledPlanNotMarkedExhausted(t *testing.T) {
 	now := time.Now().Unix()
 	svc, repo, _ := newZCodeTestService(t, func(r *http.Request) (*http.Response, error) {

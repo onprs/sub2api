@@ -163,6 +163,11 @@ func zcodeAdminError(err error) error {
 	return infraerrors.New(status, "ZCODE_"+strings.ToUpper(string(kind)), "ZCode "+string(kind))
 }
 func (s *ZCodeService) stateError(ctx context.Context, a *Account, e *zcode.Error) {
+	// 429 是上游限流而非额度耗尽：只要额度快照未证明耗尽，就不写临时停调，
+	// 保持账号可调度，由当前请求的正常换号与后续调度继续处理。
+	if e.Kind == zcode.ErrRateLimit && zcodeRateLimitKeepsScheduling(a, time.Now()) {
+		return
+	}
 	state := map[string]any{"last_error": string(e.Kind), "checked_at": time.Now().Unix(), "oauth_status": "authorized"}
 	if e.Kind == zcode.ErrLogin {
 		state["oauth_status"] = "login_required"

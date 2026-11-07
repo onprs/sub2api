@@ -86,6 +86,13 @@ func (a *Account) zcodeSchedulable(now time.Time) bool {
 	}
 	return true
 }
+
+// zcodeRateLimitKeepsScheduling 判断 429 是否应保持账号调度：额度快照缺失或
+// 未耗尽时视为上游临时限流，不因 429 写入临时停调；只有快照明确耗尽才沿用停调。
+func zcodeRateLimitKeepsScheduling(a *Account, now time.Time) bool {
+	quota := zcodeQuotaFromAccount(a)
+	return quota == nil || !quota.Exhausted(now)
+}
 func zcodeQuotaFromAccount(a *Account) *zcode.Quota {
 	var quota zcode.Quota
 	if a == nil || decodeZCodeExtra(a.Extra[zcodeQuotaKey], &quota) != nil || quota.Plan == "" {

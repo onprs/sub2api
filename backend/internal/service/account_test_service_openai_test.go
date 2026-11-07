@@ -704,3 +704,21 @@ func TestAccountTestService_OpenAIChatCompletionsPathRejectsNonJSONStream(t *tes
 	require.Contains(t, recorder.Body.String(), "/v1/chat/completions")
 	require.NotContains(t, recorder.Body.String(), `"success":true`)
 }
+
+func TestReconcileOpenAI429StateSkipsZCode(t *testing.T) {
+	repo := &openAIAccountTestRepo{}
+	svc := &AccountTestService{accountRepo: repo}
+	account := &Account{
+		ID:       91,
+		Platform: PlatformZhipu,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"auth_mode":      "zcode_oauth",
+			"account_mode":   AccountModeStart,
+			"zcode_provider": "zai",
+		},
+	}
+	svc.reconcileOpenAI429State(context.Background(), account, http.Header{"Retry-After": []string{"120"}}, []byte(`{"error":{"type":"zcode_rate_limited"}}`))
+	require.Zero(t, repo.rateLimitedID)
+	require.Nil(t, repo.rateLimitedAt)
+}
