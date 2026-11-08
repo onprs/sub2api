@@ -102,6 +102,8 @@ type AccountRepository interface {
 
 	SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error
 	SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, reason ...string) error
+	// ClearModelRateLimit 删除单个模型级冷却 scope（额度恢复时精准清理）。
+	ClearModelRateLimit(ctx context.Context, id int64, scope string) error
 	SetOverloaded(ctx context.Context, id int64, until time.Time) error
 	SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error
 	ClearTempUnschedulable(ctx context.Context, id int64) error

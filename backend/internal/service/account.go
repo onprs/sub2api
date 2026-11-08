@@ -2,6 +2,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -222,6 +223,33 @@ func (a *Account) IsSchedulable() bool {
 		return false
 	}
 	return true
+}
+
+// IsSchedulableForModelWithContext 在账号级判定之外增加 ZCode 的模型级额度判定。
+// ZCode 走 OpenAI 网关，调度候选过滤统一经过本方法；其它平台行为不变。
+func (a *Account) IsSchedulableForModelWithContext(ctx context.Context, requestedModel string) bool {
+	if a == nil {
+		return false
+	}
+	if !a.zcodeModelSchedulable(ctx, requestedModel, time.Now()) {
+		return false
+	}
+	if !a.IsSchedulable() {
+		return false
+	}
+	if a.isModelRateLimitedWithContext(ctx, requestedModel) {
+		// Antigravity + overages 启用 + 积分未耗尽 → 放行（有积分可用）
+		if a.Platform == PlatformAntigravity && a.IsOveragesEnabled() && !a.isCreditsExhausted() {
+			return true
+		}
+		return false
+	}
+	return true
+}
+
+// IsSchedulableForModel 保持旧签名以兼容既有调用方。
+func (a *Account) IsSchedulableForModel(requestedModel string) bool {
+	return a.IsSchedulableForModelWithContext(context.Background(), requestedModel)
 }
 
 // IsCredentialUsableForShadow 报告本账号(作为某 spark 影子的母账号)的凭据/传输是否可被影子透传使用。

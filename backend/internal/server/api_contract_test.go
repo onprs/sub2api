@@ -2139,6 +2139,10 @@ func (s *stubAccountRepo) SetModelRateLimit(ctx context.Context, id int64, scope
 	return errors.New("not implemented")
 }
 
+func (s *stubAccountRepo) ClearModelRateLimit(ctx context.Context, id int64, scope string) error {
+	return errors.New("not implemented")
+}
+
 func (s *stubAccountRepo) SetOverloaded(ctx context.Context, id int64, until time.Time) error {
 	return errors.New("not implemented")
 }

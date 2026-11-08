@@ -136,9 +136,14 @@ func (s *ZCodeService) QueryQuota(ctx context.Context, id int64) (*zcode.Quota, 
 		return nil, &zcode.Error{Kind: zcode.ErrUnavailable}
 	}
 	if quota.Exhausted(time.Now()) {
-		s.stateError(ctx, a, &zcode.Error{Kind: zcode.ErrQuota, RetryAt: quota.NextAvailableAt})
+		// 传入刚刷新的快照：a 是更新前加载的克隆，Extra 里还是旧 quota。
+		s.stateErrorWithQuota(ctx, a, &zcode.Error{Kind: zcode.ErrQuota, RetryAt: quota.NextAvailableAt}, &quota)
 	} else {
 		s.clearOwnCooldown(ctx, a)
+	}
+	// 模型额度恢复时移除对应模型的冷却记录；换套餐后旧快照已废弃，同样清理。
+	if !quota.Exhausted(time.Now()) {
+		s.clearZCodeQuotaModelCooldowns(ctx, a, &quota)
 	}
 	return &quota, nil
 }

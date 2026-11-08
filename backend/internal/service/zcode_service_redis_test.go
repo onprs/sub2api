@@ -84,6 +84,35 @@ func (r *zcodeTestRepo) ClearTempUnschedulable(_ context.Context, id int64) erro
 	return nil
 }
 
+func (r *zcodeTestRepo) SetModelRateLimit(_ context.Context, id int64, scope string, resetAt time.Time, reason ...string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	a := r.accounts[id]
+	if a.Extra == nil {
+		a.Extra = map[string]any{}
+	}
+	limits, _ := a.Extra[modelRateLimitsKey].(map[string]any)
+	if limits == nil {
+		limits = map[string]any{}
+		a.Extra[modelRateLimitsKey] = limits
+	}
+	payload := map[string]any{"rate_limit_reset_at": resetAt.UTC().Format(time.RFC3339)}
+	if len(reason) > 0 {
+		payload["reason"] = reason[0]
+	}
+	limits[scope] = payload
+	return nil
+}
+
+func (r *zcodeTestRepo) ClearModelRateLimit(_ context.Context, id int64, scope string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	a := r.accounts[id]
+	limits, _ := a.Extra[modelRateLimitsKey].(map[string]any)
+	delete(limits, scope)
+	return nil
+}
+
 // UpdateZCodeStateIfIdentityUnchanged 模拟生产 SQL 的身份条件、extra 合并与冷却语义。
 func (r *zcodeTestRepo) UpdateZCodeStateIfIdentityUnchanged(_ context.Context, id int64, update ZCodeStateMutation) (bool, error) {
 	r.mu.Lock()
@@ -300,9 +329,11 @@ func TestZCodeQuotaCacheNoTotalAndSchedulerState(t *testing.T) {
 	require.NoError(t, e)
 	require.Equal(t, int64(1), queries.Load())
 	a, _ := repo.GetByID(context.Background(), 91)
-	require.False(t, a.IsSchedulable())
-	require.NotEqual(t, StatusError, a.Status)
-	require.Contains(t, a.TempUnschedulableReason, "zcode_quota_exhausted")
+	// 额度耗尽只冷却模型（合成积分），账号保持可调度。
+	require.True(t, a.IsSchedulable())
+	require.Empty(t, a.TempUnschedulableReason)
+	require.False(t, a.IsSchedulableForModel("合成积分"))
+	require.True(t, a.IsSchedulableForModel("合成积分-pro"))
 	svc.stateError(context.Background(), a, &zcode.Error{Kind: zcode.ErrLogin})
 	a, _ = repo.GetByID(context.Background(), 91)
 	require.False(t, a.IsSchedulable())
@@ -437,6 +468,65 @@ func TestZCodeRateLimitDoesNotPauseSchedulingWithRemainingQuota(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, stored.TempUnschedulableUntil)
 	require.Contains(t, stored.TempUnschedulableReason, "zcode_rate_limited")
+}
+
+func TestZCodeQuotaExhaustedCoolsDownModelOnly(t *testing.T) {
+	svc, repo, _ := newZCodeTestService(t, func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("非预期上游请求")
+	})
+	now := time.Now()
+	zero, remaining := 0.0, 50.0
+	require.NoError(t, repo.UpdateExtra(context.Background(), 91, map[string]any{zcodeQuotaKey: zcode.Quota{
+		Plan: zcode.PlanStart, Status: "exhausted", UpdatedAt: now.Unix(),
+		Balances: []zcode.Balance{
+			{Name: "GLM-5.3", Remaining: &zero},
+			{Name: "GLM-5.3-Flash", Remaining: &remaining},
+		},
+	}}))
+	a, err := repo.GetByID(context.Background(), 91)
+	require.NoError(t, err)
+	// 账号级可调度（不再因耗尽整体停调），但耗尽模型被拦截。
+	require.True(t, a.IsSchedulable())
+	require.False(t, a.IsSchedulableForModel("glm-5.3"))
+	require.True(t, a.IsSchedulableForModel("glm-5.3-flash"))
+
+	svc.stateError(context.Background(), a, &zcode.Error{Kind: zcode.ErrQuota})
+	stored, err := repo.GetByID(context.Background(), 91)
+	require.NoError(t, err)
+	require.Nil(t, stored.TempUnschedulableUntil)
+	require.Empty(t, stored.TempUnschedulableReason)
+	require.True(t, stored.IsSchedulable())
+	// 冷却落在快照中确认耗尽的余额模型上，大小写不敏感匹配请求模型。
+	require.False(t, stored.IsSchedulableForModel("GLM-5.3"))
+	require.True(t, stored.IsSchedulableForModel("GLM-5.3-Flash"))
+}
+
+func TestZCodeQuotaRecoveryClearsModelCooldown(t *testing.T) {
+	svc, repo, _ := newZCodeTestService(t, func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("非预期上游请求")
+	})
+	now := time.Now()
+	zero := 0.0
+	require.NoError(t, repo.UpdateExtra(context.Background(), 91, map[string]any{zcodeQuotaKey: zcode.Quota{
+		Plan: zcode.PlanStart, Status: "exhausted", UpdatedAt: now.Unix(),
+		Balances: []zcode.Balance{{Name: "GLM-5.3", Remaining: &zero}},
+	}}))
+	a, err := repo.GetByID(context.Background(), 91)
+	require.NoError(t, err)
+	require.False(t, a.IsSchedulableForModel("glm-5.3"))
+
+	// 上游额度恢复后刷新快照，模型冷却应被移除。
+	remaining := 10.0
+	require.NoError(t, repo.UpdateExtra(context.Background(), 91, map[string]any{zcodeQuotaKey: zcode.Quota{
+		Plan: zcode.PlanStart, Status: "active", UpdatedAt: now.Add(time.Minute).Unix(),
+		Balances: []zcode.Balance{{Name: "GLM-5.3", Remaining: &remaining}},
+	}}))
+	quota, err := svc.QueryQuota(context.Background(), 91)
+	require.NoError(t, err)
+	require.False(t, quota.Exhausted(time.Now()))
+	stored, err := repo.GetByID(context.Background(), 91)
+	require.NoError(t, err)
+	require.True(t, stored.IsSchedulableForModel("glm-5.3"))
 }
 
 func TestZCodeQuotaScheduledPlanNotMarkedExhausted(t *testing.T) {

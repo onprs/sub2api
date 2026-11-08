@@ -171,6 +171,10 @@ func (s *accountRepoStub) SetModelRateLimit(ctx context.Context, id int64, scope
 	panic("unexpected SetModelRateLimit call")
 }
 
+func (s *accountRepoStub) ClearModelRateLimit(ctx context.Context, id int64, scope string) error {
+	panic("unexpected ClearModelRateLimit call")
+}
+
 func (s *accountRepoStub) SetOverloaded(ctx context.Context, id int64, until time.Time) error {
 	panic("unexpected SetOverloaded call")
 }

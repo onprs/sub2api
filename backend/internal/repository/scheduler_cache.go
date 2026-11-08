@@ -1379,6 +1379,10 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		service.OpenAIAutoResetCredit7dThresholdExtraKey,
 		service.OpenAIAutoResetCreditStateExtraKey,
 		"model_rate_limits",
+		// ZCode 模型级额度判定读取快照中的额度余额（zcodeModelSchedulable）。
+		// 缺键时判定放行，缓存快照下不会误拦，但会失去模型级额度拦截能力。
+		service.ZCodeQuotaExtraKey,
+		service.ZCodeStateExtraKey,
 		service.UpstreamBillingProbeExtraKey,
 		service.GrokMediaEligibleExtraKey,
 		"grok_billing_snapshot",

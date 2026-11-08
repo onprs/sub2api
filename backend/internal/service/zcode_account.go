@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/zcode"
+	"strings"
 	"time"
 )
 
@@ -10,6 +12,12 @@ const AccountModeStart = "start"
 const zcodeTokensKey = "zcode_tokens_encrypted"
 const zcodeStateKey = "zcode_state"
 const zcodeQuotaKey = "zcode_quota"
+
+// ZCodeQuotaExtraKey / ZCodeStateExtraKey 供调度快照投影引用，
+// 与 zcodeQuotaKey / zcodeStateKey 保持同步。
+const ZCodeQuotaExtraKey = "zcode_quota"
+const ZCodeStateExtraKey = "zcode_state"
+const zcodeQuotaExhaustedReason = "zcode_quota_exhausted"
 const zcodeClaimKey = "zcode_claim"
 
 func (a *Account) zcodeBaseURL() string {
@@ -82,9 +90,68 @@ func (a *Account) zcodeSchedulable(now time.Time) bool {
 		if quota.Status == "scheduled" && (quota.NextAvailableAt == 0 || quota.NextAvailableAt > now.Unix()) {
 			return false
 		}
-		return !quota.Exhausted(now)
+		// 模型额度耗尽不再停调整个账号：耗尽的余额由模型级冷却
+		// （IsSchedulableForModelWithContext）拦截，其它有剩余额度的模型仍可命中本账号。
+		// 账号级停调只保留套餐状态语义（scheduled / no_plan / expired）。
+		return true
 	}
 	return true
+}
+
+// zcodeModelSchedulable 按请求模型判定 ZCode 账号可调度性。
+// 判定依据额度快照中同名余额的剩余：余额有剩余 → 放行；快照可信且该模型
+// 余额已耗尽 → 拦截；快照缺失、过期或无该模型的余额记录 → 放行（不凭空
+// 拦截未知模型，由上游错误反馈驱动冷却）。
+func (a *Account) zcodeModelSchedulable(ctx context.Context, requestedModel string, now time.Time) bool {
+	if !a.IsZCodeOAuth() {
+		return true
+	}
+	quota := zcodeQuotaFromAccount(a)
+	if quota == nil || now.Unix()-quota.UpdatedAt > 300 {
+		return true
+	}
+	// 套餐级状态仍然整体拦截。
+	if quota.Status == "no_plan" || quota.Status == "expired" {
+		return false
+	}
+	if quota.Status == "scheduled" && (quota.NextAvailableAt == 0 || quota.NextAvailableAt > now.Unix()) {
+		return false
+	}
+	if quota.Plan != zcode.PlanStart || len(quota.Balances) == 0 {
+		return true
+	}
+	name := zcodeModelBalanceKey(requestedModel)
+	if name == "" {
+		return true
+	}
+	for _, balance := range quota.Balances {
+		if !strings.EqualFold(balance.Name, name) {
+			continue
+		}
+		// 生效前与已过期的余额都不是「耗尽」，交给套餐级状态与上游反馈处理。
+		if balance.EffectiveAt > now.Unix() {
+			return true
+		}
+		if balance.ExpiresAt > 0 && balance.ExpiresAt <= now.Unix() {
+			return true
+		}
+		if balance.ResetAt > 0 && balance.ResetAt <= now.Unix() {
+			return true
+		}
+		if balance.Remaining != nil {
+			return *balance.Remaining > 0
+		}
+		if balance.Percent != nil {
+			return *balance.Percent < 100
+		}
+		return true
+	}
+	return true
+}
+
+// zcodeModelBalanceKey 归一化请求模型名，用于与余额 show_name 匹配。
+func zcodeModelBalanceKey(requestedModel string) string {
+	return strings.ToLower(strings.TrimSpace(requestedModel))
 }
 
 // zcodeRateLimitKeepsScheduling 判断 429 是否应保持账号调度：额度快照缺失或
