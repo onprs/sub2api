@@ -2,24 +2,27 @@
   <div data-test="zcode-quota" class="min-w-0 space-y-1 text-xs text-gray-600 dark:text-gray-300">
     <div class="flex flex-wrap items-center gap-2"><span class="font-medium">{{ planLabel }}</span><button type="button" data-test="zcode-quota-refresh" class="text-primary-600 disabled:opacity-50 dark:text-primary-400" :disabled="loading" @click="refresh">{{ t('admin.accounts.cnProviders.probe') }}</button></div>
     <!-- 计划行只保留名称与状态；权益明细、生效与到期时间收纳到信息提示。 -->
-    <div v-for="(plan, planIndex) in quota?.plans || []" :key="plan.id || planIndex" data-test="zcode-plan" class="flex min-w-0 items-center gap-1.5">
-      <span class="truncate font-medium">{{ plan.name }}</span>
-      <span v-if="planStatusLabel(plan)" class="shrink-0 rounded bg-gray-100 px-1 text-gray-500 dark:bg-dark-700 dark:text-gray-400">{{ planStatusLabel(plan) }}</span>
-      <HelpTooltip v-if="planDetails(plan).length">
-        <div v-for="(line, lineIndex) in planDetails(plan)" :key="lineIndex">{{ line }}</div>
-      </HelpTooltip>
+    <!-- 套餐分组：每个套餐下缩进展示它的模型余额，无法归属的余额单独成组。 -->
+    <div v-for="(group, groupIndex) in planGroups" :key="group.plan?.id || `unassigned-${groupIndex}`" data-test="zcode-plan-group" class="min-w-0 space-y-1">
+      <div v-if="group.plan" data-test="zcode-plan" class="flex min-w-0 items-center gap-1.5">
+        <span class="truncate font-medium">{{ group.plan.name }}</span>
+        <span v-if="planStatusLabel(group.plan)" class="shrink-0 rounded bg-gray-100 px-1 text-gray-500 dark:bg-dark-700 dark:text-gray-400">{{ planStatusLabel(group.plan) }}</span>
+        <HelpTooltip v-if="planDetails(group.plan).length">
+          <div v-for="(line, lineIndex) in planDetails(group.plan)" :key="lineIndex">{{ line }}</div>
+        </HelpTooltip>
+      </div>
+      <!-- 余额行一行呈现模型名、进度条与百分比；额度数值与各类时间都在信息提示中。 -->
+      <div v-for="(balance, index) in group.balances" :key="index" data-test="zcode-balance" :class="group.plan ? 'ml-2 border-l border-gray-200 pl-2 dark:border-dark-600' : ''" class="flex min-w-0 items-center gap-1.5">
+        <span class="truncate font-medium">{{ balance.name }}</span>
+        <span v-if="windowLabel(balance)" class="shrink-0 text-[10px] text-gray-400">{{ windowLabel(balance) }}</span>
+        <UsageProgressBar v-if="balance.used_percent != null" data-test="zcode-usage" class="shrink-0" label="" :utilization="balance.used_percent" color="indigo" />
+        <span v-else-if="balance.remaining != null" data-test="zcode-remaining" class="shrink-0 text-[10px] text-gray-500">{{ remainingCompact(balance) }}</span>
+        <HelpTooltip v-if="detailLines(balance).length">
+          <div v-for="(line, lineIndex) in detailLines(balance)" :key="lineIndex">{{ line }}</div>
+        </HelpTooltip>
+      </div>
     </div>
     <div v-if="!quota || (!quota.balances.length && !hasScheduledPlan)" class="text-gray-400">{{ t('admin.accounts.zcode.quotaUnknown') }}</div>
-    <!-- 余额行一行呈现模型名、进度条与百分比；额度数值与各类时间都在信息提示中。 -->
-    <div v-for="(balance, index) in quota?.balances || []" :key="index" data-test="zcode-balance" class="flex min-w-0 items-center gap-1.5">
-      <span class="truncate font-medium">{{ balance.name }}</span>
-      <span v-if="windowLabel(balance)" class="shrink-0 text-[10px] text-gray-400">{{ windowLabel(balance) }}</span>
-      <UsageProgressBar v-if="balance.used_percent != null" data-test="zcode-usage" class="shrink-0" label="" :utilization="balance.used_percent" color="indigo" />
-      <span v-else-if="balance.remaining != null" data-test="zcode-remaining" class="shrink-0 text-[10px] text-gray-500">{{ remainingCompact(balance) }}</span>
-      <HelpTooltip v-if="detailLines(balance).length">
-        <div v-for="(line, lineIndex) in detailLines(balance)" :key="lineIndex">{{ line }}</div>
-      </HelpTooltip>
-    </div>
     <div v-if="state?.oauth_status === 'login_required'" class="text-red-600 dark:text-red-400">{{ t('admin.accounts.zcode.loginRequired') }}</div>
     <div v-if="error" class="break-words text-red-600 dark:text-red-400" role="alert">{{ error }}</div>
   </div>
@@ -96,6 +99,58 @@ function detailLines(balance: ZCodeBalance) {
   return lines
 }
 const state = computed(() => props.account.extra?.zcode_state as { oauth_status?: string } | undefined)
+
+// 套餐分组：按套餐归拢模型余额，同一套餐下的额度缩进展示在套餐名下方。
+// 归属判定依据线上实测数据：one_time 额度的 balance.expires_at 与套餐 ends_at
+// 精确相等；周期（daily）额度到期为窗口截止，早于套餐 ends_at。匹配顺序：
+// 先按权益名 + one_time 到期对齐，再按权益名 + 周期到期对齐，均未命中则落入
+// 未归属分组（原列表顺序保留，避免依赖上游未承诺的字段）。
+interface ZCodeQuotaPlanGroup {
+  plan: ZCodeQuotaPlan | null
+  balances: ZCodeBalance[]
+}
+const planGroups = computed<ZCodeQuotaPlanGroup[]>(() => {
+  const balances = quota.value?.balances || []
+  const plans = [...(quota.value?.plans || [])]
+  if (!plans.length) return [{ plan: null, balances: [...balances] }]
+  const assigned = new Set<number>()
+  const groups: ZCodeQuotaPlanGroup[] = plans.map(plan => ({ plan, balances: [] }))
+  const entitlementsFor = (plan: ZCodeQuotaPlan, name: string) => (plan.entitlements || []).filter(item => item.name === name)
+  // 第一轮：one_time 权益，到期时间与套餐 ends_at 相等。
+  for (let index = 0; index < balances.length; index++) {
+    const balance = balances[index]
+    if (balance.expires_at == null) continue
+    for (const group of groups) {
+      if (!group.plan) continue
+      const oneTime = entitlementsFor(group.plan, balance.name).some(item => (item.period || 'one_time') === 'one_time')
+      if (!oneTime) continue
+      if (balance.expires_at === group.plan.ends_at) {
+        group.balances.push(balance)
+        assigned.add(index)
+        break
+      }
+    }
+  }
+  // 第二轮：周期权益，余额到期与该套餐同名额的剩余权益到期一致。
+  for (let index = 0; index < balances.length; index++) {
+    if (assigned.has(index)) continue
+    const balance = balances[index]
+    if (balance.expires_at == null) continue
+    for (const group of groups) {
+      if (!group.plan) continue
+      if (!entitlementsFor(group.plan, balance.name).some(item => item.period && item.period !== 'one_time')) continue
+      if (balance.expires_at !== group.plan.ends_at) {
+        group.balances.push(balance)
+        assigned.add(index)
+        break
+      }
+    }
+  }
+  // 兕底：未归属的余额追加到独立分组，保持原始顺序。
+  const leftover = balances.filter((_, index) => !assigned.has(index))
+  if (leftover.length) groups.push({ plan: null, balances: leftover })
+  return groups
+})
 watch(() => [props.account.id, props.account.extra?.zcode_quota], () => { quota.value = (props.account.extra?.zcode_quota as ZCodeQuota | undefined) || null; now.value = Math.floor(Date.now() / 1000); error.value = '' }, { immediate: true })
 function date(value: number) { return new Date(value * 1000).toLocaleString() }
 function number(value: number) { return value.toLocaleString(undefined, { maximumFractionDigits: 2 }) }

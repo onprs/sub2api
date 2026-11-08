@@ -108,4 +108,39 @@ describe('ZCode OAuth 管理界面', () => {
     expect(rows[1].get('[data-test="zcode-usage"]').text()).toBe('40%')
     wrapper.unmount()
   })
+
+  it('多套餐余额按套餐分组缩进展示，同名模型不堆在同一列表', async () => {
+    const weekendEnds = 1794186000
+    const dailyEnds = 1794153599
+    const wrapper = mount(ZCodeQuotaCell, { props: { account: account({ zcode_quota: { plan: 'start', status: 'active', plans: [
+      { id: 'zcode-v3-start-plan-1106-wk', name: 'ZCODE WEEKEND BUILD', status: 'active', ends_at: weekendEnds, starts_at: 1793974789, entitlements: [{ name: 'GLM-5.3-Flash', unit: 'token', units: 500000000, period: 'one_time', effective_at: 1793977200 }] },
+      { id: 'zcode-v3-start-plan-0817', name: 'ZCode Start Plan', status: 'active', ends_at: 1794326399, starts_at: 1793974665, entitlements: [{ name: 'GLM-5.3', unit: 'token', units: 3000000, period: 'daily' }, { name: 'GLM-5.3-Flash', unit: 'token', units: 5000000, period: 'daily' }] }
+    ], balances: [
+      { name: 'GLM-5.3', unit: 'token', total: 3000000, remaining: 0, used_percent: 100, expires_at: dailyEnds },
+      { name: 'GLM-5.3-Flash', unit: 'token', total: 500000000, remaining: 440985337, used_percent: 11.8, expires_at: weekendEnds },
+      { name: 'GLM-5.3-Flash', unit: 'token', total: 5000000, remaining: 0, used_percent: 100, expires_at: dailyEnds }
+    ], updated_at: 1700000000 } }) }, global: { plugins: [makeI18n()] } })
+    const groups = wrapper.findAll('[data-test="zcode-plan-group"]')
+    expect(groups).toHaveLength(2)
+    expect(groups[0].text()).toContain('ZCODE WEEKEND BUILD')
+    expect(groups[0].text()).not.toContain('ZCode Start Plan')
+    // WEEKEND BUILD 组：one_time 额度（到期与套餐 ends_at 相等）只有 Flash 一行。
+    expect(groups[0].findAll('[data-test="zcode-balance"]')).toHaveLength(1)
+    expect(groups[0].get('[data-test="zcode-usage"]').text()).toBe('12%')
+    // Start Plan 组：两条 daily 额度（GLM-5.3 与另一条 Flash）。
+    expect(groups[1].text()).toContain('ZCode Start Plan')
+    expect(groups[1].findAll('[data-test="zcode-balance"]')).toHaveLength(2)
+    expect(groups[1].text()).toContain('GLM-5.3')
+    wrapper.unmount()
+  })
+
+  it('无法归属的余额以独立分组兜底展示', async () => {
+    const wrapper = mount(ZCodeQuotaCell, { props: { account: account({ zcode_quota: { plan: 'start', status: 'active', plans: [{ id: 'p1', name: '合成套餐', status: 'active', ends_at: 1794186000, entitlements: [] }], balances: [{ name: '未知模型', total: 100, remaining: 10, used_percent: 90, expires_at: 1794000000 }], updated_at: 1700000000 } }) }, global: { plugins: [makeI18n()] } })
+    const groups = wrapper.findAll('[data-test="zcode-plan-group"]')
+    expect(groups).toHaveLength(2)
+    // 兜底组无套餐名行，但余额行完整可见。
+    expect(groups[1].find('[data-test="zcode-plan"]').exists()).toBe(false)
+    expect(groups[1].get('[data-test="zcode-balance"]').text()).toContain('未知模型')
+    wrapper.unmount()
+  })
 })
