@@ -228,6 +228,7 @@
                   <span class="font-medium text-amber-600 dark:text-amber-400">{{ formatCacheTokens(row.cache_creation_tokens) }}</span>
                   <span v-if="row.cache_creation_1h_tokens > 0" class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-orange-100 text-orange-600 ring-1 ring-inset ring-orange-200 dark:bg-orange-500/20 dark:text-orange-400 dark:ring-orange-500/30">1h</span>
                   <span v-if="row.cache_write_inferred" :title="t('usage.cacheWriteInferredHint')" class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:ring-amber-500/30 cursor-help">I</span>
+                  <span v-if="(row.cache_creation_12h_tokens ?? 0) > 0" class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-orange-100 text-orange-600 ring-1 ring-inset ring-orange-200 dark:bg-orange-500/20 dark:text-orange-400 dark:ring-orange-500/30">12h</span>
                   <span v-if="row.cache_ttl_overridden" :title="t('usage.cacheTtlOverriddenHint')" class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-rose-100 text-rose-600 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/20 dark:text-rose-400 dark:ring-rose-500/30 cursor-help">R</span>
                 </div>
               </div>
@@ -388,8 +389,8 @@
               <span class="font-medium text-pink-300">{{ tokenTooltipData.image_output_tokens.toLocaleString() }}</span>
             </div>
             <div v-if="tokenTooltipData && tokenTooltipData.cache_creation_tokens > 0">
-              <!-- 有 5m/1h 明细时，展开显示 -->
-              <template v-if="tokenTooltipData.cache_creation_5m_tokens > 0 || tokenTooltipData.cache_creation_1h_tokens > 0">
+              <!-- Expand only the lifetimes reported by the upstream. -->
+              <template v-if="tokenTooltipData.cache_creation_5m_tokens > 0 || tokenTooltipData.cache_creation_1h_tokens > 0 || (tokenTooltipData.cache_creation_30m_tokens ?? 0) > 0 || (tokenTooltipData.cache_creation_12h_tokens ?? 0) > 0">
                 <div v-if="tokenTooltipData.cache_creation_5m_tokens > 0" class="flex items-center justify-between gap-4">
                   <span class="text-gray-400 flex items-center gap-1.5">
                     {{ t('admin.usage.cacheCreation5mTokens') }}
@@ -404,6 +405,15 @@
                   </span>
                   <span class="font-medium text-white">{{ tokenTooltipData.cache_creation_1h_tokens.toLocaleString() }}</span>
                 </div>
+                <template v-for="bucket in [{ ttl: '30m', tokens: tokenTooltipData.cache_creation_30m_tokens ?? 0 }, { ttl: '12h', tokens: tokenTooltipData.cache_creation_12h_tokens ?? 0 }]" :key="bucket.ttl">
+                  <div v-if="bucket.tokens > 0" class="flex items-center justify-between gap-4">
+                    <span class="text-gray-400 flex items-center gap-1.5">
+                      {{ t('admin.usage.cacheCreationTokens') }}
+                      <span class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-amber-500/20 text-amber-400 ring-1 ring-inset ring-amber-500/30">{{ bucket.ttl }}</span>
+                    </span>
+                    <span class="font-medium text-white">{{ bucket.tokens.toLocaleString() }}</span>
+                  </div>
+                </template>
               </template>
               <!-- 无明细时，只显示聚合值 -->
               <div v-else class="flex items-center justify-between gap-4">

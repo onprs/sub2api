@@ -74,9 +74,9 @@ func runGeminiImageGateEndpoint(t *testing.T, ep geminiImageGateEndpoint, group 
 		gatewayService:            gatewayService,
 		billingCacheService:       billingCacheService,
 		billingEligibilityService: allowBillingEligibilityResolver{},
-		concurrencyHelper:   NewConcurrencyHelper(service.NewConcurrencyService(&fakeConcurrencyCache{}), SSEPingFormatClaude, 0),
-		maxAccountSwitches:  1,
-		cfg:                 cfg,
+		concurrencyHelper:         NewConcurrencyHelper(service.NewConcurrencyService(&fakeConcurrencyCache{}), SSEPingFormatClaude, 0),
+		maxAccountSwitches:        1,
+		cfg:                       cfg,
 	}
 
 	groupID := group.ID

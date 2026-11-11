@@ -28,8 +28,10 @@ func openCodeBillingTestServices(pricing []ChannelModelPricing) (*ChannelService
 }
 
 func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
-	require.Len(t, DefaultOpenCodeGoModelIDs(), 30)
+	require.Len(t, DefaultOpenCodeGoModelIDs(), 32)
 	require.Contains(t, DefaultOpenCodeGoModelIDs(), "beam-free")
+	require.Contains(t, DefaultOpenCodeGoModelIDs(), "longcat-2.5-free")
+	require.Contains(t, DefaultOpenCodeGoModelIDs(), "hy4")
 	require.Contains(t, DefaultOpenCodeGoModelIDs(), "gemini-4-argon")
 	require.Contains(t, DefaultOpenCodeGoModelIDs(), "iceman-contributor-free")
 	require.NoError(t, validatePricingEntries(openCodeDefaultPricing))
@@ -82,6 +84,43 @@ func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
 		}
 	}
 	current = applyFreeModelMigrationForTest(t, current)
+	// 253 同步 2026-11-11 官方目录：新增模型与价格/额度变化。
+	latest, err := os.ReadFile("../../migrations/253_sync_official_channel_catalogs_20261111.sql")
+	require.NoError(t, err)
+	parts = strings.Split(string(latest), "$opencode_additions$")
+	require.Len(t, parts, 3)
+	var latestAdditions []ChannelModelPricing
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &latestAdditions))
+	for _, entry := range latestAdditions {
+		if !slices.ContainsFunc(current, func(pricing ChannelModelPricing) bool {
+			return slices.Equal(pricing.Models, entry.Models)
+		}) {
+			current = append(slices.Clone(current), entry.Clone())
+		}
+	}
+	parts = strings.Split(string(latest), "$opencode_price_updates$")
+	require.Len(t, parts, 3)
+	var priceUpdates []struct {
+		Models          []string            `json:"models"`
+		CacheWritePrice *float64            `json:"cache_write_price"`
+		MonthlyQuota    *MonthlyQuotaPolicy `json:"monthly_quota"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &priceUpdates))
+	for index := range current {
+		for _, update := range priceUpdates {
+			if !slices.Equal(current[index].Models, update.Models) {
+				continue
+			}
+			if update.CacheWritePrice != nil {
+				current[index].CacheWritePrice = update.CacheWritePrice
+			}
+			if update.MonthlyQuota != nil {
+				quota := update.MonthlyQuota.Clone()
+				current[index].MonthlyQuota = &quota
+			}
+		}
+	}
+	current = applyFreeModelMigrationForTest(t, current)
 	require.ElementsMatch(t, openCodeDefaultPricing, current)
 	var routes []struct {
 		Models   []string `json:"models"`
@@ -99,7 +138,7 @@ func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
 
 func TestOpenCodeZenCatalogExcludesRetiredAndUnpricedModels(t *testing.T) {
 	account := &Account{Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Credentials: map[string]any{"account_mode": "zen"}}
-	require.Len(t, OpenCodeDefaultModelIDs(account), 73)
+	require.Len(t, OpenCodeDefaultModelIDs(account), 79)
 	require.True(t, IsOpenCodeOfficiallyPricedModel(account, "beam-free"))
 	for _, model := range []string{"test", "claude-opus-5-5-backup", "muse-spark-1.2-contributor-free", "exo-free", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "qwen3.7-max", "qwen3.7-plus", "ling-3.0-flash-fin-free", "mimo-v2.5-free", "minimax-m3-free"} {
 		require.False(t, IsOpenCodeOfficiallyPricedModel(account, model), model)

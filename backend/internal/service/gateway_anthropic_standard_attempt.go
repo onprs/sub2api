@@ -104,8 +104,12 @@ func (s *GatewayService) forwardStandardProtocolToAnthropic(
 		return nil, collectErr
 	}
 	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(upstream.Body)))
-	if account.IsCommandCode() && commandCodeInsufficientCredits400(upstream.StatusCode, upstream.Body) &&
-		s.rateLimitService != nil && s.rateLimitService.HandleUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, mappedModel) {
+	// 账号错误规则对兼容路径的所有非 2xx 生效，不能只限于默认可换号的状态码。
+	shouldDisableUpstreamAccount := false
+	if s.rateLimitService != nil {
+		shouldDisableUpstreamAccount = s.rateLimitService.HandleUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, mappedModel)
+	}
+	if account.IsCommandCode() && commandCodeInsufficientCredits400(upstream.StatusCode, upstream.Body) && shouldDisableUpstreamAccount {
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
 			Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
@@ -118,22 +122,18 @@ func (s *GatewayService) forwardStandardProtocolToAnthropic(
 			ResponseHeaders: protocoltransport.CloneHeaders(upstream.Headers),
 		}
 	}
-	if s.shouldFailoverUpstreamError(upstream.StatusCode) {
+	if s.shouldFailoverUpstreamError(upstream.StatusCode) || shouldDisableUpstreamAccount {
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
 			Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
 			UpstreamStatusCode: upstream.StatusCode, UpstreamRequestID: upstream.RequestID,
 			Kind: "failover", Message: upstreamMsg,
 		})
-		shouldDisable := false
-		if s.rateLimitService != nil {
-			shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, upstream.StatusCode, upstream.Headers, upstream.Body, mappedModel)
-		}
 		return nil, &UpstreamFailoverError{
 			StatusCode:             upstream.StatusCode,
 			ResponseBody:           upstream.Body,
 			ResponseHeaders:        protocoltransport.CloneHeaders(upstream.Headers),
-			RetryableOnSameAccount: !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstream.StatusCode),
+			RetryableOnSameAccount: !shouldDisableUpstreamAccount && account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstream.StatusCode),
 		}
 	}
 	if writeError != nil {

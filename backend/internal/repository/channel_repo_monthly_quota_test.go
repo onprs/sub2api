@@ -34,20 +34,20 @@ func TestChannelMonthlyQuotaPersistsAndCanBeCleared(t *testing.T) {
 			if operation == "create" {
 				mock.ExpectQuery(`INSERT INTO channel_model_pricing .*monthly_quota`).
 					WithArgs(int64(7), service.PlatformCommandCode, []byte(`["mistral/mistral-large-4"]`), service.BillingModeToken,
-						nil, nil, nil, nil, nil, nil, nil, "{}", nil, nil, nil, nil, stored).
+						nil, nil, nil, nil, nil, nil, nil, nil, "{}", nil, nil, nil, nil, stored).
 					WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow(int64(11), time.Time{}, time.Time{}))
 				require.NoError(t, repo.CreateModelPricing(context.Background(), pricing))
 			} else {
-				mock.ExpectExec(`(?s)UPDATE channel_model_pricing.*monthly_quota = \$16.*WHERE id = \$17`).
+				mock.ExpectExec(`(?s)UPDATE channel_model_pricing.*monthly_quota = \$17.*WHERE id = \$18`).
 					WithArgs([]byte(`["mistral/mistral-large-4"]`), service.BillingModeToken,
-						nil, nil, nil, nil, nil, nil, nil, "{}", nil, nil, nil, nil, service.PlatformCommandCode, stored, int64(11)).
+						nil, nil, nil, nil, nil, nil, nil, nil, "{}", nil, nil, nil, nil, service.PlatformCommandCode, stored, int64(11)).
 					WillReturnResult(sqlmock.NewResult(0, 1))
 				require.NoError(t, repo.UpdateModelPricing(context.Background(), pricing))
 			}
 			mock.ExpectQuery(`SELECT .*monthly_quota.*FROM channel_model_pricing`).WithArgs(int64(7)).
 				WillReturnRows(sqlmock.NewRows(channelModelPricingTimePricingColumns).AddRow(
 					int64(11), int64(7), service.PlatformCommandCode, `["mistral/mistral-large-4"]`, service.BillingModeToken,
-					nil, nil, nil, nil, nil, nil, nil, "{}", nil, nil, nil, nil, stored, time.Time{}, time.Time{},
+					nil, nil, nil, nil, nil, nil, nil, nil, "{}", nil, nil, nil, nil, stored, time.Time{}, time.Time{},
 				))
 			expectEmptyModelPricingIntervals(mock)
 			loaded, err := repo.ListModelPricing(context.Background(), 7)

@@ -41,7 +41,7 @@ func applyOpenAICodexMessagesRequestPolicy(converted []byte, sourceSystem json.R
 	if maxTokens, ok := jsonInteger(body["max_output_tokens"]); ok && maxTokens > 0 && maxTokens < openAICodexMessagesMinOutputTokens {
 		body["max_output_tokens"] = openAICodexMessagesMinOutputTokens
 	}
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(upstreamModel)), "gpt-5") {
+	if openAIResponsesReasoningModel(upstreamModel) {
 		delete(body, "temperature")
 		delete(body, "top_p")
 	}

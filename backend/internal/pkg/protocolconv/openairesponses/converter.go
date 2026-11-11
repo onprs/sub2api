@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/ir"
 )
@@ -161,6 +163,11 @@ func (c *Converter) EncodeRequest(request *ir.Request, options protocolconv.Opti
 		Stream:          request.Stream.Enabled,
 		Tools:           encodeTools(request.Tools),
 		ToolChoice:      encodeToolChoice(request.ToolChoice),
+	}
+	// GPT-5 及之后的推理模型不接受采样参数，Responses API 会直接报 Unsupported parameter。
+	if isResponsesReasoningOnlyModel(request.Model) {
+		wire.Temperature = nil
+		wire.TopP = nil
 	}
 	var warnings []protocolconv.Warning
 	var err error
@@ -460,3 +467,24 @@ func capabilityForPart(part ir.ContentType) protocolconv.Capability {
 
 var _ protocolconv.Converter = (*Converter)(nil)
 var _ = fmt.Sprintf
+
+// isResponsesReasoningOnlyModel 判断模型是否只支持推理调用：GPT-5 及之后
+// 的代际（含 GPT-6 sol/luna 各个 effort 后缀）不接受 temperature/top_p。
+func isResponsesReasoningOnlyModel(model string) bool {
+	if openai.IsGPT6SolOrLunaModelSpelling(model) {
+		return true
+	}
+	rest, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(model)), "gpt-")
+	if !ok {
+		return false
+	}
+	major, digits := 0, 0
+	for _, r := range rest {
+		if r < '0' || r > '9' {
+			break
+		}
+		major = major*10 + int(r-'0')
+		digits++
+	}
+	return digits > 0 && major >= 5
+}

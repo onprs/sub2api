@@ -78,21 +78,45 @@ func commandCodeBillingSeedPricing(t *testing.T) []ChannelModelPricing {
 	parts = strings.Split(string(sync), "$commandcode_quotas$")
 	require.Len(t, parts, 3)
 	require.NoError(t, json.Unmarshal([]byte(parts[1]), &quotas))
-	retained := make([]commandCodeBillingSeed, 0, len(seeds)+len(additions))
+	// 253 同步 2026-11-11 官方目录：新增、下架与额度调整。
+	latest, err := os.ReadFile("../../migrations/253_sync_official_channel_catalogs_20261111.sql")
+	require.NoError(t, err)
+	parts = strings.Split(string(latest), "$commandcode_retired$")
+	require.Len(t, parts, 3)
+	var latestRetired []string
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &latestRetired))
+	parts = strings.Split(string(latest), "$commandcode_additions$")
+	require.Len(t, parts, 3)
+	var latestAdditions []commandCodeBillingSeed
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &latestAdditions))
+	parts = strings.Split(string(latest), "$commandcode_quotas$")
+	require.Len(t, parts, 3)
+	var latestQuotas map[string]MonthlyQuotaPolicy
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &latestQuotas))
+	retained := make([]commandCodeBillingSeed, 0, len(seeds)+len(additions)+len(latestAdditions))
 	for _, seed := range seeds {
-		if slices.Contains(retired, seed.Model) {
+		if slices.Contains(retired, seed.Model) || slices.Contains(latestRetired, seed.Model) {
 			continue
 		}
-		if quota, ok := quotas[seed.Model]; ok {
+		if quota, ok := latestQuotas[seed.Model]; ok {
+			seed.MonthlyQuota = quota
+		} else if quota, ok := quotas[seed.Model]; ok {
 			seed.MonthlyQuota = quota
 		}
 		retained = append(retained, seed)
 	}
-	for _, seed := range additions {
-		if quota, ok := quotas[seed.Model]; ok {
-			seed.MonthlyQuota = quota
+	for _, generation := range [][]commandCodeBillingSeed{additions, latestAdditions} {
+		for _, seed := range generation {
+			if slices.Contains(retired, seed.Model) || slices.Contains(latestRetired, seed.Model) {
+				continue
+			}
+			if quota, ok := latestQuotas[seed.Model]; ok {
+				seed.MonthlyQuota = quota
+			} else if quota, ok := quotas[seed.Model]; ok {
+				seed.MonthlyQuota = quota
+			}
+			retained = append(retained, seed)
 		}
-		retained = append(retained, seed)
 	}
 	seeds = retained
 	pricing := make([]ChannelModelPricing, 0, len(seeds))

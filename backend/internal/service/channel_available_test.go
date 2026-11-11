@@ -499,7 +499,7 @@ func TestBuildCatalogSupportedModel_CommandCode(t *testing.T) {
 	require.InDelta(t, 3.13e-6, *qwen.Pricing.CacheWritePrice, 1e-15)
 
 	// 3. 官方免费模型与活动元数据
-	free := svc.BuildCatalogSupportedModel("poolside/laguna-s-2.1-free", PlatformCommandCode, nil)
+	free := svc.BuildCatalogSupportedModel("stealth/glyph-cluster:free", PlatformCommandCode, nil)
 	require.Equal(t, PricingSourceCatalog, free.PricingSource)
 	require.Equal(t, 256_000, free.ContextWindow)
 	require.NotNil(t, free.Promotion)

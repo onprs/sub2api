@@ -317,6 +317,10 @@ func (s *AntigravityGatewayService) buildAntigravityCompatGeminiBody(
 		if err != nil {
 			return nil, err
 		}
+		body, err = keepAntigravityToolFunctionResponsesContiguous(body)
+		if err != nil {
+			return nil, err
+		}
 		body, err = enableMixedGeminiToolInvocations(body)
 		if err != nil {
 			return nil, err
@@ -335,6 +339,53 @@ func (s *AntigravityGatewayService) buildAntigravityCompatGeminiBody(
 	options := s.getClaudeTransformOptions(ctx)
 	options.EnableIdentityPatch = true
 	return antigravity.TransformClaudeToGeminiWithOptions(claudeRequest, projectID, mappedModel, options)
+}
+
+// keepAntigravityToolFunctionResponsesContiguous 将工具结果附带的媒体 part
+// 移到同一 content 末尾：Antigravity 拒绝 functionResponse 与 inlineData 交错的请求，
+// 要求多个工具结果先连续排列，再携带各自的媒体副本（TASK-144）。
+func keepAntigravityToolFunctionResponsesContiguous(body []byte) ([]byte, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	contents, _ := payload["contents"].([]any)
+	modified := false
+	for _, rawContent := range contents {
+		content, _ := rawContent.(map[string]any)
+		parts, _ := content["parts"].([]any)
+		if len(parts) == 0 {
+			continue
+		}
+		kept := make([]any, 0, len(parts))
+		deferred := make([]any, 0)
+		for i := 0; i < len(parts); i++ {
+			kept = append(kept, parts[i])
+			part, _ := parts[i].(map[string]any)
+			if part == nil {
+				continue
+			}
+			if _, ok := part["functionResponse"]; !ok {
+				continue
+			}
+			for i+1 < len(parts) {
+				next, _ := parts[i+1].(map[string]any)
+				if next == nil || (next["inlineData"] == nil && next["fileData"] == nil) {
+					break
+				}
+				deferred = append(deferred, parts[i+1])
+				i++
+				modified = true
+			}
+		}
+		if len(deferred) > 0 {
+			content["parts"] = append(kept, deferred...)
+		}
+	}
+	if !modified {
+		return body, nil
+	}
+	return json.Marshal(payload)
 }
 
 func injectAntigravityCompatIdentity(body []byte) ([]byte, error) {

@@ -155,9 +155,10 @@ func TestCommandCodeReferencePricingResolvesAliasesAndCase(t *testing.T) {
 		"qwen3.8-max-prime",
 		"nemotron-3.5-super-vl",
 		"muse-spark-open",
-		"beam-free",
+		"muse-ember",
+		"ling-3.1-flash-1019",
+		"deepseek-v4.1-flash-ultrafast",
 		"muse-spark-1.3-contributor",
-		"laguna-s-2.1",
 	} {
 		_, ok := commandCodeReferencePricingAt(model, nowForTest())
 		require.True(t, ok, "expected pricing for %q", model)
@@ -254,13 +255,21 @@ func TestCommandCodeCatalogPricingUsesListRatesAfterPromotionExpiry(t *testing.T
 func TestCommandCodeCurrentFreeModelsAndRemovedDeals(t *testing.T) {
 	now := nowForTest()
 	for _, model := range []string{
-		"reflection/beam:free",
-		"poolside/laguna-s-2.1-free",
 		"stealth/glyph-cluster:free",
 	} {
 		free, ok := commandCodeReferencePricingAt(model, now)
 		require.True(t, ok, model)
 		require.True(t, free.AllowZeroRate, model)
+	}
+
+	for _, model := range []string{
+		"meta/muse-ember",
+		"inclusionai/ling-3.1-flash-1019",
+		"deepseek/deepseek-v4.1-flash-ultrafast",
+	} {
+		paid, ok := commandCodeReferencePricingAt(model, now)
+		require.True(t, ok, model)
+		require.False(t, paid.AllowZeroRate, model)
 	}
 
 	longCat, ok := commandCodeReferencePricingAt("meituan/LongCat-2.0", now)
@@ -341,14 +350,14 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.InDelta(t, 60, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 	require.InDelta(t, 70.0/60.0, quotaCost.Multiplier, 1e-9)
 
-	// DeepSeek V4.1 Flash：活动已结束，官方基础额度 $80。
+	// DeepSeek V4.1 Flash：官方基础额度 $100。
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("deepseek/deepseek-v4.1-flash")
 	require.True(t, ok)
-	require.InDelta(t, 80, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
-	require.InDelta(t, 70.0/80.0, quotaCost.Multiplier, 1e-9)
+	require.InDelta(t, 100, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 70.0/100.0, quotaCost.Multiplier, 1e-9)
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("deepseek-v4.1-flash")
 	require.True(t, ok)
-	require.InDelta(t, 80, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
+	require.InDelta(t, 100, quotaCost.IncludedMonthlyUsageUSD, 1e-9)
 
 	// GLM-5.2：官方 credits $70 → 倍率 1x
 	quotaCost, ok = svc.GetCommandCodeQuotaCost("zai-org/glm-5.2")
@@ -403,13 +412,9 @@ func TestCommandCodeQuotaCostAppliesOfficialMonthlyCreditsMultiplier(t *testing.
 	require.InDelta(t, 70.0/50.0, quotaCost.Multiplier, 1e-9)
 
 	// 官方免费模型无额度倍率，本站按统一 token 单价计费。
-	_, ok = svc.GetCommandCodeQuotaCost("reflection/beam:free")
-	require.False(t, ok)
 	_, ok = svc.GetCommandCodeQuotaCost("stealth/pixel-canary")
 	require.False(t, ok)
 	_, ok = svc.GetCommandCodeQuotaCost("stealth/glyph-cluster:free")
-	require.False(t, ok)
-	_, ok = svc.GetCommandCodeQuotaCost("poolside/laguna-s-2.1-free")
 	require.False(t, ok)
 
 	// 未知模型闭合失败

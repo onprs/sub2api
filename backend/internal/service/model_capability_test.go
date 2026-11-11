@@ -461,7 +461,7 @@ const canonicalCatalogJSON = `{
     "modalities": {"input": ["text", "image"], "output": ["text"]},
     "limit": {"context": 1000000, "output": 384000}
   },
-  "poolside/laguna-s-2.1": {
+  "thinkingmachines/inkling": {
     "reasoning": true,
     "tool_call": true,
     "modalities": {"input": ["text"], "output": ["text"]},
@@ -536,12 +536,12 @@ func TestCommandCodeModelCapability_CanonicalDropsLimitsWhenContextDiffers(t *te
 	svc := &PricingService{
 		modelCapabilities: newModelCapabilityCatalog(remote, nil),
 		commandCodeCatalog: commandCodeCatalogForTest(map[string]int{
-			// 模型级目录的 laguna-s-2.1 是 1M，Command Code 只提供 256K。
-			"poolside/laguna-s-2.1-free": 262144,
+			// 模型级目录的 inkling 是 1M，Command Code 只提供 256K。
+			"thinkingmachines/inkling": 262144,
 		}),
 	}
 
-	capability, ok := svc.GetModelCapability(context.Background(), PlatformCommandCode, "poolside/laguna-s-2.1-free")
+	capability, ok := svc.GetModelCapability(context.Background(), PlatformCommandCode, "thinkingmachines/inkling")
 	require.True(t, ok)
 	require.True(t, capability.Reasoning)
 	require.Zero(t, capability.ContextTokens, "不同源时不得借用上下文窗口")

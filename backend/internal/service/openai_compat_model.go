@@ -124,6 +124,27 @@ func openAIReasoningEffortToClaudeOutputEffort(effort string) string {
 	}
 }
 
+// openAIResponsesReasoningModel 判断上游模型是否只支持推理调用：GPT-5 及之后的
+// 代际（含 GPT-6 sol/luna 的各个 effort 后缀）不接受 temperature/top_p。
+func openAIResponsesReasoningModel(model string) bool {
+	if openai.IsGPT6SolOrLunaModelSpelling(model) {
+		return true
+	}
+	rest, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(model)), "gpt-")
+	if !ok {
+		return false
+	}
+	major, digits := 0, 0
+	for _, r := range rest {
+		if r < '0' || r > '9' {
+			break
+		}
+		major = major*10 + int(r-'0')
+		digits++
+	}
+	return digits > 0 && major >= 5
+}
+
 // openAICompatAnthropicReasoningEffort resolves the effort emitted by the
 // Anthropic bridge after the final upstream model is known. Anthropic's max is
 // normally translated to OpenAI xhigh, but GPT-5.6 accepts the original max

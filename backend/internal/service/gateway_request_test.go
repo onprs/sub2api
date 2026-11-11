@@ -1684,12 +1684,12 @@ func TestNormalizeGLMOpenAIReasoningEffort(t *testing.T) {
 			wantUnchanged: true,
 		},
 		{
-			name:          "glm 5.30 is outside the glm-5.3 family",
-			model:         "glm-5.30",
-			input:         `{"model":"glm-5.30","reasoning_effort":"low","messages":[]}`,
-			wantApplied:   true,
-			wantPath:      "reasoning_effort",
-			wantValue:     "high",
+			name:        "glm 5.30 is outside the glm-5.3 family",
+			model:       "glm-5.30",
+			input:       `{"model":"glm-5.30","reasoning_effort":"low","messages":[]}`,
+			wantApplied: true,
+			wantPath:    "reasoning_effort",
+			wantValue:   "high",
 		},
 		{
 			name:          "unknown effort unchanged",

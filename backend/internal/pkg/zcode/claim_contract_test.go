@@ -72,7 +72,7 @@ func TestClaimMarketingPlansEnumeration(t *testing.T) {
 			require.Equal(t, "synthetic-device", r.Header.Get("X-Device-Mid"))
 			require.Equal(t, "zh-CN", r.Header.Get("X-Client-Language"))
 			require.Equal(t, DefaultAppVersion, r.Header.Get("X-ZCode-App-Version"))
-			require.Equal(t, "linux-x64", r.Header.Get("X-Platform"))
+			require.Equal(t, DefaultIdentity("", "synthetic-device").Platform, r.Header.Get("X-Platform"))
 			respond(w, map[string]any{"deliveries": []any{
 				map[string]any{
 					"campaign_id": "synthetic-campaign",

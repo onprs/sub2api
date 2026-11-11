@@ -139,5 +139,5 @@ func TestCommandCodeOfficialDeepSeekWeekendsAndFastModelPricing(t *testing.T) {
 	require.Equal(t, 7.0, quota.Multiplier)
 	quota, ok = (&BillingService{}).GetCommandCodeQuotaCostAt("glm-5.3-flash", monday)
 	require.True(t, ok)
-	require.Equal(t, 80.0, quota.IncludedMonthlyUsageUSD)
+	require.Equal(t, 100.0, quota.IncludedMonthlyUsageUSD)
 }

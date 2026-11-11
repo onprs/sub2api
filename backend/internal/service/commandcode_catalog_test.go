@@ -483,7 +483,8 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 	require.Contains(t, ids, "Qwen/Qwen3.8-Omni-Flash")
 	require.Contains(t, ids, "z-ai/glm-5.3-flashx")
 	require.Contains(t, ids, "meituan/LongCat-2.0")
-	require.Contains(t, ids, "reflection/beam:free")
+	require.Contains(t, ids, "meta/muse-ember")
+	require.Contains(t, ids, "inclusionai/ling-3.1-flash-1019")
 	require.NotContains(t, ids, "typesafe/jev")
 	require.NotContains(t, ids, "typesafe/jev-1.14.0")
 	require.NotContains(t, ids, "minimax/minimax-m3-free")
@@ -521,17 +522,19 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 func TestCommandCodeFallbackCatalogHasAllPricedModels(t *testing.T) {
 	entries := commandCodeFallbackCatalogEntries()
 	ids := CommandCodeFallbackModelIDs()
-	require.Len(t, entries, 68)
+	require.Len(t, entries, 69)
 	require.Len(t, entries, len(commandCodeFallbackModels))
 	for _, model := range []string{
 		"gpt-6-luna",
 		"claude-sonnet-5-5",
 		"claude-haiku-5-5",
 		"deepseek/deepseek-v4.1-flash-fast",
+		"deepseek/deepseek-v4.1-flash-ultrafast",
 		"inclusionai/ling-3.1-flash",
+		"inclusionai/ling-3.1-flash-1019",
 		"moonshotai/Kimi-K3.1-Pro",
 		"minimax/minimax-m3.1-flash",
-		"reflection/beam:free",
+		"meta/muse-ember",
 		"meta/muse-spark-open",
 		"nvidia/nemotron-3.5-super-vl",
 		"ornith/ornith-1.5-122b",
