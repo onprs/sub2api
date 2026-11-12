@@ -53,6 +53,9 @@ func AntigravityPublicModelRoutes() []AntigravityModelRoute {
 	var routes []AntigravityModelRoute
 	seen := make(map[string]bool)
 	for _, route := range AntigravityUserModelRoutes() {
+		if route.Legacy {
+			continue
+		}
 		base, effort := AntigravityReasoningModel(route.ModelID)
 		if base != "" {
 			if seen[base] {

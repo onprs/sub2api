@@ -36,6 +36,9 @@ func FallbackCatalogModels() []CatalogModel {
 	routes := domain.AntigravityUserModelRoutes()
 	models := make([]CatalogModel, 0, len(routes))
 	for _, route := range routes {
+		if route.Legacy {
+			continue
+		}
 		catalogID := ""
 		if len(route.CatalogIDs) > 0 {
 			catalogID = route.CatalogIDs[0]

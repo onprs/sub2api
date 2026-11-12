@@ -208,7 +208,8 @@ func TestGeminiNativeModelsUsesDeclaredMappings(t *testing.T) {
 
 	names := f.list(service.GroupModelAllowlist{})
 	require.Subset(t, names, []string{"models/gemini-2.5-flash", "models/gemini-3.1-pro-preview", "models/gemini-3.8-*", "models/gemini-4-argon", "models/gemini-synced-custom"})
-	require.NotContains(t, names, "models/gemini-4-argon-high")
+	// 显式映射会补齐当前默认透传模型，Argon 三档可用于已保存的旧映射。
+	require.Contains(t, names, "models/gemini-4-argon-high")
 
 	// 白名单与 /v1/models 同口径：通配符映射键展开为白名单中的具体模型。
 	require.Equal(t, []string{"models/gemini-2.5-flash", "models/gemini-3.8-flash", "models/gemini-synced-custom"},
@@ -219,7 +220,7 @@ func TestGeminiNativeModelsUsesDeclaredMappings(t *testing.T) {
 		"gemini-3.8-flash":                   http.StatusOK,
 		"gemini-3.1-pro-preview-customtools": http.StatusOK,
 		"gemini-synced-custom":               http.StatusOK,
-		"gemini-4-argon-high":                http.StatusNotFound,
+		"gemini-4-argon-high":                http.StatusOK,
 	} {
 		rec := f.get(model)
 		require.Equal(t, status, rec.Code, model+": "+rec.Body.String())

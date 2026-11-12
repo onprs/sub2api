@@ -46,7 +46,7 @@ var sseDataPrefix = regexp.MustCompile(`^data:\s*`)
 const (
 	testClaudeAPIURL            = "https://api.anthropic.com/v1/messages?beta=true"
 	chatgptCodexAPIURL          = "https://chatgpt.com/backend-api/codex/responses"
-	defaultAntigravityTestModel = "claude-sonnet-4-6"
+	defaultAntigravityTestModel = "claude-sonnet-5-5-high"
 )
 
 // TestEvent represents a SSE event for account testing

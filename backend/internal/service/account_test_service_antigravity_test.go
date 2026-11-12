@@ -12,7 +12,7 @@ import (
 func TestAntigravityConnectionTestModel(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, "claude-sonnet-4-6", antigravityConnectionTestModel(""))
+	require.Equal(t, "claude-sonnet-5-5-high", antigravityConnectionTestModel(""))
 	require.Equal(t, "gemini-3.1-pro-preview", antigravityConnectionTestModel("gemini-3.1-pro-preview"))
 }
 

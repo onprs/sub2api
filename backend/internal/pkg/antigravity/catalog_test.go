@@ -8,11 +8,13 @@ import (
 )
 
 func TestFallbackCatalogModels_MatchesAgyUserCatalog(t *testing.T) {
+	// 本地 agy 1.5.6 的用户目录：argon/3.8 各三档，Claude 5.5 三档，gpt-oss 单档。
+	// 3.1/3.5/3.6/3.7、Fable 5.1、Sonnet 4.6、Opus 4.6 仅保留兼容路由，不再进入兜底目录。
 	wantIDs := []string{
-		"gemini-3.8-flash", "gemini-4-argon", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-pro",
+		"gemini-3.8-flash", "gemini-4-argon",
 		"claude-opus-5-5-high", "claude-opus-5-5-medium", "claude-opus-5-5-low",
 		"claude-sonnet-5-5-high", "claude-sonnet-5-5-medium", "claude-sonnet-5-5-low",
-		"claude-fable-5-1", "claude-sonnet-4-6", "claude-opus-4-6-thinking", "gpt-oss-120b-medium",
+		"gpt-oss-120b-medium",
 	}
 	models := FallbackCatalogModels()
 	var gotIDs []string
@@ -30,7 +32,7 @@ func TestFallbackCatalogModels_MatchesAgyUserCatalog(t *testing.T) {
 	require.Equal(t, wantIDs, gotIDs)
 	require.Equal(t, []string{"high", "medium", "low"}, models[0].ReasoningEfforts)
 	require.Equal(t, []string{"high", "medium", "low"}, models[1].ReasoningEfforts)
-	require.Equal(t, []string{"high", "low"}, models[5].ReasoningEfforts)
+	require.Empty(t, models[2].ReasoningEfforts)
 }
 
 func TestFallbackCatalogModels_ReturnsIndependentSlice(t *testing.T) {

@@ -110,3 +110,28 @@ func TestAntigravityReasoningSelection(t *testing.T) {
 		})
 	}
 }
+
+func TestAntigravityGemini4ArgonReasoningUsesDistinctWireModels(t *testing.T) {
+	route, ok := domain.ResolveDefaultAntigravityModelRoute("gemini-4-argon")
+	require.True(t, ok)
+
+	for effort, wantWire := range map[string]string{
+		"high":   "gemini-4-argon-high",
+		"medium": "gemini-4-argon-medium",
+		"low":    "gemini-4-argon-low",
+	} {
+		body := []byte(`{"reasoning_effort":"` + effort + `"}`)
+		selected, actualEffort, err := resolveAntigravityRequestReasoning(route, body, protocolconv.ProtocolOpenAIChat)
+		require.NoError(t, err)
+		require.Equal(t, wantWire, selected.WireModel)
+		require.NotNil(t, actualEffort)
+		require.Equal(t, effort, *actualEffort)
+	}
+
+	// 裸名未携带思考配置时仍默认 high，与其他聚合 Gemini 模型一致。
+	selected, actualEffort, err := resolveAntigravityRequestReasoning(route, []byte(`{}`), protocolconv.ProtocolOpenAIChat)
+	require.NoError(t, err)
+	require.Equal(t, "gemini-4-argon-high", selected.WireModel)
+	require.NotNil(t, actualEffort)
+	require.Equal(t, "high", *actualEffort)
+}

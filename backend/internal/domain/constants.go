@@ -116,6 +116,8 @@ type AntigravityModelRoute struct {
 	ThinkingBudget    int
 	HasThinkingBudget bool
 	TierGroup         string
+	// Legacy 表示该模型已不在本地 agy 当前用户目录中展示，仅保留路由兼容。
+	Legacy bool
 }
 
 var antigravityUserModelRoutes = []AntigravityModelRoute{
@@ -125,26 +127,26 @@ var antigravityUserModelRoutes = []AntigravityModelRoute{
 	{ModelID: "gemini-4-argon-high", DisplayName: "Gemini 4 Argon (High)", CatalogIDs: []string{"gemini-4-argon-high"}, WireModel: "gemini-4-argon-high", ResponseModel: "gemini-4-argon"},
 	{ModelID: "gemini-4-argon-medium", DisplayName: "Gemini 4 Argon (Medium)", CatalogIDs: []string{"gemini-4-argon-medium"}, WireModel: "gemini-4-argon-medium", ResponseModel: "gemini-4-argon"},
 	{ModelID: "gemini-4-argon-low", DisplayName: "Gemini 4 Argon (Low)", CatalogIDs: []string{"gemini-4-argon-low"}, WireModel: "gemini-4-argon-low", ResponseModel: "gemini-4-argon"},
-	{ModelID: "gemini-3.7-flash-high", DisplayName: "Gemini 3.7 Flash (High)", CatalogIDs: []string{"gemini-3.7-flash-tiered"}, WireModel: "gemini-3.7-flash-high", InternalModel: "MODEL_PLACEHOLDER_M298", ResponseModel: "gemini-3.7-flash", ThinkingBudget: -1, HasThinkingBudget: true, TierGroup: "flash"},
-	{ModelID: "gemini-3.7-flash-medium", DisplayName: "Gemini 3.7 Flash (Medium)", CatalogIDs: []string{"gemini-3.7-flash-tiered"}, WireModel: "gemini-3.7-flash-medium", InternalModel: "MODEL_PLACEHOLDER_M299", ResponseModel: "gemini-3.7-flash", ThinkingBudget: 4000, HasThinkingBudget: true, TierGroup: "flash"},
-	{ModelID: "gemini-3.7-flash-low", DisplayName: "Gemini 3.7 Flash (Low)", CatalogIDs: []string{"gemini-3.7-flash-tiered"}, WireModel: "gemini-3.7-flash-low", InternalModel: "MODEL_PLACEHOLDER_M300", ResponseModel: "gemini-3.7-flash", ThinkingBudget: 1000, HasThinkingBudget: true, TierGroup: "flash"},
-	{ModelID: "gemini-3.6-flash-high", DisplayName: "Gemini 3.6 Flash (High)", CatalogIDs: []string{"gemini-3.6-flash-high"}, WireModel: "gemini-3.6-flash-high", InternalModel: "MODEL_PLACEHOLDER_M71", ThinkingBudget: -1, HasThinkingBudget: true},
-	{ModelID: "gemini-3.6-flash-medium", DisplayName: "Gemini 3.6 Flash (Medium)", CatalogIDs: []string{"gemini-3.6-flash-medium"}, WireModel: "gemini-3.6-flash-medium", InternalModel: "MODEL_PLACEHOLDER_M72", ThinkingBudget: 4000, HasThinkingBudget: true},
-	{ModelID: "gemini-3.6-flash-low", DisplayName: "Gemini 3.6 Flash (Low)", CatalogIDs: []string{"gemini-3.6-flash-low"}, WireModel: "gemini-3.6-flash-low", InternalModel: "MODEL_PLACEHOLDER_M73", ThinkingBudget: 1000, HasThinkingBudget: true},
-	{ModelID: "gemini-3.5-flash-high", DisplayName: "Gemini 3.5 Flash (High)", CatalogIDs: []string{"gemini-3-flash-agent"}, WireModel: "gemini-3-flash-agent", InternalModel: "MODEL_PLACEHOLDER_M84", ResponseModel: "gemini-default", ThinkingBudget: -1, HasThinkingBudget: true},
-	{ModelID: "gemini-3.5-flash-medium", DisplayName: "Gemini 3.5 Flash (Medium)", CatalogIDs: []string{"gemini-3.5-flash-low"}, WireModel: "gemini-3.5-flash-low", InternalModel: "MODEL_PLACEHOLDER_M20", ThinkingBudget: 4000, HasThinkingBudget: true},
-	{ModelID: "gemini-3.5-flash-low", DisplayName: "Gemini 3.5 Flash (Low)", CatalogIDs: []string{"gemini-3.5-flash-extra-low"}, WireModel: "gemini-3.5-flash-extra-low", InternalModel: "MODEL_PLACEHOLDER_M187", ThinkingBudget: 1000, HasThinkingBudget: true},
-	{ModelID: "gemini-3.1-pro-high", DisplayName: "Gemini 3.1 Pro (High)", CatalogIDs: []string{"gemini-pro-agent", "gemini-3.1-pro-high"}, WireModel: AntigravityGemini31ProAgentModel, InternalModel: "MODEL_PLACEHOLDER_M16", ResponseModel: "gemini-pro-default", ThinkingBudget: 10001, HasThinkingBudget: true},
-	{ModelID: "gemini-3.1-pro-low", DisplayName: "Gemini 3.1 Pro (Low)", CatalogIDs: []string{"gemini-3.1-pro-low"}, WireModel: "gemini-3.1-pro-low", InternalModel: "MODEL_PLACEHOLDER_M36", ThinkingBudget: 1001, HasThinkingBudget: true},
+	{ModelID: "gemini-3.7-flash-high", DisplayName: "Gemini 3.7 Flash (High)", CatalogIDs: []string{"gemini-3.7-flash-tiered"}, WireModel: "gemini-3.7-flash-high", InternalModel: "MODEL_PLACEHOLDER_M298", ResponseModel: "gemini-3.7-flash", ThinkingBudget: -1, HasThinkingBudget: true, TierGroup: "flash", Legacy: true},
+	{ModelID: "gemini-3.7-flash-medium", DisplayName: "Gemini 3.7 Flash (Medium)", CatalogIDs: []string{"gemini-3.7-flash-tiered"}, WireModel: "gemini-3.7-flash-medium", InternalModel: "MODEL_PLACEHOLDER_M299", ResponseModel: "gemini-3.7-flash", ThinkingBudget: 4000, HasThinkingBudget: true, TierGroup: "flash", Legacy: true},
+	{ModelID: "gemini-3.7-flash-low", DisplayName: "Gemini 3.7 Flash (Low)", CatalogIDs: []string{"gemini-3.7-flash-tiered"}, WireModel: "gemini-3.7-flash-low", InternalModel: "MODEL_PLACEHOLDER_M300", ResponseModel: "gemini-3.7-flash", ThinkingBudget: 1000, HasThinkingBudget: true, TierGroup: "flash", Legacy: true},
+	{ModelID: "gemini-3.6-flash-high", DisplayName: "Gemini 3.6 Flash (High)", CatalogIDs: []string{"gemini-3.6-flash-high"}, WireModel: "gemini-3.6-flash-high", InternalModel: "MODEL_PLACEHOLDER_M71", ThinkingBudget: -1, HasThinkingBudget: true, Legacy: true},
+	{ModelID: "gemini-3.6-flash-medium", DisplayName: "Gemini 3.6 Flash (Medium)", CatalogIDs: []string{"gemini-3.6-flash-medium"}, WireModel: "gemini-3.6-flash-medium", InternalModel: "MODEL_PLACEHOLDER_M72", ThinkingBudget: 4000, HasThinkingBudget: true, Legacy: true},
+	{ModelID: "gemini-3.6-flash-low", DisplayName: "Gemini 3.6 Flash (Low)", CatalogIDs: []string{"gemini-3.6-flash-low"}, WireModel: "gemini-3.6-flash-low", InternalModel: "MODEL_PLACEHOLDER_M73", ThinkingBudget: 1000, HasThinkingBudget: true, Legacy: true},
+	{ModelID: "gemini-3.5-flash-high", DisplayName: "Gemini 3.5 Flash (High)", CatalogIDs: []string{"gemini-3-flash-agent"}, WireModel: "gemini-3-flash-agent", InternalModel: "MODEL_PLACEHOLDER_M84", ResponseModel: "gemini-default", ThinkingBudget: -1, HasThinkingBudget: true, Legacy: true},
+	{ModelID: "gemini-3.5-flash-medium", DisplayName: "Gemini 3.5 Flash (Medium)", CatalogIDs: []string{"gemini-3.5-flash-low"}, WireModel: "gemini-3.5-flash-low", InternalModel: "MODEL_PLACEHOLDER_M20", ThinkingBudget: 4000, HasThinkingBudget: true, Legacy: true},
+	{ModelID: "gemini-3.5-flash-low", DisplayName: "Gemini 3.5 Flash (Low)", CatalogIDs: []string{"gemini-3.5-flash-extra-low"}, WireModel: "gemini-3.5-flash-extra-low", InternalModel: "MODEL_PLACEHOLDER_M187", ThinkingBudget: 1000, HasThinkingBudget: true, Legacy: true},
+	{ModelID: "gemini-3.1-pro-high", DisplayName: "Gemini 3.1 Pro (High)", CatalogIDs: []string{"gemini-pro-agent", "gemini-3.1-pro-high"}, WireModel: AntigravityGemini31ProAgentModel, InternalModel: "MODEL_PLACEHOLDER_M16", ResponseModel: "gemini-pro-default", ThinkingBudget: 10001, HasThinkingBudget: true, Legacy: true},
+	{ModelID: "gemini-3.1-pro-low", DisplayName: "Gemini 3.1 Pro (Low)", CatalogIDs: []string{"gemini-3.1-pro-low"}, WireModel: "gemini-3.1-pro-low", InternalModel: "MODEL_PLACEHOLDER_M36", ThinkingBudget: 1001, HasThinkingBudget: true, Legacy: true},
 	{ModelID: "claude-opus-5-5-high", DisplayName: "Claude Opus 5.5 (High)", CatalogIDs: []string{"claude-opus-5-5-high"}, WireModel: "claude-opus-5-5-high"},
 	{ModelID: "claude-opus-5-5-medium", DisplayName: "Claude Opus 5.5 (Medium)", CatalogIDs: []string{"claude-opus-5-5-medium"}, WireModel: "claude-opus-5-5-medium"},
 	{ModelID: "claude-opus-5-5-low", DisplayName: "Claude Opus 5.5 (Low)", CatalogIDs: []string{"claude-opus-5-5-low"}, WireModel: "claude-opus-5-5-low"},
 	{ModelID: "claude-sonnet-5-5-high", DisplayName: "Claude Sonnet 5.5 (High)", CatalogIDs: []string{"claude-sonnet-5-5-high"}, WireModel: "claude-sonnet-5-5-high"},
 	{ModelID: "claude-sonnet-5-5-medium", DisplayName: "Claude Sonnet 5.5 (Medium)", CatalogIDs: []string{"claude-sonnet-5-5-medium"}, WireModel: "claude-sonnet-5-5-medium"},
 	{ModelID: "claude-sonnet-5-5-low", DisplayName: "Claude Sonnet 5.5 (Low)", CatalogIDs: []string{"claude-sonnet-5-5-low"}, WireModel: "claude-sonnet-5-5-low"},
-	{ModelID: "claude-fable-5-1", DisplayName: "Claude Fable 5.1", CatalogIDs: []string{"claude-fable-5-1"}, WireModel: "claude-fable-5-1"},
-	{ModelID: "claude-sonnet-4-6", DisplayName: "Claude Sonnet 4.6 (Thinking)", CatalogIDs: []string{"claude-sonnet-4-6"}, WireModel: "claude-sonnet-4-6", InternalModel: "MODEL_PLACEHOLDER_M35", BackendModel: "claude-sonnet-4-6@default", ThinkingBudget: 1024, HasThinkingBudget: true},
-	{ModelID: "claude-opus-4-6-thinking", DisplayName: "Claude Opus 4.6 (Thinking)", CatalogIDs: []string{"claude-opus-4-6-thinking"}, WireModel: "claude-opus-4-6-thinking", InternalModel: "MODEL_PLACEHOLDER_M26", BackendModel: "claude-opus-4-6@default", ThinkingBudget: 1024, HasThinkingBudget: true},
+	{ModelID: "claude-fable-5-1", DisplayName: "Claude Fable 5.1", CatalogIDs: []string{"claude-fable-5-1"}, WireModel: "claude-fable-5-1", Legacy: true},
+	{ModelID: "claude-sonnet-4-6", DisplayName: "Claude Sonnet 4.6 (Thinking)", CatalogIDs: []string{"claude-sonnet-4-6"}, WireModel: "claude-sonnet-4-6", InternalModel: "MODEL_PLACEHOLDER_M35", BackendModel: "claude-sonnet-4-6@default", ThinkingBudget: 1024, HasThinkingBudget: true, Legacy: true},
+	{ModelID: "claude-opus-4-6-thinking", DisplayName: "Claude Opus 4.6 (Thinking)", CatalogIDs: []string{"claude-opus-4-6-thinking"}, WireModel: "claude-opus-4-6-thinking", InternalModel: "MODEL_PLACEHOLDER_M26", BackendModel: "claude-opus-4-6@default", ThinkingBudget: 1024, HasThinkingBudget: true, Legacy: true},
 	{ModelID: "gpt-oss-120b-medium", DisplayName: "GPT-OSS 120B (Medium)", CatalogIDs: []string{"gpt-oss-120b-medium"}, WireModel: "gpt-oss-120b-medium", InternalModel: "MODEL_OPENAI_GPT_OSS_120B_MEDIUM", BackendModel: "openai/gpt-oss-120b-maas", ThinkingBudget: 8192, HasThinkingBudget: true},
 }
 
@@ -236,7 +238,12 @@ func buildDefaultAntigravityModelMapping() map[string]string {
 	for _, route := range antigravityUserModelRoutes {
 		mapping[route.ModelID] = route.WireModel
 	}
-	for _, route := range AntigravityPublicModelRoutes() {
+	// 兼容别名保留公开身份；旧模型退出目录后仍可由显式映射命中。
+	for _, route := range antigravityUserModelRoutes {
+		if base, _ := AntigravityReasoningModel(route.ModelID); base != "" {
+			mapping[base] = base
+			continue
+		}
 		mapping[route.ModelID] = route.ModelID
 	}
 	return mapping

@@ -539,11 +539,13 @@ func TestAccountHandlerGetAvailableModels_AntigravityOAuthFallsBackToAgyCatalog(
 		}
 		require.NotEmpty(t, model.InternalModel)
 	}
-	require.Equal(t, "gemini-3.7-flash-tiered", byID["gemini-3.7-flash"].CatalogID)
-	require.Empty(t, byID["gemini-3.7-flash"].WireModel)
-	require.Empty(t, byID["gemini-3.7-flash"].InternalModel)
+	require.Equal(t, "gemini-3.8-flash", byID["gemini-3.8-flash"].ID)
+	require.Empty(t, byID["gemini-3.8-flash"].WireModel)
+	require.Empty(t, byID["gemini-3.8-flash"].InternalModel)
 	require.Equal(t, []string{"high", "medium", "low"}, byID["gemini-3.8-flash"].ReasoningEfforts)
-	require.Equal(t, []string{"high", "low"}, byID["gemini-3.1-pro"].ReasoningEfforts)
+	require.Equal(t, []string{"high", "medium", "low"}, byID["gemini-4-argon"].ReasoningEfforts)
+	require.NotContains(t, byID, "gemini-3.7-flash")
+	require.NotContains(t, byID, "gemini-3.1-pro")
 	require.NotContains(t, byID, "gemini-3-flash-agent")
 	require.NotContains(t, byID, "chat_20706")
 }

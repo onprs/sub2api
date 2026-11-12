@@ -871,6 +871,16 @@ var antigravityDefaultPassthroughModels = []string{
 	"gemini-3.8-flash-low",
 	"gemini-3.8-flash-medium",
 	"gemini-3.8-flash-tiered",
+	"gemini-4-argon-high",
+	"gemini-4-argon-medium",
+	"gemini-4-argon-low",
+	"claude-opus-5-5-high",
+	"claude-opus-5-5-medium",
+	"claude-opus-5-5-low",
+	"claude-sonnet-5-5-high",
+	"claude-sonnet-5-5-medium",
+	"claude-sonnet-5-5-low",
+	"gpt-oss-120b-medium",
 }
 
 // isAntigravityInjectedDefaultMapping 判断 key→target 是否来自系统默认 Antigravity 目录，

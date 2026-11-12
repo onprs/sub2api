@@ -83,44 +83,38 @@ describe('useModelWhitelist', () => {
     expect(models).not.toContain('gpt-5.2-codex')
   })
 
-  it('antigravity 模型列表聚合思考程度并包含 Gemini 3.8', () => {
+  it('antigravity 模型列表与本地 agy 用户目录一致', () => {
     const models = getModelsByPlatform('antigravity')
 
     expect(models).toEqual([
-      'gemini-3.8-flash',
-      'gemini-3.7-flash',
-      'gemini-3.6-flash',
-      'gemini-3.5-flash',
-      'gemini-3.1-pro',
-      'gemini-4-argon-high',
       'gemini-4-argon-medium',
+      'gemini-4-argon-high',
       'gemini-4-argon-low',
-      'claude-opus-5-5-high',
-      'claude-opus-5-5-medium',
+      'gemini-3.8-flash-high',
+      'gemini-3.8-flash-medium',
+      'gemini-3.8-flash-low',
       'claude-opus-5-5-low',
-      'claude-sonnet-5-5-high',
-      'claude-sonnet-5-5-medium',
+      'claude-opus-5-5-medium',
+      'claude-opus-5-5-high',
       'claude-sonnet-5-5-low',
-      'claude-fable-5-1',
-      'claude-fable-5',
-      'claude-sonnet-4-6',
-      'claude-opus-4-6-thinking',
+      'claude-sonnet-5-5-medium',
+      'claude-sonnet-5-5-high',
       'gpt-oss-120b-medium'
     ])
   })
 
   it('Claude 模型列表包含新发布的 Claude 模型', () => {
     expect(getModelsByPlatform('claude')).toContain('claude-fable-5-1')
-    expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5-1')
+    expect(getModelsByPlatform('antigravity')).not.toContain('claude-fable-5-1')
     expect(getModelsByPlatform('claude')).toContain('claude-fable-5')
-    expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5')
+    expect(getModelsByPlatform('antigravity')).not.toContain('claude-fable-5')
     expect(getModelsByPlatform('claude')).toContain('claude-opus-5-5')
     expect(getModelsByPlatform('antigravity')).not.toContain('claude-opus-5-5')
     expect(getModelsByPlatform('claude')).toContain('claude-sonnet-5-5')
     expect(getModelsByPlatform('antigravity')).not.toContain('claude-sonnet-5-5')
     expect(getModelsByPlatform('claude')).toContain('claude-opus-4-8')
-    expect(getModelsByPlatform('antigravity')).toContain('claude-sonnet-4-6')
-    expect(getModelsByPlatform('antigravity')).toContain('claude-opus-4-6-thinking')
+    expect(getModelsByPlatform('antigravity')).not.toContain('claude-sonnet-4-6')
+    expect(getModelsByPlatform('antigravity')).not.toContain('claude-opus-4-6-thinking')
   })
 
   it.each([
@@ -264,11 +258,14 @@ describe('useModelWhitelist', () => {
     expect(models).not.toContain('tab_flash_lite_preview')
   })
 
-  it('antigravity 模型列表隐藏旧通用别名', () => {
+  it('antigravity 模型列表隐藏旧通用别名与已下线模型', () => {
     const models = getModelsByPlatform('antigravity')
 
-    expect(models).toContain('gemini-3.1-pro')
+    expect(models).not.toContain('gemini-3.1-pro')
     expect(models).not.toContain('gemini-3.5-flash-extra-low')
+    expect(models).not.toContain('gemini-3.7-flash')
+    expect(models).not.toContain('gemini-3.6-flash')
+    expect(models).not.toContain('gemini-3.5-flash')
   })
 
   it('Gemini 4 Argon 在 gemini 与 antigravity 平台使用对应真实模型 ID 与预设映射', () => {

@@ -164,6 +164,51 @@ func TestDefaultAntigravityModelMapping_Gemini4ArgonAndClaude55Models(t *testing
 	}
 }
 
+func TestAntigravityPublicModelRoutes_MatchLocalAgyUserCatalog(t *testing.T) {
+	routes := AntigravityPublicModelRoutes()
+	got := make([]string, 0, len(routes))
+	for _, route := range routes {
+		got = append(got, route.ModelID)
+	}
+	want := []string{
+		"gemini-3.8-flash", "gemini-4-argon",
+		"claude-opus-5-5-high", "claude-opus-5-5-medium", "claude-opus-5-5-low",
+		"claude-sonnet-5-5-high", "claude-sonnet-5-5-medium", "claude-sonnet-5-5-low",
+		"gpt-oss-120b-medium",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("unexpected public route count: got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("unexpected public route order: got %v want %v", got, want)
+		}
+	}
+}
+
+func TestAntigravityGemini4ArgonTiersUseDistinctWireModels(t *testing.T) {
+	base, ok := ResolveDefaultAntigravityModelRoute("gemini-4-argon")
+	if !ok || base.WireModel != "gemini-4-argon-high" {
+		t.Fatalf("expected gemini-4-argon to default to high, got %+v ok=%t", base, ok)
+	}
+
+	seen := make(map[string]string, 3)
+	for _, effort := range []string{"high", "medium", "low"} {
+		route, ok := ResolveAntigravityReasoningRoute("gemini-4-argon", effort)
+		if !ok {
+			t.Fatalf("expected reasoning route for effort %q", effort)
+		}
+		want := "gemini-4-argon-" + effort
+		if route.WireModel != want {
+			t.Fatalf("effort %q wire model = %q, want %q", effort, route.WireModel, want)
+		}
+		if previous, exists := seen[route.WireModel]; exists {
+			t.Fatalf("effort %q reused wire model %q already used by %q", effort, route.WireModel, previous)
+		}
+		seen[route.WireModel] = effort
+	}
+}
+
 func TestDefaultBedrockModelMapping_ContainsNewClaudeModels(t *testing.T) {
 	t.Parallel()
 
