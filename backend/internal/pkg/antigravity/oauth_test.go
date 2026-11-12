@@ -812,7 +812,8 @@ func TestConstants_值正确(t *testing.T) {
 		t.Errorf("RedirectURI 不匹配: got %s", RedirectURI)
 	}
 	wantDefaultUA := fmt.Sprintf(
-		"antigravity/cli/1.1.13 (aidev_client; os_type=%s; arch=%s; cl=964361259; auth_method=consumer)",
+		"antigravity/cli/%s (aidev_client; os_type=%s; arch=%s; cl=964361259; auth_method=consumer)",
+		DefaultUserAgentVersion,
 		runtime.GOOS,
 		runtime.GOARCH,
 	)
@@ -832,6 +833,16 @@ func TestConstants_值正确(t *testing.T) {
 	}
 	if URLAvailabilityTTL != 5*time.Minute {
 		t.Errorf("URLAvailabilityTTL 不匹配: got %v", URLAvailabilityTTL)
+	}
+}
+
+func TestDefaultUserAgentVersion_CurrentCLIForGemini4Argon(t *testing.T) {
+	// 旧版 1.1.13 对 gemini-4-argon-* 会返回 404；升级默认版本时必须保留当前 CLI 兼容性。
+	if got, want := GetDefaultUserAgentVersion(), "1.5.6"; got != want {
+		t.Fatalf("default Antigravity CLI version = %q, want %q", got, want)
+	}
+	if ua := GetUserAgent(); !strings.Contains(ua, "antigravity/cli/1.5.6 ") {
+		t.Fatalf("default user agent does not advertise 1.5.6: %q", ua)
 	}
 }
 
