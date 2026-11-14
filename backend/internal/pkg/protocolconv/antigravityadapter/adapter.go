@@ -77,7 +77,12 @@ func ConvertRequest(body []byte, source protocolconv.Protocol, options Options) 
 		thinking["thinkingBudget"] = route.ThinkingBudget
 	} else {
 		_, effort := domain.AntigravityReasoningModel(route.ModelID)
-		thinking["thinkingLevel"] = strings.ToUpper(effort)
+		// Claude 的 max 档在 v1internal 中使用数值枚举 200；其余档位使用大写字符串。
+		if effort == "max" {
+			thinking["thinkingLevel"] = 200
+		} else {
+			thinking["thinkingLevel"] = strings.ToUpper(effort)
+		}
 	}
 	converted, err = json.Marshal(envelope)
 	return converted, warnings, err

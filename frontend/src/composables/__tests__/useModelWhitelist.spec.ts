@@ -90,6 +90,10 @@ describe('useModelWhitelist', () => {
       'gemini-4-argon-medium',
       'gemini-4-argon-high',
       'gemini-4-argon-low',
+      'gemini-4-hydrogen-high',
+      'gemini-4-hydrogen-xhigh',
+      'gemini-4-hydrogen-medium',
+      'gemini-4-hydrogen-low',
       'gemini-3.8-flash-high',
       'gemini-3.8-flash-medium',
       'gemini-3.8-flash-low',
@@ -268,18 +272,24 @@ describe('useModelWhitelist', () => {
     expect(models).not.toContain('gemini-3.5-flash')
   })
 
-  it('Gemini 4 Argon 在 gemini 与 antigravity 平台使用对应真实模型 ID 与预设映射', () => {
+  it('Gemini 4 Argon 与 Hydrogen 在 gemini 与 antigravity 平台使用对应真实模型 ID 与预设映射', () => {
     expect(getModelsByPlatform('gemini')).toContain('gemini-4-argon')
+    expect(getModelsByPlatform('gemini')).toContain('gemini-4-hydrogen')
     const agModels = getModelsByPlatform('antigravity')
     expect(agModels).not.toContain('gemini-4-argon')
     expect(agModels).toContain('gemini-4-argon-high')
     expect(agModels).toContain('gemini-4-argon-medium')
     expect(agModels).toContain('gemini-4-argon-low')
+    expect(agModels).not.toContain('gemini-4-hydrogen')
+    expect(agModels).toContain('gemini-4-hydrogen-high')
+    expect(agModels).toContain('gemini-4-hydrogen-xhigh')
     expect(getPresetMappingsByPlatform('antigravity')).toEqual(expect.arrayContaining([
       expect.objectContaining({ from: 'gemini-4-argon', to: 'gemini-4-argon-high' }),
       expect.objectContaining({ from: 'gemini-4-argon-high', to: 'gemini-4-argon-high' }),
       expect.objectContaining({ from: 'gemini-4-argon-medium', to: 'gemini-4-argon-medium' }),
-      expect.objectContaining({ from: 'gemini-4-argon-low', to: 'gemini-4-argon-low' })
+      expect.objectContaining({ from: 'gemini-4-argon-low', to: 'gemini-4-argon-low' }),
+      expect.objectContaining({ from: 'gemini-4-hydrogen', to: 'gemini-4-hydrogen-high' }),
+      expect.objectContaining({ from: 'gemini-4-hydrogen-xhigh', to: 'gemini-4-hydrogen-xhigh' })
     ]))
   })
 

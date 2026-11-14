@@ -73,6 +73,10 @@ func resolveAntigravityRequestReasoning(route domain.AntigravityModelRoute, body
 	if effort == "thinking_level_unspecified" {
 		effort = ""
 	}
+	// Claude 聚合档位没有“关闭思考”的物理变体；关闭时取最浅档，保持请求可路由。
+	if effort == "none" && strings.HasPrefix(base, "claude-") {
+		effort = "low"
+	}
 	if effort == "" && budget != nil {
 		switch {
 		case *budget == 0:

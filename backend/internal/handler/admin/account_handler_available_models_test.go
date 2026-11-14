@@ -530,8 +530,6 @@ func TestAccountHandlerGetAvailableModels_AntigravityOAuthFallsBackToAgyCatalog(
 		require.Equal(t, antigravity.CatalogSourceFallback, model.Source)
 		switch {
 		case model.ID == "claude-fable-5-1",
-			strings.HasPrefix(model.ID, "claude-opus-5-5-"),
-			strings.HasPrefix(model.ID, "claude-sonnet-5-5-"),
 			len(model.ReasoningEfforts) > 0:
 			require.Empty(t, model.InternalModel)
 			require.Nil(t, model.ThinkingBudget)
@@ -544,6 +542,11 @@ func TestAccountHandlerGetAvailableModels_AntigravityOAuthFallsBackToAgyCatalog(
 	require.Empty(t, byID["gemini-3.8-flash"].InternalModel)
 	require.Equal(t, []string{"high", "medium", "low"}, byID["gemini-3.8-flash"].ReasoningEfforts)
 	require.Equal(t, []string{"high", "medium", "low"}, byID["gemini-4-argon"].ReasoningEfforts)
+	require.Equal(t, []string{"high", "xhigh", "medium", "low"}, byID["gemini-4-hydrogen"].ReasoningEfforts)
+	require.Equal(t, []string{"high", "medium", "low"}, byID["claude-opus-5-5"].ReasoningEfforts)
+	require.Equal(t, []string{"high", "medium", "low"}, byID["claude-sonnet-5-5"].ReasoningEfforts)
+	require.NotContains(t, byID, "claude-opus-5-5-high")
+	require.NotContains(t, byID, "claude-sonnet-5-5-high")
 	require.NotContains(t, byID, "gemini-3.7-flash")
 	require.NotContains(t, byID, "gemini-3.1-pro")
 	require.NotContains(t, byID, "gemini-3-flash-agent")

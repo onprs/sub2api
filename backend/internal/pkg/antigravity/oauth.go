@@ -34,10 +34,11 @@ const (
 	// AntigravityUserAgentVersionEnv 是 Antigravity User-Agent 版本号的环境变量名。
 	AntigravityUserAgentVersionEnv = "ANTIGRAVITY_USER_AGENT_VERSION"
 
-	// DefaultUserAgentVersion 和 DefaultUserAgentBuild 对应已验证可访问 Gemini 4 Argon / 3.8 路由的官方 CLI 构建。
+	// DefaultUserAgentVersion 和 DefaultUserAgentBuild 对应本地 agy 1.5.8 的官方 CLI 构建。
+	// 1.5.8 用户目录包含 Gemini 4 Hydrogen 四档；1.5.6 已验证可访问 Gemini 4 Argon / 3.8。
 	// 1.1.13 对 gemini-4-argon-* 返回 404 "Requested entity was not found."，不能回退到旧版本。
-	DefaultUserAgentVersion = "1.5.6"
-	DefaultUserAgentBuild   = "964361259"
+	DefaultUserAgentVersion = "1.5.8"
+	DefaultUserAgentBuild   = "1020628950"
 
 	// 固定的 redirect_uri（用户需手动复制 code）
 	RedirectURI = "http://localhost:8085/callback"

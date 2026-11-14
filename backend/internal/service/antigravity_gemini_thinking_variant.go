@@ -15,13 +15,13 @@ import (
 //
 // 这里在账号 model_mapping 没有为裸名配置显式条目、但配置了它的后缀变体时，
 // 按 thinkingConfig 自动挑一个变体：
-//   - thinkingLevel: "low" / "medium" / "high" → 同名后缀
+//   - thinkingLevel: "low" / "medium" / "high" / "xhigh" → 同名后缀
 //   - thinkingBudget: -1（动态）→ high；0 → low；1..1024 → low；1025..8192 → medium；>8192 → high
 //   - 未携带 thinkingConfig → high（与 Gemini 3 系列默认开启动态思考一致）
 // 选中的后缀在映射表里不存在时按 high → medium → low → tiered 的顺序降级到存在的变体。
 // 显式映射（裸名本身在 model_mapping 里）始终优先，行为与现在完全一致。
 
-var geminiThinkingVariantSuffixes = []string{"-low", "-medium", "-high", "-tiered"}
+var geminiThinkingVariantSuffixes = []string{"-low", "-medium", "-high", "-xhigh", "-tiered"}
 
 const (
 	geminiThinkingBudgetLowMax    = 1024
@@ -145,7 +145,7 @@ func resolveGeminiThinkingVariantForLevel(account *Account, requestedModel strin
 		preferred = "high"
 	}
 	order := []string{preferred}
-	for _, level := range []string{"high", "medium", "low", "tiered"} {
+	for _, level := range []string{"high", "xhigh", "medium", "low", "tiered"} {
 		if level != preferred {
 			order = append(order, level)
 		}

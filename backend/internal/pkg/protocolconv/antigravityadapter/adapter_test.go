@@ -90,6 +90,28 @@ func TestConvertGeminiFamilyAppliesVendorPolicyOnlyInAdapter(t *testing.T) {
 	require.NotContains(t, string(standardBody), dummyThoughtSignature)
 }
 
+func TestConvertRequestMapsFourTierThinkingLevels(t *testing.T) {
+	hydrogenBody := []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}],"generationConfig":{"thinkingConfig":{"thinkingBudget":1024}}}`)
+	hydrogen, _, err := ConvertRequest(hydrogenBody, protocolconv.ProtocolGoogleGenAI, Options{
+		Family: FamilyGemini, ProjectID: "project-1", SourceModel: "gemini-4-hydrogen-xhigh", WireModel: "gemini-4-hydrogen-xhigh",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "gemini-4-hydrogen-xhigh", gjson.GetBytes(hydrogen, "model").String())
+	require.Equal(t, "XHIGH", gjson.GetBytes(hydrogen, "request.generationConfig.thinkingConfig.thinkingLevel").String())
+	require.False(t, gjson.GetBytes(hydrogen, "request.generationConfig.thinkingConfig.thinkingBudget").Exists())
+
+	claudeBody := []byte(`{"model":"claude-opus-5-5","max_tokens":8192,"messages":[{"role":"user","content":"hello"}],"thinking":{"type":"adaptive"}}`)
+	claude, _, err := ConvertRequest(claudeBody, protocolconv.ProtocolAnthropic, Options{
+		Family: FamilyClaude, ProjectID: "project-1", SourceModel: "claude-opus-5-5-max", WireModel: "claude-opus-5-5-max",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "claude-opus-5-5-max", gjson.GetBytes(claude, "model").String())
+	maxLevel := gjson.GetBytes(claude, "request.generationConfig.thinkingConfig.thinkingLevel")
+	require.Equal(t, gjson.Number, maxLevel.Type)
+	require.Equal(t, int64(200), maxLevel.Int())
+	require.False(t, gjson.GetBytes(claude, "request.generationConfig.thinkingConfig.thinkingBudget").Exists())
+}
+
 func TestConvertRequestFromChatToGeminiFamily(t *testing.T) {
 	body := []byte(`{"model":"alias","messages":[{"role":"user","content":"hello"}]}`)
 	converted, _, err := ConvertRequest(body, protocolconv.ProtocolOpenAIChat, Options{Family: FamilyGemini, ProjectID: "project-1", SourceModel: "gemini-3-flash", WireModel: "gemini-3-flash", RequestID: "request-1", UserAgent: "test"})

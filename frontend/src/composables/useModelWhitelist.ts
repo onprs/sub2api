@@ -72,14 +72,20 @@ const geminiModels = [
   'gemini-3.6-flash',
   'gemini-3.7-flash',
   'gemini-3.8-flash',
-  'gemini-4-argon'
+  'gemini-4-argon',
+  'gemini-4-hydrogen'
 ]
 
-// Antigravity 官方 agy 用户目录。raw wire 与历史 alias 由后端兼容路由处理，不在此展示。
+// Antigravity 官方 agy 用户目录。raw wire 与历史 alias 由后端兼容路由处理，
+// 聚合公开 ID 通过后端模型列表或自定义模型名使用，此处保留可直接转发的物理档位。
 const antigravityModels = [
   'gemini-4-argon-medium',
   'gemini-4-argon-high',
   'gemini-4-argon-low',
+  'gemini-4-hydrogen-high',
+  'gemini-4-hydrogen-xhigh',
+  'gemini-4-hydrogen-medium',
+  'gemini-4-hydrogen-low',
   'gemini-3.8-flash-high',
   'gemini-3.8-flash-medium',
   'gemini-3.8-flash-low',
@@ -391,6 +397,11 @@ const antigravityPresetMappings = [
   { label: '4 Argon High', from: 'gemini-4-argon-high', to: 'gemini-4-argon-high', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
   { label: '4 Argon Medium', from: 'gemini-4-argon-medium', to: 'gemini-4-argon-medium', color: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400' },
   { label: '4 Argon Low', from: 'gemini-4-argon-low', to: 'gemini-4-argon-low', color: 'bg-lime-100 text-lime-700 hover:bg-lime-200 dark:bg-lime-900/30 dark:text-lime-400' },
+  { label: '4 Hydrogen→High', from: 'gemini-4-hydrogen', to: 'gemini-4-hydrogen-high', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
+  { label: '4 Hydrogen High', from: 'gemini-4-hydrogen-high', to: 'gemini-4-hydrogen-high', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
+  { label: '4 Hydrogen XHigh', from: 'gemini-4-hydrogen-xhigh', to: 'gemini-4-hydrogen-xhigh', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
+  { label: '4 Hydrogen Medium', from: 'gemini-4-hydrogen-medium', to: 'gemini-4-hydrogen-medium', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' },
+  { label: '4 Hydrogen Low', from: 'gemini-4-hydrogen-low', to: 'gemini-4-hydrogen-low', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
   { label: '3.8 Flash', from: 'gemini-3.8-flash', to: 'gemini-3.8-flash', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
   { label: '3.8 Flash High', from: 'gemini-3.8-flash-high', to: 'gemini-3.8-flash-high', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' },
   { label: 'Opus 5.5→High', from: 'claude-opus-5-5', to: 'claude-opus-5-5-high', color: 'bg-pink-100 text-pink-700 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400' },

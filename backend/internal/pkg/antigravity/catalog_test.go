@@ -8,12 +8,12 @@ import (
 )
 
 func TestFallbackCatalogModels_MatchesAgyUserCatalog(t *testing.T) {
-	// 本地 agy 1.5.6 的用户目录：argon/3.8 各三档，Claude 5.5 三档，gpt-oss 单档。
-	// 3.1/3.5/3.6/3.7、Fable 5.1、Sonnet 4.6、Opus 4.6 仅保留兼容路由，不再进入兜底目录。
+	// 本地 agy 1.5.8 的用户目录：3.8/Argon 各三档，Hydrogen 四档，
+	// Claude 5.5 三档，gpt-oss 单档。3.1/3.5/3.6/3.7、Fable 5.1、
+	// Sonnet 4.6、Opus 4.6 仅保留兼容路由，不再进入兜底目录。
 	wantIDs := []string{
-		"gemini-3.8-flash", "gemini-4-argon",
-		"claude-opus-5-5-high", "claude-opus-5-5-medium", "claude-opus-5-5-low",
-		"claude-sonnet-5-5-high", "claude-sonnet-5-5-medium", "claude-sonnet-5-5-low",
+		"gemini-3.8-flash", "gemini-4-argon", "gemini-4-hydrogen",
+		"claude-opus-5-5", "claude-sonnet-5-5",
 		"gpt-oss-120b-medium",
 	}
 	models := FallbackCatalogModels()
@@ -32,7 +32,10 @@ func TestFallbackCatalogModels_MatchesAgyUserCatalog(t *testing.T) {
 	require.Equal(t, wantIDs, gotIDs)
 	require.Equal(t, []string{"high", "medium", "low"}, models[0].ReasoningEfforts)
 	require.Equal(t, []string{"high", "medium", "low"}, models[1].ReasoningEfforts)
-	require.Empty(t, models[2].ReasoningEfforts)
+	require.Equal(t, []string{"high", "xhigh", "medium", "low"}, models[2].ReasoningEfforts)
+	require.Equal(t, []string{"high", "medium", "low"}, models[3].ReasoningEfforts)
+	require.Equal(t, []string{"high", "medium", "low"}, models[4].ReasoningEfforts)
+	require.Empty(t, models[5].ReasoningEfforts)
 }
 
 func TestFallbackCatalogModels_ReturnsIndependentSlice(t *testing.T) {

@@ -19,8 +19,12 @@ import (
 
 func TestAntigravityReasoningAggregationForward(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	for _, model := range []string{"gemini-3.8-flash", "gemini-3.7-flash"} {
-		for _, effort := range []string{"low", "medium", "high"} {
+	for _, model := range []string{"gemini-3.8-flash", "gemini-3.7-flash", "gemini-4-hydrogen"} {
+		efforts := []string{"low", "medium", "high"}
+		if model == "gemini-4-hydrogen" {
+			efforts = append(efforts, "xhigh")
+		}
+		for _, effort := range efforts {
 			for _, source := range []protocolconv.Protocol{protocolconv.ProtocolGoogleGenAI, protocolconv.ProtocolAnthropic, protocolconv.ProtocolOpenAIChat, protocolconv.ProtocolOpenAIResponses} {
 				for _, stream := range []bool{false, true} {
 					t.Run(fmt.Sprintf("%s/%s/%s/%t", model, effort, source, stream), func(t *testing.T) {
@@ -63,7 +67,7 @@ func TestAntigravityReasoningAggregationForward(t *testing.T) {
 						require.Len(t, upstream.requestBodies, 1)
 						wire := upstream.requestBodies[0]
 						require.Equal(t, model+"-"+effort, gjson.GetBytes(wire, "model").String())
-						if model == "gemini-3.8-flash" {
+						if model == "gemini-3.8-flash" || model == "gemini-4-hydrogen" {
 							require.Equal(t, strings.ToUpper(effort), gjson.GetBytes(wire, "request.generationConfig.thinkingConfig.thinkingLevel").String())
 						} else {
 							budget := map[string]int64{"low": 1000, "medium": 4000, "high": -1}[effort]
@@ -92,6 +96,10 @@ func TestAntigravityReasoningSelection(t *testing.T) {
 		{"gemini-3.7-flash", `{"thinking":{"type":"enabled","budget_tokens":4000}}`, protocolconv.ProtocolAnthropic, "medium", false},
 		{"gemini-3.8-flash", `{"generationConfig":{"thinkingConfig":{"thinkingBudget":1000}}}`, protocolconv.ProtocolGoogleGenAI, "low", false},
 		{"gemini-3.8-flash", `{"reasoning_effort":"xhigh"}`, protocolconv.ProtocolOpenAIChat, "", true},
+		{"gemini-4-hydrogen", `{"reasoning_effort":"xhigh"}`, protocolconv.ProtocolOpenAIChat, "xhigh", false},
+		{"gemini-4-hydrogen", `{"generationConfig":{"thinkingConfig":{"thinkingLevel":"XHIGH"}}}`, protocolconv.ProtocolGoogleGenAI, "xhigh", false},
+		{"claude-opus-5-5", `{"thinking":{"type":"adaptive"},"output_config":{"effort":"max"}}`, protocolconv.ProtocolAnthropic, "max", false},
+		{"claude-sonnet-5-5", `{"thinking":{"type":"disabled"}}`, protocolconv.ProtocolAnthropic, "low", false},
 		{"gemini-3.1-pro", `{"reasoning_effort":"medium"}`, protocolconv.ProtocolOpenAIChat, "", true},
 		{"gemini-3.8-flash", `{"generationConfig":{"thinkingConfig":{"thinkingBudget":0}}}`, protocolconv.ProtocolGoogleGenAI, "", true},
 		{"gemini-3.8-flash", `{"generationConfig":{"thinkingConfig":{"thinkingBudget":-2}}}`, protocolconv.ProtocolGoogleGenAI, "", true},
@@ -109,6 +117,34 @@ func TestAntigravityReasoningSelection(t *testing.T) {
 			require.True(t, strings.HasSuffix(selected.ModelID, "-"+tc.want))
 		})
 	}
+}
+
+func TestAntigravityClaude55MaxReasoningForwardUsesNumericThinkingLevel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader("data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":8,\"candidatesTokenCount\":3}}}\n\n")),
+	}}}
+	svc := newAntigravityStandardTestService(upstream)
+	account := antigravityStandardTestAccount()
+	body := []byte(`{"model":"claude-opus-5-5","stream":false,"max_tokens":8192,"messages":[{"role":"user","content":"hello"}],"thinking":{"type":"adaptive"},"output_config":{"effort":"max"}}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	result, err := svc.Forward(context.Background(), c, account, body, false)
+	require.NoError(t, err, recorder.Body.String())
+	require.Equal(t, "claude-opus-5-5", result.Model)
+	require.Equal(t, "claude-opus-5-5-max", result.UpstreamModel)
+	require.NotNil(t, result.ReasoningEffort)
+	require.Equal(t, "max", *result.ReasoningEffort)
+	require.Len(t, upstream.requestBodies, 1)
+	wire := upstream.requestBodies[0]
+	require.Equal(t, "claude-opus-5-5-max", gjson.GetBytes(wire, "model").String())
+	maxLevel := gjson.GetBytes(wire, "request.generationConfig.thinkingConfig.thinkingLevel")
+	require.Equal(t, gjson.Number, maxLevel.Type)
+	require.Equal(t, int64(200), maxLevel.Int())
 }
 
 func TestAntigravityGemini4ArgonReasoningUsesDistinctWireModels(t *testing.T) {
