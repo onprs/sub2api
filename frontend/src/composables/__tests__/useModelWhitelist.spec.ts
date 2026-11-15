@@ -87,6 +87,9 @@ describe('useModelWhitelist', () => {
     const models = getModelsByPlatform('antigravity')
 
     expect(models).toEqual([
+      'gemini-4-carbon-medium',
+      'gemini-4-carbon-high',
+      'gemini-4-carbon-low',
       'gemini-4-argon-medium',
       'gemini-4-argon-high',
       'gemini-4-argon-low',
@@ -272,10 +275,15 @@ describe('useModelWhitelist', () => {
     expect(models).not.toContain('gemini-3.5-flash')
   })
 
-  it('Gemini 4 Argon 与 Hydrogen 在 gemini 与 antigravity 平台使用对应真实模型 ID 与预设映射', () => {
+  it('Gemini 4 Carbon、Argon 与 Hydrogen 在 gemini 与 antigravity 平台使用对应真实模型 ID 与预设映射', () => {
+    expect(getModelsByPlatform('gemini')).toContain('gemini-4-carbon')
     expect(getModelsByPlatform('gemini')).toContain('gemini-4-argon')
     expect(getModelsByPlatform('gemini')).toContain('gemini-4-hydrogen')
     const agModels = getModelsByPlatform('antigravity')
+    expect(agModels).not.toContain('gemini-4-carbon')
+    expect(agModels).toContain('gemini-4-carbon-high')
+    expect(agModels).toContain('gemini-4-carbon-medium')
+    expect(agModels).toContain('gemini-4-carbon-low')
     expect(agModels).not.toContain('gemini-4-argon')
     expect(agModels).toContain('gemini-4-argon-high')
     expect(agModels).toContain('gemini-4-argon-medium')
@@ -284,6 +292,10 @@ describe('useModelWhitelist', () => {
     expect(agModels).toContain('gemini-4-hydrogen-high')
     expect(agModels).toContain('gemini-4-hydrogen-xhigh')
     expect(getPresetMappingsByPlatform('antigravity')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: 'gemini-4-carbon', to: 'gemini-4-carbon-high' }),
+      expect.objectContaining({ from: 'gemini-4-carbon-high', to: 'gemini-4-carbon-high' }),
+      expect.objectContaining({ from: 'gemini-4-carbon-medium', to: 'gemini-4-carbon-medium' }),
+      expect.objectContaining({ from: 'gemini-4-carbon-low', to: 'gemini-4-carbon-low' }),
       expect.objectContaining({ from: 'gemini-4-argon', to: 'gemini-4-argon-high' }),
       expect.objectContaining({ from: 'gemini-4-argon-high', to: 'gemini-4-argon-high' }),
       expect.objectContaining({ from: 'gemini-4-argon-medium', to: 'gemini-4-argon-medium' }),

@@ -774,6 +774,24 @@ func TestPricingService_Gemini4HydrogenThinkingTiersUseBasePricing(t *testing.T)
 	}
 }
 
+func TestPricingService_Gemini4CarbonThinkingTiersUseBasePricing(t *testing.T) {
+	basePricing := &LiteLLMModelPricing{InputCostPerToken: 2e-6, OutputCostPerToken: 10e-6, CacheReadInputTokenCost: 0.1e-6}
+	svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{"gemini-4-carbon": basePricing}}
+
+	for _, model := range []string{
+		"gemini-4-carbon",
+		"gemini-4-carbon-high",
+		"gemini-4-carbon-medium",
+		"gemini-4-carbon-low",
+		"models/gemini-4-carbon-medium",
+		"projects/p/locations/global/publishers/google/models/gemini-4-carbon",
+	} {
+		t.Run(model, func(t *testing.T) {
+			require.Same(t, basePricing, svc.GetModelPricing(model))
+		})
+	}
+}
+
 func TestBillingService_Gemini4ArgonFallbacksAreBillable(t *testing.T) {
 	svc := NewBillingService(&config.Config{}, nil)
 	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}
@@ -794,6 +812,11 @@ func TestBillingService_Gemini4ArgonFallbacksAreBillable(t *testing.T) {
 		{"gemini-4-hydrogen-high", 1.5, 7.5, 0.075},
 		{"gemini-4-hydrogen-xhigh", 1.5, 7.5, 0.075},
 		{"models/gemini-4-hydrogen-medium", 1.5, 7.5, 0.075},
+		{"gemini-4-carbon", 2, 10, 0.1},
+		{"gemini-4-carbon-high", 2, 10, 0.1},
+		{"gemini-4-carbon-medium", 2, 10, 0.1},
+		{"gemini-4-carbon-low", 2, 10, 0.1},
+		{"models/gemini-4-carbon-medium", 2, 10, 0.1},
 	} {
 		t.Run(tc.model, func(t *testing.T) {
 			cost, err := svc.CalculateCost(tc.model, tokens, 1)
@@ -825,6 +848,10 @@ func TestDefaultPricingIncludesGemini4ArgonRates(t *testing.T) {
 		{"gemini-4-argon-cyber-permissive", "vertex_ai-language-models", 4e-6, 20e-6, 0.2e-6},
 		{"gemini-4-hydrogen", "gemini", 1.5e-6, 7.5e-6, 0.075e-6},
 		{"gemini-4-hydrogen-xhigh", "gemini", 1.5e-6, 7.5e-6, 0.075e-6},
+		{"gemini-4-carbon", "gemini", 2e-6, 10e-6, 0.1e-6},
+		{"gemini-4-carbon-high", "gemini", 2e-6, 10e-6, 0.1e-6},
+		{"gemini-4-carbon-medium", "gemini", 2e-6, 10e-6, 0.1e-6},
+		{"gemini-4-carbon-low", "gemini", 2e-6, 10e-6, 0.1e-6},
 	} {
 		t.Run(tc.model, func(t *testing.T) {
 			pricing := pricingSvc.GetModelPricing(tc.model)

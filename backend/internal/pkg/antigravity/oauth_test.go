@@ -812,18 +812,20 @@ func TestConstants_值正确(t *testing.T) {
 		t.Errorf("RedirectURI 不匹配: got %s", RedirectURI)
 	}
 	wantDefaultUA := fmt.Sprintf(
-		"antigravity/cli/%s (aidev_client; os_type=%s; arch=%s; cl=1020628950; auth_method=consumer)",
+		"antigravity/cli/%s (aidev_client; os_type=%s; arch=%s; cl=%s; auth_method=consumer)",
 		DefaultUserAgentVersion,
 		runtime.GOOS,
 		runtime.GOARCH,
+		DefaultUserAgentBuild,
 	)
 	if GetUserAgent() != wantDefaultUA {
 		t.Errorf("UserAgent 不匹配: got %s, want %s", GetUserAgent(), wantDefaultUA)
 	}
 	wantCustomUA := fmt.Sprintf(
-		"antigravity/cli/2.0.0 (aidev_client; os_type=%s; arch=%s; cl=1020628950; auth_method=consumer)",
+		"antigravity/cli/2.0.0 (aidev_client; os_type=%s; arch=%s; cl=%s; auth_method=consumer)",
 		runtime.GOOS,
 		runtime.GOARCH,
+		DefaultUserAgentBuild,
 	)
 	if got := BuildUserAgent("2.0.0"); got != wantCustomUA {
 		t.Errorf("自定义 UserAgent 不匹配: got %s, want %s", got, wantCustomUA)
@@ -837,12 +839,12 @@ func TestConstants_值正确(t *testing.T) {
 }
 
 func TestDefaultUserAgentVersion_CurrentCLIForGemini4Models(t *testing.T) {
-	// 旧版 1.1.13 对 gemini-4-argon-* 会返回 404；1.5.8 的 agy 用户目录包含 Hydrogen 四档。
-	if got, want := GetDefaultUserAgentVersion(), "1.5.8"; got != want {
+	// 旧版 1.1.13 对 gemini-4-argon-* 会返回 404；1.5.9 的 agy 用户目录包含 Carbon 三档与 Hydrogen 四档。
+	if got, want := GetDefaultUserAgentVersion(), "1.5.9"; got != want {
 		t.Fatalf("default Antigravity CLI version = %q, want %q", got, want)
 	}
-	if ua := GetUserAgent(); !strings.Contains(ua, "antigravity/cli/1.5.8 ") {
-		t.Fatalf("default user agent does not advertise 1.5.8: %q", ua)
+	if ua := GetUserAgent(); !strings.Contains(ua, "antigravity/cli/1.5.9 ") {
+		t.Fatalf("default user agent does not advertise 1.5.9: %q", ua)
 	}
 }
 

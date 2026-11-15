@@ -85,8 +85,8 @@ func TestAntigravityUserModelRoutes_SeparatesCatalogWireAndFingerprint(t *testin
 	t.Parallel()
 
 	routes := AntigravityUserModelRoutes()
-	if len(routes) != 33 {
-		t.Fatalf("unexpected agy route count: got %d want 33", len(routes))
+	if len(routes) != 36 {
+		t.Fatalf("unexpected agy route count: got %d want 36", len(routes))
 	}
 
 	byID := make(map[string]AntigravityModelRoute, len(routes))
@@ -143,6 +143,7 @@ func TestDefaultAntigravityModelMapping_Gemini4AndClaude55Models(t *testing.T) {
 	for model, wantWire := range map[string]string{
 		"gemini-4-argon":    "gemini-4-argon-high",
 		"gemini-4-hydrogen": "gemini-4-hydrogen-high",
+		"gemini-4-carbon":   "gemini-4-carbon-high",
 		"claude-opus-5-5":   "claude-opus-5-5-high",
 		"claude-sonnet-5-5": "claude-sonnet-5-5-high",
 	} {
@@ -160,6 +161,10 @@ func TestDefaultAntigravityModelMapping_Gemini4AndClaude55Models(t *testing.T) {
 		"gemini-4-hydrogen-xhigh":  "gemini-4-hydrogen-xhigh",
 		"gemini-4-hydrogen-medium": "gemini-4-hydrogen-medium",
 		"gemini-4-hydrogen-low":    "gemini-4-hydrogen-low",
+		"gemini-4-carbon":          "gemini-4-carbon",
+		"gemini-4-carbon-high":     "gemini-4-carbon-high",
+		"gemini-4-carbon-medium":   "gemini-4-carbon-medium",
+		"gemini-4-carbon-low":      "gemini-4-carbon-low",
 		"claude-opus-5-5":          "claude-opus-5-5",
 		"claude-opus-5-5-high":     "claude-opus-5-5-high",
 		"claude-opus-5-5-max":      "claude-opus-5-5-max",
@@ -185,7 +190,7 @@ func TestAntigravityPublicModelRoutes_MatchLocalAgyUserCatalog(t *testing.T) {
 		got = append(got, route.ModelID)
 	}
 	want := []string{
-		"gemini-3.8-flash", "gemini-4-argon", "gemini-4-hydrogen",
+		"gemini-3.8-flash", "gemini-4-argon", "gemini-4-hydrogen", "gemini-4-carbon",
 		"claude-opus-5-5", "claude-sonnet-5-5",
 		"gpt-oss-120b-medium",
 	}
@@ -203,6 +208,7 @@ func TestAntigravityGemini4TiersUseDistinctWireModels(t *testing.T) {
 	for model, efforts := range map[string][]string{
 		"gemini-4-argon":    {"high", "medium", "low"},
 		"gemini-4-hydrogen": {"high", "xhigh", "medium", "low"},
+		"gemini-4-carbon":   {"high", "medium", "low"},
 	} {
 		base, ok := ResolveDefaultAntigravityModelRoute(model)
 		if !ok || base.WireModel != model+"-high" {

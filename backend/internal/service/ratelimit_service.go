@@ -377,10 +377,10 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	// 同请求内与 fastpath 调用点的重复触发由方法内去重吸收。
 	s.maybeHandleOpenAITeamLinkedError(ctx, account, statusCode, responseBody)
 
-	// OpenAI、OpenCode Go 与 Command Code 的模型可用性取决于具体账号。必须先于
+	// OpenAI、OpenCode Go、Command Code 与 Antigravity 的模型可用性取决于具体账号。必须先于
 	// 整账号错误策略处理，避免单个模型不受支持时禁用整个账号或被自定义错误码过滤掉。
 	if account != nil && len(requestedModel) > 0 &&
-		(account.Platform == PlatformOpenAI || account.IsOpenCodeGo() || account.Platform == PlatformCommandCode) &&
+		(account.Platform == PlatformOpenAI || account.IsOpenCodeGo() || account.Platform == PlatformCommandCode || account.Platform == PlatformAntigravity) &&
 		s.HandleUpstreamModelNotFound(ctx, account, requestedModel[0], statusCode, responseBody) {
 		return true
 	}
@@ -2785,7 +2785,7 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	}
 	// Model capability feedback must be scoped to the requested model. These
 	// providers handle model rejection independently of the account error-code policy.
-	if !account.IsOpenAI() && !account.IsOpenCodeGo() && account.Platform != PlatformCommandCode && !account.ShouldHandleErrorCode(statusCode) {
+	if !account.IsOpenAI() && !account.IsOpenCodeGo() && account.Platform != PlatformCommandCode && account.Platform != PlatformAntigravity && !account.ShouldHandleErrorCode(statusCode) {
 		return false
 	}
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)
@@ -2811,6 +2811,16 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 		return true
 	}
 	resetAt := time.Now().Add(cooldown)
+	if account.Platform == PlatformAntigravity {
+		for _, key := range antigravityModelNotFoundKeys(modelKey) {
+			if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, key, resetAt, reason); err != nil {
+				slog.Warn("upstream_model_not_found_set_model_rate_limit_failed", "account_id", account.ID, "model", key, "error", err)
+				return true
+			}
+		}
+		slog.Info("upstream_model_not_found_model_rate_limited", "account_id", account.ID, "model", modelKey, "reason", reason, "reset_at", resetAt)
+		return true
+	}
 	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, modelKey, resetAt, reason); err != nil {
 		slog.Warn("upstream_model_not_found_set_model_rate_limit_failed", "account_id", account.ID, "model", modelKey, "error", err)
 		return true

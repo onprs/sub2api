@@ -238,8 +238,10 @@ func (a *Account) IsSchedulableForModelWithContext(ctx context.Context, requeste
 		return false
 	}
 	if a.isModelRateLimitedWithContext(ctx, requestedModel) {
-		// Antigravity + overages 启用 + 积分未耗尽 → 放行（有积分可用）
-		if a.Platform == PlatformAntigravity && a.IsOveragesEnabled() && !a.isCreditsExhausted() {
+		// Antigravity + overages 启用 + 积分未耗尽 + 属于配额耗尽（非模型不可用或普通限流）→ 放行（有积分可用）
+		if a.Platform == PlatformAntigravity && a.IsOveragesEnabled() && !a.isCreditsExhausted() &&
+			a.hasAntigravityQuotaRateLimit(ctx, requestedModel) &&
+			!a.hasAntigravityHardModelBlock(ctx, requestedModel) {
 			return true
 		}
 		return false
@@ -880,6 +882,10 @@ var antigravityDefaultPassthroughModels = []string{
 	"gemini-4-hydrogen-xhigh",
 	"gemini-4-hydrogen-medium",
 	"gemini-4-hydrogen-low",
+	"gemini-4-carbon",
+	"gemini-4-carbon-high",
+	"gemini-4-carbon-medium",
+	"gemini-4-carbon-low",
 	"claude-opus-5-5",
 	"claude-opus-5-5-high",
 	"claude-opus-5-5-max",

@@ -19,7 +19,7 @@ import (
 
 func TestAntigravityReasoningAggregationForward(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	for _, model := range []string{"gemini-3.8-flash", "gemini-3.7-flash", "gemini-4-hydrogen"} {
+	for _, model := range []string{"gemini-3.8-flash", "gemini-3.7-flash", "gemini-4-hydrogen", "gemini-4-carbon"} {
 		efforts := []string{"low", "medium", "high"}
 		if model == "gemini-4-hydrogen" {
 			efforts = append(efforts, "xhigh")
@@ -67,7 +67,7 @@ func TestAntigravityReasoningAggregationForward(t *testing.T) {
 						require.Len(t, upstream.requestBodies, 1)
 						wire := upstream.requestBodies[0]
 						require.Equal(t, model+"-"+effort, gjson.GetBytes(wire, "model").String())
-						if model == "gemini-3.8-flash" || model == "gemini-4-hydrogen" {
+						if model == "gemini-3.8-flash" || model == "gemini-4-hydrogen" || model == "gemini-4-carbon" {
 							require.Equal(t, strings.ToUpper(effort), gjson.GetBytes(wire, "request.generationConfig.thinkingConfig.thinkingLevel").String())
 						} else {
 							budget := map[string]int64{"low": 1000, "medium": 4000, "high": -1}[effort]
@@ -98,6 +98,11 @@ func TestAntigravityReasoningSelection(t *testing.T) {
 		{"gemini-3.8-flash", `{"reasoning_effort":"xhigh"}`, protocolconv.ProtocolOpenAIChat, "", true},
 		{"gemini-4-hydrogen", `{"reasoning_effort":"xhigh"}`, protocolconv.ProtocolOpenAIChat, "xhigh", false},
 		{"gemini-4-hydrogen", `{"generationConfig":{"thinkingConfig":{"thinkingLevel":"XHIGH"}}}`, protocolconv.ProtocolGoogleGenAI, "xhigh", false},
+		{"gemini-4-carbon", `{"reasoning_effort":"low"}`, protocolconv.ProtocolOpenAIChat, "low", false},
+		{"gemini-4-carbon", `{"reasoning_effort":"medium"}`, protocolconv.ProtocolOpenAIChat, "medium", false},
+		{"gemini-4-carbon", `{"reasoning_effort":"high"}`, protocolconv.ProtocolOpenAIChat, "high", false},
+		{"gemini-4-carbon", `{"reasoning_effort":"xhigh"}`, protocolconv.ProtocolOpenAIChat, "", true},
+		{"gemini-4-carbon", `{"generationConfig":{"thinkingConfig":{"thinkingLevel":"MEDIUM"}}}`, protocolconv.ProtocolGoogleGenAI, "medium", false},
 		{"claude-opus-5-5", `{"thinking":{"type":"adaptive"},"output_config":{"effort":"max"}}`, protocolconv.ProtocolAnthropic, "max", false},
 		{"claude-sonnet-5-5", `{"thinking":{"type":"disabled"}}`, protocolconv.ProtocolAnthropic, "low", false},
 		{"gemini-3.1-pro", `{"reasoning_effort":"medium"}`, protocolconv.ProtocolOpenAIChat, "", true},
@@ -168,6 +173,30 @@ func TestAntigravityGemini4ArgonReasoningUsesDistinctWireModels(t *testing.T) {
 	selected, actualEffort, err := resolveAntigravityRequestReasoning(route, []byte(`{}`), protocolconv.ProtocolOpenAIChat)
 	require.NoError(t, err)
 	require.Equal(t, "gemini-4-argon-high", selected.WireModel)
+	require.NotNil(t, actualEffort)
+	require.Equal(t, "high", *actualEffort)
+}
+
+func TestAntigravityGemini4CarbonReasoningUsesDistinctWireModels(t *testing.T) {
+	route, ok := domain.ResolveDefaultAntigravityModelRoute("gemini-4-carbon")
+	require.True(t, ok)
+
+	for effort, wantWire := range map[string]string{
+		"high":   "gemini-4-carbon-high",
+		"medium": "gemini-4-carbon-medium",
+		"low":    "gemini-4-carbon-low",
+	} {
+		body := []byte(`{"reasoning_effort":"` + effort + `"}`)
+		selected, actualEffort, err := resolveAntigravityRequestReasoning(route, body, protocolconv.ProtocolOpenAIChat)
+		require.NoError(t, err)
+		require.Equal(t, wantWire, selected.WireModel)
+		require.NotNil(t, actualEffort)
+		require.Equal(t, effort, *actualEffort)
+	}
+
+	selected, actualEffort, err := resolveAntigravityRequestReasoning(route, []byte(`{}`), protocolconv.ProtocolOpenAIChat)
+	require.NoError(t, err)
+	require.Equal(t, "gemini-4-carbon-high", selected.WireModel)
 	require.NotNil(t, actualEffort)
 	require.Equal(t, "high", *actualEffort)
 }

@@ -1204,8 +1204,17 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(payload?.platform).toBe('antigravity')
     expect(payload?.type).toBe('apikey')
     expect(payload?.upstream_billing_probe_enabled).toBe(true)
+    expect(payload?.credentials?.model_mapping).toBeUndefined()
     // 创建成功后前端立即发起一次首探（与其他 apikey 平台一致）。
     expect(probeUpstreamBillingMock).toHaveBeenCalledWith(42)
+  })
+
+  it('antigravity 创建弹窗默认不预置模型映射', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Antigravity')
+    await flushPromises()
+
+    expect(wrapper.findAll('input[placeholder="admin.accounts.requestModel"]')).toHaveLength(0)
   })
 
   it('leaves Codex session import billing ownership to the backend', async () => {

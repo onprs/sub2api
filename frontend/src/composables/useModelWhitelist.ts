@@ -73,12 +73,16 @@ const geminiModels = [
   'gemini-3.7-flash',
   'gemini-3.8-flash',
   'gemini-4-argon',
-  'gemini-4-hydrogen'
+  'gemini-4-hydrogen',
+  'gemini-4-carbon'
 ]
 
 // Antigravity 官方 agy 用户目录。raw wire 与历史 alias 由后端兼容路由处理，
 // 聚合公开 ID 通过后端模型列表或自定义模型名使用，此处保留可直接转发的物理档位。
 const antigravityModels = [
+  'gemini-4-carbon-medium',
+  'gemini-4-carbon-high',
+  'gemini-4-carbon-low',
   'gemini-4-argon-medium',
   'gemini-4-argon-high',
   'gemini-4-argon-low',
@@ -392,7 +396,11 @@ const grokPresetMappings = [
 
 // Antigravity 预设映射（支持通配符）
 const antigravityPresetMappings = [
-  // Claude 5.5 / Gemini 4 Argon / 3.8 Flash 推荐映射
+  // Claude 5.5 / Gemini 4 Carbon / Argon / Hydrogen / 3.8 Flash 推荐映射
+  { label: '4 Carbon→High', from: 'gemini-4-carbon', to: 'gemini-4-carbon-high', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
+  { label: '4 Carbon High', from: 'gemini-4-carbon-high', to: 'gemini-4-carbon-high', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
+  { label: '4 Carbon Medium', from: 'gemini-4-carbon-medium', to: 'gemini-4-carbon-medium', color: 'bg-fuchsia-100 text-fuchsia-700 hover:bg-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-400' },
+  { label: '4 Carbon Low', from: 'gemini-4-carbon-low', to: 'gemini-4-carbon-low', color: 'bg-pink-100 text-pink-700 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400' },
   { label: '4 Argon→High', from: 'gemini-4-argon', to: 'gemini-4-argon-high', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' },
   { label: '4 Argon High', from: 'gemini-4-argon-high', to: 'gemini-4-argon-high', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
   { label: '4 Argon Medium', from: 'gemini-4-argon-medium', to: 'gemini-4-argon-medium', color: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400' },

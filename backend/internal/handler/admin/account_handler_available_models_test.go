@@ -543,6 +543,7 @@ func TestAccountHandlerGetAvailableModels_AntigravityOAuthFallsBackToAgyCatalog(
 	require.Equal(t, []string{"high", "medium", "low"}, byID["gemini-3.8-flash"].ReasoningEfforts)
 	require.Equal(t, []string{"high", "medium", "low"}, byID["gemini-4-argon"].ReasoningEfforts)
 	require.Equal(t, []string{"high", "xhigh", "medium", "low"}, byID["gemini-4-hydrogen"].ReasoningEfforts)
+	require.Equal(t, []string{"high", "medium", "low"}, byID["gemini-4-carbon"].ReasoningEfforts)
 	require.Equal(t, []string{"high", "medium", "low"}, byID["claude-opus-5-5"].ReasoningEfforts)
 	require.Equal(t, []string{"high", "medium", "low"}, byID["claude-sonnet-5-5"].ReasoningEfforts)
 	require.NotContains(t, byID, "claude-opus-5-5-high")

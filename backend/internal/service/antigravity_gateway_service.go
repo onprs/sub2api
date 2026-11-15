@@ -227,19 +227,25 @@ func (s *AntigravityGatewayService) checkErrorPolicy(ctx context.Context, accoun
 // applyErrorPolicy 应用错误策略结果，返回是否应终止当前循环及应返回的状态码。
 // ErrorPolicySkipped 时 outStatus 为 500（前端约定：未命中的错误返回 500）。
 func (s *AntigravityGatewayService) applyErrorPolicy(p antigravityRetryLoopParams, statusCode int, headers http.Header, respBody []byte) (handled bool, outStatus int, retErr error) {
-	modelKey := resolveFinalAntigravityModelKey(p.ctx, p.account, p.requestedModel)
+	modelKey := strings.TrimSpace(p.resolvedModel)
+	if modelKey == "" {
+		modelKey = resolveFinalAntigravityModelKey(p.ctx, p.account, p.requestedModel)
+	}
 	switch s.checkErrorPolicy(p.ctx, p.account, statusCode, respBody, modelKey) {
 	case ErrorPolicySkipped:
 		if s.handleAntigravityModelRateLimitBeforePolicy(p, statusCode, headers, respBody) {
 			return true, statusCode, nil
+		}
+		// 模型级 404 不可用独立于自定义错误码过滤，交由上层记录模型冷却并换号。
+		if isAntigravityModelNotFoundError(statusCode, respBody) {
+			return false, statusCode, nil
 		}
 		return true, http.StatusInternalServerError, nil
 	case ErrorPolicyMatched:
 		if s.handleAntigravityModelRateLimitBeforePolicy(p, statusCode, headers, respBody) {
 			return true, statusCode, nil
 		}
-		_ = p.handleError(p.ctx, p.prefix, p.account, statusCode, headers, respBody,
-			p.requestedModel, p.groupID, p.sessionHash, p.isStickySession)
+		_ = p.dispatchHandleError(statusCode, headers, respBody)
 		return true, statusCode, nil
 	case ErrorPolicyTempUnscheduled:
 		slog.Info("temp_unschedulable_matched",
@@ -418,6 +424,7 @@ func (s *AntigravityGatewayService) TestConnectionWithPrompt(ctx context.Context
 		settingService: s.settingService,
 		accountRepo:    s.accountRepo,
 		requestedModel: modelID,
+		resolvedModel:  mappedModel,
 		handleError:    testConnectionHandleError,
 	}
 

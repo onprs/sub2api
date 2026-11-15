@@ -10,6 +10,7 @@ var antigravityReasoningModelTiers = []struct {
 	base    string
 	efforts []string
 }{
+	{"gemini-4-carbon", []string{"high", "medium", "low"}},
 	{"gemini-4-hydrogen", []string{"high", "xhigh", "medium", "low"}},
 	{"gemini-4-argon", []string{"high", "medium", "low"}},
 	{"gemini-3.8-flash", []string{"high", "medium", "low"}},
