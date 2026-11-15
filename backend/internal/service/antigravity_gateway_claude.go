@@ -127,22 +127,24 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 
 	// 执行带重试的请求
 	result, err := s.antigravityRetryLoop(antigravityRetryLoopParams{
-		ctx:             ctx,
-		prefix:          prefix,
-		account:         account,
-		proxyURL:        proxyURL,
-		accessToken:     accessToken,
-		action:          action,
-		body:            geminiBody,
-		c:               c,
-		httpUpstream:    s.httpUpstream,
-		settingService:  s.settingService,
-		accountRepo:     s.accountRepo,
-		handleError:     s.handleUpstreamError,
-		requestedModel:  originalModel,
-		isStickySession: isStickySession, // Forward 由上层判断粘性会话
-		groupID:         0,               // Forward 方法没有 groupID，由上层处理粘性会话清除
-		sessionHash:     "",              // Forward 方法没有 sessionHash，由上层处理粘性会话清除
+		ctx:                  ctx,
+		prefix:               prefix,
+		account:              account,
+		proxyURL:             proxyURL,
+		accessToken:          accessToken,
+		action:               action,
+		body:                 geminiBody,
+		c:                    c,
+		httpUpstream:         s.httpUpstream,
+		settingService:       s.settingService,
+		accountRepo:          s.accountRepo,
+		handleError:          s.handleUpstreamError,
+		handleErrorWithModel: s.handleUpstreamErrorWithModel,
+		requestedModel:       originalModel,
+		resolvedModel:        mappedModel,
+		isStickySession:      isStickySession, // Forward 由上层判断粘性会话
+		groupID:              0,               // Forward 方法没有 groupID，由上层处理粘性会话清除
+		sessionHash:          "",              // Forward 方法没有 sessionHash，由上层处理粘性会话清除
 	})
 	if err != nil {
 		// 检查是否是账号切换信号，转换为 UpstreamFailoverError 让 Handler 切换账号
@@ -219,22 +221,24 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 					continue
 				}
 				retryResult, retryErr := s.antigravityRetryLoop(antigravityRetryLoopParams{
-					ctx:             ctx,
-					prefix:          prefix,
-					account:         account,
-					proxyURL:        proxyURL,
-					accessToken:     accessToken,
-					action:          action,
-					body:            retryGeminiBody,
-					c:               c,
-					httpUpstream:    s.httpUpstream,
-					settingService:  s.settingService,
-					accountRepo:     s.accountRepo,
-					handleError:     s.handleUpstreamError,
-					requestedModel:  originalModel,
-					isStickySession: isStickySession,
-					groupID:         0,  // Forward 方法没有 groupID，由上层处理粘性会话清除
-					sessionHash:     "", // Forward 方法没有 sessionHash，由上层处理粘性会话清除
+					ctx:                  ctx,
+					prefix:               prefix,
+					account:              account,
+					proxyURL:             proxyURL,
+					accessToken:          accessToken,
+					action:               action,
+					body:                 retryGeminiBody,
+					c:                    c,
+					httpUpstream:         s.httpUpstream,
+					settingService:       s.settingService,
+					accountRepo:          s.accountRepo,
+					handleError:          s.handleUpstreamError,
+					handleErrorWithModel: s.handleUpstreamErrorWithModel,
+					requestedModel:       originalModel,
+					resolvedModel:        mappedModel,
+					isStickySession:      isStickySession,
+					groupID:              0,  // Forward 方法没有 groupID，由上层处理粘性会话清除
+					sessionHash:          "", // Forward 方法没有 sessionHash，由上层处理粘性会话清除
 				})
 				if retryErr != nil {
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -354,22 +358,24 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 					}
 					if txErr == nil {
 						retryResult, retryErr := s.antigravityRetryLoop(antigravityRetryLoopParams{
-							ctx:             ctx,
-							prefix:          prefix,
-							account:         account,
-							proxyURL:        proxyURL,
-							accessToken:     accessToken,
-							action:          action,
-							body:            retryGeminiBody,
-							c:               c,
-							httpUpstream:    s.httpUpstream,
-							settingService:  s.settingService,
-							accountRepo:     s.accountRepo,
-							handleError:     s.handleUpstreamError,
-							requestedModel:  originalModel,
-							isStickySession: isStickySession,
-							groupID:         0,
-							sessionHash:     "",
+							ctx:                  ctx,
+							prefix:               prefix,
+							account:              account,
+							proxyURL:             proxyURL,
+							accessToken:          accessToken,
+							action:               action,
+							body:                 retryGeminiBody,
+							c:                    c,
+							httpUpstream:         s.httpUpstream,
+							settingService:       s.settingService,
+							accountRepo:          s.accountRepo,
+							handleError:          s.handleUpstreamError,
+							handleErrorWithModel: s.handleUpstreamErrorWithModel,
+							requestedModel:       originalModel,
+							resolvedModel:        mappedModel,
+							isStickySession:      isStickySession,
+							groupID:              0,
+							sessionHash:          "",
 						})
 						if retryErr == nil {
 							retryResp := retryResult.resp
@@ -425,7 +431,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 				}
 			}
 
-			s.handleUpstreamError(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, originalModel, 0, "", isStickySession)
+			s.handleUpstreamErrorWithModel(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, originalModel, mappedModel, 0, "", isStickySession)
 
 			// 精确匹配服务端配置类 400 错误，触发同账号重试 + failover
 			if resp.StatusCode == http.StatusBadRequest {
@@ -450,7 +456,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 				}
 			}
 
-			if s.shouldFailoverUpstreamError(resp.StatusCode) {
+			if s.shouldFailoverAntigravityError(account, resp.StatusCode, respBody) {
 				upstreamMsg := strings.TrimSpace(extractAntigravityErrorMessage(respBody))
 				upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 				upstreamDetail := s.getUpstreamErrorDetail(respBody)

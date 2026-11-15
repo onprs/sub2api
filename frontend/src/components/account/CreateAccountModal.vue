@@ -4154,7 +4154,6 @@ import {
   getModelsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
-  fetchAntigravityDefaultMappings,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
 import { adminAPI } from '@/api/admin'
@@ -5128,12 +5127,10 @@ watch(
         .catch(() => { tlsFingerprintProfiles.value = [] })
       // Command Code 默认不限定模型，后续目录更新可直接生效。
       allowedModels.value = [...currentPlatformModels()]
-      // Antigravity: 默认使用映射模式并填充默认映射
+      // Antigravity: 默认使用映射模式且不预置默认映射（由后端内置路由处理）
       if (form.platform === 'antigravity') {
         antigravityModelRestrictionMode.value = 'mapping'
-        fetchAntigravityDefaultMappings().then(mappings => {
-          antigravityModelMappings.value = [...mappings]
-        })
+        antigravityModelMappings.value = []
         antigravityWhitelistModels.value = []
       } else {
         antigravityWhitelistModels.value = []
@@ -5214,12 +5211,10 @@ watch(
       modelRestrictionMode.value = 'whitelist'
       allowedModels.value = ['jev-latest']
     }
-    // Antigravity: 默认使用映射模式并填充默认映射
+    // Antigravity: 默认使用映射模式且不预置默认映射（由后端内置路由处理）
     if (newPlatform === 'antigravity') {
       antigravityModelRestrictionMode.value = 'mapping'
-      fetchAntigravityDefaultMappings().then(mappings => {
-        antigravityModelMappings.value = [...mappings]
-      })
+      antigravityModelMappings.value = []
       antigravityWhitelistModels.value = []
       accountCategory.value = 'oauth-based'
       antigravityAccountType.value = 'oauth'
@@ -5719,9 +5714,7 @@ const resetForm = () => {
 
   antigravityModelRestrictionMode.value = 'mapping'
   antigravityWhitelistModels.value = []
-  fetchAntigravityDefaultMappings().then(mappings => {
-    antigravityModelMappings.value = [...mappings]
-  })
+  antigravityModelMappings.value = []
   poolModeEnabled.value = false
   poolModeRetryCount.value = DEFAULT_POOL_MODE_RETRY_COUNT
   poolModeRetryStatusCodesInput.value = ''

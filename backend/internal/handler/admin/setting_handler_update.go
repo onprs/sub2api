@@ -1444,7 +1444,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		normalized := strings.TrimSpace(*req.AntigravityUserAgentVersion)
 		req.AntigravityUserAgentVersion = &normalized
 		if normalized != "" && !semverPattern.MatchString(normalized) {
-			response.Error(c, http.StatusBadRequest, "antigravity_user_agent_version must be empty or a valid semver (e.g. 1.5.8)")
+			response.Error(c, http.StatusBadRequest, "antigravity_user_agent_version must be empty or a valid semver (e.g. 1.5.9)")
 			return
 		}
 	}

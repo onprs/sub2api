@@ -212,24 +212,26 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 
 	// 执行带重试的请求
 	result, err := s.antigravityRetryLoop(antigravityRetryLoopParams{
-		ctx:             ctx,
-		prefix:          prefix,
-		account:         account,
-		proxyURL:        proxyURL,
-		accessToken:     accessToken,
-		action:          upstreamAction,
-		body:            initialAttempt.body,
-		firstAttempt:    initialAttempt,
-		bodyFactory:     retryBodyFactory,
-		c:               c,
-		httpUpstream:    s.httpUpstream,
-		settingService:  s.settingService,
-		accountRepo:     s.accountRepo,
-		handleError:     s.handleUpstreamError,
-		requestedModel:  originalModel,
-		isStickySession: isStickySession, // ForwardGemini 由上层判断粘性会话
-		groupID:         forwardOpts.groupID,
-		sessionHash:     forwardOpts.sessionHash,
+		ctx:                  ctx,
+		prefix:               prefix,
+		account:              account,
+		proxyURL:             proxyURL,
+		accessToken:          accessToken,
+		action:               upstreamAction,
+		body:                 initialAttempt.body,
+		firstAttempt:         initialAttempt,
+		bodyFactory:          retryBodyFactory,
+		c:                    c,
+		httpUpstream:         s.httpUpstream,
+		settingService:       s.settingService,
+		accountRepo:          s.accountRepo,
+		handleError:          s.handleUpstreamError,
+		handleErrorWithModel: s.handleUpstreamErrorWithModel,
+		requestedModel:       originalModel,
+		resolvedModel:        mappedModel,
+		isStickySession:      isStickySession, // ForwardGemini 由上层判断粘性会话
+		groupID:              forwardOpts.groupID,
+		sessionHash:          forwardOpts.sessionHash,
 	})
 	if err != nil {
 		// 检查是否是账号切换信号，转换为 UpstreamFailoverError 让 Handler 切换账号
@@ -283,24 +285,26 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 						fallbackBodyFactory = fallbackFactory
 					}
 					fallbackResult, fallbackErr := s.antigravityRetryLoop(antigravityRetryLoopParams{
-						ctx:             ctx,
-						prefix:          prefix,
-						account:         account,
-						proxyURL:        proxyURL,
-						accessToken:     accessToken,
-						action:          upstreamAction,
-						body:            fallbackAttempt.body,
-						firstAttempt:    fallbackAttempt,
-						bodyFactory:     fallbackBodyFactory,
-						c:               c,
-						httpUpstream:    s.httpUpstream,
-						settingService:  s.settingService,
-						accountRepo:     s.accountRepo,
-						handleError:     s.handleUpstreamError,
-						requestedModel:  fallbackClientModel,
-						isStickySession: isStickySession,
-						groupID:         forwardOpts.groupID,
-						sessionHash:     forwardOpts.sessionHash,
+						ctx:                  ctx,
+						prefix:               prefix,
+						account:              account,
+						proxyURL:             proxyURL,
+						accessToken:          accessToken,
+						action:               upstreamAction,
+						body:                 fallbackAttempt.body,
+						firstAttempt:         fallbackAttempt,
+						bodyFactory:          fallbackBodyFactory,
+						c:                    c,
+						httpUpstream:         s.httpUpstream,
+						settingService:       s.settingService,
+						accountRepo:          s.accountRepo,
+						handleError:          s.handleUpstreamError,
+						handleErrorWithModel: s.handleUpstreamErrorWithModel,
+						requestedModel:       fallbackClientModel,
+						resolvedModel:        fallbackModel,
+						isStickySession:      isStickySession,
+						groupID:              forwardOpts.groupID,
+						sessionHash:          forwardOpts.sessionHash,
 					})
 					if fallbackErr == nil && fallbackResult != nil && fallbackResult.resp != nil {
 						fallbackResp := fallbackResult.resp
@@ -359,23 +363,25 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 					signatureRetryBodyFactory = retryFactory
 				}
 				retryResult, retryErr := s.antigravityRetryLoop(antigravityRetryLoopParams{
-					ctx:             ctx,
-					prefix:          prefix,
-					account:         account,
-					proxyURL:        proxyURL,
-					accessToken:     accessToken,
-					action:          upstreamAction,
-					body:            retryAttempt.body,
-					bodyFactory:     signatureRetryBodyFactory,
-					c:               c,
-					httpUpstream:    s.httpUpstream,
-					settingService:  s.settingService,
-					accountRepo:     s.accountRepo,
-					handleError:     s.handleUpstreamError,
-					requestedModel:  originalModel,
-					isStickySession: isStickySession,
-					groupID:         forwardOpts.groupID,
-					sessionHash:     forwardOpts.sessionHash,
+					ctx:                  ctx,
+					prefix:               prefix,
+					account:              account,
+					proxyURL:             proxyURL,
+					accessToken:          accessToken,
+					action:               upstreamAction,
+					body:                 retryAttempt.body,
+					bodyFactory:          signatureRetryBodyFactory,
+					c:                    c,
+					httpUpstream:         s.httpUpstream,
+					settingService:       s.settingService,
+					accountRepo:          s.accountRepo,
+					handleError:          s.handleUpstreamError,
+					handleErrorWithModel: s.handleUpstreamErrorWithModel,
+					requestedModel:       originalModel,
+					resolvedModel:        mappedModel,
+					isStickySession:      isStickySession,
+					groupID:              forwardOpts.groupID,
+					sessionHash:          forwardOpts.sessionHash,
 				})
 				if retryErr == nil {
 					retryResp := retryResult.resp
@@ -457,7 +463,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		if unwrapErr != nil || len(unwrappedForOps) == 0 {
 			unwrappedForOps = respBody
 		}
-		s.handleUpstreamError(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, originalModel, forwardOpts.groupID, forwardOpts.sessionHash, isStickySession)
+		s.handleUpstreamErrorWithModel(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, originalModel, billingModel, forwardOpts.groupID, forwardOpts.sessionHash, isStickySession)
 		upstreamMsg := strings.TrimSpace(extractAntigravityErrorMessage(unwrappedForOps))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 		upstreamDetail := s.getUpstreamErrorDetail(unwrappedForOps)
@@ -488,7 +494,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			}
 		}
 
-		if s.shouldFailoverUpstreamError(resp.StatusCode) {
+		if s.shouldFailoverAntigravityError(account, resp.StatusCode, respBody) {
 			event := OpsUpstreamErrorEvent{
 				ProxyID:            opsUpstreamProxyID(account),
 				ProxyName:          opsUpstreamProxyName(account),

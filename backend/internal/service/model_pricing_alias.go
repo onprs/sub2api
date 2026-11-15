@@ -19,6 +19,8 @@ func canonicalBillingModelForPricing(model string) string {
 		return "gemini-3.8-flash"
 	case "gemini-4-hydrogen-high", "gemini-4-hydrogen-xhigh", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-low":
 		return "gemini-4-hydrogen"
+	case "gemini-4-carbon-high", "gemini-4-carbon-medium", "gemini-4-carbon-low":
+		return "gemini-4-carbon"
 	case "gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-3.7-flash-low", "gemini-3.7-flash-tiered":
 		return "gemini-3.7-flash"
 	case "gemini-3.6-flash-high", "gemini-3.6-flash-medium", "gemini-3.6-flash-low", "gemini-3.6-flash-tiered":

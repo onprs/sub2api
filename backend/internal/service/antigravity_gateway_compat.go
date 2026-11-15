@@ -221,22 +221,24 @@ func (s *AntigravityGatewayService) forwardAntigravityCompat(
 	}
 
 	result, err := s.antigravityRetryLoop(antigravityRetryLoopParams{
-		ctx:             ctx,
-		prefix:          call.prefix,
-		account:         account,
-		proxyURL:        call.proxyURL,
-		accessToken:     call.accessToken,
-		action:          "streamGenerateContent",
-		body:            call.geminiBody,
-		c:               c,
-		httpUpstream:    s.httpUpstream,
-		settingService:  s.settingService,
-		accountRepo:     s.accountRepo,
-		handleError:     s.handleUpstreamError,
-		requestedModel:  request.originalModel,
-		isStickySession: false,
-		groupID:         0,
-		sessionHash:     "",
+		ctx:                  ctx,
+		prefix:               call.prefix,
+		account:              account,
+		proxyURL:             call.proxyURL,
+		accessToken:          call.accessToken,
+		action:               "streamGenerateContent",
+		body:                 call.geminiBody,
+		c:                    c,
+		httpUpstream:         s.httpUpstream,
+		settingService:       s.settingService,
+		accountRepo:          s.accountRepo,
+		handleError:          s.handleUpstreamError,
+		handleErrorWithModel: s.handleUpstreamErrorWithModel,
+		requestedModel:       request.originalModel,
+		resolvedModel:        call.billingModel,
+		isStickySession:      false,
+		groupID:              0,
+		sessionHash:          "",
 	})
 	if err != nil {
 		return nil, s.handleAntigravityCompatTransportError(c, err)
@@ -608,7 +610,7 @@ func (s *AntigravityGatewayService) handleAntigravityCompatHTTPError(
 	resp *http.Response,
 ) error {
 	body := s.readUpstreamErrorBody(resp)
-	s.handleUpstreamError(
+	s.handleUpstreamErrorWithModel(
 		ctx,
 		call.prefix,
 		account,
@@ -616,11 +618,12 @@ func (s *AntigravityGatewayService) handleAntigravityCompatHTTPError(
 		resp.Header,
 		body,
 		call.request.originalModel,
+		call.billingModel,
 		0,
 		"",
 		false,
 	)
-	if s.shouldFailoverUpstreamError(resp.StatusCode) {
+	if s.shouldFailoverAntigravityError(account, resp.StatusCode, body) {
 		message := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractAntigravityErrorMessage(body)))
 		event := OpsUpstreamErrorEvent{
 			ProxyID:            opsUpstreamProxyID(account),

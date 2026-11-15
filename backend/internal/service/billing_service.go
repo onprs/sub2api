@@ -700,6 +700,17 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown: false,
 	}
 
+	// Gemini 4 Carbon (Google AI pricing: $2 input / $10 output / $0.10 cached
+	// input per MTok, promotional through 2026-11-30; official rates double to
+	// $4/$20/$0.20 from 2026-12-01). Implicit caching only; -high/-medium/-low
+	// aliases are matched below so unavailable remote pricing never bills at $0.
+	s.fallbackPrices["gemini-4-carbon"] = &ModelPricing{
+		InputPricePerToken:     2e-6,
+		OutputPricePerToken:    10e-6,
+		CacheReadPricePerToken: 0.1e-6,
+		SupportsCacheBreakdown: false,
+	}
+
 	// OpenAI GPT-5.4（业务指定价格）
 	s.fallbackPrices["gpt-5.4"] = &ModelPricing{
 		InputPricePerToken:             2.5e-6,  // $2.5 per MTok
@@ -1316,6 +1327,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	}
 	if strings.Contains(modelLower, "gemini-4-hydrogen") {
 		return s.fallbackPrices["gemini-4-hydrogen"]
+	}
+	if strings.Contains(modelLower, "gemini-4-carbon") {
+		return s.fallbackPrices["gemini-4-carbon"]
 	}
 
 	// DeepSeek 系列：官方模型 V4 Pro/Flash（含 vision-exp）按各自价卡；

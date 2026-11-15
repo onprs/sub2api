@@ -3,16 +3,19 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1393,4 +1396,106 @@ func TestNormalizeAntigravityModelName(t *testing.T) {
 			require.Equal(t, tt.expected, actual)
 		})
 	}
+}
+
+func TestAntigravityAggregatedTierRateLimit_CoolsBaseAndBlocksScheduler(t *testing.T) {
+	repo := &stubAntigravityAccountRepo{}
+	svc := &AntigravityGatewayService{accountRepo: repo}
+	account := &Account{
+		ID:          901,
+		Platform:    PlatformAntigravity,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+	resetAt := time.Now().Add(10 * time.Minute)
+	require.True(t, svc.setAntigravityModelRateLimits(
+		context.Background(), repo, account,
+		"claude-opus-5-5-medium", "[test]", http.StatusTooManyRequests,
+		resetAt, false, antigravityRateLimitReasonRateLimited,
+	))
+
+	limits := make(map[string]any)
+	for _, call := range repo.modelRateLimitCalls {
+		limits[call.modelKey] = map[string]any{
+			"rate_limit_reset_at": call.resetAt.Format(time.RFC3339),
+			"reason":              antigravityRateLimitReasonRateLimited,
+		}
+	}
+	account.Extra = map[string]any{modelRateLimitsKey: limits}
+
+	require.False(t, account.IsSchedulableForModel("claude-opus-5-5"))
+	require.False(t, account.IsSchedulableForModel("claude-opus-5-5-medium"))
+	require.False(t, account.IsSchedulableForModel("claude-opus-5-5-high"))
+	require.True(t, account.IsSchedulableForModel("claude-sonnet-5-5"))
+}
+
+func TestAntigravityModelNotFound_CoolsOnlyTargetModelAndTriggersFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &stubAntigravityAccountRepo{}
+	upstream := &queuedHTTPUpstreamStub{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusNotFound,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"code":404,"message":"Requested entity was not found.","status":"NOT_FOUND"}}`)),
+			},
+		},
+	}
+	svc := &AntigravityGatewayService{
+		accountRepo:   repo,
+		tokenProvider: &AntigravityTokenProvider{},
+		httpUpstream:  upstream,
+		rateLimitService: &RateLimitService{
+			accountRepo: repo,
+		},
+	}
+	account := &Account{
+		ID:          902,
+		Name:        "free-tier-account",
+		Platform:    PlatformAntigravity,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "token",
+			"project_id":   "proj",
+			"plan_type":    "free",
+		},
+		Extra: map[string]any{
+			// 即使开启 overages，模型不可用 404 也不得绕过冷却。
+			"allow_overages": true,
+		},
+	}
+
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"thinkingConfig":{"thinkingLevel":"LOW"}}}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-4-carbon:generateContent", bytes.NewReader(body))
+
+	_, err := svc.ForwardGemini(context.Background(), c, account, "gemini-4-carbon", "generateContent", false, body, false)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusNotFound, failoverErr.StatusCode)
+
+	var cooledKeys []string
+	limits := make(map[string]any)
+	for _, call := range repo.modelRateLimitCalls {
+		cooledKeys = append(cooledKeys, call.modelKey)
+		limits[call.modelKey] = map[string]any{
+			"rate_limit_reset_at": call.resetAt.Format(time.RFC3339),
+			"reason":              upstreamModelNotFoundReason,
+		}
+	}
+	require.ElementsMatch(t, []string{"gemini-4-carbon-low", "gemini-4-carbon"}, cooledKeys)
+	require.NotContains(t, cooledKeys, antigravityGeminiModelRateLimitKey)
+
+	account.Extra[modelRateLimitsKey] = limits
+	require.False(t, account.IsSchedulableForModel("gemini-4-carbon"))
+	require.False(t, account.IsSchedulableForModel("gemini-4-carbon-low"))
+	require.False(t, account.IsSchedulableForModel("gemini-4-carbon-high"))
+	require.True(t, account.IsSchedulableForModel("gemini-3.8-flash"))
+	require.True(t, account.IsSchedulableForModel("gemini-4-argon"))
+	require.True(t, account.IsSchedulableForModel("gemini-4-hydrogen"))
 }

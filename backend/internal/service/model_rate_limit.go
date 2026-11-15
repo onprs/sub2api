@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
@@ -165,6 +166,9 @@ func antigravityModelRateLimitKeys(account *Account, model string) []string {
 		return nil
 	}
 	keys := []string{model}
+	if base, effort := domain.AntigravityReasoningModel(model); base != "" && effort != "" && base != model {
+		keys = append(keys, base)
+	}
 	if isAntigravityGeminiModel(model) && !isAntigravityGeminiImageModel(model) && model != antigravityGeminiModelRateLimitKey {
 		familyKey := antigravityGeminiModelRateLimitKey
 		// Pro has a separate Argon quota pool. Ultra and unknown plans retain
@@ -176,6 +180,20 @@ func antigravityModelRateLimitKeys(account *Account, model string) []string {
 			}
 		}
 		keys = append(keys, familyKey)
+	}
+	return keys
+}
+
+// antigravityModelNotFoundKeys 返回 Antigravity 模型不可用（404）需要冷却的 key：
+// 包含具体档位与聚合基名，但不扩散到共享的 antigravity:gemini 家族池。
+func antigravityModelNotFoundKeys(model string) []string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return nil
+	}
+	keys := []string{model}
+	if base, effort := domain.AntigravityReasoningModel(model); base != "" && effort != "" && base != model {
+		keys = append(keys, base)
 	}
 	return keys
 }

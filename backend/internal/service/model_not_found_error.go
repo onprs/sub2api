@@ -50,7 +50,31 @@ func isUpstreamModelNotFoundErrorForAccount(account *Account, statusCode int, bo
 	if account != nil && account.Platform == PlatformCommandCode && isCommandCodeModelNotInPlanError(statusCode, body) {
 		return true
 	}
+	if account != nil && account.Platform == PlatformAntigravity && isAntigravityModelNotFoundError(statusCode, body) {
+		return true
+	}
 	return false
+}
+
+// isAntigravityModelNotFoundError 识别 Antigravity 上游返回的模型不可用 404。
+// Google Cloud Code 在模型不存在或当前账号等级不可访问时返回 404 "Requested entity was not found."，
+// 消息体不一定包含 "model" 字样，但需排除 project 相关错误。
+func isAntigravityModelNotFoundError(statusCode int, body []byte) bool {
+	if statusCode != http.StatusNotFound {
+		return false
+	}
+	normalized := normalizeModelNotFoundBody(body)
+	if normalized == "" || strings.Contains(normalized, "project") {
+		return false
+	}
+	if strings.Contains(normalized, "requested entity was not found") {
+		return true
+	}
+	if isUpstreamModelNotFoundError(statusCode, body) {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(gjson.GetBytes(body, "error.status").String()), "NOT_FOUND") &&
+		strings.Contains(normalized, "not found")
 }
 
 // isCommandCodeUnsupportedModelError 判定 Command Code 的 unsupported_model 错误
