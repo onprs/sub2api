@@ -71,7 +71,7 @@ func TestAntigravityModelRateLimits_ProArgonQuotaIsolation(t *testing.T) {
 				svc := &AntigravityGatewayService{}
 				resetAt := time.Now().Add(time.Hour)
 				require.True(t, svc.setAntigravityModelRateLimits(context.Background(), repo, account,
-					pool.exhausted, "[test]", http.StatusTooManyRequests, resetAt, false))
+					pool.exhausted, "[test]", http.StatusTooManyRequests, resetAt, false, antigravityRateLimitReasonRateLimited))
 
 				// Recreate the persisted limits, then read a fresh account through JSON,
 				// as the scheduler does instead of using the forwarding account object.

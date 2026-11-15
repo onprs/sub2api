@@ -65,6 +65,11 @@ const (
 
 	// MODEL_CAPACITY_EXHAUSTED 全局去重：重试全部失败后的 cooldown 时间
 	antigravityModelCapacityCooldown = 10 * time.Second
+
+	// 模型限流原因：只有 quota_exhausted 才能触发 AI Credits 超量重试。
+	antigravityRateLimitReasonRateLimited    = "antigravity_rate_limited"
+	antigravityRateLimitReasonQuotaExhausted = "antigravity_quota_exhausted"
+	antigravityRateLimitReasonInternal500    = "antigravity_internal_500"
 )
 
 // antigravityPassthroughErrorMessages 透传给客户端的错误消息白名单（小写）
@@ -94,11 +99,21 @@ type AntigravityAccountSwitchError struct {
 	OriginalAccountID int64
 	RateLimitedModel  string
 	IsStickySession   bool // 是否为粘性会话切换（决定是否缓存计费）
+	// StatusCode 是触发切换的上游状态码；0 保留旧的 503 语义。
+	StatusCode int
 }
 
 func (e *AntigravityAccountSwitchError) Error() string {
 	return fmt.Sprintf("account %d model %s rate limited, need switch",
 		e.OriginalAccountID, e.RateLimitedModel)
+}
+
+// FailoverStatusCode 返回交给 Handler 的 failover 状态码。
+func (e *AntigravityAccountSwitchError) FailoverStatusCode() int {
+	if e != nil && e.StatusCode != 0 {
+		return e.StatusCode
+	}
+	return http.StatusServiceUnavailable
 }
 
 // IsAntigravityAccountSwitchError 检查错误是否为账号切换信号
@@ -229,7 +244,7 @@ func (s *AntigravityGatewayService) applyErrorPolicy(p antigravityRetryLoopParam
 	case ErrorPolicyTempUnscheduled:
 		slog.Info("temp_unschedulable_matched",
 			"prefix", p.prefix, "status_code", statusCode, "account_id", p.account.ID)
-		return true, statusCode, &AntigravityAccountSwitchError{OriginalAccountID: p.account.ID, RateLimitedModel: p.requestedModel, IsStickySession: p.isStickySession}
+		return true, statusCode, &AntigravityAccountSwitchError{OriginalAccountID: p.account.ID, RateLimitedModel: p.requestedModel, IsStickySession: p.isStickySession, StatusCode: statusCode}
 	}
 	return false, statusCode, nil
 }
@@ -250,7 +265,7 @@ func (s *AntigravityGatewayService) handleAntigravityModelRateLimitBeforePolicy(
 		rateLimitDuration = antigravityDefaultRateLimitDuration
 	}
 	resetAt := time.Now().Add(rateLimitDuration)
-	if !s.setAntigravityModelRateLimits(p.ctx, p.accountRepo, p.account, modelName, p.prefix, statusCode, resetAt, false) {
+	if !s.setAntigravityModelRateLimits(p.ctx, p.accountRepo, p.account, modelName, p.prefix, statusCode, resetAt, false, antigravityRateLimitReasonRateLimited) {
 		return false
 	}
 	s.clearStickySession(p.ctx, p.groupID, p.sessionHash)

@@ -526,7 +526,7 @@ func antigravityCompatProxyURL(account *Account) string {
 func (s *AntigravityGatewayService) handleAntigravityCompatTransportError(c *gin.Context, err error) error {
 	if switchErr, ok := IsAntigravityAccountSwitchError(err); ok {
 		return &UpstreamFailoverError{
-			StatusCode:        http.StatusServiceUnavailable,
+			StatusCode:        switchErr.FailoverStatusCode(),
 			ForceCacheBilling: switchErr.IsStickySession,
 		}
 	}

@@ -841,6 +841,7 @@ func TestSetModelRateLimitByModelName_UsesOfficialModelID(t *testing.T) {
 				429,
 				resetAt,
 				false, // afterSmartRetry
+				antigravityRateLimitReasonRateLimited,
 			)
 
 			require.Equal(t, tt.expectedSuccess, success)
@@ -874,6 +875,7 @@ func TestSetModelRateLimitByModelName_NotConvertToScope(t *testing.T) {
 		429,
 		resetAt,
 		true, // afterSmartRetry
+		antigravityRateLimitReasonRateLimited,
 	)
 
 	require.True(t, success)
@@ -900,6 +902,7 @@ func TestSetAntigravityModelRateLimits_GeminiWritesFamilyScope(t *testing.T) {
 		429,
 		resetAt,
 		false,
+		antigravityRateLimitReasonRateLimited,
 	)
 
 	require.True(t, success)
@@ -923,6 +926,7 @@ func TestSetAntigravityModelRateLimits_ImageDoesNotWriteFamilyScope(t *testing.T
 		429,
 		resetAt,
 		false,
+		antigravityRateLimitReasonRateLimited,
 	)
 
 	require.True(t, success)
@@ -956,6 +960,7 @@ func TestSetAntigravityModelRateLimits_DoesNotDoubleMapCustomChain(t *testing.T)
 		429,
 		resetAt,
 		false,
+		antigravityRateLimitReasonRateLimited,
 	)
 
 	require.True(t, success)
@@ -1234,7 +1239,7 @@ func TestUpdateAccountModelRateLimitInCache_UpdatesExtraAndCallsCache(t *testing
 	modelKey := "claude-sonnet-4-5"
 	resetAt := time.Now().Add(30 * time.Second)
 
-	svc.updateAccountModelRateLimitInCache(context.Background(), account, modelKey, resetAt)
+	svc.updateAccountModelRateLimitInCache(context.Background(), account, modelKey, resetAt, antigravityRateLimitReasonRateLimited)
 
 	// 验证 Extra 字段被正确更新
 	require.NotNil(t, account.Extra)
@@ -1259,7 +1264,7 @@ func TestUpdateAccountModelRateLimitInCache_NilSchedulerSnapshot(t *testing.T) {
 	account := &Account{ID: 1, Name: "test"}
 
 	// 不应 panic
-	svc.updateAccountModelRateLimitInCache(context.Background(), account, "claude-sonnet-4-5", time.Now().Add(30*time.Second))
+	svc.updateAccountModelRateLimitInCache(context.Background(), account, "claude-sonnet-4-5", time.Now().Add(30*time.Second), antigravityRateLimitReasonRateLimited)
 
 	// Extra 不应被更新（因为函数提前返回）
 	require.Nil(t, account.Extra)
@@ -1288,7 +1293,7 @@ func TestUpdateAccountModelRateLimitInCache_PreservesExistingExtra(t *testing.T)
 		},
 	}
 
-	svc.updateAccountModelRateLimitInCache(context.Background(), account, "claude-sonnet-4-5", time.Now().Add(30*time.Second))
+	svc.updateAccountModelRateLimitInCache(context.Background(), account, "claude-sonnet-4-5", time.Now().Add(30*time.Second), antigravityRateLimitReasonRateLimited)
 
 	// 验证已有数据被保留
 	require.Equal(t, "existing_value", account.Extra["existing_key"])

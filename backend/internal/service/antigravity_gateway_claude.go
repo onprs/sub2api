@@ -148,7 +148,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 		// 检查是否是账号切换信号，转换为 UpstreamFailoverError 让 Handler 切换账号
 		if switchErr, ok := IsAntigravityAccountSwitchError(err); ok {
 			return nil, &UpstreamFailoverError{
-				StatusCode:        http.StatusServiceUnavailable,
+				StatusCode:        switchErr.FailoverStatusCode(),
 				ForceCacheBilling: switchErr.IsStickySession,
 			}
 		}
