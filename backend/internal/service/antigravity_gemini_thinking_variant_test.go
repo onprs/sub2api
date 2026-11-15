@@ -109,6 +109,8 @@ func TestResolveGeminiThinkingVariant(t *testing.T) {
 		}, "gemini-3.7-flash", budget("4000"), "gemini-3.7-flash-medium", true},
 		// 空 credentials 映射保留默认目录兼容行为。
 		{"empty mapping falls back to default catalog", map[string]string{}, "gemini-3.8-flash", budget("-1"), "gemini-3.8-flash-high", true},
+		{"empty mapping honors low thinking level", map[string]string{}, "gemini-4-argon", budget("1000"), "gemini-4-argon-low", true},
+		{"empty mapping honors medium thinking level", map[string]string{}, "gemini-4-argon", budget("4000"), "gemini-4-argon-medium", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

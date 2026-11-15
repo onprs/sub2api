@@ -18,6 +18,9 @@ const (
 	// 与普通模型限流完全同构：通过 SetModelRateLimit / isRateLimitActiveForKey 读写。
 	creditsExhaustedKey      = "AICredits"
 	creditsExhaustedDuration = 5 * time.Hour
+	// creditsExhaustedReason 标记明确由积分不足产生的记录；旧版本没有 reason，
+	// 其中包含通用 429 的误判，升级后不再视为积分耗尽。
+	creditsExhaustedReason = "credits_exhausted"
 )
 
 type antigravity429Category string
@@ -46,16 +49,17 @@ var (
 		"minimumcreditamountforusage",
 		"minimum credit amount for usage",
 		"minimum credit",
-		"resource has been exhausted",
 	}
 )
 
 // isCreditsExhausted 检查账号的 AICredits 限流 key 是否生效（积分是否耗尽）。
 func (a *Account) isCreditsExhausted() bool {
-	if a == nil {
+	if a == nil || !a.isRateLimitActiveForKey(creditsExhaustedKey) {
 		return false
 	}
-	return a.isRateLimitActiveForKey(creditsExhaustedKey)
+	// 旧版本把通用 RESOURCE_EXHAUSTED 也写入 AICredits 且没有 reason。
+	// 这类记录不能继续让账号停用积分，真实积分不足会在下一次积分请求时重新标记。
+	return a.modelRateLimitReason(creditsExhaustedKey) == creditsExhaustedReason
 }
 
 // setCreditsExhausted 标记账号积分耗尽：写入 model_rate_limits["AICredits"] + 更新缓存。
@@ -64,11 +68,11 @@ func (s *AntigravityGatewayService) setCreditsExhausted(ctx context.Context, acc
 		return
 	}
 	resetAt := time.Now().Add(creditsExhaustedDuration)
-	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, creditsExhaustedKey, resetAt); err != nil {
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, creditsExhaustedKey, resetAt, creditsExhaustedReason); err != nil {
 		logger.LegacyPrintf("service.antigravity_gateway", "set credits exhausted failed: account=%d err=%v", account.ID, err)
 		return
 	}
-	s.updateAccountModelRateLimitInCache(ctx, account, creditsExhaustedKey, resetAt)
+	s.updateAccountModelRateLimitInCache(ctx, account, creditsExhaustedKey, resetAt, creditsExhaustedReason)
 	logger.LegacyPrintf("service.antigravity_gateway", "credits_exhausted_marked account=%d reset_at=%s",
 		account.ID, resetAt.UTC().Format(time.RFC3339))
 }
@@ -142,16 +146,16 @@ func resolveCreditsOveragesModelKey(ctx context.Context, account *Account, upstr
 }
 
 // shouldMarkCreditsExhausted 判断一次 credits 请求失败是否应标记为 credits 耗尽。
-func shouldMarkCreditsExhausted(resp *http.Response, respBody []byte, reqErr error) bool {
+// quotaConfirmed 表示原始 429 已明确指示免费配额耗尽；只有在这种情况下，
+// 通用 "Resource has been exhausted" 才能作为积分耗尽的证据。普通的模型/端点
+// 限流会返回同一文案（且通常不带 details），不能据此停用积分 5 小时。
+func shouldMarkCreditsExhausted(resp *http.Response, respBody []byte, reqErr error, quotaConfirmed bool) bool {
 	if reqErr != nil || resp == nil {
 		return false
 	}
 	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusRequestTimeout {
 		return false
 	}
-	// 注意：不再检查 isURLLevelRateLimit。此函数仅在积分重试失败后调用，
-	// 如果注入 enabledCreditTypes 后仍返回 "Resource has been exhausted"，
-	// 说明积分也已耗尽，应该标记。clearCreditsExhausted 会在后续成功时自动清除。
 	if info := parseAntigravitySmartRetryInfo(respBody); info != nil {
 		return false
 	}
@@ -161,7 +165,7 @@ func shouldMarkCreditsExhausted(resp *http.Response, respBody []byte, reqErr err
 			return true
 		}
 	}
-	return false
+	return quotaConfirmed && strings.Contains(bodyLower, "resource has been exhausted")
 }
 
 type creditsOveragesRetryResult struct {
@@ -205,7 +209,7 @@ func (s *AntigravityGatewayService) attemptCreditsOveragesRetry(
 		return &creditsOveragesRetryResult{handled: true, resp: creditsResp, pipeline: attempt.pipeline}
 	}
 
-	s.handleCreditsRetryFailure(p.ctx, p.prefix, modelKey, p.account, creditsResp, err)
+	s.handleCreditsRetryFailure(p.ctx, p.prefix, modelKey, p.account, creditsResp, err, true)
 	return &creditsOveragesRetryResult{handled: true}
 }
 
@@ -216,6 +220,7 @@ func (s *AntigravityGatewayService) handleCreditsRetryFailure(
 	account *Account,
 	creditsResp *http.Response,
 	reqErr error,
+	quotaConfirmed bool,
 ) {
 	var creditsRespBody []byte
 	creditsStatusCode := 0
@@ -227,7 +232,7 @@ func (s *AntigravityGatewayService) handleCreditsRetryFailure(
 		}
 	}
 
-	if shouldMarkCreditsExhausted(creditsResp, creditsRespBody, reqErr) && account != nil {
+	if shouldMarkCreditsExhausted(creditsResp, creditsRespBody, reqErr, quotaConfirmed) && account != nil {
 		s.setCreditsExhausted(ctx, account)
 		logger.LegacyPrintf("service.antigravity_gateway", "%s credit_overages_failed model=%s account=%d marked_exhausted=true status=%d body=%s",
 			prefix, modelKey, account.ID, creditsStatusCode, truncateForLog(creditsRespBody, 200))

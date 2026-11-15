@@ -62,11 +62,29 @@ func TestIsCreditsExhausted_UsesAICreditsKey(t *testing.T) {
 					creditsExhaustedKey: map[string]any{
 						"rate_limited_at":     time.Now().UTC().Format(time.RFC3339),
 						"rate_limit_reset_at": time.Now().Add(5 * time.Hour).UTC().Format(time.RFC3339),
+						"reason":              creditsExhaustedReason,
 					},
 				},
 			},
 		}
 		require.True(t, account.isCreditsExhausted())
+	})
+
+	t.Run("旧版无 reason 的 AICredits 记录不视为积分耗尽", func(t *testing.T) {
+		account := &Account{
+			ID:       4,
+			Platform: PlatformAntigravity,
+			Extra: map[string]any{
+				"allow_overages": true,
+				modelRateLimitsKey: map[string]any{
+					creditsExhaustedKey: map[string]any{
+						"rate_limited_at":     time.Now().UTC().Format(time.RFC3339),
+						"rate_limit_reset_at": time.Now().Add(5 * time.Hour).UTC().Format(time.RFC3339),
+					},
+				},
+			},
+		}
+		require.False(t, account.isCreditsExhausted())
 	})
 
 	t.Run("AICredits key 过期则积分可用", func(t *testing.T) {
@@ -242,6 +260,7 @@ func TestAntigravityRetryLoop_ModelRateLimited_InjectsCredits(t *testing.T) {
 				"claude-sonnet-4-5": map[string]any{
 					"rate_limited_at":     time.Now().UTC().Format(time.RFC3339),
 					"rate_limit_reset_at": time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
+					"reason":              antigravityRateLimitReasonQuotaExhausted,
 				},
 			},
 		},
@@ -266,6 +285,49 @@ func TestAntigravityRetryLoop_ModelRateLimited_InjectsCredits(t *testing.T) {
 	require.NotNil(t, result)
 	require.Len(t, upstream.requestBodies, 1)
 	require.Contains(t, string(upstream.requestBodies[0]), "enabledCreditTypes")
+}
+
+func TestAntigravityRetryLoop_RateLimitedModel_DoesNotInjectCredits(t *testing.T) {
+	upstream := &recordingOKUpstream{}
+	account := &Account{
+		ID:          106,
+		Name:        "acc-106",
+		Type:        AccountTypeOAuth,
+		Platform:    PlatformAntigravity,
+		Status:      StatusActive,
+		Schedulable: true,
+		Extra: map[string]any{
+			"allow_overages": true,
+			modelRateLimitsKey: map[string]any{
+				"claude-sonnet-4-5": map[string]any{
+					"rate_limited_at":     time.Now().UTC().Format(time.RFC3339),
+					"rate_limit_reset_at": time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
+					"reason":              antigravityRateLimitReasonRateLimited,
+				},
+			},
+		},
+	}
+
+	svc := &AntigravityGatewayService{}
+	result, err := svc.antigravityRetryLoop(antigravityRetryLoopParams{
+		ctx:            context.Background(),
+		prefix:         "[test]",
+		account:        account,
+		accessToken:    "token",
+		action:         "generateContent",
+		body:           []byte(`{"model":"claude-sonnet-4-5","request":{}}`),
+		httpUpstream:   upstream,
+		requestedModel: "claude-sonnet-4-5",
+		handleError: func(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, requestedModel string, groupID int64, sessionHash string, isStickySession bool) *handleModelRateLimitResult {
+			return nil
+		},
+	})
+
+	require.Nil(t, result)
+	var switchErr *AntigravityAccountSwitchError
+	require.ErrorAs(t, err, &switchErr)
+	require.Equal(t, http.StatusTooManyRequests, switchErr.FailoverStatusCode())
+	require.Equal(t, 0, upstream.calls, "non-quota model cooldown must not spend a credits attempt")
 }
 
 func TestAntigravityRetryLoop_CreditsExhausted_DoesNotInject(t *testing.T) {
@@ -293,10 +355,12 @@ func TestAntigravityRetryLoop_CreditsExhausted_DoesNotInject(t *testing.T) {
 				"claude-sonnet-4-5": map[string]any{
 					"rate_limited_at":     time.Now().UTC().Format(time.RFC3339),
 					"rate_limit_reset_at": time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
+					"reason":              antigravityRateLimitReasonQuotaExhausted,
 				},
 				creditsExhaustedKey: map[string]any{
 					"rate_limited_at":     time.Now().UTC().Format(time.RFC3339),
 					"rate_limit_reset_at": time.Now().Add(5 * time.Hour).UTC().Format(time.RFC3339),
+					"reason":              creditsExhaustedReason,
 				},
 			},
 		},
@@ -358,6 +422,7 @@ func TestAntigravityRetryLoop_CreditErrorMarksExhausted(t *testing.T) {
 				"claude-sonnet-4-5": map[string]any{
 					"rate_limited_at":     time.Now().UTC().Format(time.RFC3339),
 					"rate_limit_reset_at": time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
+					"reason":              antigravityRateLimitReasonQuotaExhausted,
 				},
 			},
 		},
@@ -389,39 +454,39 @@ func TestAntigravityRetryLoop_CreditErrorMarksExhausted(t *testing.T) {
 func TestShouldMarkCreditsExhausted(t *testing.T) {
 	t.Run("reqErr 不为 nil 时不标记", func(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusForbidden}
-		require.False(t, shouldMarkCreditsExhausted(resp, []byte(`{"error":"Insufficient credits"}`), io.ErrUnexpectedEOF))
+		require.False(t, shouldMarkCreditsExhausted(resp, []byte(`{"error":"Insufficient credits"}`), io.ErrUnexpectedEOF, true))
 	})
 
 	t.Run("resp 为 nil 时不标记", func(t *testing.T) {
-		require.False(t, shouldMarkCreditsExhausted(nil, []byte(`{"error":"Insufficient credits"}`), nil))
+		require.False(t, shouldMarkCreditsExhausted(nil, []byte(`{"error":"Insufficient credits"}`), nil, true))
 	})
 
 	t.Run("5xx 响应不标记", func(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusInternalServerError}
-		require.False(t, shouldMarkCreditsExhausted(resp, []byte(`{"error":"Insufficient credits"}`), nil))
+		require.False(t, shouldMarkCreditsExhausted(resp, []byte(`{"error":"Insufficient credits"}`), nil, true))
 	})
 
 	t.Run("408 RequestTimeout 不标记", func(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusRequestTimeout}
-		require.False(t, shouldMarkCreditsExhausted(resp, []byte(`{"error":"Insufficient credits"}`), nil))
+		require.False(t, shouldMarkCreditsExhausted(resp, []byte(`{"error":"Insufficient credits"}`), nil, true))
 	})
 
-	t.Run("Resource has been exhausted 应标记为积分耗尽", func(t *testing.T) {
-		resp := &http.Response{StatusCode: http.StatusTooManyRequests}
-		body := []byte(`{"error":{"message":"Resource has been exhausted"}}`)
-		require.True(t, shouldMarkCreditsExhausted(resp, body, nil))
-	})
-
-	t.Run("Resource has been exhausted (check quota) 完整格式应标记", func(t *testing.T) {
+	t.Run("未确认配额耗尽时通用 429 不标记积分耗尽", func(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusTooManyRequests}
 		body := []byte(`{"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota).","status":"RESOURCE_EXHAUSTED"}}`)
-		require.True(t, shouldMarkCreditsExhausted(resp, body, nil))
+		require.False(t, shouldMarkCreditsExhausted(resp, body, nil, false))
+	})
+
+	t.Run("确认配额耗尽后通用 429 标记积分耗尽", func(t *testing.T) {
+		resp := &http.Response{StatusCode: http.StatusTooManyRequests}
+		body := []byte(`{"error":{"message":"Resource has been exhausted"}}`)
+		require.True(t, shouldMarkCreditsExhausted(resp, body, nil, true))
 	})
 
 	t.Run("结构化限流不标记", func(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusTooManyRequests}
 		body := []byte(`{"error":{"status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"RATE_LIMIT_EXCEEDED"},{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"0.5s"}]}}`)
-		require.False(t, shouldMarkCreditsExhausted(resp, body, nil))
+		require.False(t, shouldMarkCreditsExhausted(resp, body, nil, true))
 	})
 
 	t.Run("含 credits 关键词时标记", func(t *testing.T) {
@@ -434,14 +499,14 @@ func TestShouldMarkCreditsExhausted(t *testing.T) {
 			"minimumCreditAmountForUsage requirement not met",
 		} {
 			body := []byte(`{"error":{"message":"` + keyword + `"}}`)
-			require.True(t, shouldMarkCreditsExhausted(resp, body, nil), "should mark for keyword: %s", keyword)
+			require.True(t, shouldMarkCreditsExhausted(resp, body, nil, false), "should mark for keyword: %s", keyword)
 		}
 	})
 
 	t.Run("无 credits 关键词时不标记", func(t *testing.T) {
 		resp := &http.Response{StatusCode: http.StatusForbidden}
 		body := []byte(`{"error":{"message":"permission denied"}}`)
-		require.False(t, shouldMarkCreditsExhausted(resp, body, nil))
+		require.False(t, shouldMarkCreditsExhausted(resp, body, nil, true))
 	})
 }
 

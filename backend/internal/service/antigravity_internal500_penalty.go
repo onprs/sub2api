@@ -72,8 +72,8 @@ func (s *AntigravityGatewayService) handleInternal500ForModel(
 ) {
 	if account != nil && isAntigravityGeminiImageModel(modelKey) {
 		until := time.Now().Add(internal500ImageCooldown())
-		if setModelRateLimitByModelName(ctx, s.accountRepo, account.ID, modelKey, prefix, http.StatusInternalServerError, until, false) {
-			s.updateAccountModelRateLimitInCache(ctx, account, modelKey, until)
+		if setModelRateLimitByModelName(ctx, s.accountRepo, account.ID, modelKey, prefix, http.StatusInternalServerError, until, false, antigravityRateLimitReasonInternal500) {
+			s.updateAccountModelRateLimitInCache(ctx, account, modelKey, until, antigravityRateLimitReasonInternal500)
 		}
 		slog.Info("internal500_image_model_cooldown",
 			"account_id", account.ID, "account_name", account.Name, "model", modelKey,

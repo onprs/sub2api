@@ -185,16 +185,18 @@ type AccountModelStatusItem = {
 const activeModelStatuses = computed<AccountModelStatusItem[]>(() => {
   const extra = props.account.extra as Record<string, unknown> | undefined
   const modelLimits = extra?.model_rate_limits as
-    | Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
+    | Record<string, { rate_limited_at: string; rate_limit_reset_at: string; reason?: string }>
     | undefined
   const now = new Date()
   const items: AccountModelStatusItem[] = []
 
   if (!modelLimits) return items
 
-  // 检查 AICredits key 是否生效（积分是否耗尽）
+  // 检查 AICredits key 是否生效（积分是否耗尽）。旧版本的通用 429 误写没有 reason，
+  // 后端已不再将其视为积分耗尽，这里同步忽略。
   const aiCreditsEntry = modelLimits['AICredits']
-  const hasActiveAICredits = aiCreditsEntry && new Date(aiCreditsEntry.rate_limit_reset_at) > now
+  const hasActiveAICredits =
+    aiCreditsEntry?.reason === 'credits_exhausted' && new Date(aiCreditsEntry.rate_limit_reset_at) > now
   const allowOverages = !!(extra?.allow_overages)
 
   for (const [model, info] of Object.entries(modelLimits)) {
@@ -202,9 +204,10 @@ const activeModelStatuses = computed<AccountModelStatusItem[]>(() => {
 
     if (model === 'AICredits') {
       // AICredits key → 积分已用尽
+      if (info.reason !== 'credits_exhausted') continue
       items.push({ kind: 'credits_exhausted', model, reset_at: info.rate_limit_reset_at })
-    } else if (allowOverages && !hasActiveAICredits) {
-      // 普通模型限流 + overages 启用 + 积分可用 → 正在走积分
+    } else if (allowOverages && !hasActiveAICredits && info.reason === 'antigravity_quota_exhausted') {
+      // 配额耗尽且 overages 启用、积分可用 → 正在走积分。普通模型/端点限流不走积分。
       items.push({ kind: 'credits_active', model, reset_at: info.rate_limit_reset_at })
     } else {
       // 普通模型限流

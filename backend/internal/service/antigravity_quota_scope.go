@@ -34,6 +34,20 @@ func (a *Account) GetRateLimitRemainingTime(requestedModel string) time.Duration
 	return a.GetRateLimitRemainingTimeWithContext(context.Background(), requestedModel)
 }
 
+// hasAntigravityQuotaRateLimit 报告当前请求的模型冷却是否由明确的配额耗尽产生。
+// 只有这类冷却可以触发 AI Credits 超量重试；普通 429 限流不是配额问题。
+func (a *Account) hasAntigravityQuotaRateLimit(ctx context.Context, requestedModel string) bool {
+	if a == nil {
+		return false
+	}
+	for _, key := range a.modelRateLimitKeysForRequest(ctx, requestedModel) {
+		if a.isRateLimitActiveForKey(key) && a.modelRateLimitReason(key) == antigravityRateLimitReasonQuotaExhausted {
+			return true
+		}
+	}
+	return false
+}
+
 // GetRateLimitRemainingTimeWithContext 获取限流剩余时间（模型级限流）
 // 返回 0 表示未限流或已过期
 func (a *Account) GetRateLimitRemainingTimeWithContext(ctx context.Context, requestedModel string) time.Duration {

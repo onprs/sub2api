@@ -192,7 +192,8 @@ describe('AccountStatusIndicator', () => {
             model_rate_limits: {
               'claude-sonnet-4-5': {
                 rate_limited_at: '2026-03-15T00:00:00Z',
-                rate_limit_reset_at: '2099-03-15T00:00:00Z'
+                rate_limit_reset_at: '2099-03-15T00:00:00Z',
+                reason: 'antigravity_quota_exhausted'
               }
             }
           }
@@ -207,6 +208,35 @@ describe('AccountStatusIndicator', () => {
 
     expect(wrapper.text()).toContain('⚡')
     expect(wrapper.text()).toContain('CSon45')
+  })
+
+  it('模型限流 + overages 启用 + 普通 429 原因 → 不显示 ⚡', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          id: 11,
+          name: 'ag-11',
+          extra: {
+            allow_overages: true,
+            model_rate_limits: {
+              'gemini-4-argon-high': {
+                rate_limited_at: '2026-03-15T00:00:00Z',
+                rate_limit_reset_at: '2099-03-15T00:00:00Z',
+                reason: 'antigravity_rate_limited'
+              }
+            }
+          }
+        })
+      },
+      global: {
+        stubs: {
+          Icon: true
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('gemini-4-argon-high')
+    expect(wrapper.text()).not.toContain('⚡')
   })
 
   it('模型限流 + overages 未启用 → 普通限流样式（无 ⚡）', () => {
@@ -247,7 +277,8 @@ describe('AccountStatusIndicator', () => {
             model_rate_limits: {
               'AICredits': {
                 rate_limited_at: '2026-03-15T00:00:00Z',
-                rate_limit_reset_at: '2099-03-15T00:00:00Z'
+                rate_limit_reset_at: '2099-03-15T00:00:00Z',
+                reason: 'credits_exhausted'
               }
             }
           }
@@ -263,6 +294,33 @@ describe('AccountStatusIndicator', () => {
     expect(wrapper.text()).toContain('admin.accounts.status.creditsExhausted')
   })
 
+  it('旧版无 reason 的 AICredits 记录 → 不显示积分已用尽', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          id: 12,
+          name: 'ag-12',
+          extra: {
+            allow_overages: true,
+            model_rate_limits: {
+              'AICredits': {
+                rate_limited_at: '2026-03-15T00:00:00Z',
+                rate_limit_reset_at: '2099-03-15T00:00:00Z'
+              }
+            }
+          }
+        })
+      },
+      global: {
+        stubs: {
+          Icon: true
+        }
+      }
+    })
+
+    expect(wrapper.text()).not.toContain('admin.accounts.status.creditsExhausted')
+  })
+
   it('模型限流 + overages 启用 + AICredits key 生效 → 普通限流样式（积分耗尽，无 ⚡）', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {
@@ -274,11 +332,13 @@ describe('AccountStatusIndicator', () => {
             model_rate_limits: {
               'claude-sonnet-4-5': {
                 rate_limited_at: '2026-03-15T00:00:00Z',
-                rate_limit_reset_at: '2099-03-15T00:00:00Z'
+                rate_limit_reset_at: '2099-03-15T00:00:00Z',
+                reason: 'antigravity_quota_exhausted'
               },
               'AICredits': {
                 rate_limited_at: '2026-03-15T00:00:00Z',
-                rate_limit_reset_at: '2099-03-15T00:00:00Z'
+                rate_limit_reset_at: '2099-03-15T00:00:00Z',
+                reason: 'credits_exhausted'
               }
             }
           }

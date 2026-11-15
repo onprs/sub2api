@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 )
 
@@ -127,6 +128,11 @@ func resolveGeminiThinkingVariantForLevel(account *Account, requestedModel strin
 	}
 	mapping := account.GetModelMapping()
 	if len(mapping) == 0 {
+		// 空映射直接使用官方默认路由表，让请求自带的思考档位生效，
+		// 而不是一律落到默认 high。
+		if route, ok := domain.ResolveAntigravityReasoningRoute(model, preferred); ok {
+			return route.WireModel, true
+		}
 		return "", false
 	}
 	// 裸名本身若已映射到其他具体模型（如 gemini-3.8-flash → gemini-3.8-flash-tiered、
