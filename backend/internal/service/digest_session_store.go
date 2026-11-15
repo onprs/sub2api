@@ -6,8 +6,11 @@ import (
 	"time"
 )
 
-// digestSessionTTL 摘要会话默认 TTL
-const digestSessionTTL = 5 * time.Minute
+// digestSessionTTL 摘要会话默认 TTL。
+// 必须覆盖 agent 会话的两轮间隔（工具运行、用户阅读常达数分钟）：TTL 过期后
+// digest Find 不再命中，粘性绑定丢失，跨账号切换会改写 thoughtSignature 并
+// 打断上游隐式缓存前缀链。与 gateway 侧 stickySessionTTL（1 小时）保持一致。
+const digestSessionTTL = time.Hour
 
 // sessionEntry flat cache 条目
 type sessionEntry struct {

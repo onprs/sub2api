@@ -164,6 +164,28 @@ func TestDigestSessionStore_TTLExpiration(t *testing.T) {
 	assert.False(t, found)
 }
 
+// TestDigestSessionStore_DefaultTTLcoversAgentTurnGap 锁定默认 TTL 语义：
+// agent 会话两轮间隔（工具运行、用户阅读）常达数分钟，默认 TTL 必须
+// 覆盖该间隔，否则 digest 匹配失效、粘性绑定丢失，跨账号签名清理会
+// 打断上游隐式缓存链（见 2026-11-15 Antigravity 缓存率排查）。
+func TestDigestSessionStore_DefaultTTLCoversAgentTurnGap(t *testing.T) {
+	store := NewDigestSessionStore()
+	t.Cleanup(store.Close)
+
+	require.Equal(t, time.Hour, store.ttl, "默认 TTL 应与粘性会话 stickySessionTTL 对齐（1 小时）")
+
+	store.Save(1, "prefix", "u:a-m:b", "uuid-1", 100, "")
+
+	// 模拟 6 分钟后的下一轮请求：仍必须命中（旧 5 分钟 TTL 会 miss）
+	entry, ok := store.cache.Load("1:prefix|u:a-m:b")
+	require.True(t, ok)
+	session, isEntry := entry.(*sessionEntry)
+	require.True(t, isEntry)
+	remaining := time.Until(session.expiresAt)
+	assert.Greater(t, remaining, 50*time.Minute,
+		"刚写入的会话剩余寿命必须远大于 agent 会话间隔")
+}
+
 func TestDigestSessionStore_ConcurrentSafety(t *testing.T) {
 	store := NewDigestSessionStore()
 	t.Cleanup(store.Close)
