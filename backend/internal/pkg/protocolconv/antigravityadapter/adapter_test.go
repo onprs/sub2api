@@ -121,3 +121,28 @@ func TestConvertRequestFromChatToGeminiFamily(t *testing.T) {
 	require.Equal(t, "gemini-3-flash", value["model"])
 	require.Equal(t, "hello", gjson.GetBytes(converted, "request.contents.0.parts.0.text").String())
 }
+
+func TestConvertGeminiFamilyMovesClientSystemPromptToUserContent(t *testing.T) {
+	body := []byte(`{
+		"contents":[{"role":"user","parts":[{"text":"只回复 ok"}]}],
+		"systemInstruction":{"parts":[{"text":"You are a coding assistant running inside pi, a coding agent harness. Help users inspect files."}]},
+		"generationConfig":{"thinkingConfig":{"thinkingLevel":"HIGH"}}
+	}`)
+	converted, warnings, err := ConvertRequest(body, protocolconv.ProtocolGoogleGenAI, Options{
+		Family: FamilyGemini, ProjectID: "project-1", SourceModel: "gemini-4-argon", WireModel: "gemini-4-argon-high",
+		RequestID: "request-1", UserAgent: "antigravity",
+	})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+
+	system := gjson.GetBytes(converted, "request.systemInstruction.parts.0.text").String()
+	require.Contains(t, system, "You are Antigravity")
+	require.NotContains(t, system, "running inside pi")
+
+	moved := gjson.GetBytes(converted, "request.contents.0.parts.0.text").String()
+	require.Equal(t, "<user_system_instructions>", moved)
+	require.Contains(t, gjson.GetBytes(converted, "request.contents.0.parts.1.text").String(), "running inside pi")
+	require.Equal(t, "</user_system_instructions>", gjson.GetBytes(converted, "request.contents.0.parts.2.text").String())
+	require.Equal(t, "只回复 ok", gjson.GetBytes(converted, "request.contents.1.parts.0.text").String())
+	require.Equal(t, "HIGH", gjson.GetBytes(converted, "request.generationConfig.thinkingConfig.thinkingLevel").String())
+}

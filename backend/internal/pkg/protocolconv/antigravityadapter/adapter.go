@@ -225,24 +225,80 @@ func adaptGemini(body []byte, options Options) ([]byte, error) {
 }
 
 func injectIdentity(request map[string]any, identity string) {
+	identity = strings.TrimSpace(identity)
 	if identity == "" {
 		identity = vendor.GetDefaultIdentityPatch()
 	}
 	instruction, _ := request["systemInstruction"].(map[string]any)
+	if hasAntigravityIdentity(instruction) {
+		return
+	}
+
+	// 不识别具体 harness：客户端 system prompt 统一移到第一条 user content，
+	// systemInstruction 只保留 Antigravity 身份。这样任何客户端身份句都不会
+	// 进入上游的 systemInstruction，同时不丢失客户端指令。
+	clientParts, clientText := splitClientSystemInstruction(instruction)
+	if clientText != "" || len(clientParts) > 0 {
+		userParts := make([]any, 0, len(clientParts)+3)
+		userParts = append(userParts, map[string]any{"text": "<user_system_instructions>"})
+		if clientText != "" {
+			userParts = append(userParts, map[string]any{"text": clientText})
+		}
+		userParts = append(userParts, clientParts...)
+		userParts = append(userParts, map[string]any{"text": "</user_system_instructions>"})
+		contents, _ := request["contents"].([]any)
+		request["contents"] = append([]any{map[string]any{"role": "user", "parts": userParts}}, contents...)
+	}
+
+	request["systemInstruction"] = map[string]any{
+		"role":  "user",
+		"parts": []any{map[string]any{"text": identity}},
+	}
+}
+
+func hasAntigravityIdentity(instruction map[string]any) bool {
 	if instruction == nil {
-		instruction = map[string]any{"role": "user"}
+		return false
+	}
+	if text, _ := instruction["text"].(string); strings.Contains(text, "[IDENTITY_PATCH]") || strings.Contains(text, "You are Antigravity") {
+		return true
 	}
 	parts, _ := instruction["parts"].([]any)
 	for _, raw := range parts {
-		if part, ok := raw.(map[string]any); ok {
-			if text, _ := part["text"].(string); strings.Contains(text, "[IDENTITY_PATCH]") || strings.Contains(text, "<identity>") {
-				request["systemInstruction"] = instruction
-				return
-			}
+		part, _ := raw.(map[string]any)
+		text, _ := part["text"].(string)
+		if strings.Contains(text, "[IDENTITY_PATCH]") || strings.Contains(text, "You are Antigravity") {
+			return true
 		}
 	}
-	instruction["parts"] = append([]any{map[string]any{"text": identity}}, parts...)
-	request["systemInstruction"] = instruction
+	return false
+}
+
+// splitClientSystemInstruction 将客户端 systemInstruction 拆成文本和非文本部分。
+// 文本会以单个 part 放入 user content，非文本 part（如图片）原样保留。
+func splitClientSystemInstruction(instruction map[string]any) ([]any, string) {
+	if instruction == nil {
+		return nil, ""
+	}
+	if text, _ := instruction["text"].(string); strings.TrimSpace(text) != "" {
+		return nil, text
+	}
+	parts, _ := instruction["parts"].([]any)
+	if len(parts) == 0 {
+		return nil, ""
+	}
+	texts := make([]string, 0, len(parts))
+	nonText := make([]any, 0, len(parts))
+	for _, raw := range parts {
+		part, _ := raw.(map[string]any)
+		text, _ := part["text"].(string)
+		if strings.TrimSpace(text) != "" {
+			texts = append(texts, text)
+			continue
+		}
+		nonText = append(nonText, raw)
+	}
+	return nonText, strings.Join(texts, "\n")
 }
 
 func dropIncompatibleBuiltins(request map[string]any) {
