@@ -111,15 +111,12 @@ func (s *AntigravityGatewayService) forwardStandardProtocol(
 
 func (s *AntigravityGatewayService) forwardGeminiAdapterOptions(
 	ctx context.Context,
-	opts forwardGeminiOptions,
+	_ forwardGeminiOptions,
 	projectID string,
 	sourceModel string,
 	wireModel string,
 ) antigravityadapter.Options {
-	family := antigravityadapter.FamilyGemini
-	if opts.pipelineFactory != nil {
-		family = antigravityFamilyForMappedModel(wireModel)
-	}
+	family := antigravityFamilyForMappedModel(wireModel)
 	adapterOptions := antigravityadapter.Options{
 		Family: family, ProjectID: projectID, SourceModel: sourceModel, WireModel: wireModel, UserAgent: "antigravity",
 	}

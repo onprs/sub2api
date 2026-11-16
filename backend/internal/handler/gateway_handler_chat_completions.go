@@ -13,6 +13,7 @@ import (
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
@@ -182,7 +183,6 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		parsedReq = &service.ParsedRequest{Model: reqModel, Stream: reqStream, Body: bodyRef}
 	}
 	parsedReq.SessionContext = &service.SessionContext{
-		ClientIP:  ip.GetClientIP(c),
 		UserAgent: c.GetHeader("User-Agent"),
 		APIKeyID:  apiKey.ID,
 	}
@@ -192,10 +192,66 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	if groupPlatform == service.PlatformGemini && selectionSessionHash != "" {
 		selectionSessionHash = "gemini:" + selectionSessionHash
 	}
+
+	// 查询粘性会话绑定的账号 ID（用于摘要链 fallback 与粘性状态判定）
+	var sessionBoundAccountID int64
+	if selectionSessionHash != "" && h.gatewayService != nil {
+		sessionBoundAccountID, _ = h.gatewayService.GetCachedSessionAccountID(c.Request.Context(), apiKey.GroupID, selectionSessionHash)
+		if sessionBoundAccountID > 0 {
+			prefetchedGroupID := int64(0)
+			if apiKey.GroupID != nil {
+				prefetchedGroupID = *apiKey.GroupID
+			}
+			ctx := service.WithPrefetchedStickySession(c.Request.Context(), sessionBoundAccountID, prefetchedGroupID, h.metadataBridgeEnabled())
+			c.Request = c.Request.WithContext(ctx)
+		}
+	}
+
+	// Chat Completions 客户端若未显式提供会话 ID / cache_control，GenerateSessionHash 会随对话增长
+	// 每轮变化；当直接查粘性缓存未命中时，用 messages 摘要链前缀匹配恢复同一会话的稳定 sessionKey。
+	var ccDigestChain string
+	var ccPrefixHash string
+	var ccSessionUUID string
+	var ccMatchedDigestChain string
+	useCCDigestFallback := sessionBoundAccountID == 0 && h.gatewayService != nil
+	if useCCDigestFallback {
+		ccDigestChain = service.BuildChatCompletionsDigestChain(body)
+		if ccDigestChain != "" {
+			ccPrefixHash = service.GenerateChatCompletionsPrefixHash(
+				subject.UserID,
+				apiKey.ID,
+				c.GetHeader("User-Agent"),
+				groupPlatform,
+				reqModel,
+			)
+			if foundUUID, foundAccountID, foundMatchedChain, found := h.gatewayService.FindChatCompletionsSession(
+				c.Request.Context(),
+				derefGroupID(apiKey.GroupID),
+				ccPrefixHash,
+				ccDigestChain,
+			); found {
+				ccMatchedDigestChain = foundMatchedChain
+				sessionBoundAccountID = foundAccountID
+				ccSessionUUID = foundUUID
+				selectionSessionHash = service.GenerateChatCompletionsDigestSessionKey(ccPrefixHash, foundUUID)
+				prefetchedGroupID := int64(0)
+				if apiKey.GroupID != nil {
+					prefetchedGroupID = *apiKey.GroupID
+				}
+				ctx := service.WithPrefetchedStickySession(c.Request.Context(), foundAccountID, prefetchedGroupID, h.metadataBridgeEnabled())
+				c.Request = c.Request.WithContext(ctx)
+				_ = h.gatewayService.BindStickySession(c.Request.Context(), apiKey.GroupID, selectionSessionHash, foundAccountID)
+			} else {
+				ccSessionUUID = uuid.New().String()
+				selectionSessionHash = service.GenerateChatCompletionsDigestSessionKey(ccPrefixHash, ccSessionUUID)
+			}
+		}
+	}
+	hasBoundSession := selectionSessionHash != "" && sessionBoundAccountID > 0
 	// 3. Account selection + failover loop
-	fs := NewFailoverState(h.maxAccountSwitches, false)
+	fs := NewFailoverState(h.maxAccountSwitches, hasBoundSession)
 	if groupPlatform == service.PlatformGemini {
-		fs = NewFailoverState(h.maxAccountSwitchesGemini, false)
+		fs = NewFailoverState(h.maxAccountSwitchesGemini, hasBoundSession)
 	}
 
 	for {
@@ -279,10 +335,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 		account = latest
 		selection.Account = latest
-		if selection.ProfitGateActive() {
-			if err := h.gatewayService.BindStickySessionAfterProfitAdmission(admissionCtx, apiKey.GroupID, selectionSessionHash, account.ID); err != nil {
-				reqLog.Warn("gateway.cc.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-			}
+		if err := h.gatewayService.BindStickySessionAfterProfitAdmission(admissionCtx, apiKey.GroupID, selectionSessionHash, account.ID); err != nil {
+			reqLog.Warn("gateway.cc.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 		}
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
@@ -342,7 +396,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				return
 			}
 			setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
-			result, err = h.antigravityGatewayService.ForwardStandardAsChatCompletions(c.Request.Context(), c, account, forwardBody, reqModel, false)
+			result, err = h.antigravityGatewayService.ForwardStandardAsChatCompletions(c.Request.Context(), c, account, forwardBody, reqModel, hasBoundSession)
 		default:
 			result, err = h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
 		}
@@ -426,7 +480,20 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			return
 		}
 
-		// 6. Record usage
+		// 6. Save digest session and record usage
+		if useCCDigestFallback && ccDigestChain != "" && ccPrefixHash != "" && h.gatewayService != nil {
+			if err := h.gatewayService.SaveChatCompletionsSession(
+				c.Request.Context(),
+				derefGroupID(apiKey.GroupID),
+				ccPrefixHash,
+				ccDigestChain,
+				ccSessionUUID,
+				account.ID,
+				ccMatchedDigestChain,
+			); err != nil {
+				reqLog.Warn("gateway.cc.digest_session_save_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			}
+		}
 		submitForwardUsage(result)
 		return
 	}

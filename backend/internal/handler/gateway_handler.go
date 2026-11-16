@@ -305,8 +305,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	parsedReq.GroupID = apiKey.GroupID
 
 	// 计算粘性会话hash
+	// 注意：仅对非 Gemini/Antigravity 请求或在 fallback 时不混入动态变化 IP 以外的场景保留兼容；
+	// 为避免多出口代理场景下同一客户端每轮更换出口 IP 导致粘性缓存失配，这里不混入 ClientIP。
 	parsedReq.SessionContext = &service.SessionContext{
-		ClientIP:  ip.GetClientIP(c),
 		UserAgent: c.GetHeader("User-Agent"),
 		APIKeyID:  apiKey.ID,
 	}

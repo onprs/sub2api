@@ -48,14 +48,15 @@ func BuildGeminiDigestChain(req *antigravity.GeminiRequest) string {
 }
 
 // GenerateGeminiPrefixHash 生成前缀 hash（用于分区隔离）
-// 组合: userID + apiKeyID + ip + userAgent + platform + model
+// 组合: userID + apiKeyID + userAgent + platform + model
+// 故意不混入客户端 IP：多出口网络/移动网络/代理池场景下同一会话每轮 IP 会变化，
+// 混入 IP 会导致 FindGeminiSession 失配并触发签名清理，打断上游隐式缓存链。
 // 返回 16 字符的 Base64 编码的 SHA256 前缀
-func GenerateGeminiPrefixHash(userID, apiKeyID int64, ip, userAgent, platform, model string) string {
-	// 组合所有标识符
+func GenerateGeminiPrefixHash(userID, apiKeyID int64, _ string, userAgent, platform, model string) string {
+	// 组合所有稳定标识符
 	normalizedUserAgent := NormalizeSessionUserAgent(userAgent)
 	combined := strconv.FormatInt(userID, 10) + ":" +
 		strconv.FormatInt(apiKeyID, 10) + ":" +
-		ip + ":" +
 		normalizedUserAgent + ":" +
 		platform + ":" +
 		model

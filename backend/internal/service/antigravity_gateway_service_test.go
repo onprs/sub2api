@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 // antigravityFailingWriter 模拟客户端断开连接的 gin.ResponseWriter
@@ -1206,6 +1207,78 @@ func TestAntigravityGatewayService_ForwardGemini_RetriesCorruptedThoughtSignatur
 	require.True(t, ok)
 	require.NotEmpty(t, events)
 	require.Equal(t, "signature_error", events[0].Kind)
+}
+
+func TestAntigravityGatewayService_ForwardGemini_ClaudeModelRectifiesInvalidThinkingSignature(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	writer := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(writer)
+
+	body := []byte(`{
+		"contents":[
+			{"role":"user","parts":[{"text":"hello"}]},
+			{"role":"model","parts":[
+				{"text":"old thinking","thought":true,"thoughtSignature":"bad-claude-signature"},
+				{"functionCall":{"id":"call-1","name":"lookup","args":{"q":"x"}},"thoughtSignature":"bad-claude-signature"}
+			]},
+			{"role":"user","parts":[{"functionResponse":{"id":"call-1","name":"lookup","response":{"result":"ok"}}}]}
+		],
+		"generationConfig":{"thinkingConfig":{"includeThoughts":true}}
+	}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/models/claude-sonnet-4-6:streamGenerateContent", bytes.NewReader(body))
+
+	firstRespBody := []byte(`{"error":{"code":400,"message":"{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.1.content.0: Invalid ` + "`signature`" + ` in ` + "`thinking`" + ` block\"},\"request_id\":\"req_vrtx_test\"}","status":"INVALID_ARGUMENT"}}`)
+	secondRespBody := "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":8,\"candidatesTokenCount\":3}}}\n\n"
+
+	upstream := &queuedHTTPUpstreamStub{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusBadRequest,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(bytes.NewReader(firstRespBody)),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body:       io.NopCloser(strings.NewReader(secondRespBody)),
+			},
+		},
+	}
+
+	svc := &AntigravityGatewayService{
+		settingService: NewSettingService(&antigravitySettingRepoStub{}, &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}),
+		tokenProvider:  &AntigravityTokenProvider{},
+		httpUpstream:   upstream,
+	}
+
+	account := &Account{
+		ID:          19,
+		Name:        "acc-gemini-to-claude-sig",
+		Platform:    PlatformAntigravity,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "token",
+			"project_id":   "proj",
+			"model_mapping": map[string]any{
+				"claude-sonnet-4-6": "claude-sonnet-4-6",
+			},
+		},
+	}
+
+	result, err := svc.ForwardGemini(context.Background(), c, account, "claude-sonnet-4-6", "streamGenerateContent", true, body, false)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.requestBodies, 2, "invalid thinking signature 400 must retry with rectified Claude request")
+
+	firstReq := string(upstream.requestBodies[0])
+	secondReq := string(upstream.requestBodies[1])
+	require.Contains(t, firstReq, `"thoughtSignature":"bad-claude-signature"`)
+	require.True(t, gjson.GetBytes(upstream.requestBodies[0], "request.generationConfig.thinkingConfig.includeThoughts").Bool())
+	require.NotContains(t, secondReq, "bad-claude-signature")
+	require.NotContains(t, secondReq, `"thought":true`)
+	require.False(t, gjson.GetBytes(upstream.requestBodies[1], "request.generationConfig.thinkingConfig").Exists())
 }
 
 func TestAntigravityGatewayService_ForwardGemini_SignatureRetryPropagatesFailover(t *testing.T) {

@@ -122,6 +122,60 @@ func TestConvertRequestFromChatToGeminiFamily(t *testing.T) {
 	require.Equal(t, "hello", gjson.GetBytes(converted, "request.contents.0.parts.0.text").String())
 }
 
+func TestConvertGeminiProtocolToClaudeFamily_HandlesAutoThinkingAndRectifiesSignatures(t *testing.T) {
+	body := []byte(`{
+		"contents":[
+			{"role":"user","parts":[{"text":"hello"}]},
+			{"role":"model","parts":[
+				{"text":"secret thought","thought":true,"thoughtSignature":"skip_thought_signature_validator"},
+				{"functionCall":{"id":"call-1","name":"lookup","args":{"q":"x"}},"thoughtSignature":"skip_thought_signature_validator"}
+			]},
+			{"role":"user","parts":[{"functionResponse":{"id":"call-1","name":"lookup","response":{"result":"ok"}}}]}
+		],
+		"generationConfig":{"thinkingConfig":{"includeThoughts":true}}
+	}`)
+
+	// 首次转换：dummy signature 对 Claude 必须被忽略/降级，不能注入到 Claude thinking/tool_use；
+	// thinkingConfig (auto) 降级后上层 thinking 也应被禁用，避免 400 Invalid signature。
+	converted, warnings, err := ConvertRequest(body, protocolconv.ProtocolGoogleGenAI, Options{
+		Family: FamilyClaude, ProjectID: "project-1", SourceModel: "claude-sonnet-4-6", WireModel: "claude-sonnet-4-6",
+	})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.NotContains(t, string(converted), dummyThoughtSignature)
+	require.False(t, gjson.GetBytes(converted, "request.generationConfig.thinkingConfig").Exists())
+
+	// 即使携带历史非空非 dummy 的 signature（例如跨账号或旧响应），首次转换应透传真实签名并保留 thinking；
+	// 启用 RectifySignatures 重试时必须剥离 thinking block 并禁用 thinkingConfig。
+	signedBody := []byte(`{
+		"contents":[
+			{"role":"user","parts":[{"text":"hello"}]},
+			{"role":"model","parts":[
+				{"text":"secret thought","thought":true,"thoughtSignature":"stale-signature-from-other-account"},
+				{"functionCall":{"id":"call-1","name":"lookup","args":{"q":"x"}},"thoughtSignature":"stale-signature-from-other-account"}
+			]},
+			{"role":"user","parts":[{"functionResponse":{"id":"call-1","name":"lookup","response":{"result":"ok"}}}]}
+		],
+		"generationConfig":{"thinkingConfig":{"includeThoughts":true}}
+	}`)
+	firstAttempt, _, err := ConvertRequest(signedBody, protocolconv.ProtocolGoogleGenAI, Options{
+		Family: FamilyClaude, ProjectID: "project-1", SourceModel: "claude-sonnet-4-6", WireModel: "claude-opus-5-5-high",
+	})
+	require.NoError(t, err)
+	require.True(t, gjson.GetBytes(firstAttempt, "request.contents.1.parts.0.thought").Bool())
+	require.Equal(t, "stale-signature-from-other-account", gjson.GetBytes(firstAttempt, "request.contents.1.parts.0.thoughtSignature").String())
+	require.True(t, gjson.GetBytes(firstAttempt, "request.generationConfig.thinkingConfig.includeThoughts").Bool())
+
+	rectified, _, err := ConvertRequest(signedBody, protocolconv.ProtocolGoogleGenAI, Options{
+		Family: FamilyClaude, ProjectID: "project-1", SourceModel: "claude-opus-5-5-high", WireModel: "claude-opus-5-5-high",
+		RectifySignatures: true,
+	})
+	require.NoError(t, err)
+	require.False(t, gjson.GetBytes(rectified, "request.contents.1.parts.0.thought").Bool())
+	require.Empty(t, gjson.GetBytes(rectified, "request.contents.1.parts.0.thoughtSignature").String())
+	require.False(t, gjson.GetBytes(rectified, "request.generationConfig.thinkingConfig").Exists())
+}
+
 func TestConvertGeminiFamilyMovesClientSystemPromptToUserContent(t *testing.T) {
 	body := []byte(`{
 		"contents":[{"role":"user","parts":[{"text":"只回复 ok"}]}],

@@ -87,6 +87,13 @@ func TransformClaudeToGemini(claudeReq *ClaudeRequest, projectID, mappedModel st
 
 // TransformClaudeToGeminiWithOptions 将 Claude 请求转换为 v1internal Gemini 格式（可配置身份补丁等行为）
 func TransformClaudeToGeminiWithOptions(claudeReq *ClaudeRequest, projectID, mappedModel string, opts TransformOptions) ([]byte, error) {
+	body, _, err := TransformClaudeToGeminiWithOptionsDetailed(claudeReq, projectID, mappedModel, opts)
+	return body, err
+}
+
+// TransformClaudeToGeminiWithOptionsDetailed 将 Claude 请求转换为 v1internal Gemini 格式，
+// 并返回是否在本次转换中因缺失或无效 signature 而降级了历史 thinking block。
+func TransformClaudeToGeminiWithOptionsDetailed(claudeReq *ClaudeRequest, projectID, mappedModel string, opts TransformOptions) ([]byte, bool, error) {
 	// 用于存储 tool_use id -> name 映射
 	toolIDToName := make(map[string]string)
 
@@ -114,7 +121,7 @@ func TransformClaudeToGeminiWithOptions(claudeReq *ClaudeRequest, projectID, map
 	// 1. 构建 contents
 	contents, messageSystemParts, strippedThinking, err := buildContents(claudeReq.Messages, toolIDToName, isThinkingEnabled, allowDummyThought, gemini.SupportsMultimodalFunctionResponses(targetModel))
 	if err != nil {
-		return nil, fmt.Errorf("build contents: %w", err)
+		return nil, false, fmt.Errorf("build contents: %w", err)
 	}
 
 	// 2. 构建 systemInstruction（使用 targetModel 而非原始请求模型，确保身份注入基于最终模型）
@@ -188,7 +195,8 @@ func TransformClaudeToGeminiWithOptions(claudeReq *ClaudeRequest, projectID, map
 		Request:     innerRequest,
 	}
 
-	return json.Marshal(v1Req)
+	body, err := json.Marshal(v1Req)
+	return body, strippedThinking, err
 }
 
 // antigravityIdentity Antigravity identity 提示词
