@@ -93,24 +93,39 @@ func commandCodeBillingSeedPricing(t *testing.T) []ChannelModelPricing {
 	require.Len(t, parts, 3)
 	var latestQuotas map[string]MonthlyQuotaPolicy
 	require.NoError(t, json.Unmarshal([]byte(parts[1]), &latestQuotas))
-	retained := make([]commandCodeBillingSeed, 0, len(seeds)+len(additions)+len(latestAdditions))
+	// 254 同步 2026-11-16 官方目录：新增模型与额度调整。
+	sync254, err := os.ReadFile("../../migrations/254_sync_official_channel_catalogs_20261116.sql")
+	require.NoError(t, err)
+	parts = strings.Split(string(sync254), "$commandcode_additions$")
+	require.Len(t, parts, 3)
+	var additions254 []commandCodeBillingSeed
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &additions254))
+	parts = strings.Split(string(sync254), "$commandcode_quotas$")
+	require.Len(t, parts, 3)
+	var quotas254 map[string]MonthlyQuotaPolicy
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &quotas254))
+	retained := make([]commandCodeBillingSeed, 0, len(seeds)+len(additions)+len(latestAdditions)+len(additions254))
 	for _, seed := range seeds {
 		if slices.Contains(retired, seed.Model) || slices.Contains(latestRetired, seed.Model) {
 			continue
 		}
-		if quota, ok := latestQuotas[seed.Model]; ok {
+		if quota, ok := quotas254[seed.Model]; ok {
+			seed.MonthlyQuota = quota
+		} else if quota, ok := latestQuotas[seed.Model]; ok {
 			seed.MonthlyQuota = quota
 		} else if quota, ok := quotas[seed.Model]; ok {
 			seed.MonthlyQuota = quota
 		}
 		retained = append(retained, seed)
 	}
-	for _, generation := range [][]commandCodeBillingSeed{additions, latestAdditions} {
+	for _, generation := range [][]commandCodeBillingSeed{additions, latestAdditions, additions254} {
 		for _, seed := range generation {
 			if slices.Contains(retired, seed.Model) || slices.Contains(latestRetired, seed.Model) {
 				continue
 			}
-			if quota, ok := latestQuotas[seed.Model]; ok {
+			if quota, ok := quotas254[seed.Model]; ok {
+				seed.MonthlyQuota = quota
+			} else if quota, ok := latestQuotas[seed.Model]; ok {
 				seed.MonthlyQuota = quota
 			} else if quota, ok := quotas[seed.Model]; ok {
 				seed.MonthlyQuota = quota

@@ -47,6 +47,9 @@ type TransformOptions struct {
 	// 为空时使用默认模板（包含 [IDENTITY_PATCH] 及 SYSTEM_PROMPT_BEGIN 标记）。
 	IdentityPatch string
 	EnableMCPXML  bool
+	// MoveSystemToUserContent 将非 Antigravity 的客户端系统提示词移到第一条 user content，
+	// 仅在 systemInstruction 中保留 Antigravity 身份，避免上游对第三方 harness 提示词返回 429。
+	MoveSystemToUserContent bool
 }
 
 func DefaultTransformOptions() TransformOptions {
@@ -125,12 +128,18 @@ func TransformClaudeToGeminiWithOptionsDetailed(claudeReq *ClaudeRequest, projec
 	}
 
 	// 2. 构建 systemInstruction（使用 targetModel 而非原始请求模型，确保身份注入基于最终模型）
-	systemInstruction := buildSystemInstruction(claudeReq.System, targetModel, opts, claudeReq.Tools)
-	if len(messageSystemParts) > 0 {
-		if systemInstruction == nil {
-			systemInstruction = &GeminiContent{Role: "user"}
+	var systemInstruction *GeminiContent
+	var movedSystemParts []GeminiPart
+	if opts.MoveSystemToUserContent {
+		systemInstruction, movedSystemParts = buildIsolatedSystemInstruction(claudeReq.System, messageSystemParts, targetModel, opts, claudeReq.Tools)
+	} else {
+		systemInstruction = buildSystemInstruction(claudeReq.System, targetModel, opts, claudeReq.Tools)
+		if len(messageSystemParts) > 0 {
+			if systemInstruction == nil {
+				systemInstruction = &GeminiContent{Role: "user"}
+			}
+			systemInstruction.Parts = append(systemInstruction.Parts, messageSystemParts...)
 		}
-		systemInstruction.Parts = append(systemInstruction.Parts, messageSystemParts...)
 	}
 
 	// 3. 构建 generationConfig
@@ -152,11 +161,18 @@ func TransformClaudeToGeminiWithOptionsDetailed(claudeReq *ClaudeRequest, projec
 	// 4. 构建 tools
 	tools := buildTools(claudeReq.Tools)
 
+	// 先基于真实用户对话计算稳定的 sessionId，再前置 <user_system_instructions>，
+	// 避免不同会话因系统提示词相同而共享同一个 sessionId。
+	stableSessionID := generateStableSessionID(contents)
+	if len(movedSystemParts) > 0 {
+		contents = prependUserSystemInstructions(contents, movedSystemParts)
+	}
+
 	// 5. 构建内部请求
 	innerRequest := GeminiRequest{
 		Contents: contents,
 		// 总是生成 sessionId，基于用户消息内容
-		SessionID: generateStableSessionID(contents),
+		SessionID: stableSessionID,
 	}
 
 	// toolConfig must always be present: upstream rejects requests without it,
@@ -425,6 +441,107 @@ func buildSystemInstruction(system json.RawMessage, modelName string, opts Trans
 		Role:  "user",
 		Parts: parts,
 	}
+}
+
+// buildIsolatedSystemInstruction 参考 adaptGemini/injectIdentity 的策略：
+// 当客户端已自带 Antigravity 身份时原样保留在 systemInstruction；
+// 否则把所有客户端系统提示词（含消息内 system 角色与 MCP 协议）移出 systemInstruction，
+// systemInstruction 仅保留纯 Antigravity 身份，避免上游风控返回 429。
+func buildIsolatedSystemInstruction(
+	system json.RawMessage,
+	messageSystemParts []GeminiPart,
+	modelName string,
+	opts TransformOptions,
+	tools []ClaudeTool,
+) (*GeminiContent, []GeminiPart) {
+	userHasAntigravityIdentity := false
+	var userSystemParts []GeminiPart
+
+	if len(system) > 0 {
+		var sysStr string
+		if err := json.Unmarshal(system, &sysStr); err == nil {
+			sysStr = NeutralizeSystemIdentity(sysStr)
+			if strings.TrimSpace(sysStr) != "" {
+				if strings.Contains(sysStr, "[IDENTITY_PATCH]") || strings.Contains(sysStr, "You are Antigravity") {
+					userHasAntigravityIdentity = true
+				}
+				userSystemParts = append(userSystemParts, GeminiPart{Text: sysStr})
+			}
+		} else {
+			var sysBlocks []SystemBlock
+			if err := json.Unmarshal(system, &sysBlocks); err == nil {
+				for _, block := range sysBlocks {
+					block.Text = NeutralizeSystemIdentity(block.Text)
+					if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
+						if strings.Contains(block.Text, "[IDENTITY_PATCH]") || strings.Contains(block.Text, "You are Antigravity") {
+							userHasAntigravityIdentity = true
+						}
+						userSystemParts = append(userSystemParts, GeminiPart{Text: block.Text})
+					}
+				}
+			}
+		}
+	}
+
+	if userHasAntigravityIdentity {
+		parts := append(userSystemParts, messageSystemParts...)
+		if opts.EnableMCPXML && hasMCPTools(tools) {
+			parts = append(parts, GeminiPart{Text: mcpXMLProtocol})
+		}
+		if len(parts) == 0 {
+			return nil, nil
+		}
+		return &GeminiContent{Role: "user", Parts: parts}, nil
+	}
+
+	movedParts := make([]GeminiPart, 0, len(userSystemParts)+len(messageSystemParts)+1)
+	movedParts = append(movedParts, userSystemParts...)
+	movedParts = append(movedParts, messageSystemParts...)
+	if opts.EnableMCPXML && hasMCPTools(tools) {
+		movedParts = append(movedParts, GeminiPart{Text: mcpXMLProtocol})
+	}
+
+	var sysInstruction *GeminiContent
+	if opts.EnableIdentityPatch {
+		identityPatch := strings.TrimSpace(opts.IdentityPatch)
+		if identityPatch == "" {
+			identityPatch = defaultIdentityPatch(modelName)
+		}
+		sysParts := []GeminiPart{{Text: identityPatch}}
+		if modelIdentity := buildModelIdentityText(modelName); modelIdentity != "" {
+			sysParts = append(sysParts, GeminiPart{Text: modelIdentity})
+		}
+		sysInstruction = &GeminiContent{
+			Role:  "user",
+			Parts: sysParts,
+		}
+	}
+	return sysInstruction, movedParts
+}
+
+func prependUserSystemInstructions(contents []GeminiContent, movedParts []GeminiPart) []GeminiContent {
+	var texts []string
+	var nonText []GeminiPart
+	for _, part := range movedParts {
+		if strings.TrimSpace(part.Text) != "" && part.InlineData == nil && part.FunctionCall == nil && part.FunctionResponse == nil {
+			texts = append(texts, part.Text)
+			continue
+		}
+		if part.Text != "" || part.InlineData != nil || part.FunctionCall != nil || part.FunctionResponse != nil {
+			nonText = append(nonText, part)
+		}
+	}
+	if len(texts) == 0 && len(nonText) == 0 {
+		return contents
+	}
+	userParts := make([]GeminiPart, 0, len(nonText)+3)
+	userParts = append(userParts, GeminiPart{Text: "<user_system_instructions>"})
+	if len(texts) > 0 {
+		userParts = append(userParts, GeminiPart{Text: strings.Join(texts, "\n")})
+	}
+	userParts = append(userParts, nonText...)
+	userParts = append(userParts, GeminiPart{Text: "</user_system_instructions>"})
+	return append([]GeminiContent{{Role: "user", Parts: userParts}}, contents...)
 }
 
 // buildContents 构建 contents

@@ -122,6 +122,8 @@ func (s *AntigravityGatewayService) forwardGeminiAdapterOptions(
 	}
 	if family == antigravityadapter.FamilyClaude {
 		adapterOptions.TransformOptions = s.getClaudeTransformOptions(ctx)
+		// Antigravity 上游要求 systemInstruction 必须包含 Antigravity 身份，强制启用与 Forward 一致。
+		adapterOptions.TransformOptions.EnableIdentityPatch = true
 	}
 	return adapterOptions
 }

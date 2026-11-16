@@ -186,6 +186,10 @@
                 "protocol": "anthropic"
               },
               {
+                "pattern": "minimax-m3.1-flash",
+                "protocol": "chat_completions"
+              },
+              {
                 "pattern": "minimax-*",
                 "protocol": "anthropic"
               },
@@ -214,6 +218,10 @@
               },
               {
                 "pattern": "muse-spark-*",
+                "protocol": "responses"
+              },
+              {
+                "pattern": "muse-ember-*",
                 "protocol": "responses"
               },
               {

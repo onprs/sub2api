@@ -106,19 +106,21 @@ func DefaultOpenCodeGoProtocolRules() []ProtocolRule {
 		{Pattern: "muse-wonder-*", Protocol: APIProtocolResponses},
 		{Pattern: "gemini-*", Protocol: APIProtocolGoogleGenAI},
 		{Pattern: "claude-haiku-5-5", Protocol: APIProtocolAnthropic},
+		{Pattern: "minimax-m3.1-flash", Protocol: APIProtocolChatCompletions},
 		{Pattern: "minimax-*", Protocol: APIProtocolAnthropic},
 		{Pattern: "qwen*", Protocol: APIProtocolAnthropic},
 	}
 }
 
 // DefaultOpenCodeZenProtocolRules 对齐 https://opencode.ai/docs/zen/ 端点表：
-// GPT/Grok/Muse Spark/Muse Wonder → Responses，Claude/Qwen(除 qwen3.8-max) → Anthropic，
+// GPT/Grok/Muse Spark/Muse Ember/Muse Wonder → Responses，Claude/Qwen(除 qwen3.8-max) → Anthropic，
 // qwen3.8-max 及其余模型 → Chat Completions。
 func DefaultOpenCodeZenProtocolRules() []ProtocolRule {
 	return []ProtocolRule{
 		{Pattern: "grok-*", Protocol: APIProtocolResponses},
 		{Pattern: "gpt-*", Protocol: APIProtocolResponses},
 		{Pattern: "muse-spark-*", Protocol: APIProtocolResponses},
+		{Pattern: "muse-ember-*", Protocol: APIProtocolResponses},
 		{Pattern: "muse-wonder-*", Protocol: APIProtocolResponses},
 		{Pattern: "claude-*", Protocol: APIProtocolAnthropic},
 		{Pattern: "qwen3.8-max", Protocol: APIProtocolChatCompletions},
