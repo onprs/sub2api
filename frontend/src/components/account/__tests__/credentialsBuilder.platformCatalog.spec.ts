@@ -47,6 +47,7 @@ const legacyGoRules = [
   { pattern: 'muse-wonder-*', protocol: 'responses' },
   { pattern: 'gemini-*', protocol: 'google_genai' },
   { pattern: 'claude-haiku-5-5', protocol: 'anthropic' },
+  { pattern: 'minimax-m3.1-flash', protocol: 'chat_completions' },
   { pattern: 'minimax-*', protocol: 'anthropic' },
   { pattern: 'qwen*', protocol: 'anthropic' }
 ]
@@ -55,6 +56,7 @@ const legacyZenRules = [
   { pattern: 'grok-*', protocol: 'responses' },
   { pattern: 'gpt-*', protocol: 'responses' },
   { pattern: 'muse-spark-*', protocol: 'responses' },
+  { pattern: 'muse-ember-*', protocol: 'responses' },
   { pattern: 'muse-wonder-*', protocol: 'responses' },
   { pattern: 'claude-*', protocol: 'anthropic' },
   { pattern: 'qwen3.8-max', protocol: 'chat_completions' },

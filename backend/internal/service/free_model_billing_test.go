@@ -77,6 +77,27 @@ func applyFreeModelMigrationForTest(t *testing.T, entries []ChannelModelPricing)
 			models["opencode_go"] = append(models["opencode_go"], entry.Models...)
 		}
 	}
+	// 254 新增的官方免费模型沿用同一固定免费价格。
+	sync254, err := os.ReadFile("../../migrations/254_sync_official_channel_catalogs_20261116.sql")
+	require.NoError(t, err)
+	parts = strings.Split(string(sync254), "$commandcode_additions$")
+	require.Len(t, parts, 3)
+	var additions254CommandCode []commandCodeBillingSeed
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &additions254CommandCode))
+	for _, entry := range additions254CommandCode {
+		if entry.MonthlyQuota.BaseCreditsUSD == 0 && len(entry.MonthlyQuota.Periods) == 0 {
+			models["command_code"] = append(models["command_code"], entry.Model)
+		}
+	}
+	parts = strings.Split(string(sync254), "$opencode_additions$")
+	require.Len(t, parts, 3)
+	var additions254OpenCode []ChannelModelPricing
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &additions254OpenCode))
+	for _, entry := range additions254OpenCode {
+		if entry.InputPrice != nil && *entry.InputPrice <= 1e-9 {
+			models["opencode_go"] = append(models["opencode_go"], entry.Models...)
+		}
+	}
 	parts = strings.Split(string(migration), "$free_price$")
 	require.Len(t, parts, 3)
 	var price float64
@@ -155,9 +176,9 @@ func TestFreeModelBillingUsesFixedTokenAndCachePrices(t *testing.T) {
 }
 
 func TestFreeModelBillingKeepsWhitelistAndPaidRates(t *testing.T) {
-	require.Len(t, openCodeFreeModels, 14)
-	require.Len(t, DefaultOpenCodeGoModelIDs(), 32)
-	require.Len(t, openCodeZenPricedModels, 79)
+	require.Len(t, openCodeFreeModels, 15)
+	require.Len(t, DefaultOpenCodeGoModelIDs(), 34)
+	require.Len(t, openCodeZenPricedModels, 80)
 	var commandCodeFreeModels []string
 	for _, entry := range commandCodeFallbackCatalogEntries() {
 		pricing, available := commandCodeCatalogPricingAt(entry, time.Date(2026, 10, 14, 5, 0, 0, 0, time.UTC))
@@ -165,8 +186,8 @@ func TestFreeModelBillingKeepsWhitelistAndPaidRates(t *testing.T) {
 			commandCodeFreeModels = append(commandCodeFreeModels, entry.ID)
 		}
 	}
-	require.Len(t, commandCodeFreeModels, 1)
-	require.ElementsMatch(t, []string{"stealth/glyph-cluster:free"}, commandCodeFreeModels)
+	require.Len(t, commandCodeFreeModels, 2)
+	require.ElementsMatch(t, []string{"stealth/glyph-cluster:free", "thinkingmachines/inkling-2-small:free"}, commandCodeFreeModels)
 	for _, model := range openCodeFreeModels {
 		if model == "iceman-contributor-free" {
 			continue

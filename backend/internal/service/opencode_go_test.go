@@ -250,7 +250,15 @@ func TestDefaultOpenCodeGoModelIDsCoverDocumentedCatalog(t *testing.T) {
 	require.Contains(t, ids, "gemini-4-argon")
 	require.Contains(t, ids, "minimax-m3")
 	require.Contains(t, ids, "glm-5.3")
+	require.Contains(t, ids, "qwen4-max")
+	require.Contains(t, ids, "hy4-flash-free")
 	require.NotEmpty(t, ids)
+
+	require.Equal(t, APIProtocolChatCompletions, matchProtocolRules("minimax-m3.1-flash", DefaultOpenCodeGoProtocolRules()))
+	require.Equal(t, APIProtocolAnthropic, matchProtocolRules("minimax-m3", DefaultOpenCodeGoProtocolRules()))
+	require.Equal(t, APIProtocolAnthropic, matchProtocolRules("qwen4-max", DefaultOpenCodeGoProtocolRules()))
+	require.Equal(t, APIProtocolChatCompletions, matchProtocolRules("hy4-flash-free", DefaultOpenCodeGoProtocolRules()))
+	require.Equal(t, APIProtocolResponses, matchProtocolRules("muse-ember-1.0", DefaultOpenCodeZenProtocolRules()))
 }
 
 func TestIsOpenCodeUnsupportedModel(t *testing.T) {

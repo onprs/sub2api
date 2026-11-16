@@ -128,6 +128,11 @@ func convertRequest(body []byte, source protocolconv.Protocol, options Options) 
 		if transform == (vendor.TransformOptions{}) {
 			transform = vendor.DefaultTransformOptions()
 		}
+		if source == protocolconv.ProtocolGoogleGenAI {
+			// Gemini 协议（含经过标准桥接的 Chat/Responses）与 FamilyGemini 对齐：
+			// 客户端系统提示词移出 systemInstruction 放到首条 user content，避免第三方 harness 提示词触发 429。
+			transform.MoveSystemToUserContent = true
+		}
 		converted, strippedThinking, err := vendor.TransformClaudeToGeminiWithOptionsDetailed(&request, options.ProjectID, options.WireModel, transform)
 		thinkingDisabled := rectifiedThinking || strippedThinking
 		if err != nil || source != protocolconv.ProtocolGoogleGenAI || options.RectifySignatures {
