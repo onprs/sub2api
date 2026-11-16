@@ -706,12 +706,15 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	if cachedContentBinding == nil {
 		sessionHash = extractGeminiCLISessionHash(c, body)
 	}
+	hasExplicitCLISession := sessionHash != ""
 	if sessionHash == "" && cachedContentBinding == nil {
 		// Fallback: 使用通用的会话哈希生成逻辑（适用于其他客户端）
+		// 注意：不要把客户端 IP 混入 fallback hash，多出口/代理池每轮 IP 变化会导致
+		// sessionKey 漂移；同一请求的重试仍可通过消息内容产生确定性 hash，而跨轮增长
+		// 对话依赖下方 DigestSessionStore 的前缀匹配恢复并绑定同一个 sessionKey。
 		parsedReq, _ := service.ParseGatewayRequest(service.NewRequestBodyRef(body), domain.PlatformGemini)
 		if parsedReq != nil {
 			parsedReq.SessionContext = &service.SessionContext{
-				ClientIP:  ip.GetClientIP(c),
 				UserAgent: c.GetHeader("User-Agent"),
 				APIKeyID:  apiKey.ID,
 			}
@@ -738,7 +741,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	}
 
 	// === Gemini 内容摘要会话 Fallback 逻辑 ===
-	// 当原有会话标识无效时（sessionBoundAccountID == 0），尝试基于内容摘要链匹配
+	// 当原有会话标识未命中绑定时（sessionBoundAccountID == 0），尝试基于内容摘要链匹配。
+	// 注意：即使上面通过请求全量内容算出了 sessionKey（多轮对话下每轮都不同），
+	// 只要未命中缓存就必须先尝试 FindGeminiSession；一旦命中前缀，将 sessionKey
+	// 收敛到该会话的稳定 digest session key，确保后续调度与跨账号切换检测一致。
 	var geminiDigestChain string
 	var geminiPrefixHash string
 	var geminiSessionUUID string
@@ -752,14 +758,13 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			// 生成摘要链
 			geminiDigestChain = service.BuildGeminiDigestChain(&geminiReq)
 			if geminiDigestChain != "" {
-				// 生成前缀 hash
+				// 生成前缀 hash（不含 ClientIP，避免多出口网络每轮变化导致失配）
 				userAgent := c.GetHeader("User-Agent")
-				clientIP := ip.GetClientIP(c)
 				platform := geminiIngressPlatform
 				geminiPrefixHash = service.GenerateGeminiPrefixHash(
 					authSubject.UserID,
 					apiKey.ID,
-					clientIP,
+					"",
 					userAgent,
 					platform,
 					modelName,
@@ -782,16 +787,21 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 						zap.String("digest_chain", truncateDigestChain(geminiDigestChain)),
 					)
 
-					// 关键：如果原 sessionKey 为空，使用 prefixHash + uuid 作为 sessionKey
-					// 这样 SelectAccountWithLoadAwareness 的粘性会话逻辑会优先使用匹配到的账号
-					if sessionKey == "" {
+					// 仅在无显式 CLI 会话标识时收敛到稳定 digest session key，保留显式 CLI 会话 key。
+					if !hasExplicitCLISession {
 						sessionKey = service.GenerateGeminiDigestSessionKey(geminiPrefixHash, foundUUID)
 					}
+					prefetchedGroupID := int64(0)
+					if apiKey.GroupID != nil {
+						prefetchedGroupID = *apiKey.GroupID
+					}
+					ctx := service.WithPrefetchedStickySession(c.Request.Context(), foundAccountID, prefetchedGroupID, h.metadataBridgeEnabled())
+					c.Request = c.Request.WithContext(ctx)
 					_ = h.gatewayService.BindStickySession(c.Request.Context(), apiKey.GroupID, sessionKey, foundAccountID)
 				} else {
 					// 生成新的会话 UUID
 					geminiSessionUUID = uuid.New().String()
-					// 为新会话也生成 sessionKey（用于后续请求的粘性会话）
+					// 首轮未知会话在 sessionKey 为空时使用稳定 UUID
 					if sessionKey == "" {
 						sessionKey = service.GenerateGeminiDigestSessionKey(geminiPrefixHash, geminiSessionUUID)
 					}
@@ -1056,7 +1066,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 
-		// 保存 Gemini 内容摘要会话（用于 Fallback 匹配）
+		// 清理粘性会话时一并从原始 body 剥离本地修改，使保存的摘要链与客户端下轮请求一致。
 		if useDigestFallback && geminiDigestChain != "" && geminiPrefixHash != "" {
 			if err := h.gatewayService.SaveGeminiSession(
 				c.Request.Context(),

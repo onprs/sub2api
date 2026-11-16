@@ -1066,6 +1066,23 @@ func (s *GatewayService) SaveAnthropicSession(_ context.Context, groupID int64, 
 	return nil
 }
 
+// FindChatCompletionsSession 查找 Chat Completions 会话（基于内容摘要链的 Fallback 匹配）
+func (s *GatewayService) FindChatCompletionsSession(_ context.Context, groupID int64, prefixHash, digestChain string) (uuid string, accountID int64, matchedChain string, found bool) {
+	if digestChain == "" || s.digestStore == nil {
+		return "", 0, "", false
+	}
+	return s.digestStore.Find(groupID, prefixHash, digestChain)
+}
+
+// SaveChatCompletionsSession 保存 Chat Completions 会话
+func (s *GatewayService) SaveChatCompletionsSession(_ context.Context, groupID int64, prefixHash, digestChain, uuid string, accountID int64, oldDigestChain string) error {
+	if digestChain == "" || s.digestStore == nil {
+		return nil
+	}
+	s.digestStore.Save(groupID, prefixHash, digestChain, uuid, accountID, oldDigestChain)
+	return nil
+}
+
 func (s *GatewayService) extractCacheableContent(parsed *ParsedRequest) string {
 	if parsed == nil {
 		return ""

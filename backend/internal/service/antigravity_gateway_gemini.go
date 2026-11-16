@@ -185,8 +185,11 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 					return nil, convertErr
 				}
 			}
-			// 缺失 thoughtSignature 的历史 functionCall 会被 v1internal 拒绝，先补占位签名。
-			googleBody = ensureGeminiFunctionCallThoughtSignatures(googleBody)
+			if antigravityFamilyForMappedModel(attemptRoute.WireModel) == antigravityadapter.FamilyGemini {
+				// 缺失 thoughtSignature 的历史 functionCall 会被 v1internal 拒绝，先补占位签名。
+				// Claude 模型不接受 Gemini 占位签名，不能提前注入。
+				googleBody = ensureGeminiFunctionCallThoughtSignatures(googleBody)
+			}
 			adapterOptions := s.forwardGeminiAdapterOptions(ctx, forwardOpts, projectID, attemptRoute.ModelID, attemptRoute.WireModel)
 			adapterOptions.RectifySignatures = rectifySignatures
 			wrappedBody, _, convertErr := antigravityadapter.ConvertRequest(googleBody, protocolconv.ProtocolGoogleGenAI, adapterOptions)
@@ -337,7 +340,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 			s.settingService != nil &&
 			s.settingService.IsSignatureRectifierEnabled(ctx) &&
 			isSignatureRelatedError(signatureCheckBody) &&
-			bytes.Contains(body, []byte(`"thoughtSignature"`)) {
+			(bytes.Contains(body, []byte(`"thoughtSignature"`)) || bytes.Contains(initialAttempt.body, []byte(`"thoughtSignature"`))) {
 			upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractAntigravityErrorMessage(signatureCheckBody)))
 			upstreamDetail := s.getUpstreamErrorDetail(signatureCheckBody)
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -370,6 +373,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 					accessToken:          accessToken,
 					action:               upstreamAction,
 					body:                 retryAttempt.body,
+					firstAttempt:         retryAttempt,
 					bodyFactory:          signatureRetryBodyFactory,
 					c:                    c,
 					httpUpstream:         s.httpUpstream,

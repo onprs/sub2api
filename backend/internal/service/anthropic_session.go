@@ -1,7 +1,10 @@
 package service
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
@@ -87,4 +90,17 @@ func GenerateAnthropicDigestSessionKey(prefixHash, uuid string) string {
 		uuidPart = uuid[:8]
 	}
 	return anthropicDigestSessionKeyPrefix + prefix + ":" + uuidPart
+}
+
+// GenerateAnthropicPrefixHash 生成 Anthropic 摘要会话的前缀 hash（不含客户端 IP，避免多出口 IP 变化打断粘性会话）。
+func GenerateAnthropicPrefixHash(userID, apiKeyID int64, userAgent, platform, model string) string {
+	normalizedUserAgent := NormalizeSessionUserAgent(userAgent)
+	combined := "anthropic:" +
+		strconv.FormatInt(userID, 10) + ":" +
+		strconv.FormatInt(apiKeyID, 10) + ":" +
+		normalizedUserAgent + ":" +
+		platform + ":" +
+		model
+	hash := sha256.Sum256([]byte(combined))
+	return base64.RawURLEncoding.EncodeToString(hash[:12])
 }

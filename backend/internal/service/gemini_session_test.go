@@ -135,10 +135,15 @@ func TestGenerateGeminiPrefixHash(t *testing.T) {
 	hash1 := GenerateGeminiPrefixHash(1, 100, "192.168.1.1", "Mozilla/5.0", "antigravity", "gemini-2.5-pro")
 	hash2 := GenerateGeminiPrefixHash(1, 100, "192.168.1.1", "Mozilla/5.0", "antigravity", "gemini-2.5-pro")
 	hash3 := GenerateGeminiPrefixHash(2, 100, "192.168.1.1", "Mozilla/5.0", "antigravity", "gemini-2.5-pro")
+	hashDiffIP := GenerateGeminiPrefixHash(1, 100, "36.150.72.107", "Mozilla/5.0", "antigravity", "gemini-2.5-pro")
 
 	// 相同输入应该产生相同输出
 	if hash1 != hash2 {
 		t.Errorf("GenerateGeminiPrefixHash not deterministic: %s vs %s", hash1, hash2)
+	}
+	// 客户端 IP 变化（多出口网络/代理池）不应破坏同一会话前缀匹配
+	if hash1 != hashDiffIP {
+		t.Errorf("GenerateGeminiPrefixHash should ignore IP changes: %s vs %s", hash1, hashDiffIP)
 	}
 
 	// 不同输入应该产生不同输出

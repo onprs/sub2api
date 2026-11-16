@@ -43,9 +43,12 @@ type Options struct {
 // ConvertRequest converts a standard source request and wraps the Antigravity
 // v1internal request. It does not select accounts or perform transport.
 func ConvertRequest(body []byte, source protocolconv.Protocol, options Options) ([]byte, []protocolconv.Warning, error) {
-	converted, warnings, err := convertRequest(body, source, options)
+	converted, warnings, thinkingDisabled, err := convertRequest(body, source, options)
 	if err != nil {
 		return converted, warnings, err
+	}
+	if thinkingDisabled {
+		return converted, warnings, nil
 	}
 	route, ok := domain.ResolveAntigravityReasoningRoute(options.SourceModel, "")
 	if !ok || route.WireModel != options.WireModel {
@@ -88,46 +91,130 @@ func ConvertRequest(body []byte, source protocolconv.Protocol, options Options) 
 	return converted, warnings, err
 }
 
-func convertRequest(body []byte, source protocolconv.Protocol, options Options) ([]byte, []protocolconv.Warning, error) {
+func convertRequest(body []byte, source protocolconv.Protocol, options Options) ([]byte, []protocolconv.Warning, bool, error) {
 	if err := validateOptions(options); err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	registry, err := standard.NewRegistry()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 
 	switch options.Family {
 	case FamilyClaude:
 		standardBody, warnings, err := registry.ConvertRequest(body, source, protocolconv.ProtocolAnthropic, protocolconv.Options{SourceModel: options.SourceModel, LossPolicy: protocolconv.LossError})
 		if err != nil {
-			return nil, warnings, err
+			return nil, warnings, false, err
 		}
 		var request vendor.ClaudeRequest
 		if err := json.Unmarshal(standardBody, &request); err != nil {
-			return nil, warnings, fmt.Errorf("decode standard Anthropic request: %w", err)
+			return nil, warnings, false, fmt.Errorf("decode standard Anthropic request: %w", err)
 		}
 		request.Model = options.SourceModel
+		// googlegenai 解码未指定 thinkingBudget 的 thinkingConfig 时会生成 mode="auto"，
+		// Antigravity Claude 转换器仅识别 "enabled" / "adaptive"，在此归一。
+		if request.Thinking != nil && request.Thinking.Type == "auto" {
+			if request.Thinking.BudgetTokens > 0 {
+				request.Thinking.Type = "enabled"
+			} else {
+				request.Thinking.Type = "adaptive"
+			}
+		}
+		rectifiedThinking := false
+		if options.RectifySignatures {
+			rectifiedThinking = rectifyClaudeRequestThinking(&request)
+		}
 		transform := options.TransformOptions
 		if transform == (vendor.TransformOptions{}) {
 			transform = vendor.DefaultTransformOptions()
 		}
-		converted, err := vendor.TransformClaudeToGeminiWithOptions(&request, options.ProjectID, options.WireModel, transform)
+		converted, strippedThinking, err := vendor.TransformClaudeToGeminiWithOptionsDetailed(&request, options.ProjectID, options.WireModel, transform)
+		thinkingDisabled := rectifiedThinking || strippedThinking
 		if err != nil || source != protocolconv.ProtocolGoogleGenAI || options.RectifySignatures {
-			return converted, warnings, err
+			return converted, warnings, thinkingDisabled, err
 		}
 		converted, err = restoreGoogleToolCallSignatures(body, converted)
-		return converted, warnings, err
+		return converted, warnings, thinkingDisabled, err
 	case FamilyGemini:
 		standardBody, warnings, err := registry.ConvertRequest(body, source, protocolconv.ProtocolGoogleGenAI, protocolconv.Options{SourceModel: options.SourceModel, LossPolicy: protocolconv.LossError})
 		if err != nil {
-			return nil, warnings, err
+			return nil, warnings, false, err
 		}
 		converted, err := adaptGemini(standardBody, options)
-		return converted, warnings, err
+		return converted, warnings, false, err
 	default:
-		return nil, nil, fmt.Errorf("unsupported Antigravity family %q", options.Family)
+		return nil, nil, false, fmt.Errorf("unsupported Antigravity family %q", options.Family)
 	}
+}
+
+// rectifyClaudeRequestThinking 在签名整流重试时将历史 thinking block 降级为普通文本，
+// 丢弃 redacted_thinking 并关闭顶层 thinking，避免 Claude Vertex 再次校验 signature 失败。
+func rectifyClaudeRequestThinking(req *vendor.ClaudeRequest) bool {
+	if req == nil {
+		return false
+	}
+	changed := false
+	if req.Thinking != nil {
+		req.Thinking = nil
+		changed = true
+	}
+	for i := range req.Messages {
+		raw := req.Messages[i].Content
+		if len(raw) == 0 {
+			continue
+		}
+		var str string
+		if json.Unmarshal(raw, &str) == nil {
+			continue
+		}
+		var blocks []map[string]any
+		if json.Unmarshal(raw, &blocks) != nil {
+			continue
+		}
+		filtered := make([]map[string]any, 0, len(blocks))
+		modifiedMsg := false
+		for _, block := range blocks {
+			t, _ := block["type"].(string)
+			switch t {
+			case "thinking":
+				if thinkingText, _ := block["thinking"].(string); strings.TrimSpace(thinkingText) != "" {
+					filtered = append(filtered, map[string]any{
+						"type": "text",
+						"text": thinkingText,
+					})
+				}
+				modifiedMsg = true
+			case "redacted_thinking":
+				modifiedMsg = true
+			default:
+				if _, hasThinking := block["thinking"].(string); t == "" && hasThinking {
+					if thinkingText, _ := block["thinking"].(string); strings.TrimSpace(thinkingText) != "" {
+						filtered = append(filtered, map[string]any{
+							"type": "text",
+							"text": thinkingText,
+						})
+					}
+					modifiedMsg = true
+				} else {
+					filtered = append(filtered, block)
+				}
+			}
+		}
+		if !modifiedMsg {
+			continue
+		}
+		if len(filtered) == 0 {
+			filtered = append(filtered, map[string]any{
+				"type": "text",
+				"text": "(content removed)",
+			})
+		}
+		if newRaw, err := json.Marshal(filtered); err == nil {
+			req.Messages[i].Content = newRaw
+			changed = true
+		}
+	}
+	return changed
 }
 
 func restoreGoogleToolCallSignatures(sourceBody, vendorBody []byte) ([]byte, error) {
@@ -143,7 +230,8 @@ func restoreGoogleToolCallSignatures(sourceBody, vendorBody []byte) ([]byte, err
 			call, _ := part["functionCall"].(map[string]any)
 			id, _ := call["id"].(string)
 			signature, _ := part["thoughtSignature"].(string)
-			if id != "" && signature != "" {
+			// Claude 模型绝不透传 Gemini 占位的 dummyThoughtSignature。
+			if id != "" && signature != "" && signature != dummyThoughtSignature {
 				signatures[id] = signature
 			}
 		}
