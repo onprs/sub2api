@@ -63,6 +63,7 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumnDefaultContains(t, tx, "groups", "infer_gpt56_cache_write_min_tokens", "1024")
 	requireColumn(t, tx, "groups", "allow_live", "boolean", 0, false)
 	requireColumn(t, tx, "groups", "force_openai_fast", "boolean", 0, false)
+	requireColumn(t, tx, "groups", "force_openai_ultrafast", "boolean", 0, false)
 	requireColumn(t, tx, "groups", "free_openai_fast", "boolean", 0, false)
 	requireColumn(t, tx, "groups", "dynamic_rate_enabled", "boolean", 0, false)
 	requireColumnDefaultContains(t, tx, "groups", "dynamic_rate_enabled", "false")

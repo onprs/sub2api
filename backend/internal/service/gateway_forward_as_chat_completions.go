@@ -96,6 +96,10 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		return nil, fmt.Errorf("marshal anthropic request: %w", err)
 	}
 	reasoningEffort := gatewayAnthropicForwardedReasoningEffort(anthropicBody, mappedModel)
+	if !account.IsOAuth() {
+		// OAuth 账号的身份 ID 由 Claude Code 伪装流程注入。
+		anthropicBody = withChatCompletionsMetadataUserID(body, anthropicBody)
+	}
 
 	resp, err := s.forwardStandardProtocolToAnthropic(ctx, c, account, anthropicBody, anthropicReq.System, mappedModel, func(statusCode int, errorType, message string) {
 		writeGatewayCCError(c, statusCode, errorType, message)
@@ -160,26 +164,30 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	reasoningEffort *string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
+	observer := beginUpstreamResponseModelObservation(c)
 	stream, err := s.collectAnthropicProtocolStream(resp, startTime)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = stream.Close() }()
 	requestID := stream.RequestID
-	finalResp, usage, err := collectBufferedAnthropicResponse(stream)
+	finalResp, usage, err := collectBufferedAnthropicResponse(stream, observer)
 	if err != nil {
 		if !isBedrockAnthropicStreamError(err) {
 			writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream stream ended without a response")
 		}
 		// 上游已观测到的 usage 随错误返回，供 handler 结算已产生 tokens。
 		return &ForwardResult{
-			RequestID:       requestID,
-			UpstreamHeaders: resp.Header,
-			Usage:           usage,
-			Model:           originalModel,
-			UpstreamModel:   mappedModel,
-			ReasoningEffort: reasoningEffort,
-			Duration:        time.Since(startTime),
+			UpstreamResponseModel:         observer.Model(),
+			UpstreamResponseModelConflict: observer.Conflict(),
+			UpstreamResponseServiceTier:   observer.ServiceTier(),
+			RequestID:                     requestID,
+			UpstreamHeaders:               resp.Header,
+			Usage:                         usage,
+			Model:                         originalModel,
+			UpstreamModel:                 mappedModel,
+			ReasoningEffort:               reasoningEffort,
+			Duration:                      time.Since(startTime),
 		}, err
 	}
 	anthropicResponseBody, err := json.Marshal(finalResp)
@@ -200,19 +208,22 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	}
 
 	return &ForwardResult{
-		RequestID:       requestID,
-		ActualProtocol:  stream.ActualProtocol,
-		UpstreamHeaders: resp.Header,
-		Usage:           usage,
-		Model:           originalModel,
-		UpstreamModel:   mappedModel,
-		ReasoningEffort: reasoningEffort,
-		Stream:          false,
-		Duration:        time.Since(startTime),
+		UpstreamResponseModel:         observer.Model(),
+		UpstreamResponseModelConflict: observer.Conflict(),
+		UpstreamResponseServiceTier:   observer.ServiceTier(),
+		RequestID:                     requestID,
+		ActualProtocol:                stream.ActualProtocol,
+		UpstreamHeaders:               resp.Header,
+		Usage:                         usage,
+		Model:                         originalModel,
+		UpstreamModel:                 mappedModel,
+		ReasoningEffort:               reasoningEffort,
+		Stream:                        false,
+		Duration:                      time.Since(startTime),
 	}, nil
 }
 
-func collectBufferedAnthropicResponse(stream *protocoltransport.Stream) (*apicompat.AnthropicResponse, ClaudeUsage, error) {
+func collectBufferedAnthropicResponse(stream *protocoltransport.Stream, observer *upstreamResponseModelObserver) (*apicompat.AnthropicResponse, ClaudeUsage, error) {
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
 	terminalSeen := false
@@ -229,6 +240,7 @@ readLoop:
 		if err := json.Unmarshal(record.Data, &event); err != nil {
 			return nil, usage, fmt.Errorf("decode anthropic stream event: %w", err)
 		}
+		observer.ObserveAnthropic(record.Data)
 		// 上游流内 error 事件（与 /v1/messages 流式语义一致）：结束读取，由调用方按
 		// 未完成流处理，不把它聚合为正常响应。
 		if event.Type == "error" || strings.EqualFold(strings.TrimSpace(record.Event), "error") {
@@ -291,6 +303,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	reasoningEffort *string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
+	observer := beginUpstreamResponseModelObservation(c)
 	requestID := resp.Header.Get("x-request-id")
 	upstreamHeaders := responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
 	session, err := pipeline.NewStreamProcessor(protocolconv.ProtocolAnthropic)
@@ -317,17 +330,20 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
-			RequestID:        requestID,
-			UpstreamHeaders:  resp.Header,
-			ActualProtocol:   protocolconv.ProtocolAnthropic,
-			Usage:            usage,
-			Model:            originalModel,
-			UpstreamModel:    mappedModel,
-			ReasoningEffort:  reasoningEffort,
-			Stream:           true,
-			Duration:         time.Since(startTime),
-			FirstTokenMs:     firstTokenMs,
-			ClientDisconnect: stream.clientDisconnected,
+			UpstreamResponseModel:         observer.Model(),
+			UpstreamResponseModelConflict: observer.Conflict(),
+			UpstreamResponseServiceTier:   observer.ServiceTier(),
+			RequestID:                     requestID,
+			UpstreamHeaders:               resp.Header,
+			ActualProtocol:                protocolconv.ProtocolAnthropic,
+			Usage:                         usage,
+			Model:                         originalModel,
+			UpstreamModel:                 mappedModel,
+			ReasoningEffort:               reasoningEffort,
+			Stream:                        true,
+			Duration:                      time.Since(startTime),
+			FirstTokenMs:                  firstTokenMs,
+			ClientDisconnect:              stream.clientDisconnected,
 		}
 	}
 	writeStreamHeaders := func() error {
@@ -387,6 +403,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
 		}
+		observer.ObserveAnthropic([]byte(payload))
 		stream.observe(&event, payload)
 		if stream.upstreamErrType != "" {
 			break

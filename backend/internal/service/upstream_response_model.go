@@ -39,6 +39,9 @@ type upstreamResponseModelObserver struct {
 }
 
 func (o *upstreamResponseModelObserver) Observe(model string, terminal bool) {
+	if o == nil {
+		return
+	}
 	model = normalizeObservedUpstreamResponseModel(model)
 	if model == "" {
 		return
@@ -69,6 +72,9 @@ func normalizeObservedUpstreamResponseModel(model string) string {
 }
 
 func (o *upstreamResponseModelObserver) ObserveOpenAI(payload []byte, eventType string) {
+	if o == nil {
+		return
+	}
 	model := firstValidTrimmedGJSONString(payload, "response.model", "model")
 	terminal := isUpstreamResponseModelTerminalEvent(eventType)
 	o.Observe(model, terminal)
@@ -88,6 +94,9 @@ func (o *upstreamResponseModelObserver) ObserveOpenAI(payload []byte, eventType 
 }
 
 func (o *upstreamResponseModelObserver) ObserveAnthropic(payload []byte) {
+	if o == nil {
+		return
+	}
 	model := firstValidTrimmedGJSONString(payload, "message.model", "model")
 	o.Observe(model, false)
 	// usage.speed travels with the message object (message_start in streams,
@@ -160,6 +169,9 @@ func normalizeObservedAnthropicSpeed(raw string) string {
 }
 
 func (o *upstreamResponseModelObserver) ObserveGemini(payload []byte) {
+	if o == nil {
+		return
+	}
 	model := firstValidTrimmedGJSONString(
 		payload,
 		"modelVersion",

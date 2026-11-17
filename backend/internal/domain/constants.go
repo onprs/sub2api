@@ -225,6 +225,9 @@ var antigravityCompatibilityModelMapping = map[string]string{
 	"gemini-3.8-flash-low":    "gemini-3.8-flash-low",
 	"gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
 	"gemini-3.8-flash-tiered": "gemini-3.8-flash-tiered",
+	// Gemini 4 models
+	// Carbon uses the published model ID; do not infer Argon-style tier aliases.
+	"gemini-4-carbon": "gemini-4-carbon",
 }
 
 // DefaultAntigravityModelMapping 是官方 Cloud Code OAuth/Setup Token 账号的内置路由表。

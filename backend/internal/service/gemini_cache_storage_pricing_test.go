@@ -45,10 +45,13 @@ func TestBuiltinGeminiCacheStoragePrice(t *testing.T) {
 		{"gemini-pro-latest", 4.5e-6},
 		// 无存储价（Gemini 4 Argon / Hydrogen 仅支持隐式缓存）
 		{"gemini-4-argon", 0},
+		{"gemini-4-carbon", 0},
+		{"gemini-4-carbon-high", 0},
 		{"gemini-4-argon-high", 0},
 		{"gemini-4-argon-cyber-permissive", 0},
 		{"gemini-4-hydrogen", 0},
 		{"gemini-4-hydrogen-xhigh", 0},
+		{"models/gemini-4-hydrogen", 0},
 		{"gemini-4-carbon", 0},
 		{"gemini-4-carbon-high", 0},
 		{"gemini-4-carbon-medium", 0},

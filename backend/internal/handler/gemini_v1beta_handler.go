@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
@@ -708,18 +707,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	}
 	hasExplicitCLISession := sessionHash != ""
 	if sessionHash == "" && cachedContentBinding == nil {
-		// Fallback: 使用通用的会话哈希生成逻辑（适用于其他客户端）
-		// 注意：不要把客户端 IP 混入 fallback hash，多出口/代理池每轮 IP 变化会导致
-		// sessionKey 漂移；同一请求的重试仍可通过消息内容产生确定性 hash，而跨轮增长
-		// 对话依赖下方 DigestSessionStore 的前缀匹配恢复并绑定同一个 sessionKey。
-		parsedReq, _ := service.ParseGatewayRequest(service.NewRequestBodyRef(body), domain.PlatformGemini)
-		if parsedReq != nil {
-			parsedReq.SessionContext = &service.SessionContext{
-				UserAgent: c.GetHeader("User-Agent"),
-				APIKeyID:  apiKey.ID,
-			}
-		}
-		sessionHash = h.gatewayService.GenerateSessionHash(parsedReq)
+		// 其他客户端：按 API Key + 模型 + tools + systemInstruction + 第一条 user contents 的 parts 生成内容哈希。
+		// 内容哈希不含客户端 IP，多出口网络下保持稳定；跨轮会话由下方 DigestSessionStore 收敛。
+		sessionHash = service.GenerateGeminiContentSessionHash(apiKey.ID, reqModel, body)
 	}
 	sessionKey := sessionHash
 	if sessionHash != "" {

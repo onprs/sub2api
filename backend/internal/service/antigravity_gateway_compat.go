@@ -261,7 +261,7 @@ func (s *AntigravityGatewayService) prepareAntigravityCompatCall(
 	mappedModel := s.getMappedModelForThinkingLevel(
 		account,
 		request.originalModel,
-		geminiThinkingLevelFromClaudeThinking(claudeRequest.Thinking),
+		geminiThinkingLevelFromClaudeBody(request.claudeBody, claudeRequest.Thinking),
 	)
 	if mappedModel == "" {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
@@ -328,7 +328,10 @@ func (s *AntigravityGatewayService) buildAntigravityCompatGeminiBody(
 			return nil, err
 		}
 		body = ensureGeminiFunctionCallThoughtSignatures(body)
-		body, err = injectAntigravityCompatIdentity(body)
+		if claudeRequest != nil && claudeRequest.Stream && geminiModelNameCarriesThinkingTier(mappedModel) {
+			body = setGeminiThinkingField(body, "includeThoughts", true)
+		}
+		body, err = injectIdentityPatchToGeminiRequest(body)
 		if err != nil {
 			return nil, err
 		}
@@ -388,30 +391,6 @@ func keepAntigravityToolFunctionResponsesContiguous(body []byte) ([]byte, error)
 		return body, nil
 	}
 	return json.Marshal(payload)
-}
-
-func injectAntigravityCompatIdentity(body []byte) ([]byte, error) {
-	var request map[string]any
-	if err := json.Unmarshal(body, &request); err != nil {
-		return nil, fmt.Errorf("decode Antigravity compatibility request: %w", err)
-	}
-
-	identityPatch := antigravity.GetDefaultIdentityPatch()
-	instruction, _ := request["systemInstruction"].(map[string]any)
-	if instruction == nil {
-		instruction = map[string]any{}
-	}
-	parts, _ := instruction["parts"].([]any)
-	for _, rawPart := range parts {
-		part, _ := rawPart.(map[string]any)
-		text, _ := part["text"].(string)
-		if strings.Contains(text, "You are Antigravity") || strings.Contains(text, "[IDENTITY_PATCH]") || strings.Contains(text, "<identity>") {
-			return body, nil
-		}
-	}
-	instruction["parts"] = append([]any{map[string]any{"text": identityPatch}}, parts...)
-	request["systemInstruction"] = instruction
-	return json.Marshal(request)
 }
 
 func cleanAntigravityCompatGeminiRequest(body []byte) ([]byte, error) {

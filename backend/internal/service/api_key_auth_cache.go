@@ -127,6 +127,7 @@ type APIKeyAuthGroupSnapshot struct {
 	RequirePrivacySet           bool                              `json:"require_privacy_set"`
 	AllowLive                   bool                              `json:"allow_live"`
 	ForceOpenAIFast             bool                              `json:"force_openai_fast"`
+	ForceOpenAIUltrafast        bool                              `json:"force_openai_ultrafast"`
 	FreeOpenAIFast              bool                              `json:"free_openai_fast"`
 	DefaultMappedModel          string                            `json:"default_mapped_model,omitempty"`
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config,omitempty"`

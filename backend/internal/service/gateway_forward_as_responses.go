@@ -335,6 +335,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	startTime time.Time,
 	clientToolMapping apicompat.ResponsesClientToolMapping,
 ) (*ForwardResult, error) {
+	observer := beginUpstreamResponseModelObservation(c)
 	stream, err := s.collectAnthropicProtocolStream(resp, startTime)
 	if err != nil {
 		return nil, err
@@ -364,7 +365,10 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 		if nextErr != nil {
 			// 上游已观测到的 usage 随错误返回，供 handler 结算已产生 tokens。
 			return &ForwardResult{
-				RequestID: requestID, UpstreamHeaders: resp.Header, Usage: usage,
+				UpstreamResponseModel:         observer.Model(),
+				UpstreamResponseModelConflict: observer.Conflict(),
+				UpstreamResponseServiceTier:   observer.ServiceTier(),
+				RequestID:                     requestID, UpstreamHeaders: resp.Header, Usage: usage,
 				Model: originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort,
 				Duration: time.Since(startTime),
 			}, fmt.Errorf("read anthropic stream: %w", nextErr)
@@ -373,10 +377,14 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 		if err := json.Unmarshal(record.Data, &event); err != nil {
 			return nil, fmt.Errorf("decode anthropic stream event: %w", err)
 		}
+		observer.ObserveAnthropic(record.Data)
 		// 上游流内 error 事件：结束读取，由调用方按未完成流处理。
 		if event.Type == "error" || strings.EqualFold(strings.TrimSpace(record.Event), "error") {
 			return &ForwardResult{
-				RequestID: requestID, UpstreamHeaders: resp.Header, Usage: usage,
+				UpstreamResponseModel:         observer.Model(),
+				UpstreamResponseModelConflict: observer.Conflict(),
+				UpstreamResponseServiceTier:   observer.ServiceTier(),
+				RequestID:                     requestID, UpstreamHeaders: resp.Header, Usage: usage,
 				Model: originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort,
 				Duration: time.Since(startTime),
 			}, fmt.Errorf("anthropic stream error event: %s", string(record.Data))
@@ -440,15 +448,18 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	}
 
 	return &ForwardResult{
-		RequestID:       requestID,
-		ActualProtocol:  stream.ActualProtocol,
-		UpstreamHeaders: resp.Header,
-		Usage:           usage,
-		Model:           originalModel,
-		UpstreamModel:   mappedModel,
-		ReasoningEffort: reasoningEffort,
-		Stream:          false,
-		Duration:        time.Since(startTime),
+		UpstreamResponseModel:         observer.Model(),
+		UpstreamResponseModelConflict: observer.Conflict(),
+		UpstreamResponseServiceTier:   observer.ServiceTier(),
+		RequestID:                     requestID,
+		ActualProtocol:                stream.ActualProtocol,
+		UpstreamHeaders:               resp.Header,
+		Usage:                         usage,
+		Model:                         originalModel,
+		UpstreamModel:                 mappedModel,
+		ReasoningEffort:               reasoningEffort,
+		Stream:                        false,
+		Duration:                      time.Since(startTime),
 	}, nil
 }
 
@@ -464,6 +475,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	startTime time.Time,
 	clientToolMapping apicompat.ResponsesClientToolMapping,
 ) (*ForwardResult, error) {
+	observer := beginUpstreamResponseModelObservation(c)
 	requestID := resp.Header.Get("x-request-id")
 	upstreamHeaders := responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
 
@@ -493,17 +505,20 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
-			RequestID:        requestID,
-			UpstreamHeaders:  resp.Header,
-			ActualProtocol:   protocolconv.ProtocolAnthropic,
-			Usage:            usage,
-			Model:            originalModel,
-			UpstreamModel:    mappedModel,
-			ReasoningEffort:  reasoningEffort,
-			Stream:           true,
-			Duration:         time.Since(startTime),
-			FirstTokenMs:     firstTokenMs,
-			ClientDisconnect: stream.clientDisconnected,
+			UpstreamResponseModel:         observer.Model(),
+			UpstreamResponseModelConflict: observer.Conflict(),
+			UpstreamResponseServiceTier:   observer.ServiceTier(),
+			RequestID:                     requestID,
+			UpstreamHeaders:               resp.Header,
+			ActualProtocol:                protocolconv.ProtocolAnthropic,
+			Usage:                         usage,
+			Model:                         originalModel,
+			UpstreamModel:                 mappedModel,
+			ReasoningEffort:               reasoningEffort,
+			Stream:                        true,
+			Duration:                      time.Since(startTime),
+			FirstTokenMs:                  firstTokenMs,
+			ClientDisconnect:              stream.clientDisconnected,
 		}
 	}
 	writeStreamHeaders := func() error {
@@ -603,6 +618,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
 		}
+		observer.ObserveAnthropic([]byte(payload))
 		stream.observe(&event, payload)
 		if stream.upstreamErrType != "" {
 			break

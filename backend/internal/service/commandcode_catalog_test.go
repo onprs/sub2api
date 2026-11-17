@@ -525,7 +525,7 @@ func TestCommandCodeOfficialCatalogLive(t *testing.T) {
 func TestCommandCodeFallbackCatalogHasAllPricedModels(t *testing.T) {
 	entries := commandCodeFallbackCatalogEntries()
 	ids := CommandCodeFallbackModelIDs()
-	require.Len(t, entries, 72)
+	require.Len(t, entries, 74)
 	require.Len(t, entries, len(commandCodeFallbackModels))
 	for _, model := range []string{
 		"gpt-6-luna",

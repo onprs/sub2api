@@ -54,6 +54,10 @@ func (m *sessionWindowMockRepo) ClearAntigravityQuotaScopes(_ context.Context, _
 func (m *sessionWindowMockRepo) ClearModelRateLimits(_ context.Context, _ int64) error {
 	return nil
 }
+
+func (m *sessionWindowMockRepo) ClearModelRateLimit(_ context.Context, _ int64, _ string) error {
+	return nil
+}
 func (m *sessionWindowMockRepo) ClearTempUnschedulable(_ context.Context, _ int64) error {
 	return nil
 }
@@ -150,9 +154,6 @@ func (m *sessionWindowMockRepo) SetRateLimited(context.Context, int64, time.Time
 	panic("unexpected")
 }
 func (m *sessionWindowMockRepo) SetModelRateLimit(context.Context, int64, string, time.Time, ...string) error {
-	panic("unexpected")
-}
-func (m *sessionWindowMockRepo) ClearModelRateLimit(context.Context, int64, string) error {
 	panic("unexpected")
 }
 func (m *sessionWindowMockRepo) SetOverloaded(context.Context, int64, time.Time) error {

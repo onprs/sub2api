@@ -73,6 +73,15 @@ func ParseSchedulerBucket(raw string) (SchedulerBucket, bool) {
 	}, true
 }
 
+// schedulerSnapshotValuesReader 由能直接返回账号值切片的 SchedulerCache 实现。
+// GetSnapshotValues 与 GetSnapshot 读取同一份快照，返回的切片与其中的账号由本次调用独占，
+// 账号的使用约束与 GetSnapshot 相同。
+//
+//nolint:unused // 官方快路径保留，定制调度读取走显式过滤。
+type schedulerSnapshotValuesReader interface {
+	GetSnapshotValues(ctx context.Context, bucket SchedulerBucket) ([]Account, bool, error)
+}
+
 // SchedulerCache 负责调度快照与账号快照的缓存读写。
 type SchedulerCache interface {
 	// GetSnapshot 读取快照并返回命中与否（ready + active + 数据完整）。

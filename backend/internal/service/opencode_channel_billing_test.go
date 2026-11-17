@@ -211,7 +211,7 @@ func TestOpenCodeAccountRuleFollowsChannelChanges(t *testing.T) {
 	// 入口后处理不能重复应用模型倍率。
 	require.NoError(t, billing.applyPlatformQuotaCostAt(cost, PlatformOpenCodeGo, "glm-5.3", at))
 	require.InDelta(t, 1.866*4*3, cost.ActualCost, 1e-12)
-	stats := resolveAccountStatsCostWithPlatform(ctx, channels, billing, 7, groupID, "glm-5.3", tokens, 1, 999, "", at, PlatformOpenCodeGo, true)
+	stats := resolveAccountStatsCostWithPlatform(ctx, channels, billing, 7, groupID, "glm-5.3", tokens, 1, 999, "", at, PlatformOpenCodeGo, true, 1)
 	require.NotNil(t, stats)
 	require.InDelta(t, 1.866*4, *stats, 1e-12)
 	display := channels.BuildSupportedModelForPricingGroup(ctx, groupID, "glm-5.3", PlatformOpenCodeGo, nil)
@@ -226,7 +226,7 @@ func TestOpenCodeAccountRuleFollowsChannelChanges(t *testing.T) {
 	models, found := channels.OpenCodeChannelModelIDs(ctx, groupID)
 	require.True(t, found)
 	require.Equal(t, []string{"glm-custom-priced"}, models)
-	stats = resolveAccountStatsCostWithPlatform(ctx, channels, billing, 7, groupID, "glm-custom-priced", tokens, 1, 999, "", at, PlatformOpenCodeGo, true)
+	stats = resolveAccountStatsCostWithPlatform(ctx, channels, billing, 7, groupID, "glm-custom-priced", tokens, 1, 999, "", at, PlatformOpenCodeGo, true, 1)
 	require.NotNil(t, stats)
 	require.InDelta(t, (2+0.44+0.026)*2, *stats, 1e-12)
 	preview := channel.AccountStatsRulePricingAt(channel.AccountStatsPricingRules[0], at)

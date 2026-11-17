@@ -12,6 +12,8 @@ import (
 var commandCodeFallbackModels = []string{
 	"stealth/glyph-cluster:free",
 	"thinkingmachines/inkling-2-small:free",
+	"recursive/flint-v1.0:free",
+	"tencent/hy4",
 	"tencent/hy4-flash",
 	"tencent/hy4-preview",
 	"tencent/hy3-paid",
@@ -152,6 +154,8 @@ var commandCodeReferencePrices = map[string]commandCodePriceEntry{
 	"tencent/hy3-paid":                       {input: 0.14, output: 0.58, cacheRead: 0.035},
 	"tencent/hy4-flash":                      {input: 0.07, output: 0.281, cacheRead: 0.003},
 	"tencent/hy4-preview":                    {input: 0.834, output: 2.501, cacheRead: 0.042},
+	"tencent/hy4":                            {input: 0.834, output: 2.501, cacheRead: 0.042},
+	"recursive/flint-v1.0:free":              {input: 0, output: 0, cacheRead: 0},
 	"meituan/longcat-2.0":                    {input: 0.3, output: 1.2, cacheRead: 0.006},
 	"mistral/mistral-large-4":                {input: 1.36, output: 4.18, cacheRead: 0.14},
 	"nvidia/nemotron-3-ultra-550b-a55b":      {input: 0.6, output: 2.4, cacheRead: 0.12},
@@ -175,6 +179,7 @@ var commandCodeFallbackMonthlyCreditsUSD = map[string]float64{
 	"claude-haiku-5-5":  20,
 	"gpt-5.6-sol":       20, "gpt-5.6-luna": 20, "gpt-6-luna": 20,
 	"stealth/glyph-cluster:free": 0, "thinkingmachines/inkling-2-small:free": 0,
+	"recursive/flint-v1.0:free": 0, "tencent/hy4": 20,
 	"google/gemini-3.8-flash": 40, "google/gemini-3.7-flash": 40,
 	"xai/grok-4.7": 20, "xai/grok-4.6": 20, "xai/grok-4.5": 20,
 	"meta/muse-spark-1.3": 20, "meta/muse-spark-1.3-contributor": 20,
@@ -220,6 +225,7 @@ var commandCodeFallbackContextWindows = map[string]int{
 	"claude-haiku-5-5":  1_000_000,
 	"gpt-5.6-sol":       1_050_000, "gpt-5.6-luna": 1_050_000, "gpt-6-luna": 1_050_000,
 	"stealth/glyph-cluster:free": 256_000, "thinkingmachines/inkling-2-small:free": 1_048_576,
+	"recursive/flint-v1.0:free": 262_144, "tencent/hy4": 1_024_000,
 	"google/gemini-3.8-flash": 1_000_000, "google/gemini-3.7-flash": 1_048_576,
 	"xai/grok-4.7": 500_000, "xai/grok-4.6": 500_000, "xai/grok-4.5": 500_000,
 	"meta/muse-spark-1.3": 1_048_576, "meta/muse-spark-1.3-contributor": 1_048_576,
@@ -291,7 +297,7 @@ var commandCodeModelAliases = map[string]string{
 	"qwen-3.6-max-preview": "qwen/qwen3.6-max-preview", "qwen3.6-plus": "qwen/qwen3.6-plus",
 	"qwen-3.6-plus":  "qwen/qwen3.6-plus",
 	"step-5-preview": "stepfun/step-5-preview", "step-3.7-flash": "stepfun/step-3.7-flash", "step-3.5-flash": "stepfun/step-3.5-flash",
-	"hy3-paid": "tencent/hy3-paid", "hy4-flash": "tencent/hy4-flash", "hy4-preview": "tencent/hy4-preview",
+	"hy3-paid": "tencent/hy3-paid", "hy4": "tencent/hy4", "hy4-flash": "tencent/hy4-flash", "hy4-preview": "tencent/hy4-preview",
 	"gemini-3.8-flash": "google/gemini-3.8-flash", "gemini-3.7-flash": "google/gemini-3.7-flash",
 	"nemotron-3-ultra-550b-a55b": "nvidia/nemotron-3-ultra-550b-a55b",
 	"nemotron-3-ultra":           "nvidia/nemotron-3-ultra-550b-a55b",
@@ -300,6 +306,7 @@ var commandCodeModelAliases = map[string]string{
 	"muse-ember":                 "meta/muse-ember",
 	"inkling":                    "thinkingmachines/inkling", "inkling-small": "thinkingmachines/inkling-small",
 	"inkling-2-small:free": "thinkingmachines/inkling-2-small:free", "inkling-2-small": "thinkingmachines/inkling-2-small:free",
+	"flint-v1.0:free": "recursive/flint-v1.0:free", "flint-free": "recursive/flint-v1.0:free",
 	"longcat-2.0:free": "meituan/longcat-2.0", "longcat-2.0-free": "meituan/longcat-2.0",
 	"longcat-2.0":         "meituan/longcat-2.0",
 	"ling-3.1-flash":      "inclusionai/ling-3.1-flash",
@@ -447,6 +454,10 @@ func setCommandCodeFallbackDeals(entries map[string]commandCodeCatalogEntry) {
 	})
 	set("thinkingmachines/inkling-2-small:free", commandCodeCatalogDeal{
 		Code: "inkling-2-small-free", Label: "Free", DiscountPercent: 100, Free: true,
+		Term: "while the free tier lasts",
+	})
+	set("recursive/flint-v1.0:free", commandCodeCatalogDeal{
+		Code: "flint-free", Label: "Free", DiscountPercent: 100, Free: true,
 		Term: "while the free tier lasts",
 	})
 }

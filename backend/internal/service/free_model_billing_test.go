@@ -98,6 +98,18 @@ func applyFreeModelMigrationForTest(t *testing.T, entries []ChannelModelPricing)
 			models["opencode_go"] = append(models["opencode_go"], entry.Models...)
 		}
 	}
+	// 255 新增的官方免费模型沿用同一固定免费价格。
+	sync255, err := os.ReadFile("../../migrations/255_sync_official_commandcode_catalog_20261117.sql")
+	require.NoError(t, err)
+	parts = strings.Split(string(sync255), "$commandcode_additions$")
+	require.Len(t, parts, 3)
+	var additions255CommandCode []commandCodeBillingSeed
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &additions255CommandCode))
+	for _, entry := range additions255CommandCode {
+		if entry.MonthlyQuota.BaseCreditsUSD == 0 && len(entry.MonthlyQuota.Periods) == 0 {
+			models["command_code"] = append(models["command_code"], entry.Model)
+		}
+	}
 	parts = strings.Split(string(migration), "$free_price$")
 	require.Len(t, parts, 3)
 	var price float64
@@ -186,8 +198,8 @@ func TestFreeModelBillingKeepsWhitelistAndPaidRates(t *testing.T) {
 			commandCodeFreeModels = append(commandCodeFreeModels, entry.ID)
 		}
 	}
-	require.Len(t, commandCodeFreeModels, 2)
-	require.ElementsMatch(t, []string{"stealth/glyph-cluster:free", "thinkingmachines/inkling-2-small:free"}, commandCodeFreeModels)
+	require.Len(t, commandCodeFreeModels, 3)
+	require.ElementsMatch(t, []string{"stealth/glyph-cluster:free", "thinkingmachines/inkling-2-small:free", "recursive/flint-v1.0:free"}, commandCodeFreeModels)
 	for _, model := range openCodeFreeModels {
 		if model == "iceman-contributor-free" {
 			continue

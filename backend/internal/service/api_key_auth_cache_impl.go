@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 28 // v28: require_privacy_set（官方 v27）+ 定制动态倍率/按张计费字段
+const apiKeyAuthSnapshotVersion = 28 // v28: force_openai_ultrafast（官方 v28）+ 定制 require_privacy_set、动态倍率和按张计费字段
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -515,6 +515,7 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		RequirePrivacySet:               group.RequirePrivacySet,
 		AllowLive:                       group.AllowLive,
 		ForceOpenAIFast:                 group.ForceOpenAIFast,
+		ForceOpenAIUltrafast:            group.ForceOpenAIUltrafast,
 		FreeOpenAIFast:                  group.FreeOpenAIFast,
 		DefaultMappedModel:              group.DefaultMappedModel,
 		MessagesDispatchModelConfig:     group.MessagesDispatchModelConfig,
@@ -592,6 +593,7 @@ func groupFromAPIKeyAuthSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		RequirePrivacySet:               snapshot.RequirePrivacySet,
 		AllowLive:                       snapshot.AllowLive,
 		ForceOpenAIFast:                 snapshot.ForceOpenAIFast,
+		ForceOpenAIUltrafast:            snapshot.ForceOpenAIUltrafast,
 		FreeOpenAIFast:                  snapshot.FreeOpenAIFast,
 		DefaultMappedModel:              snapshot.DefaultMappedModel,
 		MessagesDispatchModelConfig:     snapshot.MessagesDispatchModelConfig,

@@ -711,7 +711,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			if req.Stream {
 				action = "streamGenerateContent"
 			}
-			fullURL, err := buildVertexGeminiAccountURL(account, mappedModel, action, req.Stream)
+			fullURL, err := buildVertexGeminiAccountURL(account, mappedModel, action, req.Stream, "")
 			if err != nil {
 				return nil, "", err
 			}
@@ -1027,6 +1027,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		ImageCount:                    imageCount,
 		ImageSize:                     imageSize,
 		ImageInputSize:                imageInputSize,
+		UpstreamPriceMultiplier:       VertexUpstreamPriceMultiplier(account, mappedModel, ""),
 	}, nil
 }
 
@@ -1093,6 +1094,8 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 	var requestIDHeader string
 	var buildReq func(ctx context.Context) (*http.Request, string, error)
+	// cachedContentLocation 是 Vertex 账号请求引用的显式缓存所在区域，未引用时为空。
+	var cachedContentLocation string
 
 	switch account.Type {
 	case AccountTypeAPIKey:
@@ -1193,8 +1196,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		requestIDHeader = "x-request-id"
 
 	case AccountTypeServiceAccount:
+		cachedContentLocation = geminiCachedContentLocationInBody(body)
 		buildReq = func(ctx context.Context) (*http.Request, string, error) {
-			fullURL, err := buildVertexGeminiAccountURL(account, mappedModel, upstreamAction, useUpstreamStream)
+			fullURL, err := buildVertexGeminiAccountURL(account, mappedModel, upstreamAction, useUpstreamStream, cachedContentLocation)
 			if err != nil {
 				return nil, "", err
 			}
@@ -1575,6 +1579,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		ImageCount:                    imageCount,
 		ImageSize:                     imageSize,
 		ImageInputSize:                imageInputSize,
+		UpstreamPriceMultiplier:       VertexUpstreamPriceMultiplier(account, mappedModel, cachedContentLocation),
 	}, nil
 }
 

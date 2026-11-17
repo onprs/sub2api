@@ -23,6 +23,7 @@ import (
 // pricingAt 与本次客户计费使用同一时刻，避免跨峰谷请求的成本与售价错位。
 // longContextPricingEnabled 表示上游是否对本次请求收取长上下文费率，用于优先级 3；
 // 由 accountStatsLongContextPricingEnabled 按账号开关得出，不受分组售价开关影响。
+// upstreamPriceFactor 是上游按实际请求端点计价的倍数（见 ForwardResult.UpstreamPriceMultiplier），用于优先级 3。
 // reasoningEffort 是最终转发等级；按账号统计定价中配置的等级倍率计费。
 func resolveAccountStatsCost(
 	ctx context.Context,
@@ -37,10 +38,11 @@ func resolveAccountStatsCost(
 	serviceTier string,
 	pricingAt time.Time,
 	longContextPricingEnabled bool,
+	upstreamPriceFactor float64,
 	reasoningEfforts ...string,
 ) *float64 {
 	return resolveAccountStatsCostWithPlatform(ctx, channelService, billingService, accountID, groupID,
-		upstreamModel, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, "", longContextPricingEnabled, reasoningEfforts...)
+		upstreamModel, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, "", longContextPricingEnabled, upstreamPriceFactor, reasoningEfforts...)
 }
 
 func resolveAccountStatsCostWithPlatform(
@@ -57,6 +59,7 @@ func resolveAccountStatsCostWithPlatform(
 	pricingAt time.Time,
 	pricingPlatform string,
 	longContextPricingEnabled bool,
+	upstreamPriceFactor float64,
 	reasoningEfforts ...string,
 ) *float64 {
 	reasoningEffort := ""
@@ -92,7 +95,11 @@ func resolveAccountStatsCostWithPlatform(
 
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricingForPlatform(billingService, pricingPlatform, upstreamModel, tokens, serviceTier, pricingAt, longContextPricingEnabled, reasoningEffort)
+		cost := tryModelFilePricingForPlatform(billingService, pricingPlatform, upstreamModel, tokens, serviceTier, pricingAt, longContextPricingEnabled, reasoningEffort)
+		if cost != nil && upstreamPriceFactor > 0 {
+			*cost *= upstreamPriceFactor
+		}
+		return cost
 	}
 
 	return nil
@@ -308,6 +315,7 @@ func applyAccountStatsCost(
 	accountBaseCost float64,
 	pricingAt time.Time,
 	longContextPricingEnabled bool,
+	upstreamPriceFactor float64,
 	pricingPlatforms ...string,
 ) {
 	model := upstreamModel
@@ -332,12 +340,12 @@ func applyAccountStatsCost(
 	}
 	if pricingPlatform == "" {
 		usageLog.AccountStatsCost = resolveAccountStatsCost(
-			ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, longContextPricingEnabled, reasoningEffort,
+			ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, longContextPricingEnabled, upstreamPriceFactor, reasoningEffort,
 		)
 		return
 	}
 	usageLog.AccountStatsCost = resolveAccountStatsCostWithPlatform(
-		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, pricingPlatform, longContextPricingEnabled, reasoningEffort,
+		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, accountBaseCost, serviceTier, pricingAt, pricingPlatform, longContextPricingEnabled, upstreamPriceFactor, reasoningEffort,
 	)
 }
 

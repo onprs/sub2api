@@ -105,7 +105,7 @@ func (s *GatewayService) handleGoogleBufferedFromAnthropic(
 		return nil, err
 	}
 	defer func() { _ = stream.Close() }()
-	finalResp, usage, err := collectBufferedAnthropicResponse(stream)
+	finalResp, usage, err := collectBufferedAnthropicResponse(stream, nil)
 	if err != nil {
 		return nil, fmt.Errorf("collect Anthropic response for Google: %w", err)
 	}

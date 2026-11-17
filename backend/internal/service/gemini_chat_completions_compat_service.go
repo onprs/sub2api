@@ -18,6 +18,8 @@ import (
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // ForwardAsChatCompletions serves OpenAI Chat Completions clients through
@@ -84,8 +86,9 @@ func (s *GeminiMessagesCompatService) forwardGeminiBodyAsChatCompletions(
 	originalChatBody []byte,
 ) (*ForwardResult, error) {
 	var req struct {
-		Model  string `json:"model"`
-		Stream bool   `json:"stream"`
+		Model          string          `json:"model"`
+		Stream         bool            `json:"stream"`
+		ResponseFormat json.RawMessage `json:"response_format"`
 	}
 	if err := json.Unmarshal(originalChatBody, &req); err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
@@ -119,6 +122,9 @@ func (s *GeminiMessagesCompatService) forwardGeminiBodyAsChatCompletions(
 	geminiReq := ensureGeminiFunctionCallThoughtSignatures(convertedRequest.Body)
 	if geminiImageGenerationDenied(c, geminiReq, originalModel, req.Model, mappedModel) {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", ImageGenerationPermissionMessage())
+	}
+	if !gjson.GetBytes(originalChatBody, "tools").Exists() {
+		geminiReq = applyGeminiChatResponseFormat(geminiReq, req.ResponseFormat, mappedModel)
 	}
 	geminiReq = applyGeminiCompatThinkingForChat(geminiReq, conversionSource, mappedModel, clientStream)
 	return s.forwardGoogleProtocolRequest(ctx, c, account, googleProtocolRequest{
@@ -404,6 +410,8 @@ func (s *GeminiMessagesCompatService) forwardGoogleProtocolRequest(
 		ImageSize:        imageSize,
 		ImageInputSize:   imageInputSize,
 		ClientDisconnect: clientDisconnect,
+
+		UpstreamPriceMultiplier: VertexUpstreamPriceMultiplier(account, mappedModel, ""),
 	}, nil
 }
 
@@ -473,15 +481,21 @@ func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestF
 					fullURL += "?alt=sse"
 				}
 
-				var inner any
-				if err := json.Unmarshal(geminiReq, &inner); err != nil {
-					return nil, "", fmt.Errorf("failed to parse gemini request: %w", err)
+				// request 按原字节嵌入，保留 responseJsonSchema 等 schema 的属性顺序与数值字面量。
+				if !json.Valid(geminiReq) {
+					return nil, "", errors.New("failed to parse gemini request: invalid JSON")
 				}
-				wrappedBytes, _ := json.Marshal(map[string]any{
+				wrapperBytes, err := json.Marshal(map[string]any{
 					"model":   mappedModel,
 					"project": projectID,
-					"request": inner,
 				})
+				if err != nil {
+					return nil, "", err
+				}
+				wrappedBytes, err := sjson.SetRawBytes(wrapperBytes, "request", geminiReq)
+				if err != nil {
+					return nil, "", err
+				}
 
 				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(wrappedBytes))
 				if err != nil {
@@ -520,7 +534,7 @@ func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestF
 			if clientStream {
 				action = "streamGenerateContent"
 			}
-			fullURL, err := buildVertexGeminiAccountURL(account, mappedModel, action, clientStream)
+			fullURL, err := buildVertexGeminiAccountURL(account, mappedModel, action, clientStream, "")
 			if err != nil {
 				return nil, "", err
 			}

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	protocoltransport "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/transport"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 

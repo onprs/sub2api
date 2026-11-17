@@ -257,19 +257,21 @@ func (s *OpenAIGatewayService) collectBufferedChatCompletionsResponse(
 		return protocoltransport.Response{}, nil, fmt.Errorf("validate responses fallback result: %w", err)
 	}
 	result := &OpenAIForwardResult{
-		RequestID:                   structured.RequestID,
-		UpstreamHeaders:             headers,
-		ResponseID:                  structured.ResponseID,
-		ActualProtocol:              structured.ActualProtocol,
-		Usage:                       usage,
-		Model:                       originalModel,
-		BillingModel:                billingModel,
-		UpstreamModel:               upstreamModel,
-		ReasoningEffort:             reasoningEffort,
-		UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
-		ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, serviceTier),
-		Stream:                      false,
-		Duration:                    structured.Duration,
+		RequestID:                     structured.RequestID,
+		UpstreamHeaders:               headers,
+		ResponseID:                    structured.ResponseID,
+		ActualProtocol:                structured.ActualProtocol,
+		Usage:                         usage,
+		Model:                         originalModel,
+		BillingModel:                  billingModel,
+		UpstreamModel:                 upstreamModel,
+		ReasoningEffort:               reasoningEffort,
+		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+		UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
+		ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+		Stream:                        false,
+		Duration:                      structured.Duration,
 	}
 	return structured, result, nil
 
@@ -363,20 +365,22 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		conversionErr = writePayloads(payloads)
 	})
 	result := &OpenAIForwardResult{
-		RequestID:                   requestID,
-		UpstreamHeaders:             resp.Header,
-		ResponseID:                  scan.ResponseID,
-		ActualProtocol:              stream.ActualProtocol,
-		Usage:                       scan.Usage,
-		Model:                       originalModel,
-		BillingModel:                billingModel,
-		UpstreamModel:               upstreamModel,
-		ReasoningEffort:             reasoningEffort,
-		UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
-		ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, serviceTier),
-		Stream:                      true,
-		Duration:                    time.Since(startTime),
-		FirstTokenMs:                scan.FirstTokenMs,
+		RequestID:                     requestID,
+		UpstreamHeaders:               resp.Header,
+		ResponseID:                    scan.ResponseID,
+		ActualProtocol:                stream.ActualProtocol,
+		Usage:                         scan.Usage,
+		Model:                         originalModel,
+		BillingModel:                  billingModel,
+		UpstreamModel:                 upstreamModel,
+		ReasoningEffort:               reasoningEffort,
+		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+		UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
+		ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+		Stream:                        true,
+		Duration:                      time.Since(startTime),
+		FirstTokenMs:                  scan.FirstTokenMs,
 	}
 	if scan.Err != nil {
 		return result, fmt.Errorf("stream usage incomplete: %w", scan.Err)
@@ -454,19 +458,21 @@ func (s *OpenAIGatewayService) streamChatCompletionsWithProtocolOutput(
 		outputErr = output.WriteStreamEvent(stream.ActualProtocol, raw)
 	})
 	result := &OpenAIForwardResult{
-		RequestID:                   stream.RequestID,
-		ResponseID:                  scan.ResponseID,
-		ActualProtocol:              stream.ActualProtocol,
-		Usage:                       scan.Usage,
-		Model:                       originalModel,
-		BillingModel:                billingModel,
-		UpstreamModel:               upstreamModel,
-		ReasoningEffort:             reasoningEffort,
-		UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
-		ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, serviceTier),
-		Stream:                      true,
-		Duration:                    time.Since(startTime),
-		FirstTokenMs:                scan.FirstTokenMs,
+		RequestID:                     stream.RequestID,
+		ResponseID:                    scan.ResponseID,
+		ActualProtocol:                stream.ActualProtocol,
+		Usage:                         scan.Usage,
+		Model:                         originalModel,
+		BillingModel:                  billingModel,
+		UpstreamModel:                 upstreamModel,
+		ReasoningEffort:               reasoningEffort,
+		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+		UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
+		ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+		Stream:                        true,
+		Duration:                      time.Since(startTime),
+		FirstTokenMs:                  scan.FirstTokenMs,
 	}
 	if scan.Err != nil {
 		return result, fmt.Errorf("stream usage incomplete: %w", scan.Err)

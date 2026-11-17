@@ -138,6 +138,22 @@ func (r *schedulerSnapshotRetryAccountRepoStub) GetByID(_ context.Context, id in
 	return nil, ErrAccountNotFound
 }
 
+func (r *schedulerSnapshotRetryAccountRepoStub) ListModelAvailabilityCandidates(_ context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	r.listCalls.Add(1)
+	group := int64(0)
+	if groupID != nil {
+		group = *groupID
+	}
+	if !includeGrouped && group == 0 {
+		return nil, nil
+	}
+	allowed := make(map[string]struct{}, len(platforms))
+	for _, platform := range platforms {
+		allowed[platform] = struct{}{}
+	}
+	return filterSchedulerSnapshotRetryAccounts(r.accountsForGroup(group), allowed), nil
+}
+
 func (r *schedulerSnapshotRetryAccountRepoStub) ListSchedulableByGroupIDAndPlatform(_ context.Context, groupID int64, platform string) ([]Account, error) {
 	r.listCalls.Add(1)
 	return filterSchedulerSnapshotRetryAccounts(r.accountsForGroup(groupID), map[string]struct{}{platform: {}}), nil
@@ -183,6 +199,14 @@ type schedulerSnapshotRetryBlockingRepoStub struct {
 	started   chan struct{}
 	release   chan struct{}
 	startOnce sync.Once
+}
+
+func (r *schedulerSnapshotRetryBlockingRepoStub) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	r.listCalls.Add(1)
+	r.startOnce.Do(func() { close(r.started) })
+	<-r.release
+	r.listCalls.Add(-1)
+	return r.schedulerSnapshotRetryAccountRepoStub.ListModelAvailabilityCandidates(ctx, groupID, platforms, includeGrouped)
 }
 
 func (r *schedulerSnapshotRetryBlockingRepoStub) ListSchedulableByGroupIDAndPlatforms(_ context.Context, groupID int64, platforms []string) ([]Account, error) {

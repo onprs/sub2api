@@ -104,7 +104,14 @@ func commandCodeBillingSeedPricing(t *testing.T) []ChannelModelPricing {
 	require.Len(t, parts, 3)
 	var quotas254 map[string]MonthlyQuotaPolicy
 	require.NoError(t, json.Unmarshal([]byte(parts[1]), &quotas254))
-	retained := make([]commandCodeBillingSeed, 0, len(seeds)+len(additions)+len(latestAdditions)+len(additions254))
+	// 255 同步 2026-11-17 官方目录新增模型。
+	sync255, err := os.ReadFile("../../migrations/255_sync_official_commandcode_catalog_20261117.sql")
+	require.NoError(t, err)
+	parts = strings.Split(string(sync255), "$commandcode_additions$")
+	require.Len(t, parts, 3)
+	var additions255 []commandCodeBillingSeed
+	require.NoError(t, json.Unmarshal([]byte(parts[1]), &additions255))
+	retained := make([]commandCodeBillingSeed, 0, len(seeds)+len(additions)+len(latestAdditions)+len(additions254)+len(additions255))
 	for _, seed := range seeds {
 		if slices.Contains(retired, seed.Model) || slices.Contains(latestRetired, seed.Model) {
 			continue
@@ -118,7 +125,7 @@ func commandCodeBillingSeedPricing(t *testing.T) []ChannelModelPricing {
 		}
 		retained = append(retained, seed)
 	}
-	for _, generation := range [][]commandCodeBillingSeed{additions, latestAdditions, additions254} {
+	for _, generation := range [][]commandCodeBillingSeed{additions, latestAdditions, additions254, additions255} {
 		for _, seed := range generation {
 			if slices.Contains(retired, seed.Model) || slices.Contains(latestRetired, seed.Model) {
 				continue

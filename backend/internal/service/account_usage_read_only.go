@@ -63,7 +63,7 @@ func (s *AccountUsageService) getAnthropicOAuthUsage(ctx context.Context, accoun
 	usage := s.buildUsageInfo(entry.response, &updatedAt)
 	if !readOnly {
 		s.addWindowStats(ctx, account, usage)
-		s.syncActiveToPassive(ctx, account.ID, usage)
+		s.syncActiveToPassive(ctx, account, usage)
 	}
 	if usage.SevenDayFable == nil {
 		usage.SevenDayFable = buildPassiveUsageWindow(account.Extra, "passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset")
