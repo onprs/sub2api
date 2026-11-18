@@ -1523,7 +1523,7 @@ func ChatUsageToResponsesUsage(usage *ChatUsage) *ResponsesUsage {
 		InputTokens:              usage.PromptTokens,
 		OutputTokens:             usage.CompletionTokens,
 		TotalTokens:              usage.TotalTokens,
-		CacheCreationInputTokens: usage.CacheCreationInputTokens,
+		CacheCreationInputTokens: usage.PromptTokensDetails.cacheCreationInputTokens(),
 	}
 	if out.TotalTokens == 0 {
 		out.TotalTokens = out.InputTokens + out.OutputTokens
@@ -1542,12 +1542,13 @@ func ChatUsageToResponsesUsage(usage *ChatUsage) *ResponsesUsage {
 			Ephemeral1hInputTokens: usage.PromptTokensDetails.Ephemeral1hInputTokens,
 			CacheCreationBreakdown: usage.PromptTokensDetails.CacheCreationBreakdown,
 		}
-		if usage.PromptTokensDetails.CacheWriteTokens > 0 {
-			out.CacheCreationInputTokens = usage.PromptTokensDetails.CacheWriteTokens
-		} else if usage.PromptTokensDetails.CacheCreationTokens > 0 {
-			out.CacheCreationInputTokens = usage.PromptTokensDetails.CacheCreationTokens
-		} else {
+		if out.CacheCreationInputTokens == 0 {
 			out.CacheCreationInputTokens = out.InputTokensDetails.CacheCreation5mTokens + out.InputTokensDetails.CacheCreation1hTokens
+			if out.CacheCreationInputTokens == 0 {
+				// 权威的零写入必须覆盖旧版 cache_creation_tokens 别名字段。
+				out.InputTokensDetails.CacheCreationTokens = 0
+				out.InputTokensDetails.CacheWriteTokens = 0
+			}
 		}
 	}
 	return out

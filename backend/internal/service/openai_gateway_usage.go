@@ -187,6 +187,28 @@ func groupBillsOpenAIFastAtStandard(apiKey *APIKey, account *Account, serviceTie
 	}
 }
 
+//nolint:unused // 官方统一 token 映射助手，定制计费路径保留显式字段以覆盖图片与 TTL 字段。
+func (usage OpenAIUsage) billingUsageTokens() UsageTokens {
+	creationTokens := usage.CacheCreationInputTokens
+	if creationTokens <= 0 {
+		creationTokens = max(usage.CacheCreation5mTokens, 0) + max(usage.CacheCreation1hTokens, 0)
+	}
+	tokens := UsageTokens{
+		InputTokens:            max(usage.InputTokens-usage.CacheReadInputTokens-creationTokens, 0),
+		ImageInputTokens:       max(usage.ImageInputTokens-usage.ImageCacheReadTokens, 0),
+		ImageCacheReadTokens:   usage.ImageCacheReadTokens,
+		OutputTokens:           usage.OutputTokens,
+		CacheCreationTokens:    creationTokens,
+		CacheCreation5mTokens:  usage.CacheCreation5mTokens,
+		CacheCreation1hTokens:  usage.CacheCreation1hTokens,
+		CacheCreation30mTokens: usage.CacheCreation30mInputTokens,
+		CacheCreation12hTokens: usage.CacheCreation12hInputTokens,
+		CacheReadTokens:        usage.CacheReadInputTokens,
+		ImageOutputTokens:      usage.ImageOutputTokens,
+	}
+	return tokens
+}
+
 // RecordUsage records usage and deducts balance
 func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRecordUsageInput) error {
 	if input == nil {
@@ -451,11 +473,11 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		InputTokens:              actualInputTokens,
 		OutputTokens:             result.Usage.OutputTokens,
 		CacheCreationTokens:      result.Usage.CacheCreationInputTokens,
+		CacheCreation5mTokens:    result.Usage.CacheCreation5mTokens,
+		CacheCreation1hTokens:    result.Usage.CacheCreation1hTokens,
 		CacheCreation30mTokens:   result.Usage.CacheCreation30mInputTokens,
 		CacheCreation12hTokens:   result.Usage.CacheCreation12hInputTokens,
 		CacheReadTokens:          result.Usage.CacheReadInputTokens,
-		CacheCreation5mTokens:    result.Usage.CacheCreation5mTokens,
-		CacheCreation1hTokens:    result.Usage.CacheCreation1hTokens,
 		CacheWriteInferred:       cacheWriteInferred,
 		ImageInputTokens:         result.Usage.ImageInputTokens,
 		ImageOutputTokens:        result.Usage.ImageOutputTokens,
@@ -666,7 +688,7 @@ func openAISubscriptionLongContextExempt(account *Account, result *OpenAIForward
 	if model == "" {
 		model = result.Model
 	}
-	return openai.IsGPT61SolModelSpelling(model) || openai.IsGPT61TerraModelSpelling(model)
+	return openai.GPT62ModelID(model) != "" || openai.IsGPT61SolModelSpelling(model) || openai.IsGPT61TerraModelSpelling(model)
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
@@ -869,13 +891,18 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 			DisableModelLongContextPricing: modelLongContextExempt,
 		})
 	}
-	return s.billingService.calculateCostWithServiceTierPolicy(
-		billingModel,
-		tokens,
-		multiplier,
-		serviceTier,
-		(longContextBillingGate == nil || *longContextBillingGate) && !modelLongContextExempt,
-	)
+	input := CostInput{
+		Ctx: ctx, Model: billingModel, Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier,
+		PricingAt: pricingAt, ServiceTier: serviceTier, LongContextBillingEnabled: longContextBillingGate,
+		DisableModelLongContextPricing: modelLongContextExempt,
+	}
+	if s.resolver != nil && apiKey.Group != nil {
+		input.GroupID = &apiKey.Group.ID
+		input.Group = apiKey.Group
+		input.ReasoningEffort = reasoningEffort
+		input.Resolver = s.resolver
+	}
+	return s.billingService.CalculateCostUnified(input)
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIImageCost(
