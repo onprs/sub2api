@@ -176,9 +176,12 @@ func TestOpenCodeChannelSeedMatchesOfficialPricedCatalog(t *testing.T) {
 
 func TestOpenCodeZenCatalogExcludesRetiredAndUnpricedModels(t *testing.T) {
 	account := &Account{Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Credentials: map[string]any{"account_mode": "zen"}}
-	require.Len(t, OpenCodeDefaultModelIDs(account), 80)
+	require.Len(t, OpenCodeDefaultModelIDs(account), 79)
 	require.True(t, IsOpenCodeOfficiallyPricedModel(account, "beam-free"))
-	for _, model := range []string{"test", "claude-opus-5-5-backup", "muse-spark-1.2-contributor-free", "exo-free", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "qwen3.7-max", "qwen3.7-plus", "ling-3.0-flash-fin-free", "mimo-v2.5-free", "minimax-m3-free"} {
+	for _, model := range []string{"gpt-6.2-astra", "gpt-6.2-sol"} {
+		require.True(t, IsOpenCodeOfficiallyPricedModel(account, model), model)
+	}
+	for _, model := range []string{"test", "claude-opus-5-5-backup", "muse-spark-1.2-contributor-free", "exo-free", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "qwen3.7-max", "qwen3.7-plus", "ling-3.0-flash-fin-free", "mimo-v2.5-free", "minimax-m3-free", "glm-5.3-flash-free", "minimax-m3.1-flash-free", "nemotron-3-ultra-free", "gpt-6-luna-decision"} {
 		require.False(t, IsOpenCodeOfficiallyPricedModel(account, model), model)
 	}
 }

@@ -44,11 +44,13 @@ func normalizeOpenCodeGoModelID(model string) string {
 
 // IsOpenCodeUnsupportedModel 判断请求的模型是否属于 OpenCode 专有协议端点模型。
 // 官方 Zen 上 gemini-* 仅走 Google SDK 专属端点 /zen/v1/models/<id>，
-// jev-* 仅走 SystemOne 专属端点 /zen/v1/systemone，
+// jev-* 与 gpt-6-luna-decision 仅走 SystemOne 专属端点 /zen/v1/systemone，
 // 在通用 Chat Completions / Anthropic Messages / Responses 网关端点上不可用。
 func IsOpenCodeUnsupportedModel(model string) bool {
 	normalized := normalizeOpenCodeGoModelID(model)
-	return strings.HasPrefix(normalized, "gemini-") || strings.HasPrefix(normalized, "jev-")
+	return strings.HasPrefix(normalized, "gemini-") ||
+		strings.HasPrefix(normalized, "jev-") ||
+		normalized == "gpt-6-luna-decision"
 }
 
 func writeOpenCodeUnsupportedModelError(c *gin.Context, isAnthropic bool, model string) error {

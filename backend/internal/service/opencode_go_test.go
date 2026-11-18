@@ -273,6 +273,7 @@ func TestIsOpenCodeUnsupportedModel(t *testing.T) {
 		{"opencode-go/gemini-3.1-pro", true},
 		{"jev-1.13", true},
 		{"jev-1.13-free", true},
+		{"gpt-6-luna-decision", true},
 		{"opencode/jev-1.13", true},
 		{"qwen3.8-max", false},
 		{"qwen3.8-flash", false},

@@ -188,9 +188,9 @@ func TestFreeModelBillingUsesFixedTokenAndCachePrices(t *testing.T) {
 }
 
 func TestFreeModelBillingKeepsWhitelistAndPaidRates(t *testing.T) {
-	require.Len(t, openCodeFreeModels, 15)
+	require.Len(t, openCodeFreeModels, 11)
 	require.Len(t, DefaultOpenCodeGoModelIDs(), 34)
-	require.Len(t, openCodeZenPricedModels, 80)
+	require.Len(t, openCodeZenPricedModels, 79)
 	var commandCodeFreeModels []string
 	for _, entry := range commandCodeFallbackCatalogEntries() {
 		pricing, available := commandCodeCatalogPricingAt(entry, time.Date(2026, 10, 14, 5, 0, 0, 0, time.UTC))

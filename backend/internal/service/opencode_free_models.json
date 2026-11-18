@@ -1,16 +1,12 @@
 [
   "big-pickle",
-  "glm-5.3-flash-free",
   "deepseek-v4.1-flash-free",
   "beam-free",
-  "iceman-contributor-free",
   "iceman-free",
   "flint-40b-free",
   "inkling-2-small-free",
   "longcat-2.5-free",
-  "minimax-m3.1-flash-free",
   "mimo-v2.6-flash-free",
-  "nemotron-3-ultra-free",
   "nemotron-3.5-lightning-free",
   "nemotron-3.5-super-vl-free",
   "hy4-flash-free"

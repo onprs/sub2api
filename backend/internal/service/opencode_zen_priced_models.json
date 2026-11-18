@@ -1,4 +1,6 @@
 [
+  "gpt-6.2-astra",
+  "gpt-6.2-sol",
   "gpt-6-astra",
   "gpt-6-sol",
   "gpt-6.1-sol",
@@ -64,19 +66,16 @@
   "mistral-large-4",
   "muse-wonder-1.0",
   "big-pickle",
-  "glm-5.3-flash-free",
   "deepseek-v4.1-flash-free",
   "beam-free",
   "flint-40b-free",
   "mimo-v2.6-flash-free",
-  "nemotron-3-ultra-free",
   "nemotron-3.5-lightning-free",
   "nemotron-3.5-super-vl-free",
   "claude-fable-5-2",
   "muse-ember-1.0",
   "iceman-free",
   "inkling-2-small-free",
-  "minimax-m3.1-flash-free",
   "longcat-2.5-free",
   "hy4-flash-free"
 ]
