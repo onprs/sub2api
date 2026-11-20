@@ -106,15 +106,16 @@ type antigravityUsageCache struct {
 }
 
 const (
-	apiCacheTTL             = 3 * time.Minute
-	apiErrorCacheTTL        = 1 * time.Minute        // 负缓存 TTL：429 等错误缓存 1 分钟
-	antigravityErrorTTL     = 1 * time.Minute        // Antigravity 错误缓存 TTL（可恢复错误）
-	apiQueryMaxJitter       = 800 * time.Millisecond // 用量查询最大随机延迟
-	windowStatsCacheTTL     = 1 * time.Minute
-	openAIProbeCacheTTL     = 10 * time.Minute
-	grokProbeRetryTTL       = 1 * time.Minute
-	grokFreeQuotaWindow     = 24 * time.Hour
-	openAICodexProbeVersion = codexCLIVersion // 与网关出站身份同源，避免两处硬编码版本各自漂移
+	apiCacheTTL              = 3 * time.Minute
+	apiErrorCacheTTL         = 1 * time.Minute        // 负缓存 TTL：429 等错误缓存 1 分钟
+	antigravityUsageCacheTTL = 10 * time.Minute       // Antigravity 配额缓存 TTL，降低 3 端点并发轮询频率
+	antigravityErrorTTL      = 1 * time.Minute        // Antigravity 错误缓存 TTL（可恢复错误）
+	apiQueryMaxJitter        = 800 * time.Millisecond // 用量查询最大随机延迟
+	windowStatsCacheTTL      = 1 * time.Minute
+	openAIProbeCacheTTL      = 10 * time.Minute
+	grokProbeRetryTTL        = 1 * time.Minute
+	grokFreeQuotaWindow      = 24 * time.Hour
+	openAICodexProbeVersion  = codexCLIVersion // 与网关出站身份同源，避免两处硬编码版本各自漂移
 )
 
 // UsageCache 封装账户使用量相关的缓存
@@ -1397,19 +1398,19 @@ func recalcAntigravityRemainingSeconds(info *UsageInfo) {
 }
 
 // antigravityCacheTTL 根据 UsageInfo 内容决定缓存 TTL
-// 403 forbidden 状态稳定，缓存与成功相同（3 分钟）；
+// 403 forbidden 状态稳定，缓存与成功相同（10 分钟）；
 // 其他错误（401/网络）可能快速恢复，缓存 1 分钟。
 func antigravityCacheTTL(info *UsageInfo) time.Duration {
 	if info == nil {
 		return antigravityErrorTTL
 	}
 	if info.IsForbidden {
-		return apiCacheTTL // 封号/验证状态不会很快变
+		return antigravityUsageCacheTTL // 封号/验证状态不会很快变
 	}
 	if info.ErrorCode != "" || info.Error != "" {
 		return antigravityErrorTTL
 	}
-	return apiCacheTTL
+	return antigravityUsageCacheTTL
 }
 
 // buildAntigravityDegradedUsage 从 FetchQuota 错误构建降级 UsageInfo

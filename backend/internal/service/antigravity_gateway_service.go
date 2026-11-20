@@ -17,7 +17,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv"
 	protocolmetadata "github.com/Wei-Shaw/sub2api/internal/pkg/protocolconv/metadata"
-	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 )
 
@@ -37,10 +36,11 @@ const (
 	antigravityDefaultRateLimitDuration = 30 * time.Second // 默认限流时间（无 retryDelay 时使用）
 
 	// MODEL_CAPACITY_EXHAUSTED 专用重试参数
-	// 模型容量不足时，所有账号共享同一容量池，切换账号无意义
-	// 使用固定 1s 间隔重试，最多重试 60 次
-	antigravityModelCapacityRetryMaxAttempts = 60
+	// 模型容量不足时，所有账号共享同一容量池，切换账号无意义；
+	// 采用有限次数（3 次）+ 指数退避带抖动（1s/2s/4s，上限 8s），避免 60 次密集重试轰炸上游。
+	antigravityModelCapacityRetryMaxAttempts = 3
 	antigravityModelCapacityRetryWait        = 1 * time.Second
+	antigravityModelCapacityRetryMaxWait     = 8 * time.Second
 
 	// Google RPC 状态和类型常量
 	googleRPCStatusResourceExhausted      = "RESOURCE_EXHAUSTED"
@@ -64,7 +64,7 @@ const (
 	antigravitySingleAccountSmartRetryTotalMaxWait = 30 * time.Second
 
 	// MODEL_CAPACITY_EXHAUSTED 全局去重：重试全部失败后的 cooldown 时间
-	antigravityModelCapacityCooldown = 10 * time.Second
+	antigravityModelCapacityCooldown = 15 * time.Second
 
 	// 模型限流原因：只有 quota_exhausted 才能触发 AI Credits 超量重试。
 	antigravityRateLimitReasonRateLimited    = "antigravity_rate_limited"
@@ -651,18 +651,33 @@ func extractContentFromSSEResponse(respBody []byte) (string, []TestConnectionIma
 	return strings.Join(texts, ""), images
 }
 
-// injectIdentityPatchToGeminiRequest 为 Gemini 格式请求注入身份提示词
-// 如果请求中已包含 "You are Antigravity" 则不重复注入
+// injectIdentityPatchToGeminiRequest 为兼容路径的 Gemini 请求统一注入 Antigravity 身份，
+// 与 antigravityadapter.injectIdentity 保持一致：
+//   - 若请求已包含 Antigravity 身份则原样保留（仅对非 Antigravity 客户端身份句做中和）；
+//   - 否则将客户端系统提示词移至首条 user content，systemInstruction 仅保留纯 Antigravity 身份（role="user"）；
+//   - 若缺少 sessionId，基于原始首条 user 文本补齐稳定的 FNV-1a sessionId。
 func injectIdentityPatchToGeminiRequest(body []byte) ([]byte, error) {
 	var request map[string]any
 	if err := json.Unmarshal(body, &request); err != nil {
 		return nil, fmt.Errorf("解析 Gemini 请求失败: %w", err)
 	}
 
+	ensureCompatGeminiSessionID(request)
+
 	identityFound := false
 	systemChanged := false
-	// 检查现有 systemInstruction 是否已包含身份提示词
-	if sysInst, ok := request["systemInstruction"].(map[string]any); ok {
+	sysInst, hasSysInst := request["systemInstruction"].(map[string]any)
+	if hasSysInst {
+		if text, ok := sysInst["text"].(string); ok {
+			neutral := antigravity.NeutralizeSystemIdentity(text)
+			if neutral != text {
+				sysInst["text"] = neutral
+				systemChanged = true
+			}
+			if strings.Contains(neutral, "[IDENTITY_PATCH]") || strings.Contains(neutral, "You are Antigravity") {
+				identityFound = true
+			}
+		}
 		if parts, ok := sysInst["parts"].([]any); ok {
 			for _, part := range parts {
 				if partMap, ok := part.(map[string]any); ok {
@@ -672,7 +687,7 @@ func injectIdentityPatchToGeminiRequest(body []byte) ([]byte, error) {
 							partMap["text"] = neutral
 							systemChanged = true
 						}
-						if strings.Contains(neutral, "You are Antigravity") {
+						if strings.Contains(neutral, "[IDENTITY_PATCH]") || strings.Contains(neutral, "You are Antigravity") {
 							identityFound = true
 						}
 					}
@@ -681,33 +696,80 @@ func injectIdentityPatchToGeminiRequest(body []byte) ([]byte, error) {
 		}
 	}
 	if identityFound {
-		if systemChanged {
+		if systemChanged || request["sessionId"] != nil {
 			return json.Marshal(request)
 		}
 		return body, nil
 	}
 
-	// 获取默认身份提示词
-	identityPatch := antigravity.GetDefaultIdentityPatch()
-
-	// 构建新的 systemInstruction
-	newPart := map[string]any{"text": identityPatch}
-
-	if existing, ok := request["systemInstruction"].(map[string]any); ok {
-		// 已有 systemInstruction，在开头插入身份提示词
-		if parts, ok := existing["parts"].([]any); ok {
-			existing["parts"] = append([]any{newPart}, parts...)
-		} else {
-			existing["parts"] = []any{newPart}
+	// 将客户端原有 systemInstruction 整体移到首条 user content
+	if hasSysInst {
+		var texts []string
+		var nonText []any
+		if text, ok := sysInst["text"].(string); ok && strings.TrimSpace(text) != "" {
+			texts = append(texts, text)
 		}
-	} else {
-		// 没有 systemInstruction，创建新的
-		request["systemInstruction"] = map[string]any{
-			"parts": []any{newPart},
+		if parts, ok := sysInst["parts"].([]any); ok {
+			for _, raw := range parts {
+				partMap, ok := raw.(map[string]any)
+				if !ok {
+					nonText = append(nonText, raw)
+					continue
+				}
+				if text, ok := partMap["text"].(string); ok && len(partMap) == 1 {
+					if strings.TrimSpace(text) != "" {
+						texts = append(texts, text)
+					}
+					continue
+				}
+				if text, ok := partMap["text"].(string); ok && strings.TrimSpace(text) == "" && len(partMap) == 1 {
+					continue
+				}
+				nonText = append(nonText, partMap)
+			}
+		}
+		if len(texts) > 0 || len(nonText) > 0 {
+			userParts := make([]any, 0, len(nonText)+3)
+			userParts = append(userParts, map[string]any{"text": "<user_system_instructions>"})
+			if len(texts) > 0 {
+				userParts = append(userParts, map[string]any{"text": strings.Join(texts, "\n")})
+			}
+			userParts = append(userParts, nonText...)
+			userParts = append(userParts, map[string]any{"text": "</user_system_instructions>"})
+			contents, _ := request["contents"].([]any)
+			request["contents"] = append([]any{map[string]any{"role": "user", "parts": userParts}}, contents...)
 		}
 	}
 
+	identityPatch := antigravity.GetDefaultIdentityPatch()
+	request["systemInstruction"] = map[string]any{
+		"role":  "user",
+		"parts": []any{map[string]any{"text": identityPatch}},
+	}
+
 	return json.Marshal(request)
+}
+
+func ensureCompatGeminiSessionID(request map[string]any) {
+	if existing, _ := request["sessionId"].(string); strings.TrimSpace(existing) != "" {
+		return
+	}
+	contents, _ := request["contents"].([]any)
+	for _, rawContent := range contents {
+		content, _ := rawContent.(map[string]any)
+		if role, _ := content["role"].(string); role != "user" {
+			continue
+		}
+		parts, _ := content["parts"].([]any)
+		for _, rawPart := range parts {
+			part, _ := rawPart.(map[string]any)
+			if text, _ := part["text"].(string); text != "" {
+				request["sessionId"] = antigravity.HashSessionID(text)
+				return
+			}
+		}
+	}
+	request["sessionId"] = antigravity.GenerateRandomSessionID()
 }
 
 // wrapV1InternalRequest 包装请求为 v1internal 格式
@@ -723,7 +785,7 @@ func (s *AntigravityGatewayService) wrapV1InternalRequest(projectID, model strin
 
 	wrapped := map[string]any{
 		"project":     projectID,
-		"requestId":   "agent-" + uuid.New().String(),
+		"requestId":   antigravity.GenerateRequestID(),
 		"userAgent":   "antigravity", // 固定值，与官方客户端一致
 		"requestType": "agent",
 		"model":       model,

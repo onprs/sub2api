@@ -205,15 +205,6 @@ type GeminiGroundingWeb struct {
 	URI   string `json:"uri,omitempty"`
 }
 
-// DefaultSafetySettings 默认安全设置（关闭所有过滤）
-var DefaultSafetySettings = []GeminiSafetySetting{
-	{Category: "HARM_CATEGORY_HARASSMENT", Threshold: "OFF"},
-	{Category: "HARM_CATEGORY_HATE_SPEECH", Threshold: "OFF"},
-	{Category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", Threshold: "OFF"},
-	{Category: "HARM_CATEGORY_DANGEROUS_CONTENT", Threshold: "OFF"},
-	{Category: "HARM_CATEGORY_CIVIC_INTEGRITY", Threshold: "OFF"},
-}
-
 // DefaultStopSequences 默认停止序列
 var DefaultStopSequences = []string{
 	"<|user|>",

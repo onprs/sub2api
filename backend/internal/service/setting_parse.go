@@ -245,6 +245,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyRewriteMessageCacheControl:                         strconv.FormatBool(s.defaultRewriteMessageCacheControl()),
 		SettingKeyEnableClientDatelineNormalization:                  "true",
 		SettingKeyAntigravityUserAgentVersion:                        "",
+		SettingKeyAntigravityUserAgentVersionSynced:                  "",
+		SettingKeyAntigravityVersionAutoSyncEnabled:                  "true",
+		SettingKeyAntigravityUserAgentBuild:                          "",
 		SettingKeyOpenAICodexUserAgent:                               "",
 		SettingKeyOpenAICodexClientVersion:                           "",
 		SettingKeyOpenAICodexClientVersionSynced:                     "",
@@ -892,6 +895,13 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.EnableClientDatelineNormalization = true
 	}
 	result.AntigravityUserAgentVersion = antigravity.NormalizeUserAgentVersion(settings[SettingKeyAntigravityUserAgentVersion])
+	result.AntigravityUserAgentVersionSynced = antigravity.NormalizeUserAgentVersion(settings[SettingKeyAntigravityUserAgentVersionSynced])
+	if v, ok := settings[SettingKeyAntigravityVersionAutoSyncEnabled]; ok && v != "" {
+		result.AntigravityVersionAutoSyncEnabled = v == "true"
+	} else {
+		result.AntigravityVersionAutoSyncEnabled = true
+	}
+	result.AntigravityUserAgentBuild = antigravity.NormalizeUserAgentBuild(settings[SettingKeyAntigravityUserAgentBuild])
 	result.OpenAICodexUserAgent = strings.TrimSpace(settings[SettingKeyOpenAICodexUserAgent])
 	result.OpenAICodexClientVersion = NormalizeCodexClientVersion(settings[SettingKeyOpenAICodexClientVersion])
 	result.OpenAICodexClientVersionSynced = NormalizeCodexClientVersion(settings[SettingKeyOpenAICodexClientVersionSynced])

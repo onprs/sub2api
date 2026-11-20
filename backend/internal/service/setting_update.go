@@ -492,6 +492,10 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyRewriteMessageCacheControl] = strconv.FormatBool(settings.RewriteMessageCacheControl)
 	updates[SettingKeyEnableClientDatelineNormalization] = strconv.FormatBool(settings.EnableClientDatelineNormalization)
 	updates[SettingKeyAntigravityUserAgentVersion] = antigravity.NormalizeUserAgentVersion(settings.AntigravityUserAgentVersion)
+	updates[SettingKeyAntigravityVersionAutoSyncEnabled] = strconv.FormatBool(settings.AntigravityVersionAutoSyncEnabled)
+	updates[SettingKeyAntigravityUserAgentBuild] = antigravity.NormalizeUserAgentBuild(settings.AntigravityUserAgentBuild)
+	// SettingKeyAntigravityUserAgentVersionSynced 由自动同步任务独占写入，此处不得覆盖，
+	// 否则面板保存会把同步结果清空。
 	updates[SettingKeyOpenAICodexUserAgent] = strings.TrimSpace(settings.OpenAICodexUserAgent)
 	updates[SettingKeyOpenAICodexClientVersion] = NormalizeCodexClientVersion(settings.OpenAICodexClientVersion)
 	updates[SettingKeyOpenAICodexVersionAutoSyncEnabled] = strconv.FormatBool(settings.OpenAICodexVersionAutoSyncEnabled)
@@ -735,15 +739,9 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		clientDatelineNormalization:      settings.EnableClientDatelineNormalization,
 		expiresAt:                        time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 	})
-	s.antigravityUAVersionSF.Forget("antigravity_user_agent_version")
-	antigravityUserAgentVersion := antigravity.NormalizeUserAgentVersion(settings.AntigravityUserAgentVersion)
-	if antigravityUserAgentVersion == "" {
-		antigravityUserAgentVersion = antigravity.GetDefaultUserAgentVersion()
-	}
-	s.antigravityUAVersionCache.Store(&cachedAntigravityUserAgentVersion{
-		version:   antigravityUserAgentVersion,
-		expiresAt: time.Now().Add(antigravityUserAgentVersionCacheTTL).UnixNano(),
-	})
+	// Antigravity 版本号/CL 缓存只做失效，避免手填为空时覆盖自动同步写入的 synced 值。
+	s.InvalidateAntigravityUserAgentVersionCache()
+	s.InvalidateAntigravityUserAgentBuildCache()
 	s.openAICodexUASF.Forget("openai_codex_user_agent")
 	codexUA := strings.TrimSpace(settings.OpenAICodexUserAgent)
 	if codexUA == "" {

@@ -160,6 +160,35 @@ func accountHasAntigravityPaidTier(account *Account) bool {
 	return antigravity.IsPaidPlanType(planType)
 }
 
+// antigravityRequestContext 为出站 Antigravity 请求补充账号级 UA 上下文（如遥测关闭状态）。
+func antigravityRequestContext(ctx context.Context, account *Account) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if account != nil && account.GetExtraString("privacy_mode") == AntigravityPrivacySet {
+		return antigravity.WithUserAgentDataCollectionOptOut(ctx, true)
+	}
+	return ctx
+}
+
+// antigravityCapacityRetryDelay 计算 MODEL_CAPACITY_EXHAUSTED 的指数退避延迟（1s -> 2s -> 4s，带 ±20% 抖动，上限 8s）。
+func antigravityCapacityRetryDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	delay := antigravityModelCapacityRetryWait << uint(attempt-1)
+	if delay > antigravityModelCapacityRetryMaxWait {
+		delay = antigravityModelCapacityRetryMaxWait
+	}
+	jitterRange := float64(delay) * 0.2
+	jitter := (mathrand.Float64()*2 - 1) * jitterRange
+	result := delay + time.Duration(jitter)
+	if result < 500*time.Millisecond {
+		result = 500 * time.Millisecond
+	}
+	return result
+}
+
 // smartRetryAction 智能重试的处理结果
 type smartRetryAction int
 
@@ -251,11 +280,10 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 		var lastRetryResp *http.Response
 		var lastRetryBody []byte
 
-		// MODEL_CAPACITY_EXHAUSTED 使用独立的重试参数（60 次，固定 1s 间隔）
+		// MODEL_CAPACITY_EXHAUSTED 使用独立的有限重试参数（最多 3 次，指数退避 + 抖动）
 		maxAttempts := antigravitySmartRetryMaxAttempts
 		if isModelCapacityExhausted {
 			maxAttempts = antigravityModelCapacityRetryMaxAttempts
-			waitDuration = antigravityModelCapacityRetryWait
 
 			// 全局去重：如果其他 goroutine 已在重试同一模型且尚在 cooldown 中，直接返回 503
 			if modelName != "" {
@@ -278,10 +306,14 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 		}
 
 		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			attemptDelay := waitDuration
+			if isModelCapacityExhausted {
+				attemptDelay = antigravityCapacityRetryDelay(attempt)
+			}
 			log.Printf("%s status=%d oauth_smart_retry attempt=%d/%d delay=%v model=%s account=%d",
-				p.prefix, resp.StatusCode, attempt, maxAttempts, waitDuration, modelName, p.account.ID)
+				p.prefix, resp.StatusCode, attempt, maxAttempts, attemptDelay, modelName, p.account.ID)
 
-			timer := time.NewTimer(waitDuration)
+			timer := time.NewTimer(attemptDelay)
 			select {
 			case <-p.ctx.Done():
 				timer.Stop()
@@ -296,7 +328,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 				logger.LegacyPrintf("service.antigravity_gateway", "%s status=smart_retry_attempt_build_failed error=%v", p.prefix, err)
 				return &smartRetryResult{action: smartRetryActionBreakWithResp, err: err}
 			}
-			retryReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, retryAttempt.body)
+			retryReq, err := antigravity.NewAPIRequestWithURL(antigravityRequestContext(p.ctx, p.account), baseURL, p.action, p.accessToken, retryAttempt.body)
 			if err != nil {
 				logger.LegacyPrintf("service.antigravity_gateway", "%s status=smart_retry_request_build_failed error=%v", p.prefix, err)
 				p.dispatchHandleError(resp.StatusCode, resp.Header, respBody)
@@ -485,7 +517,7 @@ func (s *AntigravityGatewayService) handleSingleAccountRetryInPlace(
 			logger.LegacyPrintf("service.antigravity_gateway", "%s single_account_503_retry: attempt_build_failed error=%v", p.prefix, err)
 			return &smartRetryResult{action: smartRetryActionBreakWithResp, err: err}
 		}
-		retryReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, retryAttempt.body)
+		retryReq, err := antigravity.NewAPIRequestWithURL(antigravityRequestContext(p.ctx, p.account), baseURL, p.action, p.accessToken, retryAttempt.body)
 		if err != nil {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s single_account_503_retry: request_build_failed error=%v", p.prefix, err)
 			break
@@ -650,7 +682,7 @@ urlFallbackLoop:
 			if err != nil {
 				return nil, err
 			}
-			upstreamReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, requestAttempt.body)
+			upstreamReq, err := antigravity.NewAPIRequestWithURL(antigravityRequestContext(p.ctx, p.account), baseURL, p.action, p.accessToken, requestAttempt.body)
 			if err != nil {
 				return nil, err
 			}

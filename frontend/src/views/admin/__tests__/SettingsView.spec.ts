@@ -548,6 +548,9 @@ const baseSettingsResponse = {
   rewrite_message_cache_control: false,
   enable_client_dateline_normalization: true,
   antigravity_user_agent_version: "",
+  antigravity_user_agent_version_synced: "",
+  antigravity_version_auto_sync_enabled: true,
+  antigravity_user_agent_build: "",
   openai_codex_user_agent: "",
   payment_enabled: true,
   payment_min_amount: 1,
@@ -1436,6 +1439,8 @@ describe("admin SettingsView payment visible method controls", () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,
       antigravity_user_agent_version: "1.23.2",
+      antigravity_version_auto_sync_enabled: false,
+      antigravity_user_agent_build: "1029999999",
     });
 
     const wrapper = mountView();
@@ -1448,6 +1453,8 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({
         antigravity_user_agent_version: "1.23.2",
+        antigravity_version_auto_sync_enabled: false,
+        antigravity_user_agent_build: "1029999999",
       }),
     );
   });

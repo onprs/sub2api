@@ -304,12 +304,21 @@ func (s *AntigravityOAuthService) RefreshAccountToken(ctx context.Context, accou
 		tokenInfo.Email = existingEmail
 	}
 
-	// 每次刷新都调用 LoadCodeAssist 获取 project_id + plan_type，失败时重试
+	// 仅在缺失 project_id 或 plan_type 时才调用 LoadCodeAssist 补全元数据；
+	// 常规 token 刷新不再每次都伴随 LoadCodeAssist，与官方 agy CLI RefreshingTokenSource 行为对齐。
 	existingProjectID := strings.TrimSpace(account.GetCredential("project_id"))
+	existingPlanType := strings.TrimSpace(account.GetCredential("plan_type"))
+	if existingProjectID != "" && existingPlanType != "" {
+		tokenInfo.ProjectID = existingProjectID
+		tokenInfo.PlanType = existingPlanType
+		return tokenInfo, nil
+	}
+
 	loadResult, loadErr := s.loadProjectIDWithRetry(ctx, tokenInfo.AccessToken, proxyURL, 3)
 
 	if loadErr != nil {
 		tokenInfo.ProjectID = existingProjectID
+		tokenInfo.PlanType = existingPlanType
 		if existingProjectID == "" {
 			tokenInfo.ProjectIDMissing = true
 		}
@@ -317,9 +326,13 @@ func (s *AntigravityOAuthService) RefreshAccountToken(ctx context.Context, accou
 	if loadResult != nil {
 		if loadResult.ProjectID != "" {
 			tokenInfo.ProjectID = loadResult.ProjectID
+		} else if existingProjectID != "" {
+			tokenInfo.ProjectID = existingProjectID
 		}
 		if loadResult.Subscription != nil {
 			tokenInfo.PlanType = loadResult.Subscription.PlanType
+		} else if existingPlanType != "" {
+			tokenInfo.PlanType = existingPlanType
 		}
 	}
 

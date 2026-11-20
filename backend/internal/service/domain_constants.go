@@ -699,8 +699,14 @@ const (
 	SettingKeyEnableClientDatelineNormalization = "enable_client_dateline_normalization"
 	// SettingKeyRewriteMessageCacheControl 是否改写 messages[*].content[*].cache_control（默认 false）
 	SettingKeyRewriteMessageCacheControl = "rewrite_message_cache_control"
-	// SettingKeyAntigravityUserAgentVersion Antigravity 上游 User-Agent 版本号（空值使用环境变量/默认值）
+	// SettingKeyAntigravityUserAgentVersion Antigravity 上游 User-Agent 版本号（管理员覆写；空值跟随自动同步/环境变量/内置默认）
 	SettingKeyAntigravityUserAgentVersion = "antigravity_user_agent_version"
+	// SettingKeyAntigravityUserAgentVersionSynced 自动同步任务写入的官方 agy CLI 最新版本号（独占写入，面板只读展示）
+	SettingKeyAntigravityUserAgentVersionSynced = "antigravity_user_agent_version_synced"
+	// SettingKeyAntigravityVersionAutoSyncEnabled 是否启用 Antigravity CLI 版本号自动同步（默认 true）
+	SettingKeyAntigravityVersionAutoSyncEnabled = "antigravity_version_auto_sync_enabled"
+	// SettingKeyAntigravityUserAgentBuild Antigravity 上游 User-Agent 构建 CL 号（可选覆盖；空值使用环境变量/内置默认）
+	SettingKeyAntigravityUserAgentBuild = "antigravity_user_agent_build"
 	// SettingKeyOpenAICodexUserAgent OpenAI Codex 完整 User-Agent（空值使用内置默认）
 	// 当客户端 UA 被识别为浏览器（Chrome/Firefox/Safari/Edge 等）时，转发给 OpenAI 上游前会替换为此值，
 	// 用于避免 Cloudflare 对浏览器型 UA 的质询拦截。

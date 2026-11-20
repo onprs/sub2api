@@ -71,9 +71,11 @@ func TestTransformClaudeToGemini_AttributionSystemText(t *testing.T) {
 				var got V1InternalRequest
 				require.NoError(t, json.Unmarshal(body, &got))
 				var texts []string
-				for _, part := range got.Request.SystemInstruction.Parts {
-					if part.Text != "\n--- [SYSTEM_PROMPT_END] ---" {
-						texts = append(texts, part.Text)
+				if got.Request.SystemInstruction != nil {
+					for _, part := range got.Request.SystemInstruction.Parts {
+						if part.Text != "\n--- [SYSTEM_PROMPT_END] ---" {
+							texts = append(texts, part.Text)
+						}
 					}
 				}
 				var want []string

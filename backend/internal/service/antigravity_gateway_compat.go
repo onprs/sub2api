@@ -343,6 +343,7 @@ func (s *AntigravityGatewayService) buildAntigravityCompatGeminiBody(
 
 	options := s.getClaudeTransformOptions(ctx)
 	options.EnableIdentityPatch = true
+	options.MoveSystemToUserContent = true
 	return antigravity.TransformClaudeToGeminiWithOptions(claudeRequest, projectID, mappedModel, options)
 }
 

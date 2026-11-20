@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	antigravityTokenRefreshSkew = 3 * time.Minute
+	// antigravityTokenRefreshSkew 对齐官方 agy CLI RefreshingTokenSource expiryDelta (5m)
+	antigravityTokenRefreshSkew = 5 * time.Minute
 	antigravityTokenCacheSkew   = 5 * time.Minute
 	antigravityBackfillCooldown = 5 * time.Minute
 	// antigravityRequestRefreshTimeout 请求路径上 token 刷新的最大等待时间。

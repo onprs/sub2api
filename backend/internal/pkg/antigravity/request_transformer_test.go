@@ -755,3 +755,47 @@ func TestTransformClaudeToGemini_ToolResultImagesReachUpstream(t *testing.T) {
 	require.Equal(t, "image/jpeg", userParts[3].InlineData.MimeType)
 	require.Equal(t, "d29ybGQ=", userParts[3].InlineData.Data)
 }
+
+func TestTransformClaudeToGemini_AlignedWithAgyCLI(t *testing.T) {
+	claudeReq := &ClaudeRequest{
+		Model:  "claude-sonnet-4-6",
+		System: json.RawMessage(`"You are a helpful coding assistant."`),
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: json.RawMessage(`"hello world"`)},
+		},
+		Metadata: &ClaudeMetadata{UserID: "raw_client_user_123"},
+		Tools: []ClaudeTool{
+			{
+				Name:        "mcp__filesystem__read",
+				Description: "Read file",
+				InputSchema: map[string]any{"type": "object"},
+			},
+		},
+	}
+
+	body, err := TransformClaudeToGeminiWithOptions(claudeReq, "project-1", "claude-sonnet-4-6", DefaultTransformOptions())
+	require.NoError(t, err)
+
+	var req V1InternalRequest
+	require.NoError(t, json.Unmarshal(body, &req))
+
+	// requestId 对齐 agy CLI 斜杠分段兜底格式
+	require.True(t, strings.HasPrefix(req.RequestID, "antigravity/"), "requestId=%q", req.RequestID)
+	require.Equal(t, "antigravity", req.UserAgent)
+
+	// sessionId 经 FNV-1a 哈希映射，不直接透传 metadata.user_id 原始字符串
+	require.Equal(t, HashSessionID("raw_client_user_123"), req.Request.SessionID)
+	require.NotEqual(t, "raw_client_user_123", req.Request.SessionID)
+
+	// systemInstruction 不再包含对抗性反披露文本、SYSTEM_PROMPT_END 或默认中文 MCP XML
+	require.NotNil(t, req.Request.SystemInstruction)
+	systemTexts := make([]string, 0, len(req.Request.SystemInstruction.Parts))
+	for _, part := range req.Request.SystemInstruction.Parts {
+		systemTexts = append(systemTexts, part.Text)
+	}
+	require.Contains(t, strings.Join(systemTexts, "\n"), "<USER_REQUEST>")
+	rawBody := string(body)
+	require.NotContains(t, rawBody, "internal initialization logs")
+	require.NotContains(t, rawBody, "SYSTEM_PROMPT_END")
+	require.NotContains(t, rawBody, "MCP XML 工具调用协议")
+}

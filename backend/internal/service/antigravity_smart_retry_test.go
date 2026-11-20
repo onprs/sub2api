@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 // stubSmartRetryCache 用于 handleSmartRetry 测试的 GatewayCache mock
@@ -455,6 +456,15 @@ func TestHandleSmartRetry_503_ModelCapacityExhausted_ContextCancel(t *testing.T)
 	require.Error(t, result.err, "should return context error")
 	require.Nil(t, result.switchError, "should not return switchError on context cancel")
 	require.Empty(t, repo.modelRateLimitCalls, "should not set model rate limit on context cancel")
+}
+
+func TestAntigravityModelCapacityRetryBoundedBackoff(t *testing.T) {
+	require.Equal(t, 3, antigravityModelCapacityRetryMaxAttempts, "MODEL_CAPACITY_EXHAUSTED retry attempts must stay bounded")
+	for attempt := 1; attempt <= 4; attempt++ {
+		delay := antigravityCapacityRetryDelay(attempt)
+		require.GreaterOrEqual(t, delay, 500*time.Millisecond)
+		require.LessOrEqual(t, delay, time.Duration(float64(antigravityModelCapacityRetryMaxWait)*1.25))
+	}
 }
 
 // TestHandleSmartRetry_NonAntigravityAccount_ContinuesDefaultLogic 测试非 Antigravity 平台账号走默认逻辑

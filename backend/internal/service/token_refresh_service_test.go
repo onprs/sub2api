@@ -556,6 +556,38 @@ func TestAntigravityTokenRefresher_NeedsRefresh_NormalExpiryRulesUnchanged(t *te
 
 		require.True(t, refresher.NeedsRefresh(account, 0))
 	})
+
+	t.Run("idle_account_skips_background_refresh", func(t *testing.T) {
+		idleAt := time.Now().Add(-3 * time.Hour)
+		account := &Account{
+			ID:         3710,
+			Platform:   PlatformAntigravity,
+			Type:       AccountTypeOAuth,
+			LastUsedAt: &idleAt,
+			Credentials: map[string]any{
+				"expires_at": time.Now().Add(3 * time.Minute).Format(time.RFC3339),
+				"project_id": "proj-idle",
+			},
+		}
+
+		require.False(t, refresher.NeedsRefresh(account, 0), "长期闲置账号不应 24/7 后台周期性刷新")
+	})
+
+	t.Run("recently_active_account_refreshes", func(t *testing.T) {
+		activeAt := time.Now().Add(-15 * time.Minute)
+		account := &Account{
+			ID:         3711,
+			Platform:   PlatformAntigravity,
+			Type:       AccountTypeOAuth,
+			LastUsedAt: &activeAt,
+			Credentials: map[string]any{
+				"expires_at": time.Now().Add(5 * time.Minute).Format(time.RFC3339),
+				"project_id": "proj-active",
+			},
+		}
+
+		require.True(t, refresher.NeedsRefresh(account, 0), "近期活跃账号临近过期应触发后台刷新")
+	})
 }
 
 func TestTokenRefreshService_RefreshWithRetry_AntigravityClearsForceRefreshOnSuccess(t *testing.T) {

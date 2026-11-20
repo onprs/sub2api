@@ -482,6 +482,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.AntigravityUserAgentVersion != after.AntigravityUserAgentVersion {
 		changed = append(changed, "antigravity_user_agent_version")
 	}
+	if before.AntigravityVersionAutoSyncEnabled != after.AntigravityVersionAutoSyncEnabled {
+		changed = append(changed, "antigravity_version_auto_sync_enabled")
+	}
+	if before.AntigravityUserAgentBuild != after.AntigravityUserAgentBuild {
+		changed = append(changed, "antigravity_user_agent_build")
+	}
 	if before.OpenAICodexUserAgent != after.OpenAICodexUserAgent {
 		changed = append(changed, "openai_codex_user_agent")
 	}

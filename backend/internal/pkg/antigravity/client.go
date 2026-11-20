@@ -4,6 +4,7 @@ package antigravity
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -80,8 +81,8 @@ type UserInfo struct {
 type LoadCodeAssistRequest struct {
 	Metadata struct {
 		IDEType    string `json:"ideType"`
-		IDEVersion string `json:"ideVersion"`
-		IDEName    string `json:"ideName"`
+		IDEVersion string `json:"ideVersion,omitempty"`
+		IDEName    string `json:"ideName,omitempty"`
 	} `json:"metadata"`
 }
 
@@ -286,9 +287,29 @@ const (
 	clientTimeout = 10 * time.Second
 )
 
+// newHTTP1Transport 构造显式禁用 HTTP/2 的传输层，与官方 agy CLI 的 newCloudCodeTransport 对齐。
+func newHTTP1Transport() *http.Transport {
+	return &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   proxyDialTimeout,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout: proxyTLSHandshakeTimeout,
+		ForceAttemptHTTP2:   false,
+		TLSNextProto:        make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+		MaxIdleConnsPerHost: 100,
+		IdleConnTimeout:     90 * time.Second,
+	}
+}
+
+// defaultDirectTransport 供无代理直连客户端复用的 HTTP/1.1 连接池，避免每次 NewClient 泄漏连接池，
+// 同时防止回退到 http.DefaultTransport 协商 HTTP/2。
+var defaultDirectTransport = newHTTP1Transport()
+
 func NewClient(proxyURL string) (*Client, error) {
 	client := &http.Client{
-		Timeout: clientTimeout,
+		Timeout:   clientTimeout,
+		Transport: defaultDirectTransport,
 	}
 
 	_, parsed, err := proxyurl.Parse(proxyURL)
@@ -296,12 +317,7 @@ func NewClient(proxyURL string) (*Client, error) {
 		return nil, err
 	}
 	if parsed != nil {
-		transport := &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout: proxyDialTimeout,
-			}).DialContext,
-			TLSHandshakeTimeout: proxyTLSHandshakeTimeout,
-		}
+		transport := newHTTP1Transport()
 		if err := proxyutil.ConfigureTransportProxy(transport, parsed); err != nil {
 			return nil, fmt.Errorf("configure proxy: %w", err)
 		}
@@ -532,9 +548,8 @@ func (c *Client) GetUserInfo(ctx context.Context, accessToken string) (*UserInfo
 // 默认按正式 daily → production 顺序回退。
 func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadCodeAssistResponse, map[string]any, error) {
 	reqBody := LoadCodeAssistRequest{}
+	// 与官方 agy 1.5.13 fetchLoadCodeAssistResponse 对齐：仅填充 ideType=ANTIGRAVITY。
 	reqBody.Metadata.IDEType = "ANTIGRAVITY"
-	reqBody.Metadata.IDEVersion = GetUserAgentVersionForContext(ctx)
-	reqBody.Metadata.IDEName = "antigravity"
 
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
@@ -601,7 +616,8 @@ func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadC
 // OnboardUser 触发账号 onboarding，并返回 project_id
 // 说明：
 // 1) 部分账号 loadCodeAssist 不会立即返回 cloudaicompanionProject；
-// 2) 这时需要调用 onboardUser 完成初始化，之后才能拿到 project_id。
+// 2) 这时需要调用一次 POST /v1internal:onboardUser 触发初始化；
+// 3) 若 done=false 且返回了 operation name，按官方 agy CLI 行为改用 GET /v1internal/<name> 轮询 LRO 状态。
 func (c *Client) OnboardUser(ctx context.Context, accessToken, tierID string) (string, error) {
 	tierID = strings.TrimSpace(tierID)
 	if tierID == "" {
@@ -610,8 +626,6 @@ func (c *Client) OnboardUser(ctx context.Context, accessToken, tierID string) (s
 
 	reqBody := OnboardUserRequest{TierID: tierID}
 	reqBody.Metadata.IDEType = "ANTIGRAVITY"
-	reqBody.Metadata.Platform = "PLATFORM_UNSPECIFIED"
-	reqBody.Metadata.PluginType = "GEMINI"
 
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
@@ -622,16 +636,26 @@ func (c *Client) OnboardUser(ctx context.Context, accessToken, tierID string) (s
 	var lastErr error
 
 	for urlIdx, baseURL := range availableURLs {
-		apiURL := baseURL + "/v1internal:onboardUser"
+		postURL := baseURL + "/v1internal:onboardUser"
+		operationName := ""
 
 		for attempt := 1; attempt <= 5; attempt++ {
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(bodyBytes))
+			var req *http.Request
+			if attempt == 1 || operationName == "" {
+				req, err = http.NewRequestWithContext(ctx, http.MethodPost, postURL, bytes.NewReader(bodyBytes))
+				if err == nil {
+					req.Header.Set("Content-Type", "application/json")
+				}
+			} else {
+				opPath := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(operationName), "/"), "v1internal/")
+				pollURL := fmt.Sprintf("%s/v1internal/%s", baseURL, opPath)
+				req, err = http.NewRequestWithContext(ctx, http.MethodGet, pollURL, nil)
+			}
 			if err != nil {
 				lastErr = fmt.Errorf("创建请求失败: %w", err)
 				break
 			}
 			req.Header.Set("Authorization", "Bearer "+accessToken)
-			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("User-Agent", GetUserAgentForContext(ctx))
 
 			resp, err := servertiming.Do(c.httpClient, req)
@@ -674,8 +698,11 @@ func (c *Client) OnboardUser(ctx context.Context, accessToken, tierID string) (s
 				lastErr = fmt.Errorf("onboardUser 完成但未返回 project_id")
 				return "", lastErr
 			}
+			if name := strings.TrimSpace(onboardResp.Name); name != "" {
+				operationName = name
+			}
 
-			// done=false 时等待后重试，避免在上游仍未完成时提前结束轮询。
+			// done=false 时等待后轮询，避免在上游仍未完成时提前结束。
 			select {
 			case <-time.After(2 * time.Second):
 			case <-ctx.Done():
@@ -913,9 +940,9 @@ func isAllowedFetchAvailableModelsRedirectHost(host string) bool {
 // privacyBaseURL 隐私设置 API 仅使用 daily 端点（与 Antigravity 客户端行为一致）
 const privacyBaseURL = DailyBaseURL
 
-// SetUserSettingsRequest setUserSettings 请求体
+// SetUserSettingsRequest setUserSettings 请求体（protojson 驼峰命名，与官方 agy CLI 对齐）
 type SetUserSettingsRequest struct {
-	UserSettings map[string]any `json:"user_settings"`
+	UserSettings map[string]any `json:"userSettings"`
 }
 
 // FetchUserInfoRequest fetchUserInfo 请求体
@@ -929,13 +956,26 @@ type FetchUserInfoResponse struct {
 	RegionCode   string         `json:"regionCode,omitempty"`
 }
 
-// IsPrivate 判断隐私是否已设置：userSettings 为空或不含 telemetryEnabled 表示已设置
-func (r *FetchUserInfoResponse) IsPrivate() bool {
-	if r == nil || r.UserSettings == nil {
+// isTelemetryDisabled 检查 userSettings 中的遥测是否已关闭。
+// proto3 布尔默认值为 false（可能省略键，也可能显式返回 false）。
+func isTelemetryDisabled(userSettings map[string]any) bool {
+	if len(userSettings) == 0 {
 		return true
 	}
-	_, hasTelemetry := r.UserSettings["telemetryEnabled"]
-	return !hasTelemetry
+	val, hasTelemetry := userSettings["telemetryEnabled"]
+	if !hasTelemetry || val == nil {
+		return true
+	}
+	enabled, ok := val.(bool)
+	return ok && !enabled
+}
+
+// IsPrivate 判断隐私是否已设置：userSettings 中 telemetryEnabled 缺失或为 false 即视为已关闭遥测。
+func (r *FetchUserInfoResponse) IsPrivate() bool {
+	if r == nil {
+		return false
+	}
+	return isTelemetryDisabled(r.UserSettings)
 }
 
 // SetUserSettingsResponse setUserSettings 响应体
@@ -943,24 +983,31 @@ type SetUserSettingsResponse struct {
 	UserSettings map[string]any `json:"userSettings,omitempty"`
 }
 
-// IsSuccess 判断 setUserSettings 是否成功：返回 {"userSettings":{}} 且无 telemetryEnabled
+// IsSuccess 判断 setUserSettings 是否成功：响应体中 telemetryEnabled 缺失或为 false。
 func (r *SetUserSettingsResponse) IsSuccess() bool {
 	if r == nil {
 		return false
 	}
-	// userSettings 为 nil 或空 map 均视为成功
-	if len(r.UserSettings) == 0 {
-		return true
-	}
-	// 如果包含 telemetryEnabled 字段，说明未成功清除
-	_, hasTelemetry := r.UserSettings["telemetryEnabled"]
-	return !hasTelemetry
+	return isTelemetryDisabled(r.UserSettings)
 }
 
-// SetUserSettings 调用 setUserSettings API 设置用户隐私，返回解析后的响应
+// SetUserSettings 调用 setUserSettings API 关闭遥测（无既有设置上下文时的兼容入口）。
 func (c *Client) SetUserSettings(ctx context.Context, accessToken string) (*SetUserSettingsResponse, error) {
-	// 发送空 user_settings 以清除隐私设置
-	payload := SetUserSettingsRequest{UserSettings: map[string]any{}}
+	return c.SetUserSettingsWithExisting(ctx, accessToken, nil)
+}
+
+// SetUserSettingsWithExisting 克隆既有 userSettings（保留 consumerTermsAccepted、
+// gcpTermsAccepted 等条款与偏好字段），仅关闭 telemetryEnabled 后提交 setUserSettings，
+// 与官方 agy CLI persistTelemetryDisabled 语义一致。
+func (c *Client) SetUserSettingsWithExisting(ctx context.Context, accessToken string, existing map[string]any) (*SetUserSettingsResponse, error) {
+	cloned := make(map[string]any, len(existing))
+	for k, v := range existing {
+		if k == "telemetryEnabled" || k == "telemetry_enabled" {
+			continue
+		}
+		cloned[k] = v
+	}
+	payload := SetUserSettingsRequest{UserSettings: cloned}
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("序列化请求失败: %w", err)
@@ -973,10 +1020,7 @@ func (c *Client) SetUserSettings(ctx context.Context, accessToken string) (*SetU
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "*/*")
 	req.Header.Set("User-Agent", GetUserAgentForContext(ctx))
-	req.Header.Set("X-Goog-Api-Client", "gl-node/22.21.1")
-	req.Host = "daily-cloudcode-pa.googleapis.com"
 
 	resp, err := servertiming.Do(c.httpClient, req)
 	if err != nil {
@@ -1016,10 +1060,7 @@ func (c *Client) FetchUserInfo(ctx context.Context, accessToken, projectID strin
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "*/*")
 	req.Header.Set("User-Agent", GetUserAgentForContext(ctx))
-	req.Header.Set("X-Goog-Api-Client", "gl-node/22.21.1")
-	req.Host = "daily-cloudcode-pa.googleapis.com"
 
 	resp, err := servertiming.Do(c.httpClient, req)
 	if err != nil {
