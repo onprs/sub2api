@@ -839,12 +839,51 @@ func TestConstants_值正确(t *testing.T) {
 }
 
 func TestDefaultUserAgentVersion_CurrentCLIForGemini4Models(t *testing.T) {
-	// 旧版 1.1.13 对 gemini-4-argon-* 会返回 404；1.5.9 的 agy 用户目录包含 Carbon 三档与 Hydrogen 四档。
-	if got, want := GetDefaultUserAgentVersion(), "1.5.9"; got != want {
+	// 旧版 1.1.13 对 gemini-4-argon-* 会返回 404；内置基线对齐 agy 1.5.13 (CL 1025641825)。
+	if got, want := GetDefaultUserAgentVersion(), "1.5.13"; got != want {
 		t.Fatalf("default Antigravity CLI version = %q, want %q", got, want)
 	}
-	if ua := GetUserAgent(); !strings.Contains(ua, "antigravity/cli/1.5.9 ") {
-		t.Fatalf("default user agent does not advertise 1.5.9: %q", ua)
+	if got, want := GetDefaultUserAgentBuild(), "1025641825"; got != want {
+		t.Fatalf("default Antigravity CLI build = %q, want %q", got, want)
+	}
+	if ua := GetUserAgent(); !strings.Contains(ua, "antigravity/cli/1.5.13 ") || !strings.Contains(ua, "cl=1025641825") {
+		t.Fatalf("default user agent does not advertise 1.5.13 / CL 1025641825: %q", ua)
+	}
+}
+
+func TestBuildUserAgentWithOptions_BuildAndDataCollectionOptOut(t *testing.T) {
+	got := BuildUserAgentWithOptions("1.6.0", "1030000001", true)
+	want := fmt.Sprintf(
+		"antigravity/cli/1.6.0 (aidev_client; os_type=%s; arch=%s; cl=1030000001; auth_method=consumer; datacollection_opt_in=false)",
+		runtime.GOOS,
+		runtime.GOARCH,
+	)
+	if got != want {
+		t.Fatalf("BuildUserAgentWithOptions mismatch:\n got %q\nwant %q", got, want)
+	}
+
+	userAgentVersionMu.RLock()
+	prevBuildResolver := userAgentBuildResolver
+	userAgentVersionMu.RUnlock()
+	SetUserAgentBuildResolver(func(context.Context) string { return "1031234567" })
+	t.Cleanup(func() { SetUserAgentBuildResolver(prevBuildResolver) })
+
+	ctx := WithUserAgentDataCollectionOptOut(context.Background(), true)
+	gotCtx := GetUserAgentForContext(ctx)
+	if !strings.Contains(gotCtx, "cl=1031234567") || !strings.Contains(gotCtx, "datacollection_opt_in=false") {
+		t.Fatalf("GetUserAgentForContext should apply build resolver and opt-out flag, got %q", gotCtx)
+	}
+}
+
+func TestManifestURL_UsesDefaultAndEnvOverride(t *testing.T) {
+	t.Setenv(AntigravityUAManifestURLEnv, "")
+	if got := ManifestURL(); !strings.HasPrefix(got, DefaultManifestBaseURL+"/manifests/") || !strings.HasSuffix(got, ".json") {
+		t.Fatalf("unexpected default manifest url: %q", got)
+	}
+
+	t.Setenv(AntigravityUAManifestURLEnv, "https://example.test/custom.json")
+	if got := ManifestURL(); got != "https://example.test/custom.json" {
+		t.Fatalf("manifest url env override failed: got %q", got)
 	}
 }
 
@@ -855,6 +894,8 @@ func TestScopes_包含必要范围(t *testing.T) {
 		"https://www.googleapis.com/auth/userinfo.profile",
 		"https://www.googleapis.com/auth/cclog",
 		"https://www.googleapis.com/auth/experimentsandconfigs",
+		"https://www.googleapis.com/auth/aicode",
+		"openid",
 	}
 
 	for _, scope := range expectedScopes {

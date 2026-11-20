@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -255,6 +256,8 @@ type UpdateSettingsRequest struct {
 	RewriteMessageCacheControl             *bool   `json:"rewrite_message_cache_control"`
 	EnableClientDatelineNormalization      *bool   `json:"enable_client_dateline_normalization"`
 	AntigravityUserAgentVersion            *string `json:"antigravity_user_agent_version"`
+	AntigravityVersionAutoSyncEnabled      *bool   `json:"antigravity_version_auto_sync_enabled"`
+	AntigravityUserAgentBuild              *string `json:"antigravity_user_agent_build"`
 	OpenAICodexUserAgent                   *string `json:"openai_codex_user_agent"`
 	OpenAICodexClientVersion               *string `json:"openai_codex_client_version"`
 	OpenAICodexVersionAutoSyncEnabled      *bool   `json:"openai_codex_version_auto_sync_enabled"`
@@ -1444,7 +1447,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		normalized := strings.TrimSpace(*req.AntigravityUserAgentVersion)
 		req.AntigravityUserAgentVersion = &normalized
 		if normalized != "" && !semverPattern.MatchString(normalized) {
-			response.Error(c, http.StatusBadRequest, "antigravity_user_agent_version must be empty or a valid semver (e.g. 1.5.9)")
+			response.Error(c, http.StatusBadRequest, "antigravity_user_agent_version must be empty or a valid semver (e.g. 1.5.13)")
+			return
+		}
+	}
+	if req.AntigravityUserAgentBuild != nil {
+		normalized := strings.TrimSpace(*req.AntigravityUserAgentBuild)
+		req.AntigravityUserAgentBuild = &normalized
+		if normalized != "" && antigravity.NormalizeUserAgentBuild(normalized) == "" {
+			response.Error(c, http.StatusBadRequest, "antigravity_user_agent_build must be empty or a valid numeric CL (e.g. 1025641825)")
 			return
 		}
 	}
@@ -1775,6 +1786,20 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.AntigravityUserAgentVersion
 			}
 			return previousSettings.AntigravityUserAgentVersion
+		}(),
+		// 同步值由自动同步任务独占写入，面板保存时原样带回，避免被清空。
+		AntigravityUserAgentVersionSynced: previousSettings.AntigravityUserAgentVersionSynced,
+		AntigravityVersionAutoSyncEnabled: func() bool {
+			if req.AntigravityVersionAutoSyncEnabled != nil {
+				return *req.AntigravityVersionAutoSyncEnabled
+			}
+			return previousSettings.AntigravityVersionAutoSyncEnabled
+		}(),
+		AntigravityUserAgentBuild: func() string {
+			if req.AntigravityUserAgentBuild != nil {
+				return *req.AntigravityUserAgentBuild
+			}
+			return previousSettings.AntigravityUserAgentBuild
 		}(),
 		OpenAICodexUserAgent: func() string {
 			if req.OpenAICodexUserAgent != nil {
@@ -2365,6 +2390,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		RewriteMessageCacheControl:                             updatedSettings.RewriteMessageCacheControl,
 		EnableClientDatelineNormalization:                      updatedSettings.EnableClientDatelineNormalization,
 		AntigravityUserAgentVersion:                            updatedSettings.AntigravityUserAgentVersion,
+		AntigravityUserAgentVersionSynced:                      updatedSettings.AntigravityUserAgentVersionSynced,
+		AntigravityVersionAutoSyncEnabled:                      updatedSettings.AntigravityVersionAutoSyncEnabled,
+		AntigravityUserAgentBuild:                              updatedSettings.AntigravityUserAgentBuild,
 		OpenAICodexUserAgent:                                   updatedSettings.OpenAICodexUserAgent,
 		OpenAICodexClientVersion:                               updatedSettings.OpenAICodexClientVersion,
 		OpenAICodexClientVersionSynced:                         updatedSettings.OpenAICodexClientVersionSynced,

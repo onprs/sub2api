@@ -9,9 +9,13 @@ import (
 )
 
 const (
-	// antigravityRefreshWindow Antigravity token 提前刷新窗口：15分钟
-	// Google OAuth token 有效期55分钟，提前15分钟刷新
-	antigravityRefreshWindow = 15 * time.Minute
+	// antigravityRefreshWindow Antigravity token 提前刷新窗口：8分钟。
+	// Google OAuth token 存库已预留 5 分钟安全裕量，配合 5 分钟巡检周期，
+	// 活跃账号在真实过期前约 8–13 分钟刷新，避免每 35 分钟机械刷新的异常脉冲。
+	antigravityRefreshWindow = 8 * time.Minute
+	// antigravityIdleRefreshCutoff 闲置账号跳过后台主动刷新的阈值：超过 2 小时无流量
+	// 不再 24/7 定时刷新，待真实请求到达时由 AntigravityTokenProvider 按需懒刷新。
+	antigravityIdleRefreshCutoff = 2 * time.Hour
 
 	antigravityForceTokenRefreshExtraKey       = "antigravity_force_token_refresh"
 	antigravityForceTokenRefreshReasonExtraKey = "antigravity_force_token_refresh_reason"
@@ -40,13 +44,16 @@ func (r *AntigravityTokenRefresher) CanRefresh(account *Account) bool {
 }
 
 // NeedsRefresh 检查账户是否需要刷新
-// Antigravity 使用固定的15分钟刷新窗口，忽略全局配置
+// Antigravity 使用固定刷新窗口，并跳过长期闲置账号的 24/7 后台刷新（请求到达时由 TokenProvider 按需刷新）。
 func (r *AntigravityTokenRefresher) NeedsRefresh(account *Account, _ time.Duration) bool {
 	if !r.CanRefresh(account) {
 		return false
 	}
 	if accountNeedsAntigravityForceTokenRefresh(account) {
 		return true
+	}
+	if isAntigravityAccountIdleForBackgroundRefresh(account) {
+		return false
 	}
 	expiresAt := account.GetCredentialAsTime("expires_at")
 	if expiresAt == nil {
@@ -59,6 +66,26 @@ func (r *AntigravityTokenRefresher) NeedsRefresh(account *Account, _ time.Durati
 			account.ID, expiresAt.Format("2006-01-02 15:04:05"), timeUntilExpiry, antigravityRefreshWindow)
 	}
 	return needsRefresh
+}
+
+func isAntigravityAccountIdleForBackgroundRefresh(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	// 缺少 project_id 或处于临时不可调度恢复期的账号允许后台刷新完成自愈。
+	if strings.TrimSpace(account.GetCredential("project_id")) == "" {
+		return false
+	}
+	if account.TempUnschedulableUntil != nil && time.Now().Before(*account.TempUnschedulableUntil) {
+		return false
+	}
+	if account.LastUsedAt != nil {
+		return time.Since(*account.LastUsedAt) > antigravityIdleRefreshCutoff
+	}
+	if !account.CreatedAt.IsZero() {
+		return time.Since(account.CreatedAt) > antigravityIdleRefreshCutoff
+	}
+	return false
 }
 
 func accountNeedsAntigravityForceTokenRefresh(account *Account) bool {

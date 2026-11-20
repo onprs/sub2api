@@ -165,7 +165,13 @@ func (s *settingAntigravityUARepoStub) Set(ctx context.Context, key, value strin
 }
 
 func (s *settingAntigravityUARepoStub) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
-	panic("unexpected GetMultiple call")
+	result := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if value, ok := s.values[key]; ok {
+			result[key] = value
+		}
+	}
+	return result, nil
 }
 
 func (s *settingAntigravityUARepoStub) SetMultiple(ctx context.Context, settings map[string]string) error {
@@ -850,6 +856,34 @@ func TestSettingService_GetAntigravityUserAgentVersion_Precedence(t *testing.T) 
 		svc := NewSettingService(&settingAntigravityUARepoStub{values: map[string]string{}}, &config.Config{})
 
 		require.Equal(t, antigravity.GetDefaultUserAgentVersion(), svc.GetAntigravityUserAgentVersion(context.Background()))
+	})
+
+	t.Run("手填为空时跟随自动同步值", func(t *testing.T) {
+		svc := NewSettingService(&settingAntigravityUARepoStub{values: map[string]string{
+			SettingKeyAntigravityUserAgentVersion:       "",
+			SettingKeyAntigravityUserAgentVersionSynced: "1.9.0",
+		}}, &config.Config{})
+
+		require.Equal(t, "1.9.0", svc.GetAntigravityUserAgentVersion(context.Background()))
+	})
+
+	t.Run("自动同步值低于内置基线时回退默认值", func(t *testing.T) {
+		svc := NewSettingService(&settingAntigravityUARepoStub{values: map[string]string{
+			SettingKeyAntigravityUserAgentVersion:       "",
+			SettingKeyAntigravityUserAgentVersionSynced: "1.1.0",
+		}}, &config.Config{})
+
+		require.Equal(t, antigravity.GetDefaultUserAgentVersion(), svc.GetAntigravityUserAgentVersion(context.Background()))
+	})
+
+	t.Run("构建CL号优先后台设置否则回退默认", func(t *testing.T) {
+		svcWithBuild := NewSettingService(&settingAntigravityUARepoStub{values: map[string]string{
+			SettingKeyAntigravityUserAgentBuild: "1029999999",
+		}}, &config.Config{})
+		require.Equal(t, "1029999999", svcWithBuild.GetAntigravityUserAgentBuild(context.Background()))
+
+		svcDefault := NewSettingService(&settingAntigravityUARepoStub{values: map[string]string{}}, &config.Config{})
+		require.Equal(t, antigravity.GetDefaultUserAgentBuild(), svcDefault.GetAntigravityUserAgentBuild(context.Background()))
 	})
 }
 

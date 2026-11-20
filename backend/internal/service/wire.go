@@ -469,6 +469,17 @@ func ProvideClaudeCodeVersionSyncService(
 	return svc
 }
 
+// ProvideAntigravityVersionSyncService creates and starts AntigravityVersionSyncService.
+// 出站 Antigravity CLI User-Agent 版本号靠它跟随官方发布清单动态更新；面板可关闭或手动覆写。
+func ProvideAntigravityVersionSyncService(
+	settingRepo SettingRepository,
+	settingService *SettingService,
+) *AntigravityVersionSyncService {
+	svc := NewAntigravityVersionSyncService(settingRepo, settingService, nil, antigravityVersionSyncInterval)
+	svc.Start()
+	return svc
+}
+
 // ProvideProxyExpiryService creates and starts ProxyExpiryService.
 func ProvideProxyExpiryService(proxyRepo ProxyRepository) *ProxyExpiryService {
 	svc := NewProxyExpiryService(proxyRepo, time.Minute)
@@ -851,6 +862,7 @@ func ProvideSettingService(scopedKeys ScopedAdminKeyRepository, settingRepo Sett
 		logger.LegacyPrintf("service.setting", "Warning: migrate Grok default text model failed: %v", err)
 	}
 	antigravity.SetUserAgentVersionResolver(svc.GetAntigravityUserAgentVersion)
+	antigravity.SetUserAgentBuildResolver(svc.GetAntigravityUserAgentBuild)
 	// enforceCodexIdentityHeaders 是所有 Codex 出站路径共用的纯函数收口点，拿不到 ctx，
 	// 故注入无参解析器；解析器内部自带 60s TTL 缓存，热路径不触库。
 	SetCodexCanonicalUserAgentResolver(func() string {
@@ -1002,6 +1014,7 @@ var ProviderSet = wire.NewSet(
 	ProvideAccountExpiryService,
 	ProvideOpenAICodexVersionSyncService,
 	ProvideClaudeCodeVersionSyncService,
+	ProvideAntigravityVersionSyncService,
 	ProvideProxyExpiryService,
 	ProvideSubscriptionExpiryService,
 	ProvideTimingWheelService,

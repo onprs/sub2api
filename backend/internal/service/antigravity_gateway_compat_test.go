@@ -255,11 +255,16 @@ func TestAntigravitySystemIdentityAcrossProtocols(t *testing.T) {
 						}
 						require.NoError(t, err)
 						systemText := gjson.GetBytes(forwarded, "request.systemInstruction.parts").Raw
-						require.Contains(t, systemText, "You are an AI agent.")
-						require.Contains(t, systemText, "Keep GPT-5.6, gpt-6 and Claude model ids unchanged.")
+						require.Contains(t, systemText, "You are Antigravity")
 						require.NotContains(t, systemText, identity)
 						require.NotContains(t, systemText, "x-anthropic-billing-header:")
-						require.Equal(t, identity, gjson.GetBytes(forwarded, "request.contents.0.parts.0.text").String())
+						// 客户端系统提示词已统一隔离到 contents[0]，原始用户消息位于 contents[1]
+						movedSystemText := gjson.GetBytes(forwarded, "request.contents.0.parts").Raw
+						require.Contains(t, movedSystemText, "You are an AI agent.")
+						require.Contains(t, movedSystemText, "Keep GPT-5.6, gpt-6 and Claude model ids unchanged.")
+						require.NotContains(t, movedSystemText, identity)
+						require.NotContains(t, movedSystemText, "x-anthropic-billing-header:")
+						require.Equal(t, identity, gjson.GetBytes(forwarded, "request.contents.1.parts.0.text").String())
 						// 定制路由：OAuth 账号经默认路由表把 gemini-3.1-pro-high 规范化为
 						// wire model gemini-pro-agent；其余模型原样透传。
 						forwardModel := model
@@ -375,22 +380,23 @@ func TestAntigravitySystemIdentityMultipleBlocksForward(test *testing.T) {
 							wantTexts[index] = "You are an AI agent."
 						}
 					}
-					if scenario.name != "native_then_stale" {
-						require.Contains(test, systemTexts[0], "You are Antigravity")
-						systemTexts = systemTexts[1:]
-						if protocol == "messages" {
-							require.GreaterOrEqual(test, len(systemTexts), 2)
-							require.Contains(test, systemTexts[0], "Below are your system instructions.")
-							require.Equal(test, "\n--- [SYSTEM_PROMPT_END] ---", systemTexts[len(systemTexts)-1])
-							systemTexts = systemTexts[1 : len(systemTexts)-1]
-						}
-					}
 					separator := "\n\n"
 					if protocol == "messages" {
 						separator = "\n"
 					}
-					require.Equal(test, strings.Join(wantTexts, separator), strings.Join(systemTexts, "\n"))
-					require.Equal(test, userText, gjson.GetBytes(forwarded, "request.contents.0.parts.0.text").String())
+					if scenario.name == "native_then_stale" {
+						require.Equal(test, strings.Join(wantTexts, separator), strings.Join(systemTexts, "\n"))
+						require.Equal(test, userText, gjson.GetBytes(forwarded, "request.contents.0.parts.0.text").String())
+					} else {
+						require.Len(test, systemTexts, 1)
+						require.Contains(test, systemTexts[0], "You are Antigravity")
+						movedParts := gjson.GetBytes(forwarded, "request.contents.0.parts").Array()
+						require.Len(test, movedParts, 3)
+						require.Equal(test, "<user_system_instructions>", movedParts[0].Get("text").String())
+						require.Equal(test, strings.Join(wantTexts, separator), movedParts[1].Get("text").String())
+						require.Equal(test, "</user_system_instructions>", movedParts[2].Get("text").String())
+						require.Equal(test, userText, gjson.GetBytes(forwarded, "request.contents.1.parts.0.text").String())
+					}
 					require.Equal(test, userText, gjson.GetBytes(forwarded, "request.tools.0.functionDeclarations.0.description").String())
 					forwardModel := model
 					if route, ok := domain.ResolveDefaultAntigravityModelRoute(model); ok {
@@ -425,13 +431,25 @@ func TestInjectAntigravityGeminiSystemIdentity(t *testing.T) {
 			require.NoError(t, err)
 			got, err := injectIdentityPatchToGeminiRequest(body)
 			require.NoError(t, err)
-			require.Equal(t, "You are an AI agent.", gjson.GetBytes(got, "systemInstruction.parts.2.text").String())
-			require.Equal(t, "preserved", gjson.GetBytes(got, "systemInstruction.parts.2.custom").String())
-			require.Equal(t, mention, gjson.GetBytes(got, "systemInstruction.parts.3.text").String())
-			require.Equal(t, `"You are Codex, based on GPT-6."`, gjson.GetBytes(got, "systemInstruction.parts.4.text").String())
-			for _, field := range []string{"contents", "tools"} {
-				require.JSONEq(t, gjson.GetBytes(body, field).Raw, gjson.GetBytes(got, field).Raw)
+			require.NotEmpty(t, gjson.GetBytes(got, "sessionId").String())
+			if existingIdentity {
+				// 请求已含 Antigravity 身份时原样保留在 systemInstruction 内（并中和客户端身份句）
+				require.Equal(t, "You are an AI agent.", gjson.GetBytes(got, "systemInstruction.parts.2.text").String())
+				require.Equal(t, "preserved", gjson.GetBytes(got, "systemInstruction.parts.2.custom").String())
+				require.Equal(t, mention, gjson.GetBytes(got, "systemInstruction.parts.3.text").String())
+				require.Equal(t, `"You are Codex, based on GPT-6."`, gjson.GetBytes(got, "systemInstruction.parts.4.text").String())
+				require.JSONEq(t, gjson.GetBytes(body, "contents").Raw, gjson.GetBytes(got, "contents").Raw)
+			} else {
+				// 未含 Antigravity 身份时，客户端系统提示词整体移至 contents[0]，systemInstruction 仅保留纯身份
+				require.Equal(t, "user", gjson.GetBytes(got, "systemInstruction.role").String())
+				require.Len(t, gjson.GetBytes(got, "systemInstruction.parts").Array(), 1)
+				require.Contains(t, gjson.GetBytes(got, "systemInstruction.parts.0.text").String(), "You are Antigravity")
+				require.Equal(t, "<user_system_instructions>", gjson.GetBytes(got, "contents.0.parts.0.text").String())
+				require.Contains(t, gjson.GetBytes(got, "contents.0").Raw, "You are an AI agent.")
+				require.Contains(t, gjson.GetBytes(got, "contents.0").Raw, "preserved")
+				require.Equal(t, identity, gjson.GetBytes(got, "contents.1.parts.0.text").String())
 			}
+			require.JSONEq(t, gjson.GetBytes(body, "tools").Raw, gjson.GetBytes(got, "tools").Raw)
 			again, err := injectIdentityPatchToGeminiRequest(got)
 			require.NoError(t, err)
 			require.Equal(t, string(got), string(again))
@@ -760,12 +778,12 @@ func antigravityCompatIntPtr(v int) *int { return &v }
 func TestAntigravityCompatRoutesByMappedModelFamily(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tests := []struct {
-		model         string
-		wantWireModel string
-		wantSessionID bool
+		model          string
+		wantWireModel  string
+		wantToolConfig bool
 	}{
-		{model: "gemini-3.1-pro-high", wantWireModel: "gemini-pro-agent", wantSessionID: false},
-		{model: "claude-sonnet-4-5", wantWireModel: "claude-sonnet-4-5", wantSessionID: true},
+		{model: "gemini-3.1-pro-high", wantWireModel: "gemini-pro-agent", wantToolConfig: false},
+		{model: "claude-sonnet-4-5", wantWireModel: "claude-sonnet-4-5", wantToolConfig: true},
 	}
 
 	for _, tt := range tests {
@@ -787,7 +805,8 @@ func TestAntigravityCompatRoutesByMappedModelFamily(t *testing.T) {
 			require.NotNil(t, result)
 			require.Len(t, upstream.requestBodies, 1)
 			require.Equal(t, tt.wantWireModel, gjson.GetBytes(upstream.requestBodies[0], "model").String())
-			require.Equal(t, tt.wantSessionID, gjson.GetBytes(upstream.requestBodies[0], "request.sessionId").Exists())
+			require.NotEmpty(t, gjson.GetBytes(upstream.requestBodies[0], "request.sessionId").String())
+			require.Equal(t, tt.wantToolConfig, gjson.GetBytes(upstream.requestBodies[0], "request.toolConfig").Exists())
 		})
 	}
 }

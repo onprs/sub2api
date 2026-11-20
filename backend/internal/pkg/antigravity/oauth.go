@@ -33,23 +33,30 @@ const (
 
 	// AntigravityUserAgentVersionEnv 是 Antigravity User-Agent 版本号的环境变量名。
 	AntigravityUserAgentVersionEnv = "ANTIGRAVITY_USER_AGENT_VERSION"
+	// AntigravityUserAgentBuildEnv 是 Antigravity User-Agent 构建 CL 号的环境变量名。
+	AntigravityUserAgentBuildEnv = "ANTIGRAVITY_USER_AGENT_BUILD"
+	// AntigravityUAManifestURLEnv 允许覆写官方 CLI 版本清单 URL（空值使用官方默认清单）。
+	AntigravityUAManifestURLEnv = "ANTIGRAVITY_UA_MANIFEST_URL"
+	// DefaultManifestBaseURL 是官方 agy CLI 自动更新服务的基础 URL。
+	DefaultManifestBaseURL = "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app"
 
-	// DefaultUserAgentVersion 和 DefaultUserAgentBuild 对应本地 agy 1.5.9 的官方 CLI 构建。
-	// 1.5.9 用户目录包含 Gemini 4 Carbon 三档；1.5.8 用户目录包含 Gemini 4 Hydrogen 四档；
-	// 1.5.6 已验证可访问 Gemini 4 Argon / 3.8。
+	// DefaultUserAgentVersion 和 DefaultUserAgentBuild 对应本地 agy 1.5.13 的官方 CLI 构建。
+	// 1.5.9+ 包含 Gemini 4 Carbon 三档与 Hydrogen 四档；1.5.13 对齐最新消费端 CLI 构建。
 	// 1.1.13 对 gemini-4-argon-* 返回 404 "Requested entity was not found."，不能回退到旧版本。
-	DefaultUserAgentVersion = "1.5.9"
-	DefaultUserAgentBuild   = "1021519450"
+	DefaultUserAgentVersion = "1.5.13"
+	DefaultUserAgentBuild   = "1025641825"
 
 	// 固定的 redirect_uri（用户需手动复制 code）
 	RedirectURI = "http://localhost:8085/callback"
 
-	// OAuth scopes
+	// OAuth scopes（与官方 agy 1.5.13 consumerOAuthScopes 对齐）
 	Scopes = "https://www.googleapis.com/auth/cloud-platform " +
 		"https://www.googleapis.com/auth/userinfo.email " +
 		"https://www.googleapis.com/auth/userinfo.profile " +
 		"https://www.googleapis.com/auth/cclog " +
-		"https://www.googleapis.com/auth/experimentsandconfigs"
+		"https://www.googleapis.com/auth/experimentsandconfigs " +
+		"https://www.googleapis.com/auth/aicode " +
+		"openid"
 
 	// Session 过期时间
 	SessionTTL = 30 * time.Minute
@@ -64,16 +71,27 @@ const (
 	SandboxBaseURL    = "https://daily-cloudcode-pa.sandbox.googleapis.com"
 )
 
-var userAgentVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+var (
+	userAgentVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+	userAgentBuildPattern   = regexp.MustCompile(`^\d{1,16}$`)
+)
 
 // UserAgentVersionResolver 提供运行时 User-Agent 版本号覆盖能力。
 type UserAgentVersionResolver func(ctx context.Context) string
 
+// UserAgentBuildResolver 提供运行时 User-Agent 构建 CL 号覆盖能力。
+type UserAgentBuildResolver func(ctx context.Context) string
+
+type userAgentDataCollectionOptOutContextKey struct{}
+
 var (
 	// defaultUserAgentVersion 可通过环境变量 ANTIGRAVITY_USER_AGENT_VERSION 配置。
-	defaultUserAgentVersion  = DefaultUserAgentVersion
+	defaultUserAgentVersion = DefaultUserAgentVersion
+	// defaultUserAgentBuild 可通过环境变量 ANTIGRAVITY_USER_AGENT_BUILD 配置。
+	defaultUserAgentBuild    = DefaultUserAgentBuild
 	userAgentVersionMu       sync.RWMutex
 	userAgentVersionResolver UserAgentVersionResolver
+	userAgentBuildResolver   UserAgentBuildResolver
 )
 
 // defaultClientSecret 可通过环境变量 ANTIGRAVITY_OAUTH_CLIENT_SECRET 配置
@@ -83,6 +101,10 @@ func init() {
 	// 从环境变量读取版本号，未设置则使用默认值
 	if version := NormalizeUserAgentVersion(os.Getenv(AntigravityUserAgentVersionEnv)); version != "" {
 		defaultUserAgentVersion = version
+	}
+	// 从环境变量读取构建 CL 号，未设置则使用默认值
+	if build := NormalizeUserAgentBuild(os.Getenv(AntigravityUserAgentBuildEnv)); build != "" {
+		defaultUserAgentBuild = build
 	}
 	// 从环境变量读取 client_secret，未设置则使用默认值
 	if secret := os.Getenv(AntigravityOAuthClientSecretEnv); secret != "" {
@@ -99,9 +121,37 @@ func NormalizeUserAgentVersion(version string) string {
 	return version
 }
 
+// NormalizeUserAgentBuild 校验并归一化 Antigravity User-Agent 构建 CL 号。
+func NormalizeUserAgentBuild(build string) string {
+	build = strings.TrimSpace(build)
+	if build == "" || !userAgentBuildPattern.MatchString(build) {
+		return ""
+	}
+	return build
+}
+
 // GetDefaultUserAgentVersion 返回配置文件/环境变量层面的默认版本号。
 func GetDefaultUserAgentVersion() string {
 	return defaultUserAgentVersion
+}
+
+// GetDefaultUserAgentBuild 返回配置文件/环境变量层面的默认构建 CL 号。
+func GetDefaultUserAgentBuild() string {
+	return defaultUserAgentBuild
+}
+
+// ManifestURL 返回用于自动同步官方 agy CLI 版本的清单地址。
+func ManifestURL() string {
+	if custom := strings.TrimSpace(os.Getenv(AntigravityUAManifestURLEnv)); custom != "" {
+		return custom
+	}
+	goos, goarch := runtime.GOOS, runtime.GOARCH
+	switch goos + "_" + goarch {
+	case "linux_amd64", "linux_arm64", "darwin_amd64", "darwin_arm64", "windows_amd64":
+	default:
+		goos, goarch = "linux", "amd64"
+	}
+	return fmt.Sprintf("%s/manifests/%s_%s.json", DefaultManifestBaseURL, goos, goarch)
 }
 
 // SetUserAgentVersionResolver 设置运行时版本号解析器，通常由后台 settings 注入。
@@ -109,6 +159,31 @@ func SetUserAgentVersionResolver(resolver UserAgentVersionResolver) {
 	userAgentVersionMu.Lock()
 	defer userAgentVersionMu.Unlock()
 	userAgentVersionResolver = resolver
+}
+
+// SetUserAgentBuildResolver 设置运行时构建 CL 号解析器，通常由后台 settings 注入。
+func SetUserAgentBuildResolver(resolver UserAgentBuildResolver) {
+	userAgentVersionMu.Lock()
+	defer userAgentVersionMu.Unlock()
+	userAgentBuildResolver = resolver
+}
+
+// WithUserAgentDataCollectionOptOut 在请求上下文中标记账号已退出数据收集（遥测关闭），
+// 对应官方 agy CLI 在 User-Agent 中追加 datacollection_opt_in=false。
+func WithUserAgentDataCollectionOptOut(ctx context.Context, optOut bool) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, userAgentDataCollectionOptOutContextKey{}, optOut)
+}
+
+// IsUserAgentDataCollectionOptOut 判断上下文是否标记已退出数据收集。
+func IsUserAgentDataCollectionOptOut(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	optOut, _ := ctx.Value(userAgentDataCollectionOptOutContextKey{}).(bool)
+	return optOut
 }
 
 // GetUserAgentVersionForContext 返回当前请求应使用的 Antigravity 版本号。
@@ -127,24 +202,57 @@ func GetUserAgentVersionForContext(ctx context.Context) string {
 	return defaultUserAgentVersion
 }
 
+// GetUserAgentBuildForContext 返回当前请求应使用的 Antigravity 构建 CL 号。
+func GetUserAgentBuildForContext(ctx context.Context) string {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	userAgentVersionMu.RLock()
+	resolver := userAgentBuildResolver
+	userAgentVersionMu.RUnlock()
+	if resolver != nil {
+		if build := NormalizeUserAgentBuild(resolver(ctx)); build != "" {
+			return build
+		}
+	}
+	return defaultUserAgentBuild
+}
+
+// BuildUserAgentWithOptions 使用指定版本号、构建 CL 号与数据收集状态构造官方 aidev_client User-Agent。
+func BuildUserAgentWithOptions(version, build string, dataCollectionOptOut bool) string {
+	normalizedVersion := NormalizeUserAgentVersion(version)
+	if normalizedVersion == "" {
+		normalizedVersion = defaultUserAgentVersion
+	}
+	normalizedBuild := NormalizeUserAgentBuild(build)
+	if normalizedBuild == "" {
+		normalizedBuild = defaultUserAgentBuild
+	}
+	parts := []string{
+		"aidev_client",
+		"os_type=" + runtime.GOOS,
+		"arch=" + runtime.GOARCH,
+		"cl=" + normalizedBuild,
+		"auth_method=consumer",
+	}
+	if dataCollectionOptOut {
+		parts = append(parts, "datacollection_opt_in=false")
+	}
+	return fmt.Sprintf("antigravity/cli/%s (%s)", normalizedVersion, strings.Join(parts, "; "))
+}
+
 // BuildUserAgent 使用指定版本号构造官方 aidev_client User-Agent；版本非法时回退默认值。
 func BuildUserAgent(version string) string {
-	normalized := NormalizeUserAgentVersion(version)
-	if normalized == "" {
-		normalized = defaultUserAgentVersion
-	}
-	return fmt.Sprintf(
-		"antigravity/cli/%s (aidev_client; os_type=%s; arch=%s; cl=%s; auth_method=consumer)",
-		normalized,
-		runtime.GOOS,
-		runtime.GOARCH,
-		DefaultUserAgentBuild,
-	)
+	return BuildUserAgentWithOptions(version, defaultUserAgentBuild, false)
 }
 
 // GetUserAgentForContext 返回当前请求应使用的 User-Agent。
 func GetUserAgentForContext(ctx context.Context) string {
-	return BuildUserAgent(GetUserAgentVersionForContext(ctx))
+	return BuildUserAgentWithOptions(
+		GetUserAgentVersionForContext(ctx),
+		GetUserAgentBuildForContext(ctx),
+		IsUserAgentDataCollectionOptOut(ctx),
+	)
 }
 
 // GetUserAgent 返回当前配置的 User-Agent。

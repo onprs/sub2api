@@ -93,9 +93,17 @@ type cachedAntigravityUserAgentVersion struct {
 	expiresAt int64 // unix nano
 }
 
+// cachedAntigravityUserAgentBuild 缓存 Antigravity UA 构建 CL 号（进程内缓存，60s TTL）
+type cachedAntigravityUserAgentBuild struct {
+	build     string
+	expiresAt int64 // unix nano
+}
+
 const antigravityUserAgentVersionCacheTTL = 60 * time.Second
 const antigravityUserAgentVersionErrorTTL = 5 * time.Second
 const antigravityUserAgentVersionDBTimeout = 5 * time.Second
+const antigravityUserAgentVersionSFKey = "antigravity_user_agent_version"
+const antigravityUserAgentBuildSFKey = "antigravity_user_agent_build"
 
 // DefaultOpenAICodexUserAgent 是 OpenAI Codex 默认 User-Agent，用于规避浏览器 UA 的质询。
 // 默认采用 codex_cli_rs 身份，避免历史 codex-tui 出口触发 sub2api 的身份风控指纹。
@@ -239,7 +247,7 @@ func (s *SettingService) GetCyberSessionBlockRuntime(ctx context.Context) (bool,
 }
 
 // GetAntigravityUserAgentVersion 返回 Antigravity 上游请求使用的版本号。
-// 后台设置优先；为空、缺失或非法时回退到 ANTIGRAVITY_USER_AGENT_VERSION / 内置默认值。
+// 优先级：后台手动设置 → 自动同步到的官方最新版本号（且不低于配置/内置默认） → ANTIGRAVITY_USER_AGENT_VERSION / 内置默认值。
 func (s *SettingService) GetAntigravityUserAgentVersion(ctx context.Context) string {
 	fallback := antigravity.GetDefaultUserAgentVersion()
 	if s == nil || s.settingRepo == nil {
@@ -251,7 +259,7 @@ func (s *SettingService) GetAntigravityUserAgentVersion(ctx context.Context) str
 		}
 	}
 
-	result, _, _ := s.antigravityUAVersionSF.Do("antigravity_user_agent_version", func() (any, error) {
+	result, _, _ := s.antigravityUAVersionSF.Do(antigravityUserAgentVersionSFKey, func() (any, error) {
 		if cached, ok := s.antigravityUAVersionCache.Load().(*cachedAntigravityUserAgentVersion); ok && cached != nil {
 			if time.Now().UnixNano() < cached.expiresAt {
 				return cached.version, nil
@@ -262,8 +270,11 @@ func (s *SettingService) GetAntigravityUserAgentVersion(ctx context.Context) str
 		}
 		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), antigravityUserAgentVersionDBTimeout)
 		defer cancel()
-		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyAntigravityUserAgentVersion)
-		if err != nil && !errors.Is(err, ErrSettingNotFound) {
+		values, err := s.settingRepo.GetMultiple(dbCtx, []string{
+			SettingKeyAntigravityUserAgentVersion,
+			SettingKeyAntigravityUserAgentVersionSynced,
+		})
+		if err != nil {
 			slog.Warn("failed to get antigravity user agent version setting", "error", err)
 			s.antigravityUAVersionCache.Store(&cachedAntigravityUserAgentVersion{
 				version:   fallback,
@@ -271,7 +282,12 @@ func (s *SettingService) GetAntigravityUserAgentVersion(ctx context.Context) str
 			})
 			return fallback, nil
 		}
-		version := antigravity.NormalizeUserAgentVersion(value)
+		version := antigravity.NormalizeUserAgentVersion(values[SettingKeyAntigravityUserAgentVersion])
+		if version == "" {
+			if synced := antigravity.NormalizeUserAgentVersion(values[SettingKeyAntigravityUserAgentVersionSynced]); synced != "" && CompareVersions(synced, fallback) >= 0 {
+				version = synced
+			}
+		}
 		if version == "" {
 			version = fallback
 		}
@@ -285,6 +301,73 @@ func (s *SettingService) GetAntigravityUserAgentVersion(ctx context.Context) str
 		return version
 	}
 	return fallback
+}
+
+// InvalidateAntigravityUserAgentVersionCache 丢弃 Antigravity UA 版本号缓存，下次读取回源。
+func (s *SettingService) InvalidateAntigravityUserAgentVersionCache() {
+	if s == nil {
+		return
+	}
+	s.antigravityUAVersionSF.Forget(antigravityUserAgentVersionSFKey)
+	s.antigravityUAVersionCache.Store((*cachedAntigravityUserAgentVersion)(nil))
+}
+
+// GetAntigravityUserAgentBuild 返回 Antigravity 上游请求使用的构建 CL 号。
+// 后台设置优先；为空、缺失或非法时回退到 ANTIGRAVITY_USER_AGENT_BUILD / 内置默认值。
+func (s *SettingService) GetAntigravityUserAgentBuild(ctx context.Context) string {
+	fallback := antigravity.GetDefaultUserAgentBuild()
+	if s == nil || s.settingRepo == nil {
+		return fallback
+	}
+	if cached, ok := s.antigravityUABuildCache.Load().(*cachedAntigravityUserAgentBuild); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return cached.build
+		}
+	}
+
+	result, _, _ := s.antigravityUABuildSF.Do(antigravityUserAgentBuildSFKey, func() (any, error) {
+		if cached, ok := s.antigravityUABuildCache.Load().(*cachedAntigravityUserAgentBuild); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return cached.build, nil
+			}
+		}
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), antigravityUserAgentVersionDBTimeout)
+		defer cancel()
+		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyAntigravityUserAgentBuild)
+		if err != nil && !errors.Is(err, ErrSettingNotFound) {
+			slog.Warn("failed to get antigravity user agent build setting", "error", err)
+			s.antigravityUABuildCache.Store(&cachedAntigravityUserAgentBuild{
+				build:     fallback,
+				expiresAt: time.Now().Add(antigravityUserAgentVersionErrorTTL).UnixNano(),
+			})
+			return fallback, nil
+		}
+		build := antigravity.NormalizeUserAgentBuild(value)
+		if build == "" {
+			build = fallback
+		}
+		s.antigravityUABuildCache.Store(&cachedAntigravityUserAgentBuild{
+			build:     build,
+			expiresAt: time.Now().Add(antigravityUserAgentVersionCacheTTL).UnixNano(),
+		})
+		return build, nil
+	})
+	if build, ok := result.(string); ok && build != "" {
+		return build
+	}
+	return fallback
+}
+
+// InvalidateAntigravityUserAgentBuildCache 丢弃 Antigravity UA 构建 CL 号缓存，下次读取回源。
+func (s *SettingService) InvalidateAntigravityUserAgentBuildCache() {
+	if s == nil {
+		return
+	}
+	s.antigravityUABuildSF.Forget(antigravityUserAgentBuildSFKey)
+	s.antigravityUABuildCache.Store((*cachedAntigravityUserAgentBuild)(nil))
 }
 
 // GetOpenAICodexUserAgent 返回 OpenAI Codex 上游请求使用的 User-Agent。

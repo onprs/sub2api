@@ -214,6 +214,9 @@ type SystemSettings struct {
 	RewriteMessageCacheControl             bool   `json:"rewrite_message_cache_control"`
 	EnableClientDatelineNormalization      bool   `json:"enable_client_dateline_normalization"`
 	AntigravityUserAgentVersion            string `json:"antigravity_user_agent_version"`
+	AntigravityUserAgentVersionSynced      string `json:"antigravity_user_agent_version_synced"`
+	AntigravityVersionAutoSyncEnabled      bool   `json:"antigravity_version_auto_sync_enabled"`
+	AntigravityUserAgentBuild              string `json:"antigravity_user_agent_build"`
 	OpenAICodexUserAgent                   string `json:"openai_codex_user_agent"`
 	OpenAICodexClientVersion               string `json:"openai_codex_client_version"`
 	OpenAICodexClientVersionSynced         string `json:"openai_codex_client_version_synced"`

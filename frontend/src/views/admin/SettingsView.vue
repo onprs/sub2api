@@ -5765,6 +5765,65 @@
                 </p>
               </div>
 
+              <!-- Antigravity 版本号自动同步 -->
+              <div class="flex items-center justify-between">
+                <div>
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.antigravityVersionAutoSync",
+                      )
+                    }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.antigravityVersionAutoSyncHint",
+                      )
+                    }}
+                  </p>
+                  <p
+                    v-if="antigravitySyncedVersionLabel"
+                    class="mt-0.5 text-xs text-gray-500 dark:text-gray-400"
+                  >
+                    {{ antigravitySyncedVersionLabel }}
+                  </p>
+                </div>
+                <Toggle v-model="form.antigravity_version_auto_sync_enabled" />
+              </div>
+
+              <!-- Antigravity UA 构建 CL 号 -->
+              <div>
+                <label
+                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {{
+                    t(
+                      "admin.settings.gatewayForwarding.antigravityUserAgentBuild",
+                    )
+                  }}
+                </label>
+                <input
+                  v-model="form.antigravity_user_agent_build"
+                  type="text"
+                  class="input max-w-xs font-mono text-sm"
+                  :placeholder="
+                    t(
+                      'admin.settings.gatewayForwarding.antigravityUserAgentBuildPlaceholder',
+                    )
+                  "
+                />
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{
+                    t(
+                      "admin.settings.gatewayForwarding.antigravityUserAgentBuildHint",
+                    )
+                  }}
+                </p>
+              </div>
+
               <!-- OpenAI Codex UA -->
               <div>
                 <label
@@ -10073,6 +10132,9 @@ const form = reactive<SettingsForm>({
   rewrite_message_cache_control: false,
   enable_client_dateline_normalization: true,
   antigravity_user_agent_version: "",
+  antigravity_user_agent_version_synced: "",
+  antigravity_version_auto_sync_enabled: true,
+  antigravity_user_agent_build: "",
   openai_codex_user_agent: "",
   openai_codex_client_version: "",
   // 只读展示：自动同步任务写入的官方最新稳定版，不参与提交（提交载荷按字段显式构造）
@@ -11086,6 +11148,14 @@ function removeCodexWhitelistRow(i: number): void {
   codexWhitelistRows.value.splice(i, 1);
 }
 
+const antigravitySyncedVersionLabel = computed(() => {
+  const synced = form.antigravity_user_agent_version_synced?.trim();
+  if (!synced) return "";
+  return t("admin.settings.gatewayForwarding.antigravityVersionSyncedValue", {
+    version: synced,
+  });
+});
+
 const codexSyncedVersionLabel = computed(() => {
   const synced = form.openai_codex_client_version_synced?.trim();
   if (!synced) return "";
@@ -11737,6 +11807,10 @@ async function saveSettings() {
         form.enable_client_dateline_normalization,
       antigravity_user_agent_version:
         form.antigravity_user_agent_version?.trim() || "",
+      antigravity_version_auto_sync_enabled:
+        form.antigravity_version_auto_sync_enabled,
+      antigravity_user_agent_build:
+        form.antigravity_user_agent_build?.trim() || "",
       openai_codex_user_agent:
         form.openai_codex_user_agent?.trim() || "",
       openai_codex_client_version:

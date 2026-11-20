@@ -228,3 +228,36 @@ func TestConvertClaudeFamilyFromGoogleMovesClientSystemPromptToUserContent(t *te
 	require.Equal(t, "只回复 ok", gjson.GetBytes(converted, "request.contents.1.parts.0.text").String())
 	require.Equal(t, "HIGH", gjson.GetBytes(converted, "request.generationConfig.thinkingConfig.thinkingLevel").String())
 }
+
+func TestConvertAnthropicToClaudeFamilyIsolatesClientSystemPrompt(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-6","max_tokens":100,"system":"You are Claude Code, Anthropic's official CLI for Claude. Follow repo rules.","messages":[{"role":"user","content":"ping"}]}`)
+	converted, warnings, err := ConvertRequest(body, protocolconv.ProtocolAnthropic, Options{
+		Family: FamilyClaude, ProjectID: "project-1", SourceModel: "claude-sonnet-4-6", WireModel: "claude-sonnet-4-6",
+	})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+
+	sysText := gjson.GetBytes(converted, "request.systemInstruction.parts.0.text").String()
+	require.Contains(t, sysText, "You are Antigravity")
+	require.NotContains(t, string(converted), "internal initialization logs")
+	require.NotContains(t, string(converted), "SYSTEM_PROMPT_END")
+	require.NotContains(t, gjson.GetBytes(converted, "request.systemInstruction").Raw, "Follow repo rules.")
+
+	require.Equal(t, "<user_system_instructions>", gjson.GetBytes(converted, "request.contents.0.parts.0.text").String())
+	require.Contains(t, gjson.GetBytes(converted, "request.contents.0.parts.1.text").String(), "Follow repo rules.")
+	require.Equal(t, "ping", gjson.GetBytes(converted, "request.contents.1.parts.0.text").String())
+}
+
+func TestConvertGeminiFamilyPopulatesSessionIDAndDefaults(t *testing.T) {
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hello gemini"}]}]}`)
+	converted, warnings, err := ConvertRequest(body, protocolconv.ProtocolGoogleGenAI, Options{
+		Family: FamilyGemini, ProjectID: "project-1", SourceModel: "gemini-4-argon", WireModel: "gemini-4-argon-high",
+	})
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+
+	require.Equal(t, "antigravity", gjson.GetBytes(converted, "userAgent").String())
+	require.True(t, gjson.GetBytes(converted, "requestId").Exists())
+	require.Contains(t, gjson.GetBytes(converted, "requestId").String(), "antigravity/")
+	require.NotEmpty(t, gjson.GetBytes(converted, "request.sessionId").String())
+}

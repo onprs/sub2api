@@ -3,8 +3,6 @@
 package antigravityadapter
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -128,11 +126,10 @@ func convertRequest(body []byte, source protocolconv.Protocol, options Options) 
 		if transform == (vendor.TransformOptions{}) {
 			transform = vendor.DefaultTransformOptions()
 		}
-		if source == protocolconv.ProtocolGoogleGenAI {
-			// Gemini 协议（含经过标准桥接的 Chat/Responses）与 FamilyGemini 对齐：
-			// 客户端系统提示词移出 systemInstruction 放到首条 user content，避免第三方 harness 提示词触发 429。
-			transform.MoveSystemToUserContent = true
-		}
+		// 所有 Antigravity Claude 请求（含原生 Anthropic /v1/messages 与 Gemini 协议）统一与
+		// FamilyGemini 对齐：客户端系统提示词移出 systemInstruction 放到首条 user content，
+		// systemInstruction 仅保留纯 Antigravity 身份与模型身份。
+		transform.MoveSystemToUserContent = true
 		converted, strippedThinking, err := vendor.TransformClaudeToGeminiWithOptionsDetailed(&request, options.ProjectID, options.WireModel, transform)
 		thinkingDisabled := rectifiedThinking || strippedThinking
 		if err != nil || source != protocolconv.ProtocolGoogleGenAI || options.RectifySignatures {
@@ -290,6 +287,9 @@ func adaptGemini(body []byte, options Options) ([]byte, error) {
 	if err := json.Unmarshal(body, &request); err != nil {
 		return nil, fmt.Errorf("decode standard Google request: %w", err)
 	}
+	// 先基于原始用户消息补齐稳定的 FNV-1a sessionId（与官方 agy CLI getSessionID 一致），
+	// 再注入系统提示词，避免不同会话因系统提示词相同而碰撞到同一个 sessionId。
+	ensureGeminiSessionID(request)
 	injectIdentity(request, options.IdentityPatch)
 	cleanSchemas(request)
 	dropIncompatibleBuiltins(request)
@@ -300,11 +300,11 @@ func adaptGemini(body []byte, options Options) ([]byte, error) {
 
 	requestID := options.RequestID
 	if requestID == "" {
-		requestID = randomID()
+		requestID = vendor.GenerateRequestID()
 	}
 	userAgent := options.UserAgent
 	if userAgent == "" {
-		userAgent = vendor.GetUserAgent()
+		userAgent = "antigravity"
 	}
 	wrapped := map[string]any{
 		"project":     options.ProjectID,
@@ -315,6 +315,26 @@ func adaptGemini(body []byte, options Options) ([]byte, error) {
 		"request":     request,
 	}
 	return json.Marshal(wrapped)
+}
+
+func ensureGeminiSessionID(request map[string]any) {
+	if existing, _ := request["sessionId"].(string); strings.TrimSpace(existing) != "" {
+		return
+	}
+	for _, rawContent := range anySlice(request["contents"]) {
+		content, _ := rawContent.(map[string]any)
+		if role, _ := content["role"].(string); role != "user" {
+			continue
+		}
+		for _, rawPart := range anySlice(content["parts"]) {
+			part, _ := rawPart.(map[string]any)
+			if text, _ := part["text"].(string); text != "" {
+				request["sessionId"] = vendor.HashSessionID(text)
+				return
+			}
+		}
+	}
+	request["sessionId"] = vendor.GenerateRandomSessionID()
 }
 
 func injectIdentity(request map[string]any, identity string) {
@@ -478,12 +498,4 @@ func filterEmptyContents(request map[string]any) {
 		}
 	}
 	request["contents"] = filtered
-}
-
-func randomID() string {
-	var raw [16]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return "protocolconv"
-	}
-	return hex.EncodeToString(raw[:])
 }

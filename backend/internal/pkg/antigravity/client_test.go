@@ -303,9 +303,13 @@ func TestNewClient_无代理(t *testing.T) {
 	if client.httpClient.Timeout != clientTimeout {
 		t.Errorf("Timeout 不匹配: got %v, want %v", client.httpClient.Timeout, clientTimeout)
 	}
-	// 无代理时 Transport 应为 nil（使用默认）
-	if client.httpClient.Transport != nil {
-		t.Error("无代理时 Transport 应为 nil")
+	// 无代理时应使用显式禁用 HTTP/2 的 HTTP/1.1 传输层（与官方 agy CLI 对齐）
+	tr, ok := client.httpClient.Transport.(*http.Transport)
+	if !ok || tr == nil {
+		t.Fatalf("无代理时应配置显式 *http.Transport，got %T", client.httpClient.Transport)
+	}
+	if tr.ForceAttemptHTTP2 || tr.TLSNextProto == nil || len(tr.TLSNextProto) != 0 {
+		t.Errorf("无代理传输层应强制 HTTP/1.1: ForceAttemptHTTP2=%v, TLSNextProto=%v", tr.ForceAttemptHTTP2, tr.TLSNextProto)
 	}
 }
 
@@ -330,9 +334,9 @@ func TestNewClient_空格代理(t *testing.T) {
 	if client == nil {
 		t.Fatal("NewClient 返回 nil")
 	}
-	// 空格代理应等同于无代理
-	if client.httpClient.Transport != nil {
-		t.Error("空格代理 Transport 应为 nil")
+	// 空格代理应等同于无代理，复用默认 HTTP/1.1 传输层
+	if client.httpClient.Transport != defaultDirectTransport {
+		t.Error("空格代理应复用默认 HTTP/1.1 Transport")
 	}
 }
 
@@ -1322,7 +1326,7 @@ func TestClient_LoadCodeAssist_Success_RealCall(t *testing.T) {
 			t.Errorf("User-Agent 不匹配: got %s", ua)
 		}
 
-		// 验证请求体
+		// 验证请求体（对齐 agy 1.5.13：仅填充 ideType=ANTIGRAVITY）
 		var reqBody LoadCodeAssistRequest
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("解析请求体失败: %v", err)
@@ -1330,11 +1334,8 @@ func TestClient_LoadCodeAssist_Success_RealCall(t *testing.T) {
 		if reqBody.Metadata.IDEType != "ANTIGRAVITY" {
 			t.Errorf("IDEType 不匹配: got %s, want ANTIGRAVITY", reqBody.Metadata.IDEType)
 		}
-		if strings.TrimSpace(reqBody.Metadata.IDEVersion) == "" {
-			t.Errorf("IDEVersion 不应为空")
-		}
-		if reqBody.Metadata.IDEName != "antigravity" {
-			t.Errorf("IDEName 不匹配: got %s, want antigravity", reqBody.Metadata.IDEName)
+		if reqBody.Metadata.IDEVersion != "" || reqBody.Metadata.IDEName != "" {
+			t.Errorf("LoadCodeAssist 不应发送多余 IDEVersion/IDEName: got %+v", reqBody.Metadata)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1939,8 +1940,8 @@ func TestClient_CLIUserAgentAndIDEVersionUseContextOverride(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
-			if body.Metadata.IDEVersion != "3.4.5" {
-				t.Errorf("ideVersion must match the user agent version: %q", body.Metadata.IDEVersion)
+			if body.Metadata.IDEType != "ANTIGRAVITY" {
+				t.Errorf("ideType must be ANTIGRAVITY: %q", body.Metadata.IDEType)
 			}
 			_, _ = io.WriteString(w, `{"cloudaicompanionProject":"test-project"}`)
 		case "/v1internal:fetchAvailableModels":
@@ -2029,5 +2030,105 @@ func TestExtractProjectIDFromOnboardResponse(t *testing.T) {
 				t.Fatalf("extractProjectIDFromOnboardResponse() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestClient_OnboardUser_PollsOperationWithGET(t *testing.T) {
+	var methods []string
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method)
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if len(methods) == 1 {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode onboardUser body: %v", err)
+			}
+			meta, _ := body["metadata"].(map[string]any)
+			if meta["ideType"] != "ANTIGRAVITY" {
+				t.Errorf("ideType = %v, want ANTIGRAVITY", meta["ideType"])
+			}
+			if _, hasPlugin := meta["pluginType"]; hasPlugin {
+				t.Errorf("onboardUser should not send spurious pluginType: %v", meta)
+			}
+			_, _ = io.WriteString(w, `{"name":"operations/onboard-123","done":false}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"name":"operations/onboard-123","done":true,"response":{"cloudaicompanionProject":{"id":"proj-lro-456"}}}`)
+	}))
+	defer server.Close()
+
+	withMockBaseURLs(t, []string{server.URL})
+	client := mustNewClient(t, "")
+	projectID, err := client.OnboardUser(context.Background(), "tok", "free-tier")
+	if err != nil {
+		t.Fatalf("OnboardUser failed: %v", err)
+	}
+	if projectID != "proj-lro-456" {
+		t.Fatalf("projectID = %q, want proj-lro-456", projectID)
+	}
+	if len(methods) != 2 || methods[0] != http.MethodPost || methods[1] != http.MethodGet {
+		t.Fatalf("expected [POST, GET], got %v", methods)
+	}
+	if paths[0] != "/v1internal:onboardUser" || paths[1] != "/v1internal/operations/onboard-123" {
+		t.Fatalf("unexpected LRO paths: %v", paths)
+	}
+}
+
+func TestClient_SetUserSettingsAndFetchUserInfo_PreservesExistingAndNoNodeHeader(t *testing.T) {
+	var setPayload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-Goog-Api-Client"); got != "" {
+			t.Errorf("must not send contradictory X-Goog-Api-Client header, got %q", got)
+		}
+		if got := r.Header.Get("Accept"); got != "" {
+			t.Errorf("must not send extra Accept header, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1internal:fetchUserInfo":
+			_, _ = io.WriteString(w, `{"userSettings":{"consumerTermsAccepted":true,"telemetryEnabled":false}}`)
+		case "/v1internal:setUserSettings":
+			if err := json.NewDecoder(r.Body).Decode(&setPayload); err != nil {
+				t.Fatalf("decode setUserSettings: %v", err)
+			}
+			_, _ = io.WriteString(w, `{"userSettings":{"consumerTermsAccepted":true}}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClientWithRedirect(map[string]string{
+		privacyBaseURL + "/v1internal:fetchUserInfo":   server.URL + "/v1internal:fetchUserInfo",
+		privacyBaseURL + "/v1internal:setUserSettings": server.URL + "/v1internal:setUserSettings",
+	})
+
+	info, err := client.FetchUserInfo(context.Background(), "tok", "proj-1")
+	if err != nil {
+		t.Fatalf("FetchUserInfo failed: %v", err)
+	}
+	if !info.IsPrivate() {
+		t.Fatalf("explicit telemetryEnabled=false must be recognized as private")
+	}
+
+	resp, err := client.SetUserSettingsWithExisting(context.Background(), "tok", map[string]any{
+		"consumerTermsAccepted": true,
+		"gcpTermsAccepted":      true,
+		"telemetryEnabled":      true,
+	})
+	if err != nil {
+		t.Fatalf("SetUserSettingsWithExisting failed: %v", err)
+	}
+	if !resp.IsSuccess() {
+		t.Fatalf("SetUserSettingsResponse with consumerTermsAccepted=true and no telemetryEnabled must be success")
+	}
+	us, _ := setPayload["userSettings"].(map[string]any)
+	if us["consumerTermsAccepted"] != true || us["gcpTermsAccepted"] != true {
+		t.Fatalf("existing userSettings fields must be preserved: %v", setPayload)
+	}
+	if _, hasTelemetry := us["telemetryEnabled"]; hasTelemetry {
+		t.Fatalf("telemetryEnabled must be cleared: %v", setPayload)
 	}
 }
